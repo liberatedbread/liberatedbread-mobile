@@ -1,0 +1,27 @@
+name: opengreeniot_mobile
+description: >
+  A BLE companion app for OpenGreenIoT - keeping your IoT devices alive
+  and talking, one Bluetooth packet at a time.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_blue_plus: ^1.35.4
+  permission_handler: ^11.3.0
+  provider: ^6.1.2
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  mockito: ^5.4.4
+  build_runner: ^2.4.13
+
+flutter:
+  uses-material-design: true

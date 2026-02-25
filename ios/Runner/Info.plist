@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key><string>OpenGreenIoT</string>
+    <key>CFBundleName</key><string>opengreeniot_mobile</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>OpenGreenIoT needs Bluetooth to communicate with your IoT devices.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Location access needed for Bluetooth scanning.</string>
+</dict>
+</plist>
