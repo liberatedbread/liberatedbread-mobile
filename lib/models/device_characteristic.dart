@@ -27,7 +27,7 @@ class DeviceCharacteristic {
     if (value.isEmpty) return null;
     try {
       final s = String.fromCharCodes(value);
-      if (s.runes.every((r) => r >= 0x20 && r < 0x7F || r == 0x0A || r == 0x0D)) return s;
+      if (s.runes.every((r) => (r >= 0x20 && r < 0x7F) || r == 0x0A || r == 0x0D)) return s;
     } catch (_) {}
     return null;
   }
