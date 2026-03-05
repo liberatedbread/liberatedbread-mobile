@@ -1,94 +1,63 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:async';
-import 'dart:io';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
+//
+// Abstract BLE service interface. Implementations:
+//   - RealBleService (flutter_blue_plus)
+//   - MockBleService (simulated devices for demo mode)
+
+import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 
-class BleService {
-  StreamSubscription<List<ScanResult>>? _scanSubscription;
+/// Connection state for a BLE device.
+enum BleConnectionState {
+  disconnected,
+  connecting,
+  connected,
+  disconnecting,
+}
 
-  /// Request the runtime permissions needed for BLE scanning.
-  ///
-  /// Returns true if all required permissions were granted.
-  Future<bool> requestPermissions() async {
-    if (Platform.isAndroid) {
-      final statuses = await [
-        Permission.bluetoothScan,
-        Permission.bluetoothConnect,
-        Permission.locationWhenInUse,
-      ].request();
-      return statuses.values.every((s) => s.isGranted);
-    }
-    if (Platform.isIOS) {
-      final status = await Permission.bluetooth.request();
-      return status.isGranted;
-    }
-    return true;
-  }
+/// Abstract interface for BLE operations.
+abstract class BleService {
+  /// Request runtime permissions for BLE scanning.
+  Future<bool> requestPermissions();
 
-  /// Scan for BLE devices, yielding each discovery as an [IoTDevice].
-  ///
-  /// Automatically requests permissions before scanning. If permissions are
-  /// denied, the returned stream closes immediately with no results.
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) {
-    final controller = StreamController<IoTDevice>();
+  /// Scan for nearby BLE devices.
+  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)});
 
-    () async {
-      try {
-        final granted = await requestPermissions();
-        if (!granted) {
-          controller.close();
-          return;
-        }
+  /// Stop an in-progress scan.
+  Future<void> stopScan();
 
-        final adapterState = await FlutterBluePlus.adapterState.first;
-        if (adapterState != BluetoothAdapterState.on) {
-          controller.addError(
-            StateError('Bluetooth is not enabled. Please turn on Bluetooth.'),
-          );
-          controller.close();
-          return;
-        }
+  /// Connect to a device by its ID.
+  Future<void> connect(String deviceId);
 
-        _scanSubscription = FlutterBluePlus.scanResults.listen(
-          (results) {
-            for (final result in results) {
-              controller.add(IoTDevice(
-                id: result.device.remoteId.str,
-                name: result.device.platformName,
-                rssi: result.rssi,
-                isConnectable: result.advertisementData.connectable,
-                discoveredAt: DateTime.now(),
-              ));
-            }
-          },
-          onError: (Object error) {
-            controller.addError(error);
-          },
-        );
+  /// Disconnect from a device.
+  Future<void> disconnect(String deviceId);
 
-        await FlutterBluePlus.startScan(timeout: timeout);
+  /// Stream the connection state of a device.
+  Stream<BleConnectionState> connectionState(String deviceId);
 
-        // Scan finished — clean up.
-        await _scanSubscription?.cancel();
-        _scanSubscription = null;
-        await controller.close();
-      } catch (e) {
-        controller.addError(e);
-        await _scanSubscription?.cancel();
-        _scanSubscription = null;
-        await controller.close();
-      }
-    }();
+  /// Discover GATT services on a connected device.
+  Future<List<BleDiscoveredService>> discoverServices(String deviceId);
 
-    return controller.stream;
-  }
+  /// Read a characteristic value.
+  Future<List<int>> readCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  );
 
-  Future<void> stopScan() async {
-    await FlutterBluePlus.stopScan();
-    await _scanSubscription?.cancel();
-    _scanSubscription = null;
-  }
+  /// Write a value to a characteristic.
+  Future<void> writeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+    List<int> value,
+  );
+
+  /// Subscribe to characteristic notifications. Returns a stream of byte values.
+  Stream<List<int>> subscribeCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  );
 }

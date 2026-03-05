@@ -17,3 +17,9 @@ android/.gradle/
 android/local.properties
 ios/Pods/
 ios/.symlinks/
+
+# Rust
+rust/target/
+
+# Generated FRB bindings
+lib/src/rust/
