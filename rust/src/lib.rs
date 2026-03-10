@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod codec;
+pub mod error;
 pub mod mock;
 pub mod protocol;
 pub mod spec;

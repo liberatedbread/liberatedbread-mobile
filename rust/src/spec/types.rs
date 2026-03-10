@@ -15,6 +15,19 @@ pub struct DeviceSpec {
     pub entities: Option<Vec<Entity>>,
 }
 
+impl DeviceSpec {
+    /// Find a characteristic by UUID across all services (case-insensitive).
+    pub fn find_characteristic(&self, uuid: &str) -> Option<(&Service, &Characteristic)> {
+        let target = uuid.to_lowercase();
+        self.services.iter().find_map(|svc| {
+            svc.characteristics
+                .iter()
+                .find(|c| c.uuid.to_lowercase() == target)
+                .map(|c| (svc, c))
+        })
+    }
+}
+
 /// Device metadata and identification.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DeviceInfo {
@@ -68,6 +81,10 @@ pub struct Characteristic {
     pub properties: Vec<CharacteristicProperty>,
     pub commands: Option<HashMap<String, Command>>,
     pub format: Option<Vec<FormatField>>,
+    /// Encryption required for this characteristic's data.
+    pub encryption: Option<EncryptionConfig>,
+    /// Packet framing configuration.
+    pub framing: Option<FramingConfig>,
 }
 
 /// BLE characteristic property.
@@ -173,6 +190,44 @@ pub enum ValueType {
     Int16,
     Bytes,
     String,
+}
+
+impl std::fmt::Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValueType::Bool => write!(f, "bool"),
+            ValueType::Uint8 => write!(f, "uint8"),
+            ValueType::Uint16 => write!(f, "uint16"),
+            ValueType::Int8 => write!(f, "int8"),
+            ValueType::Int16 => write!(f, "int16"),
+            ValueType::Bytes => write!(f, "bytes"),
+            ValueType::String => write!(f, "string"),
+        }
+    }
+}
+
+/// Encryption configuration for a characteristic or service.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EncryptionConfig {
+    /// Algorithm identifier, e.g., "aes-128-ecb", "aes-128-ofb", "aes-128-ctr".
+    pub algorithm: String,
+    /// How the encryption key is obtained.
+    /// "static" = hardcoded, "handshake" = established via init sequence,
+    /// "device-specific" = derived from device identity.
+    pub key_derivation: Option<String>,
+    /// Static key bytes (hex string), if key_derivation is "static".
+    pub static_key: Option<String>,
+}
+
+/// Packet framing configuration for a characteristic.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FramingConfig {
+    /// Whether the payload is prefixed with its length.
+    pub length_prefix: Option<bool>,
+    /// Checksum algorithm: "crc32", "xor", "sum".
+    pub checksum: Option<String>,
+    /// Maximum chunk size for large payloads (image uploads, etc.).
+    pub max_chunk_size: Option<usize>,
 }
 
 /// Home Assistant entity mapping (optional, consumed by HA integration).

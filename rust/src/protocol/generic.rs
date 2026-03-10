@@ -6,8 +6,8 @@
 
 use super::traits::DeviceProtocol;
 use crate::codec::types::{self, DecodedValue};
+use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
-use anyhow::{bail, Result};
 use std::collections::HashMap;
 
 /// A protocol implementation that derives all behavior from a `DeviceSpec`.
@@ -31,81 +31,67 @@ impl DeviceProtocol for GenericProtocol {
         char_uuid: &str,
         command_name: &str,
         params: &HashMap<String, f64>,
-    ) -> Result<Vec<u8>> {
-        let char_uuid_lower = char_uuid.to_lowercase();
+    ) -> Result<Vec<u8>, ProtocolError> {
+        let (_, characteristic) = self
+            .spec
+            .find_characteristic(char_uuid)
+            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
+                uuid: char_uuid.to_string(),
+            })?;
 
-        for service in &self.spec.services {
-            for characteristic in &service.characteristics {
-                if characteristic.uuid.to_lowercase() != char_uuid_lower {
-                    continue;
-                }
-                if let Some(ref commands) = characteristic.commands {
-                    if let Some(command) = commands.get(command_name) {
-                        return types::encode_command(command, params);
-                    }
-                    bail!(
-                        "unknown command '{}' for characteristic {}",
-                        command_name,
-                        char_uuid
-                    );
-                }
-                bail!("characteristic {} has no commands defined", char_uuid);
-            }
-        }
-        bail!("characteristic {} not found in spec", char_uuid)
+        let commands = characteristic
+            .commands
+            .as_ref()
+            .ok_or_else(|| ProtocolError::NoCommands {
+                uuid: char_uuid.to_string(),
+            })?;
+
+        let command = commands
+            .get(command_name)
+            .ok_or_else(|| ProtocolError::CommandNotFound {
+                uuid: char_uuid.to_string(),
+                command: command_name.to_string(),
+            })?;
+
+        types::encode_command(command, params)
     }
 
     fn decode_value(
         &self,
         char_uuid: &str,
         bytes: &[u8],
-    ) -> Result<HashMap<String, DecodedValue>> {
-        let char_uuid_lower = char_uuid.to_lowercase();
+    ) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
+        let (_, characteristic) = self
+            .spec
+            .find_characteristic(char_uuid)
+            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
+                uuid: char_uuid.to_string(),
+            })?;
 
-        for service in &self.spec.services {
-            for characteristic in &service.characteristics {
-                if characteristic.uuid.to_lowercase() != char_uuid_lower {
-                    continue;
-                }
-                if let Some(ref format) = characteristic.format {
-                    return types::decode_all_fields(bytes, format);
-                }
-                bail!("characteristic {} has no format defined", char_uuid);
-            }
-        }
-        bail!("characteristic {} not found in spec", char_uuid)
+        let format = characteristic
+            .format
+            .as_ref()
+            .ok_or_else(|| ProtocolError::NoFormat {
+                uuid: char_uuid.to_string(),
+            })?;
+
+        types::decode_all_fields(bytes, format)
     }
 
     fn commands_for_characteristic(&self, char_uuid: &str) -> Vec<String> {
-        let char_uuid_lower = char_uuid.to_lowercase();
-        for service in &self.spec.services {
-            for characteristic in &service.characteristics {
-                if characteristic.uuid.to_lowercase() == char_uuid_lower {
-                    return characteristic
-                        .commands
-                        .as_ref()
-                        .map(|c| c.keys().cloned().collect())
-                        .unwrap_or_default();
-                }
-            }
-        }
-        Vec::new()
+        self.spec
+            .find_characteristic(char_uuid)
+            .and_then(|(_, c)| c.commands.as_ref())
+            .map(|cmds| cmds.keys().cloned().collect())
+            .unwrap_or_default()
     }
 
     fn fields_for_characteristic(&self, char_uuid: &str) -> Vec<String> {
-        let char_uuid_lower = char_uuid.to_lowercase();
-        for service in &self.spec.services {
-            for characteristic in &service.characteristics {
-                if characteristic.uuid.to_lowercase() == char_uuid_lower {
-                    return characteristic
-                        .format
-                        .as_ref()
-                        .map(|f| f.iter().map(|field| field.name.clone()).collect())
-                        .unwrap_or_default();
-                }
-            }
-        }
-        Vec::new()
+        self.spec
+            .find_characteristic(char_uuid)
+            .and_then(|(_, c)| c.format.as_ref())
+            .map(|fields| fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default()
     }
 }
 

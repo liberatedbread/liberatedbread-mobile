@@ -7,12 +7,16 @@
 use std::collections::HashMap;
 
 use crate::codec::types::DecodedValue;
-use crate::protocol::generic::GenericProtocol;
-use crate::protocol::traits::DeviceProtocol;
+use crate::protocol::registry::ProtocolRegistry;
 use crate::spec::parser::parse_device_spec;
-use crate::spec::types::{
-    CharacteristicProperty, DeviceSpec, ManufacturerStatus, Protocol, ValueType,
-};
+use crate::spec::types::{CharacteristicProperty, DeviceSpec, ManufacturerStatus, Protocol};
+
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+/// Global protocol registry. Initialized once, shared across all API calls.
+static REGISTRY: Lazy<Mutex<ProtocolRegistry>> =
+    Lazy::new(|| Mutex::new(ProtocolRegistry::new()));
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
 // These are simpler, FRB-friendly versions of the internal types.
@@ -130,7 +134,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                                     parameters: cmd.parameters.as_ref().map(|params| {
                                         params.iter().map(|(pname, p)| ParameterDto {
                                             name: pname.clone(),
-                                            value_type: format!("{:?}", p.value_type).to_lowercase(),
+                                            value_type: p.value_type.to_string(),
                                             min: p.min.map(|v| v as f64),
                                             max: p.max.map(|v| v as f64),
                                         }).collect()
@@ -140,15 +144,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                             format_fields: c.format.as_ref().map(|fields| {
                                 fields.iter().map(|f| FormatFieldDto {
                                     name: f.name.clone(),
-                                    field_type: match f.field_type {
-                                        ValueType::Bool => "bool".into(),
-                                        ValueType::Uint8 => "uint8".into(),
-                                        ValueType::Uint16 => "uint16".into(),
-                                        ValueType::Int8 => "int8".into(),
-                                        ValueType::Int16 => "int16".into(),
-                                        ValueType::Bytes => "bytes".into(),
-                                        ValueType::String => "string".into(),
-                                    },
+                                    field_type: f.field_type.to_string(),
                                     offset: f.offset as u32,
                                     length: f.length as u32,
                                 }).collect()
@@ -222,8 +218,8 @@ pub fn load_device_spec(yaml: String) -> anyhow::Result<DeviceSpecDto> {
 /// Check if a scanned device matches a spec based on name prefix and/or service UUIDs.
 pub fn device_matches_spec(
     spec: &DeviceSpecDto,
-    device_name: String,
-    advertised_service_uuids: Vec<String>,
+    device_name: &str,
+    advertised_service_uuids: &[String],
 ) -> bool {
     // Check name prefix
     if let Some(ref prefix) = spec.local_name_prefix {
@@ -234,12 +230,12 @@ pub fn device_matches_spec(
 
     // Check service UUIDs
     if !spec.service_uuids.is_empty() {
-        let advertised_lower: Vec<String> = advertised_service_uuids
-            .iter()
-            .map(|u| u.to_lowercase())
-            .collect();
         for spec_uuid in &spec.service_uuids {
-            if advertised_lower.contains(&spec_uuid.to_lowercase()) {
+            let spec_lower = spec_uuid.to_lowercase();
+            if advertised_service_uuids
+                .iter()
+                .any(|a| a.to_lowercase() == spec_lower)
+            {
                 return true;
             }
         }
@@ -256,7 +252,7 @@ pub fn match_device_to_spec(
 ) -> Option<DeviceSpecDto> {
     specs
         .into_iter()
-        .find(|spec| device_matches_spec(spec, device_name.clone(), advertised_service_uuids.clone()))
+        .find(|spec| device_matches_spec(spec, &device_name, &advertised_service_uuids))
 }
 
 /// Encode a named command into bytes for a BLE write.
@@ -267,8 +263,9 @@ pub fn encode_command(
     params: HashMap<String, f64>,
 ) -> anyhow::Result<Vec<u8>> {
     let spec = parse_device_spec(&yaml)?;
-    let proto = GenericProtocol::new(spec);
-    proto.encode_command(&char_uuid, &command_name, &params)
+    let registry = REGISTRY.lock().unwrap();
+    let proto = registry.get_protocol(&spec);
+    Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }
 
 /// Decode raw bytes from a BLE read/notify into named values.
@@ -278,8 +275,9 @@ pub fn decode_value(
     bytes: Vec<u8>,
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
     let spec = parse_device_spec(&yaml)?;
-    let proto = GenericProtocol::new(spec);
-    let decoded = proto.decode_value(&char_uuid, &bytes)?;
+    let registry = REGISTRY.lock().unwrap();
+    let proto = registry.get_protocol(&spec);
+    let decoded = proto.decode_value(&char_uuid, &bytes).map_err(anyhow::Error::from)?;
     Ok(decoded
         .iter()
         .map(|(name, value)| decoded_value_to_dto(name, value))
@@ -349,8 +347,8 @@ services:
     #[test]
     fn match_by_name_prefix() {
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
-        assert!(device_matches_spec(&dto, "TEST_Living_Room".into(), vec![]));
-        assert!(!device_matches_spec(&dto, "OTHER_Device".into(), vec![]));
+        assert!(device_matches_spec(&dto, "TEST_Living_Room", &[]));
+        assert!(!device_matches_spec(&dto, "OTHER_Device", &[]));
     }
 
     #[test]
@@ -358,8 +356,8 @@ services:
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
         assert!(device_matches_spec(
             &dto,
-            "Unknown".into(),
-            vec!["0000fff0-0000-1000-8000-00805f9b34fb".into()]
+            "Unknown",
+            &["0000fff0-0000-1000-8000-00805f9b34fb".into()]
         ));
     }
 

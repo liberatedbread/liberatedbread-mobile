@@ -4,11 +4,11 @@
 //! Parse device spec YAML into Rust types.
 
 use super::types::DeviceSpec;
-use anyhow::{Context, Result};
+use crate::error::SpecError;
 
 /// Parse a device spec from a YAML string.
-pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec> {
-    serde_yaml::from_str(yaml).context("failed to parse device spec YAML")
+pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
+    Ok(serde_yaml::from_str(yaml)?)
 }
 
 #[cfg(test)]

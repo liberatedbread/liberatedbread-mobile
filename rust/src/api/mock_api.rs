@@ -34,14 +34,9 @@ pub fn mock_read_characteristic(
 
     // Try to find format fields for this characteristic in the spec
     if let Ok(spec) = parse_device_spec(&spec_yaml) {
-        let char_uuid_lower = char_uuid.to_lowercase();
-        for service in &spec.services {
-            for characteristic in &service.characteristics {
-                if characteristic.uuid.to_lowercase() == char_uuid_lower {
-                    if let Some(ref format) = characteristic.format {
-                        return state.read(&char_uuid, format);
-                    }
-                }
+        if let Some((_, characteristic)) = spec.find_characteristic(&char_uuid) {
+            if let Some(ref format) = characteristic.format {
+                return state.read(&char_uuid, format);
             }
         }
     }

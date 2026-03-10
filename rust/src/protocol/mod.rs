@@ -3,4 +3,6 @@
 
 pub mod devices;
 pub mod generic;
+pub mod middleware;
+pub mod registry;
 pub mod traits;

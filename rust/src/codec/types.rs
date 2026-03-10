@@ -3,10 +3,8 @@
 //
 //! Byte-level encoding and decoding for BLE characteristic values.
 
-use crate::spec::types::{
-    Command, FormatField, TemplateElement, ValueType,
-};
-use anyhow::{bail, ensure, Result};
+use crate::error::ProtocolError;
+use crate::spec::types::{Command, FormatField, TemplateElement, ValueType};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -39,14 +37,14 @@ impl DecodedValue {
 }
 
 /// Decode a single format field from a byte buffer.
-pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue> {
+pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
     let end = field.offset + field.length;
-    ensure!(
-        bytes.len() >= end,
-        "buffer too short: need {} bytes, got {}",
-        end,
-        bytes.len()
-    );
+    if bytes.len() < end {
+        return Err(ProtocolError::BufferTooShort {
+            needed: end,
+            got: bytes.len(),
+        });
+    }
 
     let slice = &bytes[field.offset..end];
 
@@ -55,12 +53,18 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue> {
         ValueType::Uint8 => Ok(DecodedValue::Uint(slice[0] as u64)),
         ValueType::Uint16 => {
             let mut cursor = Cursor::new(slice);
-            Ok(DecodedValue::Uint(cursor.read_u16::<LittleEndian>()? as u64))
+            let val = cursor
+                .read_u16::<LittleEndian>()
+                .map_err(|e| ProtocolError::EncodingFailed(e.to_string()))?;
+            Ok(DecodedValue::Uint(val as u64))
         }
         ValueType::Int8 => Ok(DecodedValue::Int(slice[0] as i8 as i64)),
         ValueType::Int16 => {
             let mut cursor = Cursor::new(slice);
-            Ok(DecodedValue::Int(cursor.read_i16::<LittleEndian>()? as i64))
+            let val = cursor
+                .read_i16::<LittleEndian>()
+                .map_err(|e| ProtocolError::EncodingFailed(e.to_string()))?;
+            Ok(DecodedValue::Int(val as i64))
         }
         ValueType::Bytes => Ok(DecodedValue::Bytes(slice.to_vec())),
         ValueType::String => {
@@ -78,7 +82,7 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue> {
 pub fn decode_all_fields(
     bytes: &[u8],
     fields: &[FormatField],
-) -> Result<HashMap<String, DecodedValue>> {
+) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
     let mut result = HashMap::new();
     for field in fields {
         result.insert(field.name.clone(), decode_field(bytes, field)?);
@@ -93,7 +97,7 @@ pub fn decode_all_fields(
 pub fn encode_command(
     command: &Command,
     params: &HashMap<String, f64>,
-) -> Result<Vec<u8>> {
+) -> Result<Vec<u8>, ProtocolError> {
     // Fixed value command
     if let Some(ref value) = command.value {
         return Ok(value.clone());
@@ -109,23 +113,31 @@ pub fn encode_command(
                 TemplateElement::Byte(b) => bytes.push(*b),
                 TemplateElement::Param(name) => {
                     let val = params.get(name.as_str()).ok_or_else(|| {
-                        anyhow::anyhow!("missing parameter: {name}")
+                        ProtocolError::ParameterMissing(name.clone())
                     })?;
 
                     // Validate against parameter constraints if defined
                     if let Some(defs) = param_defs {
                         if let Some(def) = defs.get(name.as_str()) {
                             if let Some(min) = def.min {
-                                ensure!(
-                                    *val >= min as f64,
-                                    "parameter {name} value {val} below minimum {min}"
-                                );
+                                if *val < min as f64 {
+                                    return Err(ProtocolError::ParameterOutOfRange {
+                                        name: name.clone(),
+                                        value: *val,
+                                        min: min as f64,
+                                        max: def.max.unwrap_or(i64::MAX) as f64,
+                                    });
+                                }
                             }
                             if let Some(max) = def.max {
-                                ensure!(
-                                    *val <= max as f64,
-                                    "parameter {name} value {val} above maximum {max}"
-                                );
+                                if *val > max as f64 {
+                                    return Err(ProtocolError::ParameterOutOfRange {
+                                        name: name.clone(),
+                                        value: *val,
+                                        min: def.min.unwrap_or(i64::MIN) as f64,
+                                        max: max as f64,
+                                    });
+                                }
                             }
                         }
                     }
@@ -147,7 +159,11 @@ pub fn encode_command(
                             let v = *val as i16;
                             bytes.extend_from_slice(&v.to_le_bytes());
                         }
-                        _ => bail!("unsupported parameter type for encoding: {param_type:?}"),
+                        _ => {
+                            return Err(ProtocolError::EncodingFailed(format!(
+                                "unsupported parameter type for encoding: {param_type}"
+                            )));
+                        }
                     }
                 }
             }
@@ -155,7 +171,7 @@ pub fn encode_command(
         return Ok(bytes);
     }
 
-    bail!("command has neither value nor template")
+    Err(ProtocolError::EmptyCommand)
 }
 
 #[cfg(test)]
