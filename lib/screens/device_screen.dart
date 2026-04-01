@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
-import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 
 enum _ScreenState { connecting, discovering, ready, error }
@@ -127,7 +126,6 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       case _ScreenState.ready:
         return DeviceControlPanel(
           deviceId: widget.device.id,
-          deviceName: widget.device.displayName,
           services: _services,
         );
     }
