@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
-import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../services/device_manager.dart';
 import 'device_screen.dart';

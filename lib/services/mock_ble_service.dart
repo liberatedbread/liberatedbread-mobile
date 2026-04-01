@@ -37,7 +37,7 @@ class MockBleService implements BleService {
   final Map<String, StreamController<BleConnectionState>> _connectionStreams = {};
 
   // Mock devices matching the example-bulb spec
-  static final List<_MockDeviceDef> _mockDevices = [
+  static const List<_MockDeviceDef> _mockDevices = [
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:01',
       name: 'ACME_Living_Room',

@@ -8,6 +8,7 @@ use crate::spec::types::{FormatField, ValueType};
 use std::collections::HashMap;
 
 /// Simulated state for one connected mock device.
+#[derive(Default)]
 pub struct MockDeviceState {
     /// Written characteristic values (keyed by char UUID).
     written: HashMap<String, Vec<u8>>,
@@ -15,9 +16,7 @@ pub struct MockDeviceState {
 
 impl MockDeviceState {
     pub fn new() -> Self {
-        Self {
-            written: HashMap::new(),
-        }
+        Self::default()
     }
 
     /// Store a written value for a characteristic.
@@ -48,12 +47,6 @@ impl MockDeviceState {
             return written.clone();
         }
         vec![0u8; length]
-    }
-}
-
-impl Default for MockDeviceState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

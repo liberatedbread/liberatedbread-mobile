@@ -92,7 +92,9 @@ class _RawCharacteristicWidgetState
       (value) {
         if (mounted) setState(() => _value = value);
       },
-      onError: (_) {},
+      onError: (e) {
+        if (mounted) setState(() => _error = e.toString());
+      },
     );
   }
 

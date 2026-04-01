@@ -137,8 +137,8 @@ class RealBleService implements BleService {
         .toList();
   }
 
-  @override
-  Future<List<int>> readCharacteristic(
+  /// Find a specific BLE characteristic by service and characteristic UUID.
+  Future<BluetoothCharacteristic> _findCharacteristic(
     String deviceId,
     String serviceUuid,
     String charUuid,
@@ -149,12 +149,22 @@ class RealBleService implements BleService {
       if (service.uuid.toString().toLowerCase() == serviceUuid.toLowerCase()) {
         for (final char in service.characteristics) {
           if (char.uuid.toString().toLowerCase() == charUuid.toLowerCase()) {
-            return await char.read();
+            return char;
           }
         }
       }
     }
     throw StateError('Characteristic $charUuid not found');
+  }
+
+  @override
+  Future<List<int>> readCharacteristic(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  ) async {
+    final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
+    return await char.read();
   }
 
   @override
@@ -164,19 +174,8 @@ class RealBleService implements BleService {
     String charUuid,
     List<int> value,
   ) async {
-    final device = BluetoothDevice.fromId(deviceId);
-    final services = await device.discoverServices();
-    for (final service in services) {
-      if (service.uuid.toString().toLowerCase() == serviceUuid.toLowerCase()) {
-        for (final char in service.characteristics) {
-          if (char.uuid.toString().toLowerCase() == charUuid.toLowerCase()) {
-            await char.write(value);
-            return;
-          }
-        }
-      }
-    }
-    throw StateError('Characteristic $charUuid not found');
+    final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
+    await char.write(value);
   }
 
   @override
@@ -189,28 +188,13 @@ class RealBleService implements BleService {
 
     () async {
       try {
-        final device = BluetoothDevice.fromId(deviceId);
-        final services = await device.discoverServices();
-        for (final service in services) {
-          if (service.uuid.toString().toLowerCase() ==
-              serviceUuid.toLowerCase()) {
-            for (final char in service.characteristics) {
-              if (char.uuid.toString().toLowerCase() ==
-                  charUuid.toLowerCase()) {
-                await char.setNotifyValue(true);
-                char.lastValueStream.listen(
-                  (value) => controller.add(value),
-                  onError: (Object error) => controller.addError(error),
-                  onDone: () => controller.close(),
-                );
-                return;
-              }
-            }
-          }
-        }
-        controller
-            .addError(StateError('Characteristic $charUuid not found'));
-        controller.close();
+        final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
+        await char.setNotifyValue(true);
+        char.lastValueStream.listen(
+          (value) => controller.add(value),
+          onError: (Object error) => controller.addError(error),
+          onDone: () => controller.close(),
+        );
       } catch (e) {
         controller.addError(e);
         controller.close();
