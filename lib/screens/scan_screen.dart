@@ -121,9 +121,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         final device = devices[index];
         return ListTile(
           leading: Icon(
-            device.isConnectable
-                ? Icons.bluetooth
-                : Icons.bluetooth_disabled,
+            device.isConnectable ? Icons.bluetooth : Icons.bluetooth_disabled,
             color: device.isNearby ? Colors.blue : Colors.grey,
           ),
           title: Text(device.displayName),

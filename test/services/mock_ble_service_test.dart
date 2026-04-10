@@ -61,8 +61,7 @@ void main() {
 
   group('discoverServices', () {
     test('returns services for known device', () async {
-      final services =
-          await service.discoverServices('AA:BB:CC:DD:EE:01');
+      final services = await service.discoverServices('AA:BB:CC:DD:EE:01');
       expect(services.length, 2);
     });
 
@@ -74,8 +73,7 @@ void main() {
     });
 
     test('services contain expected UUIDs', () async {
-      final services =
-          await service.discoverServices('AA:BB:CC:DD:EE:01');
+      final services = await service.discoverServices('AA:BB:CC:DD:EE:01');
       final uuids = services.map((s) => s.uuid).toSet();
       expect(uuids, contains('0000fff0-0000-1000-8000-00805f9b34fb'));
       expect(uuids, contains('0000180f-0000-1000-8000-00805f9b34fb'));
