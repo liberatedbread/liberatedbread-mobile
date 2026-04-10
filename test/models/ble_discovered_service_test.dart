@@ -1,7 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot/models/ble_discovered_service.dart';
+import 'package:opengreeniot_mobile/models/ble_discovered_service.dart';
 
 void main() {
   group('BleDiscoveredService', () {

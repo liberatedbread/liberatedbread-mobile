@@ -13,11 +13,10 @@ use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{CharacteristicProperty, DeviceSpec, ManufacturerStatus, Protocol};
 
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
 
 /// Global protocol registry. Initialized once, shared across all API calls.
-static REGISTRY: Lazy<Mutex<ProtocolRegistry>> =
-    Lazy::new(|| Mutex::new(ProtocolRegistry::new()));
+/// No Mutex needed — `ProtocolRegistry` has no mutable state.
+static REGISTRY: Lazy<ProtocolRegistry> = Lazy::new(ProtocolRegistry::new);
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
 // These are simpler, FRB-friendly versions of the internal types.
@@ -241,8 +240,7 @@ pub fn encode_command(
     params: HashMap<String, f64>,
 ) -> anyhow::Result<Vec<u8>> {
     let spec = parse_device_spec(&yaml)?;
-    let registry = REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-    let proto = registry.get_protocol(&spec);
+    let proto = REGISTRY.get_protocol(&spec);
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }
 
@@ -253,8 +251,7 @@ pub fn decode_value(
     bytes: Vec<u8>,
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
     let spec = parse_device_spec(&yaml)?;
-    let registry = REGISTRY.lock().unwrap_or_else(|e| e.into_inner());
-    let proto = registry.get_protocol(&spec);
+    let proto = REGISTRY.get_protocol(&spec);
     let decoded = proto.decode_value(&char_uuid, &bytes).map_err(anyhow::Error::from)?;
     Ok(decoded
         .iter()
