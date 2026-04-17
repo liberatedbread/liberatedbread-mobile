@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/ble_provider.dart';
 
@@ -98,10 +99,6 @@ class _RawCharacteristicWidgetState
     );
   }
 
-  String _hexString(List<int> bytes) {
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
-  }
-
   @override
   Widget build(BuildContext context) {
     final char = widget.characteristic;
@@ -155,7 +152,7 @@ class _RawCharacteristicWidgetState
           style: TextStyle(color: Colors.grey, fontSize: 12));
     }
     return Text(
-      _hexString(_value!),
+      bytesToHex(_value!),
       style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
     );
   }
