@@ -15,8 +15,13 @@ coverage/
 pubspec.lock
 android/.gradle/
 android/local.properties
+android/app/src/main/java/io/
 ios/Pods/
 ios/.symlinks/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.h
+ios/Runner/GeneratedPluginRegistrant.m
 
 # Rust
 rust/target/
