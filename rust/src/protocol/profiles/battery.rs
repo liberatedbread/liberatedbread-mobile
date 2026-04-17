@@ -51,10 +51,7 @@ impl DeviceProtocol for BatteryServiceProtocol {
         }
 
         if bytes.is_empty() {
-            return Err(ProtocolError::BufferTooShort {
-                needed: 1,
-                got: 0,
-            });
+            return Err(ProtocolError::BufferTooShort { needed: 1, got: 0 });
         }
 
         let mut result = HashMap::new();

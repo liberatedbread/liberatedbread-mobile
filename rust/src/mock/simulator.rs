@@ -143,13 +143,28 @@ mod tests {
     #[test]
     fn defaults_are_sensible() {
         let fields = vec![
-            FormatField { offset: 0, length: 1, name: "power_state".into(), field_type: ValueType::Bool },
-            FormatField { offset: 1, length: 1, name: "brightness".into(), field_type: ValueType::Uint8 },
-            FormatField { offset: 2, length: 1, name: "battery_percent".into(), field_type: ValueType::Uint8 },
+            FormatField {
+                offset: 0,
+                length: 1,
+                name: "power_state".into(),
+                field_type: ValueType::Bool,
+            },
+            FormatField {
+                offset: 1,
+                length: 1,
+                name: "brightness".into(),
+                field_type: ValueType::Uint8,
+            },
+            FormatField {
+                offset: 2,
+                length: 1,
+                name: "battery_percent".into(),
+                field_type: ValueType::Uint8,
+            },
         ];
         let bytes = generate_defaults(&fields);
-        assert_eq!(bytes[0], 1);   // bool: on
-        assert_eq!(bytes[1], 80);  // brightness: 80
-        assert_eq!(bytes[2], 85);  // battery: 85
+        assert_eq!(bytes[0], 1); // bool: on
+        assert_eq!(bytes[1], 80); // brightness: 80
+        assert_eq!(bytes[2], 85); // battery: 85
     }
 }

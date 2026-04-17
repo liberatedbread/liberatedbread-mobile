@@ -43,12 +43,13 @@ impl DecodedValue {
 
 /// Decode a single format field from a byte buffer.
 pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
-    let end = field.offset.checked_add(field.length).ok_or(
-        ProtocolError::BufferTooShort {
+    let end = field
+        .offset
+        .checked_add(field.length)
+        .ok_or(ProtocolError::BufferTooShort {
             needed: usize::MAX,
             got: bytes.len(),
-        },
-    )?;
+        })?;
     if bytes.len() < end {
         return Err(ProtocolError::BufferTooShort {
             needed: end,
@@ -120,9 +121,9 @@ pub fn encode_command(
             match element {
                 TemplateElement::Byte(b) => bytes.push(*b),
                 TemplateElement::Param(name) => {
-                    let val = params.get(name.as_str()).ok_or_else(|| {
-                        ProtocolError::ParameterMissing(name.clone())
-                    })?;
+                    let val = params
+                        .get(name.as_str())
+                        .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
 
                     // Validate against parameter constraints if defined
                     if let Some(defs) = param_defs {
@@ -195,8 +196,14 @@ mod tests {
             name: "power".into(),
             field_type: ValueType::Bool,
         };
-        assert_eq!(decode_field(&[1], &field).unwrap(), DecodedValue::Bool(true));
-        assert_eq!(decode_field(&[0], &field).unwrap(), DecodedValue::Bool(false));
+        assert_eq!(
+            decode_field(&[1], &field).unwrap(),
+            DecodedValue::Bool(true)
+        );
+        assert_eq!(
+            decode_field(&[0], &field).unwrap(),
+            DecodedValue::Bool(false)
+        );
     }
 
     #[test]
@@ -231,9 +238,24 @@ mod tests {
     #[test]
     fn decode_all() {
         let fields = vec![
-            FormatField { offset: 0, length: 1, name: "power_state".into(), field_type: ValueType::Bool },
-            FormatField { offset: 1, length: 1, name: "brightness".into(), field_type: ValueType::Uint8 },
-            FormatField { offset: 2, length: 1, name: "red".into(), field_type: ValueType::Uint8 },
+            FormatField {
+                offset: 0,
+                length: 1,
+                name: "power_state".into(),
+                field_type: ValueType::Bool,
+            },
+            FormatField {
+                offset: 1,
+                length: 1,
+                name: "brightness".into(),
+                field_type: ValueType::Uint8,
+            },
+            FormatField {
+                offset: 2,
+                length: 1,
+                name: "red".into(),
+                field_type: ValueType::Uint8,
+            },
         ];
         let bytes = &[1, 80, 255];
         let result = decode_all_fields(bytes, &fields).unwrap();
@@ -255,10 +277,7 @@ mod tests {
             decode_field(&[0xF6], &field).unwrap(),
             DecodedValue::Int(-10)
         );
-        assert_eq!(
-            decode_field(&[22], &field).unwrap(),
-            DecodedValue::Int(22)
-        );
+        assert_eq!(decode_field(&[22], &field).unwrap(), DecodedValue::Int(22));
     }
 
     #[test]

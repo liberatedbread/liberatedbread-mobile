@@ -32,19 +32,19 @@ impl DeviceProtocol for GenericProtocol {
         command_name: &str,
         params: &HashMap<String, f64>,
     ) -> Result<Vec<u8>, ProtocolError> {
-        let (_, characteristic) = self
-            .spec
-            .find_characteristic(char_uuid)
-            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
+        let (_, characteristic) = self.spec.find_characteristic(char_uuid).ok_or_else(|| {
+            ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
-            })?;
+            }
+        })?;
 
-        let commands = characteristic
-            .commands
-            .as_ref()
-            .ok_or_else(|| ProtocolError::NoCommands {
-                uuid: char_uuid.to_string(),
-            })?;
+        let commands =
+            characteristic
+                .commands
+                .as_ref()
+                .ok_or_else(|| ProtocolError::NoCommands {
+                    uuid: char_uuid.to_string(),
+                })?;
 
         let command = commands
             .get(command_name)
@@ -61,12 +61,11 @@ impl DeviceProtocol for GenericProtocol {
         char_uuid: &str,
         bytes: &[u8],
     ) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
-        let (_, characteristic) = self
-            .spec
-            .find_characteristic(char_uuid)
-            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
+        let (_, characteristic) = self.spec.find_characteristic(char_uuid).ok_or_else(|| {
+            ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
-            })?;
+            }
+        })?;
 
         let format = characteristic
             .format
@@ -188,8 +187,7 @@ services:
     #[test]
     fn list_commands() {
         let proto = GenericProtocol::new(example_spec());
-        let mut cmds =
-            proto.commands_for_characteristic("0000fff1-0000-1000-8000-00805f9b34fb");
+        let mut cmds = proto.commands_for_characteristic("0000fff1-0000-1000-8000-00805f9b34fb");
         cmds.sort();
         assert_eq!(cmds, vec!["power_on", "set_brightness"]);
     }
