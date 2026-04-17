@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'dart:math';
+import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import 'ble_service.dart';
@@ -21,6 +22,35 @@ class _MockDeviceDef {
   });
 }
 
+// Service definitions shared by all mock devices. Keep this in sync with
+// assets/device_specs/example-bulb.yaml.
+const _controlService = BleDiscoveredService(
+  uuid: '0000fff0-0000-1000-8000-00805f9b34fb',
+  characteristics: [
+    BleDiscoveredCharacteristic(
+        uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
+        canRead: false,
+        canWrite: true,
+        canNotify: false),
+    BleDiscoveredCharacteristic(
+        uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
+        canRead: true,
+        canWrite: false,
+        canNotify: true),
+  ],
+);
+
+const _batteryService = BleDiscoveredService(
+  uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+  characteristics: [
+    BleDiscoveredCharacteristic(
+        uuid: '00002a19-0000-1000-8000-00805f9b34fb',
+        canRead: true,
+        canWrite: false,
+        canNotify: true),
+  ],
+);
+
 /// Mock BLE service — thin Dart transport shim for demo mode.
 ///
 /// This is ONLY the transport simulation (scan/connect plumbing).
@@ -37,85 +67,28 @@ class MockBleService implements BleService {
   final Map<String, StreamController<BleConnectionState>> _connectionStreams =
       {};
 
-  // Mock devices matching the example-bulb spec
   static const List<_MockDeviceDef> _mockDevices = [
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:01',
       name: 'ACME_Living_Room',
       rssi: -45,
-      services: [
-        BleDiscoveredService(
-          uuid: '0000fff0-0000-1000-8000-00805f9b34fb',
-          characteristics: [
-            BleDiscoveredCharacteristic(
-                uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
-                canRead: false,
-                canWrite: true,
-                canNotify: false),
-            BleDiscoveredCharacteristic(
-                uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
-                canRead: true,
-                canWrite: false,
-                canNotify: true),
-          ],
-        ),
-        BleDiscoveredService(
-          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
-          characteristics: [
-            BleDiscoveredCharacteristic(
-                uuid: '00002a19-0000-1000-8000-00805f9b34fb',
-                canRead: true,
-                canWrite: false,
-                canNotify: true),
-          ],
-        ),
-      ],
+      services: [_controlService, _batteryService],
     ),
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:02',
       name: 'ACME_Bedroom',
       rssi: -62,
-      services: [
-        BleDiscoveredService(
-          uuid: '0000fff0-0000-1000-8000-00805f9b34fb',
-          characteristics: [
-            BleDiscoveredCharacteristic(
-                uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
-                canRead: false,
-                canWrite: true,
-                canNotify: false),
-            BleDiscoveredCharacteristic(
-                uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
-                canRead: true,
-                canWrite: false,
-                canNotify: true),
-          ],
-        ),
-        BleDiscoveredService(
-          uuid: '0000180f-0000-1000-8000-00805f9b34fb',
-          characteristics: [
-            BleDiscoveredCharacteristic(
-                uuid: '00002a19-0000-1000-8000-00805f9b34fb',
-                canRead: true,
-                canWrite: false,
-                canNotify: true),
-          ],
-        ),
-      ],
+      services: [_controlService, _batteryService],
     ),
   ];
 
   // Temporary Dart-side defaults until FRB bridge is connected.
   // These will be replaced by calls to Rust mock_read_characteristic().
   static final Map<String, List<int>> _defaults = {
-    '0000fff2-0000-1000-8000-00805f9b34fb': [
-      1,
-      80,
-      255,
-      180,
-      50
-    ], // power=on, brightness=80, r=255, g=180, b=50
-    '00002a19-0000-1000-8000-00805f9b34fb': [85], // battery=85%
+    // power=on, brightness=80, r=255, g=180, b=50
+    '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80, 255, 180, 50],
+    // battery=85%
+    '00002a19-0000-1000-8000-00805f9b34fb': [85],
   };
 
   @override
@@ -182,15 +155,13 @@ class MockBleService implements BleService {
     String charUuid,
   ) async {
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    final key = charUuid.toLowerCase();
+    final key = normalizeUuid(charUuid);
 
-    // Return written value if available
     final deviceWrites = _writtenValues[deviceId];
     if (deviceWrites != null && deviceWrites.containsKey(key)) {
       return deviceWrites[key]!;
     }
 
-    // Return default
     return _defaults[key] ?? [0];
   }
 
@@ -202,7 +173,7 @@ class MockBleService implements BleService {
     List<int> value,
   ) async {
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    final key = charUuid.toLowerCase();
+    final key = normalizeUuid(charUuid);
     _writtenValues.putIfAbsent(deviceId, () => {});
     _writtenValues[deviceId]![key] = value;
   }
@@ -213,23 +184,27 @@ class MockBleService implements BleService {
     String serviceUuid,
     String charUuid,
   ) {
-    final controller = StreamController<List<int>>();
-
-    // Emit periodic updates
-    Timer.periodic(const Duration(seconds: 2), (timer) {
-      if (!(_connected[deviceId] ?? false)) {
-        timer.cancel();
-        controller.close();
-        return;
-      }
-
-      readCharacteristic(deviceId, serviceUuid, charUuid).then(
-        (value) {
-          if (!controller.isClosed) controller.add(value);
-        },
-      );
-    });
-
+    late StreamController<List<int>> controller;
+    Timer? timer;
+    controller = StreamController<List<int>>(
+      onListen: () {
+        timer = Timer.periodic(const Duration(seconds: 2), (t) {
+          if (controller.isClosed || !(_connected[deviceId] ?? false)) {
+            t.cancel();
+            if (!controller.isClosed) controller.close();
+            return;
+          }
+          readCharacteristic(deviceId, serviceUuid, charUuid).then(
+            (value) {
+              if (!controller.isClosed) controller.add(value);
+            },
+          );
+        });
+      },
+      onCancel: () async {
+        timer?.cancel();
+      },
+    );
     return controller.stream;
   }
 }

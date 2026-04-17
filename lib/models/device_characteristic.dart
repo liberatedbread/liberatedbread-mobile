@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import '../core/hex.dart';
 
 class DeviceCharacteristic {
   final String uuid;
@@ -20,7 +21,7 @@ class DeviceCharacteristic {
 
   String get hexValue {
     if (value.isEmpty) return '(empty)';
-    return value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+    return bytesToHex(value);
   }
 
   String? get stringValue {
