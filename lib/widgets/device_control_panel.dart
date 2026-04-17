@@ -12,13 +12,11 @@ import 'raw_characteristic_widget.dart';
 /// For now it renders a raw GATT browser for all characteristics.
 class DeviceControlPanel extends ConsumerWidget {
   final String deviceId;
-  final String deviceName;
   final List<BleDiscoveredService> services;
 
   const DeviceControlPanel({
     super.key,
     required this.deviceId,
-    required this.deviceName,
     required this.services,
   });
 

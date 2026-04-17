@@ -3,8 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
-import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
+import '../services/ble_service.dart';
 import '../services/device_manager.dart';
 import 'device_screen.dart';
 
@@ -19,10 +19,15 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   final DeviceManager _deviceManager = DeviceManager();
   bool _isScanning = false;
   String? _error;
+  late final BleService _bleService;
+
+  @override
+  void initState() {
+    super.initState();
+    _bleService = ref.read(bleServiceProvider);
+  }
 
   Future<void> _startScan() async {
-    final bleService = ref.read(bleServiceProvider);
-
     setState(() {
       _isScanning = true;
       _error = null;
@@ -30,7 +35,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     });
 
     try {
-      await for (final device in bleService.scan()) {
+      await for (final device in _bleService.scan()) {
         if (!mounted) return;
         setState(() {
           _deviceManager.addOrUpdate(device);
@@ -53,7 +58,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   @override
   void dispose() {
-    ref.read(bleServiceProvider).stopScan();
+    _bleService.stopScan();
     super.dispose();
   }
 
@@ -122,9 +127,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         final device = devices[index];
         return ListTile(
           leading: Icon(
-            device.isConnectable
-                ? Icons.bluetooth
-                : Icons.bluetooth_disabled,
+            device.isConnectable ? Icons.bluetooth : Icons.bluetooth_disabled,
             color: device.isNearby ? Colors.blue : Colors.grey,
           ),
           title: Text(device.displayName),
