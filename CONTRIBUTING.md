@@ -20,6 +20,12 @@ flutter pub get
 flutter test
 ```
 
+Before opening a PR, run the local CI mirror:
+
+```bash
+./scripts/test.sh
+```
+
 ## Code Style
 
 - Follow the [Effective Dart](https://dart.dev/effective-dart) guidelines

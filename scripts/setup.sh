@@ -216,13 +216,22 @@ setup_project() {
     exit 1
   fi
 
+  # Warn (don't fail) if platform scaffolds are missing. They should be
+  # committed — if you see this warning, restore them from git or regenerate
+  # via `flutter create .` (see README).
+  if [[ ! -f "$PROJECT_DIR/android/app/build.gradle" ]]; then
+    warn "android/app/build.gradle is missing. The Android build will fail."
+    warn "If intentional, run: flutter create . --platforms=android,ios"
+  fi
+
   log "Running flutter pub get..."
   (cd "$PROJECT_DIR" && flutter pub get)
 
-  # Generate FRB bindings if Rust crate exists
-  if [[ -f "$PROJECT_DIR/rust/Cargo.toml" ]]; then
+  # Generate FRB bindings if Rust crate and API module are both present.
+  if [[ -d "$PROJECT_DIR/rust/src/api" ]]; then
     log "Generating flutter_rust_bridge bindings..."
-    (cd "$PROJECT_DIR" && flutter_rust_bridge_codegen generate)
+    (cd "$PROJECT_DIR" && flutter_rust_bridge_codegen generate) || \
+      warn "FRB codegen failed — mock mode (--mock) will still work."
   fi
 
   log "Running flutter doctor..."

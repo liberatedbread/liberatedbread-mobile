@@ -1,6 +1,7 @@
 # OpenGreenIoT Mobile
 
 [![CI](https://github.com/PigsCanFlyLabs/opengreeniot-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/PigsCanFlyLabs/opengreeniot-mobile/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/PigsCanFlyLabs/opengreeniot-mobile/branch/main/graph/badge.svg)](https://codecov.io/gh/PigsCanFlyLabs/opengreeniot-mobile)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > Because your phone should be able to talk to your smart lightbulb even after
@@ -79,6 +80,14 @@ After setup, add Flutter to your PATH:
 export PATH="$HOME/.flutter-sdk/bin:$PATH"
 ```
 
+### About platform scaffolds
+
+`android/` and `ios/` are committed. To regenerate them (for example when
+upgrading Flutter), back up the customized `android/app/src/main/AndroidManifest.xml`
+and `ios/Runner/Info.plist` first — they contain BLE permissions and usage
+strings — then run `flutter create . --platforms=android,ios --project-name opengreeniot_mobile --org ca.pigscanfly.opengreeniot`
+and merge the customizations back in.
+
 ## Running the App
 
 ```bash
@@ -95,20 +104,39 @@ flutter run --dart-define=OPENGREENIOT_MOCK=true
 ## Testing
 
 ```bash
-# Flutter tests
-flutter test
+# Everything CI runs, in order
+./scripts/test.sh
 
-# Rust tests
-cd rust && cargo test
+# Or individually:
+flutter test                       # Dart unit + widget tests
+cd rust && cargo test              # Rust unit tests
+flutter test integration_test      # Integration tests (needs a device/emulator)
+```
 
-# Linting
-flutter analyze
-cd rust && cargo clippy
+Linting:
+
+```bash
+flutter analyze --fatal-infos
+cd rust && cargo clippy --all-targets -- -D warnings
 ```
 
 Tests are not optional. They're a feature.
 
 See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for the full testing guide.
+
+## FRB bindings
+
+The Rust core ships with its own unit tests but is not yet wired through
+`flutter_rust_bridge` — the generated bindings live outside git. Mock mode
+(`--mock`) works **without** FRB and is the recommended path for testing.
+
+To wire the bridge, run:
+
+```bash
+flutter_rust_bridge_codegen generate
+```
+
+Then uncomment the `RustLib.init()` call in `lib/main.dart`.
 
 ## Project Structure
 
@@ -117,7 +145,7 @@ See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for the full testing guide.
 ├── lib/
 │   ├── main.dart               # Entry point
 │   ├── app.dart                # App widget, routing, theme
-│   ├── core/                   # Constants, theme definitions
+│   ├── core/                   # Constants, theme, hex/uuid helpers
 │   ├── models/                 # IoTDevice, DeviceCharacteristic, BleDiscoveredService
 │   ├── providers/              # Riverpod providers (BLE, device specs, connection state)
 │   ├── screens/                # ScanScreen, DeviceScreen, CharacteristicScreen
@@ -133,15 +161,16 @@ See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for the full testing guide.
 │       │   ├── generic.rs      # YAML-driven GenericProtocol
 │       │   ├── traits.rs       # DeviceProtocol trait
 │       │   ├── registry.rs     # ProtocolRegistry
-│       │   ├── middleware.rs   # PassthroughMiddleware (skeleton)
 │       │   └── profiles/       # Standard BLE profiles (battery, device_info)
 │       └── spec/               # YAML parser and type definitions
 ├── assets/
 │   └── device_specs/           # YAML device specification files
-├── test/                       # Flutter unit tests
+├── integration_test/           # End-to-end flow tests (needs emulator)
+├── test/                       # Dart unit + widget tests
 ├── scripts/
 │   ├── setup.sh                # Full dev environment setup
-│   └── run.sh                  # Build and run with optional mock mode
+│   ├── run.sh                  # Build and run with optional mock mode
+│   └── test.sh                 # Local CI mirror (format, analyze, test, clippy)
 └── docs/
     ├── WALKTHROUGH.md          # E2E architecture walkthrough
     └── BUILD_AND_TEST.md       # Build, run, and test guide
@@ -152,8 +181,6 @@ See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for the full testing guide.
 The Rust core (`rust/src/`) provides protocol logic independent of Flutter:
 
 - **Spec system** — Parses YAML device specifications into typed Rust structs.
-  Each spec defines a device's BLE services, characteristics, commands, and
-  data formats.
 - **Codec** — Encodes command parameters to bytes and decodes characteristic
   values from bytes, driven by format field definitions.
 - **Protocol layer** — The `DeviceProtocol` trait with `GenericProtocol`
