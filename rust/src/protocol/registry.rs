@@ -16,9 +16,7 @@ use crate::spec::types::DeviceSpec;
 ///
 /// Used by the FFI API layer to get the right protocol for a given device.
 #[derive(Default)]
-pub struct ProtocolRegistry {
-    // Future: could cache protocol instances by device ID for stateful protocols.
-}
+pub struct ProtocolRegistry {}
 
 impl ProtocolRegistry {
     pub fn new() -> Self {

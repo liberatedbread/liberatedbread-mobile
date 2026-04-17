@@ -11,17 +11,6 @@ use crate::error::ProtocolError;
 use crate::protocol::traits::DeviceProtocol;
 use std::collections::HashMap;
 
-/// Known Device Information characteristics (short UUID -> field name).
-const CHARACTERISTICS: &[(&str, &str)] = &[
-    ("2a29", "manufacturer_name"),
-    ("2a24", "model_number"),
-    ("2a25", "serial_number"),
-    ("2a27", "hardware_revision"),
-    ("2a26", "firmware_revision"),
-    ("2a28", "software_revision"),
-    ("2a23", "system_id"),
-];
-
 /// Device Information Service protocol controller.
 #[derive(Default)]
 pub struct DeviceInfoProtocol;
@@ -34,10 +23,10 @@ impl DeviceInfoProtocol {
     /// Find the field name for a characteristic UUID, or None.
     fn field_name(char_uuid: &str) -> Option<&'static str> {
         let normalized = super::normalize_uuid(char_uuid);
-        CHARACTERISTICS
+        super::DEVICE_INFO_CHARS
             .iter()
-            .find(|(uuid, _)| *uuid == normalized)
-            .map(|(_, name)| *name)
+            .find(|(uuid, _, _, _)| *uuid == normalized)
+            .map(|(_, field_name, _, _)| *field_name)
     }
 }
 
@@ -63,10 +52,8 @@ impl DeviceProtocol for DeviceInfoProtocol {
         })?;
 
         let value = if name == "system_id" {
-            // System ID is 8 bytes, decode as hex string
             DecodedValue::String(bytes_to_hex(bytes, ":"))
         } else {
-            // All other characteristics are UTF-8 strings
             let s = std::str::from_utf8(bytes)
                 .map(|s| s.trim_end_matches('\0').to_string())
                 .unwrap_or_else(|_| bytes_to_hex(bytes, " "));
@@ -169,7 +156,7 @@ mod tests {
     #[test]
     fn all_known_characteristics() {
         let proto = DeviceInfoProtocol::new();
-        for (uuid, _) in CHARACTERISTICS {
+        for (uuid, _, _, _) in super::super::DEVICE_INFO_CHARS {
             assert_eq!(proto.fields_for_characteristic(uuid), vec!["value"]);
         }
     }
