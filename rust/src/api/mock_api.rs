@@ -19,7 +19,7 @@ static MOCK_STATES: Lazy<Mutex<HashMap<String, MockDeviceState>>> =
 
 /// Reset all mock device state. Call when starting a new mock session.
 pub fn mock_reset() {
-    MOCK_STATES.lock().unwrap().clear();
+    MOCK_STATES.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
 /// Simulate reading a characteristic value for a mock device.
@@ -29,8 +29,8 @@ pub fn mock_read_characteristic(
     char_uuid: String,
     spec_yaml: String,
 ) -> Vec<u8> {
-    let mut states = MOCK_STATES.lock().unwrap();
-    let state = states.entry(device_id).or_insert_with(MockDeviceState::new);
+    let mut states = MOCK_STATES.lock().unwrap_or_else(|e| e.into_inner());
+    let state = states.entry(device_id).or_default();
 
     // Try to find format fields for this characteristic in the spec
     if let Ok(spec) = parse_device_spec(&spec_yaml) {
@@ -51,8 +51,8 @@ pub fn mock_write_characteristic(
     char_uuid: String,
     value: Vec<u8>,
 ) {
-    let mut states = MOCK_STATES.lock().unwrap();
-    let state = states.entry(device_id).or_insert_with(MockDeviceState::new);
+    let mut states = MOCK_STATES.lock().unwrap_or_else(|e| e.into_inner());
+    let state = states.entry(device_id).or_default();
     state.write(&char_uuid, value);
 }
 

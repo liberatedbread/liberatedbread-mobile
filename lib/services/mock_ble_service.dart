@@ -34,10 +34,11 @@ class MockBleService implements BleService {
   final _random = Random(42);
   final Map<String, bool> _connected = {};
   final Map<String, Map<String, List<int>>> _writtenValues = {};
-  final Map<String, StreamController<BleConnectionState>> _connectionStreams = {};
+  final Map<String, StreamController<BleConnectionState>> _connectionStreams =
+      {};
 
   // Mock devices matching the example-bulb spec
-  static final List<_MockDeviceDef> _mockDevices = [
+  static const List<_MockDeviceDef> _mockDevices = [
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:01',
       name: 'ACME_Living_Room',
@@ -46,14 +47,26 @@ class MockBleService implements BleService {
         BleDiscoveredService(
           uuid: '0000fff0-0000-1000-8000-00805f9b34fb',
           characteristics: [
-            BleDiscoveredCharacteristic(uuid: '0000fff1-0000-1000-8000-00805f9b34fb', canRead: false, canWrite: true, canNotify: false),
-            BleDiscoveredCharacteristic(uuid: '0000fff2-0000-1000-8000-00805f9b34fb', canRead: true, canWrite: false, canNotify: true),
+            BleDiscoveredCharacteristic(
+                uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
+                canRead: false,
+                canWrite: true,
+                canNotify: false),
+            BleDiscoveredCharacteristic(
+                uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
+                canRead: true,
+                canWrite: false,
+                canNotify: true),
           ],
         ),
         BleDiscoveredService(
           uuid: '0000180f-0000-1000-8000-00805f9b34fb',
           characteristics: [
-            BleDiscoveredCharacteristic(uuid: '00002a19-0000-1000-8000-00805f9b34fb', canRead: true, canWrite: false, canNotify: true),
+            BleDiscoveredCharacteristic(
+                uuid: '00002a19-0000-1000-8000-00805f9b34fb',
+                canRead: true,
+                canWrite: false,
+                canNotify: true),
           ],
         ),
       ],
@@ -66,14 +79,26 @@ class MockBleService implements BleService {
         BleDiscoveredService(
           uuid: '0000fff0-0000-1000-8000-00805f9b34fb',
           characteristics: [
-            BleDiscoveredCharacteristic(uuid: '0000fff1-0000-1000-8000-00805f9b34fb', canRead: false, canWrite: true, canNotify: false),
-            BleDiscoveredCharacteristic(uuid: '0000fff2-0000-1000-8000-00805f9b34fb', canRead: true, canWrite: false, canNotify: true),
+            BleDiscoveredCharacteristic(
+                uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
+                canRead: false,
+                canWrite: true,
+                canNotify: false),
+            BleDiscoveredCharacteristic(
+                uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
+                canRead: true,
+                canWrite: false,
+                canNotify: true),
           ],
         ),
         BleDiscoveredService(
           uuid: '0000180f-0000-1000-8000-00805f9b34fb',
           characteristics: [
-            BleDiscoveredCharacteristic(uuid: '00002a19-0000-1000-8000-00805f9b34fb', canRead: true, canWrite: false, canNotify: true),
+            BleDiscoveredCharacteristic(
+                uuid: '00002a19-0000-1000-8000-00805f9b34fb',
+                canRead: true,
+                canWrite: false,
+                canNotify: true),
           ],
         ),
       ],
@@ -83,7 +108,13 @@ class MockBleService implements BleService {
   // Temporary Dart-side defaults until FRB bridge is connected.
   // These will be replaced by calls to Rust mock_read_characteristic().
   static final Map<String, List<int>> _defaults = {
-    '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80, 255, 180, 50], // power=on, brightness=80, r=255, g=180, b=50
+    '0000fff2-0000-1000-8000-00805f9b34fb': [
+      1,
+      80,
+      255,
+      180,
+      50
+    ], // power=on, brightness=80, r=255, g=180, b=50
     '00002a19-0000-1000-8000-00805f9b34fb': [85], // battery=85%
   };
 
@@ -91,7 +122,8 @@ class MockBleService implements BleService {
   Future<bool> requestPermissions() async => true;
 
   @override
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) async* {
+  Stream<IoTDevice> scan(
+      {Duration timeout = const Duration(seconds: 10)}) async* {
     for (final device in _mockDevices) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       yield IoTDevice(

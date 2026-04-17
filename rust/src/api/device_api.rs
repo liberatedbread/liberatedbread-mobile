@@ -7,16 +7,16 @@
 use std::collections::HashMap;
 
 use crate::codec::types::DecodedValue;
+use crate::protocol::profiles;
 use crate::protocol::registry::ProtocolRegistry;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{CharacteristicProperty, DeviceSpec, ManufacturerStatus, Protocol};
 
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
 
 /// Global protocol registry. Initialized once, shared across all API calls.
-static REGISTRY: Lazy<Mutex<ProtocolRegistry>> =
-    Lazy::new(|| Mutex::new(ProtocolRegistry::new()));
+/// No Mutex needed — `ProtocolRegistry` has no mutable state.
+static REGISTRY: Lazy<ProtocolRegistry> = Lazy::new(ProtocolRegistry::new);
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
 // These are simpler, FRB-friendly versions of the internal types.
@@ -158,53 +158,30 @@ impl From<&DeviceSpec> for DeviceSpecDto {
 }
 
 fn decoded_value_to_dto(name: &str, value: &DecodedValue) -> DecodedValueDto {
+    let mut dto = DecodedValueDto {
+        name: name.into(),
+        value_type: match value {
+            DecodedValue::Bool(_) => "bool",
+            DecodedValue::Int(_) => "int",
+            DecodedValue::Uint(_) => "uint",
+            DecodedValue::Bytes(_) => "bytes",
+            DecodedValue::String(_) => "string",
+        }
+        .into(),
+        display: value.display(),
+        bool_value: None,
+        int_value: None,
+        uint_value: None,
+        string_value: None,
+    };
     match value {
-        DecodedValue::Bool(v) => DecodedValueDto {
-            name: name.into(),
-            value_type: "bool".into(),
-            display: value.display(),
-            bool_value: Some(*v),
-            int_value: None,
-            uint_value: None,
-            string_value: None,
-        },
-        DecodedValue::Int(v) => DecodedValueDto {
-            name: name.into(),
-            value_type: "int".into(),
-            display: value.display(),
-            bool_value: None,
-            int_value: Some(*v),
-            uint_value: None,
-            string_value: None,
-        },
-        DecodedValue::Uint(v) => DecodedValueDto {
-            name: name.into(),
-            value_type: "uint".into(),
-            display: value.display(),
-            bool_value: None,
-            int_value: None,
-            uint_value: Some(*v as i64),
-            string_value: None,
-        },
-        DecodedValue::Bytes(_) => DecodedValueDto {
-            name: name.into(),
-            value_type: "bytes".into(),
-            display: value.display(),
-            bool_value: None,
-            int_value: None,
-            uint_value: None,
-            string_value: Some(value.display()),
-        },
-        DecodedValue::String(v) => DecodedValueDto {
-            name: name.into(),
-            value_type: "string".into(),
-            display: value.display(),
-            bool_value: None,
-            int_value: None,
-            uint_value: None,
-            string_value: Some(v.clone()),
-        },
+        DecodedValue::Bool(v) => dto.bool_value = Some(*v),
+        DecodedValue::Int(v) => dto.int_value = Some(*v),
+        DecodedValue::Uint(v) => dto.uint_value = Some((*v).min(i64::MAX as u64) as i64),
+        DecodedValue::Bytes(_) => dto.string_value = Some(value.display()),
+        DecodedValue::String(v) => dto.string_value = Some(v.clone()),
     }
+    dto
 }
 
 // ── Public API functions (exposed to Dart via FRB) ──────────────────────────
@@ -263,8 +240,7 @@ pub fn encode_command(
     params: HashMap<String, f64>,
 ) -> anyhow::Result<Vec<u8>> {
     let spec = parse_device_spec(&yaml)?;
-    let registry = REGISTRY.lock().unwrap();
-    let proto = registry.get_protocol(&spec);
+    let proto = REGISTRY.get_protocol(&spec);
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }
 
@@ -275,8 +251,7 @@ pub fn decode_value(
     bytes: Vec<u8>,
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
     let spec = parse_device_spec(&yaml)?;
-    let registry = REGISTRY.lock().unwrap();
-    let proto = registry.get_protocol(&spec);
+    let proto = REGISTRY.get_protocol(&spec);
     let decoded = proto.decode_value(&char_uuid, &bytes).map_err(anyhow::Error::from)?;
     Ok(decoded
         .iter()
@@ -287,6 +262,73 @@ pub fn decode_value(
 /// Greet — a simple test function to verify the FRB bridge works.
 pub fn greet(name: String) -> String {
     format!("Hello from OpenGreenIoT Rust core, {}!", name)
+}
+
+// ── Standard profile types and API ─────────────────────────────────────────
+
+/// Info about a recognized standard Bluetooth profile.
+#[derive(Debug, Clone)]
+pub struct ProfileInfoDto {
+    pub service_uuid: String,
+    pub profile_name: String,
+    pub characteristics: Vec<ProfileCharacteristicDto>,
+}
+
+/// A characteristic within a standard profile.
+#[derive(Debug, Clone)]
+pub struct ProfileCharacteristicDto {
+    pub uuid: String,
+    pub name: String,
+    pub can_read: bool,
+    pub can_write: bool,
+    pub can_notify: bool,
+}
+
+/// Given a list of discovered service UUIDs, return info about any that
+/// match recognized standard Bluetooth profiles (Battery, Device Info, etc.).
+///
+/// Services that don't match a standard profile are omitted from the result.
+pub fn identify_standard_profiles(service_uuids: Vec<String>) -> Vec<ProfileInfoDto> {
+    service_uuids
+        .iter()
+        .filter_map(|uuid| {
+            profiles::lookup(uuid).map(|profile| ProfileInfoDto {
+                service_uuid: uuid.clone(),
+                profile_name: profile.name().to_string(),
+                characteristics: profile
+                    .characteristics()
+                    .into_iter()
+                    .map(|c| ProfileCharacteristicDto {
+                        uuid: c.uuid,
+                        name: c.name,
+                        can_read: c.can_read,
+                        can_write: c.can_write,
+                        can_notify: c.can_notify,
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Decode a characteristic value using a built-in standard profile.
+///
+/// This does not require a YAML device spec — the profile's format is
+/// defined by the Bluetooth specification.
+pub fn decode_standard_profile_value(
+    service_uuid: String,
+    char_uuid: String,
+    bytes: Vec<u8>,
+) -> anyhow::Result<Vec<DecodedValueDto>> {
+    let profile = profiles::lookup(&service_uuid).ok_or_else(|| {
+        anyhow::anyhow!("no standard profile for service UUID: {}", service_uuid)
+    })?;
+    let proto = profile.create_protocol();
+    let decoded = proto.decode_value(&char_uuid, &bytes)?;
+    Ok(decoded
+        .iter()
+        .map(|(name, value)| decoded_value_to_dto(name, value))
+        .collect())
 }
 
 #[cfg(test)]
@@ -390,5 +432,68 @@ services:
     #[test]
     fn greet_works() {
         assert_eq!(greet("World".into()), "Hello from OpenGreenIoT Rust core, World!");
+    }
+
+    #[test]
+    fn identify_battery_and_device_info() {
+        let uuids = vec![
+            "0000180f-0000-1000-8000-00805f9b34fb".to_string(), // Battery
+            "0000180a-0000-1000-8000-00805f9b34fb".to_string(), // Device Info
+            "0000fff0-0000-1000-8000-00805f9b34fb".to_string(), // Custom (unknown)
+        ];
+        let profiles = identify_standard_profiles(uuids);
+        assert_eq!(profiles.len(), 2);
+
+        let battery = profiles.iter().find(|p| p.profile_name == "Battery Service").unwrap();
+        assert_eq!(battery.characteristics.len(), 1);
+        assert_eq!(battery.characteristics[0].name, "Battery Level");
+        assert!(battery.characteristics[0].can_read);
+        assert!(battery.characteristics[0].can_notify);
+
+        let device_info = profiles.iter().find(|p| p.profile_name == "Device Information").unwrap();
+        assert_eq!(device_info.characteristics.len(), 7);
+    }
+
+    #[test]
+    fn identify_no_standard_profiles() {
+        let uuids = vec!["0000fff0-0000-1000-8000-00805f9b34fb".to_string()];
+        let profiles = identify_standard_profiles(uuids);
+        assert!(profiles.is_empty());
+    }
+
+    #[test]
+    fn decode_standard_battery_level() {
+        let values = decode_standard_profile_value(
+            "180f".to_string(),
+            "2a19".to_string(),
+            vec![85],
+        )
+        .unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].name, "battery_percent");
+        assert_eq!(values[0].uint_value, Some(85));
+    }
+
+    #[test]
+    fn decode_standard_device_info() {
+        let values = decode_standard_profile_value(
+            "180a".to_string(),
+            "2a29".to_string(),
+            b"TestCorp".to_vec(),
+        )
+        .unwrap();
+        assert_eq!(values.len(), 1);
+        assert_eq!(values[0].name, "value");
+        assert_eq!(values[0].string_value, Some("TestCorp".to_string()));
+    }
+
+    #[test]
+    fn decode_standard_unknown_service_fails() {
+        let result = decode_standard_profile_value(
+            "fff0".to_string(),
+            "fff1".to_string(),
+            vec![0],
+        );
+        assert!(result.is_err());
     }
 }

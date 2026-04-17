@@ -16,7 +16,8 @@ void main() {
     });
 
     test('stringValue returns text for printable ASCII', () {
-      const c = DeviceCharacteristic(uuid: '0x2A29', value: [0x48, 0x65, 0x6C, 0x6C, 0x6F]);
+      const c = DeviceCharacteristic(
+          uuid: '0x2A29', value: [0x48, 0x65, 0x6C, 0x6C, 0x6F]);
       expect(c.stringValue, equals('Hello'));
     });
 

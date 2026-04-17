@@ -9,6 +9,15 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::HashMap;
 use std::io::Cursor;
 
+/// Format bytes as a hex string with the given separator.
+pub(crate) fn bytes_to_hex(bytes: &[u8], sep: &str) -> String {
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(sep)
+}
+
 /// A decoded value from a characteristic read.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DecodedValue {
@@ -26,11 +35,7 @@ impl DecodedValue {
             DecodedValue::Bool(v) => if *v { "on" } else { "off" }.to_string(),
             DecodedValue::Int(v) => v.to_string(),
             DecodedValue::Uint(v) => v.to_string(),
-            DecodedValue::Bytes(v) => v
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<Vec<_>>()
-                .join(" "),
+            DecodedValue::Bytes(v) => bytes_to_hex(v, " "),
             DecodedValue::String(v) => v.clone(),
         }
     }
@@ -38,7 +43,12 @@ impl DecodedValue {
 
 /// Decode a single format field from a byte buffer.
 pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
-    let end = field.offset + field.length;
+    let end = field.offset.checked_add(field.length).ok_or(
+        ProtocolError::BufferTooShort {
+            needed: usize::MAX,
+            got: bytes.len(),
+        },
+    )?;
     if bytes.len() < end {
         return Err(ProtocolError::BufferTooShort {
             needed: end,
@@ -70,9 +80,7 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
         ValueType::String => {
             let s = std::str::from_utf8(slice)
                 .map(|s| s.trim_end_matches('\0').to_string())
-                .unwrap_or_else(|_| {
-                    slice.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
-                });
+                .unwrap_or_else(|_| bytes_to_hex(slice, " "));
             Ok(DecodedValue::String(s))
         }
     }
@@ -106,7 +114,7 @@ pub fn encode_command(
     // Template command
     if let Some(ref template) = command.template {
         let param_defs = command.parameters.as_ref();
-        let mut bytes = Vec::with_capacity(template.len());
+        let mut bytes = Vec::new();
 
         for element in template {
             match element {
@@ -232,6 +240,84 @@ mod tests {
         assert_eq!(result["power_state"], DecodedValue::Bool(true));
         assert_eq!(result["brightness"], DecodedValue::Uint(80));
         assert_eq!(result["red"], DecodedValue::Uint(255));
+    }
+
+    #[test]
+    fn decode_int8_field() {
+        let field = FormatField {
+            offset: 0,
+            length: 1,
+            name: "temp".into(),
+            field_type: ValueType::Int8,
+        };
+        // -10 as i8 = 0xF6
+        assert_eq!(
+            decode_field(&[0xF6], &field).unwrap(),
+            DecodedValue::Int(-10)
+        );
+        assert_eq!(
+            decode_field(&[22], &field).unwrap(),
+            DecodedValue::Int(22)
+        );
+    }
+
+    #[test]
+    fn decode_int16_le() {
+        let field = FormatField {
+            offset: 0,
+            length: 2,
+            name: "temp".into(),
+            field_type: ValueType::Int16,
+        };
+        // -1000 as i16 in LE = [0x18, 0xFC]
+        assert_eq!(
+            decode_field(&[0x18, 0xFC], &field).unwrap(),
+            DecodedValue::Int(-1000)
+        );
+    }
+
+    #[test]
+    fn decode_bytes_field() {
+        let field = FormatField {
+            offset: 0,
+            length: 3,
+            name: "payload".into(),
+            field_type: ValueType::Bytes,
+        };
+        assert_eq!(
+            decode_field(&[0xDE, 0xAD, 0xBE], &field).unwrap(),
+            DecodedValue::Bytes(vec![0xDE, 0xAD, 0xBE])
+        );
+    }
+
+    #[test]
+    fn decode_string_field() {
+        let field = FormatField {
+            offset: 0,
+            length: 5,
+            name: "label".into(),
+            field_type: ValueType::String,
+        };
+        assert_eq!(
+            decode_field(b"hello", &field).unwrap(),
+            DecodedValue::String("hello".into())
+        );
+        // Null-terminated string
+        assert_eq!(
+            decode_field(b"hi\0\0\0", &field).unwrap(),
+            DecodedValue::String("hi".into())
+        );
+    }
+
+    #[test]
+    fn decode_buffer_too_short() {
+        let field = FormatField {
+            offset: 2,
+            length: 3,
+            name: "data".into(),
+            field_type: ValueType::Uint8,
+        };
+        assert!(decode_field(&[0x00, 0x01], &field).is_err());
     }
 
     #[test]

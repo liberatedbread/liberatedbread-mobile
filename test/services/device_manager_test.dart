@@ -6,14 +6,23 @@ import 'package:opengreeniot_mobile/services/device_manager.dart';
 
 void main() {
   late DeviceManager manager;
-  setUp(() { manager = DeviceManager(); });
+  setUp(() {
+    manager = DeviceManager();
+  });
 
   IoTDevice makeDevice({String id = 'AA:BB:CC:DD:EE:FF', int rssi = -50}) {
-    return IoTDevice(id: id, name: 'Test', rssi: rssi, isConnectable: true, discoveredAt: DateTime.now());
+    return IoTDevice(
+        id: id,
+        name: 'Test',
+        rssi: rssi,
+        isConnectable: true,
+        discoveredAt: DateTime.now());
   }
 
   group('DeviceManager', () {
-    test('starts empty', () { expect(manager.count, equals(0)); });
+    test('starts empty', () {
+      expect(manager.count, equals(0));
+    });
 
     test('addOrUpdate adds a new device', () {
       manager.addOrUpdate(makeDevice());

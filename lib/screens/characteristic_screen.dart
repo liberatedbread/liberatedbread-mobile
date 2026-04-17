@@ -57,8 +57,7 @@ class CharacteristicScreen extends StatelessWidget {
               children: [
                 if (characteristic.canRead) const Chip(label: Text('Read')),
                 if (characteristic.canWrite) const Chip(label: Text('Write')),
-                if (characteristic.canNotify)
-                  const Chip(label: Text('Notify')),
+                if (characteristic.canNotify) const Chip(label: Text('Notify')),
               ],
             ),
           ],
