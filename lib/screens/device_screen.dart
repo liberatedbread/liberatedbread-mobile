@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
+import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 
 enum _ScreenState { connecting, discovering, ready, error }
@@ -22,28 +23,28 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   _ScreenState _state = _ScreenState.connecting;
   String? _error;
   List<BleDiscoveredService> _services = [];
+  late final BleService _bleService;
 
   @override
   void initState() {
     super.initState();
+    _bleService = ref.read(bleServiceProvider);
     _connect();
   }
 
   Future<void> _connect() async {
-    final bleService = ref.read(bleServiceProvider);
-
     setState(() {
       _state = _ScreenState.connecting;
       _error = null;
     });
 
     try {
-      await bleService.connect(widget.device.id);
+      await _bleService.connect(widget.device.id);
 
       if (!mounted) return;
       setState(() => _state = _ScreenState.discovering);
 
-      final services = await bleService.discoverServices(widget.device.id);
+      final services = await _bleService.discoverServices(widget.device.id);
 
       if (!mounted) return;
       setState(() {
@@ -62,7 +63,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
   @override
   void dispose() {
-    ref.read(bleServiceProvider).disconnect(widget.device.id);
+    _bleService.disconnect(widget.device.id);
     super.dispose();
   }
 
