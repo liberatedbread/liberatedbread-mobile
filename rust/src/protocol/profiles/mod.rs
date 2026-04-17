@@ -20,15 +20,18 @@ fn full_uuid(short: &str) -> String {
     format!("0000{short}{BT_BASE_UUID_SUFFIX}")
 }
 
-/// Device Information Service characteristic short UUIDs and names.
-const DEVICE_INFO_CHARS: &[(&str, &str, bool)] = &[
-    ("2a29", "Manufacturer Name", false),
-    ("2a24", "Model Number", false),
-    ("2a25", "Serial Number", false),
-    ("2a27", "Hardware Revision", false),
-    ("2a26", "Firmware Revision", false),
-    ("2a28", "Software Revision", false),
-    ("2a23", "System ID", false),
+/// Device Information Service characteristics: (short_uuid, field_name, display_name, can_notify).
+///
+/// `field_name` is the decoded-value key used by [`device_info::DeviceInfoProtocol`];
+/// `display_name` is the human-readable label for UI rendering.
+pub(crate) const DEVICE_INFO_CHARS: &[(&str, &str, &str, bool)] = &[
+    ("2a29", "manufacturer_name", "Manufacturer Name", false),
+    ("2a24", "model_number", "Model Number", false),
+    ("2a25", "serial_number", "Serial Number", false),
+    ("2a27", "hardware_revision", "Hardware Revision", false),
+    ("2a26", "firmware_revision", "Firmware Revision", false),
+    ("2a28", "software_revision", "Software Revision", false),
+    ("2a23", "system_id", "System ID", false),
 ];
 
 /// Known standard Bluetooth profiles.
@@ -81,9 +84,9 @@ impl StandardProfile {
             }],
             StandardProfile::DeviceInformation => DEVICE_INFO_CHARS
                 .iter()
-                .map(|(short, name, can_notify)| ProfileCharacteristicInfo {
+                .map(|(short, _, display_name, can_notify)| ProfileCharacteristicInfo {
                     uuid: full_uuid(short),
-                    name: name.to_string(),
+                    name: display_name.to_string(),
                     can_read: true,
                     can_write: false,
                     can_notify: *can_notify,
