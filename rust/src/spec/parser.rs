@@ -125,7 +125,10 @@ entities:
 
         assert_eq!(spec.device.name, "Example Smart Bulb");
         assert_eq!(spec.device.manufacturer, "Acme Corp");
-        assert_eq!(spec.device.manufacturer_status, ManufacturerStatus::Abandoned);
+        assert_eq!(
+            spec.device.manufacturer_status,
+            ManufacturerStatus::Abandoned
+        );
         assert_eq!(spec.device.protocol, Protocol::Ble);
         assert_eq!(spec.device.notes.as_deref(), Some("Test fixture"));
 

@@ -266,10 +266,44 @@ open coverage/html/index.html
 ```
 
 Current Flutter test files:
-- `test/models/iot_device_test.dart` — IoTDevice model (5 tests)
-- `test/models/device_characteristic_test.dart` — DeviceCharacteristic model (4 tests)
-- `test/services/device_manager_test.dart` — DeviceManager service (7 tests)
-- `test/widget_test.dart` — Root widget smoke test (1 test)
+- `test/core/hex_test.dart` — `bytesToHex` and `normalizeUuid` (5 tests)
+- `test/models/iot_device_test.dart` — `IoTDevice` model (5 tests)
+- `test/models/device_characteristic_test.dart` — `DeviceCharacteristic` model (4 tests)
+- `test/models/ble_discovered_service_test.dart` — `BleDiscoveredService` (4 tests)
+- `test/services/device_manager_test.dart` — `DeviceManager` service (7 tests)
+- `test/services/mock_ble_service_test.dart` — `MockBleService` (19 tests)
+- `test/services/real_ble_service_mapping_test.dart` — state mapping (2 tests)
+- `test/providers/device_spec_provider_test.dart` — spec loading (2 tests)
+- `test/screens/scan_screen_test.dart` — scan UI (5 tests)
+- `test/screens/device_screen_test.dart` — device screen (4 tests)
+- `test/widgets/device_control_panel_test.dart` — control panel (2 tests)
+- `test/widgets/raw_characteristic_widget_test.dart` — characteristic widget (3 tests)
+- `test/widget_test.dart` — root widget smoke test (1 test)
+
+Integration tests under `integration_test/` need a connected device or emulator:
+- `integration_test/mock_flow_test.dart` — scan → connect → discover
+- `integration_test/error_flow_test.dart` — error state + retry
+
+### FRB-backed tests
+
+`test/services/mock_ble_service_rust_test.dart` exercises the Rust mock API
+through flutter_rust_bridge. It requires the host Rust library:
+
+```bash
+cd rust && cargo build
+LD_LIBRARY_PATH=$PWD/target/debug flutter test test/services/mock_ble_service_rust_test.dart
+# macOS uses DYLD_FALLBACK_LIBRARY_PATH instead.
+```
+
+`scripts/test.sh` wires this automatically. If the library fails to load the
+tests self-skip via `markTestSkipped` so CI on fresh clones doesn't see a hard
+failure.
+
+Run them with:
+
+```bash
+flutter test integration_test --dart-define=OPENGREENIOT_MOCK=true
+```
 
 ### Rust Tests
 
@@ -414,20 +448,35 @@ flutter run --dart-define=OPENGREENIOT_MOCK=true
 
 ## CI
 
-GitHub Actions runs on every push to `main` and on pull requests:
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
+every pull request. Five jobs fan out in parallel:
 
-**Workflow**: `.github/workflows/ci.yml`
+| Job | Runner | What it does |
+|-----|--------|--------------|
+| `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, `flutter test --coverage`, upload coverage to Codecov |
+| `rust` | ubuntu-latest | `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-features` |
+| `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=OPENGREENIOT_MOCK=true`; uploads the APK artifact |
+| `android-integration` | ubuntu-latest (API 34 emulator) | `flutter test integration_test --dart-define=OPENGREENIOT_MOCK=true` on an Android emulator |
+| `ios-build` | macos-latest | `flutter build ios --debug --no-codesign --simulator --dart-define=OPENGREENIOT_MOCK=true` |
 
-**Steps**:
-1. Checkout code
-2. Set up Flutter 3.24.x (stable)
-3. `flutter pub get`
-4. `flutter analyze` — static analysis
-5. `flutter test --coverage` — unit tests with coverage
-6. `dart format --set-exit-if-changed .` — formatting check
+Caches: Flutter SDK, `~/.pub-cache`, and `rust/target/` are cached across runs.
+The Android/iOS builds depend on `flutter` succeeding first (fail fast on
+lint/test before the slower platform builds).
 
-The CI runs on `ubuntu-latest`. Rust tests are not currently in CI but can be
-run locally with `cd rust && cargo test`.
+### Running CI locally
+
+`scripts/test.sh` mirrors the `flutter` and `rust` jobs:
+
+```bash
+./scripts/test.sh
+```
+
+Exits non-zero on the first failure.
+
+### Codecov
+
+Coverage uploads use `codecov/codecov-action@v4`. Set a `CODECOV_TOKEN` repo
+secret if your fork is private; public repos don't need one.
 
 ---
 

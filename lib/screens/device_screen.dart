@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
@@ -63,7 +64,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
   @override
   void dispose() {
-    _bleService.disconnect(widget.device.id);
+    unawaited(_bleService.disconnect(widget.device.id));
     super.dispose();
   }
 
@@ -78,28 +79,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   Widget _buildBody() {
     switch (_state) {
       case _ScreenState.connecting:
-        return const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Connecting...'),
-            ],
-          ),
-        );
+        return const _CenteredProgress('Connecting...');
 
       case _ScreenState.discovering:
-        return const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Discovering services...'),
-            ],
-          ),
-        );
+        return const _CenteredProgress('Discovering services...');
 
       case _ScreenState.error:
         return Center(
@@ -130,5 +113,24 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           services: _services,
         );
     }
+  }
+}
+
+class _CenteredProgress extends StatelessWidget {
+  final String label;
+  const _CenteredProgress(this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(label),
+        ],
+      ),
+    );
   }
 }

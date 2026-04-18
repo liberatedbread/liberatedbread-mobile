@@ -113,46 +113,71 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             service_uuids: ident
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
-            services: spec.services.iter().map(|s| {
-                ServiceDto {
+            services: spec
+                .services
+                .iter()
+                .map(|s| ServiceDto {
                     uuid: s.uuid.clone(),
                     name: s.name.clone(),
-                    characteristics: s.characteristics.iter().map(|c| {
-                        CharacteristicDto {
+                    characteristics: s
+                        .characteristics
+                        .iter()
+                        .map(|c| CharacteristicDto {
                             uuid: c.uuid.clone(),
                             name: c.name.clone(),
                             can_read: c.properties.contains(&CharacteristicProperty::Read),
                             can_write: c.properties.contains(&CharacteristicProperty::Write)
-                                || c.properties.contains(&CharacteristicProperty::WriteWithoutResponse),
+                                || c.properties
+                                    .contains(&CharacteristicProperty::WriteWithoutResponse),
                             can_notify: c.properties.contains(&CharacteristicProperty::Notify)
                                 || c.properties.contains(&CharacteristicProperty::Indicate),
-                            commands: c.commands.as_ref().map(|cmds| {
-                                cmds.iter().map(|(name, cmd)| CommandDto {
-                                    name: name.clone(),
-                                    description: cmd.description.clone(),
-                                    is_fixed: cmd.value.is_some(),
-                                    parameters: cmd.parameters.as_ref().map(|params| {
-                                        params.iter().map(|(pname, p)| ParameterDto {
-                                            name: pname.clone(),
-                                            value_type: p.value_type.to_string(),
-                                            min: p.min.map(|v| v as f64),
-                                            max: p.max.map(|v| v as f64),
-                                        }).collect()
-                                    }).unwrap_or_default(),
-                                }).collect()
-                            }).unwrap_or_default(),
-                            format_fields: c.format.as_ref().map(|fields| {
-                                fields.iter().map(|f| FormatFieldDto {
-                                    name: f.name.clone(),
-                                    field_type: f.field_type.to_string(),
-                                    offset: f.offset as u32,
-                                    length: f.length as u32,
-                                }).collect()
-                            }).unwrap_or_default(),
-                        }
-                    }).collect(),
-                }
-            }).collect(),
+                            commands: c
+                                .commands
+                                .as_ref()
+                                .map(|cmds| {
+                                    cmds.iter()
+                                        .map(|(name, cmd)| CommandDto {
+                                            name: name.clone(),
+                                            description: cmd.description.clone(),
+                                            is_fixed: cmd.value.is_some(),
+                                            parameters: cmd
+                                                .parameters
+                                                .as_ref()
+                                                .map(|params| {
+                                                    params
+                                                        .iter()
+                                                        .map(|(pname, p)| ParameterDto {
+                                                            name: pname.clone(),
+                                                            value_type: p.value_type.to_string(),
+                                                            min: p.min.map(|v| v as f64),
+                                                            max: p.max.map(|v| v as f64),
+                                                        })
+                                                        .collect()
+                                                })
+                                                .unwrap_or_default(),
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            format_fields: c
+                                .format
+                                .as_ref()
+                                .map(|fields| {
+                                    fields
+                                        .iter()
+                                        .map(|f| FormatFieldDto {
+                                            name: f.name.clone(),
+                                            field_type: f.field_type.to_string(),
+                                            offset: f.offset as u32,
+                                            length: f.length as u32,
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                        })
+                        .collect(),
+                })
+                .collect(),
         }
     }
 }
@@ -252,7 +277,9 @@ pub fn decode_value(
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
     let spec = parse_device_spec(&yaml)?;
     let proto = REGISTRY.get_protocol(&spec);
-    let decoded = proto.decode_value(&char_uuid, &bytes).map_err(anyhow::Error::from)?;
+    let decoded = proto
+        .decode_value(&char_uuid, &bytes)
+        .map_err(anyhow::Error::from)?;
     Ok(decoded
         .iter()
         .map(|(name, value)| decoded_value_to_dto(name, value))
@@ -320,9 +347,8 @@ pub fn decode_standard_profile_value(
     char_uuid: String,
     bytes: Vec<u8>,
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
-    let profile = profiles::lookup(&service_uuid).ok_or_else(|| {
-        anyhow::anyhow!("no standard profile for service UUID: {}", service_uuid)
-    })?;
+    let profile = profiles::lookup(&service_uuid)
+        .ok_or_else(|| anyhow::anyhow!("no standard profile for service UUID: {}", service_uuid))?;
     let proto = profile.create_protocol();
     let decoded = proto.decode_value(&char_uuid, &bytes)?;
     Ok(decoded
@@ -431,7 +457,10 @@ services:
 
     #[test]
     fn greet_works() {
-        assert_eq!(greet("World".into()), "Hello from OpenGreenIoT Rust core, World!");
+        assert_eq!(
+            greet("World".into()),
+            "Hello from OpenGreenIoT Rust core, World!"
+        );
     }
 
     #[test]
@@ -444,13 +473,19 @@ services:
         let profiles = identify_standard_profiles(uuids);
         assert_eq!(profiles.len(), 2);
 
-        let battery = profiles.iter().find(|p| p.profile_name == "Battery Service").unwrap();
+        let battery = profiles
+            .iter()
+            .find(|p| p.profile_name == "Battery Service")
+            .unwrap();
         assert_eq!(battery.characteristics.len(), 1);
         assert_eq!(battery.characteristics[0].name, "Battery Level");
         assert!(battery.characteristics[0].can_read);
         assert!(battery.characteristics[0].can_notify);
 
-        let device_info = profiles.iter().find(|p| p.profile_name == "Device Information").unwrap();
+        let device_info = profiles
+            .iter()
+            .find(|p| p.profile_name == "Device Information")
+            .unwrap();
         assert_eq!(device_info.characteristics.len(), 7);
     }
 
@@ -463,12 +498,9 @@ services:
 
     #[test]
     fn decode_standard_battery_level() {
-        let values = decode_standard_profile_value(
-            "180f".to_string(),
-            "2a19".to_string(),
-            vec![85],
-        )
-        .unwrap();
+        let values =
+            decode_standard_profile_value("180f".to_string(), "2a19".to_string(), vec![85])
+                .unwrap();
         assert_eq!(values.len(), 1);
         assert_eq!(values[0].name, "battery_percent");
         assert_eq!(values[0].uint_value, Some(85));
@@ -489,11 +521,7 @@ services:
 
     #[test]
     fn decode_standard_unknown_service_fails() {
-        let result = decode_standard_profile_value(
-            "fff0".to_string(),
-            "fff1".to_string(),
-            vec![0],
-        );
+        let result = decode_standard_profile_value("fff0".to_string(), "fff1".to_string(), vec![0]);
         assert!(result.is_err());
     }
 }

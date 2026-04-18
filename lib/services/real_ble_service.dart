@@ -4,13 +4,29 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import 'ble_service.dart';
 
+/// Map a flutter_blue_plus connection state to our internal enum.
+/// Extracted as a top-level function so it can be unit-tested without
+/// a real Bluetooth adapter.
+BleConnectionState mapConnectionState(BluetoothConnectionState state) {
+  switch (state) {
+    case BluetoothConnectionState.connected:
+      return BleConnectionState.connected;
+    case BluetoothConnectionState.disconnected:
+      return BleConnectionState.disconnected;
+    default:
+      return BleConnectionState.disconnected;
+  }
+}
+
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
+  final Map<String, List<BluetoothService>> _servicesCache = {};
 
   @override
   Future<bool> requestPermissions() async {
@@ -33,11 +49,15 @@ class RealBleService implements BleService {
   Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) {
     final controller = StreamController<IoTDevice>();
 
+    Future<void> closeIfOpen() async {
+      if (!controller.isClosed) await controller.close();
+    }
+
     () async {
       try {
         final granted = await requestPermissions();
         if (!granted) {
-          controller.close();
+          await closeIfOpen();
           return;
         }
 
@@ -46,7 +66,7 @@ class RealBleService implements BleService {
           controller.addError(
             StateError('Bluetooth is not enabled. Please turn on Bluetooth.'),
           );
-          controller.close();
+          await closeIfOpen();
           return;
         }
 
@@ -71,12 +91,12 @@ class RealBleService implements BleService {
 
         await _scanSubscription?.cancel();
         _scanSubscription = null;
-        await controller.close();
+        await closeIfOpen();
       } catch (e) {
         controller.addError(e);
         await _scanSubscription?.cancel();
         _scanSubscription = null;
-        await controller.close();
+        await closeIfOpen();
       }
     }();
 
@@ -98,6 +118,7 @@ class RealBleService implements BleService {
 
   @override
   Future<void> disconnect(String deviceId) async {
+    _servicesCache.remove(deviceId);
     final device = BluetoothDevice.fromId(deviceId);
     await device.disconnect();
   }
@@ -105,22 +126,12 @@ class RealBleService implements BleService {
   @override
   Stream<BleConnectionState> connectionState(String deviceId) {
     final device = BluetoothDevice.fromId(deviceId);
-    return device.connectionState.map((state) {
-      switch (state) {
-        case BluetoothConnectionState.connected:
-          return BleConnectionState.connected;
-        case BluetoothConnectionState.disconnected:
-          return BleConnectionState.disconnected;
-        default:
-          return BleConnectionState.disconnected;
-      }
-    });
+    return device.connectionState.map(mapConnectionState);
   }
 
   @override
   Future<List<BleDiscoveredService>> discoverServices(String deviceId) async {
-    final device = BluetoothDevice.fromId(deviceId);
-    final services = await device.discoverServices();
+    final services = await _loadServices(deviceId);
     return services
         .map((s) => BleDiscoveredService(
               uuid: s.uuid.toString(),
@@ -137,18 +148,31 @@ class RealBleService implements BleService {
         .toList();
   }
 
+  /// Load GATT services for a device, caching the result so follow-up
+  /// read/write/subscribe calls don't trigger a fresh discovery round-trip.
+  /// The cache is invalidated in [disconnect].
+  Future<List<BluetoothService>> _loadServices(String deviceId) async {
+    final cached = _servicesCache[deviceId];
+    if (cached != null) return cached;
+    final device = BluetoothDevice.fromId(deviceId);
+    final services = await device.discoverServices();
+    _servicesCache[deviceId] = services;
+    return services;
+  }
+
   /// Find a specific BLE characteristic by service and characteristic UUID.
   Future<BluetoothCharacteristic> _findCharacteristic(
     String deviceId,
     String serviceUuid,
     String charUuid,
   ) async {
-    final device = BluetoothDevice.fromId(deviceId);
-    final services = await device.discoverServices();
+    final services = await _loadServices(deviceId);
+    final s = normalizeUuid(serviceUuid);
+    final c = normalizeUuid(charUuid);
     for (final service in services) {
-      if (service.uuid.toString().toLowerCase() == serviceUuid.toLowerCase()) {
+      if (normalizeUuid(service.uuid.toString()) == s) {
         for (final char in service.characteristics) {
-          if (char.uuid.toString().toLowerCase() == charUuid.toLowerCase()) {
+          if (normalizeUuid(char.uuid.toString()) == c) {
             return char;
           }
         }
@@ -164,7 +188,7 @@ class RealBleService implements BleService {
     String charUuid,
   ) async {
     final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
-    return await char.read();
+    return char.read();
   }
 
   @override
@@ -185,21 +209,28 @@ class RealBleService implements BleService {
     String charUuid,
   ) {
     final controller = StreamController<List<int>>();
+    StreamSubscription<List<int>>? sub;
 
     () async {
       try {
         final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
         await char.setNotifyValue(true);
-        char.lastValueStream.listen(
+        sub = char.lastValueStream.listen(
           (value) => controller.add(value),
           onError: (Object error) => controller.addError(error),
-          onDone: () => controller.close(),
+          onDone: () async {
+            if (!controller.isClosed) await controller.close();
+          },
         );
       } catch (e) {
         controller.addError(e);
-        controller.close();
+        if (!controller.isClosed) await controller.close();
       }
     }();
+
+    controller.onCancel = () async {
+      await sub?.cancel();
+    };
 
     return controller.stream;
   }

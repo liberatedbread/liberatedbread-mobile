@@ -19,7 +19,10 @@ static MOCK_STATES: Lazy<Mutex<HashMap<String, MockDeviceState>>> =
 
 /// Reset all mock device state. Call when starting a new mock session.
 pub fn mock_reset() {
-    MOCK_STATES.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    MOCK_STATES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 /// Simulate reading a characteristic value for a mock device.
@@ -46,11 +49,7 @@ pub fn mock_read_characteristic(
 }
 
 /// Simulate writing a characteristic value for a mock device.
-pub fn mock_write_characteristic(
-    device_id: String,
-    char_uuid: String,
-    value: Vec<u8>,
-) {
+pub fn mock_write_characteristic(device_id: String, char_uuid: String, value: Vec<u8>) {
     let mut states = MOCK_STATES.lock().unwrap_or_else(|e| e.into_inner());
     let state = states.entry(device_id).or_default();
     state.write(&char_uuid, value);
@@ -93,7 +92,7 @@ services:
             TEST_YAML.into(),
         );
         assert_eq!(bytes.len(), 2);
-        assert_eq!(bytes[0], 1);  // bool default: on
+        assert_eq!(bytes[0], 1); // bool default: on
         assert_eq!(bytes[1], 80); // brightness default
     }
 
@@ -103,17 +102,9 @@ services:
         let device_id = "device2".to_string();
         let char_uuid = "0000fff2-0000-1000-8000-00805f9b34fb".to_string();
 
-        mock_write_characteristic(
-            device_id.clone(),
-            char_uuid.clone(),
-            vec![0, 50],
-        );
+        mock_write_characteristic(device_id.clone(), char_uuid.clone(), vec![0, 50]);
 
-        let bytes = mock_read_characteristic(
-            device_id,
-            char_uuid,
-            TEST_YAML.into(),
-        );
+        let bytes = mock_read_characteristic(device_id, char_uuid, TEST_YAML.into());
         assert_eq!(bytes, vec![0, 50]);
     }
 }
