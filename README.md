@@ -57,7 +57,7 @@ decoding characteristic values, and implementing standard Bluetooth profiles.
 | Tool | Version | Notes |
 |------|---------|-------|
 | Flutter | 3.24+ | Stable channel |
-| Rust | stable (1.75+) | Via rustup |
+| Rust | stable (1.82+) | Via rustup |
 | Android SDK | API 34 | With NDK 26.1 |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
