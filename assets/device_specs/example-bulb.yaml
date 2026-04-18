@@ -89,29 +89,3 @@ services:
             length: 1
             name: "battery_percent"
             type: "uint8"
-
-entities:
-  - platform: "light"
-    name: "Bulb"
-    features: ["brightness", "color"]
-    state_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
-    state_mapping:
-      is_on: "power_state"
-      brightness: "brightness"
-      color_rgb:
-        red: "red"
-        green: "green"
-        blue: "blue"
-    commands:
-      turn_on: "power_on"
-      turn_off: "power_off"
-      set_brightness: "set_brightness"
-      set_color: "set_color"
-
-  - platform: "sensor"
-    name: "Battery"
-    device_class: "battery"
-    unit: "%"
-    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
-    state_mapping:
-      value: "battery_percent"

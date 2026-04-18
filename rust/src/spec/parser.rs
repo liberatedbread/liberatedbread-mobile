@@ -103,20 +103,6 @@ services:
             length: 1
             name: "battery_percent"
             type: "uint8"
-
-entities:
-  - platform: "light"
-    name: "Bulb"
-    features: ["brightness", "color"]
-    state_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
-    commands:
-      turn_on: "power_on"
-      turn_off: "power_off"
-  - platform: "sensor"
-    name: "Battery"
-    device_class: "battery"
-    unit: "%"
-    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
 "#;
 
     #[test]
@@ -183,17 +169,5 @@ entities:
         assert_eq!(format[0].offset, 0);
         assert_eq!(format[1].name, "brightness");
         assert_eq!(format[1].field_type, ValueType::Uint8);
-    }
-
-    #[test]
-    fn parse_entities() {
-        let spec = parse_device_spec(EXAMPLE_BULB_YAML).unwrap();
-
-        let entities = spec.entities.as_ref().unwrap();
-        assert_eq!(entities.len(), 2);
-        assert_eq!(entities[0].platform, "light");
-        assert_eq!(entities[1].platform, "sensor");
-        assert_eq!(entities[1].device_class.as_deref(), Some("battery"));
-        assert_eq!(entities[1].unit.as_deref(), Some("%"));
     }
 }

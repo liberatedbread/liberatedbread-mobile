@@ -4,10 +4,8 @@
 //! Byte-level encoding and decoding for BLE characteristic values.
 
 use crate::error::ProtocolError;
-use crate::spec::types::{Command, FormatField, TemplateElement, ValueType};
-use byteorder::{LittleEndian, ReadBytesExt};
+use crate::spec::types::{Command, FormatField, Parameter, TemplateElement, ValueType};
 use std::collections::HashMap;
-use std::io::Cursor;
 
 /// Format bytes as a hex string with the given separator.
 pub(crate) fn bytes_to_hex(bytes: &[u8], sep: &str) -> String {
@@ -62,21 +60,13 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
     match field.field_type {
         ValueType::Bool => Ok(DecodedValue::Bool(slice[0] != 0)),
         ValueType::Uint8 => Ok(DecodedValue::Uint(slice[0] as u64)),
-        ValueType::Uint16 => {
-            let mut cursor = Cursor::new(slice);
-            let val = cursor
-                .read_u16::<LittleEndian>()
-                .map_err(|e| ProtocolError::EncodingFailed(e.to_string()))?;
-            Ok(DecodedValue::Uint(val as u64))
-        }
+        ValueType::Uint16 => Ok(DecodedValue::Uint(
+            u16::from_le_bytes([slice[0], slice[1]]) as u64
+        )),
         ValueType::Int8 => Ok(DecodedValue::Int(slice[0] as i8 as i64)),
-        ValueType::Int16 => {
-            let mut cursor = Cursor::new(slice);
-            let val = cursor
-                .read_i16::<LittleEndian>()
-                .map_err(|e| ProtocolError::EncodingFailed(e.to_string()))?;
-            Ok(DecodedValue::Int(val as i64))
-        }
+        ValueType::Int16 => Ok(DecodedValue::Int(
+            i16::from_le_bytes([slice[0], slice[1]]) as i64
+        )),
         ValueType::Bytes => Ok(DecodedValue::Bytes(slice.to_vec())),
         ValueType::String => {
             let s = std::str::from_utf8(slice)
@@ -107,80 +97,70 @@ pub fn encode_command(
     command: &Command,
     params: &HashMap<String, f64>,
 ) -> Result<Vec<u8>, ProtocolError> {
-    // Fixed value command
     if let Some(ref value) = command.value {
         return Ok(value.clone());
     }
 
-    // Template command
-    if let Some(ref template) = command.template {
-        let param_defs = command.parameters.as_ref();
-        let mut bytes = Vec::new();
+    let template = command
+        .template
+        .as_ref()
+        .ok_or(ProtocolError::EmptyCommand)?;
+    let param_defs = command.parameters.as_ref();
 
-        for element in template {
-            match element {
-                TemplateElement::Byte(b) => bytes.push(*b),
-                TemplateElement::Param(name) => {
-                    let val = params
-                        .get(name.as_str())
-                        .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
-
-                    // Validate against parameter constraints if defined
-                    if let Some(defs) = param_defs {
-                        if let Some(def) = defs.get(name.as_str()) {
-                            if let Some(min) = def.min {
-                                if *val < min as f64 {
-                                    return Err(ProtocolError::ParameterOutOfRange {
-                                        name: name.clone(),
-                                        value: *val,
-                                        min: min as f64,
-                                        max: def.max.unwrap_or(i64::MAX) as f64,
-                                    });
-                                }
-                            }
-                            if let Some(max) = def.max {
-                                if *val > max as f64 {
-                                    return Err(ProtocolError::ParameterOutOfRange {
-                                        name: name.clone(),
-                                        value: *val,
-                                        min: def.min.unwrap_or(i64::MIN) as f64,
-                                        max: max as f64,
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    // Encode based on parameter type
-                    let param_type = param_defs
-                        .and_then(|d| d.get(name.as_str()))
-                        .map(|d| &d.value_type)
-                        .unwrap_or(&ValueType::Uint8);
-
-                    match param_type {
-                        ValueType::Uint8 => bytes.push(*val as u8),
-                        ValueType::Uint16 => {
-                            let v = *val as u16;
-                            bytes.extend_from_slice(&v.to_le_bytes());
-                        }
-                        ValueType::Int8 => bytes.push(*val as i8 as u8),
-                        ValueType::Int16 => {
-                            let v = *val as i16;
-                            bytes.extend_from_slice(&v.to_le_bytes());
-                        }
-                        _ => {
-                            return Err(ProtocolError::EncodingFailed(format!(
-                                "unsupported parameter type for encoding: {param_type}"
-                            )));
-                        }
-                    }
+    let mut bytes = Vec::new();
+    for element in template {
+        match element {
+            TemplateElement::Byte(b) => bytes.push(*b),
+            TemplateElement::Param(name) => {
+                let val = params
+                    .get(name.as_str())
+                    .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
+                let def = param_defs.and_then(|d| d.get(name.as_str()));
+                if let Some(def) = def {
+                    validate_param_range(name, *val, def)?;
                 }
+                let param_type = def.map(|d| &d.value_type).unwrap_or(&ValueType::Uint8);
+                encode_param_bytes(*val, param_type, &mut bytes)?;
             }
         }
-        return Ok(bytes);
     }
+    Ok(bytes)
+}
 
-    Err(ProtocolError::EmptyCommand)
+/// Validate that `val` is within `[def.min, def.max]` if either bound is set.
+fn validate_param_range(name: &str, val: f64, def: &Parameter) -> Result<(), ProtocolError> {
+    let min_f = def.min.map(|m| m as f64);
+    let max_f = def.max.map(|m| m as f64);
+    let out_of_range = min_f.is_some_and(|m| val < m) || max_f.is_some_and(|m| val > m);
+    if out_of_range {
+        return Err(ProtocolError::ParameterOutOfRange {
+            name: name.to_string(),
+            value: val,
+            min: min_f.unwrap_or(f64::NEG_INFINITY),
+            max: max_f.unwrap_or(f64::INFINITY),
+        });
+    }
+    Ok(())
+}
+
+/// Append `val` to `bytes` encoded per the given parameter type.
+fn encode_param_bytes(
+    val: f64,
+    param_type: &ValueType,
+    bytes: &mut Vec<u8>,
+) -> Result<(), ProtocolError> {
+    match param_type {
+        ValueType::Uint8 => bytes.push(val as u8),
+        ValueType::Uint16 => bytes.extend_from_slice(&(val as u16).to_le_bytes()),
+        ValueType::Int8 => bytes.push(val as i8 as u8),
+        ValueType::Int16 => bytes.extend_from_slice(&(val as i16).to_le_bytes()),
+        _ => {
+            return Err(ProtocolError::EncodingFailed(format!(
+                "unsupported parameter type for encoding: {param_type}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

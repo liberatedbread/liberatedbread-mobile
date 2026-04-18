@@ -266,19 +266,19 @@ open coverage/html/index.html
 ```
 
 Current Flutter test files:
-- `test/core/hex_test.dart` — `bytesToHex` and `normalizeUuid` (5 tests)
-- `test/models/iot_device_test.dart` — `IoTDevice` model (5 tests)
-- `test/models/device_characteristic_test.dart` — `DeviceCharacteristic` model (4 tests)
-- `test/models/ble_discovered_service_test.dart` — `BleDiscoveredService` (4 tests)
-- `test/services/device_manager_test.dart` — `DeviceManager` service (7 tests)
-- `test/services/mock_ble_service_test.dart` — `MockBleService` (19 tests)
-- `test/services/real_ble_service_mapping_test.dart` — state mapping (2 tests)
-- `test/providers/device_spec_provider_test.dart` — spec loading (2 tests)
-- `test/screens/scan_screen_test.dart` — scan UI (5 tests)
-- `test/screens/device_screen_test.dart` — device screen (4 tests)
-- `test/widgets/device_control_panel_test.dart` — control panel (2 tests)
-- `test/widgets/raw_characteristic_widget_test.dart` — characteristic widget (3 tests)
-- `test/widget_test.dart` — root widget smoke test (1 test)
+- `test/core/hex_test.dart` — `bytesToHex` and `normalizeUuid`
+- `test/models/iot_device_test.dart` — `IoTDevice` model
+- `test/models/device_characteristic_test.dart` — `DeviceCharacteristic` model
+- `test/models/ble_discovered_service_test.dart` — `BleDiscoveredService`
+- `test/services/device_manager_test.dart` — `DeviceManager` service
+- `test/services/mock_ble_service_test.dart` — `MockBleService`
+- `test/services/mock_ble_service_rust_test.dart` — FRB round-trip
+- `test/services/real_ble_service_mapping_test.dart` — state mapping
+- `test/providers/device_spec_provider_test.dart` — spec loading
+- `test/screens/scan_screen_test.dart` — scan UI
+- `test/screens/device_screen_test.dart` — device screen
+- `test/widgets/device_control_panel_test.dart` — control panel
+- `test/widgets/raw_characteristic_widget_test.dart` — characteristic widget
 
 Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/mock_flow_test.dart` — scan → connect → discover
@@ -327,15 +327,16 @@ cargo test decode_standard_battery_level
 ```
 
 Current Rust test modules:
-- `api::device_api` — FFI API, DTOs, roundtrip encoding (13 tests)
-- `api::mock_api` — Mock read/write (2 tests)
-- `codec::types` — Binary encoding/decoding (7 tests)
-- `protocol::generic` — GenericProtocol (6 tests)
-- `protocol::registry` — ProtocolRegistry (4 tests)
-- `protocol::profiles` — UUID normalization, lookup (10 tests)
-- `protocol::profiles::battery` — Battery protocol (8 tests)
-- `protocol::profiles::device_info` — Device info protocol (8 tests)
-- `spec::parser` — YAML parsing (5 tests)
+- `api::device_api` — FFI API, DTOs, roundtrip encoding
+- `api::mock_api` — Mock read/write
+- `codec::types` — Binary encoding/decoding
+- `mock::simulator` — MockDeviceState
+- `protocol::generic` — GenericProtocol
+- `protocol::registry` — ProtocolRegistry
+- `protocol::profiles` — UUID normalization, lookup
+- `protocol::profiles::battery` — Battery protocol
+- `protocol::profiles::device_info` — Device info protocol
+- `spec::parser` — YAML parsing
 
 ### Linting and Formatting
 

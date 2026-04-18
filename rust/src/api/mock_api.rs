@@ -17,6 +17,11 @@ use once_cell::sync::Lazy;
 static MOCK_STATES: Lazy<Mutex<HashMap<String, MockDeviceState>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Fallback buffer length when a spec has no `format` for the requested
+/// characteristic. Chosen small enough to be cheap, large enough to show
+/// "something" in the hex display.
+const FALLBACK_RAW_READ_LEN: usize = 4;
+
 /// Reset all mock device state. Call when starting a new mock session.
 pub fn mock_reset() {
     MOCK_STATES
@@ -44,8 +49,8 @@ pub fn mock_read_characteristic(
         }
     }
 
-    // No format found — return raw zeros
-    state.read_raw(&char_uuid, 4)
+    // No format found — return a fixed-length zero buffer
+    state.read_raw(&char_uuid, FALLBACK_RAW_READ_LEN)
 }
 
 /// Simulate writing a characteristic value for a mock device.
@@ -94,6 +99,18 @@ services:
         assert_eq!(bytes.len(), 2);
         assert_eq!(bytes[0], 1); // bool default: on
         assert_eq!(bytes[1], 80); // brightness default
+    }
+
+    #[test]
+    fn mock_read_falls_back_to_zero_buffer_when_format_missing() {
+        mock_reset();
+        // Characteristic UUID that isn't in the spec → no format → fallback.
+        let bytes = mock_read_characteristic(
+            "device1".into(),
+            "0000ffff-0000-1000-8000-00805f9b34fb".into(),
+            TEST_YAML.into(),
+        );
+        assert_eq!(bytes, vec![0; FALLBACK_RAW_READ_LEN]);
     }
 
     #[test]
