@@ -15,6 +15,8 @@
 - [ ] Unit tests pass (`flutter test`)
 - [ ] Lint passes (`flutter analyze`)
 - [ ] Code is formatted (`dart format .`)
+- [ ] Rust tests pass (`cd rust && cargo test`)
+- [ ] Rust lint passes (`cd rust && cargo clippy --all-targets --all-features -- -D warnings`)
 - [ ] Tested on Android
 - [ ] Tested on iOS
 
