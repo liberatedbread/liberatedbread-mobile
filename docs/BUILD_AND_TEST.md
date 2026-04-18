@@ -26,7 +26,7 @@ app on **Linux** and **macOS**.
 |------|---------|-------------|
 | Git | any | `git --version` |
 | Flutter | 3.24+ (stable) | `flutter --version` |
-| Rust | stable (1.75+) | `rustc --version` |
+| Rust | stable (1.82+) | `rustc --version` |
 | cargo-ndk | latest | `cargo ndk --version` |
 
 ### Android Builds
