@@ -13,11 +13,11 @@ use std::collections::HashMap;
 
 /// Device Information Service protocol controller.
 #[derive(Default)]
-pub struct DeviceInfoProtocol;
+pub struct DeviceInfoProtocol {}
 
 impl DeviceInfoProtocol {
     pub fn new() -> Self {
-        Self
+        Self {}
     }
 
     /// Find the field name for a characteristic UUID, or None.
@@ -45,11 +45,10 @@ impl DeviceProtocol for DeviceInfoProtocol {
         char_uuid: &str,
         bytes: &[u8],
     ) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
-        let name = Self::field_name(char_uuid).ok_or_else(|| {
-            ProtocolError::CharacteristicNotFound {
+        let name =
+            Self::field_name(char_uuid).ok_or_else(|| ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
-            }
-        })?;
+            })?;
 
         let value = if name == "system_id" {
             DecodedValue::String(bytes_to_hex(bytes, ":"))
@@ -86,10 +85,7 @@ mod tests {
     fn decode_manufacturer_name() {
         let proto = DeviceInfoProtocol::new();
         let values = proto
-            .decode_value(
-                "00002a29-0000-1000-8000-00805f9b34fb",
-                b"Acme Corp",
-            )
+            .decode_value("00002a29-0000-1000-8000-00805f9b34fb", b"Acme Corp")
             .unwrap();
         assert_eq!(
             values["value"],
@@ -101,20 +97,14 @@ mod tests {
     fn decode_model_number_short_uuid() {
         let proto = DeviceInfoProtocol::new();
         let values = proto.decode_value("2a24", b"Model-X").unwrap();
-        assert_eq!(
-            values["value"],
-            DecodedValue::String("Model-X".to_string())
-        );
+        assert_eq!(values["value"], DecodedValue::String("Model-X".to_string()));
     }
 
     #[test]
     fn decode_firmware_revision() {
         let proto = DeviceInfoProtocol::new();
         let values = proto.decode_value("2A26", b"v1.2.3").unwrap();
-        assert_eq!(
-            values["value"],
-            DecodedValue::String("v1.2.3".to_string())
-        );
+        assert_eq!(values["value"], DecodedValue::String("v1.2.3".to_string()));
     }
 
     #[test]
@@ -133,10 +123,7 @@ mod tests {
     fn decode_strips_null_terminator() {
         let proto = DeviceInfoProtocol::new();
         let values = proto.decode_value("2a29", b"Acme\0\0").unwrap();
-        assert_eq!(
-            values["value"],
-            DecodedValue::String("Acme".to_string())
-        );
+        assert_eq!(values["value"], DecodedValue::String("Acme".to_string()));
     }
 
     #[test]

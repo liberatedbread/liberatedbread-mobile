@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,8 +18,10 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   for (final path in specFiles) {
     try {
       specs[path] = await rootBundle.loadString(path);
-    } catch (_) {
-      // Skip missing files
+    } on FlutterError {
+      // Asset not bundled – skip silently.
+    } catch (e, st) {
+      debugPrint('Failed to load spec $path: $e\n$st');
     }
   }
   return specs;

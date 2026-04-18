@@ -63,12 +63,8 @@ impl StandardProfile {
     /// Create a protocol controller for this profile.
     pub fn create_protocol(self) -> Box<dyn DeviceProtocol> {
         match self {
-            StandardProfile::BatteryService => {
-                Box::new(battery::BatteryServiceProtocol::new())
-            }
-            StandardProfile::DeviceInformation => {
-                Box::new(device_info::DeviceInfoProtocol::new())
-            }
+            StandardProfile::BatteryService => Box::new(battery::BatteryServiceProtocol::new()),
+            StandardProfile::DeviceInformation => Box::new(device_info::DeviceInfoProtocol::new()),
         }
     }
 
@@ -84,13 +80,15 @@ impl StandardProfile {
             }],
             StandardProfile::DeviceInformation => DEVICE_INFO_CHARS
                 .iter()
-                .map(|(short, _, display_name, can_notify)| ProfileCharacteristicInfo {
-                    uuid: full_uuid(short),
-                    name: display_name.to_string(),
-                    can_read: true,
-                    can_write: false,
-                    can_notify: *can_notify,
-                })
+                .map(
+                    |(short, _, display_name, can_notify)| ProfileCharacteristicInfo {
+                        uuid: full_uuid(short),
+                        name: display_name.to_string(),
+                        can_read: true,
+                        can_write: false,
+                        can_notify: *can_notify,
+                    },
+                )
                 .collect(),
         }
     }
@@ -127,7 +125,11 @@ pub fn lookup(service_uuid: &str) -> Option<StandardProfile> {
 /// Strip leading zeros, keeping at least one character.
 fn strip_leading_zeros(s: &str) -> String {
     let trimmed = s.trim_start_matches('0');
-    if trimmed.is_empty() { "0".to_string() } else { trimmed.to_string() }
+    if trimmed.is_empty() {
+        "0".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Normalize a UUID to its short hex form for comparison.
@@ -172,15 +174,9 @@ mod tests {
     #[test]
     fn normalize_full_uuid_with_leading_zeros_in_short_part() {
         // UUID "000000f0-..." should normalize to "f0", not ""
-        assert_eq!(
-            normalize_uuid("000000f0-0000-1000-8000-00805f9b34fb"),
-            "f0"
-        );
+        assert_eq!(normalize_uuid("000000f0-0000-1000-8000-00805f9b34fb"), "f0");
         // All-zero short part
-        assert_eq!(
-            normalize_uuid("00000000-0000-1000-8000-00805f9b34fb"),
-            "0"
-        );
+        assert_eq!(normalize_uuid("00000000-0000-1000-8000-00805f9b34fb"), "0");
     }
 
     #[test]
@@ -201,10 +197,7 @@ mod tests {
 
     #[test]
     fn lookup_battery_service() {
-        assert_eq!(
-            lookup("180f"),
-            Some(StandardProfile::BatteryService)
-        );
+        assert_eq!(lookup("180f"), Some(StandardProfile::BatteryService));
         assert_eq!(
             lookup("0000180f-0000-1000-8000-00805f9b34fb"),
             Some(StandardProfile::BatteryService)
@@ -217,10 +210,7 @@ mod tests {
 
     #[test]
     fn lookup_device_info() {
-        assert_eq!(
-            lookup("180a"),
-            Some(StandardProfile::DeviceInformation)
-        );
+        assert_eq!(lookup("180a"), Some(StandardProfile::DeviceInformation));
         assert_eq!(
             lookup("0000180a-0000-1000-8000-00805f9b34fb"),
             Some(StandardProfile::DeviceInformation)
@@ -230,10 +220,7 @@ mod tests {
     #[test]
     fn lookup_unknown_service() {
         assert_eq!(lookup("fff0"), None);
-        assert_eq!(
-            lookup("0000fff0-0000-1000-8000-00805f9b34fb"),
-            None
-        );
+        assert_eq!(lookup("0000fff0-0000-1000-8000-00805f9b34fb"), None);
     }
 
     #[test]

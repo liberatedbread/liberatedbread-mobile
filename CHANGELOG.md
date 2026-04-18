@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Platform scaffolds** — Android (`android/`) and iOS (`ios/`) folders are now
+  committed. `flutter build apk` and `flutter build ios` work out of the box.
+- **CI overhaul** — separate jobs for Flutter (analyze + test + format +
+  Codecov), Rust (fmt + clippy + test), Android debug-APK smoke build, iOS
+  simulator build on macOS, and Android emulator integration tests.
+- **Test coverage** — reusable `FakeBleService` plus widget/screen tests for
+  `ScanScreen`, `DeviceScreen`, `DeviceControlPanel`, `RawCharacteristicWidget`,
+  a provider test for `deviceSpecsProvider`, and unit tests for `bytesToHex`,
+  `normalizeUuid`, and `mapConnectionState`.
+- **Integration tests** under `integration_test/` covering the mock scan →
+  connect → discover flow and the error + retry path.
+- `scripts/test.sh` — one-shot local CI mirror.
+- `pubspec.lock` is now committed for reproducible app builds.
+- `lib/core/hex.dart` — `bytesToHex` and `normalizeUuid` helpers (deduplicated
+  from three call sites).
+- **FRB wiring** — `flutter_rust_bridge` 2.9.0 bindings are generated and
+  committed (`lib/src/rust/`, `rust/src/frb_generated.rs`). `RustLib.init()`
+  runs at app startup; `MockBleService` now delegates read/write to
+  `rust/src/api/mock_api.rs` with a Dart fallback when the native library
+  isn't loaded. CI builds the host Rust lib before `flutter test` and checks
+  the bindings are in sync with the Rust API (drift check).
+- Lint additions in `analysis_options.yaml`: `cancel_subscriptions`,
+  `close_sinks`, `unawaited_futures`.
 - Standard Bluetooth profile controllers: Battery Service (0x180F) and
   Device Information Service (0x180A)
 - Protocol error types module (`error.rs`) with `ProtocolError` and `SpecError`
@@ -22,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `MockBleService.subscribeCharacteristic` no longer leaks the periodic
+  `Timer` when the subscriber cancels without disconnecting.
+- `RealBleService` now caches discovered GATT services per device, eliminating
+  a redundant round-trip on every read/write/subscribe. Cache is invalidated on
+  disconnect.
+- `deviceSpecsProvider` distinguishes "missing asset" (silent) from "malformed
+  YAML" (logged), so real errors are no longer swallowed.
 - UUID normalization now handles all-zero prefixes correctly (e.g. `000000f0`)
 - Mutex lock recovery at FFI boundary (prevents panic on poisoned mutex)
 - Overflow guard in codec field offset calculation
@@ -29,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `MockBleService` deduplicates its two mock devices' service definitions into
+  shared `_controlService` / `_batteryService` constants.
+- `DeviceScreen` extracts a file-private `_CenteredProgress` widget used by the
+  connecting/discovering states.
 - Initial project structure
 - BLE device scanning model (`IoTDevice`)
 - Device characteristic model (`DeviceCharacteristic`)

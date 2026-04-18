@@ -16,11 +16,11 @@ const BATTERY_LEVEL_UUID_SHORT: &str = "2a19";
 
 /// Battery Service protocol controller.
 #[derive(Default)]
-pub struct BatteryServiceProtocol;
+pub struct BatteryServiceProtocol {}
 
 impl BatteryServiceProtocol {
     pub fn new() -> Self {
-        Self
+        Self {}
     }
 
     /// Check if a characteristic UUID matches the Battery Level characteristic.
@@ -51,10 +51,7 @@ impl DeviceProtocol for BatteryServiceProtocol {
         }
 
         if bytes.is_empty() {
-            return Err(ProtocolError::BufferTooShort {
-                needed: 1,
-                got: 0,
-            });
+            return Err(ProtocolError::BufferTooShort { needed: 1, got: 0 });
         }
 
         let mut result = HashMap::new();
