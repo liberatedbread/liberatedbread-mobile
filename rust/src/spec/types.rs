@@ -12,7 +12,6 @@ use std::collections::HashMap;
 pub struct DeviceSpec {
     pub device: DeviceInfo,
     pub services: Vec<Service>,
-    pub entities: Option<Vec<Entity>>,
 }
 
 impl DeviceSpec {
@@ -81,10 +80,6 @@ pub struct Characteristic {
     pub properties: Vec<CharacteristicProperty>,
     pub commands: Option<HashMap<String, Command>>,
     pub format: Option<Vec<FormatField>>,
-    /// Encryption required for this characteristic's data.
-    pub encryption: Option<EncryptionConfig>,
-    /// Packet framing configuration.
-    pub framing: Option<FramingConfig>,
 }
 
 /// BLE characteristic property.
@@ -204,41 +199,4 @@ impl std::fmt::Display for ValueType {
             ValueType::String => write!(f, "string"),
         }
     }
-}
-
-/// Encryption configuration for a characteristic or service.
-#[derive(Debug, Clone, Deserialize)]
-pub struct EncryptionConfig {
-    /// Algorithm identifier, e.g., "aes-128-ecb", "aes-128-ofb", "aes-128-ctr".
-    pub algorithm: String,
-    /// How the encryption key is obtained.
-    /// "static" = hardcoded, "handshake" = established via init sequence,
-    /// "device-specific" = derived from device identity.
-    pub key_derivation: Option<String>,
-    /// Static key bytes (hex string), if key_derivation is "static".
-    pub static_key: Option<String>,
-}
-
-/// Packet framing configuration for a characteristic.
-#[derive(Debug, Clone, Deserialize)]
-pub struct FramingConfig {
-    /// Whether the payload is prefixed with its length.
-    pub length_prefix: Option<bool>,
-    /// Checksum algorithm: "crc32", "xor", "sum".
-    pub checksum: Option<String>,
-    /// Maximum chunk size for large payloads (image uploads, etc.).
-    pub max_chunk_size: Option<usize>,
-}
-
-/// Home Assistant entity mapping (optional, consumed by HA integration).
-#[derive(Debug, Clone, Deserialize)]
-pub struct Entity {
-    pub platform: String,
-    pub name: String,
-    pub device_class: Option<String>,
-    pub unit: Option<String>,
-    pub features: Option<Vec<String>>,
-    pub state_characteristic: Option<String>,
-    pub state_mapping: Option<HashMap<String, serde_yaml::Value>>,
-    pub commands: Option<HashMap<String, String>>,
 }
