@@ -25,8 +25,8 @@ impl DeviceInfoProtocol {
         let normalized = super::normalize_uuid(char_uuid);
         super::DEVICE_INFO_CHARS
             .iter()
-            .find(|(uuid, _, _, _)| *uuid == normalized)
-            .map(|(_, field_name, _, _)| *field_name)
+            .find(|def| def.short_uuid == normalized)
+            .map(|def| def.field_name)
     }
 }
 
@@ -143,8 +143,11 @@ mod tests {
     #[test]
     fn all_known_characteristics() {
         let proto = DeviceInfoProtocol::new();
-        for (uuid, _, _, _) in super::super::DEVICE_INFO_CHARS {
-            assert_eq!(proto.fields_for_characteristic(uuid), vec!["value"]);
+        for def in super::super::DEVICE_INFO_CHARS {
+            assert_eq!(
+                proto.fields_for_characteristic(def.short_uuid),
+                vec!["value"]
+            );
         }
     }
 }
