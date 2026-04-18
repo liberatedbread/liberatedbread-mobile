@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pubspec.lock` is now committed for reproducible app builds.
 - `lib/core/hex.dart` — `bytesToHex` and `normalizeUuid` helpers (deduplicated
   from three call sites).
+- **FRB wiring** — `flutter_rust_bridge` 2.9.0 bindings are generated and
+  committed (`lib/src/rust/`, `rust/src/frb_generated.rs`). `RustLib.init()`
+  runs at app startup; `MockBleService` now delegates read/write to
+  `rust/src/api/mock_api.rs` with a Dart fallback when the native library
+  isn't loaded. CI builds the host Rust lib before `flutter test` and checks
+  the bindings are in sync with the Rust API (drift check).
 - Lint additions in `analysis_options.yaml`: `cancel_subscriptions`,
   `close_sinks`, `unawaited_futures`.
 - Standard Bluetooth profile controllers: Battery Service (0x180F) and

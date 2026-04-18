@@ -284,6 +284,21 @@ Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/mock_flow_test.dart` — scan → connect → discover
 - `integration_test/error_flow_test.dart` — error state + retry
 
+### FRB-backed tests
+
+`test/services/mock_ble_service_rust_test.dart` exercises the Rust mock API
+through flutter_rust_bridge. It requires the host Rust library:
+
+```bash
+cd rust && cargo build
+LD_LIBRARY_PATH=$PWD/target/debug flutter test test/services/mock_ble_service_rust_test.dart
+# macOS uses DYLD_FALLBACK_LIBRARY_PATH instead.
+```
+
+`scripts/test.sh` wires this automatically. If the library fails to load the
+tests self-skip via `markTestSkipped` so CI on fresh clones doesn't see a hard
+failure.
+
 Run them with:
 
 ```bash

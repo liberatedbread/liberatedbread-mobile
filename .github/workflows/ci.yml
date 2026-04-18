@@ -23,6 +23,10 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Cache pub
         uses: actions/cache@v4
         with:
@@ -34,6 +38,15 @@ jobs:
       - run: flutter pub get
       - run: dart format --set-exit-if-changed .
       - run: flutter analyze --fatal-infos
+      - name: Build host Rust library for FRB
+        run: cd rust && cargo build
+      - name: Export LD_LIBRARY_PATH for tests
+        run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
+      - name: Check FRB bindings are up to date
+        run: |
+          cargo install --locked flutter_rust_bridge_codegen@2.9.0
+          flutter_rust_bridge_codegen generate
+          git diff --exit-code lib/src/rust/ rust/src/frb_generated.rs
       - run: flutter test --coverage
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

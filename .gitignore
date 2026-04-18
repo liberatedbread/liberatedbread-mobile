@@ -47,6 +47,3 @@ coverage/
 
 # Rust
 rust/target/
-
-# Generated FRB bindings
-lib/src/rust/
