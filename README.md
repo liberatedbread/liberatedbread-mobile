@@ -173,7 +173,7 @@ flutter test
 │   ├── app.dart                # App widget, routing, theme
 │   ├── core/                   # Constants, theme, hex/uuid helpers
 │   ├── models/                 # IoTDevice, DeviceCharacteristic, BleDiscoveredService
-│   ├── providers/              # Riverpod providers (BLE, device specs, connection state)
+│   ├── providers/              # Riverpod providers (BLE service, device specs)
 │   ├── screens/                # ScanScreen, DeviceScreen, CharacteristicScreen
 │   ├── services/               # BleService (abstract), RealBleService, MockBleService
 │   └── widgets/                # DeviceControlPanel, RawCharacteristicWidget

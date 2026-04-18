@@ -478,7 +478,6 @@ dependencies = [
  "anyhow",
  "byteorder",
  "flutter_rust_bridge",
- "log",
  "once_cell",
  "serde",
  "serde_yaml",

@@ -22,18 +22,24 @@ flows through the system, and documents the YAML device spec format.
 
 ### `lib/main.dart`
 
-The app starts here. It wraps the root widget in Riverpod's `ProviderScope`
-for dependency injection:
+The app starts here. It initializes the Rust core via `RustLib.init()` and
+wraps the root widget in Riverpod's `ProviderScope`:
 
 ```dart
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await RustLib.init();
+  } catch (e, st) {
+    debugPrint('RustLib.init failed ($e); falling back to Dart-side mock. $st');
+  }
   runApp(const ProviderScope(child: OpenGreenIoTApp()));
 }
 ```
 
-There are two commented-out lines for `flutter_rust_bridge` initialization
-(`RustLib.init()`) — these will be uncommented after running
-`flutter_rust_bridge_codegen generate`.
+`RustLib.init()` is wrapped in a try/catch so the app still runs when the
+native library isn't bundled (e.g. test builds that skip cargokit);
+`MockBleService` has a Dart fallback table that matches Rust's mock output.
 
 ### `lib/app.dart`
 
@@ -103,9 +109,10 @@ Each has:
 - Control Service (0x0000fff0) with Command (write) and Status (read+notify)
 - Battery Service (0x0000180f) with Battery Level (read+notify)
 
-The mock service simulates connection delays, RSSI jitter, and stores written
-values in memory. Once the FRB bridge is connected, mock reads will delegate
-to Rust's `mock_read_characteristic()` for realistic byte-level simulation.
+The mock service simulates connection delays and RSSI jitter. Byte-level
+logic (defaults, write-through state) delegates to Rust's `mock_api` via
+flutter_rust_bridge when the native library is loaded; a small Dart fallback
+table produces the same bytes when it isn't.
 
 ### Device Manager — `lib/services/device_manager.dart`
 
@@ -133,7 +140,7 @@ Computed properties:
 - `isNearby` — `rssi > -70`
 - `displayName` — Falls back to `"Unknown ($id)"` if name is empty
 
-Uses `Equatable` for value-based equality on `id`.
+Equality and `hashCode` are based on `id`.
 
 ### `DeviceCharacteristic` — `lib/models/device_characteristic.dart`
 
@@ -183,17 +190,6 @@ final deviceSpecsProvider = FutureProvider<List<String>>((ref) async {
 
 Note: `AssetBundle` doesn't support directory listing, so spec files are
 enumerated explicitly.
-
-### `deviceConnectionProvider` — `lib/providers/device_state_provider.dart`
-
-Per-device connection state stream using `StreamProvider.family`:
-
-```dart
-final deviceConnectionProvider =
-    StreamProvider.family<BleConnectionState, String>((ref, deviceId) {
-  return ref.read(bleServiceProvider).connectionState(deviceId);
-});
-```
 
 ---
 
@@ -279,8 +275,6 @@ rust/src/
 │   ├── traits.rs       # DeviceProtocol trait definition
 │   ├── generic.rs      # YAML-driven GenericProtocol
 │   ├── registry.rs     # ProtocolRegistry router
-│   ├── middleware.rs    # PassthroughMiddleware skeleton
-│   ├── devices/mod.rs  # Placeholder for device-specific overrides
 │   └── profiles/
 │       ├── mod.rs      # StandardProfile enum + UUID normalization
 │       ├── battery.rs  # Battery Service (0x180F)
@@ -304,16 +298,14 @@ Both derive `thiserror::Error` for clean error messages.
 
 **`spec/types.rs`** defines the Rust types matching the YAML schema:
 
-- `DeviceSpec` — top level: device info + services + entities
+- `DeviceSpec` — top level: device info + services
 - `DeviceInfo` — name, manufacturer, status, protocol, identification
 - `Service` — UUID, name, characteristics
-- `Characteristic` — UUID, name, properties, commands, format, encryption, framing
+- `Characteristic` — UUID, name, properties, commands, format
 - `Command` — fixed `value` or `template` with parameters
 - `TemplateElement` — `Byte(u8)` or `Param(String)` with custom deserializer
   for `"{param_name}"` syntax
 - `FormatField` — offset, length, name, type (for decoding)
-- `EncryptionConfig` / `FramingConfig` — for future middleware
-- `Entity` — Home Assistant integration (platform, features, state mapping)
 
 **`spec/parser.rs`** — `parse_device_spec(yaml) -> Result<DeviceSpec>` via
 `serde_yaml`.
@@ -342,14 +334,11 @@ all services.
 **`traits.rs`** — The `DeviceProtocol` trait:
 
 ```rust
-pub trait DeviceProtocol {
+pub trait DeviceProtocol: Send + Sync {
     fn encode_command(&self, char_uuid, command_name, params) -> Result<Vec<u8>>;
     fn decode_value(&self, char_uuid, bytes) -> Result<HashMap<String, DecodedValue>>;
     fn commands_for_characteristic(&self, char_uuid) -> Vec<String>;
     fn fields_for_characteristic(&self, char_uuid) -> Vec<String>;
-    fn requires_initialization(&self) -> bool;  // default: false
-    fn on_connect(&self) -> Vec<InitCommand>;   // default: empty
-    fn on_disconnect(&self);                     // default: no-op
 }
 ```
 
@@ -362,9 +351,6 @@ delegates encoding/decoding to the codec module.
   `GenericProtocol`
 - `get_standard_profile(service_uuid) -> Option<Box<dyn DeviceProtocol>>` —
   looks up standard BLE profiles
-
-**`middleware.rs`** — `PassthroughMiddleware<P>`: Generic wrapper that passes
-all calls through unchanged. Skeleton for future encryption/framing.
 
 ### Standard BLE Profiles — `protocol/profiles/`
 
@@ -471,31 +457,6 @@ services:
             length: 1
             name: "field_name"
             type: "bool"              # Same types as parameters
-
-        # Optional: encryption for this characteristic
-        encryption:
-          algorithm: "aes-128-ecb"
-          key_derivation: "static"    # static | handshake | device-specific
-          static_key: "00112233..."   # Hex string
-
-        # Optional: packet framing
-        framing:
-          length_prefix: true
-          checksum: "crc32"           # crc32 | xor | sum
-          max_chunk_size: 20
-
-# Optional: Home Assistant entity mapping
-entities:
-  - platform: "light"                # light | sensor | switch | etc.
-    name: "Display Name"
-    device_class: "battery"          # Optional
-    unit: "%"                        # Optional
-    features: ["brightness", "color"]
-    state_characteristic: "0000fff2-..."
-    state_mapping:
-      field_name: ha_attribute
-    commands:
-      turn_on: { command: "power_on" }
 ```
 
 ### Supported Value Types
@@ -532,7 +493,7 @@ User taps a device
 User taps "Read" on Battery Level characteristic
   → bleService.readCharacteristic(deviceId, "180f", "2a19")
   → Returns raw bytes, e.g. [85]
-  → (Future) Rust: decode_standard_profile_value("180f", "2a19", [85])
+  → Rust: decode_standard_profile_value("180f", "2a19", [85])
   → Returns DecodedValueDto { name: "battery_percent", uint_value: 85 }
   → UI shows "85%"
 ```
@@ -541,7 +502,7 @@ User taps "Read" on Battery Level characteristic
 
 ```
 User selects "set_brightness" command with brightness=75
-  → (Future) Rust: encode_command(yaml, "fff1", "set_brightness", {brightness: 75})
+  → Rust: encode_command(yaml, "fff1", "set_brightness", {brightness: 75})
   → Rust looks up command template: [0x02, "{brightness}"]
   → Validates: 0 ≤ 75 ≤ 100 ✓
   → Encodes: [0x02, 0x4B]
@@ -554,7 +515,7 @@ Flutter writes bytes
 Device sends notification on Status characteristic
   → bleService.subscribeCharacteristic(deviceId, "fff0", "fff2")
   → Receives raw bytes, e.g. [1, 75, 255, 180, 50]
-  → (Future) Rust: decode_value(yaml, "fff2", [1, 75, 255, 180, 50])
+  → Rust: decode_value(yaml, "fff2", [1, 75, 255, 180, 50])
   → Returns: power_state=true, brightness=75, red=255, green=180, blue=50
   → UI updates status display
 ```
@@ -563,7 +524,7 @@ Device sends notification on Status characteristic
 
 ```
 Device discovered with service UUIDs: ["180f", "180a", "fff0"]
-  → (Future) Rust: identify_standard_profiles(["180f", "180a", "fff0"])
+  → Rust: identify_standard_profiles(["180f", "180a", "fff0"])
   → Returns:
     - ProfileInfoDto { service_uuid: "180f", profile_name: "Battery Service", ... }
     - ProfileInfoDto { service_uuid: "180a", profile_name: "Device Information", ... }
@@ -578,22 +539,14 @@ Device discovered with service UUIDs: ["180f", "180a", "fff0"]
 ### What's Working
 - Complete Rust protocol system (spec parsing, codec, profiles, registry)
 - Flutter BLE scanning, connection, service discovery, read/write/notify
-- Mock mode with two simulated devices
-- 58+ Rust tests, 17 Flutter tests
+- Mock mode with two simulated devices, driven by the Rust simulator
 - Standard BLE profile decoding (Battery, Device Info)
+- FRB bridge wired end-to-end: `RustLib.init()` at startup,
+  `MockBleService` delegates to `rust/src/api/mock_api.rs`
 
 ### What's Pending
-- **FRB bridge activation** — `flutter_rust_bridge_codegen generate` needs to
-  run to create Dart bindings. Until then, Rust functions aren't callable from
-  Flutter.
-- **Typed control widgets** — Currently shows raw hex. Once FRB is connected,
-  the UI will render toggles, sliders, color pickers based on matched device
-  specs.
+- **Typed control widgets** — Currently shows raw hex. The UI will render
+  toggles, sliders, color pickers based on matched device specs.
 - **Device spec matching in UI** — Specs are loaded but not yet matched
   against discovered devices.
-- **Encryption/framing middleware** — Config types exist in specs,
-  `PassthroughMiddleware` skeleton exists, but actual encryption/framing logic
-  is not implemented.
-- **Home Assistant entity export** — Entity types are defined in specs and
-  parsed, but not yet consumed.
 - **Persistence** — No local storage for discovered devices or specs.
