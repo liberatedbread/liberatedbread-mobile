@@ -11,7 +11,10 @@ use crate::protocol::generic::GenericProtocol;
 use crate::protocol::profiles;
 use crate::protocol::traits::DeviceProtocol;
 use crate::spec::parser::parse_device_spec;
-use crate::spec::types::{CharacteristicProperty, DeviceSpec, ManufacturerStatus, Protocol};
+use crate::spec::types::{
+    Characteristic, CharacteristicProperty, Command, DeviceSpec, FormatField, ManufacturerStatus,
+    Parameter, Protocol, Service,
+};
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
 // These are simpler, FRB-friendly versions of the internal types.
@@ -92,88 +95,103 @@ impl From<&DeviceSpec> for DeviceSpecDto {
         Self {
             device_name: spec.device.name.clone(),
             manufacturer: spec.device.manufacturer.clone(),
-            manufacturer_status: match spec.device.manufacturer_status {
-                ManufacturerStatus::Abandoned => "abandoned".into(),
-                ManufacturerStatus::Shutdown => "shutdown".into(),
-                ManufacturerStatus::Unsupported => "unsupported".into(),
-            },
-            protocol: match spec.device.protocol {
-                Protocol::Ble => "ble".into(),
-                Protocol::Wifi => "wifi".into(),
-                Protocol::Zigbee => "zigbee".into(),
-                Protocol::Zwave => "zwave".into(),
-            },
+            manufacturer_status: manufacturer_status_str(&spec.device.manufacturer_status).into(),
+            protocol: protocol_str(&spec.device.protocol).into(),
             notes: spec.device.notes.clone(),
             local_name_prefix: ident.and_then(|i| i.local_name_prefix.clone()),
             service_uuids: ident
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
-            services: spec
-                .services
-                .iter()
-                .map(|s| ServiceDto {
-                    uuid: s.uuid.clone(),
-                    name: s.name.clone(),
-                    characteristics: s
-                        .characteristics
-                        .iter()
-                        .map(|c| CharacteristicDto {
-                            uuid: c.uuid.clone(),
-                            name: c.name.clone(),
-                            can_read: c.properties.contains(&CharacteristicProperty::Read),
-                            can_write: c.properties.contains(&CharacteristicProperty::Write)
-                                || c.properties
-                                    .contains(&CharacteristicProperty::WriteWithoutResponse),
-                            can_notify: c.properties.contains(&CharacteristicProperty::Notify)
-                                || c.properties.contains(&CharacteristicProperty::Indicate),
-                            commands: c
-                                .commands
-                                .as_ref()
-                                .map(|cmds| {
-                                    cmds.iter()
-                                        .map(|(name, cmd)| CommandDto {
-                                            name: name.clone(),
-                                            description: cmd.description.clone(),
-                                            is_fixed: cmd.value.is_some(),
-                                            parameters: cmd
-                                                .parameters
-                                                .as_ref()
-                                                .map(|params| {
-                                                    params
-                                                        .iter()
-                                                        .map(|(pname, p)| ParameterDto {
-                                                            name: pname.clone(),
-                                                            value_type: p.value_type.to_string(),
-                                                            min: p.min.map(|v| v as f64),
-                                                            max: p.max.map(|v| v as f64),
-                                                        })
-                                                        .collect()
-                                                })
-                                                .unwrap_or_default(),
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default(),
-                            format_fields: c
-                                .format
-                                .as_ref()
-                                .map(|fields| {
-                                    fields
-                                        .iter()
-                                        .map(|f| FormatFieldDto {
-                                            name: f.name.clone(),
-                                            field_type: f.field_type.to_string(),
-                                            offset: f.offset as u32,
-                                            length: f.length as u32,
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default(),
-                        })
-                        .collect(),
-                })
-                .collect(),
+            services: spec.services.iter().map(service_to_dto).collect(),
         }
+    }
+}
+
+fn manufacturer_status_str(status: &ManufacturerStatus) -> &'static str {
+    match status {
+        ManufacturerStatus::Abandoned => "abandoned",
+        ManufacturerStatus::Shutdown => "shutdown",
+        ManufacturerStatus::Unsupported => "unsupported",
+    }
+}
+
+fn protocol_str(protocol: &Protocol) -> &'static str {
+    match protocol {
+        Protocol::Ble => "ble",
+        Protocol::Wifi => "wifi",
+        Protocol::Zigbee => "zigbee",
+        Protocol::Zwave => "zwave",
+    }
+}
+
+fn service_to_dto(service: &Service) -> ServiceDto {
+    ServiceDto {
+        uuid: service.uuid.clone(),
+        name: service.name.clone(),
+        characteristics: service.characteristics.iter().map(char_to_dto).collect(),
+    }
+}
+
+fn char_to_dto(c: &Characteristic) -> CharacteristicDto {
+    CharacteristicDto {
+        uuid: c.uuid.clone(),
+        name: c.name.clone(),
+        can_read: c.properties.contains(&CharacteristicProperty::Read),
+        can_write: c.properties.contains(&CharacteristicProperty::Write)
+            || c.properties
+                .contains(&CharacteristicProperty::WriteWithoutResponse),
+        can_notify: c.properties.contains(&CharacteristicProperty::Notify)
+            || c.properties.contains(&CharacteristicProperty::Indicate),
+        commands: c
+            .commands
+            .as_ref()
+            .map(|cmds| {
+                cmds.iter()
+                    .map(|(name, cmd)| command_to_dto(name, cmd))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        format_fields: c
+            .format
+            .as_ref()
+            .map(|fields| fields.iter().map(format_field_to_dto).collect())
+            .unwrap_or_default(),
+    }
+}
+
+fn command_to_dto(name: &str, cmd: &Command) -> CommandDto {
+    CommandDto {
+        name: name.to_string(),
+        description: cmd.description.clone(),
+        is_fixed: cmd.value.is_some(),
+        parameters: cmd
+            .parameters
+            .as_ref()
+            .map(|params| {
+                params
+                    .iter()
+                    .map(|(pname, p)| parameter_to_dto(pname, p))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
+fn parameter_to_dto(name: &str, p: &Parameter) -> ParameterDto {
+    ParameterDto {
+        name: name.to_string(),
+        value_type: p.value_type.to_string(),
+        min: p.min.map(|v| v as f64),
+        max: p.max.map(|v| v as f64),
+    }
+}
+
+fn format_field_to_dto(f: &FormatField) -> FormatFieldDto {
+    FormatFieldDto {
+        name: f.name.clone(),
+        field_type: f.field_type.to_string(),
+        offset: f.offset as u32,
+        length: f.length as u32,
     }
 }
 
