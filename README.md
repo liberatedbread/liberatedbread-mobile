@@ -91,15 +91,26 @@ and merge the customizations back in.
 ## Running the App
 
 ```bash
-# Connected device or emulator
+# Connected device or emulator (auto-detect)
 ./scripts/run.sh
 
-# Mock mode (no BLE hardware needed)
+# Build + boot the Android emulator + install + run (Linux or macOS)
+./scripts/run-android.sh --mock
+
+# Build + boot the iOS Simulator + install + run (macOS only)
+./scripts/run-ios.sh --mock
+
+# Mock mode (no BLE hardware needed) on whatever device run.sh picks
 ./scripts/run.sh --mock
 
 # Manual (equivalent to run.sh --mock)
 flutter run --dart-define=OPENGREENIOT_MOCK=true
 ```
+
+The platform-specific scripts (`run-android.sh`, `run-ios.sh`) will boot an
+emulator/simulator if one isn't already running. They accept `--mock`,
+`--release`, and pass extra args after `--` to `flutter run`.
+`run-ios.sh` also takes `--device "iPhone 15"` to pick a specific simulator.
 
 ## Testing
 
