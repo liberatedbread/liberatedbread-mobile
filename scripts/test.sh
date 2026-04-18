@@ -29,8 +29,8 @@ flutter test --coverage
 log "cargo fmt --all -- --check"
 (cd rust && cargo fmt --all -- --check)
 
-log "cargo clippy --all-targets -- -D warnings"
-(cd rust && cargo clippy --all-targets -- -D warnings)
+log "cargo clippy --all-targets --all-features -- -D warnings"
+(cd rust && cargo clippy --all-targets --all-features -- -D warnings)
 
 log "cargo test --all-features"
 (cd rust && cargo test --all-features)
