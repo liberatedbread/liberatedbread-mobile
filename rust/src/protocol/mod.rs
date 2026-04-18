@@ -3,5 +3,4 @@
 
 pub mod generic;
 pub mod profiles;
-pub mod registry;
 pub mod traits;

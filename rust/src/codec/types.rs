@@ -5,9 +5,7 @@
 
 use crate::error::ProtocolError;
 use crate::spec::types::{Command, FormatField, TemplateElement, ValueType};
-use byteorder::{LittleEndian, ReadBytesExt};
 use std::collections::HashMap;
-use std::io::Cursor;
 
 /// Format bytes as a hex string with the given separator.
 pub(crate) fn bytes_to_hex(bytes: &[u8], sep: &str) -> String {
@@ -62,21 +60,13 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
     match field.field_type {
         ValueType::Bool => Ok(DecodedValue::Bool(slice[0] != 0)),
         ValueType::Uint8 => Ok(DecodedValue::Uint(slice[0] as u64)),
-        ValueType::Uint16 => {
-            let mut cursor = Cursor::new(slice);
-            let val = cursor
-                .read_u16::<LittleEndian>()
-                .map_err(|e| ProtocolError::EncodingFailed(e.to_string()))?;
-            Ok(DecodedValue::Uint(val as u64))
-        }
+        ValueType::Uint16 => Ok(DecodedValue::Uint(
+            u16::from_le_bytes([slice[0], slice[1]]) as u64
+        )),
         ValueType::Int8 => Ok(DecodedValue::Int(slice[0] as i8 as i64)),
-        ValueType::Int16 => {
-            let mut cursor = Cursor::new(slice);
-            let val = cursor
-                .read_i16::<LittleEndian>()
-                .map_err(|e| ProtocolError::EncodingFailed(e.to_string()))?;
-            Ok(DecodedValue::Int(val as i64))
-        }
+        ValueType::Int16 => Ok(DecodedValue::Int(
+            i16::from_le_bytes([slice[0], slice[1]]) as i64
+        )),
         ValueType::Bytes => Ok(DecodedValue::Bytes(slice.to_vec())),
         ValueType::String => {
             let s = std::str::from_utf8(slice)
