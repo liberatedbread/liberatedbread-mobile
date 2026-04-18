@@ -128,7 +128,7 @@ install_frb_codegen() {
   fi
 
   log "Installing flutter_rust_bridge_codegen v${FRB_VERSION}..."
-  cargo install "flutter_rust_bridge_codegen@${FRB_VERSION}"
+  cargo install --locked "flutter_rust_bridge_codegen@${FRB_VERSION}"
 }
 
 # ── Android SDK ──────────────────────────────────────────────────────────────
