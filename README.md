@@ -186,7 +186,6 @@ flutter test
 │       ├── protocol/
 │       │   ├── generic.rs      # YAML-driven GenericProtocol
 │       │   ├── traits.rs       # DeviceProtocol trait
-│       │   ├── registry.rs     # ProtocolRegistry
 │       │   └── profiles/       # Standard BLE profiles (battery, device_info)
 │       └── spec/               # YAML parser and type definitions
 ├── assets/
