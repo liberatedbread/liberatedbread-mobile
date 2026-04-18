@@ -126,17 +126,32 @@ See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for the full testing guide.
 
 ## FRB bindings
 
-The Rust core ships with its own unit tests but is not yet wired through
-`flutter_rust_bridge` — the generated bindings live outside git. Mock mode
-(`--mock`) works **without** FRB and is the recommended path for testing.
+The Rust core is wired through `flutter_rust_bridge` 2.9.0. Generated bindings
+live in `lib/src/rust/` and `rust/src/frb_generated.rs` — both are committed
+(same reproducibility argument as `pubspec.lock`). CI fails if the bindings
+are out of sync with the Rust API.
 
-To wire the bridge, run:
+`lib/main.dart` calls `RustLib.init()` at startup. Failures are caught so the
+app still runs when the native library isn't bundled (e.g. builds that skip
+cargokit wiring); `MockBleService` has a Dart-side fallback whose byte output
+matches `rust/src/mock/simulator.rs` for the example-bulb spec.
+
+To regenerate the bindings after changing `rust/src/api/**`:
 
 ```bash
 flutter_rust_bridge_codegen generate
 ```
 
-Then uncomment the `RustLib.init()` call in `lib/main.dart`.
+For `flutter test` to exercise the Rust path, the host-target library must be
+built and discoverable:
+
+```bash
+cd rust && cargo build
+export LD_LIBRARY_PATH=$PWD/target/debug     # macOS: DYLD_FALLBACK_LIBRARY_PATH
+flutter test
+```
+
+`scripts/test.sh` handles this automatically.
 
 ## Project Structure
 

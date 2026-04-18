@@ -23,7 +23,12 @@ dart format --set-exit-if-changed .
 log "flutter analyze --fatal-infos"
 flutter analyze --fatal-infos
 
+log "cargo build (host Rust lib for FRB)"
+(cd rust && cargo build)
+
 log "flutter test --coverage"
+LD_LIBRARY_PATH="$PROJECT_DIR/rust/target/debug:${LD_LIBRARY_PATH:-}" \
+DYLD_FALLBACK_LIBRARY_PATH="$PROJECT_DIR/rust/target/debug:${DYLD_FALLBACK_LIBRARY_PATH:-}" \
 flutter test --coverage
 
 log "cargo fmt --all -- --check"

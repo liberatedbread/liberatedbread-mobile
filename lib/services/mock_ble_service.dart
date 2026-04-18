@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'dart:math';
+import 'package:flutter/services.dart' show rootBundle;
 import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
+import '../src/rust/api/mock_api.dart' as rust;
+import '../src/rust/frb_generated.dart' show RustLib;
 import 'ble_service.dart';
 
 /// Mock device definition for demo mode.
@@ -51,21 +54,46 @@ const _batteryService = BleDiscoveredService(
   ],
 );
 
-/// Mock BLE service — thin Dart transport shim for demo mode.
+/// Mock BLE service — transport simulation for demo mode.
 ///
-/// This is ONLY the transport simulation (scan/connect plumbing).
-/// All byte-level logic (mock data generation, value encoding/decoding)
-/// lives in Rust (rust/src/mock/simulator.rs and rust/src/api/mock_api.rs).
-/// Once FRB codegen is connected, readCharacteristic/writeCharacteristic
-/// will call through to Rust's mock_read_characteristic/mock_write_characteristic.
+/// Transport plumbing (scan/connect/notify) is pure Dart. Byte-level logic
+/// (characteristic defaults, write-through state) delegates to the Rust
+/// `mock_api` via flutter_rust_bridge when the native library is loaded.
+/// If [RustLib] isn't initialized — e.g. when the Rust library isn't bundled
+/// into the APK or when a unit test skips `RustLib.init()` — a small Dart
+/// fallback table is used instead so mock mode still works.
 ///
-/// Used when the app runs with --dart-define=OPENGREENIOT_MOCK=true.
+/// Enabled at runtime via `--dart-define=OPENGREENIOT_MOCK=true`.
 class MockBleService implements BleService {
+  /// Path under `rootBundle` that resolves to the device spec YAML used for
+  /// Rust-side decoding. Overridable for tests; defaults to the example bulb.
+  final Future<String> Function() _loadSpec;
+  String? _cachedSpec;
+
   final _random = Random(42);
   final Map<String, bool> _connected = {};
   final Map<String, Map<String, List<int>>> _writtenValues = {};
   final Map<String, StreamController<BleConnectionState>> _connectionStreams =
       {};
+
+  MockBleService({Future<String> Function()? loadSpec})
+      : _loadSpec = loadSpec ?? _defaultLoader;
+
+  static Future<String> _defaultLoader() =>
+      rootBundle.loadString('assets/device_specs/example-bulb.yaml');
+
+  Future<String> _spec() async => _cachedSpec ??= await _loadSpec();
+
+  /// True once `RustLib.init()` has successfully loaded the native library.
+  /// Exposed as a static so tests and the provider can check initialization.
+  static bool get rustAvailable {
+    try {
+      // ignore: invalid_use_of_internal_member
+      return RustLib.instance.initialized;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static const List<_MockDeviceDef> _mockDevices = [
     _MockDeviceDef(
@@ -82,8 +110,9 @@ class MockBleService implements BleService {
     ),
   ];
 
-  // Temporary Dart-side defaults until FRB bridge is connected.
-  // These will be replaced by calls to Rust mock_read_characteristic().
+  // Dart fallback defaults used when the Rust library is unavailable.
+  // These intentionally match `rust/src/mock/simulator.rs` output for the
+  // example-bulb spec so both code paths produce the same bytes.
   static final Map<String, List<int>> _defaults = {
     // power=on, brightness=80, r=255, g=180, b=50
     '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80, 255, 180, 50],
@@ -97,6 +126,12 @@ class MockBleService implements BleService {
   @override
   Stream<IoTDevice> scan(
       {Duration timeout = const Duration(seconds: 10)}) async* {
+    // Fresh mock state per scan when Rust is driving the simulator.
+    if (rustAvailable) {
+      try {
+        await rust.mockReset();
+      } catch (_) {/* keep going with Dart fallback */}
+    }
     for (final device in _mockDevices) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
       yield IoTDevice(
@@ -155,13 +190,26 @@ class MockBleService implements BleService {
     String charUuid,
   ) async {
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    final key = normalizeUuid(charUuid);
+    if (rustAvailable) {
+      try {
+        final spec = await _spec();
+        final bytes = await rust.mockReadCharacteristic(
+          deviceId: deviceId,
+          charUuid: charUuid,
+          specYaml: spec,
+        );
+        return bytes.toList();
+      } catch (_) {/* fall through to Dart fallback */}
+    }
+    return _dartFallbackRead(deviceId, charUuid);
+  }
 
+  List<int> _dartFallbackRead(String deviceId, String charUuid) {
+    final key = normalizeUuid(charUuid);
     final deviceWrites = _writtenValues[deviceId];
     if (deviceWrites != null && deviceWrites.containsKey(key)) {
       return deviceWrites[key]!;
     }
-
     return _defaults[key] ?? [0];
   }
 
@@ -173,6 +221,16 @@ class MockBleService implements BleService {
     List<int> value,
   ) async {
     await Future<void>.delayed(const Duration(milliseconds: 50));
+    if (rustAvailable) {
+      try {
+        await rust.mockWriteCharacteristic(
+          deviceId: deviceId,
+          charUuid: charUuid,
+          value: value,
+        );
+        return;
+      } catch (_) {/* fall through to Dart fallback */}
+    }
     final key = normalizeUuid(charUuid);
     _writtenValues.putIfAbsent(deviceId, () => {});
     _writtenValues[deviceId]![key] = value;

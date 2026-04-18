@@ -13,11 +13,11 @@ use std::collections::HashMap;
 
 /// Device Information Service protocol controller.
 #[derive(Default)]
-pub struct DeviceInfoProtocol;
+pub struct DeviceInfoProtocol {}
 
 impl DeviceInfoProtocol {
     pub fn new() -> Self {
-        Self
+        Self {}
     }
 
     /// Find the field name for a characteristic UUID, or None.
