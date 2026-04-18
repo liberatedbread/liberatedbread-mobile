@@ -20,18 +20,60 @@ fn full_uuid(short: &str) -> String {
     format!("0000{short}{BT_BASE_UUID_SUFFIX}")
 }
 
-/// Device Information Service characteristics: (short_uuid, field_name, display_name, can_notify).
+/// A single Device Information Service characteristic definition.
 ///
 /// `field_name` is the decoded-value key used by [`device_info::DeviceInfoProtocol`];
 /// `display_name` is the human-readable label for UI rendering.
-pub(crate) const DEVICE_INFO_CHARS: &[(&str, &str, &str, bool)] = &[
-    ("2a29", "manufacturer_name", "Manufacturer Name", false),
-    ("2a24", "model_number", "Model Number", false),
-    ("2a25", "serial_number", "Serial Number", false),
-    ("2a27", "hardware_revision", "Hardware Revision", false),
-    ("2a26", "firmware_revision", "Firmware Revision", false),
-    ("2a28", "software_revision", "Software Revision", false),
-    ("2a23", "system_id", "System ID", false),
+pub(crate) struct DeviceInfoCharDef {
+    pub short_uuid: &'static str,
+    pub field_name: &'static str,
+    pub display_name: &'static str,
+    pub can_notify: bool,
+}
+
+pub(crate) const DEVICE_INFO_CHARS: &[DeviceInfoCharDef] = &[
+    DeviceInfoCharDef {
+        short_uuid: "2a29",
+        field_name: "manufacturer_name",
+        display_name: "Manufacturer Name",
+        can_notify: false,
+    },
+    DeviceInfoCharDef {
+        short_uuid: "2a24",
+        field_name: "model_number",
+        display_name: "Model Number",
+        can_notify: false,
+    },
+    DeviceInfoCharDef {
+        short_uuid: "2a25",
+        field_name: "serial_number",
+        display_name: "Serial Number",
+        can_notify: false,
+    },
+    DeviceInfoCharDef {
+        short_uuid: "2a27",
+        field_name: "hardware_revision",
+        display_name: "Hardware Revision",
+        can_notify: false,
+    },
+    DeviceInfoCharDef {
+        short_uuid: "2a26",
+        field_name: "firmware_revision",
+        display_name: "Firmware Revision",
+        can_notify: false,
+    },
+    DeviceInfoCharDef {
+        short_uuid: "2a28",
+        field_name: "software_revision",
+        display_name: "Software Revision",
+        can_notify: false,
+    },
+    DeviceInfoCharDef {
+        short_uuid: "2a23",
+        field_name: "system_id",
+        display_name: "System ID",
+        can_notify: false,
+    },
 ];
 
 /// Known standard Bluetooth profiles.
@@ -80,15 +122,13 @@ impl StandardProfile {
             }],
             StandardProfile::DeviceInformation => DEVICE_INFO_CHARS
                 .iter()
-                .map(
-                    |(short, _, display_name, can_notify)| ProfileCharacteristicInfo {
-                        uuid: full_uuid(short),
-                        name: display_name.to_string(),
-                        can_read: true,
-                        can_write: false,
-                        can_notify: *can_notify,
-                    },
-                )
+                .map(|def| ProfileCharacteristicInfo {
+                    uuid: full_uuid(def.short_uuid),
+                    name: def.display_name.to_string(),
+                    can_read: true,
+                    can_write: false,
+                    can_notify: def.can_notify,
+                })
                 .collect(),
         }
     }

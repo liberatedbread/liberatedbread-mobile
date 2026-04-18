@@ -173,7 +173,7 @@ flutter test
 │   ├── app.dart                # App widget, routing, theme
 │   ├── core/                   # Constants, theme, hex/uuid helpers
 │   ├── models/                 # IoTDevice, DeviceCharacteristic, BleDiscoveredService
-│   ├── providers/              # Riverpod providers (BLE, device specs, connection state)
+│   ├── providers/              # Riverpod providers (BLE service, device specs)
 │   ├── screens/                # ScanScreen, DeviceScreen, CharacteristicScreen
 │   ├── services/               # BleService (abstract), RealBleService, MockBleService
 │   └── widgets/                # DeviceControlPanel, RawCharacteristicWidget
@@ -186,7 +186,6 @@ flutter test
 │       ├── protocol/
 │       │   ├── generic.rs      # YAML-driven GenericProtocol
 │       │   ├── traits.rs       # DeviceProtocol trait
-│       │   ├── registry.rs     # ProtocolRegistry
 │       │   └── profiles/       # Standard BLE profiles (battery, device_info)
 │       └── spec/               # YAML parser and type definitions
 ├── assets/

@@ -1,16 +1,14 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import 'raw_characteristic_widget.dart';
 
-/// Displays all services and characteristics for a connected device.
-///
-/// Once FRB is connected and device specs are loaded, this will match
-/// services against specs and render typed controls (toggles, sliders, gauges).
-/// For now it renders a raw GATT browser for all characteristics.
-class DeviceControlPanel extends ConsumerWidget {
+/// Displays all services and characteristics for a connected device as a
+/// raw GATT browser.
+// TODO: match services against loaded device specs and render typed
+// controls (toggles, sliders, gauges) instead of raw hex.
+class DeviceControlPanel extends StatelessWidget {
   final String deviceId;
   final List<BleDiscoveredService> services;
 
@@ -21,7 +19,7 @@ class DeviceControlPanel extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     if (services.isEmpty) {
       return const Center(
         child: Text('No services found on this device.'),

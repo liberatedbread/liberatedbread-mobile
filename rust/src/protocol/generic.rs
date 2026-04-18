@@ -19,10 +19,6 @@ impl GenericProtocol {
     pub fn new(spec: DeviceSpec) -> Self {
         Self { spec }
     }
-
-    pub fn spec(&self) -> &DeviceSpec {
-        &self.spec
-    }
 }
 
 impl DeviceProtocol for GenericProtocol {
