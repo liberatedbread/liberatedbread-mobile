@@ -13,6 +13,7 @@ FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
 NDK_VERSION="26.1.10909125"
 ANDROID_API="34"
 FRB_VERSION="2.9.0"
+RUST_MIN_VERSION="1.82.0"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,9 +23,20 @@ err()  { printf '\033[1;31m[setup]\033[0m %s\n' "$*" >&2; }
 
 command_exists() { command -v "$1" &>/dev/null; }
 
+# Return 0 iff version $1 is >= version $2 (dotted numeric).
+version_ge() {
+  [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]
+}
+
+# Extract "MAJOR.MINOR.PATCH" from `rustc --version` output.
+rustc_version() {
+  rustc --version 2>/dev/null | awk '{print $2}'
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OS="$(uname -s)"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opengreeniot-setup"
 
 # ── Flutter SDK ──────────────────────────────────────────────────────────────
 
@@ -55,29 +67,58 @@ install_flutter() {
       ;;
   esac
 
-  mkdir -p "$(dirname "$FLUTTER_HOME")"
-  local tmpdir
-  tmpdir="$(mktemp -d)"
+  mkdir -p "$(dirname "$FLUTTER_HOME")" "$CACHE_DIR"
 
-  log "Downloading ${url}..."
-  curl -fSL -o "$tmpdir/$archive" "$url"
+  local archive_path="$CACHE_DIR/$archive"
+  local marker="$CACHE_DIR/$archive.ok"
 
+  fetch_archive() {
+    log "Downloading ${url}..."
+    rm -f "$archive_path" "$marker"
+    curl -fSL -o "$archive_path.part" "$url"
+    mv "$archive_path.part" "$archive_path"
+  }
+
+  verify_archive() {
+    case "$archive" in
+      *.tar.xz) tar -tf "$archive_path" >/dev/null 2>&1 ;;
+      *.zip)    unzip -tq "$archive_path" >/dev/null 2>&1 ;;
+    esac
+  }
+
+  if [[ -f "$archive_path" && -f "$marker" ]] && \
+     [[ "$(cat "$marker" 2>/dev/null)" == "$url" ]] && \
+     verify_archive; then
+    log "Using cached ${archive} from ${CACHE_DIR}"
+  else
+    fetch_archive
+    if ! verify_archive; then
+      warn "Downloaded archive failed verification; retrying once..."
+      fetch_archive
+      if ! verify_archive; then
+        err "Flutter archive is corrupt after re-download: $archive_path"
+        exit 1
+      fi
+    fi
+  fi
+
+  local parent
+  parent="$(dirname "$FLUTTER_HOME")"
   case "$archive" in
     *.tar.xz)
-      tar xf "$tmpdir/$archive" -C "$(dirname "$FLUTTER_HOME")"
-      if [[ "$(dirname "$FLUTTER_HOME")/flutter" != "$FLUTTER_HOME" ]]; then
-        mv "$(dirname "$FLUTTER_HOME")/flutter" "$FLUTTER_HOME"
-      fi
+      tar xf "$archive_path" -C "$parent"
       ;;
     *.zip)
-      unzip -qo "$tmpdir/$archive" -d "$(dirname "$FLUTTER_HOME")"
-      if [[ "$(dirname "$FLUTTER_HOME")/flutter" != "$FLUTTER_HOME" ]]; then
-        mv "$(dirname "$FLUTTER_HOME")/flutter" "$FLUTTER_HOME"
-      fi
+      unzip -qo "$archive_path" -d "$parent"
       ;;
   esac
+  if [[ "$parent/flutter" != "$FLUTTER_HOME" ]]; then
+    rm -rf "$FLUTTER_HOME"
+    mv "$parent/flutter" "$FLUTTER_HOME"
+  fi
 
-  rm -rf "$tmpdir"
+  # Mark the cached archive as good only after extraction succeeded.
+  printf '%s\n' "$url" > "$marker"
 
   log "Flutter installed to ${FLUTTER_HOME}"
   warn "Add to your shell profile:  export PATH=\"${FLUTTER_HOME}/bin:\$PATH\""
@@ -87,12 +128,34 @@ install_flutter() {
 
 install_rust() {
   if command_exists rustup; then
+    local v
+    v="$(rustc_version)"
     log "Rust already installed: $(rustc --version)"
+    if [[ -z "$v" ]] || ! version_ge "$v" "$RUST_MIN_VERSION"; then
+      warn "Rust ${v:-unknown} is below required ${RUST_MIN_VERSION}. Running 'rustup update stable'..."
+      rustup update stable
+      rustup default stable
+      v="$(rustc_version)"
+      if [[ -z "$v" ]] || ! version_ge "$v" "$RUST_MIN_VERSION"; then
+        err "Rust ${v:-unknown} is still below required ${RUST_MIN_VERSION} after update."
+        exit 1
+      fi
+    fi
+  elif command_exists rustc; then
+    local v
+    v="$(rustc_version)"
+    err "Found rustc ${v:-unknown} but no rustup."
+    err "This project requires rustup (needed to install Android/iOS cross-compilation targets)."
+    err "Remove your distro Rust (e.g. 'sudo apt remove rustc cargo') and install via rustup:"
+    err "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    exit 1
   else
     log "Installing Rust via rustup..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-    # shellcheck source=/dev/null
-    source "$HOME/.cargo/env"
+    if [[ -f "$HOME/.cargo/env" ]]; then
+      # shellcheck source=/dev/null
+      source "$HOME/.cargo/env"
+    fi
   fi
 
   log "Adding Android cross-compilation targets..."
@@ -122,13 +185,18 @@ install_rust() {
 install_frb_codegen() {
   if command_exists flutter_rust_bridge_codegen; then
     local current
-    current="$(flutter_rust_bridge_codegen --version 2>/dev/null || echo unknown)"
-    log "flutter_rust_bridge_codegen already installed: ${current}"
+    current="$(flutter_rust_bridge_codegen --version 2>/dev/null | awk '{print $NF}' || echo unknown)"
+    if [[ "$current" == "$FRB_VERSION" ]]; then
+      log "flutter_rust_bridge_codegen ${FRB_VERSION} already installed."
+      return
+    fi
+    warn "flutter_rust_bridge_codegen ${current} does not match pinned ${FRB_VERSION}. Reinstalling..."
+    cargo install --locked --force "flutter_rust_bridge_codegen@${FRB_VERSION}"
     return
   fi
 
   log "Installing flutter_rust_bridge_codegen v${FRB_VERSION}..."
-  cargo install "flutter_rust_bridge_codegen@${FRB_VERSION}"
+  cargo install --locked "flutter_rust_bridge_codegen@${FRB_VERSION}"
 }
 
 # ── Android SDK ──────────────────────────────────────────────────────────────
