@@ -332,7 +332,6 @@ Current Rust test modules:
 - `codec::types` — Binary encoding/decoding
 - `mock::simulator` — MockDeviceState
 - `protocol::generic` — GenericProtocol
-- `protocol::registry` — ProtocolRegistry
 - `protocol::profiles` — UUID normalization, lookup
 - `protocol::profiles::battery` — Battery protocol
 - `protocol::profiles::device_info` — Device info protocol

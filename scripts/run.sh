@@ -50,16 +50,17 @@ fi
 # ── find or launch a device ──────────────────────────────────────────────────
 
 ensure_device() {
-  # Check for connected devices (physical or already-running emulator)
-  local devices
-  devices="$(flutter devices 2>/dev/null | grep -c '•' || true)"
-
-  if [[ "$devices" -gt 0 ]]; then
+  # Check for a connected device whose targetPlatform we can actually deploy
+  # to (this project ships android/ and ios/ scaffolds; flutter will list a
+  # Linux desktop "device" too, but `flutter run` then refuses it).
+  if flutter devices --machine 2>/dev/null \
+       | grep -E '"targetPlatform"[[:space:]]*:[[:space:]]*"(android|ios)' \
+       >/dev/null; then
     log "Found connected device."
     return
   fi
 
-  log "No connected device found. Looking for emulator..."
+  log "No supported device found. Looking for Android emulator..."
 
   # Try to find the emulator binary
   local emulator=""

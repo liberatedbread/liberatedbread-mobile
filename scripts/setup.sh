@@ -42,6 +42,18 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opengreeniot-setup"
 
 install_flutter() {
   if command_exists flutter; then
+    # Ensure git can read the Flutter SDK working tree even if the
+    # checkout is owned by a different user (e.g. shared sandbox cache).
+    # Without this, `flutter --version` reports 0.0.0-unknown and pub get
+    # fails the SDK constraint check.
+    local flutter_root
+    flutter_root="$(flutter --version --machine 2>/dev/null | grep -o '"flutterRoot": *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+    if [[ -z "$flutter_root" ]] && [[ -n "${FLUTTER_HOME:-}" ]] && [[ -d "$FLUTTER_HOME/.git" ]]; then
+      flutter_root="$FLUTTER_HOME"
+    fi
+    if [[ -n "$flutter_root" ]] && [[ -d "$flutter_root/.git" ]] && command_exists git; then
+      git config --global --add safe.directory "$flutter_root" 2>/dev/null || true
+    fi
     log "Flutter already installed: $(flutter --version 2>/dev/null | head -1)"
     return
   fi
@@ -119,6 +131,15 @@ install_flutter() {
 
   # Mark the cached archive as good only after extraction succeeded.
   printf '%s\n' "$url" > "$marker"
+
+  # Flutter shells out to `git` inside its SDK to read the framework
+  # revision; if the extracted tree is owned by a different user (common
+  # in containers/CI sandboxes) git refuses to read it and `flutter`
+  # reports version 0.0.0-unknown, which then breaks `flutter pub get`.
+  # Mark it safe so the version detection succeeds.
+  if command_exists git; then
+    git config --global --add safe.directory "$FLUTTER_HOME" 2>/dev/null || true
+  fi
 
   log "Flutter installed to ${FLUTTER_HOME}"
   warn "Add to your shell profile:  export PATH=\"${FLUTTER_HOME}/bin:\$PATH\""

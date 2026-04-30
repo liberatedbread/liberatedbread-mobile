@@ -35,7 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standard Bluetooth profile controllers: Battery Service (0x180F) and
   Device Information Service (0x180A)
 - Protocol error types module (`error.rs`) with `ProtocolError` and `SpecError`
-- Protocol registry (`registry.rs`) for routing specs and UUIDs to protocols
 - FFI API: `identify_standard_profiles()` and `decode_standard_profile_value()`
 - Mock simulator with smart default values per field type
 - E2E architecture walkthrough documentation (`docs/WALKTHROUGH.md`)

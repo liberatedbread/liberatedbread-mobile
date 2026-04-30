@@ -274,7 +274,6 @@ rust/src/
 │   ├── mod.rs
 │   ├── traits.rs       # DeviceProtocol trait definition
 │   ├── generic.rs      # YAML-driven GenericProtocol
-│   ├── registry.rs     # ProtocolRegistry router
 │   └── profiles/
 │       ├── mod.rs      # StandardProfile enum + UUID normalization
 │       ├── battery.rs  # Battery Service (0x180F)
@@ -344,13 +343,10 @@ pub trait DeviceProtocol: Send + Sync {
 
 **`generic.rs`** — `GenericProtocol`: Implements `DeviceProtocol` driven
 entirely by a `DeviceSpec`. Looks up characteristics by UUID (case-insensitive),
-delegates encoding/decoding to the codec module.
-
-**`registry.rs`** — `ProtocolRegistry`:
-- `get_protocol(spec) -> Box<dyn DeviceProtocol>` — wraps spec in
-  `GenericProtocol`
-- `get_standard_profile(service_uuid) -> Option<Box<dyn DeviceProtocol>>` —
-  looks up standard BLE profiles
+delegates encoding/decoding to the codec module. The FFI layer in
+`api/device_api.rs` constructs a `GenericProtocol` directly per call;
+standard profiles are dispatched via `profiles::lookup()` and
+`StandardProfile::create_protocol()`.
 
 ### Standard BLE Profiles — `protocol/profiles/`
 
@@ -537,7 +533,7 @@ Device discovered with service UUIDs: ["180f", "180a", "fff0"]
 ## 9. Current Limitations and Next Steps
 
 ### What's Working
-- Complete Rust protocol system (spec parsing, codec, profiles, registry)
+- Complete Rust protocol system (spec parsing, codec, profiles)
 - Flutter BLE scanning, connection, service discovery, read/write/notify
 - Mock mode with two simulated devices, driven by the Rust simulator
 - Standard BLE profile decoding (Battery, Device Info)
