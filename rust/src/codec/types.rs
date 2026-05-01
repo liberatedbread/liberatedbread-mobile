@@ -44,9 +44,9 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
     let end = field
         .offset
         .checked_add(field.length)
-        .ok_or(ProtocolError::BufferTooShort {
-            needed: usize::MAX,
-            got: bytes.len(),
+        .ok_or(ProtocolError::FieldOffsetOverflow {
+            offset: field.offset,
+            length: field.length,
         })?;
     if bytes.len() < end {
         return Err(ProtocolError::BufferTooShort {
@@ -89,10 +89,26 @@ pub fn decode_all_fields(
     Ok(result)
 }
 
+/// A parameter value coerced into a typed integer ready for byte encoding.
+///
+/// Internal-only — the FFI keeps `HashMap<String, f64>` (FRB constraint).
+/// `coerce_param` is the bridge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TypedParam {
+    U8(u8),
+    U16(u16),
+    I8(i8),
+    I16(i16),
+}
+
 /// Encode a command to bytes for a BLE write.
 ///
-/// For fixed commands, returns the `value` directly.
-/// For templated commands, substitutes parameter values.
+/// For fixed commands, returns the `value` directly without consulting any
+/// parameters — fixed commands are by definition parameterless.
+///
+/// For templated commands, every `{param}` placeholder is looked up in
+/// `params`, validated against the parameter's declared type and `min`/`max`
+/// bounds, and encoded little-endian per the type's byte width.
 pub fn encode_command(
     command: &Command,
     params: &HashMap<String, f64>,
@@ -120,7 +136,8 @@ pub fn encode_command(
                     validate_param_range(name, *val, def)?;
                 }
                 let param_type = def.map(|d| &d.value_type).unwrap_or(&ValueType::Uint8);
-                encode_param_bytes(*val, param_type, &mut bytes)?;
+                let typed = coerce_param(*val, param_type, name)?;
+                append_typed(&mut bytes, typed);
             }
         }
     }
@@ -143,24 +160,66 @@ fn validate_param_range(name: &str, val: f64, def: &Parameter) -> Result<(), Pro
     Ok(())
 }
 
-/// Append `val` to `bytes` encoded per the given parameter type.
-fn encode_param_bytes(
+/// Coerce an `f64` parameter value into the integer width its declared type
+/// requires. Rejects:
+/// - NaN or infinity (`ParameterInvalid`)
+/// - fractional values like `1.5` (`ParameterInvalid`)
+/// - values outside the declared type's range (`ParameterOutOfRange`)
+/// - declared types with no integer representation (`UnsupportedParameterType`)
+pub(crate) fn coerce_param(
     val: f64,
-    param_type: &ValueType,
-    bytes: &mut Vec<u8>,
-) -> Result<(), ProtocolError> {
-    match param_type {
-        ValueType::Uint8 => bytes.push(val as u8),
-        ValueType::Uint16 => bytes.extend_from_slice(&(val as u16).to_le_bytes()),
-        ValueType::Int8 => bytes.push(val as i8 as u8),
-        ValueType::Int16 => bytes.extend_from_slice(&(val as i16).to_le_bytes()),
-        _ => {
-            return Err(ProtocolError::EncodingFailed(format!(
-                "unsupported parameter type for encoding: {param_type}"
-            )));
-        }
+    ty: &ValueType,
+    name: &str,
+) -> Result<TypedParam, ProtocolError> {
+    if !val.is_finite() {
+        return Err(ProtocolError::ParameterInvalid {
+            name: name.to_string(),
+            value: val,
+            reason: "value is NaN or infinity".into(),
+        });
     }
-    Ok(())
+    if val.fract() != 0.0 {
+        return Err(ProtocolError::ParameterInvalid {
+            name: name.to_string(),
+            value: val,
+            reason: "value has a fractional component".into(),
+        });
+    }
+
+    let as_int = val as i64;
+    let oor = || ProtocolError::ParameterOutOfRange {
+        name: name.to_string(),
+        value: val,
+        min: ty
+            .integer_range()
+            .map(|(lo, _)| lo as f64)
+            .unwrap_or(f64::NEG_INFINITY),
+        max: ty
+            .integer_range()
+            .map(|(_, hi)| hi as f64)
+            .unwrap_or(f64::INFINITY),
+    };
+
+    match ty {
+        ValueType::Uint8 => u8::try_from(as_int).map(TypedParam::U8).map_err(|_| oor()),
+        ValueType::Uint16 => u16::try_from(as_int)
+            .map(TypedParam::U16)
+            .map_err(|_| oor()),
+        ValueType::Int8 => i8::try_from(as_int).map(TypedParam::I8).map_err(|_| oor()),
+        ValueType::Int16 => i16::try_from(as_int)
+            .map(TypedParam::I16)
+            .map_err(|_| oor()),
+        other => Err(ProtocolError::UnsupportedParameterType { ty: other.clone() }),
+    }
+}
+
+fn append_typed(bytes: &mut Vec<u8>, val: TypedParam) {
+    match val {
+        TypedParam::U8(v) => bytes.push(v),
+        TypedParam::I8(v) => bytes.push(v as u8),
+        TypedParam::U16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
+        TypedParam::I16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
+    }
 }
 
 #[cfg(test)]
@@ -319,6 +378,24 @@ mod tests {
     }
 
     #[test]
+    fn decode_offset_overflow_returns_typed_error() {
+        let field = FormatField {
+            offset: usize::MAX,
+            length: 1,
+            name: "boom".into(),
+            field_type: ValueType::Uint8,
+            mock_default: None,
+        };
+        match decode_field(&[0u8; 4], &field) {
+            Err(ProtocolError::FieldOffsetOverflow { offset, length }) => {
+                assert_eq!(offset, usize::MAX);
+                assert_eq!(length, 1);
+            }
+            other => panic!("expected FieldOffsetOverflow, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn decode_buffer_too_short() {
         let field = FormatField {
             offset: 2,
@@ -385,5 +462,135 @@ mod tests {
         };
         let params = HashMap::from([("brightness".into(), 150.0)]);
         assert!(encode_command(&cmd, &params).is_err());
+    }
+
+    // ── coerce_param edge cases ─────────────────────────────────────────────
+
+    fn brightness_cmd() -> Command {
+        Command {
+            description: "set".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x02),
+                TemplateElement::Param("n".into()),
+            ]),
+            parameters: Some(HashMap::from([(
+                "n".into(),
+                Parameter {
+                    value_type: ValueType::Uint8,
+                    min: None,
+                    max: None,
+                },
+            )])),
+        }
+    }
+
+    fn assert_invalid(result: Result<Vec<u8>, ProtocolError>, want_reason: &str) {
+        match result {
+            Err(ProtocolError::ParameterInvalid { reason, .. }) => {
+                assert!(
+                    reason.contains(want_reason),
+                    "expected reason containing {want_reason:?}, got {reason:?}"
+                );
+            }
+            other => panic!("expected ParameterInvalid({want_reason:?}), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn coerce_rejects_nan() {
+        let params = HashMap::from([("n".into(), f64::NAN)]);
+        assert_invalid(encode_command(&brightness_cmd(), &params), "NaN");
+    }
+
+    #[test]
+    fn coerce_rejects_positive_infinity() {
+        let params = HashMap::from([("n".into(), f64::INFINITY)]);
+        assert_invalid(encode_command(&brightness_cmd(), &params), "infinity");
+    }
+
+    #[test]
+    fn coerce_rejects_negative_infinity() {
+        let params = HashMap::from([("n".into(), f64::NEG_INFINITY)]);
+        assert_invalid(encode_command(&brightness_cmd(), &params), "infinity");
+    }
+
+    #[test]
+    fn coerce_rejects_fractional_value() {
+        let params = HashMap::from([("n".into(), 1.5)]);
+        assert_invalid(encode_command(&brightness_cmd(), &params), "fractional");
+    }
+
+    #[test]
+    fn coerce_rejects_out_of_range_u8_high() {
+        let params = HashMap::from([("n".into(), 256.0)]);
+        match encode_command(&brightness_cmd(), &params) {
+            Err(ProtocolError::ParameterOutOfRange { value, .. }) => {
+                assert_eq!(value, 256.0);
+            }
+            other => panic!("expected ParameterOutOfRange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn coerce_rejects_out_of_range_u8_low() {
+        let params = HashMap::from([("n".into(), -1.0)]);
+        match encode_command(&brightness_cmd(), &params) {
+            Err(ProtocolError::ParameterOutOfRange { value, .. }) => {
+                assert_eq!(value, -1.0);
+            }
+            other => panic!("expected ParameterOutOfRange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn coerce_accepts_exact_u8_bounds() {
+        let params_lo = HashMap::from([("n".into(), 0.0)]);
+        assert_eq!(
+            encode_command(&brightness_cmd(), &params_lo).unwrap(),
+            vec![0x02, 0]
+        );
+        let params_hi = HashMap::from([("n".into(), 255.0)]);
+        assert_eq!(
+            encode_command(&brightness_cmd(), &params_hi).unwrap(),
+            vec![0x02, 255]
+        );
+    }
+
+    #[test]
+    fn coerce_accepts_exact_i8_bounds() {
+        let cmd = Command {
+            description: "set".into(),
+            value: None,
+            template: Some(vec![TemplateElement::Param("n".into())]),
+            parameters: Some(HashMap::from([(
+                "n".into(),
+                Parameter {
+                    value_type: ValueType::Int8,
+                    min: None,
+                    max: None,
+                },
+            )])),
+        };
+        let lo = HashMap::from([("n".into(), -128.0)]);
+        assert_eq!(encode_command(&cmd, &lo).unwrap(), vec![0x80]);
+        let hi = HashMap::from([("n".into(), 127.0)]);
+        assert_eq!(encode_command(&cmd, &hi).unwrap(), vec![0x7F]);
+    }
+
+    #[test]
+    fn fixed_value_command_skips_parameter_validation() {
+        // Regression: fixed commands have no template and no params. They
+        // should encode unchanged regardless of what's in the params map.
+        let cmd = Command {
+            description: "power on".into(),
+            value: Some(vec![0x01, 0x01]),
+            template: None,
+            parameters: None,
+        };
+        // Even pathological parameter values should be ignored.
+        let params = HashMap::from([("nonsense".into(), f64::NAN)]);
+        let bytes = encode_command(&cmd, &params).unwrap();
+        assert_eq!(bytes, vec![0x01, 0x01]);
     }
 }
