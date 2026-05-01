@@ -96,11 +96,21 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
 }
 
 /// Try to interpret a YAML scalar as the integer payload for a field type.
-/// Returns `None` for type mismatches — caller falls back to the heuristic.
+///
+/// Returns `None` for type mismatches *and* for numbers that don't fit in
+/// the declared type's range — both cases fall through to the name-based
+/// heuristic. Spec authors who write nonsense like `mock_default: 999` on
+/// a `uint8` field get the heuristic value, not a silently-wrapped byte.
+/// `Bytes` and `String` fields don't accept `mock_default` at all (they
+/// have no integer representation), so they always return `None` here.
 fn coerce_mock_default(val: &serde_yaml::Value, ty: &ValueType) -> Option<i64> {
     match (val, ty) {
         (serde_yaml::Value::Bool(b), ValueType::Bool) => Some(if *b { 1 } else { 0 }),
-        (serde_yaml::Value::Number(n), _) => n.as_i64(),
+        (serde_yaml::Value::Number(n), _) => {
+            let raw = n.as_i64()?;
+            let (min, max) = ty.integer_range()?;
+            (min..=max).contains(&raw).then_some(raw)
+        }
         _ => None,
     }
 }
@@ -256,6 +266,58 @@ mod tests {
             mock_default: Some(serde_yaml::Value::String("nope".into())),
         }];
         assert_eq!(generate_defaults(&fields), vec![80]); // heuristic for "brightness"
+    }
+
+    #[test]
+    fn mock_default_out_of_range_falls_back_to_heuristic() {
+        // 999 doesn't fit in uint8 — must fall back to heuristic, not wrap to 231.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "brightness".into(),
+            field_type: ValueType::Uint8,
+            mock_default: Some(serde_yaml::Value::Number(999.into())),
+        }];
+        assert_eq!(generate_defaults(&fields), vec![80]); // heuristic, not 999 % 256
+    }
+
+    #[test]
+    fn mock_default_negative_for_uint_falls_back_to_heuristic() {
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "brightness".into(),
+            field_type: ValueType::Uint8,
+            mock_default: Some(serde_yaml::Value::Number((-1).into())),
+        }];
+        assert_eq!(generate_defaults(&fields), vec![80]); // heuristic, not 255
+    }
+
+    #[test]
+    fn mock_default_int16_below_range_falls_back() {
+        // i16 minimum is -32768; -40000 wraps if cast unchecked.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "temp".into(),
+            field_type: ValueType::Int16,
+            mock_default: Some(serde_yaml::Value::Number((-40000).into())),
+        }];
+        // Heuristic for Int16: 220 LE → [0xDC, 0x00].
+        assert_eq!(generate_defaults(&fields), vec![0xDC, 0x00]);
+    }
+
+    #[test]
+    fn mock_default_two_for_bool_falls_back_to_heuristic() {
+        // Bool's integer range is 0..=1; anything else falls back.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "power".into(),
+            field_type: ValueType::Bool,
+            mock_default: Some(serde_yaml::Value::Number(2.into())),
+        }];
+        assert_eq!(generate_defaults(&fields), vec![1]); // heuristic: bool default-on
     }
 
     #[test]

@@ -23,6 +23,16 @@ err()  { printf '\033[1;31m[setup]\033[0m %s\n' "$*" >&2; }
 
 command_exists() { command -v "$1" &>/dev/null; }
 
+# Idempotently mark a path as safe in the global gitconfig. Repeated runs
+# of this script must not pile up duplicate `safe.directory` entries.
+ensure_safe_directory() {
+  local path="$1"
+  if ! git config --global --get-all safe.directory 2>/dev/null \
+        | grep -Fxq -- "$path"; then
+    git config --global --add safe.directory "$path" 2>/dev/null || true
+  fi
+}
+
 # Return 0 iff version $1 is >= version $2 (dotted numeric).
 version_ge() {
   [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]
@@ -52,7 +62,7 @@ install_flutter() {
       flutter_root="$FLUTTER_HOME"
     fi
     if [[ -n "$flutter_root" ]] && [[ -d "$flutter_root/.git" ]] && command_exists git; then
-      git config --global --add safe.directory "$flutter_root" 2>/dev/null || true
+      ensure_safe_directory "$flutter_root"
     fi
     log "Flutter already installed: $(flutter --version 2>/dev/null | head -1)"
     return
@@ -136,9 +146,10 @@ install_flutter() {
   # revision; if the extracted tree is owned by a different user (common
   # in containers/CI sandboxes) git refuses to read it and `flutter`
   # reports version 0.0.0-unknown, which then breaks `flutter pub get`.
-  # Mark it safe so the version detection succeeds.
-  if command_exists git; then
-    git config --global --add safe.directory "$FLUTTER_HOME" 2>/dev/null || true
+  # Mark it safe so the version detection succeeds — but only when the
+  # extracted SDK is actually a git working tree.
+  if command_exists git && [[ -d "$FLUTTER_HOME/.git" ]]; then
+    ensure_safe_directory "$FLUTTER_HOME"
   fi
 
   log "Flutter installed to ${FLUTTER_HOME}"
