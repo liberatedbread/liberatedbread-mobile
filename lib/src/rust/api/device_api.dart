@@ -6,25 +6,20 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `char_to_dto`, `command_to_dto`, `decoded_value_to_dto`, `format_field_to_dto`, `manufacturer_status_str`, `parameter_to_dto`, `protocol_str`, `service_to_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
     RustLib.instance.api.crateApiDeviceApiLoadDeviceSpec(yaml: yaml);
 
-/// Check if a scanned device matches a spec based on name prefix and/or service UUIDs.
-Future<bool> deviceMatchesSpec(
-        {required DeviceSpecDto spec,
-        required String deviceName,
-        required List<String> advertisedServiceUuids}) =>
-    RustLib.instance.api.crateApiDeviceApiDeviceMatchesSpec(
-        spec: spec,
-        deviceName: deviceName,
-        advertisedServiceUuids: advertisedServiceUuids);
-
-/// Find the first matching spec for a scanned device.
-Future<DeviceSpecDto?> matchDeviceToSpec(
+/// Find every spec matching a scanned device, with the reasons it matched.
+///
+/// Returns `vec![]` when nothing matches. A spec matches when:
+/// - its `local_name_prefix` is a prefix of `device_name`, **or**
+/// - any of its `service_uuids` (case-insensitive) appears in `advertised_service_uuids`.
+///
+/// Both axes are reported separately so the caller can decide how to rank.
+Future<List<MatchResult>> matchDeviceToSpec(
         {required List<DeviceSpecDto> specs,
         required String deviceName,
         required List<String> advertisedServiceUuids}) =>
@@ -34,28 +29,37 @@ Future<DeviceSpecDto?> matchDeviceToSpec(
         advertisedServiceUuids: advertisedServiceUuids);
 
 /// Encode a named command into bytes for a BLE write.
+///
+/// Provide either `spec_yaml` (custom device) or `service_uuid` (standard
+/// profile — though standard profiles are read-only). When both are supplied,
+/// the spec wins — see [`select_protocol`].
 Future<Uint8List> encodeCommand(
-        {required String yaml,
+        {String? specYaml,
+        String? serviceUuid,
         required String charUuid,
         required String commandName,
         required Map<String, double> params}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeCommand(
-        yaml: yaml,
+        specYaml: specYaml,
+        serviceUuid: serviceUuid,
         charUuid: charUuid,
         commandName: commandName,
         params: params);
 
 /// Decode raw bytes from a BLE read/notify into named values.
+///
+/// Provide either `spec_yaml` (custom device) or `service_uuid` (standard
+/// profile). When both are supplied, the spec wins — see [`select_protocol`].
 Future<List<DecodedValueDto>> decodeValue(
-        {required String yaml,
+        {String? specYaml,
+        String? serviceUuid,
         required String charUuid,
         required List<int> bytes}) =>
     RustLib.instance.api.crateApiDeviceApiDecodeValue(
-        yaml: yaml, charUuid: charUuid, bytes: bytes);
-
-/// Greet — a simple test function to verify the FRB bridge works.
-Future<String> greet({required String name}) =>
-    RustLib.instance.api.crateApiDeviceApiGreet(name: name);
+        specYaml: specYaml,
+        serviceUuid: serviceUuid,
+        charUuid: charUuid,
+        bytes: bytes);
 
 /// Given a list of discovered service UUIDs, return info about any that
 /// match recognized standard Bluetooth profiles (Battery, Device Info, etc.).
@@ -65,17 +69,6 @@ Future<List<ProfileInfoDto>> identifyStandardProfiles(
         {required List<String> serviceUuids}) =>
     RustLib.instance.api
         .crateApiDeviceApiIdentifyStandardProfiles(serviceUuids: serviceUuids);
-
-/// Decode a characteristic value using a built-in standard profile.
-///
-/// This does not require a YAML device spec — the profile's format is
-/// defined by the Bluetooth specification.
-Future<List<DecodedValueDto>> decodeStandardProfileValue(
-        {required String serviceUuid,
-        required String charUuid,
-        required List<int> bytes}) =>
-    RustLib.instance.api.crateApiDeviceApiDecodeStandardProfileValue(
-        serviceUuid: serviceUuid, charUuid: charUuid, bytes: bytes);
 
 class CharacteristicDto {
   final String uuid;
@@ -271,6 +264,39 @@ class FormatFieldDto {
           fieldType == other.fieldType &&
           offset == other.offset &&
           length == other.length;
+}
+
+/// One match returned by [`match_device_to_spec`]. Callers pick whichever
+/// match suits them — sort by `matched_service_uuids.len()`, prefer name-prefix
+/// matches, etc.
+class MatchResult {
+  final DeviceSpecDto spec;
+  final bool matchedByNamePrefix;
+
+  /// The advertised service UUIDs (lowercased) that intersect with the
+  /// spec's identification. Empty when no UUIDs matched.
+  final List<String> matchedServiceUuids;
+
+  const MatchResult({
+    required this.spec,
+    required this.matchedByNamePrefix,
+    required this.matchedServiceUuids,
+  });
+
+  @override
+  int get hashCode =>
+      spec.hashCode ^
+      matchedByNamePrefix.hashCode ^
+      matchedServiceUuids.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MatchResult &&
+          runtimeType == other.runtimeType &&
+          spec == other.spec &&
+          matchedByNamePrefix == other.matchedByNamePrefix &&
+          matchedServiceUuids == other.matchedServiceUuids;
 }
 
 class ParameterDto {

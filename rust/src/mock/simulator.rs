@@ -51,6 +51,9 @@ impl MockDeviceState {
 }
 
 /// Generate plausible default bytes for a set of format fields.
+///
+/// Lookup order per field: explicit `mock_default` from the spec → name-based
+/// heuristic for the field's value type → 0.
 fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
     let total_len = fields
         .iter()
@@ -61,12 +64,21 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
 
     for field in fields {
         let slice = &mut bytes[field.offset..field.offset + field.length];
+
+        // 1. Try the explicit `mock_default` from the spec.
+        if let Some(val) = field
+            .mock_default
+            .as_ref()
+            .and_then(|v| coerce_mock_default(v, &field.field_type))
+        {
+            write_value(slice, val, &field.field_type);
+            continue;
+        }
+
+        // 2. Fall back to the name-based heuristic.
         match field.field_type {
             ValueType::Bool => slice[0] = 1, // default: on
-            ValueType::Uint8 => {
-                // Pick a sensible default based on field name
-                slice[0] = default_uint8_for_name(&field.name);
-            }
+            ValueType::Uint8 => slice[0] = default_uint8_for_name(&field.name),
             ValueType::Uint16 => {
                 let val = default_uint16_for_name(&field.name);
                 slice.copy_from_slice(&val.to_le_bytes());
@@ -81,6 +93,29 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
     }
 
     bytes
+}
+
+/// Try to interpret a YAML scalar as the integer payload for a field type.
+/// Returns `None` for type mismatches — caller falls back to the heuristic.
+fn coerce_mock_default(val: &serde_yaml::Value, ty: &ValueType) -> Option<i64> {
+    match (val, ty) {
+        (serde_yaml::Value::Bool(b), ValueType::Bool) => Some(if *b { 1 } else { 0 }),
+        (serde_yaml::Value::Number(n), _) => n.as_i64(),
+        _ => None,
+    }
+}
+
+/// Write `val` into `slice` honoring the byte width and endianness of `ty`.
+/// `slice` must already be the correct length for `ty` (caller's invariant).
+fn write_value(slice: &mut [u8], val: i64, ty: &ValueType) {
+    match ty {
+        ValueType::Bool => slice[0] = if val == 0 { 0 } else { 1 },
+        ValueType::Uint8 => slice[0] = val as u8,
+        ValueType::Int8 => slice[0] = val as i8 as u8,
+        ValueType::Uint16 => slice.copy_from_slice(&(val as u16).to_le_bytes()),
+        ValueType::Int16 => slice.copy_from_slice(&(val as i16).to_le_bytes()),
+        ValueType::Bytes | ValueType::String => {} // mock_default is ignored for these
+    }
 }
 
 fn default_uint8_for_name(name: &str) -> u8 {
@@ -128,6 +163,7 @@ mod tests {
             length: 1,
             name: "power_state".into(),
             field_type: ValueType::Bool,
+            mock_default: None,
         }];
 
         // Before write, get defaults
@@ -148,23 +184,90 @@ mod tests {
                 length: 1,
                 name: "power_state".into(),
                 field_type: ValueType::Bool,
+                mock_default: None,
             },
             FormatField {
                 offset: 1,
                 length: 1,
                 name: "brightness".into(),
                 field_type: ValueType::Uint8,
+                mock_default: None,
             },
             FormatField {
                 offset: 2,
                 length: 1,
                 name: "battery_percent".into(),
                 field_type: ValueType::Uint8,
+                mock_default: None,
             },
         ];
         let bytes = generate_defaults(&fields);
         assert_eq!(bytes[0], 1); // bool: on
         assert_eq!(bytes[1], 80); // brightness: 80
         assert_eq!(bytes[2], 85); // battery: 85
+    }
+
+    #[test]
+    fn mock_default_overrides_heuristic_for_uint8() {
+        // Field name "brightness" would heuristically default to 80; the
+        // explicit `mock_default: 99` should win.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "brightness".into(),
+            field_type: ValueType::Uint8,
+            mock_default: Some(serde_yaml::Value::Number(99.into())),
+        }];
+        assert_eq!(generate_defaults(&fields), vec![99]);
+    }
+
+    #[test]
+    fn mock_default_true_for_bool() {
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "power".into(),
+            field_type: ValueType::Bool,
+            mock_default: Some(serde_yaml::Value::Bool(true)),
+        }];
+        assert_eq!(generate_defaults(&fields), vec![1]);
+    }
+
+    #[test]
+    fn mock_default_false_for_bool() {
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "power".into(),
+            field_type: ValueType::Bool,
+            mock_default: Some(serde_yaml::Value::Bool(false)),
+        }];
+        assert_eq!(generate_defaults(&fields), vec![0]);
+    }
+
+    #[test]
+    fn mock_default_wrong_type_falls_back_to_heuristic() {
+        // String value on a uint8 field — coerce returns None, heuristic kicks in.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 1,
+            name: "brightness".into(),
+            field_type: ValueType::Uint8,
+            mock_default: Some(serde_yaml::Value::String("nope".into())),
+        }];
+        assert_eq!(generate_defaults(&fields), vec![80]); // heuristic for "brightness"
+    }
+
+    #[test]
+    fn mock_default_uint16_le() {
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "lux".into(),
+            field_type: ValueType::Uint16,
+            mock_default: Some(serde_yaml::Value::Number(1234.into())),
+        }];
+        // 1234 = 0x04D2, little-endian = [0xD2, 0x04]
+        assert_eq!(generate_defaults(&fields), vec![0xD2, 0x04]);
     }
 }

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 /// Top-level device specification.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeviceSpec {
     pub device: DeviceInfo,
     pub services: Vec<Service>,
@@ -29,6 +30,7 @@ impl DeviceSpec {
 
 /// Device metadata and identification.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeviceInfo {
     pub name: String,
     pub manufacturer: String,
@@ -47,6 +49,16 @@ pub enum ManufacturerStatus {
     Unsupported,
 }
 
+impl std::fmt::Display for ManufacturerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ManufacturerStatus::Abandoned => write!(f, "abandoned"),
+            ManufacturerStatus::Shutdown => write!(f, "shutdown"),
+            ManufacturerStatus::Unsupported => write!(f, "unsupported"),
+        }
+    }
+}
+
 /// Primary communication protocol.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -57,8 +69,20 @@ pub enum Protocol {
     Zwave,
 }
 
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Protocol::Ble => write!(f, "ble"),
+            Protocol::Wifi => write!(f, "wifi"),
+            Protocol::Zigbee => write!(f, "zigbee"),
+            Protocol::Zwave => write!(f, "zwave"),
+        }
+    }
+}
+
 /// How to identify this device during BLE scanning.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Identification {
     pub local_name_prefix: Option<String>,
     pub service_uuids: Option<Vec<String>>,
@@ -66,6 +90,7 @@ pub struct Identification {
 
 /// A BLE GATT service.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Service {
     pub uuid: String,
     pub name: String,
@@ -74,6 +99,7 @@ pub struct Service {
 
 /// A BLE GATT characteristic.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Characteristic {
     pub uuid: String,
     pub name: String,
@@ -95,6 +121,7 @@ pub enum CharacteristicProperty {
 
 /// A named command for a writable characteristic.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Command {
     pub description: String,
     /// Fixed byte sequence for this command.
@@ -157,6 +184,7 @@ impl<'de> Deserialize<'de> for TemplateElement {
 
 /// A command parameter definition.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Parameter {
     #[serde(rename = "type")]
     pub value_type: ValueType,
@@ -166,12 +194,19 @@ pub struct Parameter {
 
 /// Binary format field for parsing readable/notifiable characteristic values.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FormatField {
     pub offset: usize,
     pub length: usize,
     pub name: String,
     #[serde(rename = "type")]
     pub field_type: ValueType,
+    /// Optional default value the mock simulator returns for unwritten reads.
+    /// Use a YAML scalar matching the field type — e.g. `mock_default: 80` for
+    /// numeric types, `mock_default: true` for `bool`. When absent the
+    /// simulator falls back to a name-based heuristic (see `mock/simulator.rs`).
+    #[serde(default)]
+    pub mock_default: Option<serde_yaml::Value>,
 }
 
 /// Supported value types for encoding/decoding.

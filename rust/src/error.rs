@@ -40,6 +40,12 @@ pub enum ProtocolError {
 
     #[error("standard profile does not support commands")]
     ProfileReadOnly,
+
+    #[error("no protocol available: provide either a spec_yaml or a known service_uuid")]
+    NoProtocolForRequest,
+
+    #[error("failed to parse device spec: {0}")]
+    SpecParse(#[from] SpecError),
 }
 
 /// Errors that occur during device spec parsing.

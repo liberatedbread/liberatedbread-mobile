@@ -175,6 +175,7 @@ mod tests {
             length: 1,
             name: "power".into(),
             field_type: ValueType::Bool,
+            mock_default: None,
         };
         assert_eq!(
             decode_field(&[1], &field).unwrap(),
@@ -193,6 +194,7 @@ mod tests {
             length: 1,
             name: "brightness".into(),
             field_type: ValueType::Uint8,
+            mock_default: None,
         };
         assert_eq!(
             decode_field(&[0x00, 0x64], &field).unwrap(),
@@ -207,6 +209,7 @@ mod tests {
             length: 2,
             name: "value".into(),
             field_type: ValueType::Uint16,
+            mock_default: None,
         };
         // 0x0100 in little-endian = 256
         assert_eq!(
@@ -223,18 +226,21 @@ mod tests {
                 length: 1,
                 name: "power_state".into(),
                 field_type: ValueType::Bool,
+                mock_default: None,
             },
             FormatField {
                 offset: 1,
                 length: 1,
                 name: "brightness".into(),
                 field_type: ValueType::Uint8,
+                mock_default: None,
             },
             FormatField {
                 offset: 2,
                 length: 1,
                 name: "red".into(),
                 field_type: ValueType::Uint8,
+                mock_default: None,
             },
         ];
         let bytes = &[1, 80, 255];
@@ -251,6 +257,7 @@ mod tests {
             length: 1,
             name: "temp".into(),
             field_type: ValueType::Int8,
+            mock_default: None,
         };
         // -10 as i8 = 0xF6
         assert_eq!(
@@ -267,6 +274,7 @@ mod tests {
             length: 2,
             name: "temp".into(),
             field_type: ValueType::Int16,
+            mock_default: None,
         };
         // -1000 as i16 in LE = [0x18, 0xFC]
         assert_eq!(
@@ -282,6 +290,7 @@ mod tests {
             length: 3,
             name: "payload".into(),
             field_type: ValueType::Bytes,
+            mock_default: None,
         };
         assert_eq!(
             decode_field(&[0xDE, 0xAD, 0xBE], &field).unwrap(),
@@ -296,6 +305,7 @@ mod tests {
             length: 5,
             name: "label".into(),
             field_type: ValueType::String,
+            mock_default: None,
         };
         assert_eq!(
             decode_field(b"hello", &field).unwrap(),
@@ -315,6 +325,7 @@ mod tests {
             length: 3,
             name: "data".into(),
             field_type: ValueType::Uint8,
+            mock_default: None,
         };
         assert!(decode_field(&[0x00, 0x01], &field).is_err());
     }
