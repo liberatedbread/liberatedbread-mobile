@@ -267,14 +267,15 @@ pub fn match_device_to_spec(
                 .as_ref()
                 .is_some_and(|prefix| device_name.starts_with(prefix));
 
+            // Return the lowercased intersection. Matches the docstring's
+            // contract and gives Dart callers a predictable casing.
             let matched_service_uuids: Vec<String> = spec
                 .service_uuids
                 .iter()
-                .filter(|spec_uuid| {
+                .filter_map(|spec_uuid| {
                     let lower = spec_uuid.to_lowercase();
-                    advertised_lower.iter().any(|a| a == &lower)
+                    advertised_lower.contains(&lower).then_some(lower)
                 })
-                .cloned()
                 .collect();
 
             if name_match || !matched_service_uuids.is_empty() {
@@ -439,6 +440,8 @@ services:
     #[test]
     fn match_by_service_uuid_only() {
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        // Advertised UUID uses uppercase to exercise the case-insensitive
+        // intersection, then assert the returned form is lowercased.
         let results = match_device_to_spec(
             vec![dto],
             "Unknown".into(),
@@ -446,7 +449,10 @@ services:
         );
         assert_eq!(results.len(), 1);
         assert!(!results[0].matched_by_name_prefix);
-        assert_eq!(results[0].matched_service_uuids.len(), 1);
+        assert_eq!(
+            results[0].matched_service_uuids,
+            vec!["0000fff0-0000-1000-8000-00805f9b34fb".to_string()]
+        );
     }
 
     #[test]
