@@ -35,6 +35,16 @@ pub enum ProtocolError {
         max: f64,
     },
 
+    #[error("parameter '{name}' value {value} is invalid: {reason}")]
+    ParameterInvalid {
+        name: String,
+        value: f64,
+        reason: String,
+    },
+
+    #[error("value type {ty} cannot be used as an encode parameter")]
+    UnsupportedParameterType { ty: crate::spec::types::ValueType },
+
     #[error("command has neither value nor template")]
     EmptyCommand,
 
@@ -43,6 +53,9 @@ pub enum ProtocolError {
 
     #[error("no protocol available: provide either a spec_yaml or a known service_uuid")]
     NoProtocolForRequest,
+
+    #[error("field offset+length overflows usize: offset={offset}, length={length}")]
+    FieldOffsetOverflow { offset: usize, length: usize },
 
     #[error("failed to parse device spec: {0}")]
     SpecParse(#[from] SpecError),
@@ -53,4 +66,24 @@ pub enum ProtocolError {
 pub enum SpecError {
     #[error("failed to parse device spec YAML: {0}")]
     YamlParse(#[from] serde_yaml::Error),
+
+    #[error(
+        "format field '{field_name}' has length {got} but type {field_type} requires {expected}"
+    )]
+    FieldLengthMismatch {
+        field_name: String,
+        field_type: crate::spec::types::ValueType,
+        expected: usize,
+        got: usize,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' {bound} value {value} does not fit in declared type {value_type}"
+    )]
+    ParameterRangeOutsideType {
+        parameter_name: String,
+        value_type: crate::spec::types::ValueType,
+        bound: String,
+        value: i64,
+    },
 }

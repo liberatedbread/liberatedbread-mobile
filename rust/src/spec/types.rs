@@ -235,3 +235,29 @@ impl std::fmt::Display for ValueType {
         }
     }
 }
+
+impl ValueType {
+    /// Required byte width for fixed-size types. Returns `None` for
+    /// variable-length types (`Bytes`, `String`).
+    pub fn fixed_byte_size(&self) -> Option<usize> {
+        match self {
+            ValueType::Bool | ValueType::Uint8 | ValueType::Int8 => Some(1),
+            ValueType::Uint16 | ValueType::Int16 => Some(2),
+            ValueType::Bytes | ValueType::String => None,
+        }
+    }
+
+    /// Inclusive `[min, max]` range that fits in this type, used to validate
+    /// `Parameter.min`/`max` declarations at parse time. Returns `None` for
+    /// variable-length types where bounds don't apply.
+    pub fn integer_range(&self) -> Option<(i64, i64)> {
+        match self {
+            ValueType::Bool => Some((0, 1)),
+            ValueType::Uint8 => Some((u8::MIN as i64, u8::MAX as i64)),
+            ValueType::Uint16 => Some((u16::MIN as i64, u16::MAX as i64)),
+            ValueType::Int8 => Some((i8::MIN as i64, i8::MAX as i64)),
+            ValueType::Int16 => Some((i16::MIN as i64, i16::MAX as i64)),
+            ValueType::Bytes | ValueType::String => None,
+        }
+    }
+}
