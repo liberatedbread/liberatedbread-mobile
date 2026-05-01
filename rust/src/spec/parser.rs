@@ -152,6 +152,26 @@ services:
     }
 
     #[test]
+    fn rejects_unknown_field_in_device_block() {
+        let yaml = r#"
+device:
+  name: "x"
+  manufacturer: "x"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+  bogus_field: 1
+services: []
+"#;
+        let err = parse_device_spec(yaml).unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("unknown field") && msg.contains("bogus_field"),
+            "expected unknown-field error, got: {}",
+            err
+        );
+    }
+
+    #[test]
     fn parse_format_fields() {
         let spec = parse_device_spec(EXAMPLE_BULB_YAML).unwrap();
 
