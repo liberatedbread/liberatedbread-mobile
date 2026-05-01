@@ -78,6 +78,7 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
 mod tests {
     use super::*;
     use crate::spec::types::{CharacteristicProperty, ManufacturerStatus, Protocol, ValueType};
+    use crate::test_fixtures::make_minimal_spec;
 
     const EXAMPLE_BULB_YAML: &str = r#"
 device:
@@ -216,26 +217,15 @@ services:
 
     #[test]
     fn rejects_format_field_with_wrong_length_for_uint16() {
-        let yaml = r#"
-device:
-  name: x
-  manufacturer: x
-  manufacturer_status: abandoned
-  protocol: ble
-services:
-  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
-    name: s
-    characteristics:
-      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
-        name: c
-        properties: ["read"]
+        let yaml = make_minimal_spec(
+            r#"        properties: ["read"]
         format:
           - offset: 0
             length: 1
             name: bad_uint16
-            type: uint16
-"#;
-        match parse_device_spec(yaml) {
+            type: uint16"#,
+        );
+        match parse_device_spec(&yaml) {
             Err(SpecError::FieldLengthMismatch {
                 field_name,
                 expected,
@@ -252,19 +242,8 @@ services:
 
     #[test]
     fn allows_variable_length_for_bytes_and_string() {
-        let yaml = r#"
-device:
-  name: x
-  manufacturer: x
-  manufacturer_status: abandoned
-  protocol: ble
-services:
-  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
-    name: s
-    characteristics:
-      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
-        name: c
-        properties: ["read"]
+        let yaml = make_minimal_spec(
+            r#"        properties: ["read"]
         format:
           - offset: 0
             length: 5
@@ -273,26 +252,15 @@ services:
           - offset: 5
             length: 3
             name: payload
-            type: bytes
-"#;
-        parse_device_spec(yaml).expect("variable-length fields should parse");
+            type: bytes"#,
+        );
+        parse_device_spec(&yaml).expect("variable-length fields should parse");
     }
 
     #[test]
     fn rejects_parameter_max_outside_uint8_range() {
-        let yaml = r#"
-device:
-  name: x
-  manufacturer: x
-  manufacturer_status: abandoned
-  protocol: ble
-services:
-  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
-    name: s
-    characteristics:
-      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
-        name: c
-        properties: ["write"]
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
         commands:
           set_brightness:
             description: x
@@ -301,9 +269,9 @@ services:
               brightness:
                 type: uint8
                 min: 0
-                max: 300
-"#;
-        match parse_device_spec(yaml) {
+                max: 300"#,
+        );
+        match parse_device_spec(&yaml) {
             Err(SpecError::ParameterRangeOutsideType {
                 parameter_name,
                 bound,
@@ -320,19 +288,8 @@ services:
 
     #[test]
     fn rejects_parameter_min_below_uint8_range() {
-        let yaml = r#"
-device:
-  name: x
-  manufacturer: x
-  manufacturer_status: abandoned
-  protocol: ble
-services:
-  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
-    name: s
-    characteristics:
-      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
-        name: c
-        properties: ["write"]
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
         commands:
           set:
             description: x
@@ -340,9 +297,9 @@ services:
             parameters:
               n:
                 type: uint8
-                min: -1
-"#;
-        match parse_device_spec(yaml) {
+                min: -1"#,
+        );
+        match parse_device_spec(&yaml) {
             Err(SpecError::ParameterRangeOutsideType { bound, value, .. }) => {
                 assert_eq!(bound, "min");
                 assert_eq!(value, -1);
