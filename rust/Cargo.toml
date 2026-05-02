@@ -12,6 +12,10 @@ name = "opengreeniot_core"
 [dependencies]
 flutter_rust_bridge = "=2.9.0"
 serde = { version = "1", features = ["derive"] }
-serde_yaml = "0.9"
+# `serde_yaml` (dtolnay) was archived in early 2024 with no upstream
+# parser-bug or CVE fixes. Keep the import name unchanged via Cargo's
+# package-rename so call sites stay readable; the actual crate is the
+# actively-maintained community fork `serde_yaml_ng`.
+serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 thiserror = "2"
 anyhow = "1"
