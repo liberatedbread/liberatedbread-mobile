@@ -261,11 +261,6 @@ pub fn match_device_to_spec(
     device_name: String,
     advertised_service_uuids: Vec<String>,
 ) -> Vec<MatchResult> {
-    let advertised_lower: Vec<String> = advertised_service_uuids
-        .iter()
-        .map(|u| u.to_lowercase())
-        .collect();
-
     specs
         .into_iter()
         .filter_map(|spec| {
@@ -275,14 +270,18 @@ pub fn match_device_to_spec(
                 .is_some_and(|prefix| device_name.starts_with(prefix));
 
             // Return the lowercased intersection. Matches the docstring's
-            // contract and gives Dart callers a predictable casing.
+            // contract and gives Dart callers a predictable casing. We
+            // only allocate the lowercased copy when a spec UUID actually
+            // matches; the per-element compare uses `eq_ignore_ascii_case`.
             let matched_service_uuids: Vec<String> = spec
                 .service_uuids
                 .iter()
-                .filter_map(|spec_uuid| {
-                    let lower = spec_uuid.to_lowercase();
-                    advertised_lower.contains(&lower).then_some(lower)
+                .filter(|spec_uuid| {
+                    advertised_service_uuids
+                        .iter()
+                        .any(|adv| adv.eq_ignore_ascii_case(spec_uuid))
                 })
+                .map(|spec_uuid| spec_uuid.to_ascii_lowercase())
                 .collect();
 
             if name_match || !matched_service_uuids.is_empty() {
