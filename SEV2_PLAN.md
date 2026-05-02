@@ -20,17 +20,12 @@ deleted.
 After Sev1.2 added `FieldLengthMismatch` and `ParameterRangeOutsideType`,
 the `SpecError` wrapper has three variants and earns its keep. Keep as-is.
 
-## 2.3 — Migrate off `serde_yaml` (unmaintained)
+## 2.3 — ✅ Done
 
-`serde_yaml = "0.9"` was archived by its author (dtolnay) in early 2024.
-No upstream parser-bug or CVE fixes will arrive.
-**Action:** swap to `serde_yaml_ng = "0.10"` (the actively-maintained
-community fork). Should be drop-in; if not, `serde_yml` is a viable
-alternative.
-**Watch out for:** `serde_yaml::Value` is used in
-`rust/src/spec/types.rs::FormatField::mock_default` and
-`rust/src/mock/simulator.rs::coerce_mock_default` — they need to migrate
-together.
+Migrated to `serde_yaml_ng = "0.10"` via Cargo's package-rename
+(`serde_yaml = { package = "serde_yaml_ng", ... }`) so call sites
+keep using `serde_yaml::*` and source code didn't need to change.
+All tests pass on the new parser.
 
 ## 2.4 — ✅ Done
 
