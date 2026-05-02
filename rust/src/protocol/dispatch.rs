@@ -3,11 +3,40 @@
 //
 //! Pick the right [`DeviceProtocol`] for an encode/decode request.
 
+use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, LazyLock, Mutex};
+
 use super::generic::GenericProtocol;
 use super::profiles;
 use super::traits::DeviceProtocol;
 use crate::error::ProtocolError;
 use crate::spec::parser::parse_device_spec;
+use crate::spec::types::DeviceSpec;
+
+/// Cache of parsed specs keyed by content hash. FFI calls re-supply the
+/// same YAML on every `encode_command` / `decode_value`, so without this
+/// the dispatcher pays the YAML-parse cost on every hop. Specs are
+/// immutable assets so no invalidation is needed; the realistic upper
+/// bound on entries is "number of distinct device specs the app loads,"
+/// which is tiny.
+static SPEC_CACHE: LazyLock<Mutex<HashMap<u64, Arc<DeviceSpec>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolError> {
+    let mut hasher = DefaultHasher::new();
+    yaml.hash(&mut hasher);
+    let key = hasher.finish();
+
+    let mut cache = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(spec) = cache.get(&key) {
+        return Ok(spec.clone());
+    }
+    let spec = Arc::new(parse_device_spec(yaml)?);
+    cache.insert(key, spec.clone());
+    Ok(spec)
+}
 
 /// Pick the right [`DeviceProtocol`] for a request.
 ///
@@ -20,8 +49,8 @@ pub fn select_protocol(
     service_uuid: Option<&str>,
 ) -> Result<Box<dyn DeviceProtocol>, ProtocolError> {
     if let Some(yaml) = spec_yaml {
-        let spec = parse_device_spec(yaml)?;
-        return Ok(Box::new(GenericProtocol::new(spec)));
+        let spec = parse_or_cached(yaml)?;
+        return Ok(Box::new(GenericProtocol::new((*spec).clone())));
     }
     if let Some(uuid) = service_uuid {
         if let Some(profile) = profiles::lookup(uuid) {
@@ -144,6 +173,56 @@ services:
             select_protocol(Some("not: valid: yaml: ["), None),
             "SpecParse",
             |e| matches!(e, ProtocolError::SpecParse(_)),
+        );
+    }
+
+    // ── spec cache (2.8) ────────────────────────────────────────────────────
+    //
+    // These tests probe `parse_or_cached` directly via `Arc::ptr_eq`
+    // rather than reading the global cache length, which is shared with
+    // every other test running on the multithreaded test runner.
+
+    #[test]
+    fn cache_returns_same_allocation_for_identical_yaml() {
+        let yaml = "
+device:
+  name: \"cache-test-A\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+";
+        let a = parse_or_cached(yaml).unwrap();
+        let b = parse_or_cached(yaml).unwrap();
+        assert!(
+            Arc::ptr_eq(&a, &b),
+            "second call should return a clone of the cached Arc, not a fresh parse"
+        );
+    }
+
+    #[test]
+    fn cache_distinguishes_distinct_yamls() {
+        let yaml_x = "
+device:
+  name: \"cache-test-B\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+";
+        let yaml_y = "
+device:
+  name: \"cache-test-C\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+";
+        let a = parse_or_cached(yaml_x).unwrap();
+        let b = parse_or_cached(yaml_y).unwrap();
+        assert!(
+            !Arc::ptr_eq(&a, &b),
+            "different YAML must produce different cache entries"
         );
     }
 }

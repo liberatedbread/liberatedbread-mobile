@@ -53,18 +53,14 @@ When the `u64 → i64` clamp fires, the `From` impl now also writes the
 original value to `string_value`. Tests cover both the within-range
 no-op and the at-`u64::MAX` surfacing path.
 
-## 2.8 — Cache parsed specs in `device_api.rs`
+## 2.8 — ✅ Done
 
-Every FFI call to `encode_command` / `decode_value` re-parses the YAML.
-For a UI reading three characteristics on one screen, that's three
-`serde_yaml::from_str` runs. For hot paths it's overhead worth
-avoiding.
-
-**Action:** add a `LazyLock<Mutex<HashMap<u64, Arc<DeviceSpec>>>>` keyed
-by `fxhash(yaml)` (or any content hash); look it up in the dispatcher.
-Specs are immutable assets, so no invalidation logic is required. Keep
-the cache size sane — the realistic upper bound is "number of distinct
-device specs the app ever loads," which is tiny.
+`protocol::dispatch` now memoizes parsed specs in
+`SPEC_CACHE: LazyLock<Mutex<HashMap<u64, Arc<DeviceSpec>>>>`, keyed by
+`DefaultHasher` over the YAML bytes. Repeat calls with identical YAML
+skip the parse and clone the inner `DeviceSpec` from the cached `Arc`.
+Tests use `Arc::ptr_eq` to prove cache hits without depending on the
+multithreaded test runner's shared cache state.
 
 ## 2.9 — ✅ Done
 
