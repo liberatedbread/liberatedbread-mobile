@@ -83,4 +83,11 @@ pub enum SpecError {
         bound: String,
         value: i64,
     },
+
+    #[error("parameter '{parameter_name}' has min={min} > max={max}; bounds are inverted")]
+    ParameterBoundsInverted {
+        parameter_name: String,
+        min: i64,
+        max: i64,
+    },
 }

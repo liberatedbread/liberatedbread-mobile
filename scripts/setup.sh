@@ -25,11 +25,21 @@ command_exists() { command -v "$1" &>/dev/null; }
 
 # Idempotently mark a path as safe in the global gitconfig. Repeated runs
 # of this script must not pile up duplicate `safe.directory` entries.
+# Surfaces failures (read-only or unwritable global gitconfig) instead of
+# swallowing them — otherwise we'd continue as if the SDK was marked safe
+# and only fail later with `flutter --version` reporting 0.0.0-unknown.
 ensure_safe_directory() {
   local path="$1"
-  if ! git config --global --get-all safe.directory 2>/dev/null \
-        | grep -Fxq -- "$path"; then
-    git config --global --add safe.directory "$path" 2>/dev/null || true
+  if git config --global --get-all safe.directory 2>/dev/null \
+       | grep -Fxq -- "$path"; then
+    return 0
+  fi
+  if ! git config --global --add safe.directory "$path"; then
+    err "Failed to add '$path' to git's global safe.directory list."
+    err "Likely cause: the global gitconfig is read-only or unwritable."
+    err "Fix: run the following with appropriate permissions, then re-run setup:"
+    err "  git config --global --add safe.directory '$path'"
+    exit 1
   fi
 }
 

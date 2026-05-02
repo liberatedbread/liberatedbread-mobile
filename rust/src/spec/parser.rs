@@ -71,6 +71,15 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
             });
         }
     }
+    if let (Some(min), Some(max)) = (param.min, param.max) {
+        if min > max {
+            return Err(SpecError::ParameterBoundsInverted {
+                parameter_name: name.to_string(),
+                min,
+                max,
+            });
+        }
+    }
     Ok(())
 }
 
@@ -306,6 +315,52 @@ services:
             }
             other => panic!("expected ParameterRangeOutsideType, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_inverted_parameter_bounds() {
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{n}"]
+            parameters:
+              n:
+                type: uint8
+                min: 100
+                max: 50"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::ParameterBoundsInverted {
+                parameter_name,
+                min,
+                max,
+            }) => {
+                assert_eq!(parameter_name, "n");
+                assert_eq!(min, 100);
+                assert_eq!(max, 50);
+            }
+            other => panic!("expected ParameterBoundsInverted, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_equal_min_and_max() {
+        // min == max is a valid degenerate case (a fixed value).
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{n}"]
+            parameters:
+              n:
+                type: uint8
+                min: 7
+                max: 7"#,
+        );
+        parse_device_spec(&yaml).expect("min == max should parse");
     }
 
     #[test]
