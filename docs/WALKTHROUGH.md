@@ -274,6 +274,7 @@ rust/src/
 │   ├── mod.rs
 │   ├── traits.rs       # DeviceProtocol trait definition
 │   ├── generic.rs      # YAML-driven GenericProtocol
+│   ├── dispatch.rs     # select_protocol() + spec cache
 │   └── profiles/
 │       ├── mod.rs      # StandardProfile enum + UUID normalization
 │       ├── battery.rs  # Battery Service (0x180F)
@@ -343,10 +344,18 @@ pub trait DeviceProtocol: Send + Sync {
 
 **`generic.rs`** — `GenericProtocol`: Implements `DeviceProtocol` driven
 entirely by a `DeviceSpec`. Looks up characteristics by UUID (case-insensitive),
-delegates encoding/decoding to the codec module. The FFI layer in
-`api/device_api.rs` constructs a `GenericProtocol` directly per call;
-standard profiles are dispatched via `profiles::lookup()` and
-`StandardProfile::create_protocol()`.
+delegates encoding/decoding to the codec module.
+
+**`dispatch.rs`** — `select_protocol(spec_yaml, service_uuid) -> Box<dyn
+DeviceProtocol>`: the single dispatch point used by `api/device_api.rs`.
+Picks `GenericProtocol` (when `spec_yaml` is supplied) or a
+`StandardProfile`-backed controller (when `service_uuid` matches a known
+profile). Spec wins over standard profile when both are supplied — pass
+`spec_yaml: None` to force standard-profile dispatch. The dispatcher
+memoizes parsed specs in `SPEC_CACHE: LazyLock<Mutex<HashMap<u64,
+Arc<DeviceSpec>>>>` keyed by content hash, so repeat FFI calls with the
+same YAML skip the parse and clone the inner `DeviceSpec` from the cached
+`Arc` instead.
 
 ### Standard BLE Profiles — `protocol/profiles/`
 
