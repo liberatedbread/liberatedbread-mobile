@@ -21,9 +21,6 @@ pub enum ProtocolError {
     #[error("buffer too short: needed {needed} bytes, got {got}")]
     BufferTooShort { needed: usize, got: usize },
 
-    #[error("encoding failed: {0}")]
-    EncodingFailed(String),
-
     #[error("missing required parameter: {0}")]
     ParameterMissing(String),
 

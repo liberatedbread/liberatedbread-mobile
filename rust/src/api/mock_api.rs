@@ -7,21 +7,19 @@
 use crate::mock::simulator::MockDeviceState;
 use crate::spec::parser::parse_device_spec;
 use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
-
-use once_cell::sync::Lazy;
+use std::sync::{LazyLock, Mutex};
 
 // Global mock state, keyed by device ID.
 // This is intentionally simple — a single Mutex map.
 // FRB calls are sequential from the Flutter UI thread anyway.
-static MOCK_STATES: Lazy<Mutex<HashMap<String, MockDeviceState>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static MOCK_STATES: LazyLock<Mutex<HashMap<String, MockDeviceState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Tracks `(char_uuid, error_message)` pairs we've already complained about,
 /// so a recurring spec parse failure (every BLE poll on a broken YAML) only
 /// logs once instead of spamming stderr. Cleared by [`mock_reset`].
-static WARNED_SPEC_FAILURES: Lazy<Mutex<HashSet<(String, String)>>> =
-    Lazy::new(|| Mutex::new(HashSet::new()));
+static WARNED_SPEC_FAILURES: LazyLock<Mutex<HashSet<(String, String)>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// Fallback buffer length when a spec has no `format` for the requested
 /// characteristic. Chosen small enough to be cheap, large enough to show

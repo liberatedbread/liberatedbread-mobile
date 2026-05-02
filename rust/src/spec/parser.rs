@@ -309,6 +309,23 @@ services:
     }
 
     #[test]
+    fn rejects_empty_parameter_reference() {
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          weird:
+            description: x
+            template: [0x01, "{}"]"#,
+        );
+        let err = parse_device_spec(&yaml).expect_err("'{}' should be rejected");
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("parameter name cannot be empty"),
+            "expected empty-name error, got: {err}"
+        );
+    }
+
+    #[test]
     fn rejects_unknown_field_in_device_block() {
         let yaml = r#"
 device:
