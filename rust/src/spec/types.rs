@@ -17,12 +17,13 @@ pub struct DeviceSpec {
 
 impl DeviceSpec {
     /// Find a characteristic by UUID across all services (case-insensitive).
+    /// Uses `eq_ignore_ascii_case` so neither side allocates a normalized
+    /// copy — UUID strings are pure ASCII so this is correct and cheap.
     pub fn find_characteristic(&self, uuid: &str) -> Option<(&Service, &Characteristic)> {
-        let target = uuid.to_lowercase();
         self.services.iter().find_map(|svc| {
             svc.characteristics
                 .iter()
-                .find(|c| c.uuid.to_lowercase() == target)
+                .find(|c| c.uuid.eq_ignore_ascii_case(uuid))
                 .map(|c| (svc, c))
         })
     }

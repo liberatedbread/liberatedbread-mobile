@@ -37,28 +37,20 @@ together.
 Both call sites in `rust/src/api/mock_api.rs` migrated to
 `std::sync::LazyLock`. `once_cell` removed from `rust/Cargo.toml`.
 
-## 2.5 — Pre-normalize UUIDs at parse time
+## 2.5 — ✅ Done
 
-`DeviceSpec::find_characteristic` (`rust/src/spec/types.rs:19`) calls
-`to_lowercase()` on the target *and* every characteristic UUID it walks,
-on every invocation. The dispatcher refactor amplified this — every
-encode/decode now runs the lookup.
+`DeviceSpec::find_characteristic` (and the device-matching loop in
+`device_api::match_device_to_spec`) now use `eq_ignore_ascii_case`
+instead of `to_lowercase()`-then-equate. Zero allocations on the
+comparison path. The data model stays unchanged (no `lowercase_uuid`
+field needed).
 
-**Action:** during `parse_device_spec`, normalize each UUID once and
-store it on the struct (e.g. `lowercase_uuid: String` field, or a thin
-newtype `NormalizedUuid(String)`). Then `find_characteristic` becomes a
-borrowed compare. Bonus: `eq_ignore_ascii_case` on the way through is
-cheap and zero-allocation.
+## 2.6 — ✅ Done
 
-## 2.6 — `normalize_uuid` returns `Cow<'_, str>`
-
-`rust/src/protocol/profiles/mod.rs::normalize_uuid` always allocates a
-`String`. For inputs that are already short and lowercase, the allocation
-is wasted.
-
-**Action:** return `Cow<'_, str>`; allocate only on the slow path
-(format conversion or case folding). Same for the `strip_leading_zeros`
-helper.
+`normalize_uuid` returns `Cow<'_, str>` and short-circuits to
+`Cow::Borrowed` when the input is already a short ASCII-lowercase UUID
+with no leading zeros. `strip_leading_zeros` returns `&str` instead of
+`String`. New tests pin the borrowed/owned distinction.
 
 ## 2.7 — ✅ Done
 
