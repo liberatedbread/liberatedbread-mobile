@@ -168,13 +168,18 @@ impl<'de> Deserialize<'de> for TemplateElement {
             }
 
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                if v.starts_with('{') && v.ends_with('}') {
-                    Ok(TemplateElement::Param(v[1..v.len() - 1].to_string()))
-                } else {
-                    Err(E::custom(format!(
-                        "parameter reference must be wrapped in braces: {v}"
-                    )))
+                let inner = v
+                    .strip_prefix('{')
+                    .and_then(|s| s.strip_suffix('}'))
+                    .ok_or_else(|| {
+                        E::custom(format!(
+                            "parameter reference must be wrapped in braces: {v}"
+                        ))
+                    })?;
+                if inner.is_empty() {
+                    return Err(E::custom("parameter name cannot be empty"));
                 }
+                Ok(TemplateElement::Param(inner.to_string()))
             }
         }
 

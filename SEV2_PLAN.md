@@ -9,21 +9,16 @@ discussion (reviewer: in the persona of Lily Mara) and the architectural
 decisions captured in the Phase 1/Phase 2 commits on
 `claude/fix-build-and-sample-app-ddV7l`.
 
-## 2.1 — Audit `EncodingFailed(String)` for unstructured failure sites
+## 2.1 — ✅ Done
 
-**Status:** mostly subsumed by Sev1.1 (the `unsupported parameter type`
-use site became `ProtocolError::UnsupportedParameterType`).
-**Action:** confirm `ProtocolError::EncodingFailed(String)` has no remaining
-users; if so, delete the variant. If new users have appeared, give each one
-a structured variant rather than letting the unstructured catch-all stick
-around.
+`ProtocolError::EncodingFailed(String)` had no remaining users after Sev1.1
+replaced its only call site with `UnsupportedParameterType`. Variant
+deleted.
 
-## 2.2 — Decide on `SpecError`'s shape
+## 2.2 — ✅ Done (no action required)
 
-After Sev1.2 added two new `SpecError` variants, the wrapper is justified.
-**Action:** none required, but if the variant set settles back to one,
-collapse to `pub type SpecError = serde_yaml::Error;`. Don't keep the
-wrapper "for forward compat" if it doesn't earn its keep.
+After Sev1.2 added `FieldLengthMismatch` and `ParameterRangeOutsideType`,
+the `SpecError` wrapper has three variants and earns its keep. Keep as-is.
 
 ## 2.3 — Migrate off `serde_yaml` (unmaintained)
 
@@ -37,15 +32,10 @@ alternative.
 `rust/src/mock/simulator.rs::coerce_mock_default` — they need to migrate
 together.
 
-## 2.4 — Drop `once_cell` in favor of `std::sync::LazyLock`
+## 2.4 — ✅ Done
 
-`once_cell::sync::Lazy` is replaced by `std::sync::LazyLock` (stable in
-Rust 1.80; this project requires 1.82). Two call sites:
-- `rust/src/api/mock_api.rs::MOCK_STATES`
-- `rust/src/api/mock_api.rs::WARNED_SPEC_FAILURES`
-
-**Action:** convert both, then delete the `once_cell` line from
-`rust/Cargo.toml`.
+Both call sites in `rust/src/api/mock_api.rs` migrated to
+`std::sync::LazyLock`. `once_cell` removed from `rust/Cargo.toml`.
 
 ## 2.5 — Pre-normalize UUIDs at parse time
 
@@ -70,20 +60,11 @@ is wasted.
 (format conversion or case folding). Same for the `strip_leading_zeros`
 helper.
 
-## 2.7 — Surface the silent `u64 → i64` saturation
+## 2.7 — ✅ Done
 
-`rust/src/api/device_api.rs` `impl From<(&str, &DecodedValue)> for
-DecodedValueDto` does:
-```rust
-DecodedValue::Uint(v) => dto.uint_value = Some((*v).min(i64::MAX as u64) as i64),
-```
-For real-world BLE values you'll never hit this, but a `u64::MAX` value
-gets silently clamped to `i64::MAX` and the Dart side can't tell.
-
-**Action:** when the saturation triggers, also stuff the original value
-into `string_value` so the UI can show the truthful number alongside the
-clamped one. Inline comment in `device_api.rs` already references this
-plan file.
+When the `u64 → i64` clamp fires, the `From` impl now also writes the
+original value to `string_value`. Tests cover both the within-range
+no-op and the at-`u64::MAX` surfacing path.
 
 ## 2.8 — Cache parsed specs in `device_api.rs`
 
@@ -98,16 +79,11 @@ Specs are immutable assets, so no invalidation logic is required. Keep
 the cache size sane — the realistic upper bound is "number of distinct
 device specs the app ever loads," which is tiny.
 
-## 2.9 — Reject empty parameter names in `TemplateElement` deserializer
+## 2.9 — ✅ Done
 
-`rust/src/spec/types.rs::TemplateElement::deserialize` accepts `"{}"`,
-producing `TemplateElement::Param("".to_string())`. Then encode-time
-fails with `ParameterMissing("")` — useless message.
-
-**Action:** in `visit_str`, use
-`v.strip_prefix('{').and_then(|s| s.strip_suffix('}'))` so `"{"` (one
-char) is rejected, then check the resulting name is non-empty. Reject at
-parse rather than at encode.
+`visit_str` now uses `strip_prefix('{')` + `strip_suffix('}')` and
+rejects empty names at parse time with
+`"parameter name cannot be empty"`. New parser test covers `"{}"`.
 
 ## Test fixture centralization
 

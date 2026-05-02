@@ -225,8 +225,15 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
         match value {
             DecodedValue::Bool(v) => dto.bool_value = Some(*v),
             DecodedValue::Int(v) => dto.int_value = Some(*v),
-            // FRB lacks u64 support; saturate. See SEV2_PLAN.md §2.7.
-            DecodedValue::Uint(v) => dto.uint_value = Some((*v).min(i64::MAX as u64) as i64),
+            DecodedValue::Uint(v) => {
+                // FRB lacks u64 support; clamp into i64 and, when the
+                // clamp actually fired, also surface the truthful value
+                // as a string so the UI doesn't silently see i64::MAX.
+                if *v > i64::MAX as u64 {
+                    dto.string_value = Some(v.to_string());
+                }
+                dto.uint_value = Some((*v).min(i64::MAX as u64) as i64);
+            }
             DecodedValue::Bytes(_) => dto.string_value = Some(value.display()),
             DecodedValue::String(v) => dto.string_value = Some(v.clone()),
         }
@@ -577,5 +584,22 @@ services:
     fn decode_with_no_spec_or_service_fails() {
         let result = decode_value(None, None, "anything".to_string(), vec![0]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn decoded_uint_within_i64_range_does_not_set_string_value() {
+        let dto = DecodedValueDto::from(("battery", &DecodedValue::Uint(85)));
+        assert_eq!(dto.uint_value, Some(85));
+        assert_eq!(dto.string_value, None);
+    }
+
+    #[test]
+    fn decoded_uint_above_i64_max_surfaces_truthful_value_as_string() {
+        // u64::MAX exceeds i64::MAX; the clamp would silently lie about
+        // the value. Surface the original via string_value so the UI can
+        // show "18446744073709551615" instead of just i64::MAX.
+        let dto = DecodedValueDto::from(("counter", &DecodedValue::Uint(u64::MAX)));
+        assert_eq!(dto.uint_value, Some(i64::MAX));
+        assert_eq!(dto.string_value, Some(u64::MAX.to_string()));
     }
 }
