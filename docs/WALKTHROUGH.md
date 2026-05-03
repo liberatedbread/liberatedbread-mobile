@@ -391,6 +391,8 @@ same YAML skip the parse and clone the inner `DeviceSpec` from the cached
 DTO types for the Flutter↔Rust boundary (FRB-friendly, no references):
 - `DeviceSpecDto`, `ServiceDto`, `CharacteristicDto`, `CommandDto`, etc.
 - `DecodedValueDto` — uses `Option<i64>` instead of `u64` (FRB limitation)
+  and surfaces the truthful value via `string_value` when the clamp fires
+- `MatchResult` — `{spec, matched_by_name_prefix, matched_service_uuids}`
 - `ProfileInfoDto`, `ProfileCharacteristicDto`
 
 Public API functions:
@@ -398,13 +400,15 @@ Public API functions:
 | Function | Purpose |
 |----------|---------|
 | `load_device_spec(yaml)` | Parse YAML → `DeviceSpecDto` |
-| `device_matches_spec(spec, name, uuids)` | Check if device matches spec |
-| `match_device_to_spec(specs, name, uuids)` | Find first matching spec |
-| `encode_command(yaml, char, cmd, params)` | Encode command → bytes |
-| `decode_value(yaml, char, bytes)` | Decode bytes → values |
+| `match_device_to_spec(specs, name, uuids)` | Return every matching spec with categorical reasons (`Vec<MatchResult>`) |
+| `encode_command(spec_yaml, service_uuid, char, cmd, params)` | Encode command → bytes via `dispatch::select_protocol` |
+| `decode_value(spec_yaml, service_uuid, char, bytes)` | Decode bytes → values via `dispatch::select_protocol` |
 | `identify_standard_profiles(uuids)` | Identify standard BT profiles |
-| `decode_standard_profile_value(svc, char, bytes)` | Decode standard profile |
-| `greet(name)` | Test function for FRB verification |
+
+Both `encode_command` and `decode_value` take optional `spec_yaml` and
+optional `service_uuid`; spec wins over standard profile when both are
+supplied. To force standard-profile dispatch (e.g. read a Battery
+characteristic), pass `spec_yaml: None` and the service UUID.
 
 ### Mock API — `api/mock_api.rs`
 
@@ -498,7 +502,9 @@ User taps a device
 User taps "Read" on Battery Level characteristic
   → bleService.readCharacteristic(deviceId, "180f", "2a19")
   → Returns raw bytes, e.g. [85]
-  → Rust: decode_standard_profile_value("180f", "2a19", [85])
+  → Rust: decode_value(spec_yaml: None, service_uuid: "180f",
+                       char: "2a19", bytes: [85])
+  → dispatch::select_protocol routes to BatteryServiceProtocol
   → Returns DecodedValueDto { name: "battery_percent", uint_value: 85 }
   → UI shows "85%"
 ```
@@ -507,9 +513,11 @@ User taps "Read" on Battery Level characteristic
 
 ```
 User selects "set_brightness" command with brightness=75
-  → Rust: encode_command(yaml, "fff1", "set_brightness", {brightness: 75})
-  → Rust looks up command template: [0x02, "{brightness}"]
-  → Validates: 0 ≤ 75 ≤ 100 ✓
+  → Rust: encode_command(spec_yaml: Some(yaml), service_uuid: None,
+                         char: "fff1", cmd: "set_brightness",
+                         params: {brightness: 75})
+  → dispatch::select_protocol returns GenericProtocol(spec) (cached)
+  → coerce_param validates: 0 ≤ 75 ≤ 100 ✓, fits in uint8 ✓
   → Encodes: [0x02, 0x4B]
   → Returns bytes to Flutter
 
@@ -520,7 +528,8 @@ Flutter writes bytes
 Device sends notification on Status characteristic
   → bleService.subscribeCharacteristic(deviceId, "fff0", "fff2")
   → Receives raw bytes, e.g. [1, 75, 255, 180, 50]
-  → Rust: decode_value(yaml, "fff2", [1, 75, 255, 180, 50])
+  → Rust: decode_value(spec_yaml: Some(yaml), service_uuid: None,
+                       char: "fff2", bytes: [1, 75, 255, 180, 50])
   → Returns: power_state=true, brightness=75, red=255, green=180, blue=50
   → UI updates status display
 ```

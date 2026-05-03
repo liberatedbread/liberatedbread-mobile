@@ -318,12 +318,13 @@ cargo test -- --nocapture
 
 # Run specific test module
 cargo test protocol::profiles
+cargo test protocol::dispatch
 cargo test api::device_api
 cargo test codec::types
 cargo test spec::parser
 
 # Run a specific test
-cargo test decode_standard_battery_level
+cargo test decode_via_standard_battery_profile
 ```
 
 Current Rust test modules:
