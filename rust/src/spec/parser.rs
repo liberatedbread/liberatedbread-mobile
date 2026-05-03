@@ -53,6 +53,16 @@ fn validate_format_field(field: &FormatField) -> Result<(), SpecError> {
             });
         }
     }
+    // Catch arithmetic overflow at parse time so downstream consumers
+    // (e.g. `mock::simulator::generate_defaults`, which sums offset+length
+    // unchecked) can't panic on a malformed spec.
+    if field.offset.checked_add(field.length).is_none() {
+        return Err(SpecError::FieldOffsetOverflow {
+            field_name: field.name.clone(),
+            offset: field.offset,
+            length: field.length,
+        });
+    }
     Ok(())
 }
 
@@ -246,6 +256,47 @@ services:
                 assert_eq!(got, 1);
             }
             other => panic!("expected FieldLengthMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_format_field_offset_length_overflow() {
+        // offset = usize::MAX with any non-zero length wraps usize. Catch
+        // it at parse time so `mock::simulator::generate_defaults` (which
+        // sums offset+length unchecked) can't panic on malformed input.
+        let yaml = format!(
+            r#"
+device:
+  name: x
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: s
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: c
+        properties: ["read"]
+        format:
+          - offset: {}
+            length: 5
+            name: bad
+            type: bytes
+"#,
+            usize::MAX
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::FieldOffsetOverflow {
+                field_name,
+                offset,
+                length,
+            }) => {
+                assert_eq!(field_name, "bad");
+                assert_eq!(offset, usize::MAX);
+                assert_eq!(length, 5);
+            }
+            other => panic!("expected FieldOffsetOverflow, got {other:?}"),
         }
     }
 

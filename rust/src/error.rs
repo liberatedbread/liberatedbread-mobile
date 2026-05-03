@@ -74,6 +74,13 @@ pub enum SpecError {
         got: usize,
     },
 
+    #[error("format field '{field_name}' offset+length overflows usize: offset={offset}, length={length}")]
+    FieldOffsetOverflow {
+        field_name: String,
+        offset: usize,
+        length: usize,
+    },
+
     #[error(
         "parameter '{parameter_name}' {bound} value {value} does not fit in declared type {value_type}"
     )]
