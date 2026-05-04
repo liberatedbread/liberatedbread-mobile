@@ -274,7 +274,7 @@ rust/src/
 │   ├── mod.rs
 │   ├── traits.rs       # DeviceProtocol trait definition
 │   ├── generic.rs      # YAML-driven GenericProtocol
-│   ├── registry.rs     # ProtocolRegistry router
+│   ├── dispatch.rs     # select_protocol() + spec cache
 │   └── profiles/
 │       ├── mod.rs      # StandardProfile enum + UUID normalization
 │       ├── battery.rs  # Battery Service (0x180F)
@@ -346,11 +346,16 @@ pub trait DeviceProtocol: Send + Sync {
 entirely by a `DeviceSpec`. Looks up characteristics by UUID (case-insensitive),
 delegates encoding/decoding to the codec module.
 
-**`registry.rs`** — `ProtocolRegistry`:
-- `get_protocol(spec) -> Box<dyn DeviceProtocol>` — wraps spec in
-  `GenericProtocol`
-- `get_standard_profile(service_uuid) -> Option<Box<dyn DeviceProtocol>>` —
-  looks up standard BLE profiles
+**`dispatch.rs`** — `select_protocol(spec_yaml, service_uuid) -> Box<dyn
+DeviceProtocol>`: the single dispatch point used by `api/device_api.rs`.
+Picks `GenericProtocol` (when `spec_yaml` is supplied) or a
+`StandardProfile`-backed controller (when `service_uuid` matches a known
+profile). Spec wins over standard profile when both are supplied — pass
+`spec_yaml: None` to force standard-profile dispatch. The dispatcher
+memoizes parsed specs in `SPEC_CACHE: LazyLock<Mutex<HashMap<u64,
+Arc<DeviceSpec>>>>` keyed by content hash, so repeat FFI calls with the
+same YAML skip the parse and clone the inner `DeviceSpec` from the cached
+`Arc` instead.
 
 ### Standard BLE Profiles — `protocol/profiles/`
 
@@ -386,6 +391,8 @@ delegates encoding/decoding to the codec module.
 DTO types for the Flutter↔Rust boundary (FRB-friendly, no references):
 - `DeviceSpecDto`, `ServiceDto`, `CharacteristicDto`, `CommandDto`, etc.
 - `DecodedValueDto` — uses `Option<i64>` instead of `u64` (FRB limitation)
+  and surfaces the truthful value via `string_value` when the clamp fires
+- `MatchResult` — `{spec, matched_by_name_prefix, matched_service_uuids}`
 - `ProfileInfoDto`, `ProfileCharacteristicDto`
 
 Public API functions:
@@ -393,13 +400,15 @@ Public API functions:
 | Function | Purpose |
 |----------|---------|
 | `load_device_spec(yaml)` | Parse YAML → `DeviceSpecDto` |
-| `device_matches_spec(spec, name, uuids)` | Check if device matches spec |
-| `match_device_to_spec(specs, name, uuids)` | Find first matching spec |
-| `encode_command(yaml, char, cmd, params)` | Encode command → bytes |
-| `decode_value(yaml, char, bytes)` | Decode bytes → values |
+| `match_device_to_spec(specs, name, uuids)` | Return every matching spec with categorical reasons (`Vec<MatchResult>`) |
+| `encode_command(spec_yaml, service_uuid, char, cmd, params)` | Encode command → bytes via `dispatch::select_protocol` |
+| `decode_value(spec_yaml, service_uuid, char, bytes)` | Decode bytes → values via `dispatch::select_protocol` |
 | `identify_standard_profiles(uuids)` | Identify standard BT profiles |
-| `decode_standard_profile_value(svc, char, bytes)` | Decode standard profile |
-| `greet(name)` | Test function for FRB verification |
+
+Both `encode_command` and `decode_value` take optional `spec_yaml` and
+optional `service_uuid`; spec wins over standard profile when both are
+supplied. To force standard-profile dispatch (e.g. read a Battery
+characteristic), pass `spec_yaml: None` and the service UUID.
 
 ### Mock API — `api/mock_api.rs`
 
@@ -493,7 +502,9 @@ User taps a device
 User taps "Read" on Battery Level characteristic
   → bleService.readCharacteristic(deviceId, "180f", "2a19")
   → Returns raw bytes, e.g. [85]
-  → Rust: decode_standard_profile_value("180f", "2a19", [85])
+  → Rust: decode_value(spec_yaml: None, service_uuid: "180f",
+                       char: "2a19", bytes: [85])
+  → dispatch::select_protocol routes to BatteryServiceProtocol
   → Returns DecodedValueDto { name: "battery_percent", uint_value: 85 }
   → UI shows "85%"
 ```
@@ -502,9 +513,11 @@ User taps "Read" on Battery Level characteristic
 
 ```
 User selects "set_brightness" command with brightness=75
-  → Rust: encode_command(yaml, "fff1", "set_brightness", {brightness: 75})
-  → Rust looks up command template: [0x02, "{brightness}"]
-  → Validates: 0 ≤ 75 ≤ 100 ✓
+  → Rust: encode_command(spec_yaml: Some(yaml), service_uuid: None,
+                         char: "fff1", cmd: "set_brightness",
+                         params: {brightness: 75})
+  → dispatch::select_protocol returns GenericProtocol(spec) (cached)
+  → coerce_param validates: 0 ≤ 75 ≤ 100 ✓, fits in uint8 ✓
   → Encodes: [0x02, 0x4B]
   → Returns bytes to Flutter
 
@@ -515,7 +528,8 @@ Flutter writes bytes
 Device sends notification on Status characteristic
   → bleService.subscribeCharacteristic(deviceId, "fff0", "fff2")
   → Receives raw bytes, e.g. [1, 75, 255, 180, 50]
-  → Rust: decode_value(yaml, "fff2", [1, 75, 255, 180, 50])
+  → Rust: decode_value(spec_yaml: Some(yaml), service_uuid: None,
+                       char: "fff2", bytes: [1, 75, 255, 180, 50])
   → Returns: power_state=true, brightness=75, red=255, green=180, blue=50
   → UI updates status display
 ```
@@ -537,7 +551,7 @@ Device discovered with service UUIDs: ["180f", "180a", "fff0"]
 ## 9. Current Limitations and Next Steps
 
 ### What's Working
-- Complete Rust protocol system (spec parsing, codec, profiles, registry)
+- Complete Rust protocol system (spec parsing, codec, profiles)
 - Flutter BLE scanning, connection, service discovery, read/write/notify
 - Mock mode with two simulated devices, driven by the Rust simulator
 - Standard BLE profile decoding (Battery, Device Info)

@@ -8,3 +8,6 @@ pub mod error;
 pub mod mock;
 pub mod protocol;
 pub mod spec;
+
+#[cfg(test)]
+mod test_fixtures;

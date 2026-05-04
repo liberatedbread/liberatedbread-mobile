@@ -9,6 +9,8 @@
 pub mod battery;
 pub mod device_info;
 
+use std::borrow::Cow;
+
 use super::traits::DeviceProtocol;
 
 /// The standard Bluetooth base UUID suffix.
@@ -162,31 +164,47 @@ pub fn lookup(service_uuid: &str) -> Option<StandardProfile> {
         .copied()
 }
 
-/// Strip leading zeros, keeping at least one character.
-fn strip_leading_zeros(s: &str) -> String {
+/// Strip leading zeros from a borrowed string slice, keeping at least one
+/// character. Returns the borrowed slice when no zeros need stripping.
+fn strip_leading_zeros(s: &str) -> &str {
     let trimmed = s.trim_start_matches('0');
     if trimmed.is_empty() {
-        "0".to_string()
+        "0"
     } else {
-        trimmed.to_string()
+        trimmed
     }
 }
 
 /// Normalize a UUID to its short hex form for comparison.
 ///
-/// - "180f" → "180f"
-/// - "0000180F-0000-1000-8000-00805F9B34FB" → "180f"
-/// - "0000180f-0000-1000-8000-00805f9b34fb" → "180f"
-/// - "000000f0-0000-1000-8000-00805f9b34fb" → "f0"
-pub(crate) fn normalize_uuid(uuid: &str) -> String {
-    let lower = uuid.to_lowercase();
+/// Borrowed return on the fast path (input already lowercase short UUID
+/// with no leading zeros); allocates only when the input is the full
+/// 128-bit form, has uppercase hex digits, or has leading zeros to strip.
+///
+/// - "180f" → "180f"  (borrowed)
+/// - "0000180F-0000-1000-8000-00805F9B34FB" → "180f"  (allocated)
+/// - "0000180f-0000-1000-8000-00805f9b34fb" → "180f"  (allocated)
+/// - "000000f0-0000-1000-8000-00805f9b34fb" → "f0"  (allocated)
+pub(crate) fn normalize_uuid(uuid: &str) -> Cow<'_, str> {
+    // Fast path: short, all ASCII lowercase hex, no leading zeros.
+    if uuid.len() <= 8
+        && !uuid.contains('-')
+        && uuid
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
+        && !(uuid.len() > 1 && uuid.starts_with('0'))
+    {
+        return Cow::Borrowed(uuid);
+    }
+
+    let lower = uuid.to_ascii_lowercase();
 
     if let Some(prefix) = lower.strip_suffix(BT_BASE_UUID_SUFFIX) {
-        strip_leading_zeros(prefix)
+        Cow::Owned(strip_leading_zeros(prefix).to_string())
     } else if lower.len() <= 8 && !lower.contains('-') {
-        strip_leading_zeros(&lower)
+        Cow::Owned(strip_leading_zeros(&lower).to_string())
     } else {
-        lower
+        Cow::Owned(lower)
     }
 }
 
@@ -199,6 +217,25 @@ mod tests {
         assert_eq!(normalize_uuid("180f"), "180f");
         assert_eq!(normalize_uuid("180F"), "180f");
         assert_eq!(normalize_uuid("2A19"), "2a19");
+    }
+
+    #[test]
+    fn normalize_short_lowercase_uuid_returns_borrowed() {
+        // Already-normalized input shouldn't allocate.
+        assert!(matches!(normalize_uuid("180f"), Cow::Borrowed(_)));
+        assert!(matches!(normalize_uuid("2a19"), Cow::Borrowed(_)));
+        assert!(matches!(normalize_uuid("f0"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn normalize_uppercase_or_long_uuid_returns_owned() {
+        // Anything that needs case-folding or zero-stripping allocates.
+        assert!(matches!(normalize_uuid("180F"), Cow::Owned(_)));
+        assert!(matches!(normalize_uuid("0000180f"), Cow::Owned(_)));
+        assert!(matches!(
+            normalize_uuid("0000180f-0000-1000-8000-00805f9b34fb"),
+            Cow::Owned(_)
+        ));
     }
 
     #[test]

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 /// Top-level device specification.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeviceSpec {
     pub device: DeviceInfo,
     pub services: Vec<Service>,
@@ -16,12 +17,13 @@ pub struct DeviceSpec {
 
 impl DeviceSpec {
     /// Find a characteristic by UUID across all services (case-insensitive).
+    /// Uses `eq_ignore_ascii_case` so neither side allocates a normalized
+    /// copy — UUID strings are pure ASCII so this is correct and cheap.
     pub fn find_characteristic(&self, uuid: &str) -> Option<(&Service, &Characteristic)> {
-        let target = uuid.to_lowercase();
         self.services.iter().find_map(|svc| {
             svc.characteristics
                 .iter()
-                .find(|c| c.uuid.to_lowercase() == target)
+                .find(|c| c.uuid.eq_ignore_ascii_case(uuid))
                 .map(|c| (svc, c))
         })
     }
@@ -29,6 +31,7 @@ impl DeviceSpec {
 
 /// Device metadata and identification.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeviceInfo {
     pub name: String,
     pub manufacturer: String,
@@ -47,6 +50,16 @@ pub enum ManufacturerStatus {
     Unsupported,
 }
 
+impl std::fmt::Display for ManufacturerStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ManufacturerStatus::Abandoned => write!(f, "abandoned"),
+            ManufacturerStatus::Shutdown => write!(f, "shutdown"),
+            ManufacturerStatus::Unsupported => write!(f, "unsupported"),
+        }
+    }
+}
+
 /// Primary communication protocol.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -57,8 +70,20 @@ pub enum Protocol {
     Zwave,
 }
 
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Protocol::Ble => write!(f, "ble"),
+            Protocol::Wifi => write!(f, "wifi"),
+            Protocol::Zigbee => write!(f, "zigbee"),
+            Protocol::Zwave => write!(f, "zwave"),
+        }
+    }
+}
+
 /// How to identify this device during BLE scanning.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Identification {
     pub local_name_prefix: Option<String>,
     pub service_uuids: Option<Vec<String>>,
@@ -66,6 +91,7 @@ pub struct Identification {
 
 /// A BLE GATT service.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Service {
     pub uuid: String,
     pub name: String,
@@ -74,6 +100,7 @@ pub struct Service {
 
 /// A BLE GATT characteristic.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Characteristic {
     pub uuid: String,
     pub name: String,
@@ -95,6 +122,7 @@ pub enum CharacteristicProperty {
 
 /// A named command for a writable characteristic.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Command {
     pub description: String,
     /// Fixed byte sequence for this command.
@@ -141,13 +169,18 @@ impl<'de> Deserialize<'de> for TemplateElement {
             }
 
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-                if v.starts_with('{') && v.ends_with('}') {
-                    Ok(TemplateElement::Param(v[1..v.len() - 1].to_string()))
-                } else {
-                    Err(E::custom(format!(
-                        "parameter reference must be wrapped in braces: {v}"
-                    )))
+                let inner = v
+                    .strip_prefix('{')
+                    .and_then(|s| s.strip_suffix('}'))
+                    .ok_or_else(|| {
+                        E::custom(format!(
+                            "parameter reference must be wrapped in braces: {v}"
+                        ))
+                    })?;
+                if inner.is_empty() {
+                    return Err(E::custom("parameter name cannot be empty"));
                 }
+                Ok(TemplateElement::Param(inner.to_string()))
             }
         }
 
@@ -157,6 +190,7 @@ impl<'de> Deserialize<'de> for TemplateElement {
 
 /// A command parameter definition.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Parameter {
     #[serde(rename = "type")]
     pub value_type: ValueType,
@@ -166,12 +200,19 @@ pub struct Parameter {
 
 /// Binary format field for parsing readable/notifiable characteristic values.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FormatField {
     pub offset: usize,
     pub length: usize,
     pub name: String,
     #[serde(rename = "type")]
     pub field_type: ValueType,
+    /// Optional default value the mock simulator returns for unwritten reads.
+    /// Use a YAML scalar matching the field type — e.g. `mock_default: 80` for
+    /// numeric types, `mock_default: true` for `bool`. When absent the
+    /// simulator falls back to a name-based heuristic (see `mock/simulator.rs`).
+    #[serde(default)]
+    pub mock_default: Option<serde_yaml::Value>,
 }
 
 /// Supported value types for encoding/decoding.
@@ -197,6 +238,32 @@ impl std::fmt::Display for ValueType {
             ValueType::Int16 => write!(f, "int16"),
             ValueType::Bytes => write!(f, "bytes"),
             ValueType::String => write!(f, "string"),
+        }
+    }
+}
+
+impl ValueType {
+    /// Required byte width for fixed-size types. Returns `None` for
+    /// variable-length types (`Bytes`, `String`).
+    pub fn fixed_byte_size(&self) -> Option<usize> {
+        match self {
+            ValueType::Bool | ValueType::Uint8 | ValueType::Int8 => Some(1),
+            ValueType::Uint16 | ValueType::Int16 => Some(2),
+            ValueType::Bytes | ValueType::String => None,
+        }
+    }
+
+    /// Inclusive `[min, max]` range that fits in this type, used to validate
+    /// `Parameter.min`/`max` declarations at parse time. Returns `None` for
+    /// variable-length types where bounds don't apply.
+    pub fn integer_range(&self) -> Option<(i64, i64)> {
+        match self {
+            ValueType::Bool => Some((0, 1)),
+            ValueType::Uint8 => Some((u8::MIN as i64, u8::MAX as i64)),
+            ValueType::Uint16 => Some((u16::MIN as i64, u16::MAX as i64)),
+            ValueType::Int8 => Some((i8::MIN as i64, i8::MAX as i64)),
+            ValueType::Int16 => Some((i16::MIN as i64, i16::MAX as i64)),
+            ValueType::Bytes | ValueType::String => None,
         }
     }
 }

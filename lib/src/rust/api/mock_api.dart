@@ -6,11 +6,17 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These functions are ignored because they are not marked as `pub`: `warn_spec_failure_once`
+
 /// Reset all mock device state. Call when starting a new mock session.
 Future<void> mockReset() => RustLib.instance.api.crateApiMockApiMockReset();
 
 /// Simulate reading a characteristic value for a mock device.
-/// Uses the device spec to determine the format and generate appropriate bytes.
+///
+/// Uses the device spec to determine the format and generate appropriate
+/// bytes. Spec parse failures are logged once per `(char_uuid, message)`
+/// pair to stderr — repeated reads against a broken YAML won't spam — and
+/// the read falls back to a fixed-length zero buffer.
 Future<Uint8List> mockReadCharacteristic(
         {required String deviceId,
         required String charUuid,

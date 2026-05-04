@@ -37,9 +37,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_box_autoadd_bool(dynamic raw);
 
   @protected
-  DeviceSpecDto dco_decode_box_autoadd_device_spec_dto(dynamic raw);
-
-  @protected
   double dco_decode_box_autoadd_f_64(dynamic raw);
 
   @protected
@@ -85,6 +82,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw);
 
   @protected
+  List<MatchResult> dco_decode_list_match_result(dynamic raw);
+
+  @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw);
 
   @protected
@@ -107,13 +107,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServiceDto> dco_decode_list_service_dto(dynamic raw);
 
   @protected
+  MatchResult dco_decode_match_result(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
   bool? dco_decode_opt_box_autoadd_bool(dynamic raw);
-
-  @protected
-  DeviceSpecDto? dco_decode_opt_box_autoadd_device_spec_dto(dynamic raw);
 
   @protected
   double? dco_decode_opt_box_autoadd_f_64(dynamic raw);
@@ -160,10 +160,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   bool sse_decode_box_autoadd_bool(SseDeserializer deserializer);
-
-  @protected
-  DeviceSpecDto sse_decode_box_autoadd_device_spec_dto(
-      SseDeserializer deserializer);
 
   @protected
   double sse_decode_box_autoadd_f_64(SseDeserializer deserializer);
@@ -215,6 +211,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer);
+
+  @protected
   List<ParameterDto> sse_decode_list_parameter_dto(
       SseDeserializer deserializer);
 
@@ -240,14 +239,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServiceDto> sse_decode_list_service_dto(SseDeserializer deserializer);
 
   @protected
+  MatchResult sse_decode_match_result(SseDeserializer deserializer);
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
   bool? sse_decode_opt_box_autoadd_bool(SseDeserializer deserializer);
-
-  @protected
-  DeviceSpecDto? sse_decode_opt_box_autoadd_device_spec_dto(
-      SseDeserializer deserializer);
 
   @protected
   double? sse_decode_opt_box_autoadd_f_64(SseDeserializer deserializer);
@@ -299,10 +297,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_box_autoadd_device_spec_dto(
-      DeviceSpecDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_f_64(double self, SseSerializer serializer);
@@ -359,6 +353,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<FormatFieldDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_match_result(
+      List<MatchResult> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_parameter_dto(
       List<ParameterDto> self, SseSerializer serializer);
 
@@ -386,14 +384,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<ServiceDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_match_result(MatchResult self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_bool(bool? self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_opt_box_autoadd_device_spec_dto(
-      DeviceSpecDto? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_f_64(double? self, SseSerializer serializer);

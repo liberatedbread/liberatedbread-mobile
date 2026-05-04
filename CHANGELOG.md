@@ -35,8 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Standard Bluetooth profile controllers: Battery Service (0x180F) and
   Device Information Service (0x180A)
 - Protocol error types module (`error.rs`) with `ProtocolError` and `SpecError`
-- Protocol registry (`registry.rs`) for routing specs and UUIDs to protocols
-- FFI API: `identify_standard_profiles()` and `decode_standard_profile_value()`
+- FFI API: `load_device_spec()`, `match_device_to_spec()` (returns
+  `Vec<MatchResult>` with categorical match reasons), unified
+  `encode_command()`/`decode_value()` that take optional `spec_yaml` and
+  `service_uuid` (spec wins when both supplied), and
+  `identify_standard_profiles()` for service-UUID discovery
+- Protocol dispatcher (`protocol::dispatch::select_protocol`) routes
+  encode/decode requests to either a YAML-driven `GenericProtocol` or a
+  built-in standard profile, with content-hash spec caching
+- Spec format gains `mock_default` per format field; the simulator
+  consults it before the name-based heuristic
+- Parse-time spec validation: rejects fixed-width fields with the wrong
+  `length`, parameter `min`/`max` bounds outside the declared type,
+  and inverted `min > max` bounds
+- `#[serde(deny_unknown_fields)]` on every spec struct catches typos in
+  YAML at parse time
 - Mock simulator with smart default values per field type
 - E2E architecture walkthrough documentation (`docs/WALKTHROUGH.md`)
 - Build and test guide for Linux and macOS (`docs/BUILD_AND_TEST.md`)

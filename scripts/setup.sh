@@ -23,6 +23,45 @@ err()  { printf '\033[1;31m[setup]\033[0m %s\n' "$*" >&2; }
 
 command_exists() { command -v "$1" &>/dev/null; }
 
+# Idempotently mark a path as safe in the global gitconfig. Repeated runs
+# of this script must not pile up duplicate `safe.directory` entries.
+# Surfaces failures (read-only or unwritable global gitconfig) instead of
+# swallowing them — otherwise we'd continue as if the SDK was marked safe
+# and only fail later with `flutter --version` reporting 0.0.0-unknown.
+ensure_safe_directory() {
+  local path="$1"
+  if git config --global --get-all safe.directory 2>/dev/null \
+       | grep -Fxq -- "$path"; then
+    return 0
+  fi
+  if ! git config --global --add safe.directory "$path"; then
+    err "Failed to add '$path' to git's global safe.directory list."
+    err "Likely cause: the global gitconfig is read-only or unwritable."
+    err "Fix: run the following with appropriate permissions, then re-run setup:"
+    err "  git config --global --add safe.directory '$path'"
+    exit 1
+  fi
+}
+
+# Return 0 iff git refuses to read `$1` because of dubious ownership —
+# the only case the `safe.directory` write actually fixes. Other failures
+# (corrupt repo, missing HEAD) shouldn't be papered over, and a working
+# repo shouldn't need any global-config write at all.
+sdk_needs_safe_directory() {
+  local path="$1"
+  if [[ ! -d "$path/.git" ]]; then
+    return 1
+  fi
+  local probe
+  if probe="$(git -C "$path" rev-parse HEAD 2>&1)"; then
+    return 1  # git already works without safe.directory
+  fi
+  if [[ "$probe" == *"dubious ownership"* ]]; then
+    return 0
+  fi
+  return 1
+}
+
 # Return 0 iff version $1 is >= version $2 (dotted numeric).
 version_ge() {
   [[ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" == "$2" ]]
@@ -42,6 +81,21 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opengreeniot-setup"
 
 install_flutter() {
   if command_exists flutter; then
+    # When the Flutter SDK checkout is owned by a different user
+    # (e.g. shared sandbox cache), git refuses to read it and
+    # `flutter --version` reports 0.0.0-unknown — pub get then fails
+    # the SDK constraint check. We only paper over that specific
+    # case; if git already works, we don't touch the global gitconfig
+    # at all (so a read-only ~/.gitconfig is fine for normal installs).
+    local flutter_root
+    flutter_root="$(flutter --version --machine 2>/dev/null | grep -o '"flutterRoot": *"[^"]*"' | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+    if [[ -z "$flutter_root" ]] && [[ -n "${FLUTTER_HOME:-}" ]] && [[ -d "$FLUTTER_HOME/.git" ]]; then
+      flutter_root="$FLUTTER_HOME"
+    fi
+    if [[ -n "$flutter_root" ]] && command_exists git \
+       && sdk_needs_safe_directory "$flutter_root"; then
+      ensure_safe_directory "$flutter_root"
+    fi
     log "Flutter already installed: $(flutter --version 2>/dev/null | head -1)"
     return
   fi
@@ -119,6 +173,17 @@ install_flutter() {
 
   # Mark the cached archive as good only after extraction succeeded.
   printf '%s\n' "$url" > "$marker"
+
+  # Flutter shells out to `git` inside its SDK to read the framework
+  # revision. In containers/CI sandboxes the extracted tree may be owned
+  # by a different user, in which case git refuses to read it and
+  # `flutter` reports version 0.0.0-unknown, which then breaks
+  # `flutter pub get`. Mark the SDK safe only when that actually
+  # happens — on a normal local install where the user owns the
+  # extracted tree, git works fine and we leave ~/.gitconfig alone.
+  if command_exists git && sdk_needs_safe_directory "$FLUTTER_HOME"; then
+    ensure_safe_directory "$FLUTTER_HOME"
+  fi
 
   log "Flutter installed to ${FLUTTER_HOME}"
   warn "Add to your shell profile:  export PATH=\"${FLUTTER_HOME}/bin:\$PATH\""
