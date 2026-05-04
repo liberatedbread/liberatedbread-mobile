@@ -6,16 +6,20 @@
 
 use crate::mock::simulator::MockDeviceState;
 use crate::spec::parser::parse_device_spec;
-use std::collections::HashMap;
-use std::sync::Mutex;
-
-use once_cell::sync::Lazy;
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 
 // Global mock state, keyed by device ID.
 // This is intentionally simple — a single Mutex map.
 // FRB calls are sequential from the Flutter UI thread anyway.
-static MOCK_STATES: Lazy<Mutex<HashMap<String, MockDeviceState>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static MOCK_STATES: LazyLock<Mutex<HashMap<String, MockDeviceState>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Tracks `(char_uuid, error_message)` pairs we've already complained about,
+/// so a recurring spec parse failure (every BLE poll on a broken YAML) only
+/// logs once instead of spamming stderr. Cleared by [`mock_reset`].
+static WARNED_SPEC_FAILURES: LazyLock<Mutex<HashSet<(String, String)>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// Fallback buffer length when a spec has no `format` for the requested
 /// characteristic. Chosen small enough to be cheap, large enough to show
@@ -28,10 +32,18 @@ pub fn mock_reset() {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clear();
+    WARNED_SPEC_FAILURES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 /// Simulate reading a characteristic value for a mock device.
-/// Uses the device spec to determine the format and generate appropriate bytes.
+///
+/// Uses the device spec to determine the format and generate appropriate
+/// bytes. Spec parse failures are logged once per `(char_uuid, message)`
+/// pair to stderr — repeated reads against a broken YAML won't spam — and
+/// the read falls back to a fixed-length zero buffer.
 pub fn mock_read_characteristic(
     device_id: String,
     char_uuid: String,
@@ -40,17 +52,31 @@ pub fn mock_read_characteristic(
     let mut states = MOCK_STATES.lock().unwrap_or_else(|e| e.into_inner());
     let state = states.entry(device_id).or_default();
 
-    // Try to find format fields for this characteristic in the spec
-    if let Ok(spec) = parse_device_spec(&spec_yaml) {
-        if let Some((_, characteristic)) = spec.find_characteristic(&char_uuid) {
-            if let Some(ref format) = characteristic.format {
-                return state.read(&char_uuid, format);
+    match parse_device_spec(&spec_yaml) {
+        Ok(spec) => {
+            if let Some((_, characteristic)) = spec.find_characteristic(&char_uuid) {
+                if let Some(ref format) = characteristic.format {
+                    return state.read(&char_uuid, format);
+                }
             }
         }
+        Err(e) => warn_spec_failure_once(&char_uuid, &e.to_string()),
     }
 
-    // No format found — return a fixed-length zero buffer
+    // No usable format — return a fixed-length zero buffer.
     state.read_raw(&char_uuid, FALLBACK_RAW_READ_LEN)
+}
+
+fn warn_spec_failure_once(char_uuid: &str, message: &str) {
+    let key = (char_uuid.to_string(), message.to_string());
+    let mut warned = WARNED_SPEC_FAILURES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if warned.insert(key) {
+        eprintln!(
+            "[opengreeniot] mock_read_characteristic: failed to parse spec YAML for {char_uuid}: {message}; falling back to zero buffer"
+        );
+    }
 }
 
 /// Simulate writing a characteristic value for a mock device.

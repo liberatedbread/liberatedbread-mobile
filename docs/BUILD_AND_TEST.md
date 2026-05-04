@@ -318,25 +318,26 @@ cargo test -- --nocapture
 
 # Run specific test module
 cargo test protocol::profiles
+cargo test protocol::dispatch
 cargo test api::device_api
 cargo test codec::types
 cargo test spec::parser
 
 # Run a specific test
-cargo test decode_standard_battery_level
+cargo test decode_via_standard_battery_profile
 ```
 
 Current Rust test modules:
-- `api::device_api` — FFI API, DTOs, roundtrip encoding
+- `api::device_api` — FFI API, DTOs, roundtrip encoding, match results
 - `api::mock_api` — Mock read/write
-- `codec::types` — Binary encoding/decoding
-- `mock::simulator` — MockDeviceState
+- `codec::types` — Binary encoding/decoding, typed parameter coercion
+- `mock::simulator` — MockDeviceState, `mock_default` lookup
+- `protocol::dispatch` — `select_protocol` routing + spec cache
 - `protocol::generic` — GenericProtocol
-- `protocol::registry` — ProtocolRegistry
-- `protocol::profiles` — UUID normalization, lookup
+- `protocol::profiles` — UUID normalization (Cow), lookup
 - `protocol::profiles::battery` — Battery protocol
 - `protocol::profiles::device_info` — Device info protocol
-- `spec::parser` — YAML parsing
+- `spec::parser` — YAML parsing + post-deserialize validation
 
 ### Linting and Formatting
 

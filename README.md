@@ -212,8 +212,6 @@ The Rust core (`rust/src/`) provides protocol logic independent of Flutter:
   (YAML-driven) and standard profile implementations.
 - **Standard profiles** — Built-in controllers for Battery Service (0x180F)
   and Device Information (0x180A). No YAML needed.
-- **Registry** — Routes device specs and service UUIDs to the right protocol
-  implementation.
 - **Mock simulator** — Generates realistic fake BLE readings for each
   characteristic type.
 

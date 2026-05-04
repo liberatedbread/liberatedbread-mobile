@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 733281395;
+  int get rustContentHash => 531639321;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -78,35 +78,25 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 }
 
 abstract class RustLibApi extends BaseApi {
-  Future<List<DecodedValueDto>> crateApiDeviceApiDecodeStandardProfileValue(
-      {required String serviceUuid,
-      required String charUuid,
-      required List<int> bytes});
-
   Future<List<DecodedValueDto>> crateApiDeviceApiDecodeValue(
-      {required String yaml,
+      {String? specYaml,
+      String? serviceUuid,
       required String charUuid,
       required List<int> bytes});
-
-  Future<bool> crateApiDeviceApiDeviceMatchesSpec(
-      {required DeviceSpecDto spec,
-      required String deviceName,
-      required List<String> advertisedServiceUuids});
 
   Future<Uint8List> crateApiDeviceApiEncodeCommand(
-      {required String yaml,
+      {String? specYaml,
+      String? serviceUuid,
       required String charUuid,
       required String commandName,
       required Map<String, double> params});
-
-  Future<String> crateApiDeviceApiGreet({required String name});
 
   Future<List<ProfileInfoDto>> crateApiDeviceApiIdentifyStandardProfiles(
       {required List<String> serviceUuids});
 
   Future<DeviceSpecDto> crateApiDeviceApiLoadDeviceSpec({required String yaml});
 
-  Future<DeviceSpecDto?> crateApiDeviceApiMatchDeviceToSpec(
+  Future<List<MatchResult>> crateApiDeviceApiMatchDeviceToSpec(
       {required List<DeviceSpecDto> specs,
       required String deviceName,
       required List<String> advertisedServiceUuids});
@@ -133,14 +123,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   });
 
   @override
-  Future<List<DecodedValueDto>> crateApiDeviceApiDecodeStandardProfileValue(
-      {required String serviceUuid,
+  Future<List<DecodedValueDto>> crateApiDeviceApiDecodeValue(
+      {String? specYaml,
+      String? serviceUuid,
       required String charUuid,
       required List<int> bytes}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
-        sse_encode_String(serviceUuid, serializer);
+        sse_encode_opt_String(specYaml, serializer);
+        sse_encode_opt_String(serviceUuid, serializer);
         sse_encode_String(charUuid, serializer);
         sse_encode_list_prim_u_8_loose(bytes, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
@@ -150,38 +142,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         decodeSuccessData: sse_decode_list_decoded_value_dto,
         decodeErrorData: sse_decode_AnyhowException,
       ),
-      constMeta: kCrateApiDeviceApiDecodeStandardProfileValueConstMeta,
-      argValues: [serviceUuid, charUuid, bytes],
-      apiImpl: this,
-    ));
-  }
-
-  TaskConstMeta get kCrateApiDeviceApiDecodeStandardProfileValueConstMeta =>
-      const TaskConstMeta(
-        debugName: 'decode_standard_profile_value',
-        argNames: ['serviceUuid', 'charUuid', 'bytes'],
-      );
-
-  @override
-  Future<List<DecodedValueDto>> crateApiDeviceApiDecodeValue(
-      {required String yaml,
-      required String charUuid,
-      required List<int> bytes}) {
-    return handler.executeNormal(NormalTask(
-      callFfi: (port_) {
-        final serializer = SseSerializer(generalizedFrbRustBinding);
-        sse_encode_String(yaml, serializer);
-        sse_encode_String(charUuid, serializer);
-        sse_encode_list_prim_u_8_loose(bytes, serializer);
-        pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 2, port: port_);
-      },
-      codec: SseCodec(
-        decodeSuccessData: sse_decode_list_decoded_value_dto,
-        decodeErrorData: sse_decode_AnyhowException,
-      ),
       constMeta: kCrateApiDeviceApiDecodeValueConstMeta,
-      argValues: [yaml, charUuid, bytes],
+      argValues: [specYaml, serviceUuid, charUuid, bytes],
       apiImpl: this,
     ));
   }
@@ -189,61 +151,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiDeviceApiDecodeValueConstMeta =>
       const TaskConstMeta(
         debugName: 'decode_value',
-        argNames: ['yaml', 'charUuid', 'bytes'],
-      );
-
-  @override
-  Future<bool> crateApiDeviceApiDeviceMatchesSpec(
-      {required DeviceSpecDto spec,
-      required String deviceName,
-      required List<String> advertisedServiceUuids}) {
-    return handler.executeNormal(NormalTask(
-      callFfi: (port_) {
-        final serializer = SseSerializer(generalizedFrbRustBinding);
-        sse_encode_box_autoadd_device_spec_dto(spec, serializer);
-        sse_encode_String(deviceName, serializer);
-        sse_encode_list_String(advertisedServiceUuids, serializer);
-        pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 3, port: port_);
-      },
-      codec: SseCodec(
-        decodeSuccessData: sse_decode_bool,
-        decodeErrorData: null,
-      ),
-      constMeta: kCrateApiDeviceApiDeviceMatchesSpecConstMeta,
-      argValues: [spec, deviceName, advertisedServiceUuids],
-      apiImpl: this,
-    ));
-  }
-
-  TaskConstMeta get kCrateApiDeviceApiDeviceMatchesSpecConstMeta =>
-      const TaskConstMeta(
-        debugName: 'device_matches_spec',
-        argNames: ['spec', 'deviceName', 'advertisedServiceUuids'],
+        argNames: ['specYaml', 'serviceUuid', 'charUuid', 'bytes'],
       );
 
   @override
   Future<Uint8List> crateApiDeviceApiEncodeCommand(
-      {required String yaml,
+      {String? specYaml,
+      String? serviceUuid,
       required String charUuid,
       required String commandName,
       required Map<String, double> params}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
-        sse_encode_String(yaml, serializer);
+        sse_encode_opt_String(specYaml, serializer);
+        sse_encode_opt_String(serviceUuid, serializer);
         sse_encode_String(charUuid, serializer);
         sse_encode_String(commandName, serializer);
         sse_encode_Map_String_f_64_None(params, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 4, port: port_);
+            funcId: 2, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
         decodeErrorData: sse_decode_AnyhowException,
       ),
       constMeta: kCrateApiDeviceApiEncodeCommandConstMeta,
-      argValues: [yaml, charUuid, commandName, params],
+      argValues: [specYaml, serviceUuid, charUuid, commandName, params],
       apiImpl: this,
     ));
   }
@@ -251,31 +185,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiDeviceApiEncodeCommandConstMeta =>
       const TaskConstMeta(
         debugName: 'encode_command',
-        argNames: ['yaml', 'charUuid', 'commandName', 'params'],
-      );
-
-  @override
-  Future<String> crateApiDeviceApiGreet({required String name}) {
-    return handler.executeNormal(NormalTask(
-      callFfi: (port_) {
-        final serializer = SseSerializer(generalizedFrbRustBinding);
-        sse_encode_String(name, serializer);
-        pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 5, port: port_);
-      },
-      codec: SseCodec(
-        decodeSuccessData: sse_decode_String,
-        decodeErrorData: null,
-      ),
-      constMeta: kCrateApiDeviceApiGreetConstMeta,
-      argValues: [name],
-      apiImpl: this,
-    ));
-  }
-
-  TaskConstMeta get kCrateApiDeviceApiGreetConstMeta => const TaskConstMeta(
-        debugName: 'greet',
-        argNames: ['name'],
+        argNames: [
+          'specYaml',
+          'serviceUuid',
+          'charUuid',
+          'commandName',
+          'params'
+        ],
       );
 
   @override
@@ -286,7 +202,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(serviceUuids, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 6, port: port_);
+            funcId: 3, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_profile_info_dto,
@@ -312,7 +228,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(yaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 7, port: port_);
+            funcId: 4, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_device_spec_dto,
@@ -331,7 +247,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<DeviceSpecDto?> crateApiDeviceApiMatchDeviceToSpec(
+  Future<List<MatchResult>> crateApiDeviceApiMatchDeviceToSpec(
       {required List<DeviceSpecDto> specs,
       required String deviceName,
       required List<String> advertisedServiceUuids}) {
@@ -342,10 +258,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(deviceName, serializer);
         sse_encode_list_String(advertisedServiceUuids, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 5, port: port_);
       },
       codec: SseCodec(
-        decodeSuccessData: sse_decode_opt_box_autoadd_device_spec_dto,
+        decodeSuccessData: sse_decode_list_match_result,
         decodeErrorData: null,
       ),
       constMeta: kCrateApiDeviceApiMatchDeviceToSpecConstMeta,
@@ -372,7 +288,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_String(specYaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 9, port: port_);
+            funcId: 6, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -396,7 +312,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 10, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -425,7 +341,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_list_prim_u_8_loose(value, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 11, port: port_);
+            funcId: 8, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -472,12 +388,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool dco_decode_box_autoadd_bool(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as bool;
-  }
-
-  @protected
-  DeviceSpecDto dco_decode_box_autoadd_device_spec_dto(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_device_spec_dto(raw);
   }
 
   @protected
@@ -621,6 +531,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<MatchResult> dco_decode_list_match_result(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_match_result).toList();
+  }
+
+  @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_parameter_dto).toList();
@@ -666,6 +582,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  MatchResult dco_decode_match_result(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return MatchResult(
+      spec: dco_decode_device_spec_dto(arr[0]),
+      matchedByNamePrefix: dco_decode_bool(arr[1]),
+      matchedServiceUuids: dco_decode_list_String(arr[2]),
+    );
+  }
+
+  @protected
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
@@ -675,12 +604,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool? dco_decode_opt_box_autoadd_bool(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_bool(raw);
-  }
-
-  @protected
-  DeviceSpecDto? dco_decode_opt_box_autoadd_device_spec_dto(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_box_autoadd_device_spec_dto(raw);
   }
 
   @protected
@@ -813,13 +736,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   bool sse_decode_box_autoadd_bool(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_bool(deserializer));
-  }
-
-  @protected
-  DeviceSpecDto sse_decode_box_autoadd_device_spec_dto(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_device_spec_dto(deserializer));
   }
 
   @protected
@@ -1014,6 +930,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <MatchResult>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_match_result(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ParameterDto> sse_decode_list_parameter_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1092,6 +1020,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  MatchResult sse_decode_match_result(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_spec = sse_decode_device_spec_dto(deserializer);
+    var var_matchedByNamePrefix = sse_decode_bool(deserializer);
+    var var_matchedServiceUuids = sse_decode_list_String(deserializer);
+    return MatchResult(
+        spec: var_spec,
+        matchedByNamePrefix: var_matchedByNamePrefix,
+        matchedServiceUuids: var_matchedServiceUuids);
+  }
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1108,18 +1048,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_bool(deserializer));
-    } else {
-      return null;
-    }
-  }
-
-  @protected
-  DeviceSpecDto? sse_decode_opt_box_autoadd_device_spec_dto(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    if (sse_decode_bool(deserializer)) {
-      return (sse_decode_box_autoadd_device_spec_dto(deserializer));
     } else {
       return null;
     }
@@ -1260,13 +1188,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_box_autoadd_bool(bool self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_bool(self, serializer);
-  }
-
-  @protected
-  void sse_encode_box_autoadd_device_spec_dto(
-      DeviceSpecDto self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_device_spec_dto(self, serializer);
   }
 
   @protected
@@ -1413,6 +1334,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_match_result(
+      List<MatchResult> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_match_result(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_parameter_dto(
       List<ParameterDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1480,6 +1411,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_match_result(MatchResult self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_device_spec_dto(self.spec, serializer);
+    sse_encode_bool(self.matchedByNamePrefix, serializer);
+    sse_encode_list_String(self.matchedServiceUuids, serializer);
+  }
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1496,17 +1435,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_bool(self, serializer);
-    }
-  }
-
-  @protected
-  void sse_encode_opt_box_autoadd_device_spec_dto(
-      DeviceSpecDto? self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-
-    sse_encode_bool(self != null, serializer);
-    if (self != null) {
-      sse_encode_box_autoadd_device_spec_dto(self, serializer);
     }
   }
 
