@@ -182,14 +182,15 @@ final bleServiceProvider = Provider<BleService>((ref) {
 Loads YAML device spec files from assets:
 
 ```dart
-final deviceSpecsProvider = FutureProvider<List<String>>((ref) async {
+final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   // Loads assets/device_specs/example-bulb.yaml
-  // Returns list of YAML strings
+  // Returns the raw YAML strings keyed by asset path.
 });
 ```
 
 Note: `AssetBundle` doesn't support directory listing, so spec files are
-enumerated explicitly.
+enumerated explicitly in a hardcoded list — new specs must be added there.
+A missing asset is skipped silently; malformed YAML is logged.
 
 ---
 
@@ -310,6 +311,12 @@ Both derive `thiserror::Error` for clean error messages.
 **`spec/parser.rs`** — `parse_device_spec(yaml) -> Result<DeviceSpec>` via
 `serde_yaml`.
 
+> **Heads up:** the import name is `serde_yaml`, but `rust/Cargo.toml` actually
+> pulls in the maintained community fork `serde_yaml_ng`
+> (`serde_yaml = { package = "serde_yaml_ng", ... }`). Upstream `serde_yaml`
+> was archived in 2024. Don't be surprised that `cargo doc`/crates.io point at
+> `serde_yaml_ng`.
+
 `DeviceSpec::find_characteristic(uuid)` does case-insensitive lookup across
 all services.
 
@@ -341,6 +348,11 @@ pub trait DeviceProtocol: Send + Sync {
     fn fields_for_characteristic(&self, char_uuid) -> Vec<String>;
 }
 ```
+
+Parameter types are elided above for readability — see
+`rust/src/protocol/traits.rs` for the exact signatures (e.g. `encode_command`
+takes `params: &HashMap<String, f64>` and returns
+`Result<Vec<u8>, ProtocolError>`).
 
 **`generic.rs`** — `GenericProtocol`: Implements `DeviceProtocol` driven
 entirely by a `DeviceSpec`. Looks up characteristics by UUID (case-insensitive),
@@ -382,9 +394,19 @@ same YAML skip the parse and clone the inner `DeviceSpec` from the cached
 
 `MockDeviceState` generates realistic fake readings:
 - Stores written values in memory
-- On read: returns last written value, or generates smart defaults
-  (brightness=80, battery=85, bool=on, temp=2200, etc.)
+- On read: returns last written value, or generates a default
 - Respects format field offsets and lengths
+
+The default for a field is chosen in this order:
+1. the field's explicit `mock_default` in the YAML spec (if present and in range
+   for the field's type), then
+2. a name-based heuristic (e.g. a field whose name contains `brightness` → 80,
+   `battery`/`percent` → 85, `temp` → 2200, a `bool` field → on), then
+3. zero.
+
+So to make a mock device return a specific value, set `mock_default` on the
+relevant format field in the spec — see `mock/simulator.rs` for the exact
+heuristics and range rules.
 
 ### FFI API — `api/device_api.rs`
 
