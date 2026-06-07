@@ -156,6 +156,17 @@ jobs:
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" \
             > /dev/null
+      # The Rust toolchain + NDK this job adds (~4 GB) can starve the emulator
+      # of disk and prevent it from booting. Reclaim space from large
+      # preinstalled toolchains we don't use before launching the emulator.
+      - name: Free up disk space for the emulator
+        run: |
+          # Only remove large toolchains this job doesn't use; keep
+          # hostedtoolcache (Java/Flutter live there).
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
+            /usr/share/swift 2>/dev/null || true
+          df -h /
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
