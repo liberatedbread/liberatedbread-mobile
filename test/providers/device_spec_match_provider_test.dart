@@ -120,4 +120,60 @@ void main() {
 
     expect(r, isNull);
   });
+
+  test('associates the winning spec with its own yaml, not parsed.first',
+      () async {
+    const svcA = '0000aaa0-0000-1000-8000-00805f9b34fb';
+    const svcB = '0000bbb0-0000-1000-8000-00805f9b34fb';
+    const specA = DeviceSpecDto(
+      deviceName: 'Alpha',
+      manufacturer: 'A',
+      manufacturerStatus: 'abandoned',
+      protocol: 'ble',
+      localNamePrefix: 'ALPHA_',
+      serviceUuids: [svcA],
+      services: [],
+    );
+    const specB = DeviceSpecDto(
+      deviceName: 'Beta',
+      manufacturer: 'B',
+      manufacturerStatus: 'abandoned',
+      protocol: 'ble',
+      localNamePrefix: 'BETA_',
+      serviceUuids: [svcB],
+      services: [],
+    );
+    // A separate, non-const instance with the same content as specB, simulating
+    // the FFI round-trip. The generated `DeviceSpecDto ==` compares lists by
+    // reference, so this does NOT `==` specB (what the old lookup relied on);
+    // the runtime List.of keeps it a distinct instance.
+    final specBRoundTrip = DeviceSpecDto(
+      deviceName: 'Beta',
+      manufacturer: 'B',
+      manufacturerStatus: 'abandoned',
+      protocol: 'ble',
+      localNamePrefix: 'BETA_',
+      serviceUuids: List<String>.of(const [svcB]),
+      services: const [],
+    );
+
+    final codec = FakeSpecCodec(
+      specByYaml: const {'yaml-a': specA, 'yaml-b': specB},
+      matches: [
+        MatchResult(
+          spec: specBRoundTrip,
+          matchedByNamePrefix: true,
+          matchedServiceUuids: const [svcB],
+        ),
+      ],
+    );
+    final c = _container(codec, const {'a': 'yaml-a', 'b': 'yaml-b'});
+
+    final r = await c.read(matchedDeviceSpecProvider(
+      const SpecMatchRequest(deviceName: 'BETA_1', serviceUuids: [svcB]),
+    ).future);
+
+    expect(r!.spec.deviceName, 'Beta');
+    expect(r.yaml, 'yaml-b');
+  });
 }
