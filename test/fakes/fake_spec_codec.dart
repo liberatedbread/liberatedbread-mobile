@@ -21,6 +21,10 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [decodeValue].
   final List<DecodedValueDto> decoded;
 
+  /// Per-YAML spec overrides for [loadDeviceSpec], keyed by the YAML string.
+  /// Lets a test bundle several distinct specs.
+  final Map<String, DeviceSpecDto>? specByYaml;
+
   final Object? loadError;
   final Object? encodeError;
   final Object? decodeError;
@@ -34,6 +38,7 @@ class FakeSpecCodec implements SpecCodec {
     this.matches = const [],
     Uint8List? encoded,
     this.decoded = const [],
+    this.specByYaml,
     this.loadError,
     this.encodeError,
     this.decodeError,
@@ -42,6 +47,8 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<DeviceSpecDto> loadDeviceSpec(String yaml) async {
     if (loadError != null) throw loadError!;
+    final mapped = specByYaml?[yaml];
+    if (mapped != null) return mapped;
     final s = spec;
     if (s == null) throw StateError('FakeSpecCodec: no spec configured');
     return s;

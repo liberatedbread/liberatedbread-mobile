@@ -84,14 +84,27 @@ final matchedDeviceSpecProvider =
     });
   final best = ranked.first;
 
-  // Recover the YAML for the winning spec (DTOs round-trip with value equality
-  // across the FFI boundary, so compare by value).
+  // Recover the source YAML for the winning spec. matchDeviceToSpec round-trips
+  // DTOs through Rust/FRB, and the generated `DeviceSpecDto ==` compares its
+  // List fields by reference — so a plain `==` against the returned spec is
+  // unreliable when multiple specs are bundled. Compare identifying fields by
+  // value, and return the locally-parsed (spec, yaml) pair so both are
+  // guaranteed to come from the same source.
   final winner = parsed.firstWhere(
-    (p) => p.spec == best.spec,
+    (p) => _sameSpecIdentity(p.spec, best.spec),
     orElse: () => parsed.first,
   );
-  return MatchedSpec(spec: best.spec, yaml: winner.yaml);
+  return MatchedSpec(spec: winner.spec, yaml: winner.yaml);
 });
+
+/// Whether two specs identify the same device, compared by value. The generated
+/// `DeviceSpecDto ==` uses referential equality for its List fields, which does
+/// not survive the FFI round-trip, so we compare the identifying fields here.
+bool _sameSpecIdentity(DeviceSpecDto a, DeviceSpecDto b) =>
+    a.deviceName == b.deviceName &&
+    a.manufacturer == b.manufacturer &&
+    a.localNamePrefix == b.localNamePrefix &&
+    listEquals(a.serviceUuids, b.serviceUuids);
 
 /// Find the [ServiceDto] in [spec] for a discovered service UUID, or null.
 ServiceDto? findServiceForUuid(DeviceSpecDto spec, String uuid) {

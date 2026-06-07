@@ -1,5 +1,12 @@
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # cargokit's build_tool is a self-contained Dart program with its own
+    # pubspec/dependencies; it isn't part of the app and its deps aren't
+    # resolved by the app's `flutter pub get`, so analyzing it here errors.
+    - rust_builder/**
+
 linter:
   rules:
     prefer_const_constructors: true
