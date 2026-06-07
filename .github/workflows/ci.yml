@@ -146,9 +146,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125'
+      # Install only the SDK packages cargokit's native build needs, via the
+      # runner's preinstalled sdkmanager. Avoid android-actions/setup-android
+      # in this job — it reinstalls platform-tools and disturbed the
+      # emulator-runner, leaving the emulator unable to boot. Don't reinstall
+      # platform-tools: the runner's adb/emulator are what boot the AVD.
+      - name: Install Android SDK packages for the Rust build
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" \
+            > /dev/null
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
