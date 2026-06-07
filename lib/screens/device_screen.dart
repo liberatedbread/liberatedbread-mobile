@@ -110,6 +110,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       case _ScreenState.ready:
         return DeviceControlPanel(
           deviceId: widget.device.id,
+          deviceName: widget.device.displayName,
           services: _services,
         );
     }
