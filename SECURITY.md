@@ -2,9 +2,13 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| Version  | Supported          |
+| -------- | ------------------ |
+| 0.1.x    | :white_check_mark: |
+| < 0.1.0  | :x:                |
+
+The project is pre-1.0, so only the latest `0.1.x` line receives security
+fixes.
 
 ## Reporting a Vulnerability
 
@@ -26,4 +30,6 @@ We will acknowledge receipt within 48 hours and aim to provide a fix within
 
 This policy covers the OpenGreenIoT Mobile application and its direct
 dependencies. BLE protocol-level vulnerabilities should be reported to
-the [OpenGreenIoT](https://github.com/PigsCanFlyLabs/opengreeniot) project.
+the [OpenGreenIoT](https://github.com/PigsCanFlyLabs/opengreeniot) project. If
+you're unsure whether an issue lives in the app or the protocol, report it to
+both — we'd rather get a duplicate than miss it.

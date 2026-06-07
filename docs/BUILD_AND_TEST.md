@@ -75,7 +75,11 @@ After setup, add Flutter to your PATH:
 export PATH="$HOME/.flutter-sdk/bin:$PATH"
 ```
 
-Add this to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist it.
+Append it to your shell profile so it persists across new terminals, e.g.:
+
+```bash
+echo 'export PATH="$HOME/.flutter-sdk/bin:$PATH"' >> ~/.bashrc   # or ~/.zshrc
+```
 
 Verify the setup:
 
@@ -174,6 +178,10 @@ flutter_rust_bridge_codegen generate
 
 This reads `flutter_rust_bridge.yaml` and generates Dart bindings in
 `lib/src/rust/` from the Rust code in `rust/src/api/`.
+
+`lib/src/rust/` and `rust/src/frb_generated.rs` are **generated code** — don't
+hand-edit them. Change the Rust API in `rust/src/api/`, then re-run the codegen.
+Both files are committed, and CI fails if they drift from the Rust API.
 
 ### Build for Android
 
@@ -287,7 +295,10 @@ Integration tests under `integration_test/` need a connected device or emulator:
 ### FRB-backed tests
 
 `test/services/mock_ble_service_rust_test.dart` exercises the Rust mock API
-through flutter_rust_bridge. It requires the host Rust library:
+through flutter_rust_bridge. Unlike a normal `flutter test`, the host-target
+Rust library has to be built and discoverable at runtime — `flutter test` runs
+on your machine, not a device, so it dynamically loads the desktop build of the
+Rust core. Point the dynamic linker at it via `LD_LIBRARY_PATH`:
 
 ```bash
 cd rust && cargo build
@@ -298,12 +309,6 @@ LD_LIBRARY_PATH=$PWD/target/debug flutter test test/services/mock_ble_service_ru
 `scripts/test.sh` wires this automatically. If the library fails to load the
 tests self-skip via `markTestSkipped` so CI on fresh clones doesn't see a hard
 failure.
-
-Run them with:
-
-```bash
-flutter test integration_test --dart-define=OPENGREENIOT_MOCK=true
-```
 
 ### Rust Tests
 
@@ -510,6 +515,10 @@ emulator -list-avds
 # Launch manually with verbose output
 emulator -avd opengreeniot_test -verbose
 ```
+
+If `opengreeniot_test` isn't in the `-list-avds` output, it hasn't been created
+yet — run `./scripts/setup.sh` (which creates it) or make your own AVD in
+Android Studio.
 
 ### BLE permissions denied on Android
 
