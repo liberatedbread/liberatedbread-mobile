@@ -21,6 +21,9 @@ class FakeBleService implements BleService {
   final Object? discoverError;
   final Object? readError;
 
+  /// Stream returned by [subscribeCharacteristic]; defaults to an empty stream.
+  final Stream<List<int>>? notifyStream;
+
   final List<String> connectedIds = [];
   final List<String> disconnectedIds = [];
   final List<({String deviceId, String charUuid, List<int> value})> writes = [];
@@ -34,6 +37,7 @@ class FakeBleService implements BleService {
     this.connectError,
     this.discoverError,
     this.readError,
+    this.notifyStream,
   });
 
   @override
@@ -101,5 +105,5 @@ class FakeBleService implements BleService {
     String serviceUuid,
     String charUuid,
   ) =>
-      const Stream.empty();
+      notifyStream ?? const Stream<List<int>>.empty();
 }

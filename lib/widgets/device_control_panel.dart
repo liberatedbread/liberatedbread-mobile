@@ -1,39 +1,56 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
-import '../models/ble_discovered_service.dart';
-import 'raw_characteristic_widget.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Displays all services and characteristics for a connected device as a
-/// raw GATT browser.
-// TODO: match services against loaded device specs and render typed
-// controls (toggles, sliders, gauges) instead of raw hex.
-class DeviceControlPanel extends StatelessWidget {
+import '../core/hex.dart';
+import '../models/ble_discovered_service.dart';
+import '../providers/device_spec_match_provider.dart';
+import 'raw_characteristic_widget.dart';
+import 'typed_characteristic_widget.dart';
+
+/// Displays the services/characteristics of a connected device. When the device
+/// matches a bundled device spec, characteristics are rendered as typed
+/// controls (command buttons, sliders, decoded values); anything unmatched
+/// falls back to the raw GATT/hex browser.
+class DeviceControlPanel extends ConsumerWidget {
   final String deviceId;
+  final String deviceName;
   final List<BleDiscoveredService> services;
 
   const DeviceControlPanel({
     super.key,
     required this.deviceId,
+    required this.deviceName,
     required this.services,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (services.isEmpty) {
       return const Center(
         child: Text('No services found on this device.'),
       );
     }
 
+    // Collapse loading / error / no-match to null so the raw browser shows
+    // immediately and is replaced in place once a spec match resolves.
+    final match = ref
+        .watch(matchedDeviceSpecProvider(SpecMatchRequest(
+          deviceName: deviceName,
+          serviceUuids: [for (final s in services) s.uuid],
+        )))
+        .asData
+        ?.value;
+
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: services.length,
       itemBuilder: (context, serviceIndex) {
-        final service = services[serviceIndex];
         return _ServiceCard(
           deviceId: deviceId,
-          service: service,
+          service: services[serviceIndex],
+          matched: match,
         );
       },
     );
@@ -43,20 +60,26 @@ class DeviceControlPanel extends StatelessWidget {
 class _ServiceCard extends StatelessWidget {
   final String deviceId;
   final BleDiscoveredService service;
+  final MatchedSpec? matched;
 
   const _ServiceCard({
     required this.deviceId,
     required this.service,
+    required this.matched,
   });
 
   @override
   Widget build(BuildContext context) {
+    final specService = matched == null
+        ? null
+        : findServiceForUuid(matched!.spec, service.uuid);
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ExpansionTile(
         leading: const Icon(Icons.account_tree),
         title: Text(
-          _serviceDisplayName(service.uuid),
+          specService?.name ?? _serviceDisplayName(service.uuid),
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
@@ -65,6 +88,18 @@ class _ServiceCard extends StatelessWidget {
         ),
         initiallyExpanded: true,
         children: service.characteristics.map((char) {
+          final specChar = specService == null
+              ? null
+              : findCharForUuid(specService, char.uuid);
+          if (matched != null && specChar != null) {
+            return TypedCharacteristicWidget(
+              deviceId: deviceId,
+              serviceUuid: service.uuid,
+              specYaml: matched!.yaml,
+              specChar: specChar,
+              discovered: char,
+            );
+          }
           return RawCharacteristicWidget(
             deviceId: deviceId,
             serviceUuid: service.uuid,
@@ -76,8 +111,8 @@ class _ServiceCard extends StatelessWidget {
   }
 
   String _serviceDisplayName(String uuid) {
-    // Well-known BLE service names
-    final lower = uuid.toLowerCase();
+    // Well-known BLE service names.
+    final lower = normalizeUuid(uuid);
     if (lower.startsWith('0000180f')) return 'Battery Service';
     if (lower.startsWith('00001800')) return 'Generic Access';
     if (lower.startsWith('00001801')) return 'Generic Attribute';
