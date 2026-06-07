@@ -33,13 +33,18 @@ class DeviceControlPanel extends ConsumerWidget {
       );
     }
 
+    // Normalize (lowercase) + sort the UUIDs so the family cache key is stable
+    // regardless of discovery order/casing; the Rust matcher is already
+    // case-insensitive, so this only affects the key's stability.
+    final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
+      ..sort();
+
     // Collapse loading / error / no-match to null so the raw browser shows
     // immediately and is replaced in place once a spec match resolves.
     final match = ref
-        .watch(matchedDeviceSpecProvider(SpecMatchRequest(
-          deviceName: deviceName,
-          serviceUuids: [for (final s in services) s.uuid],
-        )))
+        .watch(matchedDeviceSpecProvider(
+          SpecMatchRequest(deviceName: deviceName, serviceUuids: serviceUuids),
+        ))
         .asData
         ?.value;
 

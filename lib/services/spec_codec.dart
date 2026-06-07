@@ -6,8 +6,10 @@ import '../src/rust/api/device_api.dart';
 
 // Re-export the flutter_rust_bridge DTOs so widgets and tests depend on this
 // abstraction instead of importing the generated bindings directly. The DTOs
-// are plain value types (const constructors, value equality), so a fake codec
-// can build them by hand in tests without the native library.
+// have const constructors, so a fake codec can build them by hand in tests
+// without the native library. (Their generated `==` compares List fields by
+// reference, not deeply — see device_spec_match_provider for where the match
+// lookup works around that.)
 export '../src/rust/api/device_api.dart'
     show
         DeviceSpecDto,
