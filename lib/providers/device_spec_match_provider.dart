@@ -1,0 +1,113 @@
+// Copyright 2026 Pigs Can Fly Labs LLC
+// SPDX-License-Identifier: Apache-2.0
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../core/hex.dart';
+import '../services/spec_codec.dart';
+import 'device_spec_provider.dart';
+import 'spec_codec_provider.dart';
+
+/// Argument for [matchedDeviceSpecProvider]. A class (not a record) so the
+/// family key has value equality over [serviceUuids] — otherwise a fresh list
+/// instance on every widget build would defeat the family cache.
+@immutable
+class SpecMatchRequest {
+  final String deviceName;
+  final List<String> serviceUuids;
+
+  const SpecMatchRequest(
+      {required this.deviceName, required this.serviceUuids});
+
+  @override
+  bool operator ==(Object other) =>
+      other is SpecMatchRequest &&
+      other.deviceName == deviceName &&
+      listEquals(other.serviceUuids, serviceUuids);
+
+  @override
+  int get hashCode => Object.hash(deviceName, Object.hashAll(serviceUuids));
+}
+
+/// A device spec matched to a connected device. The raw [yaml] is retained
+/// because [SpecCodec.encodeCommand]/[SpecCodec.decodeValue] take the YAML, not
+/// the parsed DTO.
+@immutable
+class MatchedSpec {
+  final DeviceSpecDto spec;
+  final String yaml;
+
+  const MatchedSpec({required this.spec, required this.yaml});
+}
+
+/// Resolves the best-matching device spec for a connected device, or `null`
+/// when none match or the native codec is unavailable. Matching uses the device
+/// name prefix and the discovered service UUIDs (an [IoTDevice] does not carry
+/// advertised UUIDs).
+final matchedDeviceSpecProvider =
+    FutureProvider.family<MatchedSpec?, SpecMatchRequest>((ref, req) async {
+  final codec = ref.watch(specCodecProvider);
+  final specYamls = await ref.watch(deviceSpecsProvider.future);
+
+  // Parse each bundled spec; skip any that fail (bad YAML, or native absent).
+  final parsed = <({DeviceSpecDto spec, String yaml})>[];
+  for (final yaml in specYamls.values) {
+    try {
+      parsed.add((spec: await codec.loadDeviceSpec(yaml), yaml: yaml));
+    } catch (_) {
+      // Skip this spec.
+    }
+  }
+  if (parsed.isEmpty) return null;
+
+  final List<MatchResult> matches;
+  try {
+    matches = await codec.matchDeviceToSpec(
+      specs: [for (final p in parsed) p.spec],
+      deviceName: req.deviceName,
+      advertisedServiceUuids: req.serviceUuids,
+    );
+  } catch (_) {
+    return null;
+  }
+  if (matches.isEmpty) return null;
+
+  // Rank: name-prefix matches first, then most matched service UUIDs. Sort a
+  // copy — the list may be unmodifiable (a const fake, or a fixed-length list
+  // from the FFI boundary).
+  final ranked = [...matches]..sort((a, b) {
+      if (a.matchedByNamePrefix != b.matchedByNamePrefix) {
+        return a.matchedByNamePrefix ? -1 : 1;
+      }
+      return b.matchedServiceUuids.length
+          .compareTo(a.matchedServiceUuids.length);
+    });
+  final best = ranked.first;
+
+  // Recover the YAML for the winning spec (DTOs round-trip with value equality
+  // across the FFI boundary, so compare by value).
+  final winner = parsed.firstWhere(
+    (p) => p.spec == best.spec,
+    orElse: () => parsed.first,
+  );
+  return MatchedSpec(spec: best.spec, yaml: winner.yaml);
+});
+
+/// Find the [ServiceDto] in [spec] for a discovered service UUID, or null.
+ServiceDto? findServiceForUuid(DeviceSpecDto spec, String uuid) {
+  final target = normalizeUuid(uuid);
+  for (final service in spec.services) {
+    if (normalizeUuid(service.uuid) == target) return service;
+  }
+  return null;
+}
+
+/// Find the [CharacteristicDto] in [service] for a discovered characteristic
+/// UUID, or null.
+CharacteristicDto? findCharForUuid(ServiceDto service, String uuid) {
+  final target = normalizeUuid(uuid);
+  for (final char in service.characteristics) {
+    if (normalizeUuid(char.uuid) == target) return char;
+  }
+  return null;
+}
