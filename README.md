@@ -142,10 +142,17 @@ live in `lib/src/rust/` and `rust/src/frb_generated.rs` — both are committed
 (same reproducibility argument as `pubspec.lock`). CI fails if the bindings
 are out of sync with the Rust API.
 
+The native Rust library is built and bundled per platform by the `rust_builder`
+flutter_rust_bridge plugin (cargokit), wired into Android (Gradle), iOS/macOS
+(CocoaPods), and Linux/Windows (CMake). It compiles the `rust/` crate during
+`flutter build`, so those builds need the Rust toolchain and the relevant
+cross-compilation targets (see `scripts/setup.sh`).
+
 `lib/main.dart` calls `RustLib.init()` at startup. Failures are caught so the
-app still runs when the native library isn't bundled (e.g. builds that skip
-cargokit wiring); `MockBleService` has a Dart-side fallback whose byte output
-matches `rust/src/mock/simulator.rs` for the example-bulb spec.
+app still runs if the library can't be loaded (e.g. a host unit-test run
+without the host library on the library path); `MockBleService` has a Dart-side
+fallback whose byte output matches `rust/src/mock/simulator.rs` for the
+example-bulb spec.
 
 To regenerate the bindings after changing `rust/src/api/**`:
 

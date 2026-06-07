@@ -16,6 +16,8 @@ dependencies:
   flutter_riverpod: ^2.4.0
   permission_handler: ^11.3.0
   cupertino_icons: ^1.0.8
+  rust_lib_opengreeniot_mobile:
+    path: rust_builder
 
 dev_dependencies:
   flutter_test:

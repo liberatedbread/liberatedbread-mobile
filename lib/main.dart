@@ -7,9 +7,11 @@ import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Initialize the Rust core. If the native library isn't bundled (e.g. on
-  // platforms where cargokit wiring is still TODO), the app still runs —
-  // MockBleService has a Dart fallback that matches the Rust mock output.
+  // Initialize the Rust core. The native library is built and bundled per
+  // platform by the rust_builder (cargokit) plugin. If it still can't be loaded
+  // (e.g. a host unit-test run without the host library on the library path),
+  // the app keeps working — MockBleService falls back to a Dart implementation
+  // that matches the Rust mock output.
   try {
     await RustLib.init();
   } catch (e, st) {
