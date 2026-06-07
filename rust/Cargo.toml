@@ -1,5 +1,9 @@
+# The package name matches the [lib] name (underscores, no hyphen) so the
+# produced library file (libopengreeniot_core.*) matches what cargokit's pod/
+# gradle build looks for — cargokit derives the artifact name from the package
+# name and does not sanitize hyphens.
 [package]
-name = "opengreeniot-core"
+name = "opengreeniot_core"
 version = "0.1.0"
 edition = "2021"
 description = "Shared Rust core for the OpenGreenIoT BLE companion app"
