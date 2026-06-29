@@ -135,7 +135,7 @@ jobs:
           name: opengreeniot-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
           path: build/ios/ipa/*.ipa
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload unsigned app bundle (no-secrets fallback)
         if: steps.signing.outputs.available == 'false'
@@ -144,7 +144,7 @@ jobs:
           name: opengreeniot-unsigned-simulator.app
           path: build/ios/iphonesimulator/Runner.app
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
       # ── cleanup ────────────────────────────────────────────────────────────
       - name: Remove ephemeral keychain
