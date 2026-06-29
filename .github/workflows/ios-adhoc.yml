@@ -1,0 +1,135 @@
+name: iOS ad-hoc build
+
+# Manually trigger from the GitHub Actions UI or CLI to produce a signed
+# debug IPA that can be installed directly on a registered iPhone.
+# This is the recommended way to test on-device from a Linux dev environment.
+#
+# Required repository secrets:
+#   IOS_CERTIFICATE_P12      – base64-encoded .p12 export of your signing cert
+#   IOS_CERTIFICATE_PASSWORD – password for the .p12
+#   IOS_PROVISIONING_PROFILE – base64-encoded .mobileprovision (ad-hoc profile)
+#
+# Optional:
+#   IOS_KEYCHAIN_PASSWORD – password for the ephemeral keychain (any string)
+#
+# Setup guide:
+#   1. In Xcode → Signing & Capabilities, set your Team and Bundle ID.
+#   2. On developer.apple.com, create an Ad Hoc provisioning profile that
+#      includes your test device UDIDs.
+#   3. Export your signing certificate as a .p12 and base64-encode both:
+#        base64 -i certificate.p12 | pbcopy   # → IOS_CERTIFICATE_P12
+#        base64 -i profile.mobileprovision | pbcopy  # → IOS_PROVISIONING_PROFILE
+#   4. Add those secrets in the repo Settings → Secrets and variables → Actions.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mock:
+        description: 'Enable mock BLE mode'
+        type: boolean
+        default: false
+      ref:
+        description: 'Branch or commit to build (default: current branch)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.24.5'
+  KEYCHAIN_NAME: build.keychain
+
+jobs:
+  build:
+    name: iOS ad-hoc IPA
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - run: flutter pub get
+
+      # ── signing setup ──────────────────────────────────────────────────────
+      # Skip if secrets are absent (e.g. fork PRs, first-time setup without
+      # certs). The build will still run but won't produce a signed IPA.
+      - name: Install signing certificate
+        if: ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+        env:
+          CERT_B64: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          CERT_PASS: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          KC_PASS: ${{ secrets.IOS_KEYCHAIN_PASSWORD || 'ci-build-pw' }}
+        run: |
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
+          security default-keychain -s "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
+          security set-keychain-settings -t 3600 -u "$KEYCHAIN_NAME"
+
+          echo "$CERT_B64" | base64 --decode > /tmp/cert.p12
+          security import /tmp/cert.p12 -k "$KEYCHAIN_NAME" \
+            -P "$CERT_PASS" -T /usr/bin/codesign
+          rm /tmp/cert.p12
+
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KC_PASS" "$KEYCHAIN_NAME"
+
+      - name: Install provisioning profile
+        if: ${{ secrets.IOS_PROVISIONING_PROFILE != '' }}
+        env:
+          PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE_B64" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/opengreeniot.mobileprovision
+
+      # ── build ──────────────────────────────────────────────────────────────
+      - name: Build iOS (no-codesign fallback if secrets missing)
+        env:
+          MOCK_FLAG: ${{ inputs.mock && '--dart-define=OPENGREENIOT_MOCK=true' || '' }}
+        run: |
+          if [[ -n "${{ secrets.IOS_CERTIFICATE_P12 }}" ]]; then
+            flutter build ipa --debug $MOCK_FLAG \
+              --export-options-plist=ios/ExportOptions-adhoc.plist
+          else
+            echo "::warning::Signing secrets not configured — building unsigned (no-codesign)."
+            flutter build ios --debug --no-codesign --simulator $MOCK_FLAG
+          fi
+
+      # ── artifact ───────────────────────────────────────────────────────────
+      - name: Upload IPA
+        if: ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: opengreeniot-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload unsigned app bundle (no-codesign fallback)
+        if: ${{ secrets.IOS_CERTIFICATE_P12 == '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: opengreeniot-unsigned-simulator.app
+          path: build/ios/iphonesimulator/Runner.app
+          if-no-files-found: warn
+          retention-days: 7
+
+      # ── cleanup ────────────────────────────────────────────────────────────
+      - name: Remove ephemeral keychain
+        if: always() && ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+        run: security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true
