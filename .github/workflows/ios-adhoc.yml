@@ -131,6 +131,7 @@ jobs:
       - name: Upload IPA
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: opengreeniot-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
           path: build/ios/ipa/*.ipa
@@ -140,6 +141,7 @@ jobs:
       - name: Upload unsigned app bundle (no-secrets fallback)
         if: steps.signing.outputs.available == 'false'
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: opengreeniot-unsigned-simulator.app
           path: build/ios/iphonesimulator/Runner.app

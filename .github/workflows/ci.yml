@@ -110,6 +110,7 @@ jobs:
       - name: Build debug APK
         run: flutter build apk --debug --dart-define=OPENGREENIOT_MOCK=true --verbose
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: app-debug-mock.apk
           path: build/app/outputs/flutter-apk/app-debug.apk
