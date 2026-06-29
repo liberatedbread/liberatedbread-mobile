@@ -1,7 +1,7 @@
 name: iOS ad-hoc build
 
 # Manually trigger from the GitHub Actions UI or CLI to produce a signed
-# debug IPA that can be installed directly on a registered iPhone.
+# profile-mode IPA that can be installed directly on a registered iPhone.
 # This is the recommended way to test on-device from a Linux dev environment.
 #
 # Required repository secrets:
@@ -65,11 +65,25 @@ jobs:
 
       - run: flutter pub get
 
+      # ── detect signing secrets ─────────────────────────────────────────────
+      # Secrets cannot be referenced directly in step `if:` conditions, so we
+      # probe them in a run step and export a plain output flag instead.
+      - name: Detect signing secrets
+        id: signing
+        env:
+          HAS_CERT: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          HAS_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+        run: |
+          if [[ -n "$HAS_CERT" && -n "$HAS_PROFILE" ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::IOS_CERTIFICATE_P12 or IOS_PROVISIONING_PROFILE secret not set — building unsigned simulator bundle instead of a signed IPA."
+          fi
+
       # ── signing setup ──────────────────────────────────────────────────────
-      # Skip if secrets are absent (e.g. fork PRs, first-time setup without
-      # certs). The build will still run but won't produce a signed IPA.
       - name: Install signing certificate
-        if: ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+        if: steps.signing.outputs.available == 'true'
         env:
           CERT_B64: ${{ secrets.IOS_CERTIFICATE_P12 }}
           CERT_PASS: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
@@ -89,7 +103,7 @@ jobs:
             -s -k "$KC_PASS" "$KEYCHAIN_NAME"
 
       - name: Install provisioning profile
-        if: ${{ secrets.IOS_PROVISIONING_PROFILE != '' }}
+        if: steps.signing.outputs.available == 'true'
         env:
           PROFILE_B64: ${{ secrets.IOS_PROVISIONING_PROFILE }}
         run: |
@@ -98,21 +112,24 @@ jobs:
             > ~/Library/MobileDevice/Provisioning\ Profiles/opengreeniot.mobileprovision
 
       # ── build ──────────────────────────────────────────────────────────────
-      - name: Build iOS (no-codesign fallback if secrets missing)
+      # Signed IPA uses --profile so the app can launch standalone (debug mode
+      # requires a live Dart VM connection and aborts on install without one).
+      - name: Build signed IPA (profile mode)
+        if: steps.signing.outputs.available == 'true'
         env:
           MOCK_FLAG: ${{ inputs.mock && '--dart-define=OPENGREENIOT_MOCK=true' || '' }}
-        run: |
-          if [[ -n "${{ secrets.IOS_CERTIFICATE_P12 }}" ]]; then
-            flutter build ipa --debug $MOCK_FLAG \
-              --export-options-plist=ios/ExportOptions-adhoc.plist
-          else
-            echo "::warning::Signing secrets not configured — building unsigned (no-codesign)."
-            flutter build ios --debug --no-codesign --simulator $MOCK_FLAG
-          fi
+        run: flutter build ipa --profile $MOCK_FLAG
+          --export-options-plist=ios/ExportOptions-adhoc.plist
+
+      - name: Build unsigned simulator bundle (no secrets fallback)
+        if: steps.signing.outputs.available == 'false'
+        env:
+          MOCK_FLAG: ${{ inputs.mock && '--dart-define=OPENGREENIOT_MOCK=true' || '' }}
+        run: flutter build ios --debug --no-codesign --simulator $MOCK_FLAG
 
       # ── artifact ───────────────────────────────────────────────────────────
       - name: Upload IPA
-        if: ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+        if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: opengreeniot-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
@@ -120,8 +137,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload unsigned app bundle (no-codesign fallback)
-        if: ${{ secrets.IOS_CERTIFICATE_P12 == '' }}
+      - name: Upload unsigned app bundle (no-secrets fallback)
+        if: steps.signing.outputs.available == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: opengreeniot-unsigned-simulator.app
@@ -131,5 +148,5 @@ jobs:
 
       # ── cleanup ────────────────────────────────────────────────────────────
       - name: Remove ephemeral keychain
-        if: always() && ${{ secrets.IOS_CERTIFICATE_P12 != '' }}
+        if: always() && steps.signing.outputs.available == 'true'
         run: security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true

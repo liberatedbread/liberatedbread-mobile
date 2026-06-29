@@ -93,13 +93,14 @@ pick_device() {
   local json
   json="$(flutter devices --machine 2>/dev/null)"
 
-  # Extract devices with platform "ios" (physical devices only).
-  python3 - "$DEVICE_ID" <<'PY'
-import json, sys
+  # Pass the JSON via an env var; stdin carries the heredoc Python program,
+  # so json.load(sys.stdin) would read the script itself, not the device list.
+  DEVICES_JSON="$json" python3 - "$DEVICE_ID" <<'PY'
+import json as _json, os, sys
 
 want = sys.argv[1] if len(sys.argv) > 1 else ""
 try:
-    devices = json.load(sys.stdin)
+    devices = _json.loads(os.environ["DEVICES_JSON"])
 except Exception as e:
     sys.stderr.write(f"Failed to parse flutter devices output: {e}\n")
     sys.exit(1)
@@ -131,10 +132,10 @@ PY
 list_devices() {
   local json
   json="$(flutter devices --machine 2>/dev/null)"
-  python3 - <<'PY'
-import json, sys
+  DEVICES_JSON="$json" python3 - <<'PY'
+import json as _json, os, sys
 try:
-    devices = json.load(sys.stdin)
+    devices = _json.loads(os.environ["DEVICES_JSON"])
 except Exception:
     sys.exit(0)
 iphones = [d for d in devices if d.get("targetPlatform") == "ios"]
