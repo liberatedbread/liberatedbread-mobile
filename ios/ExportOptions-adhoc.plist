@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Ad-hoc distribution: signed IPA installable on registered UDIDs.    -->
+  <!-- Update provisioningProfiles with your actual bundle ID and profile.  -->
+  <key>method</key>
+  <string>ad-hoc</string>
+
+  <key>teamID</key>
+  <string>YOUR_TEAM_ID</string>
+
+  <key>provisioningProfiles</key>
+  <dict>
+    <!-- Replace the key with your app's bundle identifier -->
+    <key>ca.pigscanfly.opengreeniot</key>
+    <!-- Replace the value with your Ad Hoc provisioning profile name -->
+    <string>OpenGreenIoT Ad Hoc</string>
+  </dict>
+
+  <key>signingStyle</key>
+  <string>manual</string>
+
+  <key>stripSwiftSymbols</key>
+  <true/>
+
+  <key>thinning</key>
+  <string>&lt;none&gt;</string>
+</dict>
+</plist>
