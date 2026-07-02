@@ -49,7 +49,12 @@ class HaSensorForwarder {
   final HaForwarderStatus status = HaForwarderStatus();
 
   final Map<String, String> _deviceNames = {};
+
+  /// Sensor ids already registered with the webhook in [_cacheWebhookId].
+  /// A different webhook (re-registration, new HA instance) invalidates it.
   final Set<String> _registeredIds = {};
+  String? _cacheWebhookId;
+
   final Map<String, HaSensorRegistration> _pendingRegistrations = {};
   final Map<String, HaSensorState> _pendingStates = {};
   Future<void> _queue = Future.value();
@@ -86,9 +91,10 @@ class HaSensorForwarder {
         specChar: specChar,
         value: value,
       );
-      if (!_registeredIds.contains(sensor.uniqueId)) {
-        _pendingRegistrations[sensor.uniqueId] = sensor;
-      }
+      // Keep the full registration for every value; the flush decides which
+      // ones actually need a register_sensor call against the webhook that
+      // is current at that moment.
+      _pendingRegistrations[sensor.uniqueId] = sensor;
       _pendingStates[sensor.uniqueId] = sensor.toState();
     }
     return _scheduleFlush();
@@ -117,13 +123,28 @@ class HaSensorForwarder {
       _lastFlush = DateTime.now();
 
       final config = await _readConfig();
-      if (config == null || !config.enabled || !config.isRegistered) {
+      if (config == null || !config.isRegistered) {
+        // Disconnected: whatever was registered belongs to a dead webhook.
+        _registeredIds.clear();
+        _cacheWebhookId = null;
+        _pendingRegistrations.clear();
+        _pendingStates.clear();
+        return;
+      }
+      if (_cacheWebhookId != config.webhookId) {
+        // New registration or different HA instance since the last flush.
+        _registeredIds.clear();
+        _cacheWebhookId = config.webhookId;
+      }
+      if (!config.enabled) {
         _pendingRegistrations.clear();
         _pendingStates.clear();
         return;
       }
 
-      final registrations = List.of(_pendingRegistrations.values);
+      final registrations = _pendingRegistrations.values
+          .where((s) => !_registeredIds.contains(s.uniqueId))
+          .toList();
       _pendingRegistrations.clear();
       final states = List.of(_pendingStates.values);
       _pendingStates.clear();

@@ -208,9 +208,9 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
           .read(haConfigProvider.notifier)
           .register(baseUrl: url, token: token);
     } on HaApiException catch (e) {
-      setState(() => _errorMessage = _friendlyError(e));
+      if (mounted) setState(() => _errorMessage = _friendlyError(e));
     } catch (e) {
-      setState(() => _errorMessage = 'Unexpected error: $e');
+      if (mounted) setState(() => _errorMessage = 'Unexpected error: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
