@@ -14,6 +14,10 @@ class FakeHaApiClient implements HaApiClient {
   Object? registerSensorError;
   Object? updateError;
 
+  /// Delay before registerDevice completes (or throws), to simulate an
+  /// in-flight request.
+  Duration registerDeviceDelay = Duration.zero;
+
   /// uniqueId -> error code returned in `updateSensorStates` results
   /// (e.g. `not_registered`).
   Map<String, String> updateErrorCodes = {};
@@ -26,6 +30,9 @@ class FakeHaApiClient implements HaApiClient {
     required String token,
     required Map<String, dynamic> deviceInfo,
   }) async {
+    if (registerDeviceDelay > Duration.zero) {
+      await Future<void>.delayed(registerDeviceDelay);
+    }
     final error = registerDeviceError;
     if (error != null) throw error;
     registeredDevices.add({...deviceInfo, 'base_url': baseUrl});

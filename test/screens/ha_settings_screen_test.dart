@@ -156,6 +156,25 @@ void main() {
     expect(find.textContaining('Tailscale tip'), findsOneWidget);
   });
 
+  testWidgets('leaving the screen mid-connect does not crash on failure',
+      (tester) async {
+    final api = FakeHaApiClient()
+      ..registerDeviceError = const HaNetworkException('no route')
+      ..registerDeviceDelay = const Duration(milliseconds: 100);
+    await tester.pumpWidget(_wrap(store: InMemorySettingsStore(), api: api));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'http://ha:8123');
+    await tester.enterText(find.byType(TextField).last, 'tok');
+    await tester.tap(find.text('Connect'));
+    await tester.pump();
+
+    // Dispose the screen while the registration request is in flight, then
+    // let it fail; the error handlers must not call setState after dispose.
+    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pump(const Duration(milliseconds: 200));
+  });
+
   testWidgets('requires both fields before connecting', (tester) async {
     final api = FakeHaApiClient();
     await tester.pumpWidget(_wrap(store: InMemorySettingsStore(), api: api));

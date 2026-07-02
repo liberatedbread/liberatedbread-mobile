@@ -169,6 +169,75 @@ void main() {
     expect(api.stateUpdates, isEmpty);
   });
 
+  test('re-registers everything after the webhook changes', () async {
+    final api = FakeHaApiClient();
+    HaConfig? config = _registered;
+    final forwarder = HaSensorForwarder(
+      api: api,
+      readConfig: () async => config,
+      minSendInterval: Duration.zero,
+    );
+
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+    expect(api.registeredSensors, hasLength(1));
+
+    // Reconnect to a different HA instance / fresh registration.
+    config = _registered.copyWith(webhookId: 'wh2');
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+
+    expect(api.registeredSensors, hasLength(2));
+    expect(api.stateUpdates, hasLength(2));
+  });
+
+  test('re-registers after a disconnect even if the webhook id repeats',
+      () async {
+    final api = FakeHaApiClient();
+    HaConfig? config = _registered;
+    final forwarder = HaSensorForwarder(
+      api: api,
+      readConfig: () async => config,
+      minSendInterval: Duration.zero,
+    );
+
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+    config = null; // disconnected
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+    config = _registered; // reconnected
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(30)]);
+
+    expect(api.registeredSensors, hasLength(2));
+  });
+
+  test('disabling forwarding does not invalidate the registration cache',
+      () async {
+    final api = FakeHaApiClient();
+    HaConfig? config = _registered;
+    final forwarder = HaSensorForwarder(
+      api: api,
+      readConfig: () async => config,
+      minSendInterval: Duration.zero,
+    );
+
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+    config = _registered.copyWith(enabled: false);
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+    config = _registered;
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(30)]);
+
+    // Same webhook throughout: one registration, and the disabled-period
+    // reading was dropped rather than sent.
+    expect(api.registeredSensors, hasLength(1));
+    expect(api.stateUpdates, hasLength(2));
+  });
+
   test('uses the noted device name in entity names', () async {
     final api = FakeHaApiClient();
     final forwarder = _forwarder(api);
