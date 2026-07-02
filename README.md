@@ -100,6 +100,10 @@ and merge the customizations back in.
 # Build + boot the iOS Simulator + install + run (macOS only)
 ./scripts/run-ios.sh --mock
 
+# From Linux: build + run on an iPhone via a remote Mac over SSH,
+# with automatic sync + hot reload on every save (see docs/ios-from-linux.md)
+./scripts/run-remote-mac.sh --host user@mac.local --mock
+
 # Mock mode (no BLE hardware needed) on whatever device run.sh picks
 ./scripts/run.sh --mock
 
