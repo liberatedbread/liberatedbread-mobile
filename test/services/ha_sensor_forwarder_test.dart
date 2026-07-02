@@ -39,6 +39,23 @@ const _power = DecodedValueDto(
   boolValue: true,
 );
 
+const _batteryChar = CharacteristicDto(
+  uuid: '00002a19-0000-1000-8000-00805f9b34fb',
+  name: 'Battery Level',
+  canRead: true,
+  canWrite: false,
+  canNotify: false,
+  commands: [],
+  formatFields: [],
+);
+
+const _battery = DecodedValueDto(
+  name: 'battery_percent',
+  valueType: 'uint',
+  display: '90',
+  uintValue: 90,
+);
+
 HaSensorForwarder _forwarder(
   FakeHaApiClient api, {
   HaConfig? config = _registered,
@@ -154,6 +171,67 @@ void main() {
         deviceId: 'd', specChar: _statusChar, values: [_brightness(11)]);
     expect(forwarder.status.lastError, isNull);
     expect(forwarder.status.lastSuccess, isNotNull);
+  });
+
+  test('does not record a success when there is no work to send', () async {
+    final api = FakeHaApiClient();
+    final forwarder = _forwarder(api);
+
+    // A decode that yields no values must not report a phantom update.
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: const []);
+
+    expect(api.registeredSensors, isEmpty);
+    expect(api.stateUpdates, isEmpty);
+    expect(forwarder.status.lastSuccess, isNull);
+    expect(forwarder.status.lastError, isNull);
+  });
+
+  test('re-queues a failed reading so a later flush recovers it', () async {
+    final api = FakeHaApiClient()
+      ..registerSensorError = const HaNetworkException('blip');
+    final forwarder = _forwarder(api);
+
+    // A one-shot read of a read-only characteristic fails to forward.
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _batteryChar, values: [_battery]);
+    expect(forwarder.status.lastError, contains('blip'));
+    expect(api.stateUpdates, isEmpty);
+
+    // Network recovers; a reading from a *different* characteristic drives
+    // the next flush. The re-queued battery reading rides along with it.
+    api.registerSensorError = null;
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(50)]);
+
+    final registeredIds = api.registeredSensors.map((s) => s.uniqueId).toSet();
+    expect(registeredIds, {
+      'ogiot_d_2a19_battery_percent',
+      'ogiot_d_fff2_brightness',
+    });
+    final lastBatch = {
+      for (final s in api.stateUpdates.last) s.uniqueId: s.state,
+    };
+    expect(lastBatch, {
+      'ogiot_d_2a19_battery_percent': 90,
+      'ogiot_d_fff2_brightness': 50,
+    });
+  });
+
+  test('a newer reading supersedes a re-queued one for the same sensor',
+      () async {
+    final api = FakeHaApiClient()
+      ..registerSensorError = const HaNetworkException('blip');
+    final forwarder = _forwarder(api);
+
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+    api.registerSensorError = null;
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(20)]);
+
+    // Only the latest value is sent, not the stale re-queued one.
+    expect(api.stateUpdates.last.single.state, 20);
   });
 
   test('swallows config-read errors', () async {
