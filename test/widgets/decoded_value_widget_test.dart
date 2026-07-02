@@ -5,12 +5,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:opengreeniot_mobile/models/ha_config.dart';
 import 'package:opengreeniot_mobile/providers/ble_provider.dart';
+import 'package:opengreeniot_mobile/providers/ha_provider.dart';
 import 'package:opengreeniot_mobile/providers/spec_codec_provider.dart';
+import 'package:opengreeniot_mobile/services/ha_sensor_forwarder.dart';
 import 'package:opengreeniot_mobile/services/spec_codec.dart';
 import 'package:opengreeniot_mobile/widgets/decoded_value_widget.dart';
 
 import '../fakes/fake_ble_service.dart';
+import '../fakes/fake_ha_api_client.dart';
 import '../fakes/fake_spec_codec.dart';
 
 const _statusChar = CharacteristicDto(
@@ -114,6 +118,55 @@ void main() {
 
     expect(find.text('Battery percent: 85'), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsOneWidget);
+  });
+
+  testWidgets('forwards decoded values to Home Assistant when registered',
+      (tester) async {
+    final ble = FakeBleService(readValues: const {
+      '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80],
+    });
+    final codec = FakeSpecCodec(decoded: const [
+      DecodedValueDto(
+          name: 'brightness', valueType: 'uint', display: '80', uintValue: 80),
+    ]);
+    final api = FakeHaApiClient();
+    final forwarder = HaSensorForwarder(
+      api: api,
+      readConfig: () async => const HaConfig(
+        baseUrl: 'http://ha.local:8123',
+        token: 't',
+        deviceId: 'app1',
+        webhookId: 'wh1',
+      ),
+      minSendInterval: Duration.zero,
+    );
+
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(codec),
+        haForwarderProvider.overrideWithValue(forwarder),
+      ],
+      child: const MaterialApp(
+        home: Scaffold(
+          body: DecodedValueWidget(
+            deviceId: 'd',
+            serviceUuid: 's',
+            specYaml: 'y',
+            specChar: _statusChar,
+            canRead: true,
+            canNotify: false,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await forwarder.idle;
+
+    expect(api.registeredSensors, hasLength(1));
+    expect(api.registeredSensors.single.uniqueId, 'ogiot_d_fff2_brightness');
+    expect(api.stateUpdates, hasLength(1));
+    expect(api.stateUpdates.single.single.state, 80);
   });
 
   testWidgets('updates on a notify event', (tester) async {

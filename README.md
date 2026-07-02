@@ -49,8 +49,30 @@ decoding characteristic values, and implementing standard Bluetooth profiles.
 - Read/write characteristic values with hex display
 - Standard BLE profile support (Battery Service, Device Information)
 - YAML-driven device specs for custom IoT protocols
+- Home Assistant companion mode (forward BLE sensor readings to HA)
 - Mock mode for development without BLE hardware
 - Material Design 3 with light/dark themes
+
+## Home Assistant Companion Mode
+
+The app can register itself with a Home Assistant server (via HA's native
+`mobile_app` integration - the same API the official companion apps use) and
+forward live, spec-decoded sensor readings from your BLE devices - battery
+level, power state, brightness, and so on - as Home Assistant sensor
+entities.
+
+Setup: tap the gear icon on the scan screen, enter your Home Assistant URL
+and a long-lived access token (in HA: your profile → Security → Long-lived
+access tokens), and hit Connect. Forwarding happens while the app is open
+and connected to a device; nothing ever leaves your phone unless you enable
+it, and you can disconnect at any time.
+
+**Remote access tip:** most Home Assistant servers are only reachable at
+home (`http://192.168.x.x:8123` or `homeassistant.local`). Instead of port
+forwarding, we recommend [Tailscale](https://tailscale.com/kb/1123/home-assistant) -
+free for personal use, it gives your HA server a magic `https://…ts.net`
+address that works from anywhere. The setup screen recognizes LAN-only
+addresses and points you there.
 
 ## Prerequisites
 

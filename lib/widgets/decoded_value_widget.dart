@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
+import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
 
@@ -56,11 +57,19 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
 
   Future<void> _decodeAndSet(List<int> bytes) async {
     final codec = ref.read(specCodecProvider);
+    final forwarder = ref.read(haForwarderProvider);
     final decoded = await codec.decodeValue(
       specYaml: widget.specYaml,
       charUuid: widget.specChar.uuid,
       bytes: bytes,
     );
+    // Best-effort side channel to Home Assistant; never blocks or breaks
+    // the local UI (the forwarder swallows its own errors).
+    unawaited(forwarder.onDecodedValues(
+      deviceId: widget.deviceId,
+      specChar: widget.specChar,
+      values: decoded,
+    ));
     if (mounted) {
       setState(() {
         _values = decoded;
