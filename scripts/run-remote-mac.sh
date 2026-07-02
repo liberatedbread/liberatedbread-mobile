@@ -94,6 +94,14 @@ if [[ -z "$HOST" ]]; then
   exit 1
 fi
 
+# A leading ~ would be quoted literally in the remote commands below (while
+# rsync's destination *does* expand it), splitting the sync and run dirs.
+# Normalize to a home-relative path — the remote shell starts in $HOME.
+case "$REMOTE_DIR" in
+  "~")   REMOTE_DIR="." ;;
+  "~/"*) REMOTE_DIR="${REMOTE_DIR#\~/}" ;;
+esac
+
 for cmd in ssh rsync; do
   if ! command -v "$cmd" &>/dev/null; then
     err "$cmd not found. Install it (e.g. apt install openssh-client rsync)."
@@ -240,7 +248,7 @@ reload_remote() {
 handle_change() {
   local changed="$1"
   sync_tree || { warn "Sync failed; will retry on next change."; return; }
-  if grep -Eq '(^|/)rust/|(^|/)pubspec\.yaml$|(^|/)ios/|(^|/)android/' <<<"$changed"; then
+  if grep -Eq '(^|/)rust/|(^|/)pubspec\.(yaml|lock)$|(^|/)ios/|(^|/)android/' <<<"$changed"; then
     warn "Native/dependency change detected — hot reload won't pick it up."
     warn "Quit (q) and re-run this script for a full rebuild."
   fi
@@ -250,7 +258,7 @@ handle_change() {
 
 watch_loop() {
   cd "$PROJECT_DIR"
-  local paths=(lib assets rust pubspec.yaml ios android)
+  local paths=(lib assets rust pubspec.yaml pubspec.lock ios android)
   local existing=()
   for p in "${paths[@]}"; do [[ -e "$p" ]] && existing+=("$p"); done
 
