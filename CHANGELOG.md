@@ -25,6 +25,9 @@ heading.
 - **Integration tests** under `integration_test/` covering the mock scan →
   connect → discover flow and the error + retry path.
 - `scripts/test.sh` — one-shot local CI mirror.
+- `scripts/run-remote-mac.sh` — build and run on an iPhone from Linux via a
+  remote Mac over SSH: rsyncs the tree, launches `flutter run` remotely, and
+  auto-hot-reloads on every local save (docs/ios-from-linux.md Option C).
 - `pubspec.lock` is now committed for reproducible app builds.
 - `lib/core/hex.dart` — `bytesToHex` and `normalizeUuid` helpers (deduplicated
   from three call sites).

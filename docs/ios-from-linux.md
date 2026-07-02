@@ -1,7 +1,7 @@
 # iOS Development from Linux
 
 iOS apps must be compiled by Xcode, which only runs on macOS. This document
-describes two workflows for iterating on the iPhone app when your primary
+describes three workflows for iterating on the iPhone app when your primary
 editing environment is Linux (including Claude Code on the web).
 
 ## Option A — Hot reload via a local Mac (fastest iteration)
@@ -78,12 +78,59 @@ gh workflow run ios-adhoc.yml --ref <your-branch> -f mock=true
 The workflow uploads the `.ipa` as an artifact (~5–10 min build time).
 Download it from the Actions run page and install with Apple Configurator 2.
 
-## Option C — iOS Simulator via Android/iOS cloud (advanced)
+## Option C — Remote Mac over SSH (hot reload, no push/pull)
+
+Like Option A, but fully automated: you edit on Linux and
+`./scripts/run-remote-mac.sh` keeps a Mac you can SSH into in sync. It
+rsyncs the working tree over an SSH multiplexed connection, launches
+`flutter run` on the Mac against your paired iPhone (or the Simulator),
+then watches your local files — every save is re-synced and hot-reloaded
+on the phone automatically (~1–3 s), with no git round-trip.
+
+**One-time setup**
+
+1. Enable SSH on the Mac (**System Settings → General → Sharing → Remote
+   Login**) and set up key-based auth from Linux: `ssh-copy-id user@mac.local`.
+2. Pair your iPhone with the Mac (see Option A — USB or wirelessly via
+   Xcode → Devices and Simulators → "Connect via network").
+3. Bootstrap the toolchain on the Mac (installs Flutter, Rust, and project
+   deps via `scripts/setup.sh`):
+
+   ```bash
+   ./scripts/run-remote-mac.sh --host user@mac.local --bootstrap
+   ```
+
+**Iteration loop**
+
+```bash
+# Linux — this is the whole loop:
+./scripts/run-remote-mac.sh --host user@mac.local --mock
+# ...edit files locally; each save hot-reloads on the phone automatically.
+```
+
+Useful variants:
+
+```bash
+./scripts/run-remote-mac.sh --host mac --list                # list paired iPhones
+./scripts/run-remote-mac.sh --host mac --device "My iPhone"  # pick a device
+./scripts/run-remote-mac.sh --host mac --simulator           # iOS Simulator instead
+./scripts/run-remote-mac.sh --host mac --no-watch            # manual r/R only
+./scripts/run-remote-mac.sh --host mac --sync-only           # rsync and exit
+```
+
+Set `OPENGREENIOT_MAC_HOST` (and optionally `OPENGREENIOT_MAC_DIR`) to skip
+`--host`. The SSH session is interactive, so `r` / `R` / `q` still work as
+usual. Changes under `rust/`, `ios/`, `android/`, or `pubspec.yaml` are
+synced too, but need a quit-and-rerun to take effect (hot reload only covers
+Dart code and assets). Install `inotify-tools` on Linux for instant change
+detection (the script falls back to 1 s polling without it).
+
+## Option D — iOS Simulator via Android/iOS cloud (advanced)
 
 Services like [Codemagic](https://codemagic.io) and
 [Bitrise](https://bitrise.io) offer macOS build agents with persistent
 simulator sessions, but they don't support interactive hot reload either.
-Options A and B above cover most development needs.
+Options A–C above cover most development needs.
 
 ## Why hot reload is impossible directly on Linux
 
