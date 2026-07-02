@@ -149,32 +149,64 @@ class HaSensorForwarder {
       final states = List.of(_pendingStates.values);
       _pendingStates.clear();
 
-      for (final sensor in registrations) {
-        await _api.registerSensor(
-          baseUrl: config.baseUrl,
-          webhookId: config.webhookId!,
-          sensor: sensor,
-        );
-        _registeredIds.add(sensor.uniqueId);
-      }
-      if (states.isNotEmpty) {
-        final results = await _api.updateSensorStates(
-          baseUrl: config.baseUrl,
-          webhookId: config.webhookId!,
-          states: states,
-        );
-        // HA forgot a sensor (e.g. device entry re-added): re-register it on
-        // the next sighting instead of updating into the void.
-        for (final result in results) {
-          if (!result.success && result.errorCode == 'not_registered') {
-            _registeredIds.remove(result.uniqueId);
+      // A redundant scheduled flush (pending already drained) has no work -
+      // don't record a phantom "update sent" on the status.
+      if (registrations.isEmpty && states.isEmpty) return;
+
+      try {
+        for (final sensor in registrations) {
+          await _api.registerSensor(
+            baseUrl: config.baseUrl,
+            webhookId: config.webhookId!,
+            sensor: sensor,
+          );
+          _registeredIds.add(sensor.uniqueId);
+        }
+        if (states.isNotEmpty) {
+          final results = await _api.updateSensorStates(
+            baseUrl: config.baseUrl,
+            webhookId: config.webhookId!,
+            states: states,
+          );
+          // HA forgot a sensor (e.g. device entry re-added): re-register it
+          // on the next sighting instead of updating into the void.
+          for (final result in results) {
+            if (!result.success && result.errorCode == 'not_registered') {
+              _registeredIds.remove(result.uniqueId);
+            }
           }
         }
+        status._recordSuccess(DateTime.now());
+      } catch (e) {
+        // Best-effort recovery: put back what we failed to send so the next
+        // flush retries it, rather than silently dropping the reading. This
+        // matters most for read-only characteristics read once. We do NOT
+        // reschedule here - that would hammer a down server every interval;
+        // the next BLE reading (or a manual refresh) drives the retry.
+        _requeue(registrations, states);
+        status._recordError(e.toString());
       }
-      status._recordSuccess(DateTime.now());
     } catch (e) {
+      // Failure before any work was captured (config read / interval wait).
       _flushScheduled = false;
       status._recordError(e.toString());
+    }
+  }
+
+  /// Restore captured work after a failed flush. Newer values that arrived
+  /// during the flush already sit in the pending maps and win, so only
+  /// entries with no fresher pending value are put back.
+  void _requeue(
+    List<HaSensorRegistration> registrations,
+    List<HaSensorState> states,
+  ) {
+    for (final sensor in registrations) {
+      if (!_registeredIds.contains(sensor.uniqueId)) {
+        _pendingRegistrations.putIfAbsent(sensor.uniqueId, () => sensor);
+      }
+    }
+    for (final state in states) {
+      _pendingStates.putIfAbsent(state.uniqueId, () => state);
     }
   }
 }
