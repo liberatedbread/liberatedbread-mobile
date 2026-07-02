@@ -39,10 +39,11 @@ err()  { printf '\033[1;31m[ios-device]\033[0m %s\n' "$*" >&2; }
 if [[ "$(uname -s)" != "Darwin" ]]; then
   err "iOS device builds require macOS with Xcode."
   err ""
-  err "From this Linux environment, push your changes and use one of these options:"
-  err "  1. Pull on your Mac and run: ./scripts/run-ios-device.sh"
-  err "  2. Trigger a CI build: gh workflow run ios-adhoc.yml"
-  err "  3. See docs/ios-from-linux.md for the full workflow."
+  err "From this Linux environment, use one of these options:"
+  err "  1. Remote Mac over SSH with auto hot reload: ./scripts/run-remote-mac.sh --host user@mac"
+  err "  2. Push, then pull on your Mac and run: ./scripts/run-ios-device.sh"
+  err "  3. Trigger a CI build: gh workflow run ios-adhoc.yml"
+  err "  4. See docs/ios-from-linux.md for the full workflows."
   exit 1
 fi
 
