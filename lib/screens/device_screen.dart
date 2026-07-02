@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
+import '../providers/ha_provider.dart';
 import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 
@@ -43,6 +44,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       await _bleService.connect(widget.device.id);
 
       if (!mounted) return;
+      // Give the HA forwarder a friendly name for this device's entities.
+      ref
+          .read(haForwarderProvider)
+          .noteDeviceName(widget.device.id, widget.device.displayName);
       setState(() => _state = _ScreenState.discovering);
 
       final services = await _bleService.discoverServices(widget.device.id);

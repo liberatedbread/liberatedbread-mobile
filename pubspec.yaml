@@ -14,7 +14,10 @@ dependencies:
   flutter_blue_plus: 1.35.4
   flutter_rust_bridge: 2.9.0
   flutter_riverpod: ^2.4.0
+  flutter_secure_storage: ^9.2.0
+  http: ^1.2.0
   permission_handler: ^11.3.0
+  url_launcher: ^6.3.0
   cupertino_icons: ^1.0.8
   rust_lib_opengreeniot_mobile:
     path: rust_builder

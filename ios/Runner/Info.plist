@@ -51,5 +51,12 @@
 	<string>OpenGreenIoT needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Location access needed for Bluetooth scanning.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>OpenGreenIoT connects to your Home Assistant server on your local network.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 </dict>
 </plist>

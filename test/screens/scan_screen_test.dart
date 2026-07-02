@@ -5,9 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opengreeniot_mobile/models/iot_device.dart';
 import 'package:opengreeniot_mobile/providers/ble_provider.dart';
+import 'package:opengreeniot_mobile/providers/ha_provider.dart';
+import 'package:opengreeniot_mobile/screens/ha_settings_screen.dart';
 import 'package:opengreeniot_mobile/screens/scan_screen.dart';
 
 import '../fakes/fake_ble_service.dart';
+import '../fakes/fake_ha_api_client.dart';
+import '../fakes/in_memory_settings_store.dart';
 
 Widget _wrap(FakeBleService fake) => ProviderScope(
       overrides: [bleServiceProvider.overrideWithValue(fake)],
@@ -73,6 +77,22 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('boom'), findsOneWidget);
+  });
+
+  testWidgets('settings gear opens the Home Assistant screen', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(FakeBleService()),
+        settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+        haApiClientProvider.overrideWithValue(FakeHaApiClient()),
+      ],
+      child: const MaterialApp(home: ScanScreen()),
+    ));
+
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(HaSettingsScreen), findsOneWidget);
   });
 
   testWidgets('non-connectable device tile has no chevron', (tester) async {
