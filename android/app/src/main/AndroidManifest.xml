@@ -2,11 +2,18 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- Home Assistant companion mode: registration + webhook pushes. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <!-- usesCleartextTraffic: most local Home Assistant servers are plain
+         http://192.168.x.x:8123, and network-security-config cannot whitelist
+         RFC1918 ranges, so cleartext must be allowed app-wide. The setup UI
+         warns when a public http:// URL is used. -->
     <application
         android:label="OpenGreenIoT"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
