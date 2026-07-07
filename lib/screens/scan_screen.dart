@@ -8,6 +8,7 @@ import '../providers/ble_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
 import 'device_screen.dart';
+import 'ha_settings_screen.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
@@ -69,6 +70,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       appBar: AppBar(
         title: const Text(AppConstants.appName),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Home Assistant',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const HaSettingsScreen()),
+            ),
+          ),
           if (isMockMode)
             const Padding(
               padding: EdgeInsets.only(right: 12),

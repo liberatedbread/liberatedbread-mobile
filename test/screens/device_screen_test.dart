@@ -6,9 +6,25 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:opengreeniot_mobile/models/ble_discovered_service.dart';
 import 'package:opengreeniot_mobile/models/iot_device.dart';
 import 'package:opengreeniot_mobile/providers/ble_provider.dart';
+import 'package:opengreeniot_mobile/providers/ha_provider.dart';
 import 'package:opengreeniot_mobile/screens/device_screen.dart';
+import 'package:opengreeniot_mobile/services/ha_sensor_forwarder.dart';
 
 import '../fakes/fake_ble_service.dart';
+import '../fakes/fake_ha_api_client.dart';
+
+class _RecordingForwarder extends HaSensorForwarder {
+  final Map<String, String> noted = {};
+
+  _RecordingForwarder()
+      : super(api: FakeHaApiClient(), readConfig: () async => null);
+
+  @override
+  void noteDeviceName(String deviceId, String name) {
+    noted[deviceId] = name;
+    super.noteDeviceName(deviceId, name);
+  }
+}
 
 final _device = IoTDevice(
   id: '01',
@@ -41,6 +57,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Battery Service'), findsOneWidget);
+  });
+
+  testWidgets('reports the device name to the HA forwarder on connect',
+      (tester) async {
+    final forwarder = _RecordingForwarder();
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(FakeBleService()),
+        haForwarderProvider.overrideWithValue(forwarder),
+      ],
+      child: MaterialApp(home: DeviceScreen(device: _device)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(forwarder.noted, {'01': 'ACME_A'});
   });
 
   testWidgets('shows error state and retry when connect fails', (tester) async {

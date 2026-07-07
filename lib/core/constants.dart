@@ -4,6 +4,14 @@ class AppConstants {
   AppConstants._();
   static const String appName = 'OpenGreenIoT';
   static const String appTagline = 'Own your devices, don\'t let them own you.';
+  static const String appVersion = '0.1.0';
   static const int defaultScanDuration = 10;
   static const int nearbyRssiThreshold = -70;
+
+  /// App identifier sent to Home Assistant's mobile_app registration.
+  static const String haAppId = 'ca.pigscanfly.opengreeniot';
+
+  /// Tailscale's guide for putting Home Assistant on a tailnet.
+  static const String tailscaleHaKbUrl =
+      'https://tailscale.com/kb/1123/home-assistant';
 }
