@@ -102,6 +102,17 @@ After setup, add Flutter to your PATH:
 export PATH="$HOME/.flutter-sdk/bin:$PATH"
 ```
 
+> **Android only:** if `flutter build apk` fails with a Java version mismatch,
+> pin Gradle to JDK 17 in your *user-global* config — **never** in the committed
+> `android/gradle.properties` (it breaks CI):
+>
+> ```bash
+> mkdir -p ~/.gradle
+> echo 'org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64' >> ~/.gradle/gradle.properties
+> ```
+>
+> Or use Flutter's built-in: `flutter config --jdk-dir /path/to/jdk-17`.
+
 ### About platform scaffolds
 
 `android/` and `ios/` are committed. To regenerate them (for example when
@@ -286,6 +297,30 @@ services:
 
 See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) for the full spec format
 reference.
+
+### Syncing specs from protocol-docs
+
+The device specs are authored in
+[opengreeniot-protocol-docs](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs)
+and **vendored** into `assets/device_specs/` alongside a `manifest.json` that
+indexes them. The Dart loader
+(`lib/providers/device_spec_provider.dart`) is **manifest-driven**: it reads
+`manifest.json` and loads one `<id>.yaml` per listed device, so adding or
+updating a device is a data-only refresh — no Dart edit required.
+
+To refresh from a local protocol-docs checkout:
+
+```bash
+# Defaults to ../opengreeniot-protocol-docs
+./scripts/sync_device_specs.sh
+# or point at an explicit checkout
+./scripts/sync_device_specs.sh /path/to/opengreeniot-protocol-docs
+```
+
+This copies `device-specs/devices/*.yaml` and `site/api/v1/manifest.json` into
+`assets/device_specs/`. Afterwards run `(cd rust && cargo test)` — the
+`vendored_assets` test parses every vendored spec through the real Rust parser
+to confirm the catalog still loads.
 
 ## Mock Mode
 

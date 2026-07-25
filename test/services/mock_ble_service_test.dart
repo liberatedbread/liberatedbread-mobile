@@ -59,6 +59,33 @@ void main() {
     });
   });
 
+  group('dispose', () {
+    test('closes connection-state streams so they do not leak', () async {
+      var done = false;
+      // Listening to a connection stream lazily creates its controller.
+      final subscription = service
+          .connectionState('AA:BB:CC:DD:EE:01')
+          .listen((_) {}, onDone: () => done = true);
+      await service.connect('AA:BB:CC:DD:EE:01');
+      await Future<void>.delayed(Duration.zero);
+
+      await service.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      // A closed broadcast controller completes its listeners with onDone.
+      expect(done, isTrue);
+      await subscription.cancel();
+    });
+
+    test('is safe to call twice', () async {
+      service.connectionState('AA:BB:CC:DD:EE:01').listen((_) {});
+      await service.connect('AA:BB:CC:DD:EE:01');
+      await service.dispose();
+      // Second call must not throw even though controllers are already closed.
+      await service.dispose();
+    });
+  });
+
   group('discoverServices', () {
     test('returns services for known device', () async {
       final services = await service.discoverServices('AA:BB:CC:DD:EE:01');

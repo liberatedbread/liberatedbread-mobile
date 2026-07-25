@@ -14,4 +14,9 @@ class AppConstants {
   /// Tailscale's guide for putting Home Assistant on a tailnet.
   static const String tailscaleHaKbUrl =
       'https://tailscale.com/kb/1123/home-assistant';
+
+  /// Default source for the downloadable device-spec pack. Points at a JSON
+  /// manifest (see [SpecPackService]); user-overridable in spec-pack settings.
+  static const String defaultSpecPackUrl =
+      'https://raw.githubusercontent.com/PigsCanFlyLabs/opengreeniot-device-specs/main/pack.json';
 }

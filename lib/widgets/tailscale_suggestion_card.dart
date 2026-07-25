@@ -22,13 +22,17 @@ class TailscaleSuggestionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Derive colors from the active ColorScheme so the card stays legible in
+    // both light and dark themes (see lib/core/theme.dart). Each *Container /
+    // on*Container pair is a guaranteed-contrast fill/foreground duo.
+    final scheme = Theme.of(context).colorScheme;
     switch (kind) {
       case HaUrlKind.privateLan:
       case HaUrlKind.mdnsLocal:
         return _card(
-          color: Colors.amber.shade50,
+          background: scheme.secondaryContainer,
+          foreground: scheme.onSecondaryContainer,
           icon: Icons.home_outlined,
-          iconColor: Colors.amber.shade800,
           title: 'This address only works on your home network',
           body: 'For secure remote access, try Tailscale: it\'s free for '
               'personal use and gives Home Assistant a magic '
@@ -38,9 +42,9 @@ class TailscaleSuggestionCard extends StatelessWidget {
         );
       case HaUrlKind.tailscale:
         return _card(
-          color: Colors.green.shade50,
+          background: scheme.tertiaryContainer,
+          foreground: scheme.onTertiaryContainer,
           icon: Icons.vpn_lock,
-          iconColor: Colors.green.shade700,
           title: 'Tailscale detected',
           body: 'Secure remote access ready - this address works from '
               'anywhere on your tailnet.',
@@ -48,9 +52,9 @@ class TailscaleSuggestionCard extends StatelessWidget {
         );
       case HaUrlKind.publicHttp:
         return _card(
-          color: Colors.orange.shade50,
+          background: scheme.errorContainer,
+          foreground: scheme.onErrorContainer,
           icon: Icons.warning_amber_outlined,
-          iconColor: Colors.orange.shade800,
           title: 'Unencrypted connection',
           body: 'Plain HTTP over the internet lets others intercept your '
               'access token. Use HTTPS, or Tailscale for an encrypted '
@@ -64,15 +68,15 @@ class TailscaleSuggestionCard extends StatelessWidget {
   }
 
   Widget _card({
-    required Color color,
+    required Color background,
+    required Color foreground,
     required IconData icon,
-    required Color iconColor,
     required String title,
     required String body,
     required bool showLearnMore,
   }) {
     return Card(
-      color: color,
+      color: background,
       margin: const EdgeInsets.symmetric(vertical: 8),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -81,20 +85,24 @@ class TailscaleSuggestionCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon, color: iconColor, size: 20),
+                Icon(icon, color: foreground, size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(title,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: foreground,
+                      )),
                 ),
               ],
             ),
             const SizedBox(height: 6),
-            Text(body, style: const TextStyle(fontSize: 13)),
+            Text(body, style: TextStyle(fontSize: 13, color: foreground)),
             if (showLearnMore && onLearnMore != null)
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
+                  style: TextButton.styleFrom(foregroundColor: foreground),
                   onPressed: onLearnMore,
                   child: const Text('Set up Tailscale'),
                 ),

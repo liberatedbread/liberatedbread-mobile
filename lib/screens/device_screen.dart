@@ -9,8 +9,9 @@ import '../providers/ble_provider.dart';
 import '../providers/ha_provider.dart';
 import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
+import '../core/error_text.dart';
 
-enum _ScreenState { connecting, discovering, ready, error }
+enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
 class DeviceScreen extends ConsumerStatefulWidget {
   final IoTDevice device;
@@ -26,6 +27,10 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   String? _error;
   List<BleDiscoveredService> _services = [];
   late final BleService _bleService;
+  StreamSubscription<BleConnectionState>? _connSub;
+  // True once connect() has established a link we still own. Guards teardown so
+  // exactly one disconnect() runs per established connection.
+  bool _connected = false;
 
   @override
   void initState() {
@@ -35,6 +40,11 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   }
 
   Future<void> _connect() async {
+    // Drop any connection this screen still owns + cached services first, so a
+    // retry or reconnect doesn't run against an already-connected peripheral
+    // with a stale service cache.
+    await _cleanupConnection();
+
     setState(() {
       _state = _ScreenState.connecting;
       _error = null;
@@ -42,34 +52,102 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 
     try {
       await _bleService.connect(widget.device.id);
+      // We now own a live connection — record it BEFORE the mounted check so an
+      // unmount-during-connect still tears it down instead of leaking it.
+      _connected = true;
 
-      if (!mounted) return;
+      // If the screen was disposed while connect() was in flight, dispose()
+      // couldn't disconnect (the peripheral wasn't connected yet); clean up the
+      // now-live connection here instead of leaving it ownerless.
+      if (!mounted) {
+        await _cleanupConnection();
+        return;
+      }
       // Give the HA forwarder a friendly name for this device's entities.
       ref
           .read(haForwarderProvider)
           .noteDeviceName(widget.device.id, widget.device.displayName);
+      _watchConnection();
       setState(() => _state = _ScreenState.discovering);
 
       final services = await _bleService.discoverServices(widget.device.id);
 
-      if (!mounted) return;
+      // Same hazard as above: discovery can return after unmount.
+      if (!mounted) {
+        await _cleanupConnection();
+        return;
+      }
       setState(() {
         _services = services;
         _state = _ScreenState.ready;
       });
     } catch (e) {
+      // Drop any half-open link + cached services so the error path / Retry
+      // starts from a clean slate (no-op if we never connected).
+      await _cleanupConnection();
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = friendlyErrorText(
+            e,
+            context: 'connect/discover ${widget.device.id}',
+            fallback: 'Could not connect to this device. Move closer, check '
+                'it is powered on, then try again.',
+          );
           _state = _ScreenState.error;
         });
       }
     }
   }
 
+  /// Tear down the connection this screen owns: cancel the connection-state
+  /// subscription and, if we established a link, disconnect it. Idempotent via
+  /// the [_connected] guard so the unmount-cleanup and dispose() paths can't
+  /// double-disconnect. Shared by the unmounted, discovery-failure, retry, and
+  /// dispose paths so they all tear down identically.
+  Future<void> _cleanupConnection() async {
+    // Cancel is fire-and-forget: it synchronously stops delivery, and awaiting
+    // subscription teardown can stall inside the widget-test fake zone.
+    unawaited(_connSub?.cancel());
+    _connSub = null;
+    if (_connected) {
+      _connected = false;
+      await _bleService.disconnect(widget.device.id).catchError((Object _) {});
+    }
+  }
+
+  /// Observe the live connection state so an unexpected disconnect flips the
+  /// screen to a disconnected state (controls hidden, reconnect offered)
+  /// instead of leaving stale controls that fail one-by-one.
+  void _watchConnection() {
+    _connSub?.cancel();
+    _connSub = _bleService.connectionState(widget.device.id).listen((state) {
+      if (!mounted) return;
+      final lostConnection = state == BleConnectionState.disconnected ||
+          state == BleConnectionState.disconnecting;
+      if (lostConnection &&
+          (_state == _ScreenState.ready ||
+              _state == _ScreenState.discovering)) {
+        setState(() => _state = _ScreenState.disconnected);
+      }
+    });
+  }
+
   @override
   void dispose() {
-    unawaited(_bleService.disconnect(widget.device.id));
+    // Fire-and-forget teardown (dispose() can't await). Only disconnect a link
+    // we actually own: if connect() is still in flight, _connected is false and
+    // _connect()'s own !mounted branch will disconnect once it resolves, so we
+    // neither leak the pending connection nor double-disconnect here.
+    unawaited(_connSub?.cancel());
+    _connSub = null;
+    if (_connected) {
+      _connected = false;
+      // unawaited() does not swallow errors, so attach a catchError to keep a
+      // throw during teardown from surfacing as an unhandled async error.
+      unawaited(
+        _bleService.disconnect(widget.device.id).catchError((Object _) {}),
+      );
+    }
     super.dispose();
   }
 
@@ -106,6 +184,35 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                   onPressed: _connect,
                   icon: const Icon(Icons.refresh),
                   label: const Text('Retry'),
+                ),
+              ],
+            ),
+          ),
+        );
+
+      case _ScreenState.disconnected:
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.bluetooth_disabled,
+                    size: 64, color: Colors.orange),
+                const SizedBox(height: 16),
+                const Text('Device disconnected',
+                    style: TextStyle(fontSize: 18)),
+                const SizedBox(height: 8),
+                const Text(
+                    'The connection was lost. Move closer or check the device '
+                    'is powered on, then reconnect.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _connect,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reconnect'),
                 ),
               ],
             ),

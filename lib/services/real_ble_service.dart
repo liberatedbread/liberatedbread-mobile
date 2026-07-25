@@ -16,12 +16,56 @@ BleConnectionState mapConnectionState(BluetoothConnectionState state) {
   switch (state) {
     case BluetoothConnectionState.connected:
       return BleConnectionState.connected;
+    // flutter_blue_plus marks these as deprecated because current OS callbacks
+    // don't stream them, but they can still arrive from getConnectionState and
+    // future/other platforms; map them precisely instead of collapsing to
+    // disconnected.
+    // ignore: deprecated_member_use
+    case BluetoothConnectionState.connecting:
+      return BleConnectionState.connecting;
+    // ignore: deprecated_member_use
+    case BluetoothConnectionState.disconnecting:
+      return BleConnectionState.disconnecting;
     case BluetoothConnectionState.disconnected:
-      return BleConnectionState.disconnected;
-    default:
       return BleConnectionState.disconnected;
   }
 }
+
+/// Decide whether cancelling a scan stream should stop the underlying native
+/// scan.
+///
+/// [active] is the currently-registered scan subscription (the shared
+/// `_scanSubscription` field) and [own] is the subscription belonging to the
+/// scan being cancelled. The native scan is stopped only when our subscription
+/// is still the active one — or the field was already cleared by our own normal
+/// completion (`active == null`). If a newer `scan()` has installed a different
+/// subscription, `active` points at it and we must NOT stop its native scan.
+///
+/// Extracted as a pure top-level function so the re-entrancy guard can be
+/// unit-tested without a real Bluetooth adapter.
+bool shouldStopNativeScanOnCancel({
+  required Object? active,
+  required Object? own,
+}) =>
+    active == null || identical(active, own);
+
+/// Decide whether a write should be sent WITHOUT a response, given a
+/// characteristic's advertised write properties.
+///
+/// Prefer write-with-response when the characteristic supports it (it's
+/// acknowledged and more reliable); fall back to write-without-response only
+/// when that is the characteristic's ONLY writable mode. Many real BLE control
+/// characteristics are write-without-response only — sending them a
+/// with-response write silently fails, so the mode must be chosen per
+/// characteristic rather than always calling `write(value)`.
+///
+/// Extracted as a pure top-level function so the mode selection can be
+/// unit-tested without a real Bluetooth adapter.
+bool useWriteWithoutResponse({
+  required bool canWriteWithResponse,
+  required bool canWriteWithoutResponse,
+}) =>
+    !canWriteWithResponse && canWriteWithoutResponse;
 
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService {
@@ -49,28 +93,60 @@ class RealBleService implements BleService {
   Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) {
     final controller = StreamController<IoTDevice>();
 
+    // Subscription local to this scan invocation. Kept local (rather than
+    // relying solely on the shared _scanSubscription field) so a concurrent
+    // scan() call can't orphan or cancel the wrong subscription.
+    StreamSubscription<List<ScanResult>>? sub;
+
     Future<void> closeIfOpen() async {
       if (!controller.isClosed) await controller.close();
+    }
+
+    Future<void> cancelSub() async {
+      try {
+        await sub?.cancel();
+      } catch (_) {
+        // Ignore — a throw from cancel() must not prevent the shared-field
+        // bookkeeping (and any follow-up stopScan()) from running.
+      }
+      // Only clear the shared field if it still points at our subscription;
+      // a newer scan() may have replaced it.
+      if (identical(_scanSubscription, sub)) {
+        _scanSubscription = null;
+      }
+      sub = null;
     }
 
     () async {
       try {
         final granted = await requestPermissions();
         if (!granted) {
+          // Surface a distinct error rather than silently closing the stream,
+          // so the UI can render permission-specific guidance + recovery
+          // instead of a generic empty state.
+          controller.addError(const BlePermissionDeniedException());
           await closeIfOpen();
           return;
         }
 
         final adapterState = await FlutterBluePlus.adapterState.first;
         if (adapterState != BluetoothAdapterState.on) {
-          controller.addError(
-            StateError('Bluetooth is not enabled. Please turn on Bluetooth.'),
-          );
+          controller.addError(const BleUnavailableException());
           await closeIfOpen();
           return;
         }
 
-        _scanSubscription = FlutterBluePlus.scanResults.listen(
+        // Re-entrancy: if a previous scan is still active, tear it down
+        // cleanly before starting a new one so we don't leak its subscription
+        // or leave a stale native scan running.
+        final previous = _scanSubscription;
+        if (previous != null) {
+          _scanSubscription = null;
+          await previous.cancel();
+          await FlutterBluePlus.stopScan();
+        }
+
+        sub = FlutterBluePlus.scanResults.listen(
           (results) {
             for (final result in results) {
               controller.add(IoTDevice(
@@ -86,19 +162,38 @@ class RealBleService implements BleService {
             controller.addError(error);
           },
         );
+        _scanSubscription = sub;
 
         await FlutterBluePlus.startScan(timeout: timeout);
 
-        await _scanSubscription?.cancel();
-        _scanSubscription = null;
+        await cancelSub();
         await closeIfOpen();
       } catch (e) {
         controller.addError(e);
-        await _scanSubscription?.cancel();
-        _scanSubscription = null;
+        await cancelSub();
         await closeIfOpen();
       }
     }();
+
+    // If the consumer cancels the stream subscription, cancel our listener and
+    // (only if we still own the scan) stop the native scan so nothing is left
+    // running. The decision is captured BEFORE cancelSub() mutates the shared
+    // field: we stop only when our subscription is still the active one, so a
+    // late cancel of an older scan can't stop a newer scan's native session.
+    // This is equivalent to checking `_scanSubscription == null` after
+    // cancelSub() (which nulls the field iff it still pointed at OUR sub).
+    controller.onCancel = () async {
+      final stopNative =
+          shouldStopNativeScanOnCancel(active: _scanSubscription, own: sub);
+      await cancelSub();
+      if (stopNative) {
+        try {
+          await FlutterBluePlus.stopScan();
+        } catch (_) {
+          // Ignore — best-effort teardown on cancel.
+        }
+      }
+    };
 
     return controller.stream;
   }
@@ -120,7 +215,12 @@ class RealBleService implements BleService {
   Future<void> disconnect(String deviceId) async {
     _servicesCache.remove(deviceId);
     final device = BluetoothDevice.fromId(deviceId);
-    await device.disconnect();
+    try {
+      await device.disconnect();
+    } catch (_) {
+      // disconnect() throws if the device is already disconnected; that's the
+      // desired end-state, so treat it as a successful no-op.
+    }
   }
 
   @override
@@ -140,6 +240,9 @@ class RealBleService implements BleService {
                         uuid: c.uuid.toString(),
                         canRead: c.properties.read,
                         canWrite: c.properties.write ||
+                            c.properties.writeWithoutResponse,
+                        canWriteWithResponse: c.properties.write,
+                        canWriteWithoutResponse:
                             c.properties.writeWithoutResponse,
                         canNotify: c.properties.notify || c.properties.indicate,
                       ))
@@ -199,7 +302,13 @@ class RealBleService implements BleService {
     List<int> value,
   ) async {
     final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
-    await char.write(value);
+    await char.write(
+      value,
+      withoutResponse: useWriteWithoutResponse(
+        canWriteWithResponse: char.properties.write,
+        canWriteWithoutResponse: char.properties.writeWithoutResponse,
+      ),
+    );
   }
 
   @override
@@ -210,12 +319,20 @@ class RealBleService implements BleService {
   ) {
     final controller = StreamController<List<int>>();
     StreamSubscription<List<int>>? sub;
+    // The characteristic we enabled notifications on, captured so onCancel can
+    // disable them again. Null until setNotifyValue(true) succeeds.
+    BluetoothCharacteristic? notifyingChar;
 
     () async {
       try {
         final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
         await char.setNotifyValue(true);
-        sub = char.lastValueStream.listen(
+        notifyingChar = char;
+        // Use onValueReceived rather than lastValueStream: the latter replays
+        // the last cached value on listen, which would surface a stale reading
+        // as if it were a fresh notification. onValueReceived only emits
+        // genuinely fresh reads/notifications.
+        sub = char.onValueReceived.listen(
           (value) => controller.add(value),
           onError: (Object error) => controller.addError(error),
           onDone: () async {
@@ -229,7 +346,25 @@ class RealBleService implements BleService {
     }();
 
     controller.onCancel = () async {
-      await sub?.cancel();
+      try {
+        await sub?.cancel();
+      } catch (_) {
+        // Ignore — a throw from cancel() must not prevent the
+        // setNotifyValue(false) teardown below from running.
+      }
+      sub = null;
+      // Disable notifications on the peripheral so it stops pushing updates.
+      // Guarded: the device may already be disconnected, in which case
+      // setNotifyValue throws — a no-op teardown is acceptable here.
+      final char = notifyingChar;
+      notifyingChar = null;
+      if (char != null) {
+        try {
+          await char.setNotifyValue(false);
+        } catch (_) {
+          // Best-effort: ignore failures during teardown.
+        }
+      }
     };
 
     return controller.stream;

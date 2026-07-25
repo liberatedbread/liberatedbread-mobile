@@ -3,9 +3,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opengreeniot_mobile/core/ha_url.dart';
+import 'package:opengreeniot_mobile/core/theme.dart';
 import 'package:opengreeniot_mobile/widgets/tailscale_suggestion_card.dart';
 
-Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+Widget _wrap(Widget child, {ThemeData? theme}) =>
+    MaterialApp(theme: theme, home: Scaffold(body: child));
 
 void main() {
   testWidgets('suggests Tailscale for private LAN addresses', (tester) async {
@@ -45,6 +47,28 @@ void main() {
       onLearnMore: () {},
     )));
     expect(find.text('Unencrypted connection'), findsOneWidget);
+  });
+
+  testWidgets('uses theme-derived colors so text is legible in dark mode',
+      (tester) async {
+    final scheme = OpenGreenIoTTheme.dark.colorScheme;
+    await tester.pumpWidget(_wrap(
+      const TailscaleSuggestionCard(kind: HaUrlKind.privateLan),
+      theme: OpenGreenIoTTheme.dark,
+    ));
+
+    // Card fill and text foreground come from a guaranteed-contrast pair, not a
+    // hardcoded near-white that would swallow the inherited light-mode text.
+    final card = tester.widget<Card>(find.byType(Card));
+    expect(card.color, scheme.secondaryContainer);
+
+    final title = tester
+        .widget<Text>(find.textContaining('only works on your home network'));
+    expect(title.style?.color, scheme.onSecondaryContainer);
+
+    final body =
+        tester.widget<Text>(find.textContaining('gives Home Assistant'));
+    expect(body.style?.color, scheme.onSecondaryContainer);
   });
 
   testWidgets('renders nothing for HTTPS and invalid input', (tester) async {

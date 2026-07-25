@@ -93,6 +93,8 @@ void main() {
                 description: 'Turn the bulb on',
                 parameters: [],
                 isFixed: true,
+                isEncodable: true,
+                unsupportedEncoding: null,
               ),
             ],
             formatFields: [],

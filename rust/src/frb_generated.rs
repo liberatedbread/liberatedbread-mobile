@@ -425,11 +425,15 @@ impl SseDecode for crate::api::device_api::CommandDto {
         let mut var_parameters =
             <Vec<crate::api::device_api::ParameterDto>>::sse_decode(deserializer);
         let mut var_isFixed = <bool>::sse_decode(deserializer);
+        let mut var_isEncodable = <bool>::sse_decode(deserializer);
+        let mut var_unsupportedEncoding = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::CommandDto {
             name: var_name,
             description: var_description,
             parameters: var_parameters,
             is_fixed: var_isFixed,
+            is_encodable: var_isEncodable,
+            unsupported_encoding: var_unsupportedEncoding,
         };
     }
 }
@@ -930,6 +934,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::CommandDto {
             self.description.into_into_dart().into_dart(),
             self.parameters.into_into_dart().into_dart(),
             self.is_fixed.into_into_dart().into_dart(),
+            self.is_encodable.into_into_dart().into_dart(),
+            self.unsupported_encoding.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1183,6 +1189,8 @@ impl SseEncode for crate::api::device_api::CommandDto {
         <String>::sse_encode(self.description, serializer);
         <Vec<crate::api::device_api::ParameterDto>>::sse_encode(self.parameters, serializer);
         <bool>::sse_encode(self.is_fixed, serializer);
+        <bool>::sse_encode(self.is_encodable, serializer);
+        <Option<String>>::sse_encode(self.unsupported_encoding, serializer);
     }
 }
 

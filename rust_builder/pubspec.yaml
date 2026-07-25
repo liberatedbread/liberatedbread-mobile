@@ -1,4 +1,4 @@
-name: rust_lib_opengreeniot_mobile
+name: opengreeniot_core
 description: "Utility to build Rust code"
 version: 0.0.1
 publish_to: none

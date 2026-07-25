@@ -90,7 +90,9 @@ final matchedDeviceSpecProvider =
   // unreliable when multiple specs are bundled. Compare identifying fields by
   // value, and return the locally-parsed (spec, yaml) pair so both are
   // guaranteed to come from the same source.
-  final winner = parsed.firstWhere(
+  // Use lastWhere so remote specs (loaded after bundled) take precedence
+  // when both share the same identity.
+  final winner = parsed.lastWhere(
     (p) => _sameSpecIdentity(p.spec, best.spec),
     orElse: () => parsed.first,
   );

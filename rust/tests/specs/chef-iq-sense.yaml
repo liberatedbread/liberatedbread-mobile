@@ -1,0 +1,98 @@
+# CHEF iQ Sense — BLE device specification
+# Derived from static analysis of com.chefman.chefiq.prod v5.0.0
+# All UUIDs confirmed from APK string extraction; properties are hypothesized
+# and require device validation.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "CHEF iQ Sense"
+  manufacturer: "CHEF iQ (Chefman)"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    Smart wireless thermometer with hub/base station. Static APK analysis only —
+    characteristic properties and data formats need device validation. The app
+    supports multiple device families (cooker, hub, oven) but this spec focuses
+    on the thermometer/probe service (9C6F family).
+  identification:
+    local_name_prefix: "CHEFiQ"
+    service_uuids:
+      - "9C6F00FC-0420-41C1-BD98-7A015C45DC5A"
+
+services:
+  - uuid: "9C6F00FC-0420-41C1-BD98-7A015C45DC5A"
+    name: "Thermometer Service"
+    characteristics:
+      - uuid: "9C6FF050-0420-41C1-BD98-7A015C45DC5A"
+        name: "Probe Data 0"
+        properties: ["read", "notify"]
+
+      - uuid: "9C6FF051-0420-41C1-BD98-7A015C45DC5A"
+        name: "Probe Data 1"
+        properties: ["read", "notify"]
+
+      - uuid: "9C6FF052-0420-41C1-BD98-7A015C45DC5A"
+        name: "Probe Data 2"
+        properties: ["read", "notify"]
+
+      - uuid: "9C6FF054-0420-41C1-BD98-7A015C45DC5A"
+        name: "Probe Data 4"
+        properties: ["read", "notify"]
+
+      - uuid: "9C6FF055-0420-41C1-BD98-7A015C45DC5A"
+        name: "Probe Data 5"
+        properties: ["read", "notify"]
+
+      - uuid: "9C6FFF84-0420-41C1-BD98-7A015C45DC5A"
+        name: "Firmware Info"
+        properties: ["read"]
+
+      - uuid: "9C6FFF85-0420-41C1-BD98-7A015C45DC5A"
+        name: "Device Config"
+        properties: ["read", "write"]
+
+      - uuid: "9C6FFFB0-0420-41C1-BD98-7A015C45DC5A"
+        name: "WiFi Provisioning"
+        properties: ["write"]
+
+      - uuid: "9C6FFFC0-0420-41C1-BD98-7A015C45DC5A"
+        name: "Control 0"
+        properties: ["write"]
+
+      - uuid: "9C6FFFC1-0420-41C1-BD98-7A015C45DC5A"
+        name: "Control 1"
+        properties: ["write"]
+
+      - uuid: "9C6FFFF0-0420-41C1-BD98-7A015C45DC5A"
+        name: "Command TX"
+        properties: ["write", "write_without_response"]
+
+      - uuid: "9C6FFFF1-0420-41C1-BD98-7A015C45DC5A"
+        name: "Command RX"
+        properties: ["read", "notify"]
+
+entities:
+  - platform: "sensor"
+    name: "Probe 0 Temperature"
+    device_class: "temperature"
+    unit: "F"
+    state_characteristic: "9C6FF050-0420-41C1-BD98-7A015C45DC5A"
+
+  - platform: "sensor"
+    name: "Probe 1 Temperature"
+    device_class: "temperature"
+    unit: "F"
+    state_characteristic: "9C6FF051-0420-41C1-BD98-7A015C45DC5A"
+
+  - platform: "sensor"
+    name: "Probe 2 Temperature"
+    device_class: "temperature"
+    unit: "F"
+    state_characteristic: "9C6FF052-0420-41C1-BD98-7A015C45DC5A"
+
+  - platform: "sensor"
+    name: "Probe 4 Temperature"
+    device_class: "temperature"
+    unit: "F"
+    state_characteristic: "9C6FF054-0420-41C1-BD98-7A015C45DC5A"

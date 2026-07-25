@@ -6,7 +6,7 @@
 //! All characteristics are read-only UTF-8 strings, except System ID
 //! which is 8 bytes decoded as hex.
 
-use crate::codec::types::{bytes_to_hex, DecodedValue};
+use crate::codec::types::{bytes_to_hex, DecodedValue, DecodedValues};
 use crate::error::ProtocolError;
 use crate::protocol::traits::DeviceProtocol;
 use std::collections::HashMap;
@@ -40,11 +40,7 @@ impl DeviceProtocol for DeviceInfoProtocol {
         Err(ProtocolError::ProfileReadOnly)
     }
 
-    fn decode_value(
-        &self,
-        char_uuid: &str,
-        bytes: &[u8],
-    ) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
+    fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
         let name =
             Self::field_name(char_uuid).ok_or_else(|| ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
@@ -59,7 +55,7 @@ impl DeviceProtocol for DeviceInfoProtocol {
             DecodedValue::String(s)
         };
 
-        let mut result = HashMap::new();
+        let mut result = DecodedValues::new();
         result.insert("value".to_string(), value);
         Ok(result)
     }

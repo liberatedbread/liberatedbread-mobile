@@ -76,7 +76,13 @@ class CharacteristicDto {
   final bool canRead;
   final bool canWrite;
   final bool canNotify;
+
+  /// Commands in the order the spec declares them. Meaningful — do not sort.
   final List<CommandDto> commands;
+
+  /// Format fields in the order the spec declares them, which is also how the
+  /// device packs the value. Meaningful — consumers must not sort this; the
+  /// UI lists decoded values in exactly this order.
   final List<FormatFieldDto> formatFields;
 
   const CharacteristicDto({
@@ -116,16 +122,26 @@ class CharacteristicDto {
 class CommandDto {
   final String name;
   final String description;
+
+  /// Parameters in the order the spec declares them. Meaningful — do not sort.
   final List<ParameterDto> parameters;
 
   /// true if this is a fixed-value command (no parameters needed).
   final bool isFixed;
+
+  /// true when this command can be encoded to bytes.
+  final bool isEncodable;
+
+  /// Human-readable encoding name when is_encodable is false.
+  final String? unsupportedEncoding;
 
   const CommandDto({
     required this.name,
     required this.description,
     required this.parameters,
     required this.isFixed,
+    required this.isEncodable,
+    this.unsupportedEncoding,
   });
 
   @override
@@ -133,7 +149,9 @@ class CommandDto {
       name.hashCode ^
       description.hashCode ^
       parameters.hashCode ^
-      isFixed.hashCode;
+      isFixed.hashCode ^
+      isEncodable.hashCode ^
+      unsupportedEncoding.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -143,7 +161,9 @@ class CommandDto {
           name == other.name &&
           description == other.description &&
           parameters == other.parameters &&
-          isFixed == other.isFixed;
+          isFixed == other.isFixed &&
+          isEncodable == other.isEncodable &&
+          unsupportedEncoding == other.unsupportedEncoding;
 }
 
 /// A decoded value from a characteristic read.

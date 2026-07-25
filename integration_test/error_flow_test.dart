@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:opengreeniot_mobile/core/error_text.dart';
 import 'package:opengreeniot_mobile/models/ble_discovered_service.dart';
 import 'package:opengreeniot_mobile/models/iot_device.dart';
 import 'package:opengreeniot_mobile/providers/ble_provider.dart';
@@ -31,7 +32,7 @@ class _FailingBleService implements BleService {
   @override
   Future<void> connect(String deviceId) async {
     connectCalls++;
-    throw StateError('mock connect failure');
+    throw const _ConnectFailure('mock connect failure');
   }
 
   @override
@@ -56,6 +57,12 @@ class _FailingBleService implements BleService {
   @override
   Stream<List<int>> subscribeCharacteristic(String d, String s, String c) =>
       const Stream.empty();
+}
+
+class _ConnectFailure implements UserFacingException {
+  @override
+  final String message;
+  const _ConnectFailure(this.message);
 }
 
 void main() {

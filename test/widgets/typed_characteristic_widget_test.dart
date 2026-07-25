@@ -23,7 +23,12 @@ const _cmdChar = CharacteristicDto(
   canNotify: false,
   commands: [
     CommandDto(
-        name: 'power_on', description: '', parameters: [], isFixed: true),
+        name: 'power_on',
+        description: '',
+        parameters: [],
+        isFixed: true,
+        isEncodable: true,
+        unsupportedEncoding: null),
   ],
   formatFields: [],
 );

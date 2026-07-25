@@ -24,9 +24,27 @@ class FakeBleService implements BleService {
   /// Stream returned by [subscribeCharacteristic]; defaults to an empty stream.
   final Stream<List<int>>? notifyStream;
 
+  /// Stream returned by [connectionState]; defaults to an empty stream. Tests
+  /// can supply a controller-backed stream to simulate a mid-session
+  /// disconnect.
+  final Stream<BleConnectionState>? connectionStateStream;
+
+  /// When set, [connect] awaits this before resolving — lets a test hold a
+  /// connect in flight (e.g. to unmount the screen mid-connect).
+  final Completer<void>? connectGate;
+
+  /// When set, [discoverServices] awaits this before resolving.
+  final Completer<void>? discoverGate;
+
   final List<String> connectedIds = [];
   final List<String> disconnectedIds = [];
   final List<({String deviceId, String charUuid, List<int> value})> writes = [];
+  int stopScanCount = 0;
+
+  /// Ordered log of connect/disconnect calls (e.g. 'connect:01',
+  /// 'disconnect:01'). Lets tests assert the *order* of lifecycle calls, which
+  /// call-count lists alone can't capture.
+  final List<String> events = [];
 
   FakeBleService({
     this.devicesToEmit = const [],
@@ -38,6 +56,9 @@ class FakeBleService implements BleService {
     this.discoverError,
     this.readError,
     this.notifyStream,
+    this.connectionStateStream,
+    this.connectGate,
+    this.discoverGate,
   });
 
   @override
@@ -56,25 +77,31 @@ class FakeBleService implements BleService {
   }
 
   @override
-  Future<void> stopScan() async {}
+  Future<void> stopScan() async {
+    stopScanCount++;
+  }
 
   @override
   Future<void> connect(String deviceId) async {
+    if (connectGate != null) await connectGate!.future;
     if (connectError != null) throw connectError!;
     connectedIds.add(deviceId);
+    events.add('connect:$deviceId');
   }
 
   @override
   Future<void> disconnect(String deviceId) async {
     disconnectedIds.add(deviceId);
+    events.add('disconnect:$deviceId');
   }
 
   @override
   Stream<BleConnectionState> connectionState(String deviceId) =>
-      const Stream.empty();
+      connectionStateStream ?? const Stream.empty();
 
   @override
   Future<List<BleDiscoveredService>> discoverServices(String deviceId) async {
+    if (discoverGate != null) await discoverGate!.future;
     if (discoverError != null) throw discoverError!;
     return servicesToReturn;
   }

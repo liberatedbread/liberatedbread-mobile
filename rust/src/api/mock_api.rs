@@ -114,8 +114,18 @@ services:
             type: "uint8"
 "#;
 
+    /// [`MOCK_STATES`] is process-wide and every test below starts by clearing
+    /// it, so running them on cargo's default parallel harness lets one test's
+    /// `mock_reset()` wipe another's write mid-flight. Serialize them.
+    static STATE_LOCK: Mutex<()> = Mutex::new(());
+
+    fn exclusive_state() -> std::sync::MutexGuard<'static, ()> {
+        STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn mock_read_returns_defaults() {
+        let _guard = exclusive_state();
         mock_reset();
         let bytes = mock_read_characteristic(
             "device1".into(),
@@ -129,6 +139,7 @@ services:
 
     #[test]
     fn mock_read_falls_back_to_zero_buffer_when_format_missing() {
+        let _guard = exclusive_state();
         mock_reset();
         // Characteristic UUID that isn't in the spec → no format → fallback.
         let bytes = mock_read_characteristic(
@@ -141,6 +152,7 @@ services:
 
     #[test]
     fn mock_write_then_read() {
+        let _guard = exclusive_state();
         mock_reset();
         let device_id = "device2".to_string();
         let char_uuid = "0000fff2-0000-1000-8000-00805f9b34fb".to_string();

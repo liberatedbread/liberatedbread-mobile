@@ -5,6 +5,7 @@
 //   - RealBleService (flutter_blue_plus)
 //   - MockBleService (simulated devices for demo mode)
 
+import '../core/error_text.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 
@@ -14,6 +15,40 @@ enum BleConnectionState {
   connecting,
   connected,
   disconnecting,
+}
+
+/// Raised on the [BleService.scan] stream when BLE permissions were denied.
+///
+/// Surfaced as a distinct error (rather than silently closing the scan) so the
+/// UI can show permission-specific guidance and an open-settings recovery path
+/// instead of a generic "no devices found" empty state.
+class BlePermissionDeniedException implements UserFacingException {
+  @override
+  final String message;
+  const BlePermissionDeniedException(
+      [this.message =
+          'Bluetooth permission denied. Grant Bluetooth (and, on Android, '
+              'nearby-devices/location) access to scan for devices.']);
+
+  @override
+  String toString() => message;
+}
+
+/// Raised on the [BleService.scan] stream when the Bluetooth radio is off (or
+/// otherwise unavailable), as opposed to permission being withheld.
+///
+/// A distinct type, not a bare `StateError`, so the recovery the UI offers can
+/// be specific — and so the message reaching the user is one written for them
+/// rather than Dart's "Bad state: ..." rendering of an internal error.
+class BleUnavailableException implements UserFacingException {
+  @override
+  final String message;
+  const BleUnavailableException(
+      [this.message = 'Bluetooth is turned off. Turn it on to scan for '
+          'devices.']);
+
+  @override
+  String toString() => message;
 }
 
 /// Abstract interface for BLE operations.

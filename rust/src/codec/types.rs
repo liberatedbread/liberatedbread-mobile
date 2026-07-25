@@ -39,6 +39,78 @@ impl DecodedValue {
     }
 }
 
+/// A characteristic's decoded fields, in the order the characteristic lays them
+/// out.
+///
+/// A `HashMap` would be the obvious container, but `format` order is meaningful
+/// — it is how the device packs the value, and how the UI lists it — and a
+/// `HashMap` hands callers a different order on every process start, so the
+/// same device's readout shuffles between app launches.
+///
+/// Name lookups (`values["brightness"]`, `get`, `contains_key`) are spelled
+/// like a map's but are a **linear scan** over the underlying `Vec`, so they
+/// are O(n), not O(1). That is fine here: a characteristic's `format` is a
+/// handful of fields (the largest bundled spec has five), and every caller
+/// either iterates the whole thing or looks up one field.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DecodedValues(Vec<(String, DecodedValue)>);
+
+impl DecodedValues {
+    pub fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Append `name` -> `value`. A repeated name overwrites in place, so the
+    /// first occurrence's position wins (matching a map's "one entry per key").
+    pub fn insert(&mut self, name: String, value: DecodedValue) {
+        match self.0.iter_mut().find(|(existing, _)| *existing == name) {
+            Some(slot) => slot.1 = value,
+            None => self.0.push((name, value)),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Option<&DecodedValue> {
+        self.0
+            .iter()
+            .find(|(existing, _)| existing == name)
+            .map(|(_, value)| value)
+    }
+
+    pub fn contains_key(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, (String, DecodedValue)> {
+        self.0.iter()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::ops::Index<&str> for DecodedValues {
+    type Output = DecodedValue;
+
+    fn index(&self, name: &str) -> &DecodedValue {
+        self.get(name)
+            .unwrap_or_else(|| panic!("no decoded field named {name}"))
+    }
+}
+
+impl<'a> IntoIterator for &'a DecodedValues {
+    type Item = &'a (String, DecodedValue);
+    type IntoIter = std::slice::Iter<'a, (String, DecodedValue)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// Decode a single format field from a byte buffer.
 pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
     let end = field
@@ -67,6 +139,16 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
         ValueType::Int16 => Ok(DecodedValue::Int(
             i16::from_le_bytes([slice[0], slice[1]]) as i64
         )),
+        ValueType::Int32 => {
+            Ok(DecodedValue::Int(
+                i32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as i64,
+            ))
+        }
+        ValueType::Uint32 => {
+            Ok(DecodedValue::Uint(
+                u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as u64,
+            ))
+        }
         ValueType::Bytes => Ok(DecodedValue::Bytes(slice.to_vec())),
         ValueType::String => {
             let s = std::str::from_utf8(slice)
@@ -81,8 +163,8 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
 pub fn decode_all_fields(
     bytes: &[u8],
     fields: &[FormatField],
-) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
-    let mut result = HashMap::new();
+) -> Result<DecodedValues, ProtocolError> {
+    let mut result = DecodedValues::new();
     for field in fields {
         result.insert(field.name.clone(), decode_field(bytes, field)?);
     }
@@ -97,8 +179,10 @@ pub fn decode_all_fields(
 pub(crate) enum TypedParam {
     U8(u8),
     U16(u16),
+    U32(u32),
     I8(i8),
     I16(i16),
+    I32(i32),
 }
 
 /// Encode a command to bytes for a BLE write.
@@ -109,12 +193,40 @@ pub(crate) enum TypedParam {
 /// For templated commands, every `{param}` placeholder is looked up in
 /// `params`, validated against the parameter's declared type and `min`/`max`
 /// bounds, and encoded little-endian per the type's byte width.
+/// The higher-level encoding a command declares when it has no raw-byte
+/// `value`/`template`, or `None` when the command is byte-encodable (or is
+/// simply empty, which is a spec error rather than an unsupported encoding).
+///
+/// Single source of truth: `encode_command` rejects on it and `CommandDto`
+/// flags the UI from it, so the encoder and the control can never disagree.
+pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
+    if command.value.is_some() || command.template.is_some() {
+        return None;
+    }
+    if let Some(enc) = command.encoding.as_deref() {
+        return Some(enc.to_string());
+    }
+    if command.setting_id.is_some() {
+        return Some("protobuf setting_id".to_string());
+    }
+    if command.payload.is_some() {
+        return Some("structured payload".to_string());
+    }
+    None
+}
+
 pub fn encode_command(
     command: &Command,
     params: &HashMap<String, f64>,
 ) -> Result<Vec<u8>, ProtocolError> {
     if let Some(ref value) = command.value {
         return Ok(value.clone());
+    }
+
+    // Commands with setting_id or encoding need typed-control handlers
+    // (protobuf, JSON, TLV); the legacy raw-byte encoder cannot serve them.
+    if let Some(_kind) = unsupported_encoding_kind(command) {
+        return Err(ProtocolError::UnsupportedCommandEncoding);
     }
 
     let template = command
@@ -131,7 +243,7 @@ pub fn encode_command(
                 let val = params
                     .get(name.as_str())
                     .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
-                let def = param_defs.and_then(|d| d.get(name.as_str()));
+                let def = param_defs.and_then(|d| d.params.get(name.as_str()));
                 if let Some(def) = def {
                     validate_param_range(name, *val, def)?;
                 }
@@ -178,7 +290,11 @@ pub(crate) fn coerce_param(
             reason: "value is NaN or infinity".into(),
         });
     }
-    if val.fract() != 0.0 {
+    // Accept values that are integers to within a small tolerance: params
+    // arrive as f64 across the FFI, so an exact integer can show up as e.g.
+    // 254.9999999997. Anything genuinely fractional (1.5) is still rejected,
+    // and range validation below still bounds the rounded result.
+    if (val - val.round()).abs() > 1e-9 {
         return Err(ProtocolError::ParameterInvalid {
             name: name.to_string(),
             value: val,
@@ -186,7 +302,7 @@ pub(crate) fn coerce_param(
         });
     }
 
-    let as_int = val as i64;
+    let as_int = val.round() as i64;
     let oor = || ProtocolError::ParameterOutOfRange {
         name: name.to_string(),
         value: val,
@@ -205,9 +321,15 @@ pub(crate) fn coerce_param(
         ValueType::Uint16 => u16::try_from(as_int)
             .map(TypedParam::U16)
             .map_err(|_| oor()),
+        ValueType::Uint32 => u32::try_from(as_int)
+            .map(TypedParam::U32)
+            .map_err(|_| oor()),
         ValueType::Int8 => i8::try_from(as_int).map(TypedParam::I8).map_err(|_| oor()),
         ValueType::Int16 => i16::try_from(as_int)
             .map(TypedParam::I16)
+            .map_err(|_| oor()),
+        ValueType::Int32 => i32::try_from(as_int)
+            .map(TypedParam::I32)
             .map_err(|_| oor()),
         other => Err(ProtocolError::UnsupportedParameterType { ty: other.clone() }),
     }
@@ -219,13 +341,39 @@ fn append_typed(bytes: &mut Vec<u8>, val: TypedParam) {
         TypedParam::I8(v) => bytes.push(v as u8),
         TypedParam::U16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
         TypedParam::I16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
+        TypedParam::U32(v) => bytes.extend_from_slice(&v.to_le_bytes()),
+        TypedParam::I32(v) => bytes.extend_from_slice(&v.to_le_bytes()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spec::types::Parameter;
+    use crate::spec::types::{Parameter, ParameterSet};
+
+    /// Build a bare parameter with only a type and optional bounds; the
+    /// documentation-only extension fields default to `None`.
+    fn param(value_type: ValueType, min: Option<i64>, max: Option<i64>) -> Parameter {
+        Parameter {
+            value_type,
+            min,
+            max,
+            allowed: None,
+            labels: None,
+            notes: None,
+        }
+    }
+
+    /// Wrap named parameters into a [`ParameterSet`] with no reserved keys.
+    fn pset(entries: impl IntoIterator<Item = (&'static str, Parameter)>) -> ParameterSet {
+        ParameterSet {
+            color_order: None,
+            params: entries
+                .into_iter()
+                .map(|(name, p)| (name.to_string(), p))
+                .collect(),
+        }
+    }
 
     #[test]
     fn decode_bool_field() {
@@ -307,6 +455,11 @@ mod tests {
         assert_eq!(result["power_state"], DecodedValue::Bool(true));
         assert_eq!(result["brightness"], DecodedValue::Uint(80));
         assert_eq!(result["red"], DecodedValue::Uint(255));
+
+        // Order follows the spec's `format` list, not a hash seed, so the UI
+        // lists the fields the same way on every launch.
+        let names: Vec<&str> = result.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["power_state", "brightness", "red"]);
     }
 
     #[test]
@@ -414,6 +567,9 @@ mod tests {
             value: Some(vec![0x01, 0x01]),
             template: None,
             parameters: None,
+            setting_id: None,
+            encoding: None,
+            payload: None,
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
@@ -428,14 +584,13 @@ mod tests {
                 TemplateElement::Byte(0x02),
                 TemplateElement::Param("brightness".into()),
             ]),
-            parameters: Some(HashMap::from([(
-                "brightness".into(),
-                Parameter {
-                    value_type: ValueType::Uint8,
-                    min: Some(0),
-                    max: Some(100),
-                },
+            parameters: Some(pset([(
+                "brightness",
+                param(ValueType::Uint8, Some(0), Some(100)),
             )])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
         };
         let params = HashMap::from([("brightness".into(), 75.0)]);
         let bytes = encode_command(&cmd, &params).unwrap();
@@ -451,14 +606,13 @@ mod tests {
                 TemplateElement::Byte(0x02),
                 TemplateElement::Param("brightness".into()),
             ]),
-            parameters: Some(HashMap::from([(
-                "brightness".into(),
-                Parameter {
-                    value_type: ValueType::Uint8,
-                    min: Some(0),
-                    max: Some(100),
-                },
+            parameters: Some(pset([(
+                "brightness",
+                param(ValueType::Uint8, Some(0), Some(100)),
             )])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
         };
         let params = HashMap::from([("brightness".into(), 150.0)]);
         assert!(encode_command(&cmd, &params).is_err());
@@ -474,14 +628,10 @@ mod tests {
                 TemplateElement::Byte(0x02),
                 TemplateElement::Param("n".into()),
             ]),
-            parameters: Some(HashMap::from([(
-                "n".into(),
-                Parameter {
-                    value_type: ValueType::Uint8,
-                    min: None,
-                    max: None,
-                },
-            )])),
+            parameters: Some(pset([("n", param(ValueType::Uint8, None, None))])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
         }
     }
 
@@ -519,6 +669,22 @@ mod tests {
     fn coerce_rejects_fractional_value() {
         let params = HashMap::from([("n".into(), 1.5)]);
         assert_invalid(encode_command(&brightness_cmd(), &params), "fractional");
+    }
+
+    #[test]
+    fn coerce_accepts_near_integer_float() {
+        // An exact integer can arrive across the FFI with tiny float error;
+        // it should round to the intended byte, not be rejected as fractional.
+        let params = HashMap::from([("n".into(), 254.9999999997)]);
+        assert_eq!(
+            encode_command(&brightness_cmd(), &params).unwrap(),
+            vec![0x02, 255]
+        );
+        let params_low = HashMap::from([("n".into(), 0.0000000003)]);
+        assert_eq!(
+            encode_command(&brightness_cmd(), &params_low).unwrap(),
+            vec![0x02, 0]
+        );
     }
 
     #[test]
@@ -563,19 +729,107 @@ mod tests {
             description: "set".into(),
             value: None,
             template: Some(vec![TemplateElement::Param("n".into())]),
-            parameters: Some(HashMap::from([(
-                "n".into(),
-                Parameter {
-                    value_type: ValueType::Int8,
-                    min: None,
-                    max: None,
-                },
-            )])),
+            parameters: Some(pset([("n", param(ValueType::Int8, None, None))])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
         };
         let lo = HashMap::from([("n".into(), -128.0)]);
         assert_eq!(encode_command(&cmd, &lo).unwrap(), vec![0x80]);
         let hi = HashMap::from([("n".into(), 127.0)]);
         assert_eq!(encode_command(&cmd, &hi).unwrap(), vec![0x7F]);
+    }
+
+    #[test]
+    fn encode_int32_param_little_endian() {
+        // M1: int32 must be encodable, not just decodable. -2 → 0xFE_FF_FF_FF LE.
+        let cmd = Command {
+            description: "set".into(),
+            value: None,
+            template: Some(vec![TemplateElement::Param("n".into())]),
+            parameters: Some(pset([("n", param(ValueType::Int32, None, None))])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+        };
+        let params = HashMap::from([("n".into(), -2.0)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0xFE, 0xFF, 0xFF, 0xFF]
+        );
+        // A large positive admore setting value (2000) round-trips too.
+        let params = HashMap::from([("n".into(), 2000.0)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            2000i32.to_le_bytes().to_vec()
+        );
+    }
+
+    #[test]
+    fn encode_uint32_param_little_endian() {
+        let cmd = Command {
+            description: "set".into(),
+            value: None,
+            template: Some(vec![TemplateElement::Param("n".into())]),
+            parameters: Some(pset([("n", param(ValueType::Uint32, None, None))])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+        };
+        let params = HashMap::from([("n".into(), 4_000_000_000.0)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            4_000_000_000u32.to_le_bytes().to_vec()
+        );
+    }
+
+    #[test]
+    fn coerce_accepts_exact_i32_bounds() {
+        assert_eq!(
+            coerce_param(i32::MIN as f64, &ValueType::Int32, "n").unwrap(),
+            TypedParam::I32(i32::MIN)
+        );
+        assert_eq!(
+            coerce_param(i32::MAX as f64, &ValueType::Int32, "n").unwrap(),
+            TypedParam::I32(i32::MAX)
+        );
+        // Just outside i32 range is rejected.
+        assert!(matches!(
+            coerce_param(i32::MAX as f64 + 1.0, &ValueType::Int32, "n"),
+            Err(ProtocolError::ParameterOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn coerce_accepts_exact_u32_bounds() {
+        assert_eq!(
+            coerce_param(0.0, &ValueType::Uint32, "n").unwrap(),
+            TypedParam::U32(0)
+        );
+        assert_eq!(
+            coerce_param(u32::MAX as f64, &ValueType::Uint32, "n").unwrap(),
+            TypedParam::U32(u32::MAX)
+        );
+        assert!(matches!(
+            coerce_param(-1.0, &ValueType::Uint32, "n"),
+            Err(ProtocolError::ParameterOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn decode_uint32_le() {
+        let field = FormatField {
+            offset: 0,
+            length: 4,
+            name: "value".into(),
+            field_type: ValueType::Uint32,
+            mock_default: None,
+        };
+        // 0xFFFFFFFF LE = 4294967295
+        assert_eq!(
+            decode_field(&[0xFF, 0xFF, 0xFF, 0xFF], &field).unwrap(),
+            DecodedValue::Uint(4_294_967_295)
+        );
     }
 
     #[test]
@@ -587,6 +841,9 @@ mod tests {
             value: Some(vec![0x01, 0x01]),
             template: None,
             parameters: None,
+            setting_id: None,
+            encoding: None,
+            payload: None,
         };
         // Even pathological parameter values should be ignored.
         let params = HashMap::from([("nonsense".into(), f64::NAN)]);

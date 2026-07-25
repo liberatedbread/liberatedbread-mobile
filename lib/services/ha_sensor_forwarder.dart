@@ -9,6 +9,7 @@ import '../models/ha_config.dart';
 import '../models/ha_sensor.dart';
 import 'ha_api_client.dart';
 import 'spec_codec.dart';
+import '../core/error_text.dart';
 
 /// Observable health of the forwarder, surfaced on the settings screen.
 class HaForwarderStatus extends ChangeNotifier {
@@ -184,12 +185,12 @@ class HaSensorForwarder {
         // reschedule here - that would hammer a down server every interval;
         // the next BLE reading (or a manual refresh) drives the retry.
         _requeue(registrations, states);
-        status._recordError(e.toString());
+        status._recordError(_statusErrorText(e));
       }
     } catch (e) {
       // Failure before any work was captured (config read / interval wait).
       _flushScheduled = false;
-      status._recordError(e.toString());
+      status._recordError(_statusErrorText(e));
     }
   }
 
@@ -210,3 +211,16 @@ class HaSensorForwarder {
     }
   }
 }
+
+/// Text for [HaForwarderStatus.lastError], which the settings screen shows.
+///
+/// Typed HA failures get the same wording the setup form uses; anything else
+/// (a platform channel blowing up, a StateError) gets a generic line, with the
+/// real error going to the log — never to the screen.
+String _statusErrorText(Object e) => e is HaApiException
+    ? friendlyHaMessage(e)
+    : friendlyErrorText(
+        e,
+        context: 'HA forward',
+        fallback: 'Could not send the last update to Home Assistant.',
+      );

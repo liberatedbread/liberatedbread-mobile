@@ -26,6 +26,19 @@ void main() {
     expect(rangeFor('uint8', 10, null), (min: 10.0, max: 255.0));
   });
 
+  test('rangeFor falls back to a safe range for degenerate/inverted bounds',
+      () {
+    // min > max (malformed spec) -> type's natural range, never inverted.
+    expect(rangeFor('uint8', 200, 50), (min: 0.0, max: 255.0));
+    // min == max (zero-width) -> type's natural range.
+    expect(rangeFor('uint8', 40, 40), (min: 0.0, max: 255.0));
+    // Inverted with only-implicit other bound still normalizes.
+    expect(rangeFor('int8', 100, -100), (min: -128.0, max: 127.0));
+    // The safe range is always well-ordered.
+    final r = rangeFor('mystery', 9, 9);
+    expect(r.min < r.max, isTrue);
+  });
+
   test('divisionsFor returns step count or null for wide/degenerate ranges',
       () {
     expect(divisionsFor(0, 100), 100);

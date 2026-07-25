@@ -6,7 +6,7 @@
 //! This profile has a single characteristic:
 //! - Battery Level (0x2A19): uint8, 0-100%, read + notify.
 
-use crate::codec::types::DecodedValue;
+use crate::codec::types::{DecodedValue, DecodedValues};
 use crate::error::ProtocolError;
 use crate::protocol::traits::DeviceProtocol;
 use std::collections::HashMap;
@@ -39,11 +39,7 @@ impl DeviceProtocol for BatteryServiceProtocol {
         Err(ProtocolError::ProfileReadOnly)
     }
 
-    fn decode_value(
-        &self,
-        char_uuid: &str,
-        bytes: &[u8],
-    ) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
+    fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
         if !Self::is_battery_level(char_uuid) {
             return Err(ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
@@ -54,7 +50,7 @@ impl DeviceProtocol for BatteryServiceProtocol {
             return Err(ProtocolError::BufferTooShort { needed: 1, got: 0 });
         }
 
-        let mut result = HashMap::new();
+        let mut result = DecodedValues::new();
         result.insert(
             "battery_percent".to_string(),
             DecodedValue::Uint(bytes[0] as u64),

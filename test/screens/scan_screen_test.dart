@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:opengreeniot_mobile/models/iot_device.dart';
 import 'package:opengreeniot_mobile/providers/ble_provider.dart';
 import 'package:opengreeniot_mobile/providers/ha_provider.dart';
+import 'package:opengreeniot_mobile/services/ble_service.dart';
 import 'package:opengreeniot_mobile/screens/ha_settings_screen.dart';
 import 'package:opengreeniot_mobile/screens/scan_screen.dart';
 
@@ -76,7 +77,11 @@ void main() {
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('boom'), findsOneWidget);
+    // The user gets guidance, not the exception. 'Bad state:' is Dart's
+    // rendering of a StateError and must never reach the screen.
+    expect(find.textContaining('Scanning failed'), findsOneWidget);
+    expect(find.textContaining('Bad state'), findsNothing);
+    expect(find.textContaining('boom'), findsNothing);
   });
 
   testWidgets('settings gear opens the Home Assistant screen', (tester) async {
@@ -93,6 +98,71 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(HaSettingsScreen), findsOneWidget);
+  });
+
+  testWidgets('shows a distinct no-results state after an empty scan',
+      (tester) async {
+    // Never-scanned vs scanned-found-nothing must not be the same dead-end.
+    final fake = FakeBleService();
+    await tester.pumpWidget(_wrap(fake));
+
+    // Before scanning: the generic prompt.
+    expect(find.text('Scan for BLE Devices'), findsOneWidget);
+    expect(find.text('No devices found'), findsNothing);
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    // After an empty scan: the distinct guidance + rescan action.
+    expect(find.text('No devices found'), findsOneWidget);
+    expect(find.textContaining('Move closer'), findsOneWidget);
+    expect(find.text('Scan again'), findsOneWidget);
+    expect(find.text('Scan for BLE Devices'), findsNothing);
+  });
+
+  testWidgets('permission denial shows specific guidance and open-settings',
+      (tester) async {
+    final fake =
+        FakeBleService(scanError: const BlePermissionDeniedException());
+    await tester.pumpWidget(_wrap(fake));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bluetooth permission needed'), findsOneWidget);
+    // The open-settings action uses a settings icon, not the refresh default.
+    final openSettingsButton =
+        find.widgetWithText(ElevatedButton, 'Open settings');
+    expect(openSettingsButton, findsOneWidget);
+    expect(
+      find.descendant(
+          of: openSettingsButton, matching: find.byIcon(Icons.settings)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+          of: openSettingsButton, matching: find.byIcon(Icons.refresh)),
+      findsNothing,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('tapping a device stops the scan before navigating',
+      (tester) async {
+    final fake = FakeBleService(devicesToEmit: [_device('01', name: 'ACME_A')]);
+    await tester.pumpWidget(_wrap(fake));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    expect(fake.stopScanCount, 0);
+
+    await tester.tap(find.text('ACME_A'));
+    await tester.pump();
+
+    // Scan is stopped before the device screen is pushed / connect begins.
+    expect(fake.stopScanCount, greaterThan(0));
+
+    await tester.pumpAndSettle();
   });
 
   testWidgets('non-connectable device tile has no chevron', (tester) async {

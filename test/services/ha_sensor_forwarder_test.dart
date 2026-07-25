@@ -162,7 +162,10 @@ void main() {
     await forwarder.onDecodedValues(
         deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
 
-    expect(forwarder.status.lastError, contains('no route'));
+    // The status line the settings screen shows is written for a person; the
+    // socket detail ('no route') goes to the log, not the screen.
+    expect(forwarder.status.lastError, contains('Could not reach the server'));
+    expect(forwarder.status.lastError, isNot(contains('no route')));
     expect(forwarder.status.lastSuccess, isNull);
 
     // Recovery clears the error.
@@ -195,7 +198,8 @@ void main() {
     // A one-shot read of a read-only characteristic fails to forward.
     await forwarder.onDecodedValues(
         deviceId: 'd', specChar: _batteryChar, values: [_battery]);
-    expect(forwarder.status.lastError, contains('blip'));
+    expect(forwarder.status.lastError, contains('Could not reach the server'));
+    expect(forwarder.status.lastError, isNot(contains('blip')));
     expect(api.stateUpdates, isEmpty);
 
     // Network recovers; a reading from a *different* characteristic drives
@@ -243,7 +247,11 @@ void main() {
     );
     await forwarder.onDecodedValues(
         deviceId: 'd', specChar: _statusChar, values: [_brightness(1)]);
-    expect(forwarder.status.lastError, contains('no store'));
+    // An untyped failure must not surface as Dart's 'Bad state: no store'.
+    expect(
+        forwarder.status.lastError, contains('Could not send the last update'));
+    expect(forwarder.status.lastError, isNot(contains('Bad state')));
+    expect(forwarder.status.lastError, isNot(contains('no store')));
     expect(api.stateUpdates, isEmpty);
   });
 

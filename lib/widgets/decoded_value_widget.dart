@@ -10,6 +10,7 @@ import '../providers/ble_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import '../core/error_text.dart';
 
 /// Reads a spec-described characteristic and renders its decoded, named fields
 /// (e.g. "Power state: on", "Brightness: 80") instead of raw hex. Subscribes
@@ -95,7 +96,11 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = friendlyErrorText(
+            e,
+            context: 'read ${widget.specChar.uuid}',
+            fallback: 'Could not read this value.',
+          );
           _loading = false;
         });
       }
@@ -113,11 +118,23 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
         .listen(
       (bytes) {
         unawaited(_decodeAndSet(bytes).catchError((Object e) {
-          if (mounted) setState(() => _error = e.toString());
+          if (mounted) {
+            setState(() => _error = friendlyErrorText(
+                  e,
+                  context: 'decode ${widget.specChar.uuid}',
+                  fallback: 'Could not decode the latest value.',
+                ));
+          }
         }));
       },
       onError: (Object e) {
-        if (mounted) setState(() => _error = e.toString());
+        if (mounted) {
+          setState(() => _error = friendlyErrorText(
+                e,
+                context: 'notify ${widget.specChar.uuid}',
+                fallback: 'Live updates stopped.',
+              ));
+        }
       },
     );
   }
