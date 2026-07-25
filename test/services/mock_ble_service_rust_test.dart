@@ -9,16 +9,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opengreeniot_mobile/services/mock_ble_service.dart';
 import 'package:opengreeniot_mobile/src/rust/api/mock_api.dart' as rust;
-import 'package:opengreeniot_mobile/src/rust/frb_generated.dart' show RustLib;
 
-Future<bool> _initRust() async {
-  try {
-    await RustLib.init();
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
+import '../helpers/host_rust_lib.dart';
 
 const _bulbYaml = '''
 device:
@@ -45,7 +37,7 @@ void main() {
 
   late final bool rustReady;
   setUpAll(() async {
-    rustReady = await _initRust();
+    rustReady = await initHostRustLib();
   });
 
   group('FRB round-trip', () {

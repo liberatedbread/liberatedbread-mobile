@@ -58,7 +58,81 @@ void main() {
     ));
 
     await tester.pumpAndSettle();
-    expect(find.textContaining('denied'), findsOneWidget);
+    expect(find.textContaining('Could not read this characteristic'),
+        findsOneWidget);
+    expect(find.textContaining('Bad state'), findsNothing);
+  });
+
+  testWidgets('writable characteristic writes parsed hex bytes',
+      (tester) async {
+    final fake = FakeBleService();
+    await tester.pumpWidget(_wrap(
+      const RawCharacteristicWidget(
+        deviceId: '01',
+        serviceUuid: _serviceUuid,
+        characteristic: BleDiscoveredCharacteristic(
+          uuid: _charUuid,
+          canRead: false,
+          canWrite: true,
+          canWriteWithoutResponse: true,
+          canNotify: false,
+        ),
+      ),
+      fake,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '01 aa ff');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(fake.writes.length, 1);
+    expect(fake.writes.single.value, const [0x01, 0xaa, 0xff]);
+    expect(find.textContaining('Wrote 01 aa ff'), findsOneWidget);
+  });
+
+  testWidgets('invalid hex is rejected without a write', (tester) async {
+    final fake = FakeBleService();
+    await tester.pumpWidget(_wrap(
+      const RawCharacteristicWidget(
+        deviceId: '01',
+        serviceUuid: _serviceUuid,
+        characteristic: BleDiscoveredCharacteristic(
+          uuid: _charUuid,
+          canRead: false,
+          canWrite: true,
+          canNotify: false,
+        ),
+      ),
+      fake,
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'zz');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(fake.writes, isEmpty);
+    expect(find.textContaining('Invalid hex'), findsOneWidget);
+  });
+
+  testWidgets('read-only characteristic offers no write field', (tester) async {
+    await tester.pumpWidget(_wrap(
+      const RawCharacteristicWidget(
+        deviceId: '01',
+        serviceUuid: _serviceUuid,
+        characteristic: BleDiscoveredCharacteristic(
+          uuid: _charUuid,
+          canRead: true,
+          canWrite: false,
+          canNotify: false,
+        ),
+      ),
+      FakeBleService(),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsNothing);
   });
 
   testWidgets('non-readable characteristic renders no-value placeholder',
@@ -79,5 +153,53 @@ void main() {
 
     await tester.pumpAndSettle();
     expect(find.text('(no value)'), findsOneWidget);
+  });
+
+  testWidgets('printable values also render as ASCII', (tester) async {
+    // The capability the deleted CharacteristicScreen had and the live browser
+    // did not: seeing "OK" next to "4f 4b" while reverse-engineering.
+    final fake = FakeBleService(readValues: {
+      _charUuid: const [0x4f, 0x4b]
+    });
+    await tester.pumpWidget(_wrap(
+      const RawCharacteristicWidget(
+        deviceId: '01',
+        serviceUuid: _serviceUuid,
+        characteristic: BleDiscoveredCharacteristic(
+          uuid: _charUuid,
+          canRead: true,
+          canWrite: false,
+          canNotify: false,
+        ),
+      ),
+      fake,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('4f 4b'), findsOneWidget);
+    expect(find.text('"OK"'), findsOneWidget);
+  });
+
+  testWidgets('binary values show hex only', (tester) async {
+    final fake = FakeBleService(readValues: {
+      _charUuid: const [0x01, 0x80, 0xff]
+    });
+    await tester.pumpWidget(_wrap(
+      const RawCharacteristicWidget(
+        deviceId: '01',
+        serviceUuid: _serviceUuid,
+        characteristic: BleDiscoveredCharacteristic(
+          uuid: _charUuid,
+          canRead: true,
+          canWrite: false,
+          canNotify: false,
+        ),
+      ),
+      fake,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('01 80 ff'), findsOneWidget);
+    expect(find.textContaining('"'), findsNothing);
   });
 }

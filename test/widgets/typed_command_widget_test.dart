@@ -28,11 +28,15 @@ const _charDto = CharacteristicDto(
       description: 'Turn the bulb on',
       parameters: [],
       isFixed: true,
+      isEncodable: true,
+      unsupportedEncoding: null,
     ),
     CommandDto(
       name: 'set_brightness',
       description: 'Set brightness',
       isFixed: false,
+      isEncodable: true,
+      unsupportedEncoding: null,
       parameters: [
         ParameterDto(name: 'brightness', valueType: 'uint8', min: 0, max: 100),
       ],
@@ -41,20 +45,47 @@ const _charDto = CharacteristicDto(
   formatFields: [],
 );
 
-Widget _wrap({required FakeBleService ble, required FakeSpecCodec codec}) =>
+// A malformed spec — as might arrive from an untrusted remote pack — with an
+// inverted parameter range (min > max) that would otherwise crash the Slider.
+const _malformedChar = CharacteristicDto(
+  uuid: _char,
+  name: 'Command',
+  canRead: false,
+  canWrite: true,
+  canNotify: false,
+  commands: [
+    CommandDto(
+      name: 'set_level',
+      description: 'Broken range',
+      isFixed: false,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      parameters: [
+        ParameterDto(name: 'level', valueType: 'uint8', min: 200, max: 50),
+      ],
+    ),
+  ],
+  formatFields: [],
+);
+
+Widget _wrap({
+  required FakeBleService ble,
+  required FakeSpecCodec codec,
+  CharacteristicDto specChar = _charDto,
+}) =>
     ProviderScope(
       overrides: [
         bleServiceProvider.overrideWithValue(ble),
         specCodecProvider.overrideWithValue(codec),
       ],
-      child: const MaterialApp(
+      child: MaterialApp(
         home: Scaffold(
           body: SingleChildScrollView(
             child: TypedCommandWidget(
               deviceId: 'd',
               serviceUuid: _svc,
               specYaml: 'yaml',
-              specChar: _charDto,
+              specChar: specChar,
             ),
           ),
         ),
@@ -99,6 +130,20 @@ void main() {
     expect(ble.writes.single.value, [2, 64]);
   });
 
+  testWidgets('renders a valid Slider for a malformed inverted range',
+      (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([3, 0]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _malformedChar));
+
+    // No assertion/throw during build, and the slider gets a well-ordered range.
+    expect(tester.takeException(), isNull);
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.min < slider.max, isTrue);
+    expect(slider.value, inInclusiveRange(slider.min, slider.max));
+  });
+
   testWidgets('surfaces an error when encoding fails', (tester) async {
     final ble = FakeBleService();
     final codec = FakeSpecCodec(encodeError: StateError('bad param'));
@@ -107,7 +152,9 @@ void main() {
     await tester.tap(find.widgetWithText(ElevatedButton, 'Power on'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Error:'), findsOneWidget);
+    expect(find.textContaining('did not accept that command'), findsWidgets);
+    expect(find.textContaining('Bad state'), findsNothing);
+    expect(find.textContaining('bad param'), findsNothing);
     expect(ble.writes, isEmpty);
   });
 }

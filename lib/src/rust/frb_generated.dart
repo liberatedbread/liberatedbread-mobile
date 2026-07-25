@@ -423,13 +423,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   CommandDto dco_decode_command_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return CommandDto(
       name: dco_decode_String(arr[0]),
       description: dco_decode_String(arr[1]),
       parameters: dco_decode_list_parameter_dto(arr[2]),
       isFixed: dco_decode_bool(arr[3]),
+      isEncodable: dco_decode_bool(arr[4]),
+      unsupportedEncoding: dco_decode_opt_String(arr[5]),
     );
   }
 
@@ -778,11 +780,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_description = sse_decode_String(deserializer);
     var var_parameters = sse_decode_list_parameter_dto(deserializer);
     var var_isFixed = sse_decode_bool(deserializer);
+    var var_isEncodable = sse_decode_bool(deserializer);
+    var var_unsupportedEncoding = sse_decode_opt_String(deserializer);
     return CommandDto(
         name: var_name,
         description: var_description,
         parameters: var_parameters,
-        isFixed: var_isFixed);
+        isFixed: var_isFixed,
+        isEncodable: var_isEncodable,
+        unsupportedEncoding: var_unsupportedEncoding);
   }
 
   @protected
@@ -1223,6 +1229,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.description, serializer);
     sse_encode_list_parameter_dto(self.parameters, serializer);
     sse_encode_bool(self.isFixed, serializer);
+    sse_encode_bool(self.isEncodable, serializer);
+    sse_encode_opt_String(self.unsupportedEncoding, serializer);
   }
 
   @protected

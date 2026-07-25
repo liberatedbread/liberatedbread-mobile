@@ -34,6 +34,9 @@ const _controlService = BleDiscoveredService(
         uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
         canRead: false,
         canWrite: true,
+        // Matches typical BLE control chars (write-without-response only) and
+        // keeps the write-mode invariant: a writable char supports >=1 mode.
+        canWriteWithoutResponse: true,
         canNotify: false),
     BleDiscoveredCharacteristic(
         uuid: '0000fff2-0000-1000-8000-00805f9b34fb',
@@ -171,6 +174,17 @@ class MockBleService implements BleService {
       deviceId,
       () => StreamController<BleConnectionState>.broadcast(),
     );
+  }
+
+  /// Release resources held by this mock service. Closes every per-device
+  /// connection-state controller so they don't leak when the service is
+  /// discarded. Safe to call more than once.
+  Future<void> dispose() async {
+    final controllers = _connectionStreams.values.toList();
+    _connectionStreams.clear();
+    for (final controller in controllers) {
+      if (!controller.isClosed) await controller.close();
+    }
   }
 
   @override

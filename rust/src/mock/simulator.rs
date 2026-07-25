@@ -88,7 +88,7 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
                 let val: i16 = 220; // 22.0 if scaled
                 slice.copy_from_slice(&val.to_le_bytes());
             }
-            ValueType::Bytes | ValueType::String => {} // leave as zeros
+            ValueType::Int32 | ValueType::Uint32 | ValueType::Bytes | ValueType::String => {} // leave as zeros
         }
     }
 
@@ -124,6 +124,8 @@ fn write_value(slice: &mut [u8], val: i64, ty: &ValueType) {
         ValueType::Int8 => slice[0] = val as i8 as u8,
         ValueType::Uint16 => slice.copy_from_slice(&(val as u16).to_le_bytes()),
         ValueType::Int16 => slice.copy_from_slice(&(val as i16).to_le_bytes()),
+        ValueType::Int32 => slice.copy_from_slice(&(val as i32).to_le_bytes()),
+        ValueType::Uint32 => slice.copy_from_slice(&(val as u32).to_le_bytes()),
         ValueType::Bytes | ValueType::String => {} // mock_default is ignored for these
     }
 }

@@ -44,6 +44,26 @@ sealed class HaApiException implements Exception {
   String toString() => message;
 }
 
+/// Human-readable text for [e], for any surface that shows HA failures.
+///
+/// Lives beside the exception hierarchy so the settings screen and the
+/// background forwarder describe the same failure the same way — and so no
+/// caller is tempted to interpolate the raw exception (which can carry a
+/// socket message or a raw server response body) into the UI.
+String friendlyHaMessage(HaApiException e) {
+  return switch (e) {
+    HaAuthException() => 'Home Assistant rejected the access token. '
+        'Create a new long-lived token and try again.',
+    HaNotFoundException() => 'That address does not look like a Home '
+        'Assistant server (mobile_app API not found).',
+    HaNetworkException() => 'Could not reach the server. Are you on the '
+        'same network? For access away from home, see the Tailscale tip '
+        'below.',
+    HaServerException() => 'Home Assistant returned an error. Check that it '
+        'is running and up to date, then try again.',
+  };
+}
+
 /// 401/403 - the long-lived access token was rejected.
 class HaAuthException extends HaApiException {
   const HaAuthException() : super('Home Assistant rejected the access token');

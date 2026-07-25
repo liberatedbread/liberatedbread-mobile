@@ -3,9 +3,7 @@
 //
 //! Pick the right [`DeviceProtocol`] for an encode/decode request.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use super::generic::GenericProtocol;
@@ -15,26 +13,28 @@ use crate::error::ProtocolError;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::DeviceSpec;
 
-/// Cache of parsed specs keyed by content hash. FFI calls re-supply the
-/// same YAML on every `encode_command` / `decode_value`, so without this
+/// Cache of parsed specs keyed by the full YAML text. FFI calls re-supply
+/// the same YAML on every `encode_command` / `decode_value`, so without this
 /// the dispatcher pays the YAML-parse cost on every hop. Specs are
 /// immutable assets so no invalidation is needed; the realistic upper
 /// bound on entries is "number of distinct device specs the app loads,"
 /// which is tiny.
-static SPEC_CACHE: LazyLock<Mutex<HashMap<u64, Arc<DeviceSpec>>>> =
+///
+/// The key is the YAML `String` itself rather than a 64-bit non-cryptographic
+/// hash: specs may be loaded from arbitrary remote URLs, and a hostile author
+/// could otherwise craft two specs whose hashes collide, causing the wrong
+/// `DeviceSpec` to be served for encode/decode. Keying on the full text makes
+/// a collision impossible. The extra memory is a handful of small strings.
+static SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolError> {
-    let mut hasher = DefaultHasher::new();
-    yaml.hash(&mut hasher);
-    let key = hasher.finish();
-
     let mut cache = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(spec) = cache.get(&key) {
+    if let Some(spec) = cache.get(yaml) {
         return Ok(spec.clone());
     }
     let spec = Arc::new(parse_device_spec(yaml)?);
-    cache.insert(key, spec.clone());
+    cache.insert(yaml.to_string(), spec.clone());
     Ok(spec)
 }
 
@@ -224,5 +224,71 @@ services: []
             !Arc::ptr_eq(&a, &b),
             "different YAML must produce different cache entries"
         );
+    }
+
+    /// The cache is keyed on the full YAML text, so distinct specs can never
+    /// collide onto one entry (a real risk when it was keyed on a 64-bit
+    /// non-cryptographic hash of attacker-supplied YAML). Prove each spec
+    /// still decodes to *its own* content after both are cached.
+    #[test]
+    fn cache_serves_the_matching_spec_for_each_yaml() {
+        const SPEC_ONE: &str = r#"
+device:
+  name: "collide-one"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: s
+    characteristics:
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: c
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "field_one"
+            type: "uint8"
+"#;
+        const SPEC_TWO: &str = r#"
+device:
+  name: "collide-two"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: s
+    characteristics:
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: c
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "field_two"
+            type: "uint8"
+"#;
+        let one = parse_or_cached(SPEC_ONE).unwrap();
+        let two = parse_or_cached(SPEC_TWO).unwrap();
+        assert!(!Arc::ptr_eq(&one, &two));
+
+        // Route each through select_protocol (which re-hits the cache) and
+        // confirm the decoded field name matches the spec that was supplied,
+        // never the other one.
+        let proto_one = select_protocol(Some(SPEC_ONE), None).unwrap();
+        let decoded_one = proto_one
+            .decode_value("0000fff2-0000-1000-8000-00805f9b34fb", &[7])
+            .unwrap();
+        assert_eq!(decoded_one["field_one"], DecodedValue::Uint(7));
+        assert!(!decoded_one.contains_key("field_two"));
+
+        let proto_two = select_protocol(Some(SPEC_TWO), None).unwrap();
+        let decoded_two = proto_two
+            .decode_value("0000fff2-0000-1000-8000-00805f9b34fb", &[9])
+            .unwrap();
+        assert_eq!(decoded_two["field_two"], DecodedValue::Uint(9));
+        assert!(!decoded_two.contains_key("field_one"));
     }
 }

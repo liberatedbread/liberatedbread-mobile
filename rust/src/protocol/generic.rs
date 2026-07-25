@@ -5,7 +5,7 @@
 //! Works for any device whose protocol is fully described by the spec.
 
 use super::traits::DeviceProtocol;
-use crate::codec::types::{self, DecodedValue};
+use crate::codec::types::{self, DecodedValues};
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 use std::collections::HashMap;
@@ -52,11 +52,7 @@ impl DeviceProtocol for GenericProtocol {
         types::encode_command(command, params)
     }
 
-    fn decode_value(
-        &self,
-        char_uuid: &str,
-        bytes: &[u8],
-    ) -> Result<HashMap<String, DecodedValue>, ProtocolError> {
+    fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
         let (_, characteristic) = self.spec.find_characteristic(char_uuid).ok_or_else(|| {
             ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
@@ -93,6 +89,7 @@ impl DeviceProtocol for GenericProtocol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::types::DecodedValue;
     use crate::spec::parser::parse_device_spec;
 
     fn example_spec() -> DeviceSpec {
@@ -115,9 +112,6 @@ services:
         name: "Command"
         properties: ["write"]
         commands:
-          power_on:
-            description: "Turn on"
-            value: [0x01, 0x01]
           set_brightness:
             description: "Set brightness"
             template: [0x02, "{brightness}"]
@@ -126,6 +120,21 @@ services:
                 type: "uint8"
                 min: 0
                 max: 100
+          power_on:
+            description: "Turn on"
+            value: [0x01, 0x01]
+          zone_reset:
+            description: "Reset zones"
+            value: [0x04, 0x00]
+          power_off:
+            description: "Turn off"
+            value: [0x01, 0x00]
+          alarm_test:
+            description: "Test the alarm"
+            value: [0x05, 0x01]
+          fade_stop:
+            description: "Stop fading"
+            value: [0x06, 0x00]
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Status"
         properties: ["read", "notify"]
@@ -180,12 +189,28 @@ services:
         assert_eq!(values["brightness"], DecodedValue::Uint(80));
     }
 
+    /// Asserts declaration order, unsorted.
+    ///
+    /// Six commands, declared in an order that is neither alphabetical nor
+    /// reverse-alphabetical. Size is the point: with two entries a regression
+    /// to `HashMap` would still produce the expected order about half the time,
+    /// so CI would flake instead of failing. With six there are 720 orders and
+    /// only one passes, so losing document order fails essentially every run.
     #[test]
-    fn list_commands() {
+    fn list_commands_keeps_declaration_order() {
         let proto = GenericProtocol::new(example_spec());
-        let mut cmds = proto.commands_for_characteristic("0000fff1-0000-1000-8000-00805f9b34fb");
-        cmds.sort();
-        assert_eq!(cmds, vec!["power_on", "set_brightness"]);
+        let cmds = proto.commands_for_characteristic("0000fff1-0000-1000-8000-00805f9b34fb");
+        assert_eq!(
+            cmds,
+            vec![
+                "set_brightness",
+                "power_on",
+                "zone_reset",
+                "power_off",
+                "alarm_test",
+                "fade_stop",
+            ]
+        );
     }
 
     #[test]

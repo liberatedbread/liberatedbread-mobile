@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
@@ -22,9 +23,14 @@ import '../services/settings_store.dart';
 final settingsStoreProvider =
     Provider<SettingsStore>((ref) => SecureSettingsStore());
 
-/// The Home Assistant API client. Tests override with a fake.
-final haApiClientProvider =
-    Provider<HaApiClient>((ref) => HttpHaApiClient(http.Client()));
+/// The Home Assistant API client. A singleton for the app lifetime; the
+/// underlying [http.Client] is closed when the provider is disposed so we
+/// don't leak the connection pool.
+final haApiClientProvider = Provider<HaApiClient>((ref) {
+  final httpClient = http.Client();
+  ref.onDispose(httpClient.close);
+  return HttpHaApiClient(httpClient);
+});
 
 /// Opens external links (Tailscale docs). Injected so widget tests never hit
 /// the url_launcher platform channel.
@@ -52,9 +58,33 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
 
   @override
   Future<HaConfig?> build() async {
-    final raw = await ref.watch(settingsStoreProvider).read(configKey);
+    final store = ref.watch(settingsStoreProvider);
+    final String? raw;
+    try {
+      raw = await store.read(configKey);
+    } catch (e, st) {
+      // A keystore read can fail entirely (e.g. PlatformException after an
+      // OS restore invalidates keys). Treat as "not configured" so the
+      // settings screen recovers and lets the user re-register, rather than
+      // pinning the provider in a permanent AsyncError.
+      debugPrint('HA config read failed; treating as unconfigured: $e\n$st');
+      return null;
+    }
     if (raw == null) return null;
-    return HaConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    try {
+      return HaConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (e, st) {
+      // Stored blob is corrupt or truncated (FormatException) or has an
+      // unexpected shape (TypeError). Clear it so a healthy re-registration
+      // can overwrite it, and report as unconfigured instead of bricking.
+      debugPrint('HA config parse failed; clearing corrupt value: $e\n$st');
+      try {
+        await store.delete(configKey);
+      } catch (e2, st2) {
+        debugPrint('Failed to clear corrupt HA config: $e2\n$st2');
+      }
+      return null;
+    }
   }
 
   /// Register this app install with HA's mobile_app integration and persist

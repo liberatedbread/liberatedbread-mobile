@@ -7,6 +7,7 @@ import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import '../core/error_text.dart';
 
 /// Renders the commands of a spec-described writable characteristic as typed
 /// controls: fixed commands as buttons, parameterized commands as labeled
@@ -38,16 +39,42 @@ class TypedCommandWidget extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           for (final command in specChar.commands)
-            _CommandControl(
-              deviceId: deviceId,
-              serviceUuid: serviceUuid,
-              specYaml: specYaml,
-              charUuid: specChar.uuid,
-              command: command,
-            ),
+            if (command.isEncodable)
+              _CommandControl(
+                deviceId: deviceId,
+                serviceUuid: serviceUuid,
+                specYaml: specYaml,
+                charUuid: specChar.uuid,
+                command: command,
+              ),
+          ..._unsupportedNotice(context),
         ],
       ),
     );
+  }
+
+  /// Commands the spec documents but this build cannot send. Shown as a muted
+  /// line rather than dropped silently, so a spec author can tell "not
+  /// implemented" apart from "my YAML didn't load".
+  List<Widget> _unsupportedNotice(BuildContext context) {
+    final blocked =
+        specChar.commands.where((c) => !c.isEncodable).toList(growable: false);
+    if (blocked.isEmpty) return const [];
+    final kinds = {
+      for (final c in blocked)
+        if (c.unsupportedEncoding != null) c.unsupportedEncoding!,
+    };
+    final detail = kinds.isEmpty ? '' : ' (${kinds.join(', ')})';
+    return [
+      Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          '${blocked.length} command${blocked.length == 1 ? '' : 's'} in this '
+          'spec use an encoding this app cannot send yet$detail.',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      ),
+    ];
   }
 }
 
@@ -118,12 +145,17 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
       }
     } catch (e) {
       if (mounted) {
+        final text = friendlyErrorText(
+          e,
+          context: 'send ${widget.command.name}',
+          fallback: 'The device did not accept that command.',
+        );
         setState(() {
           _sending = false;
-          _status = 'Error: $e';
+          _status = text;
           _failed = true;
         });
-        _showSnack('Failed: $e');
+        _showSnack(text);
       }
     }
   }

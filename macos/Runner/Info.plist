@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>OpenGreenIoT needs Bluetooth to communicate with your IoT devices.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>OpenGreenIoT needs Bluetooth to communicate with your IoT devices.</string>
 </dict>
 </plist>

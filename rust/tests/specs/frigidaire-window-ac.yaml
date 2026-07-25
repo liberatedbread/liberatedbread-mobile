@@ -1,0 +1,138 @@
+# Frigidaire WiFi Window Air Conditioner — Device Specification
+# Status: Hypothesized — derived from public app feature descriptions.
+#   No APK analysis or network captures performed yet.
+#   All endpoints, topics, and payload formats are placeholders pending RE.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Frigidaire WiFi Window Air Conditioner"
+  manufacturer: "Frigidaire (Electrolux)"
+  manufacturer_status: "unsupported"
+  protocol: "wifi"
+  notes: >
+    WiFi-connected window AC units controlled via the Frigidaire app
+    (Electrolux platform). Covers FHWW series (8K-15K BTU) and Gallery
+    GHWQ series. Cloud-connected via Electrolux servers. Protocol details
+    are hypothesized from public app features — APK analysis and network
+    captures are needed to confirm endpoints, authentication, and payload
+    formats. Gallery models include an ionizer (Clean Air) feature.
+  identification:
+    mdns_service_type: "_http._tcp"
+    ssid_prefix: "Frigidaire_"
+
+# Hypothesized MQTT topic structure — pending RE validation.
+# Electrolux-connected appliances likely use MQTT over TLS to a cloud broker.
+mqtt_topics:
+  - topic: "appliance/{device_id}/command"
+    name: "Device Command"
+    direction: "publish"
+    description: "Send control commands to the AC unit (power, mode, temp, fan, etc.)."
+    qos: 1
+    payload_format:
+      encoding: "json"
+      fields:
+        - name: "command"
+          type: "string"
+          description: "Command name (e.g. set_power, set_mode, set_temperature, set_fan_speed)."
+        - name: "value"
+          type: "string"
+          description: "Command value."
+
+  - topic: "appliance/{device_id}/state"
+    name: "Device State"
+    direction: "subscribe"
+    description: "Receive current device state (power, mode, temperatures, fan speed, alerts)."
+    qos: 1
+    payload_format:
+      encoding: "json"
+      fields:
+        - name: "power"
+          type: "string"
+          description: "Power state: on / off."
+        - name: "mode"
+          type: "string"
+          description: "Operating mode: cool / eco / fan_only."
+        - name: "target_temperature"
+          type: "integer"
+          description: "Target temperature in °F (60-90)."
+        - name: "current_temperature"
+          type: "integer"
+          description: "Current room temperature in °F."
+        - name: "fan_speed"
+          type: "string"
+          description: "Fan speed: auto / low / medium / high."
+        - name: "timer_hours"
+          type: "number"
+          description: "Timer remaining in hours (0 = off)."
+        - name: "sleep_mode"
+          type: "string"
+          description: "Sleep mode: on / off."
+        - name: "filter_alert"
+          type: "string"
+          description: "Filter status: ok / needs_cleaning."
+        - name: "display"
+          type: "string"
+          description: "Display state: on / off."
+        - name: "clean_air"
+          type: "string"
+          description: "Ionizer state: on / off (Gallery models only)."
+
+entities:
+  - platform: "climate"
+    name: "Air Conditioner"
+    features: ["target_temperature", "fan_mode", "hvac_mode"]
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      current_temperature: "current_temperature"
+      target_temperature: "target_temperature"
+      fan_mode: "fan_speed"
+      hvac_mode: "mode"
+    commands:
+      set_temperature: "set_temperature"
+      set_fan_mode: "set_fan_speed"
+      set_hvac_mode: "set_mode"
+      turn_on: "set_power_on"
+      turn_off: "set_power_off"
+
+  - platform: "sensor"
+    name: "Room Temperature"
+    device_class: "temperature"
+    unit: "°F"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "current_temperature"
+
+  - platform: "binary_sensor"
+    name: "Filter Alert"
+    device_class: "problem"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "filter_alert"
+
+  - platform: "switch"
+    name: "Sleep Mode"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "sleep_mode"
+    commands:
+      turn_on: "set_sleep_on"
+      turn_off: "set_sleep_off"
+
+  - platform: "switch"
+    name: "Display"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "display"
+    commands:
+      turn_on: "set_display_on"
+      turn_off: "set_display_off"
+
+  - platform: "switch"
+    name: "Clean Air (Ionizer)"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "clean_air"
+    commands:
+      turn_on: "set_clean_air_on"
+      turn_off: "set_clean_air_off"

@@ -44,7 +44,11 @@ pub struct CharacteristicDto {
     pub can_read: bool,
     pub can_write: bool,
     pub can_notify: bool,
+    /// Commands in the order the spec declares them. Meaningful — do not sort.
     pub commands: Vec<CommandDto>,
+    /// Format fields in the order the spec declares them, which is also how the
+    /// device packs the value. Meaningful — consumers must not sort this; the
+    /// UI lists decoded values in exactly this order.
     pub format_fields: Vec<FormatFieldDto>,
 }
 
@@ -52,9 +56,14 @@ pub struct CharacteristicDto {
 pub struct CommandDto {
     pub name: String,
     pub description: String,
+    /// Parameters in the order the spec declares them. Meaningful — do not sort.
     pub parameters: Vec<ParameterDto>,
     /// true if this is a fixed-value command (no parameters needed).
     pub is_fixed: bool,
+    /// true when this command can be encoded to bytes.
+    pub is_encodable: bool,
+    /// Human-readable encoding name when is_encodable is false.
+    pub unsupported_encoding: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -144,6 +153,8 @@ impl From<&Characteristic> for CharacteristicDto {
                     .contains(&CharacteristicProperty::WriteWithoutResponse),
             can_notify: c.properties.contains(&CharacteristicProperty::Notify)
                 || c.properties.contains(&CharacteristicProperty::Indicate),
+            // Straight iteration: `commands` is an IndexMap, so this is the
+            // spec's declaration order.
             commands: c
                 .commands
                 .as_ref()
@@ -175,15 +186,21 @@ impl From<&FormatField> for FormatFieldDto {
 
 impl From<(&str, &Command)> for CommandDto {
     fn from((name, cmd): (&str, &Command)) -> Self {
+        let enc = crate::codec::types::unsupported_encoding_kind(cmd);
         Self {
             name: name.to_string(),
             description: cmd.description.clone(),
             is_fixed: cmd.value.is_some(),
+            is_encodable: enc.is_none(),
+            unsupported_encoding: enc,
+            // Same as commands: `params` is an IndexMap, so plain iteration
+            // yields the spec's declaration order.
             parameters: cmd
                 .parameters
                 .as_ref()
                 .map(|params| {
                     params
+                        .params
                         .iter()
                         .map(|(pname, p)| ParameterDto::from((pname.as_str(), p)))
                         .collect()
@@ -416,6 +433,184 @@ services:
             name: "brightness"
             type: "uint8"
 "#;
+
+    /// Spec commands/parameters are stored in HashMaps, so the DTO boundary is
+    /// what makes the order the UI renders deterministic: commands by name,
+    /// parameters in the order the command's template writes them.
+    /// Deliberately adversarial ordering, and deliberately wide.
+    ///
+    /// The six commands are declared in an order that is neither alphabetical
+    /// nor reverse-alphabetical, and set_color's five parameters are declared
+    /// blue, red, green, unused, gamma — NOT the order the template references
+    /// them, and including two the template never mentions. Anything that
+    /// sorts, or that reconstructs order from the template, gets a different
+    /// answer than the spec author wrote.
+    ///
+    /// The width matters as much as the shuffle: with two or three entries a
+    /// regression to `HashMap` would still land on the expected order often
+    /// enough to flake rather than fail. Six commands is 720 permutations and
+    /// five parameters is 120, so losing document order fails every run.
+    const ORDERING_YAML: &str = r#"
+device:
+  name: "Ordering"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          set_color:
+            description: "Set RGB"
+            template: [0x03, "{red}", "{green}", "{blue}"]
+            parameters:
+              blue: { type: "uint8", min: 0, max: 255 }
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              unused: { type: "uint8", min: 0, max: 255 }
+              gamma: { type: "uint8", min: 0, max: 255 }
+          power_on:
+            description: "On"
+            value: [0x01, 0x01]
+          power_off:
+            description: "Off"
+            value: [0x01, 0x00]
+          zone_reset:
+            description: "Reset zones"
+            value: [0x04, 0x00]
+          alarm_test:
+            description: "Test the alarm"
+            value: [0x05, 0x01]
+          fade_stop:
+            description: "Stop fading"
+            value: [0x06, 0x00]
+"#;
+
+    #[test]
+    fn commands_and_parameters_keep_declaration_order() {
+        let dto = load_device_spec(ORDERING_YAML.into()).unwrap();
+        let commands = &dto.services[0].characteristics[0].commands;
+
+        let names: Vec<&str> = commands.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "set_color",
+                "power_on",
+                "power_off",
+                "zone_reset",
+                "alarm_test",
+                "fade_stop"
+            ],
+            "commands must come back in the order the YAML declares them"
+        );
+
+        let set_color = commands.iter().find(|c| c.name == "set_color").unwrap();
+        let params: Vec<&str> = set_color
+            .parameters
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(
+            params,
+            ["blue", "red", "green", "unused", "gamma"],
+            "parameters must come back in declaration order — not sorted, and \
+             not reconstructed from the template (which would say red, green, \
+             blue and could not place `unused`/`gamma` at all)"
+        );
+    }
+
+    /// Order has to be stable across processes too, not just within one: the
+    /// bug this guards against was a hash seed leaking into the UI, which only
+    /// shows up as a *different* order on the next launch.
+    #[test]
+    fn ordering_is_stable_across_repeated_parses() {
+        let baseline = load_device_spec(ORDERING_YAML.into()).unwrap();
+        let expected: Vec<String> = baseline.services[0].characteristics[0]
+            .commands
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+
+        for _ in 0..16 {
+            let again = load_device_spec(ORDERING_YAML.into()).unwrap();
+            let names: Vec<String> = again.services[0].characteristics[0]
+                .commands
+                .iter()
+                .map(|c| c.name.clone())
+                .collect();
+            assert_eq!(names, expected);
+        }
+    }
+
+    /// The bundled spec the mock devices match, read from the app's real asset
+    /// directory. A synthetic YAML can drift from what actually ships; this
+    /// pins the order a user sees on the device screen.
+    #[test]
+    fn bundled_example_bulb_keeps_declaration_order() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("rust crate should have a parent repo dir")
+            .join("assets/device_specs/example-bulb.yaml");
+        let yaml = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+
+        let dto = load_device_spec(yaml).unwrap();
+        let control = dto
+            .services
+            .iter()
+            .find(|s| s.name == "Control Service")
+            .expect("example-bulb declares a Control Service");
+        let command_char = control
+            .characteristics
+            .iter()
+            .find(|c| c.name == "Command")
+            .expect("Control Service declares a Command characteristic");
+
+        let names: Vec<&str> = command_char
+            .commands
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["power_on", "power_off", "set_brightness", "set_color"],
+            "must match the order example-bulb.yaml declares"
+        );
+
+        let set_color = command_char
+            .commands
+            .iter()
+            .find(|c| c.name == "set_color")
+            .unwrap();
+        let params: Vec<&str> = set_color
+            .parameters
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(params, ["red", "green", "blue"]);
+
+        // Format fields are a Vec in the spec, so they were already ordered;
+        // assert it so a future refactor cannot quietly reorder them either.
+        let status = control
+            .characteristics
+            .iter()
+            .find(|c| c.name == "Status")
+            .expect("Control Service declares a Status characteristic");
+        let fields: Vec<&str> = status
+            .format_fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(
+            fields,
+            ["power_state", "brightness", "red", "green", "blue"]
+        );
+    }
 
     #[test]
     fn load_spec_dto() {

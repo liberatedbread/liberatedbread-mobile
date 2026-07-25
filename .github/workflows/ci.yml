@@ -124,6 +124,14 @@ jobs:
     strategy:
       matrix:
         api-level: [34]
+    env:
+      # The NDK cargokit actually builds against. android/app/build.gradle sets
+      # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
+      # `android.ndkVersion` to the build tool as CARGOKIT_NDK_VERSION, and
+      # Flutter 3.24.5 hardcodes 23.1.7779620. Installing anything else just
+      # means cargokit downloads this one itself, mid-build. Keep in sync with
+      # FLUTTER_VERSION.
+      FLUTTER_NDK_VERSION: '23.1.7779620'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -155,11 +163,31 @@ jobs:
       - name: Install Android SDK packages for the Rust build
         run: |
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125" \
+            "platforms;android-34" "build-tools;34.0.0" \
+            "ndk;$FLUTTER_NDK_VERSION" \
             > /dev/null
-      # The Rust toolchain + NDK this job adds (~4 GB) can starve the emulator
-      # of disk and prevent it from booting. Reclaim space from large
-      # preinstalled toolchains we don't use before launching the emulator.
+      # Warm up the native build BEFORE the emulator step.
+      #
+      # `flutter test integration_test` builds the app itself, and `flutter
+      # test` applies its per-test timeout to the whole load phase — build
+      # included. On a cold runner that build is ~700s (Gradle bootstrap,
+      # cargokit's build_tool pub get, four Rust targets), which ate the entire
+      # 12-minute default and failed mock_flow_test.dart during *loading*, with
+      # the APK finishing 5 seconds too late. Doing the build here puts all of
+      # that outside any test timeout; the emulator step then reuses the warm
+      # Gradle/cargo caches and rebuilds in ~2 minutes.
+      #
+      # This has to be its own step rather than part of the emulator script:
+      # the emulator-runner step is what provides the device that `flutter test
+      # integration_test` needs, so it cannot also be where the slow build
+      # happens without being inside the timeout window again.
+      - name: Warm up Gradle, cargokit and Rust build caches
+        run: flutter build apk --debug --dart-define=OPENGREENIOT_MOCK=true
+      # The Rust toolchain + NDK this job adds (~4 GB), plus the warm-up build
+      # output, can starve the emulator of disk and prevent it from booting.
+      # Reclaim space from large preinstalled toolchains we don't use before
+      # launching the emulator. This runs after the warm-up build so the
+      # printed `df -h` reflects what the emulator will actually see.
       - name: Free up disk space for the emulator
         run: |
           # Only remove large toolchains this job doesn't use; keep
@@ -167,6 +195,17 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
             /opt/hostedtoolcache/CodeQL /usr/local/share/boost \
             /usr/share/swift 2>/dev/null || true
+          # The runner image preinstalls several multi-GB NDKs. The native
+          # build is done by now, so every NDK except the one it used is dead
+          # weight. Don't touch system-images: the emulator-runner reuses them.
+          for ndk in "$ANDROID_SDK_ROOT"/ndk/*; do
+            [ -d "$ndk" ] || continue
+            if [ "$(basename "$ndk")" != "$FLUTTER_NDK_VERSION" ]; then
+              echo "Removing unused NDK $(basename "$ndk")"
+              sudo rm -rf "$ndk"
+            fi
+          done
+          sudo rm -rf "$ANDROID_SDK_ROOT/ndk-bundle" 2>/dev/null || true
           df -h /
       - name: Enable KVM
         run: |
@@ -174,13 +213,24 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Run integration tests on emulator
+        # Outer bound so a genuinely hung test fails in an hour rather than
+        # sitting on the runner for the 6-hour job default — the per-test
+        # --timeout below is deliberately generous.
+        timeout-minutes: 60
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          script: flutter test integration_test --dart-define=OPENGREENIOT_MOCK=true
+          # The e2e walkthrough needs scripts/e2e_shot_server.py on the host
+          # and 127.0.0.1 (which on an emulator reaches the emulator, not the
+          # host). Run it via scripts/e2e-walkthrough.sh on macOS.
+          #
+          # --timeout is belt-and-braces on top of the warm-up build above: the
+          # per-test clock still covers the (now warm, ~2 min) rebuild of each
+          # test file, and an emulator under swiftshader on 2 cores is slow.
+          script: flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=OPENGREENIOT_MOCK=true
 
   ios-build:
     name: iOS build smoke (no-codesign, mock mode)

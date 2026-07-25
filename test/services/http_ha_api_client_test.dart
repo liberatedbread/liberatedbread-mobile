@@ -74,6 +74,25 @@ void main() {
         throwsA(isA<HaNetworkException>()),
       );
     });
+
+    test('maps a non-JSON 2xx body to a typed HaApiException', () {
+      final client = HttpHaApiClient(
+          MockClient((_) async => http.Response('<html>not json</html>', 201)));
+      expect(
+        client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
+        throwsA(isA<HaApiException>()),
+      );
+    });
+
+    test('maps a 2xx JSON body missing webhook_id to a typed HaApiException',
+        () {
+      final client = HttpHaApiClient(MockClient(
+          (_) async => http.Response(jsonEncode({'ok': true}), 201)));
+      expect(
+        client.registerDevice(baseUrl: _base, token: 't', deviceInfo: {}),
+        throwsA(isA<HaApiException>()),
+      );
+    });
   });
 
   group('webhook messages', () {
@@ -165,6 +184,42 @@ void main() {
         ],
       );
       expect(results, isEmpty);
+    });
+
+    test('maps a malformed update_sensor_states body to a typed HaApiException',
+        () {
+      final client = HttpHaApiClient(
+          MockClient((_) async => http.Response('not json at all', 200)));
+      expect(
+        client.updateSensorStates(
+          baseUrl: _base,
+          webhookId: 'wh123',
+          states: const [
+            HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1)
+          ],
+        ),
+        throwsA(isA<HaApiException>()),
+      );
+    });
+
+    test('maps an unexpected update_sensor_states shape to a typed exception',
+        () {
+      // `error` is a String where a Map is expected -> TypeError, now wrapped.
+      final client = HttpHaApiClient(MockClient((_) async => http.Response(
+          jsonEncode({
+            'u1': {'success': false, 'error': 'boom'},
+          }),
+          200)));
+      expect(
+        client.updateSensorStates(
+          baseUrl: _base,
+          webhookId: 'wh123',
+          states: const [
+            HaSensorState(uniqueId: 'u1', type: 'sensor', state: 1)
+          ],
+        ),
+        throwsA(isA<HaApiException>()),
+      );
     });
   });
 }

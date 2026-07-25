@@ -56,5 +56,27 @@ void main() {
       expect(char.canWrite, isTrue);
       expect(char.canNotify, isFalse);
     });
+
+    test('write-mode flags default to false and are preserved when set', () {
+      const defaulted = BleDiscoveredCharacteristic(
+        uuid: 'x',
+        canRead: false,
+        canWrite: true,
+        canNotify: false,
+      );
+      expect(defaulted.canWriteWithResponse, isFalse);
+      expect(defaulted.canWriteWithoutResponse, isFalse);
+
+      const withoutResponseOnly = BleDiscoveredCharacteristic(
+        uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
+        canRead: false,
+        canWrite: true,
+        canWriteWithResponse: false,
+        canWriteWithoutResponse: true,
+        canNotify: false,
+      );
+      expect(withoutResponseOnly.canWriteWithResponse, isFalse);
+      expect(withoutResponseOnly.canWriteWithoutResponse, isTrue);
+    });
   });
 }

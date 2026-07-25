@@ -1,8 +1,11 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-#![cfg(test)]
 
 //! Shared fixtures for unit tests across the crate.
+//!
+//! The module is already gated behind `#[cfg(test)]` at its declaration in
+//! `lib.rs`, so no inner `#![cfg(test)]` is needed here (a redundant one trips
+//! clippy's `duplicated_attributes` lint under `-D warnings`).
 
 /// Wrap a characteristic-level YAML block in a minimal device-spec skeleton:
 /// one service, one characteristic, sentinel names. Use for tests that only

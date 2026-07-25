@@ -45,6 +45,9 @@ pub enum ProtocolError {
     #[error("command has neither value nor template")]
     EmptyCommand,
 
+    #[error("command uses setting_id or encoding, which are not supported by the legacy encoder — use typed controls instead")]
+    UnsupportedCommandEncoding,
+
     #[error("standard profile does not support commands")]
     ProfileReadOnly,
 
@@ -65,7 +68,7 @@ pub enum SpecError {
     YamlParse(#[from] serde_yaml::Error),
 
     #[error(
-        "format field '{field_name}' has length {got} but type {field_type} requires {expected}"
+        "format field '{field_name}' has length {got} but type {field_type} requires at least {expected}"
     )]
     FieldLengthMismatch {
         field_name: String,
@@ -96,5 +99,21 @@ pub enum SpecError {
         parameter_name: String,
         min: i64,
         max: i64,
+    },
+
+    #[error(
+        "parameter '{parameter_name}' declares a {bound} bound but type {value_type} has no numeric range"
+    )]
+    BoundsOnNonNumericType {
+        parameter_name: String,
+        value_type: crate::spec::types::ValueType,
+        bound: String,
+    },
+
+    #[error("duplicate {kind} name '{name}' in characteristic '{characteristic}'")]
+    DuplicateName {
+        kind: String,
+        name: String,
+        characteristic: String,
     },
 }

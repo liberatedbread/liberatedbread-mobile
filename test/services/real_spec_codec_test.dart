@@ -7,19 +7,11 @@
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:opengreeniot_mobile/services/real_spec_codec.dart';
-import 'package:opengreeniot_mobile/src/rust/frb_generated.dart' show RustLib;
+
+import '../helpers/host_rust_lib.dart';
 
 const _cmdChar = '0000fff1-0000-1000-8000-00805f9b34fb';
 const _statusChar = '0000fff2-0000-1000-8000-00805f9b34fb';
-
-Future<bool> _initRust() async {
-  try {
-    await RustLib.init();
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -29,7 +21,7 @@ void main() {
   late final String yaml;
 
   setUpAll(() async {
-    rustReady = await _initRust();
+    rustReady = await initHostRustLib();
     yaml = await rootBundle.loadString('assets/device_specs/example-bulb.yaml');
   });
 
@@ -45,9 +37,20 @@ void main() {
     final control =
         spec.services.firstWhere((s) => s.name == 'Control Service');
     final command = control.characteristics.first;
+    // Exact list, in order: the spec's declaration order has to survive the
+    // YAML parse and the FFI round-trip, because it is the order the device
+    // screen renders the controls in.
     expect(
-      command.commands.map((c) => c.name),
-      containsAll(<String>['power_on', 'set_brightness']),
+      command.commands.map((c) => c.name).toList(),
+      <String>['power_on', 'power_off', 'set_brightness', 'set_color'],
+    );
+    expect(
+      command.commands
+          .firstWhere((c) => c.name == 'set_color')
+          .parameters
+          .map((p) => p.name)
+          .toList(),
+      <String>['red', 'green', 'blue'],
     );
     expect(
       command.commands.firstWhere((c) => c.name == 'power_on').isFixed,
@@ -91,12 +94,13 @@ void main() {
       charUuid: _statusChar,
       bytes: const [1, 80, 255, 180, 50],
     );
-    final byName = {for (final d in decoded) d.name: d};
+    // Ordered, not just present: decoded fields come back in the spec's
+    // `format` order, which is what the UI lists them in.
     expect(
-      byName.keys,
-      containsAll(
-          <String>['power_state', 'brightness', 'red', 'green', 'blue']),
+      decoded.map((d) => d.name).toList(),
+      <String>['power_state', 'brightness', 'red', 'green', 'blue'],
     );
+    final byName = {for (final d in decoded) d.name: d};
     expect(byName['brightness']!.uintValue, 80);
   });
 

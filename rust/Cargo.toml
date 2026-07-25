@@ -16,6 +16,12 @@ name = "opengreeniot_core"
 [dependencies]
 flutter_rust_bridge = "=2.9.0"
 serde = { version = "1", features = ["derive"] }
+# Spec `commands` and `parameters` are YAML mappings whose *declaration order*
+# is meaningful — it is the order the spec author wants the controls listed.
+# A HashMap would discard it at parse time (and hand every consumer a different
+# order per process); IndexMap preserves insertion order, so serde hands back
+# exactly what the document said.
+indexmap = { version = "2", features = ["serde"] }
 # `serde_yaml` (dtolnay) was archived in early 2024 with no upstream
 # parser-bug or CVE fixes. Keep the import name unchanged via Cargo's
 # package-rename so call sites stay readable; the actual crate is the

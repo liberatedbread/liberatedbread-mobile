@@ -14,6 +14,12 @@ String humanizeName(String raw) {
 /// Inclusive numeric range for a spec value type. Honors the explicit bounds
 /// from the spec when present, otherwise falls back to the natural range of the
 /// type. Unknown types fall back to a single byte (0..255).
+///
+/// The returned range is always well-ordered (`min < max`). Specs may be loaded
+/// from untrusted remote packs, so a malformed or degenerate bound (`min >= max`,
+/// e.g. min > max, or both equal) is rejected in favor of the type's natural
+/// range rather than being passed through — otherwise Slider/clamp callers would
+/// assert or divide by zero on a zero-width range.
 ({double min, double max}) rangeFor(
     String valueType, double? min, double? max) {
   final typeRange = switch (valueType) {
@@ -24,7 +30,12 @@ String humanizeName(String raw) {
     'int16' => (min: -32768.0, max: 32767.0),
     _ => (min: 0.0, max: 255.0),
   };
-  return (min: min ?? typeRange.min, max: max ?? typeRange.max);
+  final resolvedMin = min ?? typeRange.min;
+  final resolvedMax = max ?? typeRange.max;
+  // A degenerate/inverted range from a malformed spec falls back to the type's
+  // natural range, which is guaranteed well-ordered.
+  if (resolvedMin >= resolvedMax) return typeRange;
+  return (min: resolvedMin, max: resolvedMax);
 }
 
 /// Slider divisions for an integer range, or null for a degenerate range or one

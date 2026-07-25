@@ -11,6 +11,7 @@ import '../models/ha_config.dart';
 import '../providers/ha_provider.dart';
 import '../services/ha_api_client.dart';
 import '../widgets/tailscale_suggestion_card.dart';
+import '../core/error_text.dart';
 
 /// Home Assistant companion-mode setup and status.
 ///
@@ -47,7 +48,10 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
         error: (e, _) => Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('Could not load settings: $e',
+            child: Text(
+                friendlyErrorText(e,
+                    context: 'load HA settings',
+                    fallback: 'Could not load your Home Assistant settings.'),
                 style: const TextStyle(color: Colors.red)),
           ),
         ),
@@ -208,25 +212,19 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
           .read(haConfigProvider.notifier)
           .register(baseUrl: url, token: token);
     } on HaApiException catch (e) {
-      if (mounted) setState(() => _errorMessage = _friendlyError(e));
+      if (mounted) setState(() => _errorMessage = friendlyHaMessage(e));
     } catch (e) {
-      if (mounted) setState(() => _errorMessage = 'Unexpected error: $e');
+      if (mounted) {
+        setState(() => _errorMessage = friendlyErrorText(
+              e,
+              context: 'HA register',
+              fallback: 'Something went wrong connecting to Home Assistant. '
+                  'Check the address and token, then try again.',
+            ));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  String _friendlyError(HaApiException e) {
-    return switch (e) {
-      HaAuthException() => 'Home Assistant rejected the access token. '
-          'Create a new long-lived token and try again.',
-      HaNotFoundException() => 'That address does not look like a Home '
-          'Assistant server (mobile_app API not found).',
-      HaNetworkException() => 'Could not reach the server. Are you on the '
-          'same network? For access away from home, see the Tailscale tip '
-          'below.',
-      HaServerException() => e.message,
-    };
   }
 
   Future<void> _confirmDisconnect() async {

@@ -34,12 +34,18 @@ class HttpHaApiClient implements HaApiClient {
       body: jsonEncode(deviceInfo),
     );
     _throwForStatus(response);
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    return HaRegistrationResult(
-      webhookId: json['webhook_id'] as String,
-      cloudhookUrl: json['cloudhook_url'] as String?,
-      remoteUiUrl: json['remote_ui_url'] as String?,
-    );
+    try {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return HaRegistrationResult(
+        webhookId: json['webhook_id'] as String,
+        cloudhookUrl: json['cloudhook_url'] as String?,
+        remoteUiUrl: json['remote_ui_url'] as String?,
+      );
+    } on FormatException catch (e) {
+      throw _malformed(response.statusCode, 'registration', e);
+    } on TypeError catch (e) {
+      throw _malformed(response.statusCode, 'registration', e);
+    }
   }
 
   @override
@@ -66,7 +72,7 @@ class HttpHaApiClient implements HaApiClient {
       'data': [for (final s in states) s.toWebhookJson()],
     });
     _throwForStatus(response);
-    return _parseUpdateResults(response.body);
+    return _parseUpdateResults(response);
   }
 
   Future<http.Response> _postWebhook(
@@ -109,19 +115,39 @@ class HttpHaApiClient implements HaApiClient {
 
   /// `update_sensor_states` returns `{unique_id: {"success": bool, ...}}`,
   /// with an `error.code` (e.g. `not_registered`) on failures.
-  static List<HaWebhookSensorResult> _parseUpdateResults(String body) {
+  ///
+  /// A 2xx with a malformed/unexpected body is surfaced as an
+  /// [HaApiException] (via [HaServerException]) so callers keep seeing only
+  /// the typed exception contract, never a raw [FormatException]/[TypeError].
+  static List<HaWebhookSensorResult> _parseUpdateResults(
+      http.Response response) {
+    final body = response.body;
     if (body.isEmpty) return const [];
-    final decoded = jsonDecode(body);
-    if (decoded is! Map<String, dynamic>) return const [];
-    return [
-      for (final entry in decoded.entries)
-        if (entry.value is Map<String, dynamic>)
-          HaWebhookSensorResult(
-            uniqueId: entry.key,
-            success: (entry.value as Map<String, dynamic>)['success'] == true,
-            errorCode: ((entry.value as Map<String, dynamic>)['error']
-                as Map<String, dynamic>?)?['code'] as String?,
-          ),
-    ];
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return const [];
+      return [
+        for (final entry in decoded.entries)
+          if (entry.value is Map<String, dynamic>)
+            HaWebhookSensorResult(
+              uniqueId: entry.key,
+              success: (entry.value as Map<String, dynamic>)['success'] == true,
+              errorCode: ((entry.value as Map<String, dynamic>)['error']
+                  as Map<String, dynamic>?)?['code'] as String?,
+            ),
+      ];
+    } on FormatException catch (e) {
+      throw _malformed(response.statusCode, 'update_sensor_states', e);
+    } on TypeError catch (e) {
+      throw _malformed(response.statusCode, 'update_sensor_states', e);
+    }
   }
+
+  /// Wraps a body-parse failure on an otherwise-successful response in the
+  /// typed exception hierarchy. [HaApiException] itself is sealed and cannot
+  /// be instantiated, so [HaServerException] carries the diagnostic.
+  static HaServerException _malformed(
+          int statusCode, String context, Object cause) =>
+      HaServerException(
+          statusCode, 'malformed $context response body ($cause)');
 }

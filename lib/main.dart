@@ -14,6 +14,7 @@ Future<void> main() async {
   // that matches the Rust mock output.
   try {
     await RustLib.init();
+    debugPrint('RustLib.init succeeded');
   } catch (e, st) {
     debugPrint('RustLib.init failed ($e); falling back to Dart-side mock. $st');
   }
