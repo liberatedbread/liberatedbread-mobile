@@ -168,19 +168,21 @@ jobs:
             > /dev/null
       # Warm up the native build BEFORE the emulator step.
       #
-      # `flutter test integration_test` builds the app itself, and `flutter
-      # test` applies its per-test timeout to the whole load phase — build
-      # included. On a cold runner that build is ~700s (Gradle bootstrap,
-      # cargokit's build_tool pub get, four Rust targets), which ate the entire
-      # 12-minute default and failed mock_flow_test.dart during *loading*, with
-      # the APK finishing 5 seconds too late. Doing the build here puts all of
-      # that outside any test timeout; the emulator step then reuses the warm
-      # Gradle/cargo caches and rebuilds in ~2 minutes.
+      # This step — not the --timeout flag further down — is what fixes the
+      # `loading ...` TimeoutException. `flutter test integration_test` builds
+      # the app as part of *loading* the test file, and package:test_core gives
+      # that synthetic load suite a hardcoded 12-minute timeout that no flag can
+      # raise. On a cold runner the build is ~700s (Gradle bootstrap, cargokit's
+      # build_tool pub get, four Rust targets), which ate nearly all of those 12
+      # minutes and failed mock_flow_test.dart during loading, with the APK
+      # finishing 5 seconds too late. Doing the build here moves it outside the
+      # load clock entirely; the emulator step then reuses the warm Gradle/cargo
+      # caches and rebuilds in ~2 minutes.
       #
       # This has to be its own step rather than part of the emulator script:
       # the emulator-runner step is what provides the device that `flutter test
       # integration_test` needs, so it cannot also be where the slow build
-      # happens without being inside the timeout window again.
+      # happens without being inside the load window again.
       - name: Warm up Gradle, cargokit and Rust build caches
         run: flutter build apk --debug --dart-define=OPENGREENIOT_MOCK=true
       # The Rust toolchain + NDK this job adds (~4 GB), plus the warm-up build
@@ -198,14 +200,22 @@ jobs:
           # The runner image preinstalls several multi-GB NDKs. The native
           # build is done by now, so every NDK except the one it used is dead
           # weight. Don't touch system-images: the emulator-runner reuses them.
-          for ndk in "$ANDROID_SDK_ROOT"/ndk/*; do
-            [ -d "$ndk" ] || continue
-            if [ "$(basename "$ndk")" != "$FLUTTER_NDK_VERSION" ]; then
-              echo "Removing unused NDK $(basename "$ndk")"
-              sudo rm -rf "$ndk"
-            fi
-          done
-          sudo rm -rf "$ANDROID_SDK_ROOT/ndk-bundle" 2>/dev/null || true
+          #
+          # Guard on ANDROID_SDK_ROOT being non-empty: unset it and the paths
+          # below would expand to /ndk/* and /ndk-bundle, pointing these rm -rf
+          # calls at the filesystem root.
+          if [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+            for ndk in "${ANDROID_SDK_ROOT:?}"/ndk/*; do
+              [ -d "$ndk" ] || continue
+              if [ "$(basename "$ndk")" != "$FLUTTER_NDK_VERSION" ]; then
+                echo "Removing unused NDK $(basename "$ndk")"
+                sudo rm -rf "$ndk"
+              fi
+            done
+            sudo rm -rf "${ANDROID_SDK_ROOT:?}/ndk-bundle" 2>/dev/null || true
+          else
+            echo "ANDROID_SDK_ROOT is unset or empty; skipping NDK cleanup"
+          fi
           df -h /
       - name: Enable KVM
         run: |
@@ -227,9 +237,11 @@ jobs:
           # and 127.0.0.1 (which on an emulator reaches the emulator, not the
           # host). Run it via scripts/e2e-walkthrough.sh on macOS.
           #
-          # --timeout is belt-and-braces on top of the warm-up build above: the
-          # per-test clock still covers the (now warm, ~2 min) rebuild of each
-          # test file, and an emulator under swiftshader on 2 cores is slow.
+          # --timeout raises the per-test *body* timeout only. It is defence in
+          # depth for slow test bodies — an emulator on swiftshader with 2 cores
+          # is slow — and it CANNOT extend the load phase, whose 12-minute limit
+          # is hardcoded in package:test_core's synthetic load suite. Keeping
+          # loading inside that limit is the warm-up build step's job.
           script: flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=OPENGREENIOT_MOCK=true
 
   ios-build:
