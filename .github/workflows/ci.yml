@@ -9,8 +9,31 @@ on:
 permissions:
   contents: read
 
+# One run per pull request: a re-push supersedes the previous run, which would
+# otherwise keep a 60-minute emulator job (and two multi-GB native builds) on
+# the runners for a commit nobody is waiting on any more.
+#
+# `main` gets a per-RUN group key so post-merge runs never share a group, and
+# therefore can never cancel one another — they are the record of what shipped.
+# Grouping them together and relying on `cancel-in-progress: false` would NOT
+# be enough: GitHub keeps at most one *pending* run per group regardless of
+# that setting, so a third push to main would cancel the second while it queued
+# behind the first. A unique key sidesteps the queue entirely, which also makes
+# `cancel-in-progress` moot for main — nothing is ever in its group to cancel.
+concurrency:
+  group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
 env:
   FLUTTER_VERSION: '3.24.5'
+  # The NDK cargokit actually builds against, shared by every job that compiles
+  # the Rust crate for Android. android/app/build.gradle sets
+  # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
+  # `android.ndkVersion` to its build tool as CARGOKIT_NDK_VERSION, and Flutter
+  # 3.24.5 hardcodes 23.1.7779620 (packages/flutter_tools/gradle/src/main/
+  # groovy/flutter.groovy). Installing any other version just means cargokit
+  # downloads this one itself, mid-build. Keep in sync with FLUTTER_VERSION.
+  FLUTTER_NDK_VERSION: '23.1.7779620'
 
 jobs:
   flutter:
@@ -98,7 +121,9 @@ jobs:
           workspaces: rust
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125'
+          packages: >-
+            platform-tools platforms;android-34 build-tools;34.0.0
+            ndk;${{ env.FLUTTER_NDK_VERSION }}
       - uses: gradle/actions/setup-gradle@v4
       - name: Write android/local.properties
         run: |
@@ -124,14 +149,6 @@ jobs:
     strategy:
       matrix:
         api-level: [34]
-    env:
-      # The NDK cargokit actually builds against. android/app/build.gradle sets
-      # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
-      # `android.ndkVersion` to the build tool as CARGOKIT_NDK_VERSION, and
-      # Flutter 3.24.5 hardcodes 23.1.7779620. Installing anything else just
-      # means cargokit downloads this one itself, mid-build. Keep in sync with
-      # FLUTTER_VERSION.
-      FLUTTER_NDK_VERSION: '23.1.7779620'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
