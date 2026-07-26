@@ -34,7 +34,7 @@ app on **Linux** and **macOS**.
 | Tool | Version |
 |------|---------|
 | Android SDK | API 34 |
-| Android NDK | 26.1.10909125 |
+| Android NDK | 23.1.7779620 (Flutter 3.24.5's `flutter.ndkVersion`) |
 | Android SDK Build-Tools | 34.0.0 |
 | Java (for Gradle) | 17+ |
 
@@ -136,7 +136,7 @@ cargo install flutter_rust_bridge_codegen@2.9.0
 Install Android Studio or the command-line tools. Then:
 
 ```bash
-sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" "ndk;26.1.10909125"
+sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" "ndk;23.1.7779620"
 ```
 
 Set `ANDROID_HOME`:

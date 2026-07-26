@@ -10,7 +10,11 @@ set -euo pipefail
 
 FLUTTER_VERSION="3.24.5"
 FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
-NDK_VERSION="26.1.10909125"
+# Must match `flutter.ndkVersion` for FLUTTER_VERSION above: android/app/
+# build.gradle sets `ndkVersion = flutter.ndkVersion`, and cargokit compiles the
+# Rust crate with whatever that resolves to. Installing a different NDK here
+# leaves it unused on disk while cargokit downloads this one mid-build.
+NDK_VERSION="23.1.7779620"
 ANDROID_API="34"
 FRB_VERSION="2.9.0"
 RUST_MIN_VERSION="1.82.0"

@@ -10,5 +10,13 @@ const isMockMode = bool.fromEnvironment('OPENGREENIOT_MOCK');
 
 /// Provides the BLE service implementation (real or mock).
 final bleServiceProvider = Provider<BleService>((ref) {
-  return isMockMode ? MockBleService() : RealBleService();
+  if (!isMockMode) return RealBleService();
+  final mock = MockBleService();
+  // The mock keeps a broadcast StreamController per device for its
+  // connection-state stream. Close them when the provider is torn down so they
+  // don't outlive the container, mirroring how haApiClientProvider disposes its
+  // http.Client. Without this, MockBleService.dispose() is never called outside
+  // tests.
+  ref.onDispose(mock.dispose);
+  return mock;
 });
