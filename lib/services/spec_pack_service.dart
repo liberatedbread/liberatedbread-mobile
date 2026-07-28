@@ -430,8 +430,11 @@ class SpecPackService {
           'to bundled specs only: $e');
       return result;
     }
+    if (packs.isEmpty) return result;
+    // One root resolution for the whole walk, not one per pack.
+    final root = await _cacheRoot();
     for (final pack in packs) {
-      final dir = _packDir(await _cacheRoot(), pack.name);
+      final dir = _packDir(root, pack.name);
       for (final file in pack.specFiles) {
         try {
           final f = File('${dir.path}/specs/${_safeFileName(file)}');

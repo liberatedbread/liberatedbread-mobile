@@ -39,10 +39,14 @@ final urlOpenerProvider = Provider<Future<bool> Function(Uri)>(
 
 /// The app-wide sensor forwarder bridging decoded BLE values to HA.
 final haForwarderProvider = Provider<HaSensorForwarder>((ref) {
-  return HaSensorForwarder(
+  final forwarder = HaSensorForwarder(
     api: ref.watch(haApiClientProvider),
     readConfig: () => ref.read(haConfigProvider.future),
   );
+  // The status ChangeNotifier is owned here; dispose it with the provider so
+  // it doesn't leak its listener list.
+  ref.onDispose(forwarder.status.dispose);
+  return forwarder;
 });
 
 final haConfigProvider =

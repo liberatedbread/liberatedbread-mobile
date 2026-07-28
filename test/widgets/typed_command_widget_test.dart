@@ -45,6 +45,29 @@ const _charDto = CharacteristicDto(
   formatFields: [],
 );
 
+// A command whose parameter type has no numeric range; a slider would be a
+// lie, so the widget must render an "unsupported" row instead.
+const _stringParamChar = CharacteristicDto(
+  uuid: _char,
+  name: 'Command',
+  canRead: false,
+  canWrite: true,
+  canNotify: false,
+  commands: [
+    CommandDto(
+      name: 'set_label',
+      description: 'Set the display label',
+      isFixed: false,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      parameters: [
+        ParameterDto(name: 'label', valueType: 'string'),
+      ],
+    ),
+  ],
+  formatFields: [],
+);
+
 // A malformed spec — as might arrive from an untrusted remote pack — with an
 // inverted parameter range (min > max) that would otherwise crash the Slider.
 const _malformedChar = CharacteristicDto(
@@ -142,6 +165,19 @@ void main() {
     final slider = tester.widget<Slider>(find.byType(Slider));
     expect(slider.min < slider.max, isTrue);
     expect(slider.value, inInclusiveRange(slider.min, slider.max));
+  });
+
+  testWidgets('string parameter gets an unsupported row, not a Slider',
+      (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _stringParamChar));
+
+    expect(find.byType(Slider), findsNothing);
+    expect(find.byType(SwitchListTile), findsNothing);
+    expect(find.text('Label: unsupported parameter type (string)'),
+        findsOneWidget);
   });
 
   testWidgets('surfaces an error when encoding fails', (tester) async {

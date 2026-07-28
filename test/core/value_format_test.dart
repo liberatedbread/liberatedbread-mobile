@@ -16,8 +16,11 @@ void main() {
     expect(rangeFor('bool', null, null), (min: 0.0, max: 1.0));
     expect(rangeFor('uint8', null, null), (min: 0.0, max: 255.0));
     expect(rangeFor('uint16', null, null), (min: 0.0, max: 65535.0));
+    expect(rangeFor('uint32', null, null), (min: 0.0, max: 4294967295.0));
     expect(rangeFor('int8', null, null), (min: -128.0, max: 127.0));
     expect(rangeFor('int16', null, null), (min: -32768.0, max: 32767.0));
+    expect(
+        rangeFor('int32', null, null), (min: -2147483648.0, max: 2147483647.0));
     expect(rangeFor('mystery', null, null), (min: 0.0, max: 255.0));
   });
 
@@ -44,5 +47,15 @@ void main() {
     expect(divisionsFor(0, 100), 100);
     expect(divisionsFor(0, 0), isNull);
     expect(divisionsFor(0, 65535), isNull);
+  });
+
+  test('isNumericValueType accepts integer types only', () {
+    for (final t in ['uint8', 'uint16', 'uint32', 'int8', 'int16', 'int32']) {
+      expect(isNumericValueType(t), isTrue, reason: t);
+    }
+    // bool has its own switch control; string/bytes/unknown get no slider.
+    for (final t in ['bool', 'string', 'bytes', 'mystery']) {
+      expect(isNumericValueType(t), isFalse, reason: t);
+    }
   });
 }
