@@ -108,7 +108,16 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
   void initState() {
     super.initState();
     for (final p in widget.command.parameters) {
-      _values[p.name] = rangeFor(p.valueType, p.min, p.max).min;
+      final allowed = p.allowed;
+      // Enumerated parameters default to the first allowed value (the specs
+      // have no separate default concept); everything else starts at the
+      // bottom of its range. The condition mirrors _buildParam: only numeric
+      // non-bool parameters get the dropdown treatment.
+      _values[p.name] = allowed != null &&
+              allowed.isNotEmpty &&
+              isNumericValueType(p.valueType)
+          ? allowed.first.toDouble()
+          : rangeFor(p.valueType, p.min, p.max).min;
     }
   }
 
@@ -223,6 +232,8 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     final range = rangeFor(p.valueType, p.min, p.max);
     final value = (_values[p.name] ?? range.min).clamp(range.min, range.max);
     if (p.valueType == 'bool') {
+      // A bool's two states already enumerate its whole domain, so the switch
+      // wins even if a spec (oddly) declares `allowed` on a bool parameter.
       return SwitchListTile(
         contentPadding: EdgeInsets.zero,
         title: Text(humanizeName(p.name)),
@@ -242,6 +253,10 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         ),
       );
     }
+    final allowed = p.allowed;
+    if (allowed != null && allowed.isNotEmpty) {
+      return _buildAllowedParam(p, allowed);
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -258,6 +273,51 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
           onChanged: (v) => setState(() => _values[p.name] = v.roundToDouble()),
         ),
       ],
+    );
+  }
+
+  /// Enumerated parameter: the spec says the device accepts only these
+  /// values, so offer exactly those in a dropdown instead of a free slider.
+  /// Entries read "Label (value)" when the spec pairs labels with the values
+  /// and just the raw value otherwise; either way the chosen *allowed value*
+  /// (never a label or an index) is what gets encoded and sent.
+  ///
+  /// The Rust DTO boundary already drops labels whose length doesn't match
+  /// `allowed`, but a hand-built DTO (fakes, remote packs gone weird) could
+  /// still mispair them — so the pairing is re-checked here and unusable
+  /// labels are ignored in favor of raw values.
+  Widget _buildAllowedParam(ParameterDto p, List<BigInt> allowed) {
+    final labels = p.labels;
+    final paired = labels != null && labels.length == allowed.length;
+    // The dropdown is keyed by index rather than value: indexes are plain
+    // ints (allowed values are BigInt) and stay unique even if a malformed
+    // spec repeats a value.
+    final current = _values[p.name];
+    var selected = allowed.indexWhere((v) => v.toDouble() == current);
+    if (selected < 0) selected = 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: DropdownButtonFormField<int>(
+        value: selected,
+        isExpanded: true,
+        decoration: InputDecoration(
+          labelText: humanizeName(p.name),
+          border: const OutlineInputBorder(),
+        ),
+        items: [
+          for (var i = 0; i < allowed.length; i++)
+            DropdownMenuItem(
+              value: i,
+              child: Text(
+                allowedEntryLabel(paired ? labels[i] : null, allowed[i]),
+              ),
+            ),
+        ],
+        onChanged: (i) {
+          if (i == null) return;
+          setState(() => _values[p.name] = allowed[i].toDouble());
+        },
+      ),
     );
   }
 }

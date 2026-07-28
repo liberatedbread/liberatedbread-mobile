@@ -55,3 +55,15 @@ bool isNumericValueType(String valueType) => switch (valueType) {
       'uint8' || 'uint16' || 'uint32' || 'int8' || 'int16' || 'int32' => true,
       _ => false,
     };
+
+/// Display text for one entry of an enumerated `allowed` parameter:
+/// `"Label (value)"` when the spec pairs a label with the value, or just the
+/// raw value otherwise. Keeping the wire value visible next to the label
+/// means the picker never hides what will actually be sent to the device.
+///
+/// [value] is `Object` because allowed values cross the FFI as
+/// flutter_rust_bridge's `Int64List`, whose elements are [BigInt]; both
+/// [BigInt] and [int] render the same way here. A null or empty label falls
+/// back to the raw value.
+String allowedEntryLabel(String? label, Object value) =>
+    (label == null || label.isEmpty) ? '$value' : '$label ($value)';
