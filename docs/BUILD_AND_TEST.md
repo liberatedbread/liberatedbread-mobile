@@ -27,7 +27,9 @@ app on **Linux** and **macOS**.
 | Git | any | `git --version` |
 | Flutter | 3.24+ (stable) | `flutter --version` |
 | Rust | stable (1.82+) | `rustc --version` |
-| cargo-ndk | latest | `cargo ndk --version` |
+
+No `cargo-ndk` needed: cargokit (the flutter_rust_bridge native-build plugin)
+drives the NDK itself during `flutter build`.
 
 ### Android Builds
 
@@ -61,13 +63,13 @@ What it does:
 1. Installs Flutter SDK 3.24.5 to `~/.flutter-sdk`
 2. Installs Rust via rustup (if not already installed)
 3. Adds Android cross-compilation targets (aarch64, armv7, x86_64, i686)
-4. Adds iOS targets on macOS (aarch64-apple-ios, aarch64-apple-ios-sim)
-5. Installs `cargo-ndk` for Android NDK integration
-6. Installs `flutter_rust_bridge_codegen` v2.9.0
-7. Sets up Android SDK components (API 34, NDK 26.1)
-8. Creates Android emulator AVD (`liberated_bread_test`)
-9. Runs `pod install` on macOS
-10. Runs `flutter pub get` and generates FRB bindings
+4. Adds iOS targets on macOS (aarch64-apple-ios, aarch64-apple-ios-sim,
+   x86_64-apple-ios)
+5. Installs `flutter_rust_bridge_codegen` v2.9.0
+6. Sets up Android SDK components (API 34, NDK 23.1.7779620)
+7. Creates Android emulator AVD (`liberated_bread_test`)
+8. Runs `pod install` on macOS
+9. Runs `flutter pub get` and generates FRB bindings
 
 After setup, add Flutter to your PATH:
 
@@ -86,7 +88,6 @@ Verify the setup:
 ```bash
 flutter doctor
 rustc --version
-cargo ndk --version
 ```
 
 ---
@@ -121,14 +122,14 @@ rustup target add \
 # macOS: add iOS targets
 rustup target add \
   aarch64-apple-ios \
-  aarch64-apple-ios-sim
+  aarch64-apple-ios-sim \
+  x86_64-apple-ios
 ```
 
 ### 3. Install Cargo Tools
 
 ```bash
-cargo install cargo-ndk
-cargo install flutter_rust_bridge_codegen@2.9.0
+cargo install --locked flutter_rust_bridge_codegen@2.9.0
 ```
 
 ### 4. Android SDK
@@ -148,7 +149,7 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 ### 5. Project Dependencies
 
 ```bash
-cd liberated-bread-mobile
+cd liberatedbread-mobile
 flutter pub get
 ```
 
@@ -273,24 +274,27 @@ genhtml coverage/lcov.info -o coverage/html
 open coverage/html/index.html
 ```
 
-Current Flutter test files:
-- `test/core/hex_test.dart` — `bytesToHex` and `normalizeUuid`
-- `test/models/iot_device_test.dart` — `IoTDevice` model
-- `test/models/device_characteristic_test.dart` — `DeviceCharacteristic` model
-- `test/models/ble_discovered_service_test.dart` — `BleDiscoveredService`
-- `test/services/device_manager_test.dart` — `DeviceManager` service
-- `test/services/mock_ble_service_test.dart` — `MockBleService`
-- `test/services/mock_ble_service_rust_test.dart` — FRB round-trip
-- `test/services/real_ble_service_mapping_test.dart` — state mapping
-- `test/providers/device_spec_provider_test.dart` — spec loading
-- `test/screens/scan_screen_test.dart` — scan UI
-- `test/screens/device_screen_test.dart` — device screen
-- `test/widgets/device_control_panel_test.dart` — control panel
-- `test/widgets/raw_characteristic_widget_test.dart` — characteristic widget
+Flutter tests live under `test/`, mirroring `lib/`: `test/core`,
+`test/models`, `test/providers`, `test/screens`, `test/services`, and
+`test/widgets`, plus shared scaffolding in `test/fakes` (fake BLE service, HA
+client, spec codec, pack service, in-memory settings store) and
+`test/helpers` (the host Rust library loader). Browse `test/` for the current
+inventory — the suite grows with every feature, and any list here would be
+stale by the next PR.
+
+Two callouts worth knowing about:
+- `test/services/mock_ble_service_rust_test.dart` and
+  `test/services/real_spec_codec_test.dart` exercise the real FRB path, so
+  they need the host Rust library (next section) and self-skip when it isn't
+  built.
+- `test/core/brand_test.dart` fails when `lib/core/theme.dart` and
+  `tool/branding/brand.json` drift apart (see [BRANDING.md](BRANDING.md)).
 
 Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/mock_flow_test.dart` — scan → connect → discover
 - `integration_test/error_flow_test.dart` — error state + retry
+- `integration_test/e2e_walkthrough_test.dart` — scripted screenshot
+  walkthrough, tagged `e2e` (see below)
 
 ### FRB-backed tests
 
@@ -298,17 +302,41 @@ Integration tests under `integration_test/` need a connected device or emulator:
 through flutter_rust_bridge. Unlike a normal `flutter test`, the host-target
 Rust library has to be built and discoverable at runtime — `flutter test` runs
 on your machine, not a device, so it dynamically loads the desktop build of the
-Rust core. Point the dynamic linker at it via `LD_LIBRARY_PATH`:
+Rust core. From the repo root:
 
 ```bash
-cd rust && cargo build
-LD_LIBRARY_PATH=$PWD/target/debug flutter test test/services/mock_ble_service_rust_test.dart
-# macOS uses DYLD_FALLBACK_LIBRARY_PATH instead.
+(cd rust && cargo build)
+LD_LIBRARY_PATH=$PWD/rust/target/debug flutter test test/services/mock_ble_service_rust_test.dart
 ```
+
+On macOS, `DYLD_FALLBACK_LIBRARY_PATH` does **not** work: the Flutter SDK's
+`dart` binary uses the hardened runtime, and the loader strips `DYLD_*` from
+such processes. Instead, `test/helpers/host_rust_lib.dart` opens
+`rust/target/debug/<lib>` (then `release/`) by relative path, or the explicit
+path in `LIBERATED_BREAD_RUST_LIB` — so on macOS just building the crate is
+enough.
 
 `scripts/test.sh` wires this automatically. If the library fails to load the
 tests self-skip via `markTestSkipped` so CI on fresh clones doesn't see a hard
 failure.
+
+### E2E screenshot walkthrough
+
+`integration_test/e2e_walkthrough_test.dart` drives the real app in mock mode
+through the scan → connect → control flows and snapshots every step as a PNG.
+Screenshots are taken host-side: the test asks a small HTTP server
+(`scripts/e2e_shot_server.py`) on `127.0.0.1` to run `xcrun simctl io
+screenshot`.
+
+```bash
+./scripts/e2e-walkthrough.sh                # boots a simulator, shots → ./e2e-shots
+./scripts/e2e-walkthrough.sh --udid <UDID> --out ~/shots
+```
+
+macOS + iOS Simulator only: the simulator shares the host's network, so
+`127.0.0.1` reaches the shot server. On the Android emulator `127.0.0.1` is
+the emulator itself — which is why the test is tagged `e2e` in
+`dart_test.yaml` and CI's emulator job runs with `--exclude-tags=e2e`.
 
 ### Rust Tests
 
@@ -344,19 +372,27 @@ Current Rust test modules:
 - `protocol::profiles::device_info` — Device info protocol
 - `spec::parser` — YAML parsing + post-deserialize validation
 
+Plus integration tests under `rust/tests/`:
+- `spec_tolerance.rs` — parses the real protocol-docs specs vendored under
+  `rust/tests/specs/`, proving vendor extension blocks and WiFi specs are
+  tolerated rather than rejected by `deny_unknown_fields`
+- `vendored_assets.rs` — asserts every bundled spec in `assets/device_specs/`
+  parses through the real parser, and that the bundled set matches its
+  expected file list (update it when adding a bundled spec)
+
 ### Linting and Formatting
 
 ```bash
 # Dart
-flutter analyze                        # Static analysis
+flutter analyze --fatal-infos          # Static analysis (CI treats infos as fatal)
 dart format --set-exit-if-changed .    # Check formatting
 dart format .                          # Fix formatting
 
 # Rust
 cd rust
-cargo clippy                           # Lint
-cargo fmt -- --check                   # Check formatting
-cargo fmt                              # Fix formatting
+cargo clippy --all-targets --all-features -- -D warnings   # Lint (as CI runs it)
+cargo fmt --all -- --check             # Check formatting
+cargo fmt --all                        # Fix formatting
 ```
 
 ---
@@ -440,6 +476,9 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
   correct Flutter SDK.
 - **iOS simulator**: Has simulated BLE support — you can test basic flows.
   For full BLE testing, use a physical device.
+- **Other scaffolds**: `macos/` and `web/` are committed alongside `android/`
+  and `ios/` (the branding pipeline generates icons for them too), but the
+  supported app targets are Android and iOS.
 
 ### Android
 
@@ -456,23 +495,26 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
-every pull request. Five jobs fan out in parallel:
+every pull request. Five jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, `flutter test --coverage`, upload coverage to Codecov |
-| `rust` | ubuntu-latest | `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-features` |
+| `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
+| `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
-| `android-integration` | ubuntu-latest (API 34 emulator) | `flutter test integration_test --dart-define=LIBERATED_BREAD_MOCK=true` on an Android emulator |
+| `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an APK build, frees runner disk, then `flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
 | `ios-build` | macos-latest | `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true` |
 
-Caches: Flutter SDK, `~/.pub-cache`, and `rust/target/` are cached across runs.
-The Android/iOS builds depend on `flutter` succeeding first (fail fast on
-lint/test before the slower platform builds).
+Caches: Flutter SDK, `~/.pub-cache`, `.dart_tool`, and `rust/target/` are
+cached across runs. The quick checks run first; the native build jobs wait for
+them to pass before spending runner time on the slower platform builds (fail
+fast on lint/test).
 
 ### Running CI locally
 
-`scripts/test.sh` mirrors the `flutter` and `rust` jobs:
+`scripts/test.sh` mirrors the `flutter` and `rust` jobs, including the FRB
+binding drift check (skipped with a warning when the pinned codegen isn't
+installed):
 
 ```bash
 ./scripts/test.sh
