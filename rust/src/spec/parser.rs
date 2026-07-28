@@ -3,13 +3,24 @@
 //
 //! Parse device spec YAML into Rust types.
 
-use super::types::{DeviceSpec, FormatField, Parameter};
+use super::types::{Command, DeviceSpec, FormatField, Parameter, TemplateElement};
 use crate::error::SpecError;
+
+/// Maximum byte position (`offset + length`) a format field may extend to.
+///
+/// Specs can arrive from arbitrary remote pack URLs, and consumers size
+/// buffers from field extents (`mock::simulator::generate_defaults` allocates
+/// `max(offset + length)` bytes), so an unbounded `length: 4000000000` would
+/// be a spec-controlled multi-gigabyte allocation. 64 KiB is far beyond any
+/// real BLE characteristic (the ATT maximum attribute value is 512 bytes)
+/// while still being a hard ceiling on what a hostile spec can make us
+/// allocate.
+const MAX_FIELD_EXTENT: usize = 65_536;
 
 /// Parse a device spec from a YAML string.
 ///
-/// After deserialization, every characteristic's format fields and command
-/// parameters are validated:
+/// After deserialization the spec is validated; each rule exists to turn a
+/// "parses fine, breaks later" failure into a load-time error:
 /// - Fixed-width format fields (Bool, Uint8/16/32, Int8/16/32) must declare a
 ///   `length` at least as large as the type needs to decode — reject a shorter
 ///   `length` (it would under-read and panic at decode time). A *longer*
@@ -17,8 +28,19 @@ use crate::error::SpecError;
 ///   `type` (some reverse-engineered specs declare a wider field and only the
 ///   low bytes are meaningful), and decode reads the low `fixed_byte_size`
 ///   bytes, so it is decode-safe.
+/// - Format field `offset + length` must not overflow `usize` (downstream
+///   consumers sum them unchecked) and must not exceed [`MAX_FIELD_EXTENT`]
+///   (consumers allocate buffers that large).
+/// - Format field and command names must be unique within a characteristic,
+///   including case-only collisions — a duplicate would let one entry
+///   silently shadow the other downstream.
 /// - Parameter `min`/`max` bounds must fit the declared `type` — reject
-///   otherwise (e.g., `type: uint8, max: 300`).
+///   otherwise (e.g., `type: uint8, max: 300`); reject inverted bounds
+///   (`min > max`); and reject bounds on non-numeric types (string/bytes),
+///   where they would otherwise be silently ignored.
+/// - Every `{param}` reference in a command template must be declared in
+///   that command's `parameters` map, so a typo'd reference fails here
+///   instead of at write time.
 pub fn parse_device_spec(yaml: &str) -> Result<DeviceSpec, SpecError> {
     let spec: DeviceSpec = serde_yaml::from_str(yaml)?;
     validate_spec(&spec)?;
@@ -33,7 +55,8 @@ fn validate_spec(spec: &DeviceSpec) -> Result<(), SpecError> {
                     validate_format_field(field)?;
                 }
                 // Two fields with the same name make `decode_all_fields`
-                // (which keys a HashMap on the field name) silently drop one.
+                // (whose order-preserving `DecodedValues` overwrites a
+                // repeated name in place) silently drop one value.
                 check_duplicate_names(
                     &characteristic.name,
                     "format field",
@@ -51,12 +74,13 @@ fn validate_spec(spec: &DeviceSpec) -> Result<(), SpecError> {
                     "command",
                     commands.keys().map(|k| k.as_str()),
                 )?;
-                for command in commands.values() {
+                for (command_name, command) in commands {
                     if let Some(params) = &command.parameters {
                         for (name, param) in &params.params {
                             validate_parameter(name, param)?;
                         }
                     }
+                    validate_template_references(command_name, command)?;
                 }
             }
         }
@@ -104,12 +128,53 @@ fn validate_format_field(field: &FormatField) -> Result<(), SpecError> {
     // Catch arithmetic overflow at parse time so downstream consumers
     // (e.g. `mock::simulator::generate_defaults`, which sums offset+length
     // unchecked) can't panic on a malformed spec.
-    if field.offset.checked_add(field.length).is_none() {
+    let Some(end) = field.offset.checked_add(field.length) else {
         return Err(SpecError::FieldOffsetOverflow {
             field_name: field.name.clone(),
             offset: field.offset,
             length: field.length,
         });
+    };
+    // Cap the field's extent so a spec cannot direct consumers into a huge
+    // allocation (`generate_defaults` allocates `max(offset + length)`
+    // bytes). See `MAX_FIELD_EXTENT` for why 64 KiB.
+    if end > MAX_FIELD_EXTENT {
+        return Err(SpecError::FieldExtentTooLarge {
+            field_name: field.name.clone(),
+            offset: field.offset,
+            length: field.length,
+            max: MAX_FIELD_EXTENT,
+        });
+    }
+    Ok(())
+}
+
+/// Every `{param}` reference in a command's template must be declared in that
+/// command's `parameters` map.
+///
+/// Without this check a typo'd reference (template says `"{brightnes}"`, the
+/// parameters block declares `brightness`) parses cleanly, renders a control
+/// in the UI, and only fails at write time with `ParameterMissing` — the
+/// worst possible place for a spec author to discover it. The reverse
+/// direction (a declared parameter the template never references) stays
+/// legal: upstream specs declare documentation-only parameters.
+fn validate_template_references(command_name: &str, command: &Command) -> Result<(), SpecError> {
+    let Some(template) = &command.template else {
+        return Ok(());
+    };
+    for element in template {
+        if let TemplateElement::Param(param_name) = element {
+            let declared = command
+                .parameters
+                .as_ref()
+                .is_some_and(|set| set.params.contains_key(param_name.as_str()));
+            if !declared {
+                return Err(SpecError::UnknownTemplateParameter {
+                    command: command_name.to_string(),
+                    parameter: param_name.clone(),
+                });
+            }
+        }
     }
     Ok(())
 }
@@ -360,6 +425,49 @@ services:
     }
 
     #[test]
+    fn rejects_format_field_extent_just_over_cap() {
+        // offset + length = MAX_FIELD_EXTENT + 1: one byte past the cap. A
+        // huge `length` would otherwise become a spec-controlled allocation
+        // in `mock::simulator::generate_defaults`.
+        let yaml = make_minimal_spec(&format!(
+            r#"        properties: ["read"]
+        format:
+          - offset: 1
+            length: {MAX_FIELD_EXTENT}
+            name: huge
+            type: bytes"#
+        ));
+        match parse_device_spec(&yaml) {
+            Err(SpecError::FieldExtentTooLarge {
+                field_name,
+                offset,
+                length,
+                max,
+            }) => {
+                assert_eq!(field_name, "huge");
+                assert_eq!(offset, 1);
+                assert_eq!(length, MAX_FIELD_EXTENT);
+                assert_eq!(max, MAX_FIELD_EXTENT);
+            }
+            other => panic!("expected FieldExtentTooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_format_field_extent_at_cap() {
+        // Exactly MAX_FIELD_EXTENT is the largest permitted extent.
+        let yaml = make_minimal_spec(&format!(
+            r#"        properties: ["read"]
+        format:
+          - offset: 0
+            length: {MAX_FIELD_EXTENT}
+            name: big
+            type: bytes"#
+        ));
+        parse_device_spec(&yaml).expect("extent exactly at the cap should parse");
+    }
+
+    #[test]
     fn allows_variable_length_for_bytes_and_string() {
         let yaml = make_minimal_spec(
             r#"        properties: ["read"]
@@ -379,9 +487,9 @@ services:
     #[test]
     fn tolerates_overlong_fixed_format_field() {
         // The schema treats `length` as independent of `type` (minimum 1).
-        // Some reverse-engineered specs (e.g. chef-iq-sense `cloud_status`)
-        // declare a fixed type over a wider field; a length >= the type's
-        // byte size is decode-safe and must parse.
+        // Upstream reverse-engineered specs may declare a fixed type over a
+        // wider field (padded or reserved trailing bytes); a length >= the
+        // type's byte size is decode-safe and must parse.
         let yaml = make_minimal_spec(
             r#"        properties: ["read"]
         format:
@@ -543,8 +651,9 @@ services:
 
     #[test]
     fn rejects_duplicate_format_field_names() {
-        // Two fields named "level" would make decode_all_fields silently drop
-        // the first; reject at parse time instead.
+        // Two fields named "level" would make decode_all_fields (whose
+        // DecodedValues overwrites a repeated name in place) silently drop
+        // the first one's value; reject at parse time instead.
         let yaml = make_minimal_spec(
             r#"        properties: ["read"]
         format:
@@ -669,6 +778,58 @@ services:
             msg.contains("parameter name cannot be empty"),
             "expected empty-name error, got: {err}"
         );
+    }
+
+    #[test]
+    fn rejects_template_reference_to_undeclared_parameter() {
+        // Typo: the template says "{brightnes}" but the declared parameter
+        // is "brightness". Must fail at parse time with both names surfaced,
+        // not at write time with ParameterMissing.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_brightness:
+            description: x
+            template: [0x02, "{brightnes}"]
+            parameters:
+              brightness:
+                type: uint8
+                min: 0
+                max: 100"#,
+        );
+        let err = parse_device_spec(&yaml).expect_err("typo'd reference should be rejected");
+        match &err {
+            SpecError::UnknownTemplateParameter { command, parameter } => {
+                assert_eq!(command, "set_brightness");
+                assert_eq!(parameter, "brightnes");
+            }
+            other => panic!("expected UnknownTemplateParameter, got {other:?}"),
+        }
+        let msg = err.to_string();
+        assert!(
+            msg.contains("set_brightness") && msg.contains("brightnes"),
+            "message should name the command and the bad reference, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn rejects_template_reference_with_no_parameters_block() {
+        // The same authoring bug in its most extreme form: a template that
+        // references a parameter while declaring none at all.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{n}"]"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::UnknownTemplateParameter { command, parameter }) => {
+                assert_eq!(command, "set");
+                assert_eq!(parameter, "n");
+            }
+            other => panic!("expected UnknownTemplateParameter, got {other:?}"),
+        }
     }
 
     #[test]

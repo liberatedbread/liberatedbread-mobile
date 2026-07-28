@@ -112,6 +112,13 @@ impl<'a> IntoIterator for &'a DecodedValues {
 }
 
 /// Decode a single format field from a byte buffer.
+///
+/// No validated-spec precondition: parser-validated fields always satisfy
+/// `length >= fixed_byte_size`, but this function is `pub` and may be handed a
+/// hand-constructed [`FormatField`] that never went through
+/// `parse_device_spec`, so a field slice shorter than the type's fixed width
+/// is reported as [`ProtocolError::BufferTooShort`] (with slice-relative
+/// `needed`/`got`) rather than panicking on the index below.
 pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, ProtocolError> {
     let end = field
         .offset
@@ -128,6 +135,18 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
     }
 
     let slice = &bytes[field.offset..end];
+
+    // Guard the fixed-width reads below: they index the low
+    // `fixed_byte_size` bytes of the field slice, which only exists when the
+    // declared `length` is at least that wide.
+    if let Some(fixed) = field.field_type.fixed_byte_size() {
+        if slice.len() < fixed {
+            return Err(ProtocolError::BufferTooShort {
+                needed: fixed,
+                got: slice.len(),
+            });
+        }
+    }
 
     match field.field_type {
         ValueType::Bool => Ok(DecodedValue::Bool(slice[0] != 0)),
@@ -151,6 +170,12 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
         }
         ValueType::Bytes => Ok(DecodedValue::Bytes(slice.to_vec())),
         ValueType::String => {
+            // Non-UTF-8 bytes in a `string` field fall back to a
+            // space-separated hex rendering inside `DecodedValue::String`
+            // (not `Bytes`), so the UI still shows *something* legible for a
+            // device that lies about its encoding. Callers that need to
+            // distinguish real text from the fallback must check the bytes
+            // themselves — the DecodedValue variant alone cannot tell them.
             let s = std::str::from_utf8(slice)
                 .map(|s| s.trim_end_matches('\0').to_string())
                 .unwrap_or_else(|_| bytes_to_hex(slice, " "));
@@ -225,8 +250,10 @@ pub fn encode_command(
 
     // Commands with setting_id or encoding need typed-control handlers
     // (protobuf, JSON, TLV); the legacy raw-byte encoder cannot serve them.
-    if let Some(_kind) = unsupported_encoding_kind(command) {
-        return Err(ProtocolError::UnsupportedCommandEncoding);
+    // The kind rides along in the error so the failure names the encoding
+    // the command actually wanted, not just "something unsupported".
+    if let Some(kind) = unsupported_encoding_kind(command) {
+        return Err(ProtocolError::UnsupportedCommandEncoding(kind));
     }
 
     let template = command
@@ -317,6 +344,15 @@ pub(crate) fn coerce_param(
     };
 
     match ty {
+        // `bool` encodes as a single 0/1 byte. `ValueType::Bool` reports an
+        // integer_range of (0, 1), so the parser accepts `type: bool`
+        // template parameters — the encoder must accept them too, or
+        // `CommandDto::is_encodable` would advertise a command that can
+        // never actually encode.
+        ValueType::Bool => match as_int {
+            0 | 1 => Ok(TypedParam::U8(as_int as u8)),
+            _ => Err(oor()),
+        },
         ValueType::Uint8 => u8::try_from(as_int).map(TypedParam::U8).map_err(|_| oor()),
         ValueType::Uint16 => u16::try_from(as_int)
             .map(TypedParam::U16)
@@ -849,5 +885,172 @@ mod tests {
         let params = HashMap::from([("nonsense".into(), f64::NAN)]);
         let bytes = encode_command(&cmd, &params).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
+    }
+
+    // ── encoder error paths (M4) ────────────────────────────────────────────
+
+    /// A command with only a description — every optional field `None`.
+    /// Tests mutate exactly the field under test.
+    fn bare_cmd() -> Command {
+        Command {
+            description: "test".into(),
+            value: None,
+            template: None,
+            parameters: None,
+            setting_id: None,
+            encoding: None,
+            payload: None,
+        }
+    }
+
+    #[test]
+    fn encode_unsupported_encoding_error_names_the_kind() {
+        // Table: how the command opts out of raw bytes → the kind the error
+        // must carry. Precedence mirrors `unsupported_encoding_kind`:
+        // a declared `encoding` wins over `setting_id`, which wins over
+        // a bare `payload`.
+        let cases: Vec<(&str, Command, &str)> = vec![
+            (
+                "encoding: json",
+                {
+                    let mut c = bare_cmd();
+                    c.encoding = Some("json".into());
+                    c
+                },
+                "json",
+            ),
+            (
+                "setting_id only",
+                {
+                    let mut c = bare_cmd();
+                    c.setting_id = Some("LOS_TAIL_LIGHT_BRIGHTNESS".into());
+                    c
+                },
+                "protobuf setting_id",
+            ),
+            (
+                "payload only",
+                {
+                    let mut c = bare_cmd();
+                    c.payload = Some(serde_yaml::Value::Null);
+                    c
+                },
+                "structured payload",
+            ),
+        ];
+        for (label, cmd, want_kind) in cases {
+            let err = encode_command(&cmd, &HashMap::new())
+                .expect_err("commands without value/template must not encode");
+            match &err {
+                ProtocolError::UnsupportedCommandEncoding(kind) => {
+                    assert_eq!(kind, want_kind, "{label}: wrong kind");
+                }
+                other => panic!("{label}: expected UnsupportedCommandEncoding, got {other:?}"),
+            }
+            // The whole point of carrying the kind: the rendered message
+            // names the encoding the command wanted.
+            assert!(
+                err.to_string().contains(want_kind),
+                "{label}: message should name '{want_kind}', got: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn encode_command_with_neither_value_nor_template_is_empty_command() {
+        match encode_command(&bare_cmd(), &HashMap::new()) {
+            Err(ProtocolError::EmptyCommand) => (),
+            other => panic!("expected EmptyCommand, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_missing_parameter_returns_parameter_missing() {
+        // brightness_cmd's template references "n"; supply nothing.
+        match encode_command(&brightness_cmd(), &HashMap::new()) {
+            Err(ProtocolError::ParameterMissing(name)) => assert_eq!(name, "n"),
+            other => panic!("expected ParameterMissing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_string_typed_parameter_is_unsupported() {
+        // A `string` template parameter parses (it is only bounds that are
+        // rejected on non-numeric types) but has no integer representation,
+        // so encoding must fail with the offending type named.
+        let mut cmd = bare_cmd();
+        cmd.template = Some(vec![TemplateElement::Param("s".into())]);
+        cmd.parameters = Some(pset([("s", param(ValueType::String, None, None))]));
+        let params = HashMap::from([("s".into(), 1.0)]);
+        match encode_command(&cmd, &params) {
+            Err(ProtocolError::UnsupportedParameterType { ty }) => {
+                assert_eq!(ty, ValueType::String);
+            }
+            other => panic!("expected UnsupportedParameterType, got {other:?}"),
+        }
+    }
+
+    // ── bool parameters (M2) ────────────────────────────────────────────────
+
+    fn bool_cmd() -> Command {
+        let mut cmd = bare_cmd();
+        cmd.template = Some(vec![
+            TemplateElement::Byte(0x0A),
+            TemplateElement::Param("on".into()),
+        ]);
+        cmd.parameters = Some(pset([("on", param(ValueType::Bool, None, None))]));
+        cmd
+    }
+
+    #[test]
+    fn encode_bool_parameter_as_single_byte() {
+        // M2: `type: bool` passes parse-time validation (integer_range is
+        // (0, 1)), so the encoder must accept it too — one byte, 0 or 1.
+        for (input, want) in [(0.0, 0u8), (1.0, 1u8)] {
+            let params = HashMap::from([("on".into(), input)]);
+            assert_eq!(
+                encode_command(&bool_cmd(), &params).unwrap(),
+                vec![0x0A, want],
+                "bool {input} should encode as byte {want}"
+            );
+        }
+    }
+
+    #[test]
+    fn encode_bool_parameter_rejects_out_of_range() {
+        let params = HashMap::from([("on".into(), 2.0)]);
+        match encode_command(&bool_cmd(), &params) {
+            Err(ProtocolError::ParameterOutOfRange {
+                value, min, max, ..
+            }) => {
+                assert_eq!(value, 2.0);
+                assert_eq!(min, 0.0);
+                assert_eq!(max, 1.0);
+            }
+            other => panic!("expected ParameterOutOfRange, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_fixed_type_shorter_than_width_errors_instead_of_panicking() {
+        // The parser rejects `uint16` with length 1 at load time, but
+        // `decode_field` is `pub` — a hand-constructed field must produce an
+        // error, not an out-of-bounds panic on `slice[1]`.
+        let field = FormatField {
+            offset: 0,
+            length: 1,
+            name: "bad".into(),
+            field_type: ValueType::Uint16,
+            mock_default: None,
+        };
+        // The buffer is plenty long; the *declared field* is what's too
+        // short, so needed/got are slice-relative.
+        match decode_field(&[0xAA, 0xBB, 0xCC, 0xDD], &field) {
+            Err(ProtocolError::BufferTooShort { needed, got }) => {
+                assert_eq!(needed, 2);
+                assert_eq!(got, 1);
+            }
+            other => panic!("expected BufferTooShort, got {other:?}"),
+        }
     }
 }

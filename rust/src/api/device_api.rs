@@ -178,6 +178,8 @@ impl From<&FormatField> for FormatFieldDto {
         Self {
             name: f.name.clone(),
             field_type: f.field_type.to_string(),
+            // Lossless: the parser caps offset+length at MAX_FIELD_EXTENT
+            // (64 KiB, spec/parser.rs), so both always fit in u32.
             offset: f.offset as u32,
             length: f.length as u32,
         }
@@ -281,10 +283,14 @@ pub fn match_device_to_spec(
     specs
         .into_iter()
         .filter_map(|spec| {
+            // An empty prefix is treated as absent, not as a wildcard:
+            // `"anything".starts_with("")` is true, so a spec carrying
+            // `local_name_prefix: ""` would otherwise claim every scanned
+            // device.
             let name_match = spec
                 .local_name_prefix
                 .as_ref()
-                .is_some_and(|prefix| device_name.starts_with(prefix));
+                .is_some_and(|prefix| !prefix.is_empty() && device_name.starts_with(prefix));
 
             // Return the lowercased intersection. Matches the docstring's
             // contract and gives Dart callers a predictable casing. We
@@ -377,7 +383,11 @@ pub fn identify_standard_profiles(service_uuids: Vec<String>) -> Vec<ProfileInfo
         .iter()
         .filter_map(|uuid| {
             profiles::lookup(uuid).map(|profile| ProfileInfoDto {
-                service_uuid: uuid.clone(),
+                // Lowercased for the same reason `match_device_to_spec`
+                // lowercases its matched UUIDs: Dart callers get one
+                // predictable casing regardless of what the platform's
+                // scanner reported.
+                service_uuid: uuid.to_ascii_lowercase(),
                 profile_name: profile.name().to_string(),
                 characteristics: profile
                     .characteristics()
@@ -434,9 +444,10 @@ services:
             type: "uint8"
 "#;
 
-    /// Spec commands/parameters are stored in HashMaps, so the DTO boundary is
-    /// what makes the order the UI renders deterministic: commands by name,
-    /// parameters in the order the command's template writes them.
+    /// Spec commands/parameters are stored in IndexMaps that preserve YAML
+    /// declaration order, and the DTO boundary must carry that order through
+    /// to the UI untouched — the assertions below check declaration order,
+    /// nothing sorted and nothing reconstructed from the template.
     /// Deliberately adversarial ordering, and deliberately wide.
     ///
     /// The six commands are declared in an order that is neither alphabetical
@@ -677,6 +688,20 @@ services:
     }
 
     #[test]
+    fn empty_local_name_prefix_matches_nothing() {
+        // `"x".starts_with("")` is true, so an empty prefix would otherwise
+        // claim every scanned device; it must behave like an absent prefix.
+        let mut dto = load_device_spec(TEST_YAML.into()).unwrap();
+        dto.local_name_prefix = Some(String::new());
+        dto.service_uuids.clear(); // no UUID axis either
+        let results = match_device_to_spec(vec![dto], "AnyDeviceAtAll".into(), vec![]);
+        assert!(
+            results.is_empty(),
+            "an empty local_name_prefix must not match by name"
+        );
+    }
+
+    #[test]
     fn match_returns_each_matching_spec() {
         let a = load_device_spec(TEST_YAML.into()).unwrap();
         let b = load_device_spec(TEST_YAML.into()).unwrap();
@@ -743,6 +768,19 @@ services:
         let uuids = vec!["0000fff0-0000-1000-8000-00805f9b34fb".to_string()];
         let profiles = identify_standard_profiles(uuids);
         assert!(profiles.is_empty());
+    }
+
+    #[test]
+    fn identify_standard_profiles_lowercases_service_uuid() {
+        // The scanner may report uppercase UUIDs; the DTO must come back
+        // lowercased, matching match_device_to_spec's casing contract.
+        let uuids = vec!["0000180F-0000-1000-8000-00805F9B34FB".to_string()];
+        let profiles = identify_standard_profiles(uuids);
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(
+            profiles[0].service_uuid,
+            "0000180f-0000-1000-8000-00805f9b34fb"
+        );
     }
 
     #[test]
