@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = opengreeniot_mobile
+PRODUCT_NAME = Liberated Bread
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = ca.pigscanfly.opengreeniot.opengreeniotMobile
+PRODUCT_BUNDLE_IDENTIFIER = ca.pigscanfly.liberatedbread
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 ca.pigscanfly.opengreeniot. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 ca.pigscanfly.liberatedbread. All rights reserved.

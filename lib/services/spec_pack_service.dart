@@ -370,7 +370,7 @@ class SpecPackService {
       // cacheIo is the one error kind whose message the settings screen shows
       // verbatim, so it has to read like a sentence; the raw failure (a path,
       // an errno) is for the log, not the user.
-      debugPrint('[opengreeniot] spec pack persist failed: $e');
+      debugPrint('[liberated-bread] spec pack persist failed: $e');
       return const InstallFailed(SpecPackError(SpecPackErrorKind.cacheIo,
           'Could not save the pack to this device\'s storage.'));
     }

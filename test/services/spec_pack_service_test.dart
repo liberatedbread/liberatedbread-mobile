@@ -6,7 +6,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:opengreeniot_mobile/services/spec_pack_service.dart';
+import 'package:liberated_bread_mobile/services/spec_pack_service.dart';
 
 const _manifestUrl = 'https://specs.example.com/packs/pack.json';
 

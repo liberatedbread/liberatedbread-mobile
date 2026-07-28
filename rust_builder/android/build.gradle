@@ -1,6 +1,6 @@
 // The Android Gradle Plugin builds the native code with the Android NDK.
 
-group 'com.flutter_rust_bridge.rust_lib_opengreeniot_mobile'
+group 'com.flutter_rust_bridge.rust_lib_liberated_bread_mobile'
 version '1.0'
 
 buildscript {
@@ -26,7 +26,7 @@ apply plugin: 'com.android.library'
 
 android {
     if (project.android.hasProperty("namespace")) {
-        namespace 'com.flutter_rust_bridge.rust_lib_opengreeniot_mobile'
+        namespace 'com.flutter_rust_bridge.rust_lib_liberated_bread_mobile'
     }
 
     // Bumping the plugin compileSdkVersion requires all clients of this plugin
@@ -52,5 +52,5 @@ android {
 apply from: "../cargokit/gradle/plugin.gradle"
 cargokit {
     manifestDir = "../../rust"
-    libname = "opengreeniot_core"
+    libname = "liberated_bread_core"
 }

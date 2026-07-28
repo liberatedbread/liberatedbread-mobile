@@ -74,7 +74,7 @@ fn warn_spec_failure_once(char_uuid: &str, message: &str) {
         .unwrap_or_else(|e| e.into_inner());
     if warned.insert(key) {
         eprintln!(
-            "[opengreeniot] mock_read_characteristic: failed to parse spec YAML for {char_uuid}: {message}; falling back to zero buffer"
+            "[liberated-bread] mock_read_characteristic: failed to parse spec YAML for {char_uuid}: {message}; falling back to zero buffer"
         );
     }
 }

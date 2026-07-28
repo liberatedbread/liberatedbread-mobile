@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/core/ha_url.dart';
-import 'package:opengreeniot_mobile/core/theme.dart';
-import 'package:opengreeniot_mobile/widgets/tailscale_suggestion_card.dart';
+import 'package:liberated_bread_mobile/core/ha_url.dart';
+import 'package:liberated_bread_mobile/core/theme.dart';
+import 'package:liberated_bread_mobile/widgets/tailscale_suggestion_card.dart';
 
 Widget _wrap(Widget child, {ThemeData? theme}) =>
     MaterialApp(theme: theme, home: Scaffold(body: child));
@@ -51,10 +51,10 @@ void main() {
 
   testWidgets('uses theme-derived colors so text is legible in dark mode',
       (tester) async {
-    final scheme = OpenGreenIoTTheme.dark.colorScheme;
+    final scheme = LiberatedBreadTheme.dark.colorScheme;
     await tester.pumpWidget(_wrap(
       const TailscaleSuggestionCard(kind: HaUrlKind.privateLan),
-      theme: OpenGreenIoTTheme.dark,
+      theme: LiberatedBreadTheme.dark,
     ));
 
     // Card fill and text foreground come from a guaranteed-contrast pair, not a

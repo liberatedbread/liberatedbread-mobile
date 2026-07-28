@@ -10,7 +10,7 @@
          RFC1918 ranges, so cleartext must be allowed app-wide. The setup UI
          warns when a public http:// URL is used. -->
     <application
-        android:label="OpenGreenIoT"
+        android:label="Liberated Bread"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

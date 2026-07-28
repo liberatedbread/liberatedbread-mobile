@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:typed_data';
 
-import 'package:opengreeniot_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 /// Configurable fake [SpecCodec] for widget/unit tests. Returns hand-built DTOs
 /// and canned bytes so the typed-control UI can be exercised without the native

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
-import 'package:opengreeniot_mobile/models/ble_discovered_service.dart';
-import 'package:opengreeniot_mobile/models/iot_device.dart';
-import 'package:opengreeniot_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
+import 'package:liberated_bread_mobile/models/iot_device.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
 
 /// Configurable fake [BleService] for widget/screen tests.
 ///

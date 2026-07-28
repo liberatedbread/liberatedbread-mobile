@@ -28,7 +28,7 @@ We will acknowledge receipt within 48 hours and aim to provide a fix within
 
 ## Scope
 
-This policy covers the OpenGreenIoT Mobile application and its direct
+This policy covers the Liberated Bread Mobile application and its direct
 dependencies. BLE protocol-level vulnerabilities should be reported to
 the [OpenGreenIoT](https://github.com/PigsCanFlyLabs/opengreeniot) project. If
 you're unsure whether an issue lives in the app or the protocol, report it to

@@ -1,7 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'package:opengreeniot_mobile/models/ha_sensor.dart';
-import 'package:opengreeniot_mobile/services/ha_api_client.dart';
+import 'package:liberated_bread_mobile/models/ha_sensor.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
 
 /// Recording [HaApiClient] fake with configurable failures.
 class FakeHaApiClient implements HaApiClient {

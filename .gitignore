@@ -47,3 +47,7 @@ coverage/
 
 # Rust
 rust/target/
+
+# Branding icon generator (authoring-only tool; the icons it emits are committed)
+tool/branding/node_modules/
+tool/branding/package-lock.json

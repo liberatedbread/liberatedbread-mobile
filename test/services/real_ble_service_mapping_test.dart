@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/services/ble_service.dart';
-import 'package:opengreeniot_mobile/services/real_ble_service.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 
 void main() {
   group('mapConnectionState', () {

@@ -1,4 +1,4 @@
-# OpenGreenIoT Mobile — Architecture Walkthrough
+# Liberated Bread Mobile — Architecture Walkthrough
 
 This document is an end-to-end walkthrough of the codebase. It covers every
 layer from the Flutter UI down to the Rust protocol core, explains how data
@@ -33,7 +33,7 @@ Future<void> main() async {
   } catch (e, st) {
     debugPrint('RustLib.init failed ($e); falling back to Dart-side mock. $st');
   }
-  runApp(const ProviderScope(child: OpenGreenIoTApp()));
+  runApp(const ProviderScope(child: LiberatedBreadApp()));
 }
 ```
 
@@ -43,8 +43,9 @@ native library isn't bundled (e.g. test builds that skip cargokit);
 
 ### `lib/app.dart`
 
-`OpenGreenIoTApp` is a `StatelessWidget` that returns a `MaterialApp` with:
-- Material Design 3 theming (green color scheme, light + dark)
+`LiberatedBreadApp` is a `StatelessWidget` that returns a `MaterialApp` with:
+- Material Design 3 theming (Liberated Bread orange/turquoise, light + dark —
+  see [BRANDING.md](BRANDING.md))
 - Home screen: `ScanScreen()`
 
 ### Navigation Flow
@@ -99,7 +100,7 @@ mock implementations conform to this interface:
 ### Mock Implementation — `lib/services/mock_ble_service.dart`
 
 `MockBleService` simulates BLE without hardware. Used when
-`OPENGREENIOT_MOCK=true` is set.
+`LIBERATED_BREAD_MOCK=true` is set.
 
 Two hardcoded mock devices:
 - **ACME_Living_Room** (RSSI: -45)
@@ -175,7 +176,7 @@ final bleServiceProvider = Provider<BleService>((ref) {
 });
 ```
 
-`isMockMode` is a compile-time constant from `--dart-define=OPENGREENIOT_MOCK`.
+`isMockMode` is a compile-time constant from `--dart-define=LIBERATED_BREAD_MOCK`.
 
 ### `deviceSpecsProvider` — `lib/providers/device_spec_provider.dart`
 

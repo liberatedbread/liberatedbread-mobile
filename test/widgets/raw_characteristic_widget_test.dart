@@ -3,9 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/models/ble_discovered_service.dart';
-import 'package:opengreeniot_mobile/providers/ble_provider.dart';
-import 'package:opengreeniot_mobile/widgets/raw_characteristic_widget.dart';
+import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
+import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/widgets/raw_characteristic_widget.dart';
 
 import '../fakes/fake_ble_service.dart';
 

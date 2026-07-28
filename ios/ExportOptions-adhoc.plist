@@ -14,9 +14,9 @@
   <key>provisioningProfiles</key>
   <dict>
     <!-- Replace the key with your app's bundle identifier -->
-    <key>ca.pigscanfly.opengreeniot</key>
+    <key>ca.pigscanfly.liberatedbread</key>
     <!-- Replace the value with your Ad Hoc provisioning profile name -->
-    <string>OpenGreenIoT Ad Hoc</string>
+    <string>Liberated Bread Ad Hoc</string>
   </dict>
 
   <key>signingStyle</key>

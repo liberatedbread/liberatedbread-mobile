@@ -11,7 +11,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use opengreeniot_core::spec::parser::parse_device_spec;
+use liberated_bread_core::spec::parser::parse_device_spec;
 
 /// Absolute path to `<repo>/assets/device_specs`, derived from this crate's
 /// manifest dir (`<repo>/rust`) so the test is location-independent.

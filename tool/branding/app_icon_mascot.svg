@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Liberated Bread mascot — the artwork master for every app icon.
+
+  Mascot only, on transparency: the background colour, padding and per-platform
+  shaping are applied by generate_icons.mjs, so this file never needs to know
+  where it will be used. The viewBox is cropped tight to the mascot and square,
+  which is what lets the generator centre it exactly.
+
+  To restyle: edit the fills below (and mirror the change in brand.json).
+  To replace the logo outright: swap this file, or drop in an
+  `app_icon_mascot.png` (square, transparent) which takes priority. Then run
+  `npm run icons`. See docs/BRANDING.md.
+
+  Each limb is drawn twice — a fatter "crust" pass underneath, then a thinner
+  body-coloured pass on top — which is what produces the even cartoon outline
+  without any internal seams.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="82 116 348 348" width="348" height="348">
+  <!-- body: crust outline pass, then the fill on top -->
+  <path d="M164,400 V255 C164,192 205,170 256,170 C307,170 348,192 348,255
+           V400 Q348,414 334,414 H178 Q164,414 164,400 Z"
+        fill="#A85E1C" stroke="#A85E1C" stroke-width="16"/>
+  <path d="M164,400 V255 C164,192 205,170 256,170 C307,170 348,192 348,255
+           V400 Q348,414 334,414 H178 Q164,414 164,400 Z"
+        fill="#E8963C"/>
+
+  <!-- face -->
+  <circle cx="224" cy="268" r="14" fill="#3A2410"/>
+  <circle cx="288" cy="268" r="14" fill="#3A2410"/>
+  <circle cx="228" cy="263" r="4.5" fill="#FFFFFF"/>
+  <circle cx="292" cy="263" r="4.5" fill="#FFFFFF"/>
+  <path d="M214,306 Q256,366 298,306 Q256,332 214,306 Z" fill="#3A2410"/>
+
+  <!-- arms, double-biceps flex: bicep bulge, shoulder->elbow->fist, fist -->
+  <!-- crust pass -->
+  <g fill="#A85E1C" stroke="#A85E1C" stroke-width="44"
+     stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="150" cy="286" r="34" stroke="none"/>
+    <circle cx="362" cy="286" r="34" stroke="none"/>
+    <path d="M186,300 L104,316 L128,196" fill="none"/>
+    <path d="M326,300 L408,316 L384,196" fill="none"/>
+    <circle cx="128" cy="196" r="30" stroke="none"/>
+    <circle cx="384" cy="196" r="30" stroke="none"/>
+  </g>
+  <!-- body-colour pass -->
+  <g fill="#E8963C" stroke="#E8963C" stroke-width="30"
+     stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="150" cy="286" r="26" stroke="none"/>
+    <circle cx="362" cy="286" r="26" stroke="none"/>
+    <path d="M186,300 L104,316 L128,196" fill="none"/>
+    <path d="M326,300 L408,316 L384,196" fill="none"/>
+    <circle cx="128" cy="196" r="22" stroke="none"/>
+    <circle cx="384" cy="196" r="22" stroke="none"/>
+  </g>
+</svg>

@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "ca.pigscanfly.opengreeniot.opengreeniot_mobile"
+    namespace = "ca.pigscanfly.liberatedbread"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -20,7 +20,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "ca.pigscanfly.opengreeniot.opengreeniot_mobile"
+        applicationId = "ca.pigscanfly.liberatedbread"
         // flutter_blue_plus requires API 21+.
         minSdk = 21
         targetSdk = flutter.targetSdkVersion

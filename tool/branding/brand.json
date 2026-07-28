@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Single source of truth for the Liberated Bread palette.",
+    "Keys mirror the public constants on LiberatedBreadTheme (lib/core/theme.dart);",
+    "test/core/brand_test.dart fails if the two ever drift apart.",
+    "After editing, run `npm run icons` in this directory to regenerate every",
+    "platform icon and re-sync the Android/web chrome colours.",
+    "See docs/BRANDING.md."
+  ],
+  "teal": "#2FB9BF",
+  "tealDark": "#14595C",
+  "breadOrange": "#E8963C",
+  "crust": "#A85E1C",
+  "face": "#3A2410"
+}

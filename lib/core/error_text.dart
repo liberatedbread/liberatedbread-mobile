@@ -31,6 +31,6 @@ String friendlyErrorText(
   String? context,
 }) {
   if (error is UserFacingException) return error.message;
-  debugPrint('[opengreeniot] ${context ?? 'operation failed'}: $error');
+  debugPrint('[liberated-bread] ${context ?? 'operation failed'}: $error');
   return fallback;
 }

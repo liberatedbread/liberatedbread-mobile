@@ -6,7 +6,7 @@ import '../services/mock_ble_service.dart';
 import '../services/real_ble_service.dart';
 
 /// Whether the app is running in mock mode (no real BLE hardware).
-const isMockMode = bool.fromEnvironment('OPENGREENIOT_MOCK');
+const isMockMode = bool.fromEnvironment('LIBERATED_BREAD_MOCK');
 
 /// Provides the BLE service implementation (real or mock).
 final bleServiceProvider = Provider<BleService>((ref) {

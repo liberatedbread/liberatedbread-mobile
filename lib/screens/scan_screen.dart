@@ -151,11 +151,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isScanning ? null : _startScan,
         icon: _isScanning
-            ? const SizedBox(
+            ? SizedBox(
                 width: 18,
                 height: 18,
                 child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white),
+                  strokeWidth: 2,
+                  // Match the FAB's themed foreground; a hardcoded white here
+                  // fails contrast against the bread-orange fill.
+                  color: Theme.of(context)
+                      .floatingActionButtonTheme
+                      .foregroundColor,
+                ),
               )
             : const Icon(Icons.search),
         label: Text(_isScanning ? 'Scanning...' : 'Scan'),

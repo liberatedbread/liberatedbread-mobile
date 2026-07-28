@@ -3,12 +3,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/models/iot_device.dart';
-import 'package:opengreeniot_mobile/providers/ble_provider.dart';
-import 'package:opengreeniot_mobile/providers/ha_provider.dart';
-import 'package:opengreeniot_mobile/services/ble_service.dart';
-import 'package:opengreeniot_mobile/screens/ha_settings_screen.dart';
-import 'package:opengreeniot_mobile/screens/scan_screen.dart';
+import 'package:liberated_bread_mobile/models/iot_device.dart';
+import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/screens/ha_settings_screen.dart';
+import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_ha_api_client.dart';

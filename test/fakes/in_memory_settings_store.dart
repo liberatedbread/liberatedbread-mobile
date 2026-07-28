@@ -1,6 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'package:opengreeniot_mobile/services/settings_store.dart';
+import 'package:liberated_bread_mobile/services/settings_store.dart';
 
 /// Map-backed [SettingsStore] so tests never touch the platform keychain.
 class InMemorySettingsStore implements SettingsStore {

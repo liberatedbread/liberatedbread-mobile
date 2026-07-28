@@ -3,7 +3,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/models/ha_config.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
 
 void main() {
   const registered = HaConfig(

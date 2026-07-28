@@ -1,0 +1,13 @@
+{
+  "name": "liberated-bread-branding",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Authoring tool: regenerates every platform app icon from brand.json + the mascot artwork.",
+  "scripts": {
+    "icons": "node generate_icons.mjs"
+  },
+  "dependencies": {
+    "sharp": "^0.34.0"
+  }
+}

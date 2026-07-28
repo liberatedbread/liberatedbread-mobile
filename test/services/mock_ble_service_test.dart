@@ -1,8 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/services/ble_service.dart';
-import 'package:opengreeniot_mobile/services/mock_ble_service.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/services/mock_ble_service.dart';
 
 void main() {
   late MockBleService service;

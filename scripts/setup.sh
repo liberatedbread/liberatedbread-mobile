@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# OpenGreenIoT Mobile — developer environment setup
+# Liberated Bread Mobile — developer environment setup
 # Installs Flutter SDK, Rust toolchain, Android SDK components, and FRB codegen.
 # Idempotent — safe to run multiple times.
 
@@ -79,7 +79,7 @@ rustc_version() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OS="$(uname -s)"
-CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opengreeniot-setup"
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/liberated-bread-setup"
 
 # ── Flutter SDK ──────────────────────────────────────────────────────────────
 
@@ -305,15 +305,15 @@ setup_android_sdk() {
   fi
 
   if [[ -n "$avdmanager" ]]; then
-    if "$avdmanager" list avd 2>/dev/null | grep -q "opengreeniot_test"; then
-      log "AVD opengreeniot_test already exists."
+    if "$avdmanager" list avd 2>/dev/null | grep -q "liberated_bread_test"; then
+      log "AVD liberated_bread_test already exists."
     else
       log "Installing system image for emulator..."
       "$sdkmanager" "system-images;android-${ANDROID_API};google_apis;x86_64" 2>/dev/null || true
 
-      log "Creating AVD opengreeniot_test..."
+      log "Creating AVD liberated_bread_test..."
       echo "no" | "$avdmanager" create avd \
-        -n opengreeniot_test \
+        -n liberated_bread_test \
         -k "system-images;android-${ANDROID_API};google_apis;x86_64" \
         --force 2>/dev/null || warn "Failed to create AVD. You may need to create it manually."
     fi
@@ -378,7 +378,7 @@ setup_project() {
 # ── main ─────────────────────────────────────────────────────────────────────
 
 main() {
-  log "OpenGreenIoT Mobile — Developer Setup"
+  log "Liberated Bread Mobile — Developer Setup"
   log "OS: ${OS} ($(uname -m))"
   log "Project: ${PROJECT_DIR}"
   echo
