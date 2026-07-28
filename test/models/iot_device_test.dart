@@ -1,7 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/models/iot_device.dart';
+import 'package:liberated_bread_mobile/models/iot_device.dart';
 
 void main() {
   group('IoTDevice', () {

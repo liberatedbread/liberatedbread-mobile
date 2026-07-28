@@ -133,7 +133,7 @@ jobs:
         run: flutter doctor -v
       - run: flutter pub get
       - name: Build debug APK
-        run: flutter build apk --debug --dart-define=OPENGREENIOT_MOCK=true --verbose
+        run: flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true --verbose
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
@@ -201,7 +201,7 @@ jobs:
       # integration_test` needs, so it cannot also be where the slow build
       # happens without being inside the load window again.
       - name: Warm up Gradle, cargokit and Rust build caches
-        run: flutter build apk --debug --dart-define=OPENGREENIOT_MOCK=true
+        run: flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true
       # The Rust toolchain + NDK this job adds (~4 GB), plus the warm-up build
       # output, can starve the emulator of disk and prevent it from booting.
       # Reclaim space from large preinstalled toolchains we don't use before
@@ -259,7 +259,7 @@ jobs:
           # is slow — and it CANNOT extend the load phase, whose 12-minute limit
           # is hardcoded in package:test_core's synthetic load suite. Keeping
           # loading inside that limit is the warm-up build step's job.
-          script: flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=OPENGREENIOT_MOCK=true
+          script: flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
 
   ios-build:
     name: iOS build smoke (no-codesign, mock mode)
@@ -281,4 +281,4 @@ jobs:
           workspaces: rust
       - run: flutter pub get
       - name: Build iOS (simulator, no codesign)
-        run: flutter build ios --debug --no-codesign --simulator --dart-define=OPENGREENIOT_MOCK=true
+        run: flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true

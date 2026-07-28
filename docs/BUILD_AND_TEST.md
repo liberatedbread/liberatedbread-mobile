@@ -1,4 +1,4 @@
-# OpenGreenIoT Mobile — Build & Test Guide
+# Liberated Bread Mobile — Build & Test Guide
 
 Step-by-step instructions for setting up, building, running, and testing the
 app on **Linux** and **macOS**.
@@ -65,7 +65,7 @@ What it does:
 5. Installs `cargo-ndk` for Android NDK integration
 6. Installs `flutter_rust_bridge_codegen` v2.9.0
 7. Sets up Android SDK components (API 34, NDK 26.1)
-8. Creates Android emulator AVD (`opengreeniot_test`)
+8. Creates Android emulator AVD (`liberated_bread_test`)
 9. Runs `pod install` on macOS
 10. Runs `flutter pub get` and generates FRB bindings
 
@@ -148,7 +148,7 @@ export ANDROID_HOME="$HOME/Android/Sdk"
 ### 5. Project Dependencies
 
 ```bash
-cd opengreeniot-mobile
+cd liberated-bread-mobile
 flutter pub get
 ```
 
@@ -234,7 +234,7 @@ The run script:
 flutter run
 
 # Mock mode
-flutter run --dart-define=OPENGREENIOT_MOCK=true
+flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 
 # Specify device
 flutter run -d <device-id>
@@ -392,7 +392,7 @@ Each device has:
 Or manually:
 
 ```bash
-flutter run --dart-define=OPENGREENIOT_MOCK=true
+flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ```
 
 ### What to Expect
@@ -445,7 +445,7 @@ flutter run --dart-define=OPENGREENIOT_MOCK=true
 
 - **Physical device**: Enable Developer Options → USB Debugging. Connect via
   USB.
-- **Emulator**: The setup script creates an `opengreeniot_test` AVD.
+- **Emulator**: The setup script creates an `liberated_bread_test` AVD.
   Emulators don't support real BLE — use mock mode.
 - **BLE permissions**: The app requests `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`,
   and `ACCESS_FINE_LOCATION` at runtime. Location is required by Android for
@@ -462,9 +462,9 @@ every pull request. Five jobs fan out in parallel:
 |-----|--------|--------------|
 | `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all-features` |
-| `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=OPENGREENIOT_MOCK=true`; uploads the APK artifact |
-| `android-integration` | ubuntu-latest (API 34 emulator) | `flutter test integration_test --dart-define=OPENGREENIOT_MOCK=true` on an Android emulator |
-| `ios-build` | macos-latest | `flutter build ios --debug --no-codesign --simulator --dart-define=OPENGREENIOT_MOCK=true` |
+| `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
+| `android-integration` | ubuntu-latest (API 34 emulator) | `flutter test integration_test --dart-define=LIBERATED_BREAD_MOCK=true` on an Android emulator |
+| `ios-build` | macos-latest | `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true` |
 
 Caches: Flutter SDK, `~/.pub-cache`, and `rust/target/` are cached across runs.
 The Android/iOS builds depend on `flutter` succeeding first (fail fast on
@@ -498,7 +498,7 @@ Run `flutter doctor -v` for detailed output. Common fixes:
 
 ### Flutter can't find Rust library
 
-If you get link errors referencing `opengreeniot_core`:
+If you get link errors referencing `liberated_bread_core`:
 1. Ensure Rust is installed: `rustc --version`
 2. Run `flutter_rust_bridge_codegen generate`
 3. Run `flutter clean && flutter pub get`
@@ -513,10 +513,10 @@ ls /dev/kvm
 emulator -list-avds
 
 # Launch manually with verbose output
-emulator -avd opengreeniot_test -verbose
+emulator -avd liberated_bread_test -verbose
 ```
 
-If `opengreeniot_test` isn't in the `-list-avds` output, it hasn't been created
+If `liberated_bread_test` isn't in the `-list-avds` output, it hasn't been created
 yet — run `./scripts/setup.sh` (which creates it) or make your own AVD in
 Android Studio.
 
@@ -543,7 +543,7 @@ rustup target list --installed
 
 The mock flag is a compile-time constant. You must pass it at build time:
 ```bash
-flutter run --dart-define=OPENGREENIOT_MOCK=true
+flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ```
 
 Hot reload after adding `--dart-define` won't work — you need a full restart.

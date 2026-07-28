@@ -1,4 +1,4 @@
-# Contributing to OpenGreenIoT Mobile
+# Contributing to Liberated Bread Mobile
 
 Thank you for your interest in contributing! We welcome contributions from everyone.
 

@@ -9,12 +9,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:opengreeniot_mobile/core/error_text.dart';
-import 'package:opengreeniot_mobile/models/ble_discovered_service.dart';
-import 'package:opengreeniot_mobile/models/iot_device.dart';
-import 'package:opengreeniot_mobile/providers/ble_provider.dart';
-import 'package:opengreeniot_mobile/screens/device_screen.dart';
-import 'package:opengreeniot_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/core/error_text.dart';
+import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
+import 'package:liberated_bread_mobile/models/iot_device.dart';
+import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/screens/device_screen.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
 
 class _FailingBleService implements BleService {
   int connectCalls = 0;

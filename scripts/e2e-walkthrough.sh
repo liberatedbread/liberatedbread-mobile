@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# OpenGreenIoT Mobile — scripted screenshot walkthrough on an iOS Simulator.
+# Liberated Bread Mobile — scripted screenshot walkthrough on an iOS Simulator.
 #
 # Boots a simulator, starts the host-side screenshot server, then runs
 # integration_test/e2e_walkthrough_test.dart against the real app in mock mode.
@@ -79,7 +79,7 @@ sleep 1
 cd "$PROJECT_DIR"
 flutter test integration_test/e2e_walkthrough_test.dart \
   -d "$UDID" \
-  --dart-define=OPENGREENIOT_MOCK=true \
+  --dart-define=LIBERATED_BREAD_MOCK=true \
   --dart-define=E2E_SHOT_PORT="$PORT"
 
 log "Done. $(ls -1 "$OUT_DIR"/*.png 2>/dev/null | wc -l | tr -d ' ') screenshots."

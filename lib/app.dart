@@ -4,15 +4,15 @@ import 'package:flutter/material.dart';
 import 'core/theme.dart';
 import 'screens/scan_screen.dart';
 
-class OpenGreenIoTApp extends StatelessWidget {
-  const OpenGreenIoTApp({super.key});
+class LiberatedBreadApp extends StatelessWidget {
+  const LiberatedBreadApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'OpenGreenIoT',
-      theme: OpenGreenIoTTheme.light,
-      darkTheme: OpenGreenIoTTheme.dark,
+      title: 'Liberated Bread',
+      theme: LiberatedBreadTheme.light,
+      darkTheme: LiberatedBreadTheme.dark,
       home: const ScanScreen(),
     );
   }

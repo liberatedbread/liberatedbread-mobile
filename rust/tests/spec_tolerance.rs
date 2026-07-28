@@ -13,7 +13,7 @@
 //! protocol-docs specs, vendored so the test does not depend on a sibling repo
 //! being checked out (e.g. in CI).
 
-use opengreeniot_core::spec::parser::parse_device_spec;
+use liberated_bread_core::spec::parser::parse_device_spec;
 
 /// Every real spec paired with its vendored fixture contents.
 const SPECS: &[(&str, &str)] = &[

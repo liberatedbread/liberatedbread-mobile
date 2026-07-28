@@ -1,4 +1,4 @@
-package ca.pigscanfly.opengreeniot.opengreeniot_mobile
+package ca.pigscanfly.liberatedbread
 
 import io.flutter.embedding.android.FlutterActivity
 

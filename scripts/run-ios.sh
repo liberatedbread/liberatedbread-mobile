@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# OpenGreenIoT Mobile — build and launch on iOS Simulator (macOS only)
+# Liberated Bread Mobile — build and launch on iOS Simulator (macOS only)
 #
 # Boots the latest available iPhone simulator (or one chosen with --device),
 # then builds and runs the app via `flutter run`.
@@ -199,7 +199,7 @@ fi
 
 if [[ "$MOCK" == "true" ]]; then
   log "Mock mode enabled — using simulated BLE devices."
-  FLUTTER_ARGS+=("--dart-define=OPENGREENIOT_MOCK=true")
+  FLUTTER_ARGS+=("--dart-define=LIBERATED_BREAD_MOCK=true")
 fi
 
 if (( ${#PASSTHROUGH[@]} > 0 )); then

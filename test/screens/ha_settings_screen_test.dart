@@ -5,11 +5,11 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/core/constants.dart';
-import 'package:opengreeniot_mobile/models/ha_config.dart';
-import 'package:opengreeniot_mobile/providers/ha_provider.dart';
-import 'package:opengreeniot_mobile/screens/ha_settings_screen.dart';
-import 'package:opengreeniot_mobile/services/ha_api_client.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
+import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/screens/ha_settings_screen.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
 
 import '../fakes/fake_ha_api_client.dart';
 import '../fakes/in_memory_settings_store.dart';

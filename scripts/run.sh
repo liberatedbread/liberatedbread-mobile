@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# OpenGreenIoT Mobile — build and run
+# Liberated Bread Mobile — build and run
 # Usage:
 #   ./scripts/run.sh           # Run on connected device or emulator
 #   ./scripts/run.sh --mock    # Run with mock BLE devices (no hardware needed)
@@ -79,13 +79,13 @@ ensure_device() {
   fi
 
   # Check if our AVD exists
-  if ! "$emulator" -list-avds 2>/dev/null | grep -q "opengreeniot_test"; then
-    err "AVD 'opengreeniot_test' not found. Run ./scripts/setup.sh to create it."
+  if ! "$emulator" -list-avds 2>/dev/null | grep -q "liberated_bread_test"; then
+    err "AVD 'liberated_bread_test' not found. Run ./scripts/setup.sh to create it."
     exit 1
   fi
 
-  log "Launching emulator opengreeniot_test..."
-  "$emulator" -avd opengreeniot_test -no-snapshot-load &
+  log "Launching emulator liberated_bread_test..."
+  "$emulator" -avd liberated_bread_test -no-snapshot-load &
   local emu_pid=$!
 
   # Wait for the emulator to boot
@@ -119,7 +119,7 @@ FLUTTER_ARGS=("run")
 
 if [[ "$MOCK" == "true" ]]; then
   log "Mock mode enabled — using simulated BLE devices."
-  FLUTTER_ARGS+=("--dart-define=OPENGREENIOT_MOCK=true")
+  FLUTTER_ARGS+=("--dart-define=LIBERATED_BREAD_MOCK=true")
 fi
 
 FLUTTER_ARGS+=("${EXTRA_ARGS[@]}")

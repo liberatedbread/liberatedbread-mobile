@@ -5,14 +5,14 @@
 // read a characteristic. Runs against MockBleService (no real BLE).
 // Launch via:
 //   flutter test integration_test/mock_flow_test.dart \
-//     --dart-define=OPENGREENIOT_MOCK=true
+//     --dart-define=LIBERATED_BREAD_MOCK=true
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:opengreeniot_mobile/app.dart';
-import 'package:opengreeniot_mobile/providers/ble_provider.dart';
-import 'package:opengreeniot_mobile/services/mock_ble_service.dart';
+import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/services/mock_ble_service.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -21,7 +21,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [bleServiceProvider.overrideWithValue(MockBleService())],
-        child: const OpenGreenIoTApp(),
+        child: const LiberatedBreadApp(),
       ),
     );
     await tester.pumpAndSettle();

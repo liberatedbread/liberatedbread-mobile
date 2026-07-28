@@ -3,10 +3,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/core/constants.dart';
-import 'package:opengreeniot_mobile/providers/spec_pack_provider.dart';
-import 'package:opengreeniot_mobile/screens/spec_pack_settings_screen.dart';
-import 'package:opengreeniot_mobile/services/spec_pack_service.dart';
+import 'package:liberated_bread_mobile/core/constants.dart';
+import 'package:liberated_bread_mobile/providers/spec_pack_provider.dart';
+import 'package:liberated_bread_mobile/screens/spec_pack_settings_screen.dart';
+import 'package:liberated_bread_mobile/services/spec_pack_service.dart';
 
 import '../fakes/fake_spec_pack_service.dart';
 import '../fakes/in_memory_settings_store.dart';

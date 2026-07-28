@@ -1,7 +1,7 @@
-# OpenGreenIoT Mobile
+# Liberated Bread Mobile
 
-[![CI](https://github.com/PigsCanFlyLabs/opengreeniot-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/PigsCanFlyLabs/opengreeniot-mobile/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/PigsCanFlyLabs/opengreeniot-mobile/branch/main/graph/badge.svg)](https://codecov.io/gh/PigsCanFlyLabs/opengreeniot-mobile)
+[![CI](https://github.com/PigsCanFlyLabs/liberated-bread-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/PigsCanFlyLabs/liberated-bread-mobile/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/PigsCanFlyLabs/liberated-bread-mobile/branch/main/graph/badge.svg)](https://codecov.io/gh/PigsCanFlyLabs/liberated-bread-mobile)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > Because your phone should be able to talk to your smart lightbulb even after
@@ -118,8 +118,11 @@ export PATH="$HOME/.flutter-sdk/bin:$PATH"
 `android/` and `ios/` are committed. To regenerate them (for example when
 upgrading Flutter), back up the customized `android/app/src/main/AndroidManifest.xml`
 and `ios/Runner/Info.plist` first — they contain BLE permissions and usage
-strings — then run `flutter create . --platforms=android,ios --project-name opengreeniot_mobile --org ca.pigscanfly.opengreeniot`
-and merge the customizations back in.
+strings — then run `flutter create . --platforms=android,ios --project-name liberated_bread_mobile --org ca.pigscanfly`
+and merge the customizations back in. Note the real identifiers don't follow
+`flutter create`'s `<org>.<project>` convention: the app id is the flat
+`ca.pigscanfly.liberatedbread` (see `android/app/build.gradle` and the Xcode
+projects), so restore those along with the manifest/plist customizations.
 
 ## Running the App
 
@@ -141,7 +144,7 @@ and merge the customizations back in.
 ./scripts/run.sh --mock
 
 # Manual (equivalent to run.sh --mock)
-flutter run --dart-define=OPENGREENIOT_MOCK=true
+flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ```
 
 The platform-specific scripts (`run-android.sh`, `run-ios.sh`) will boot an

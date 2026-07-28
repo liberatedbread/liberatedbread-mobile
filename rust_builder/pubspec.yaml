@@ -1,4 +1,4 @@
-name: opengreeniot_core
+name: liberated_bread_core
 description: "Utility to build Rust code"
 version: 0.0.1
 publish_to: none

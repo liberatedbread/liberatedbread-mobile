@@ -7,8 +7,8 @@
 // If initialization fails (e.g. running tests without a prior cargo build),
 // the whole group is skipped via the `skip:` parameter on `main`.
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/services/mock_ble_service.dart';
-import 'package:opengreeniot_mobile/src/rust/api/mock_api.dart' as rust;
+import 'package:liberated_bread_mobile/services/mock_ble_service.dart';
+import 'package:liberated_bread_mobile/src/rust/api/mock_api.dart' as rust;
 
 import '../helpers/host_rust_lib.dart';
 

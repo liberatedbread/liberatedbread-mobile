@@ -109,7 +109,7 @@ jobs:
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "$PROFILE_B64" | base64 --decode \
-            > ~/Library/MobileDevice/Provisioning\ Profiles/opengreeniot.mobileprovision
+            > ~/Library/MobileDevice/Provisioning\ Profiles/liberated-bread.mobileprovision
 
       # ── build ──────────────────────────────────────────────────────────────
       # Signed IPA uses --profile so the app can launch standalone (debug mode
@@ -117,14 +117,14 @@ jobs:
       - name: Build signed IPA (profile mode)
         if: steps.signing.outputs.available == 'true'
         env:
-          MOCK_FLAG: ${{ inputs.mock && '--dart-define=OPENGREENIOT_MOCK=true' || '' }}
+          MOCK_FLAG: ${{ inputs.mock && '--dart-define=LIBERATED_BREAD_MOCK=true' || '' }}
         run: flutter build ipa --profile $MOCK_FLAG
           --export-options-plist=ios/ExportOptions-adhoc.plist
 
       - name: Build unsigned simulator bundle (no secrets fallback)
         if: steps.signing.outputs.available == 'false'
         env:
-          MOCK_FLAG: ${{ inputs.mock && '--dart-define=OPENGREENIOT_MOCK=true' || '' }}
+          MOCK_FLAG: ${{ inputs.mock && '--dart-define=LIBERATED_BREAD_MOCK=true' || '' }}
         run: flutter build ios --debug --no-codesign --simulator $MOCK_FLAG
 
       # ── artifact ───────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ jobs:
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
-          name: opengreeniot-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
+          name: liberated-bread-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
           path: build/ios/ipa/*.ipa
           if-no-files-found: warn
           retention-days: 1
@@ -143,7 +143,7 @@ jobs:
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
-          name: opengreeniot-unsigned-simulator.app
+          name: liberated-bread-unsigned-simulator.app
           path: build/ios/iphonesimulator/Runner.app
           if-no-files-found: warn
           retention-days: 1

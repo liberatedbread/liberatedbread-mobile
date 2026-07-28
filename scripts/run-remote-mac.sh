@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# OpenGreenIoT Mobile — build and run on iOS via a *remote* Mac over SSH
+# Liberated Bread Mobile — build and run on iOS via a *remote* Mac over SSH
 #
 # Run this from Linux (or any non-Mac host). It rsyncs the working tree to a
 # Mac you can SSH into, starts `flutter run` there against a paired iPhone
@@ -24,8 +24,8 @@
 #   ./scripts/run-remote-mac.sh --host mac --mock -- --verbose   # Extras to `flutter run`
 #
 # Environment variables (instead of flags):
-#   OPENGREENIOT_MAC_HOST   SSH destination (e.g. holden@macbook.local)
-#   OPENGREENIOT_MAC_DIR    Checkout dir on the Mac (default: opengreeniot-mobile-remote,
+#   LIBERATED_BREAD_MAC_HOST   SSH destination (e.g. holden@macbook.local)
+#   LIBERATED_BREAD_MAC_DIR    Checkout dir on the Mac (default: liberated-bread-mobile-remote,
 #                           relative to the remote $HOME)
 #
 # One-time setup:
@@ -49,8 +49,8 @@ err()  { printf '\033[1;31m[remote-mac]\033[0m %s\n' "$*" >&2; }
 
 # ── parse args ───────────────────────────────────────────────────────────────
 
-HOST="${OPENGREENIOT_MAC_HOST:-}"
-REMOTE_DIR="${OPENGREENIOT_MAC_DIR:-opengreeniot-mobile-remote}"
+HOST="${LIBERATED_BREAD_MAC_HOST:-}"
+REMOTE_DIR="${LIBERATED_BREAD_MAC_DIR:-liberated-bread-mobile-remote}"
 MOCK=false
 RELEASE=false
 SIMULATOR=false
@@ -90,7 +90,7 @@ done
 
 if [[ -z "$HOST" ]]; then
   err "No remote Mac specified."
-  err "Pass --host user@mac.local or set OPENGREENIOT_MAC_HOST."
+  err "Pass --host user@mac.local or set LIBERATED_BREAD_MAC_HOST."
   exit 1
 fi
 
@@ -127,7 +127,7 @@ ssh_run()  { ssh "${SSH_OPTS[@]}" "$HOST" "$@"; }
 # with the connection instead of lingering on the Mac.
 ssh_tty()  { ssh -t "${SSH_OPTS[@]}" "$HOST" "$@"; }
 
-REMOTE_PIDFILE="/tmp/opengreeniot-flutter-$$.pid"
+REMOTE_PIDFILE="/tmp/liberated-bread-flutter-$$.pid"
 WATCHER_PID=""
 
 cleanup() {

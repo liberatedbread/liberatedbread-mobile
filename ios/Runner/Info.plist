@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>OpenGreenIoT</string>
+	<string>Liberated Bread</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>opengreeniot_mobile</string>
+	<string>Liberated Bread</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -46,13 +46,13 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>OpenGreenIoT needs Bluetooth to communicate with your IoT devices.</string>
+	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
-	<string>OpenGreenIoT needs Bluetooth to communicate with your IoT devices.</string>
+	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Location access needed for Bluetooth scanning.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>OpenGreenIoT connects to your Home Assistant server on your local network.</string>
+	<string>Liberated Bread connects to your Home Assistant server on your local network.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

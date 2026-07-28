@@ -1,6 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'package:opengreeniot_mobile/services/spec_pack_service.dart';
+import 'package:liberated_bread_mobile/services/spec_pack_service.dart';
 
 /// In-memory [SpecPackService] for widget tests: no network, no filesystem, so
 /// providers resolve on the microtask queue and `pumpAndSettle` settles. The

@@ -1,10 +1,10 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/models/ha_config.dart';
-import 'package:opengreeniot_mobile/services/ha_api_client.dart';
-import 'package:opengreeniot_mobile/services/ha_sensor_forwarder.dart';
-import 'package:opengreeniot_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
+import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_ha_api_client.dart';
 

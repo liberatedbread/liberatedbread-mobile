@@ -1,8 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/core/ha_sensor_mapping.dart';
-import 'package:opengreeniot_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/core/ha_sensor_mapping.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 const _statusChar = CharacteristicDto(
   uuid: '0000fff2-0000-1000-8000-00805f9b34fb',

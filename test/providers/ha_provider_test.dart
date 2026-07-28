@@ -4,9 +4,9 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/models/ha_config.dart';
-import 'package:opengreeniot_mobile/providers/ha_provider.dart';
-import 'package:opengreeniot_mobile/services/settings_store.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
+import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/services/settings_store.dart';
 
 import '../fakes/in_memory_settings_store.dart';
 

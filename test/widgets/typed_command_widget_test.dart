@@ -5,10 +5,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/providers/ble_provider.dart';
-import 'package:opengreeniot_mobile/providers/spec_codec_provider.dart';
-import 'package:opengreeniot_mobile/services/spec_codec.dart';
-import 'package:opengreeniot_mobile/widgets/typed_command_widget.dart';
+import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
+import 'package:liberated_bread_mobile/widgets/typed_command_widget.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_spec_codec.dart';

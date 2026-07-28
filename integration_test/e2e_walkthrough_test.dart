@@ -18,7 +18,7 @@ library;
 // Launch via scripts/e2e-walkthrough.sh, or by hand:
 //   python3 scripts/e2e_shot_server.py &
 //   flutter test integration_test/e2e_walkthrough_test.dart \
-//     -d <simulator-udid> --dart-define=OPENGREENIOT_MOCK=true
+//     -d <simulator-udid> --dart-define=LIBERATED_BREAD_MOCK=true
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -27,15 +27,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:opengreeniot_mobile/app.dart';
-import 'package:opengreeniot_mobile/core/theme.dart';
-import 'package:opengreeniot_mobile/models/ble_discovered_service.dart';
-import 'package:opengreeniot_mobile/models/iot_device.dart';
-import 'package:opengreeniot_mobile/providers/ble_provider.dart';
-import 'package:opengreeniot_mobile/screens/device_screen.dart';
-import 'package:opengreeniot_mobile/screens/scan_screen.dart';
-import 'package:opengreeniot_mobile/services/ble_service.dart';
-import 'package:opengreeniot_mobile/src/rust/frb_generated.dart';
+import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/core/theme.dart';
+import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
+import 'package:liberated_bread_mobile/models/iot_device.dart';
+import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/screens/device_screen.dart';
+import 'package:liberated_bread_mobile/screens/scan_screen.dart';
+import 'package:liberated_bread_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/src/rust/frb_generated.dart';
 
 /// Port `scripts/e2e_shot_server.py` listens on. The iOS Simulator shares the
 /// host's loopback interface, so 127.0.0.1 reaches the host directly.
@@ -62,12 +62,12 @@ void main() {
   });
 
   testWidgets('01 scan: launch, scan, devices appear', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: OpenGreenIoTApp()));
+    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
     await _soak(tester, const Duration(seconds: 2));
 
     expect(find.text('Scan for BLE Devices'), findsOneWidget);
     expect(find.text('MOCK'), findsOneWidget,
-        reason: 'run with --dart-define=OPENGREENIOT_MOCK=true');
+        reason: 'run with --dart-define=LIBERATED_BREAD_MOCK=true');
     await _shot(tester, '01_launch_scan_idle');
 
     await tester.tap(find.byType(FloatingActionButton));
@@ -87,7 +87,7 @@ void main() {
   });
 
   testWidgets('02 device: connect, typed controls, commands', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: OpenGreenIoTApp()));
+    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
     await _soak(tester, const Duration(seconds: 1));
     await tester.tap(find.byType(FloatingActionButton));
     await _soak(tester, const Duration(seconds: 2));
@@ -140,7 +140,7 @@ void main() {
   });
 
   testWidgets('03 spec packs: list, validation, install', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: OpenGreenIoTApp()));
+    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
     await _soak(tester, const Duration(seconds: 1));
 
     await tester.tap(find.byTooltip('Device Spec Packs'));
@@ -193,7 +193,7 @@ void main() {
   });
 
   testWidgets('04 home assistant settings', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: OpenGreenIoTApp()));
+    await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
     await _soak(tester, const Duration(seconds: 1));
 
     await tester.tap(find.byTooltip('Home Assistant'));
@@ -228,7 +228,7 @@ void main() {
           bleServiceProvider.overrideWithValue(_UnmatchedBleService())
         ],
         child: MaterialApp(
-          theme: OpenGreenIoTTheme.light,
+          theme: LiberatedBreadTheme.light,
           home: DeviceScreen(device: _unmatchedDevice),
         ),
       ),
@@ -289,7 +289,7 @@ void main() {
       ProviderScope(
         overrides: [bleServiceProvider.overrideWithValue(service)],
         child: MaterialApp(
-          theme: OpenGreenIoTTheme.light,
+          theme: LiberatedBreadTheme.light,
           home: DeviceScreen(device: _unmatchedDevice),
         ),
       ),
@@ -422,7 +422,7 @@ Future<void> _pumpScan(WidgetTester tester, BleService service) async {
     ProviderScope(
       overrides: [bleServiceProvider.overrideWithValue(service)],
       child: MaterialApp(
-        theme: OpenGreenIoTTheme.light,
+        theme: LiberatedBreadTheme.light,
         home: ScanScreen(key: ValueKey('scan-${_scanScreenGeneration++}')),
       ),
     ),

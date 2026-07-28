@@ -19,19 +19,20 @@ import 'dart:io';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     show ExternalLibrary;
-import 'package:opengreeniot_mobile/src/rust/frb_generated.dart' show RustLib;
+import 'package:liberated_bread_mobile/src/rust/frb_generated.dart'
+    show RustLib;
 
 /// Library filename cargo produces for this crate on the current platform.
 String get _libFileName {
-  if (Platform.isMacOS) return 'libopengreeniot_core.dylib';
-  if (Platform.isWindows) return 'opengreeniot_core.dll';
-  return 'libopengreeniot_core.so';
+  if (Platform.isMacOS) return 'libliberated_bread_core.dylib';
+  if (Platform.isWindows) return 'liberated_bread_core.dll';
+  return 'libliberated_bread_core.so';
 }
 
 /// Paths tried in order. An explicit override wins so CI can point at an
 /// artifact built somewhere else.
 List<String> _candidatePaths() {
-  final override = Platform.environment['OPENGREENIOT_RUST_LIB'];
+  final override = Platform.environment['LIBERATED_BREAD_RUST_LIB'];
   return [
     if (override != null && override.isNotEmpty) override,
     'rust/target/debug/$_libFileName',

@@ -66,7 +66,7 @@ const _batteryService = BleDiscoveredService(
 /// into the APK or when a unit test skips `RustLib.init()` — a small Dart
 /// fallback table is used instead so mock mode still works.
 ///
-/// Enabled at runtime via `--dart-define=OPENGREENIOT_MOCK=true`.
+/// Enabled at runtime via `--dart-define=LIBERATED_BREAD_MOCK=true`.
 class MockBleService implements BleService {
   /// Path under `rootBundle` that resolves to the device spec YAML used for
   /// Rust-side decoding. Overridable for tests; defaults to the example bulb.

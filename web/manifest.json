@@ -1,11 +1,11 @@
 {
-    "name": "opengreeniot_mobile",
-    "short_name": "opengreeniot_mobile",
+    "name": "Liberated Bread",
+    "short_name": "Liberated Bread",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#2FB9BF",
+    "theme_color": "#2FB9BF",
+    "description": "A BLE companion app that keeps your IoT devices alive and talking - own your devices, don't let them own you.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

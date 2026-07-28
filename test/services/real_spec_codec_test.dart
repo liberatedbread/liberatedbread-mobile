@@ -6,7 +6,7 @@
 // + LD_LIBRARY_PATH, same as CI); the group is skipped if it isn't loaded.
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:opengreeniot_mobile/services/real_spec_codec.dart';
+import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
 
 import '../helpers/host_rust_lib.dart';
 

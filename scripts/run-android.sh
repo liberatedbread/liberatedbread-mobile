@@ -2,9 +2,9 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# OpenGreenIoT Mobile — build and launch on Android emulator
+# Liberated Bread Mobile — build and launch on Android emulator
 #
-# Boots the opengreeniot_test AVD (or reuses any connected Android device),
+# Boots the liberated_bread_test AVD (or reuses any connected Android device),
 # waits for it, then builds and runs the app via `flutter run`.
 #
 # Usage:
@@ -22,7 +22,7 @@ export PATH="${FLUTTER_HOME}/bin:$HOME/.cargo/bin:$PATH"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-AVD_NAME="opengreeniot_test"
+AVD_NAME="liberated_bread_test"
 
 log()  { printf '\033[1;32m[android]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[android]\033[0m %s\n' "$*"; }
@@ -171,7 +171,7 @@ fi
 
 if [[ "$MOCK" == "true" ]]; then
   log "Mock mode enabled — using simulated BLE devices."
-  FLUTTER_ARGS+=("--dart-define=OPENGREENIOT_MOCK=true")
+  FLUTTER_ARGS+=("--dart-define=LIBERATED_BREAD_MOCK=true")
 fi
 
 if (( ${#PASSTHROUGH[@]} > 0 )); then

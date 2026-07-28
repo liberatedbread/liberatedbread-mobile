@@ -5,9 +5,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:opengreeniot_mobile/models/ha_sensor.dart';
-import 'package:opengreeniot_mobile/services/ha_api_client.dart';
-import 'package:opengreeniot_mobile/services/http_ha_api_client.dart';
+import 'package:liberated_bread_mobile/models/ha_sensor.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
+import 'package:liberated_bread_mobile/services/http_ha_api_client.dart';
 
 const _base = 'http://ha.local:8123';
 

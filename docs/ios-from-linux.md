@@ -118,7 +118,7 @@ Useful variants:
 ./scripts/run-remote-mac.sh --host mac --sync-only           # rsync and exit
 ```
 
-Set `OPENGREENIOT_MAC_HOST` (and optionally `OPENGREENIOT_MAC_DIR`) to skip
+Set `LIBERATED_BREAD_MAC_HOST` (and optionally `LIBERATED_BREAD_MAC_DIR`) to skip
 `--host`. The SSH session is interactive, so `r` / `R` / `q` still work as
 usual. Changes under `rust/`, `ios/`, `android/`, or `pubspec.yaml` are
 synced too, but need a quit-and-rerun to take effect (hot reload only covers

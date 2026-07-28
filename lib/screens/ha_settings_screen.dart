@@ -233,7 +233,7 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Disconnect from Home Assistant?'),
         content: const Text(
-            'This forgets the connection on this phone. The OpenGreenIoT '
+            'This forgets the connection on this phone. The Liberated Bread '
             'device entry in Home Assistant is not deleted - remove it '
             'under Settings -> Devices in Home Assistant if you want it '
             'gone.'),

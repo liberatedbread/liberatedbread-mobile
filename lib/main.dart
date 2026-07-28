@@ -18,5 +18,5 @@ Future<void> main() async {
   } catch (e, st) {
     debugPrint('RustLib.init failed ($e); falling back to Dart-side mock. $st');
   }
-  runApp(const ProviderScope(child: OpenGreenIoTApp()));
+  runApp(const ProviderScope(child: LiberatedBreadApp()));
 }

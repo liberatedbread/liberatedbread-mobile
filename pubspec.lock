@@ -303,6 +303,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.1"
+  liberated_bread_core:
+    dependency: "direct main"
+    description:
+      path: rust_builder
+      relative: true
+    source: path
+    version: "0.0.1"
   lints:
     dependency: transitive
     description:
@@ -335,13 +342,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.15.0"
-  opengreeniot_core:
-    dependency: "direct main"
-    description:
-      path: rust_builder
-      relative: true
-    source: path
-    version: "0.0.1"
   path:
     dependency: transitive
     description:

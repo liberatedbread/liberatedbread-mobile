@@ -1,7 +1,7 @@
 # Sev2 follow-ups
 
 This file tracks the lower-priority polish items deferred from the
-opengreeniot-core code review. They're all real, but none of them block
+liberated-bread-core code review. They're all real, but none of them block
 shipping. Pick them up in any order — most are independent.
 
 When picking one up, please cross-reference the original code review
