@@ -73,6 +73,66 @@ fn ble_spec_still_exposes_characteristics() {
     assert!(ch.commands.as_ref().unwrap().contains_key("set_brightness"));
 }
 
+/// The UI greys out commands the raw-byte encoder cannot serve, keyed off
+/// `CommandDto::is_encodable` / `unsupported_encoding`. The admore spec's
+/// commands are protobuf `setting_id` commands (no `value`/`template`), so
+/// every one of them must surface as non-encodable with the exact
+/// "protobuf setting_id" kind — that string is the UI's grey-out signal, and
+/// a wrong verdict here means a control that either vanishes or fails on tap.
+#[test]
+fn admore_setting_id_commands_surface_as_unencodable_in_dto() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let yaml = include_str!("specs/admore-light-bar.yaml");
+    // Cross-reference the raw spec (which knows each command's setting_id)
+    // against the DTO (which carries only the encodability verdict).
+    let spec = parse_device_spec(yaml).expect("admore spec should parse");
+    let dto = load_device_spec(yaml.to_string()).expect("admore DTO should build");
+
+    let mut checked = 0;
+    for svc in &spec.services {
+        for ch in &svc.characteristics {
+            let Some(commands) = &ch.commands else {
+                continue;
+            };
+            let dto_char = dto
+                .services
+                .iter()
+                .find(|s| s.uuid == svc.uuid)
+                .and_then(|s| s.characteristics.iter().find(|c| c.uuid == ch.uuid))
+                .expect("every spec characteristic appears in the DTO");
+            for (name, cmd) in commands {
+                let is_pure_setting_id = cmd.setting_id.is_some()
+                    && cmd.value.is_none()
+                    && cmd.template.is_none()
+                    && cmd.encoding.is_none();
+                if !is_pure_setting_id {
+                    continue;
+                }
+                let dto_cmd = dto_char
+                    .commands
+                    .iter()
+                    .find(|c| &c.name == name)
+                    .unwrap_or_else(|| panic!("command `{name}` missing from DTO"));
+                assert!(
+                    !dto_cmd.is_encodable,
+                    "`{name}`: setting_id commands are not raw-byte encodable"
+                );
+                assert_eq!(
+                    dto_cmd.unsupported_encoding.as_deref(),
+                    Some("protobuf setting_id"),
+                    "`{name}`: wrong unsupported_encoding kind"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(
+        checked >= 20,
+        "the admore fixture should exercise many setting_id commands, found only {checked}"
+    );
+}
+
 #[test]
 fn admore_int32_and_bespoke_blocks_parse() {
     // admore uses `manufacturer_status: active`, `type: int32` parameters with
