@@ -72,6 +72,16 @@ pub struct ParameterDto {
     pub value_type: String,
     pub min: Option<f64>,
     pub max: Option<f64>,
+    /// Enumerated set of allowed values. When present (and non-empty) the
+    /// device accepts only these values, so the UI should offer a choice
+    /// among them instead of a free min..max range.
+    pub allowed: Option<Vec<i64>>,
+    /// Human-readable labels for `allowed`, paired 1:1 by index (the upstream
+    /// spec-format contract). Only present when `allowed` is present and the
+    /// lengths match exactly — a mismatched spec keeps its `allowed` values
+    /// but has its labels dropped rather than mispaired (see the `From`
+    /// conversion below).
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -214,11 +224,25 @@ impl From<(&str, &Command)> for CommandDto {
 
 impl From<(&str, &Parameter)> for ParameterDto {
     fn from((name, p): (&str, &Parameter)) -> Self {
+        // Labels pair with `allowed` 1:1 by index. Specs are loaded from
+        // untrusted packs, so a mismatch must not panic; and mispairing
+        // (zipping short, or padding) would silently attach the wrong label
+        // to a value the device really acts on. Decision: keep `allowed`
+        // (it is what the device accepts) and drop `labels` entirely unless
+        // both are present with exactly equal lengths. Labels without
+        // `allowed` have nothing to pair with and are dropped for the same
+        // reason.
+        let labels = match (&p.allowed, &p.labels) {
+            (Some(allowed), Some(labels)) if allowed.len() == labels.len() => Some(labels.clone()),
+            _ => None,
+        };
         Self {
             name: name.to_string(),
             value_type: p.value_type.to_string(),
             min: p.min.map(|v| v as f64),
             max: p.max.map(|v| v as f64),
+            allowed: p.allowed.clone(),
+            labels,
         }
     }
 }

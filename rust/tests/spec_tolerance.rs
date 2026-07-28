@@ -133,6 +133,140 @@ fn admore_setting_id_commands_surface_as_unencodable_in_dto() {
     );
 }
 
+/// The DTO boundary must carry the enumerated `allowed`/`labels` pairs the
+/// spec declares — the UI renders them as a dropdown instead of a free
+/// slider, so dropping them (the old `ParameterDto` shape) silently turned
+/// "six discrete device presets" into "any int32". Exact values, straight
+/// from the vendored fixture.
+#[test]
+fn admore_allowed_and_labels_surface_in_dto() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let yaml = include_str!("specs/admore-light-bar.yaml");
+    let dto = load_device_spec(yaml.to_string()).expect("admore DTO should build");
+    let param = dto
+        .services
+        .iter()
+        .flat_map(|s| &s.characteristics)
+        .find(|c| c.uuid == "6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+        .expect("NUS RX characteristic should be in the DTO")
+        .commands
+        .iter()
+        .find(|c| c.name == "set_tail_brightness")
+        .expect("set_tail_brightness should be in the DTO")
+        .parameters
+        .iter()
+        .find(|p| p.name == "value")
+        .expect("set_tail_brightness declares a `value` parameter");
+
+    assert_eq!(param.value_type, "int32");
+    assert_eq!(
+        param.allowed.as_deref(),
+        Some(&[0, 200, 400, 1000, 1500, 2000][..]),
+        "allowed values must survive the DTO conversion verbatim"
+    );
+    let labels: Vec<&str> = param
+        .labels
+        .as_ref()
+        .expect("labels must survive alongside allowed")
+        .iter()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        labels,
+        ["OFF", "1", "2", "3", "4", "5"],
+        "labels must pair 1:1 (by index) with allowed"
+    );
+}
+
+/// `labels` pair with `allowed` 1:1 by index; mismatched lengths cannot be
+/// paired truthfully. The conversion decision (documented on
+/// `From<(&str, &Parameter)> for ParameterDto`): keep `allowed` — it is what
+/// the device accepts — and drop `labels` entirely rather than panic or
+/// mispair. Labels without any `allowed` are dropped for the same reason.
+/// The parser itself still preserves both blocks (tolerance), so this also
+/// pins that the drop happens exactly at the DTO boundary.
+#[test]
+fn mismatched_labels_are_dropped_at_dto_boundary_but_allowed_kept() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    const MISMATCH_YAML: &str = r#"
+device:
+  name: "Mismatch"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          set_mode:
+            description: "One label short of its allowed values"
+            template: [0x01, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                allowed: [1, 2, 3]
+                labels: ["Slow", "Fast"]
+          set_speed:
+            description: "Labels with no allowed at all"
+            template: [0x02, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                labels: ["A", "B"]
+"#;
+
+    // The parser is tolerant: both blocks are preserved as declared.
+    let spec = parse_device_spec(MISMATCH_YAML).expect("mismatched labels must still parse");
+    let commands = spec.services[0].characteristics[0]
+        .commands
+        .as_ref()
+        .unwrap();
+    let raw_mode = &commands["set_mode"].parameters.as_ref().unwrap().params["mode"];
+    assert_eq!(raw_mode.allowed.as_ref().map(Vec::len), Some(3));
+    assert_eq!(raw_mode.labels.as_ref().map(Vec::len), Some(2));
+
+    // The DTO boundary is where the unpairable labels get dropped.
+    let dto = load_device_spec(MISMATCH_YAML.to_string()).expect("DTO should build");
+    let dto_commands = &dto.services[0].characteristics[0].commands;
+    let mode = dto_commands
+        .iter()
+        .find(|c| c.name == "set_mode")
+        .unwrap()
+        .parameters
+        .iter()
+        .find(|p| p.name == "mode")
+        .unwrap();
+    assert_eq!(
+        mode.allowed.as_deref(),
+        Some(&[1, 2, 3][..]),
+        "allowed survives even when its labels are unusable"
+    );
+    assert_eq!(
+        mode.labels, None,
+        "length-mismatched labels are dropped, not zipped short or padded"
+    );
+
+    let speed = dto_commands
+        .iter()
+        .find(|c| c.name == "set_speed")
+        .unwrap()
+        .parameters
+        .iter()
+        .find(|p| p.name == "speed")
+        .unwrap();
+    assert_eq!(speed.allowed, None);
+    assert_eq!(
+        speed.labels, None,
+        "labels with no allowed values have nothing to pair with"
+    );
+}
+
 #[test]
 fn admore_int32_and_bespoke_blocks_parse() {
     // admore uses `manufacturer_status: active`, `type: int32` parameters with

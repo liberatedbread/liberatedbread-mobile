@@ -49,6 +49,17 @@ void main() {
     expect(divisionsFor(0, 65535), isNull);
   });
 
+  test('allowedEntryLabel pairs label with wire value, or shows value alone',
+      () {
+    expect(allowedEntryLabel('OFF', 0), 'OFF (0)');
+    expect(allowedEntryLabel('Low', 200), 'Low (200)');
+    // Allowed values cross the FFI as BigInt; they must render identically.
+    expect(allowedEntryLabel('High', BigInt.from(1000)), 'High (1000)');
+    expect(allowedEntryLabel(null, BigInt.from(400)), '400');
+    // A degenerate empty label falls back to the raw value too.
+    expect(allowedEntryLabel('', 7), '7');
+  });
+
   test('isNumericValueType accepts integer types only', () {
     for (final t in ['uint8', 'uint16', 'uint32', 'int8', 'int16', 'int32']) {
       expect(isNumericValueType(t), isTrue, reason: t);
