@@ -230,6 +230,18 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
         onChanged: (on) => setState(() => _values[p.name] = on ? 1.0 : 0.0),
       );
     }
+    if (!isNumericValueType(p.valueType)) {
+      // A slider for a string/bytes parameter would send bytes the spec never
+      // meant; say so instead of pretending 0..255 is valid input.
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Text(
+          '${humanizeName(p.name)}: unsupported parameter type '
+          '(${p.valueType})',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

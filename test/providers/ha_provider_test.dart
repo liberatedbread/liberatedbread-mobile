@@ -8,6 +8,7 @@ import 'package:liberated_bread_mobile/models/ha_config.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
 import 'package:liberated_bread_mobile/services/settings_store.dart';
 
+import '../fakes/fake_ha_api_client.dart';
 import '../fakes/in_memory_settings_store.dart';
 
 /// A store whose reads always fail, mimicking a keystore/PlatformException
@@ -93,6 +94,36 @@ void main() {
       // still be intact and become readable again after another unlock).
       expect(await _loadConfig(store), isNull);
       expect(store.deleted, isEmpty);
+    });
+  });
+
+  group('HaConfigNotifier.register', () {
+    test('reuses a previously stored device id', () async {
+      // The device id is the app's stable identity in HA: re-registering with
+      // the stored id updates the existing HA device entry instead of
+      // creating a duplicate.
+      final store = InMemorySettingsStore({
+        HaConfigNotifier.deviceIdKey: 'preexisting-device-id',
+      });
+      final api = FakeHaApiClient();
+      final container = ProviderContainer(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(store),
+          haApiClientProvider.overrideWithValue(api),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(haConfigProvider.future);
+
+      await container
+          .read(haConfigProvider.notifier)
+          .register(baseUrl: 'http://ha.local:8123', token: 'tok');
+
+      expect(
+          api.registeredDevices.single['device_id'], 'preexisting-device-id');
+      // The stored id is untouched (not regenerated).
+      expect(
+          store.values[HaConfigNotifier.deviceIdKey], 'preexisting-device-id');
     });
   });
 }

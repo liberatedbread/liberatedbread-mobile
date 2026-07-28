@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../core/constants.dart';
 import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
@@ -67,6 +68,46 @@ bool useWriteWithoutResponse({
 }) =>
     !canWriteWithResponse && canWriteWithoutResponse;
 
+/// Per-scan coalescing of flutter_blue_plus scan batches.
+///
+/// fbp's `scanResults` stream carries the FULL accumulated result list on
+/// every event, so forwarding each batch verbatim would re-emit every known
+/// device on every advertisement — constantly refreshing `discoveredAt` and
+/// flooding the consumer. [next] returns an [IoTDevice] only when the device
+/// is new to this scan or its rssi/name/connectable changed (so rssi updates
+/// still flow to the DeviceManager), preserving the first-seen `discoveredAt`
+/// for known ids; it returns null for an unchanged entry.
+///
+/// Extracted as a pure class so the coalescing rules can be unit-tested
+/// without a real Bluetooth adapter.
+class ScanResultCoalescer {
+  final Map<String, IoTDevice> _emitted = {};
+
+  IoTDevice? next({
+    required String id,
+    required String name,
+    required int rssi,
+    required bool isConnectable,
+  }) {
+    final prev = _emitted[id];
+    if (prev != null &&
+        prev.rssi == rssi &&
+        prev.name == name &&
+        prev.isConnectable == isConnectable) {
+      return null;
+    }
+    final device = IoTDevice(
+      id: id,
+      name: name,
+      rssi: rssi,
+      isConnectable: isConnectable,
+      discoveredAt: prev?.discoveredAt ?? DateTime.now(),
+    );
+    _emitted[id] = device;
+    return device;
+  }
+}
+
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
@@ -90,7 +131,10 @@ class RealBleService implements BleService {
   }
 
   @override
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) {
+  Stream<IoTDevice> scan({
+    Duration timeout =
+        const Duration(seconds: AppConstants.defaultScanDuration),
+  }) {
     final controller = StreamController<IoTDevice>();
 
     // Subscription local to this scan invocation. Kept local (rather than
@@ -146,16 +190,23 @@ class RealBleService implements BleService {
           await FlutterBluePlus.stopScan();
         }
 
+        // scanResults re-emits its latest list to every new listener, so our
+        // subscription's first event is the PREVIOUS scan's accumulated
+        // results (fbp only clears them inside startScan). Capture that exact
+        // instance so it can be dropped instead of resurfacing stale devices.
+        final replayed = FlutterBluePlus.lastScanResults;
+        final coalescer = ScanResultCoalescer();
         sub = FlutterBluePlus.scanResults.listen(
           (results) {
+            if (identical(results, replayed)) return;
             for (final result in results) {
-              controller.add(IoTDevice(
+              final device = coalescer.next(
                 id: result.device.remoteId.str,
                 name: result.device.platformName,
                 rssi: result.rssi,
                 isConnectable: result.advertisementData.connectable,
-                discoveredAt: DateTime.now(),
-              ));
+              );
+              if (device != null) controller.add(device);
             }
           },
           onError: (Object error) {
@@ -165,6 +216,22 @@ class RealBleService implements BleService {
         _scanSubscription = sub;
 
         await FlutterBluePlus.startScan(timeout: timeout);
+
+        // startScan resolves once scanning has STARTED (its `timeout` only
+        // arms a stop timer), so wait for the actual stop before tearing the
+        // stream down — otherwise results arrive on an unwatched scan and the
+        // UI sees an instant empty "done". isScanning re-emits its latest
+        // value on listen, so `.first` cannot miss a stop that already
+        // happened; the outer timeout keeps a missed stop event from hanging
+        // the stream forever.
+        try {
+          await FlutterBluePlus.isScanning
+              .where((scanning) => !scanning)
+              .first
+              .timeout(timeout + const Duration(seconds: 5));
+        } on TimeoutException {
+          // Degrade to ending the scan normally rather than erroring the UI.
+        }
 
         await cancelSub();
         await closeIfOpen();

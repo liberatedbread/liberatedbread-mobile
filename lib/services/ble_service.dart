@@ -5,6 +5,7 @@
 //   - RealBleService (flutter_blue_plus)
 //   - MockBleService (simulated devices for demo mode)
 
+import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
@@ -57,7 +58,10 @@ abstract class BleService {
   Future<bool> requestPermissions();
 
   /// Scan for nearby BLE devices.
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)});
+  Stream<IoTDevice> scan({
+    Duration timeout =
+        const Duration(seconds: AppConstants.defaultScanDuration),
+  });
 
   /// Stop an in-progress scan.
   Future<void> stopScan();

@@ -180,7 +180,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             'so the app can scan for devices.',
         primaryLabel: 'Open settings',
         primaryIcon: Icons.settings,
-        onPrimary: () => openAppSettings(),
+        // Fire-and-forget like the other teardown calls in this file: a
+        // failure to open the settings app must not become an unhandled
+        // async error.
+        onPrimary: () =>
+            unawaited(openAppSettings().catchError((Object _) => false)),
         secondaryLabel: 'Retry',
         onSecondary: _isScanning ? null : _startScan,
       );

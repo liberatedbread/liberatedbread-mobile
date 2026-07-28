@@ -51,11 +51,13 @@ final matchedDeviceSpecProvider =
 
   // Parse each bundled spec; skip any that fail (bad YAML, or native absent).
   final parsed = <({DeviceSpecDto spec, String yaml})>[];
-  for (final yaml in specYamls.values) {
+  for (final entry in specYamls.entries) {
     try {
-      parsed.add((spec: await codec.loadDeviceSpec(yaml), yaml: yaml));
-    } catch (_) {
-      // Skip this spec.
+      parsed.add(
+          (spec: await codec.loadDeviceSpec(entry.value), yaml: entry.value));
+    } catch (e) {
+      // Skip this spec, but say so - a silent drop looks like a matching bug.
+      debugPrint('Failed to parse spec ${entry.key}: $e');
     }
   }
   if (parsed.isEmpty) return null;
@@ -67,7 +69,9 @@ final matchedDeviceSpecProvider =
       deviceName: req.deviceName,
       advertisedServiceUuids: req.serviceUuids,
     );
-  } catch (_) {
+  } catch (e) {
+    // Degrade to "no spec matched" (raw controls still work), but log why.
+    debugPrint('Spec matching failed for ${req.deviceName}: $e');
     return null;
   }
   if (matches.isEmpty) return null;

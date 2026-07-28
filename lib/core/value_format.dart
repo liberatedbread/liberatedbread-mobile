@@ -26,8 +26,10 @@ String humanizeName(String raw) {
     'bool' => (min: 0.0, max: 1.0),
     'uint8' => (min: 0.0, max: 255.0),
     'uint16' => (min: 0.0, max: 65535.0),
+    'uint32' => (min: 0.0, max: 4294967295.0),
     'int8' => (min: -128.0, max: 127.0),
     'int16' => (min: -32768.0, max: 32767.0),
+    'int32' => (min: -2147483648.0, max: 2147483647.0),
     _ => (min: 0.0, max: 255.0),
   };
   final resolvedMin = min ?? typeRange.min;
@@ -45,3 +47,11 @@ int? divisionsFor(double min, double max) {
   if (span <= 0 || span > 255) return null;
   return span;
 }
+
+/// Whether [valueType] is a numeric spec type a slider can honestly input.
+/// `string`/`bytes` (and any unrecognized type) have no meaningful numeric
+/// range, so controls for them must not pretend a 0..255 slider is valid.
+bool isNumericValueType(String valueType) => switch (valueType) {
+      'uint8' || 'uint16' || 'uint32' || 'int8' || 'int16' || 'int32' => true,
+      _ => false,
+    };

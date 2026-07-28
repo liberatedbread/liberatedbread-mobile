@@ -60,9 +60,12 @@ class SpecPackUrlNotifier extends AsyncNotifier<String> {
     return saved.trim();
   }
 
-  /// Persist a new manifest URL.
+  /// Persist a new manifest URL. Empty/whitespace input means "no override"
+  /// and is treated as [resetToDefault], so the persisted value and in-memory
+  /// state can't disagree (build() maps an empty stored value to the default).
   Future<void> setUrl(String url) async {
     final trimmed = url.trim();
+    if (trimmed.isEmpty) return resetToDefault();
     final store = await ref.read(prefsSettingsStoreProvider.future);
     await store.write(key, trimmed);
     state = AsyncData(trimmed);

@@ -75,6 +75,56 @@ void main() {
     });
   });
 
+  group('ScanResultCoalescer (fbp full-list batch dedupe)', () {
+    test('first sighting of a device is emitted', () {
+      final coalescer = ScanResultCoalescer();
+      final device = coalescer.next(
+          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+      expect(device, isNotNull);
+      expect(device!.id, 'AA');
+      expect(device.rssi, -50);
+    });
+
+    test('an unchanged re-delivery (fbp accumulated list) is suppressed', () {
+      final coalescer = ScanResultCoalescer();
+      coalescer.next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+      expect(
+        coalescer.next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true),
+        isNull,
+      );
+    });
+
+    test('an rssi change re-emits with the first-seen discoveredAt', () {
+      final coalescer = ScanResultCoalescer();
+      final first = coalescer.next(
+          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true)!;
+      final updated = coalescer.next(
+          id: 'AA', name: 'Bulb', rssi: -42, isConnectable: true);
+      expect(updated, isNotNull);
+      expect(updated!.rssi, -42);
+      // The device did not become "newly discovered" by advertising again.
+      expect(updated.discoveredAt, first.discoveredAt);
+    });
+
+    test('a name change re-emits (late scan-response name)', () {
+      final coalescer = ScanResultCoalescer();
+      coalescer.next(id: 'AA', name: '', rssi: -50, isConnectable: true);
+      final updated = coalescer.next(
+          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+      expect(updated, isNotNull);
+      expect(updated!.name, 'Bulb');
+    });
+
+    test('devices are tracked independently by id', () {
+      final coalescer = ScanResultCoalescer();
+      coalescer.next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+      expect(
+        coalescer.next(id: 'BB', name: 'Bulb', rssi: -50, isConnectable: true),
+        isNotNull,
+      );
+    });
+  });
+
   group('shouldStopNativeScanOnCancel (N1 re-entrancy guard)', () {
     // Distinct objects stand in for scan subscriptions; identity is what the
     // guard compares.
