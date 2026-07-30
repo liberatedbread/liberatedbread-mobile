@@ -192,6 +192,39 @@ jobs:
           MOCK_FLAG: ${{ inputs.mock && '--dart-define=LIBERATED_BREAD_MOCK=true' || '' }}
         run: flutter build ios --debug --no-codesign --simulator $MOCK_FLAG
 
+      # ── verify the artifact ────────────────────────────────────────────────
+      # This IPA is the one that gets installed on a real iPhone, which is where
+      # the BLE outage actually happened, so it is the most valuable place to
+      # assert on the bundle rather than on an exit code. A missing
+      # NSBluetoothAlwaysUsageDescription means iOS terminates the app the
+      # moment CoreBluetooth is touched; a CFBundleIdentifier that drifted from
+      # ca.pigscanfly.liberatedbread means the ad-hoc provisioning profile no
+      # longer matches and the install silently fails on the device.
+      #
+      # --skip-symbols here, unlike the CI simulator build: this is a profile
+      # build, and Xcode strips the app binary, so asserting on the Rust FFI
+      # symbols in a shipped IPA risks a false failure that cannot be validated
+      # without a signed device build. The unstripped debug bundle in ci.yml's
+      # ios-build job is where the linked-Rust-library assertion lives; adding
+      # an unverifiable variant of it here would be exactly the kind of check
+      # that can fail for the wrong reason.
+      - name: Verify signed IPA contents
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          ipa="$(find build/ios/ipa -name '*.ipa' -maxdepth 1 | head -1)"
+          if [ -z "$ipa" ]; then
+            echo "::error::No .ipa produced under build/ios/ipa"
+            exit 1
+          fi
+          ./scripts/verify_ios_app.sh "$ipa" --skip-symbols
+
+      # The fallback bundle is a debug build and is not stripped, so the full
+      # check — including the linked Rust library — applies.
+      - name: Verify unsigned simulator bundle contents
+        if: steps.signing.outputs.available == 'false'
+        run: ./scripts/verify_ios_app.sh build/ios/iphonesimulator/Runner.app
+
       # ── artifact ───────────────────────────────────────────────────────────
       # The signed IPA is this workflow's entire deliverable: a run that ends
       # without one must be red, so no continue-on-error here (even a quota

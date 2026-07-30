@@ -109,9 +109,12 @@ jobs:
       - run: cargo test --all-features
 
   android-build:
-    name: Android build smoke (debug APK, mock mode)
+    name: Android build smoke (debug + release APK, contents verified)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Raised from 45: this job now also does a release build, which re-runs the
+    # Dart AOT compiler for three ABIs and makes cargokit compile the crate
+    # again under rust/Cargo.toml's release profile (thin LTO, codegen-units=1).
+    timeout-minutes: 60
     # Gate on the cheap rust job too — a clippy/test failure in the crate must
     # not let the expensive native builds burn runner minutes.
     needs: [flutter, rust]
@@ -149,6 +152,29 @@ jobs:
       - run: flutter pub get
       - name: Build debug APK
         run: flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true --verbose
+      # A zero exit from `flutter build apk` says nothing about what is INSIDE
+      # the APK, and that is where the bugs are. scripts/verify_apk.sh opens the
+      # artifact and asserts on it:
+      #
+      #   * lib/<abi>/libliberated_bread_core.so exists and is not a stub for
+      #     every ABI the build produced. A cargokit or Gradle regression that
+      #     drops the Rust cdylib packages a perfectly green APK that crashes
+      #     with "Failed to lookup symbol" on the first FFI call — this was
+      #     previously only ever caught by running `unzip -l` by hand.
+      #   * The MERGED manifest still declares INTERNET / BLUETOOTH_SCAN /
+      #     BLUETOOTH_CONNECT / ACCESS_FINE_LOCATION and the applicationId is
+      #     still ca.pigscanfly.liberatedbread. A plugin upgrade or a merger
+      #     conflict that drops a permission produces an APK that installs fine
+      #     and fails every BLE scan at runtime.
+      #
+      # Debug builds all four ABIs, so all four are required here; the release
+      # step below pins the (different) release set. The same script runs
+      # locally against a local build — the scripts/test.sh pattern.
+      - name: Verify debug APK contents
+        run: ./scripts/verify_apk.sh build/app/outputs/flutter-apk/app-debug.apk
+          --require-abis arm64-v8a,armeabi-v7a,x86,x86_64
+      # Uploaded before the release build so a release-only failure still leaves
+      # the debug APK downloadable for triage.
       # Best-effort upload: continue-on-error (deliberate, survives artifact-quota hits) would neutralize if-no-files-found: error anyway, so warn.
       - uses: actions/upload-artifact@v4
         continue-on-error: true
@@ -157,6 +183,49 @@ jobs:
           path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: warn
           retention-days: 1
+      # Only debug was ever built, which left two gaps that a release build
+      # closes at once — hence one step, deliberately without the mock define:
+      #
+      #   1. R8. Flutter's Gradle plugin sets minifyEnabled + shrinkResources on
+      #      the `release` buildType (flutter_tools/gradle/.../flutter.groovy),
+      #      and this project ships no android/app/proguard-rules.pro, so
+      #      release runs R8 with Flutter's default rules only. Stripping a
+      #      JNI-reachable class or a native library is exactly what happens
+      #      there, it is invisible in debug, and it would ship silently.
+      #      Release also runs the Dart AOT compiler and packages a different
+      #      ABI set (no x86), so its packaging path is genuinely a different
+      #      code path, not a rerun of the debug one.
+      #      No signing secrets are needed: android/app/build.gradle points the
+      #      release buildType at signingConfigs.debug, so `--release` builds
+      #      unattended and the `--profile` fallback is unnecessary.
+      #
+      #   2. The all-mock blind spot. Every other automated path passes
+      #      --dart-define=LIBERATED_BREAD_MOCK=true, and
+      #      lib/providers/ble_provider.dart reads it via bool.fromEnvironment —
+      #      a compile-time const, so the AOT tree shaker drops the untaken
+      #      branch outright. RealBleService and its flutter_blue_plus /
+      #      permission_handler call sites are therefore never AOT-compiled by
+      #      any mock build, and a compile or link error there could hide
+      #      behind mock mode indefinitely. Omitting the define compiles the
+      #      real path. NOTE: this is compile coverage only. Exercising real
+      #      BLE at RUNTIME still needs physical hardware, which no hosted
+      #      runner has — see scripts/run-ios-device.sh / run-android.sh.
+      #
+      # Kept in this job rather than a new one so it reuses the warm Gradle,
+      # pub, cargo and Swatinem caches; a separate job would pay that bootstrap
+      # again for identical coverage. Deliberately NOT also building an app
+      # bundle: `flutter build appbundle` would repeat the same AOT + cargokit
+      # work for a third time, and verifying an .aab's payload needs bundletool
+      # (its manifest is protobuf, so aapt2 cannot read it) — the release APK
+      # already covers the R8 and native-packaging risk that motivates it.
+      - name: Build release APK (real BLE path, no mock define)
+        run: flutter build apk --release --verbose
+      # Identical assertions against the release artifact, so an R8 or
+      # packaging regression that only bites release cannot slip through.
+      # Release drops the x86 ABI, hence the shorter required set.
+      - name: Verify release APK contents
+        run: ./scripts/verify_apk.sh build/app/outputs/flutter-apk/app-release.apk
+          --require-abis arm64-v8a,armeabi-v7a,x86_64
 
   android-integration:
     name: Android integration tests (emulator, mock mode)
@@ -281,9 +350,19 @@ jobs:
           script: flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
 
   ios-build:
-    name: iOS build smoke (no-codesign, mock mode)
+    name: iOS build + bundle verification + simulator integration tests
     runs-on: macos-latest
-    timeout-minutes: 45
+    # ONE job on purpose. macOS minutes bill at 10x, and the simulator build the
+    # smoke test already performs is exactly the build the integration tests
+    # need warmed. A separate ios-integration job would repeat that build (Xcode
+    # bootstrap, pod install, cargokit compiling the crate for
+    # aarch64-apple-ios-sim) on a second 10x runner for zero extra coverage.
+    # Merging costs granularity — a flaky test also reddens the build smoke —
+    # which is the deliberate trade for roughly halving the macOS spend.
+    #
+    # Raised from 45 to cover the simctl boot and the test run on top of the
+    # build. The test step carries its own tighter timeout below.
+    timeout-minutes: 75
     needs: [flutter, rust]
     steps:
       - uses: actions/checkout@v4
@@ -302,3 +381,145 @@ jobs:
       - run: flutter pub get
       - name: Build iOS (simulator, no codesign)
         run: flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true
+
+      # ── verify the artifact, not just the exit code ─────────────────────────
+      # `flutter build ios` running pod install itself means a *failed* pod
+      # install fails the build — but a SKIPPED one does not, and a skipped one
+      # leaves the plugin pods unlinked while the Runner target still compiles.
+      # Podfile.lock is the artifact that proves resolution actually happened,
+      # and the pod list proves the plugins the app depends on were part of it.
+      # Pod names come from .flutter-plugins-dependencies (they are the
+      # federated iOS implementations, not the pub package names).
+      - name: Verify CocoaPods resolution happened
+        run: |
+          if [ ! -f ios/Podfile.lock ]; then
+            echo "::error file=ios/Podfile::ios/Podfile.lock is absent after the build — CocoaPods never resolved, so no plugin pod is linked into the app."
+            exit 1
+          fi
+          missing=0
+          # The three pods whose absence is silently fatal at runtime. Not
+          # asserting integration_test: it is a dev-dependency plugin, newer
+          # Flutter versions exclude those from release pod installs, and the
+          # simulator test step below is a far better check for it anyway.
+          for pod in liberated_bread_core flutter_blue_plus_darwin permission_handler_apple; do
+            if grep -qE "^ +- ${pod} \(" ios/Podfile.lock; then
+              echo "  ok  pod ${pod}"
+            else
+              echo "::error file=ios/Podfile::Pod '${pod}' is missing from ios/Podfile.lock — its platform channels would be unavailable at runtime."
+              missing=1
+            fi
+          done
+          # Informational, not asserted. This is the exact knob behind the iOS
+          # BLE outage: permission_handler_apple compiles each permission
+          # strategy out unless the Podfile's post_install hook defines the
+          # matching PERMISSION_* macro, and PermissionHandlerEnums.h defaults
+          # them all to 0. lib/services/real_ble_service.dart deliberately no
+          # longer depends on PERMISSION_BLUETOOTH (CoreBluetooth raises its own
+          # prompt), so asserting a value here would encode a requirement the
+          # code does not have. Printing the resolved macros instead makes any
+          # future flip visible in the log next to the code that would need it.
+          xcconfig="ios/Pods/Target Support Files/permission_handler_apple/permission_handler_apple.debug.xcconfig"
+          if [ -f "$xcconfig" ]; then
+            echo "permission_handler_apple compile-time macros:"
+            grep -E 'GCC_PREPROCESSOR_DEFINITIONS' "$xcconfig" | sed 's/^/  /' || true
+          fi
+          exit $missing
+      # Regression this catches: plist changes are invisible to a compiler. The
+      # BLE usage strings are what let CoreBluetooth raise the system prompt at
+      # all (real_ble_service.dart relies on that instead of permission_handler
+      # on iOS), and NSAllowsLocalNetworking is what lets the app reach a
+      # plain-http Home Assistant on the LAN. Dropping any of them builds clean
+      # and breaks the app on device. Also asserts CFBundleIdentifier, since a
+      # bundle-id drift invalidates the ad-hoc provisioning profile.
+      #
+      # Symbol checking is ON here (no --skip-symbols): this is an unstripped
+      # debug bundle, so the flutter_rust_bridge FFI entry points must be
+      # present in the linked binary. That is the iOS counterpart of the APK's
+      # .so check — see scripts/verify_ios_app.sh for why the linked binary,
+      # rather than the .a in the build intermediates, is the thing to assert on.
+      - name: Verify built .app bundle (Info.plist + linked Rust library)
+        run: ./scripts/verify_ios_app.sh build/ios/iphonesimulator/Runner.app
+
+      # ── integration tests on a simulator ────────────────────────────────────
+      # Regression this catches: until now NO integration test had ever run on
+      # iOS. android-integration was the only place the flow tests executed on a
+      # device, so an iOS-only break in plugin registration, platform channels
+      # or FFI initialisation had zero automated coverage.
+      #
+      # One simulator only — macOS minutes bill at 10x. The first available
+      # iPhone in the runner image is used rather than a pinned model so an
+      # Xcode image bump that retires a device name cannot break the job.
+      - name: Boot an iOS simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          # `simctl list devices available` prints "    iPhone 15 (UDID) (Shutdown)".
+          udid="$(xcrun simctl list devices available | awk -F'[()]' '/^ +iPhone/ { print $2; exit }')"
+          if [ -z "$udid" ]; then
+            echo "::error::No iPhone simulator available on this runner image."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Booting simulator $udid"
+          xcrun simctl boot "$udid" || true   # non-zero if already booted
+          xcrun simctl bootstatus "$udid" -b
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      # -d is required, not optional: macos runners also expose the macOS
+      # desktop device, and `flutter test integration_test` refuses to run with
+      # more than one device connected.
+      #
+      # No separate warm-up step is needed here, unlike android-integration:
+      # `flutter test integration_test` builds the app during the *loading*
+      # phase, which package:test_core caps at a hardcoded 12 minutes that no
+      # flag can raise — but the "Build iOS (simulator, no codesign)" step above
+      # already populated the Xcode and cargo caches in this same job, so the
+      # rebuild inside that window is incremental. That is a third reason these
+      # are one job.
+      #
+      # --timeout raises the per-test body limit only, mirroring the Android
+      # job; the step timeout is the outer bound on a genuinely hung test.
+      - name: Run integration tests on the simulator (mock mode)
+        timeout-minutes: 30
+        run: |
+          flutter test integration_test \
+            --exclude-tags=e2e \
+            -d "${{ steps.sim.outputs.udid }}" \
+            --timeout 1200s \
+            --dart-define=LIBERATED_BREAD_MOCK=true
+
+      # ── root cause of the iOS BLE outage ───────────────────────────────────
+      # This project was scaffolded on Linux, where flutter_tools skips
+      # CocoaPods setup, so ios/Podfile was never created or committed. On a
+      # real iPhone that left permission_handler_apple's Bluetooth strategy
+      # compiled out (PERMISSION_BLUETOOTH defaults to 0 in
+      # PermissionHandlerEnums.h, which answers every request with
+      # PermanentlyDenied), so the OS prompt was never shown and scanning could
+      # never start. CI saw none of it: this job is a simulator build and every
+      # automated path uses MockBleService.
+      #
+      # "Does pod install succeed?" is NOT a usable check for this — Flutter
+      # auto-generates a Podfile when one is missing, so it succeeds either way
+      # and would have passed on the broken repo. The meaningful assertion is
+      # whether the Podfile is COMMITTED: a generated one is unreviewed, varies
+      # with whichever Flutter version happened to build it, and carries no
+      # post_install hook, so any plugin needing a compile-time macro silently
+      # gets the default. That is invisible in a diff, which is precisely how
+      # this shipped. Hence `git ls-files`, not `test -f` — a Podfile that
+      # exists only because Flutter just generated it in the working tree is
+      # exactly the state being rejected.
+      #
+      # Error rather than ::warning:: — a warning is effectively what this repo
+      # already had, and it produced a permanently broken feature on device.
+      #
+      # Deliberately the LAST step: it is a git query costing milliseconds, and
+      # putting it first would abort the job before any of the checks above got
+      # to report. Late, the job still goes red, but a run also tells you
+      # everything else that is (or is not) wrong in the same log.
+      - name: Require a committed ios/Podfile
+        run: |
+          if git ls-files --error-unmatch ios/Podfile >/dev/null 2>&1; then
+            echo "ios/Podfile is committed and reviewable."
+            exit 0
+          fi
+          echo "::error file=ios/Podfile::ios/Podfile is not committed. Flutter auto-generates one at build time, so this job still built — but the generated Podfile has no post_install hook, which is how permission_handler's iOS Bluetooth strategy shipped compiled out. Run 'flutter build ios' locally (or copy Flutter's template), add any required post_install macro definitions, and commit ios/Podfile so it is reviewable."
+          exit 1
