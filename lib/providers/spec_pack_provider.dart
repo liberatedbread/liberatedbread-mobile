@@ -1,12 +1,12 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/constants.dart';
+import '../core/log.dart';
 import '../services/prefs_settings_store.dart';
 import '../services/settings_store.dart';
 import '../services/spec_pack_service.dart';
@@ -93,7 +93,8 @@ final cachedSpecPacksProvider =
   try {
     return await service.loadCachedSpecs();
   } catch (e) {
-    debugPrint('cachedSpecPacksProvider: falling back to bundled specs: $e');
+    Log.packs.warning('could not read cached packs; using bundled specs only',
+        error: e);
     return const <String, String>{};
   }
 });

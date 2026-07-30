@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/models/ha_config.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
 import 'package:liberated_bread_mobile/services/settings_store.dart';
@@ -40,6 +41,21 @@ const _config = HaConfig(
   webhookId: 'wh1',
 );
 
+/// Distinctive filler for the secret parts of a config, so a leak of any
+/// window of the stored blob is unmistakable in an assertion.
+const _secretMarker = 'SECRETTOKENMATERIAL';
+
+/// The exception `jsonDecode` throws for [raw] — i.e. the object the previous
+/// `debugPrint('...: $e')` interpolated straight into the log.
+Object _decodeFailure(String raw) {
+  try {
+    jsonDecode(raw);
+  } catch (e) {
+    return e;
+  }
+  throw StateError('expected a decode failure for: $raw');
+}
+
 Future<HaConfig?> _loadConfig(SettingsStore store) async {
   final container = ProviderContainer(
     overrides: [settingsStoreProvider.overrideWithValue(store)],
@@ -73,6 +89,39 @@ void main() {
       expect(await _loadConfig(store), isNull);
       // And the corrupt value is cleared so a re-registration can overwrite it.
       expect(store.values.containsKey(HaConfigNotifier.configKey), isFalse);
+    });
+
+    test('a corrupt config never leaks token material into the log', () async {
+      // The blob this branch exists to handle is the DECRYPTED config: the
+      // long-lived access token and the webhook id.
+      final blob = jsonEncode(const HaConfig(
+        baseUrl: 'http://ha.local:8123',
+        token: 'lltok-$_secretMarker-$_secretMarker',
+        deviceId: 'dev1',
+        webhookId: 'wh-$_secretMarker',
+      ).toJson());
+      // Truncated mid-token, which is exactly the case the branch names.
+      final corrupt = blob.substring(0, blob.indexOf(_secretMarker) + 40);
+
+      // The hazard is real, not hypothetical: FormatException.toString()
+      // quotes a window of its source around the failure offset, so the
+      // exception object itself carries token material. Interpolating it -
+      // which is what this code used to do - put that in the log.
+      expect('${_decodeFailure(corrupt)}', contains(_secretMarker));
+
+      final records = Log.captureRecords();
+      addTearDown(Log.reset);
+      final store =
+          InMemorySettingsStore({HaConfigNotifier.configKey: corrupt});
+
+      expect(await _loadConfig(store), isNull);
+
+      // We still say what happened, by type...
+      final logged = records.map((r) => r.format()).join('\n');
+      expect(logged, contains('FormatException'));
+      expect(logged, contains('corrupt'));
+      // ...but no part of the secret reaches the log.
+      expect(logged, isNot(contains(_secretMarker)));
     });
 
     test('recovers from a well-formed JSON blob with the wrong shape',
@@ -124,6 +173,28 @@ void main() {
       // The stored id is untouched (not regenerated).
       expect(
           store.values[HaConfigNotifier.deviceIdKey], 'preexisting-device-id');
+    });
+
+    test('the log records the base url but never the token or webhook',
+        () async {
+      final records = Log.captureRecords();
+      addTearDown(Log.reset);
+      final container = ProviderContainer(
+        overrides: [
+          settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
+          haApiClientProvider.overrideWithValue(FakeHaApiClient()),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(haConfigProvider.future);
+
+      await container.read(haConfigProvider.notifier).register(
+          baseUrl: 'http://ha.local:8123', token: 'lltok-$_secretMarker');
+
+      final logged = records.map((r) => r.format()).join('\n');
+      expect(logged, contains('http://ha.local:8123'));
+      expect(logged, isNot(contains(_secretMarker)));
+      expect(logged, contains('<redacted>'));
     });
   });
 }

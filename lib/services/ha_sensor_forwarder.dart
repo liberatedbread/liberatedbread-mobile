@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/ha_sensor_mapping.dart';
+import '../core/log.dart';
 import '../models/ha_config.dart';
 import '../models/ha_sensor.dart';
 import 'ha_api_client.dart';
@@ -126,6 +127,10 @@ class HaSensorForwarder {
       final config = await _readConfig();
       if (config == null || !config.isRegistered) {
         // Disconnected: whatever was registered belongs to a dead webhook.
+        if (_pendingStates.isNotEmpty) {
+          Log.ha.debug('not registered; dropped ${_pendingStates.length} '
+              'pending state(s)');
+        }
         _registeredIds.clear();
         _cacheWebhookId = null;
         _pendingRegistrations.clear();
@@ -134,10 +139,15 @@ class HaSensorForwarder {
       }
       if (_cacheWebhookId != config.webhookId) {
         // New registration or different HA instance since the last flush.
+        Log.ha.info('webhook changed; re-registering sensors on this flush');
         _registeredIds.clear();
         _cacheWebhookId = config.webhookId;
       }
       if (!config.enabled) {
+        if (_pendingStates.isNotEmpty) {
+          Log.ha.debug('forwarding disabled; dropped '
+              '${_pendingStates.length} pending state(s)');
+        }
         _pendingRegistrations.clear();
         _pendingStates.clear();
         return;
@@ -171,12 +181,24 @@ class HaSensorForwarder {
           );
           // HA forgot a sensor (e.g. device entry re-added): re-register it
           // on the next sighting instead of updating into the void.
+          var forgotten = 0;
           for (final result in results) {
             if (!result.success && result.errorCode == 'not_registered') {
               _registeredIds.remove(result.uniqueId);
+              forgotten++;
             }
           }
+          // Counted, not logged per sensor: one line per flush, not per entity.
+          if (forgotten > 0) {
+            Log.ha.info('$forgotten sensor(s) unknown to HA; re-registering on '
+                'the next reading');
+          }
         }
+        // Debug, not info: with a chatty notify characteristic this is once per
+        // minSendInterval. It is on by default in debug builds, which is the
+        // desktop-iteration case, and off from profile builds up.
+        Log.ha.debug('flushed ${states.length} state(s), '
+            '${registrations.length} new registration(s)');
         status._recordSuccess(DateTime.now());
       } catch (e) {
         // Best-effort recovery: put back what we failed to send so the next
@@ -185,11 +207,17 @@ class HaSensorForwarder {
         // reschedule here - that would hammer a down server every interval;
         // the next BLE reading (or a manual refresh) drives the retry.
         _requeue(registrations, states);
+        Log.ha.warning(
+          'flush failed; requeued ${registrations.length} registration(s) '
+          'and ${states.length} state(s)',
+          error: e,
+        );
         status._recordError(_statusErrorText(e));
       }
     } catch (e) {
       // Failure before any work was captured (config read / interval wait).
       _flushScheduled = false;
+      Log.ha.warning('flush aborted before any work was captured', error: e);
       status._recordError(_statusErrorText(e));
     }
   }
@@ -223,4 +251,7 @@ String _statusErrorText(Object e) => e is HaApiException
         e,
         context: 'HA forward',
         fallback: 'Could not send the last update to Home Assistant.',
+        // File the line under `ha` rather than the `ui` default: this is the
+        // background forwarder, not a screen.
+        log: Log.ha,
       );
