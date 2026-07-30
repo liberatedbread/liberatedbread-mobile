@@ -48,6 +48,33 @@ drives the NDK itself during `flutter build`.
 | CocoaPods | latest |
 | Xcode Command Line Tools | `xcode-select --install` |
 
+### Linux Desktop Builds
+
+Only needed if you want to run the app on your Linux desktop (see
+[Linux desktop](#linux-desktop) below). Flutter's standard Linux toolchain plus
+one extra for secure storage:
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+  clang cmake ninja-build pkg-config \
+  libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
+# optional: run headlessly (no display), the way CI does
+sudo apt-get install -y xvfb
+```
+
+| Package | Why |
+|---------|-----|
+| `clang`, `cmake`, `ninja-build`, `pkg-config` | The Linux desktop build system |
+| `libgtk-3-dev` | The GTK 3 shell the runner in `linux/` is written against |
+| `liblzma-dev` | Needed transitively to link against GTK |
+| `libsecret-1-dev` | `flutter_secure_storage_linux` — Home Assistant token storage |
+| `libjsoncpp-dev` | Pulled in by the CMake/plugin toolchain |
+| `xvfb` | Virtual X server, for running without a display |
+
+Check it worked with `pkg-config --exists gtk+-3.0 && echo ok`, or just run
+`./scripts/run-linux.sh` — it verifies each of these up front and names the
+missing package rather than failing deep inside CMake.
+
 ---
 
 ## Automated Setup
@@ -199,6 +226,37 @@ flutter build ios            # Release
 flutter build ios --debug    # Debug
 ```
 
+### Build for Linux Desktop
+
+```bash
+flutter build linux --release --target-platform=linux-x64
+flutter build linux --debug   --target-platform=linux-x64
+```
+
+Output lands in `build/linux/x64/{debug,release}/bundle/` — a relocatable
+directory containing the `liberated_bread_mobile` executable, `data/` (Flutter
+assets and ICU data) and `lib/` (the Flutter engine, the plugin `.so` files, and
+`libliberated_bread_core.so`).
+
+`--target-platform` defaults to `linux-x64`; pin it so an arm64 host fails
+loudly rather than silently producing an untested artifact.
+
+Verify the bundle actually contains the Rust library:
+
+```bash
+./scripts/verify_linux_bundle.sh build/linux/x64/release/bundle
+```
+
+This is not ceremony. `flutter build linux` exits 0 whether or not cargokit
+bundled the Rust `.so`: `linux/flutter/generated_plugins.cmake` looks the
+library up through `${liberated_bread_core_bundled_libraries}`, and CMake
+expands an undefined variable to the empty string instead of erroring. When
+`rust_builder/linux/CMakeLists.txt` exported the wrong variable name, the build
+stayed green and the app died on the first FFI call with
+`Failed to lookup symbol`. The script also checks the executable's
+`RUNPATH` includes `$ORIGIN/lib` — without it the `.so` is present and still
+unreachable at runtime.
+
 ### Build Rust Only (for testing)
 
 ```bash
@@ -219,6 +277,9 @@ cargo build --release
 
 # Run with mock BLE devices (no hardware needed)
 ./scripts/run.sh --mock
+
+# Linux desktop — no emulator, no simulator, hot reload
+./scripts/run-linux.sh --mock
 ```
 
 The run script:
@@ -338,6 +399,50 @@ macOS + iOS Simulator only: the simulator shares the host's network, so
 the emulator itself — which is why the test is tagged `e2e` in
 `dart_test.yaml` and CI's emulator job runs with `--exclude-tags=e2e`.
 
+### Integration tests on the Linux desktop (no emulator)
+
+The flow tests run on the Linux desktop target, which is by far the quickest
+way to execute them — and headlessly, so a machine with no display works:
+
+```bash
+xvfb-run -a flutter test integration_test/mock_flow_test.dart \
+  -d linux --dart-define=LIBERATED_BREAD_MOCK=true
+```
+
+**Run one file per invocation.** Passing the whole `integration_test/`
+directory at once works on Android and iOS but not on the Linux desktop: the
+first file passes, then the tool reuses its VM-service connection for the next
+and fails immediately with
+
+```
+Bad state: Cannot add new events after calling close
+  dart:io-patch/socket_patch.dart 2455:41  _Socket._onData
+```
+
+That's flutter_tools closing the observatory socket when the first app exits
+and still receiving data on it — a tooling bug, not an app bug. The same file
+passes on its own in ~23 seconds. CI therefore loops over the files one at a
+time; mirror that locally:
+
+```bash
+for t in integration_test/*_test.dart; do
+  xvfb-run -a flutter test "$t" -d linux --exclude-tags=e2e \
+    --dart-define=LIBERATED_BREAD_MOCK=true
+done
+```
+
+Two more things worth knowing:
+
+- **Build the app first**, or the first file may time out. `flutter test`
+  builds during its *loading* phase, and `package:test_core` caps that at a
+  hardcoded 12 minutes no flag can raise. A cold build blows it; running
+  `flutter build linux --debug --dart-define=LIBERATED_BREAD_MOCK=true`
+  beforehand drops the load to ~20 seconds. (`--concurrency` does not help —
+  `flutter test` ignores it for integration tests.)
+- `e2e_walkthrough_test.dart` has every test tagged `e2e`, so with
+  `--exclude-tags=e2e` it prints `No tests ran.` and exits 1. That's a skip,
+  not a failure — CI matches that message explicitly.
+
 ### Rust Tests
 
 ```bash
@@ -446,14 +551,38 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 
 ### Linux
 
+<a id="linux-desktop"></a>
+
+- **Linux desktop app**: supported, and the fastest way to iterate. `linux/` is
+  committed and `./scripts/run-linux.sh --mock` builds a native GTK app with
+  hot reload — no emulator, no simulator, no device pairing. Install the
+  [Linux desktop dependencies](#linux-desktop-builds) first. x86-64 is the
+  supported target; `linux-arm64` builds exist in Flutter but are untested here.
 - **BLE permissions**: Real BLE scanning may require root access or adding
   your user to the `bluetooth` group:
   ```bash
   sudo usermod -a -G bluetooth $USER
   # Log out and back in
   ```
-- **Linux desktop app**: Not currently configured (the app targets
-  Android/iOS mobile). Use an Android device or emulator.
+- **BLE on the desktop goes through BlueZ**: `flutter_blue_plus` is federated,
+  and `flutter_blue_plus_linux` talks to BlueZ over D-Bus. That is real
+  Bluetooth, so it needs a physical adapter with `bluetoothd` running — a
+  container or VM has neither, and scans there simply find nothing. Use
+  `--mock` unless you have hardware. Note this implementation is pure Dart, so
+  unlike the other plugins it ships no `.so` in the bundle.
+- **`permission_handler` has no Linux implementation**, and the app doesn't need
+  one: `lib/services/real_ble_service.dart` only calls it under
+  `if (Platform.isAndroid)`, and every other platform falls through to
+  "granted". BlueZ enforces access at the D-Bus level instead. Don't add
+  permission_handler Linux code to "fix" this.
+- **Window size**: `linux/my_application.cc` opens the window phone-shaped
+  (430x900) rather than the template's 1280x720, because every screen in
+  `lib/screens/` is laid out for a phone. Resize freely to check responsive
+  behaviour.
+- **Headless**: `./scripts/run-linux.sh --headless --mock` runs under Xvfb for
+  machines with no display (`sudo apt-get install -y xvfb`). Expect benign
+  `Gtk`/`Atk` CRITICAL warnings about GSettings and `atk_socket_embed` — a bare
+  X server has no GNOME settings schema or AT-SPI bus, and the app runs anyway.
 - **Android emulator**: Requires KVM for hardware acceleration:
   ```bash
   sudo apt install qemu-kvm
@@ -495,7 +624,7 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
-every pull request. Five jobs:
+every pull request. Six jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
@@ -504,6 +633,7 @@ every pull request. Five jobs:
 | `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
 | `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an APK build, frees runner disk, then `flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
 | `ios-build` | macos-latest | `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true` |
+| `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
 
 Caches: Flutter SDK, `~/.pub-cache`, `.dart_tool`, and `rust/target/` are
 cached across runs. The quick checks run first; the native build jobs wait for
