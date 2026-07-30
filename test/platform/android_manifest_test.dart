@@ -147,6 +147,60 @@ void main() {
     });
   });
 
+  group('AndroidManifest covers the whole minSdk range', () {
+    // BLUETOOTH_SCAN/BLUETOOTH_CONNECT only exist on API 31+. Below that,
+    // Android gates the same operations behind the legacy BLUETOOTH and
+    // BLUETOOTH_ADMIN permissions. flutter_blue_plus_android ships an
+    // intentionally empty library manifest, so nothing merges them in for us:
+    // if this app's manifest omits them, BluetoothAdapter throws
+    // SecurityException on scan and connect for every device below Android 12,
+    // which the declared minSdk of 21 promises to support.
+    for (final legacy in const [
+      'android.permission.BLUETOOTH',
+      'android.permission.BLUETOOTH_ADMIN',
+    ]) {
+      test('$legacy is declared with maxSdkVersion 30', () {
+        final declared = xmlElementAttributes(manifest, 'uses-permission')
+            .where((e) => e['android:name'] == legacy)
+            .toList();
+        expect(
+          declared,
+          hasLength(1),
+          reason: '$legacy must be declared. minSdk is 21 '
+              '(android/app/build.gradle), but BLUETOOTH_SCAN/'
+              'BLUETOOTH_CONNECT only apply from API 31, and '
+              'flutter_blue_plus_android deliberately declares no permissions '
+              'of its own. Without $legacy, BLE scanning and connecting fail '
+              'with SecurityException on Android 5.0 through 11.',
+        );
+        expect(
+          declared.single['android:maxSdkVersion'],
+          '30',
+          reason: '$legacy must carry android:maxSdkVersion="30" so it is not '
+              'requested on Android 12+, where it was replaced by the '
+              'BLUETOOTH_SCAN/BLUETOOTH_CONNECT pair.',
+        );
+      });
+    }
+
+    test('minSdk still matches the legacy-permission ceiling', () {
+      // If minSdk ever rises above 30, the legacy permissions become dead
+      // weight and this whole group should be deleted rather than updated.
+      final gradle = repoFile('android/app/build.gradle').readAsStringSync();
+      final match = RegExp(r'minSdk\s*=\s*(\d+)').firstMatch(gradle);
+      expect(match, isNotNull,
+          reason: 'Could not read minSdk from android/app/build.gradle.');
+      final minSdk = int.parse(match!.group(1)!);
+      expect(
+        minSdk,
+        lessThanOrEqualTo(30),
+        reason: 'minSdk is now $minSdk, above the API 30 ceiling of the legacy '
+            'BLUETOOTH/BLUETOOTH_ADMIN permissions. Those declarations are now '
+            'dead weight — remove them and delete this group.',
+      );
+    });
+  });
+
   group('AndroidManifest keeps LAN Home Assistant reachable', () {
     test('android:usesCleartextTraffic stays enabled', () {
       // INTENTIONAL, DO NOT "SECURITY-HARDEN" THIS AWAY.
