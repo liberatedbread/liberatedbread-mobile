@@ -45,10 +45,25 @@ check_frb_bindings() {
     return 0
   fi
   flutter_rust_bridge_codegen generate
+  # `git diff --exit-code` catches edits to tracked generated files but is
+  # blind to brand-new (untracked) ones, so also fail on ANY pending change
+  # under the generated paths. Keep in sync with .github/workflows/ci.yml.
   git diff --exit-code lib/src/rust/ rust/src/frb_generated.rs
+  local drift
+  drift="$(git status --porcelain --untracked-files=all lib/src/rust rust/src/frb_generated.rs)"
+  if [[ -n "$drift" ]]; then
+    echo "FRB generated output is stale (modified or untracked files):" >&2
+    echo "$drift" >&2
+    return 1
+  fi
 }
 
 cd "$PROJECT_DIR"
+
+# CI runs pub get before format/analyze/test; without it a fresh clone or a
+# dependency bump fails here with a confusing "Target of URI doesn't exist".
+log "flutter pub get"
+flutter pub get
 
 log "dart format --set-exit-if-changed ."
 dart format --set-exit-if-changed .

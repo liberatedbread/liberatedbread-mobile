@@ -39,6 +39,7 @@ jobs:
   flutter:
     name: Flutter (test + analyze + format)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -69,7 +70,17 @@ jobs:
         run: |
           cargo install --locked flutter_rust_bridge_codegen@2.9.0
           flutter_rust_bridge_codegen generate
+          # `git diff --exit-code` catches edits to tracked generated files but
+          # is blind to brand-new (untracked) ones, so also fail on ANY pending
+          # change under the generated paths, echoing the status first so the
+          # failure is diagnosable. Keep in sync with scripts/test.sh.
           git diff --exit-code lib/src/rust/ rust/src/frb_generated.rs
+          drift="$(git status --porcelain --untracked-files=all lib/src/rust rust/src/frb_generated.rs)"
+          if [ -n "$drift" ]; then
+            echo "FRB generated output is stale (modified or untracked files):"
+            echo "$drift"
+            exit 1
+          fi
       - run: flutter test --coverage
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -81,6 +92,7 @@ jobs:
   rust:
     name: Rust (test + clippy + fmt)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: rust
@@ -99,7 +111,10 @@ jobs:
   android-build:
     name: Android build smoke (debug APK, mock mode)
     runs-on: ubuntu-latest
-    needs: [flutter]
+    timeout-minutes: 45
+    # Gate on the cheap rust job too — a clippy/test failure in the crate must
+    # not let the expensive native builds burn runner minutes.
+    needs: [flutter, rust]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -134,18 +149,22 @@ jobs:
       - run: flutter pub get
       - name: Build debug APK
         run: flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true --verbose
+      # Best-effort upload: continue-on-error (deliberate, survives artifact-quota hits) would neutralize if-no-files-found: error anyway, so warn.
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
           name: app-debug-mock.apk
           path: build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 1
 
   android-integration:
     name: Android integration tests (emulator, mock mode)
     runs-on: ubuntu-latest
-    needs: [flutter]
+    # Job-level bound sits above the emulator step's own 60-minute timeout so
+    # the step limit fires first and setup/teardown still get headroom.
+    timeout-minutes: 75
+    needs: [flutter, rust]
     strategy:
       matrix:
         api-level: [34]
@@ -264,7 +283,8 @@ jobs:
   ios-build:
     name: iOS build smoke (no-codesign, mock mode)
     runs-on: macos-latest
-    needs: [flutter]
+    timeout-minutes: 45
+    needs: [flutter, rust]
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
