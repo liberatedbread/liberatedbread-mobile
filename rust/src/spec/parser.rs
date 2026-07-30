@@ -182,9 +182,15 @@ fn validate_template_references(command_name: &str, command: &Command) -> Result
 fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
     let Some((lo, hi)) = param.value_type.integer_range() else {
         // No numeric range (string/bytes): min/max are meaningless here.
-        // Reject rather than silently ignore an author's bound.
-        for (label, bound) in [("min", param.min), ("max", param.max)] {
-            if bound.is_some() {
+        // Reject rather than silently ignore an author's bound. `allowed`
+        // gets the same treatment — its values are integers by schema, so on
+        // a non-numeric parameter it cannot describe anything sendable.
+        for (label, present) in [
+            ("min", param.min.is_some()),
+            ("max", param.max.is_some()),
+            ("allowed", param.allowed.is_some()),
+        ] {
+            if present {
                 return Err(SpecError::BoundsOnNonNumericType {
                     parameter_name: name.to_string(),
                     value_type: param.value_type.clone(),
@@ -212,6 +218,27 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
                 min,
                 max,
             });
+        }
+    }
+    // Every `allowed` value must sit within the parameter's EFFECTIVE bounds
+    // (explicit min/max, else the type's own range) — the same bounds
+    // encode_command enforces per write. Without this check a spec like
+    // `type: uint8, max: 100, allowed: [200]` parses clean, the UI builds a
+    // dropdown from it, and every visible choice fails at send time. Checked
+    // after the min/max validations above so the effective bounds are known
+    // to be coherent.
+    if let Some(allowed) = &param.allowed {
+        let lo_eff = param.min.unwrap_or(lo);
+        let hi_eff = param.max.unwrap_or(hi);
+        for &value in allowed {
+            if value < lo_eff || value > hi_eff {
+                return Err(SpecError::AllowedValueOutsideBounds {
+                    parameter_name: name.to_string(),
+                    value,
+                    min: lo_eff,
+                    max: hi_eff,
+                });
+            }
         }
     }
     Ok(())
@@ -527,6 +554,108 @@ services:
                 assert_eq!(value, 300);
             }
             other => panic!("expected ParameterRangeOutsideType, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_allowed_value_above_explicit_max() {
+        // The dropdown the UI builds from `allowed` must only offer values
+        // encode_command will accept; a choice outside the effective bounds
+        // would fail on every send.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_brightness:
+            description: x
+            template: [0x02, "{brightness}"]
+            parameters:
+              brightness:
+                type: uint8
+                max: 100
+                allowed: [0, 50, 200]"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::AllowedValueOutsideBounds {
+                parameter_name,
+                value,
+                min,
+                max,
+            }) => {
+                assert_eq!(parameter_name, "brightness");
+                assert_eq!(value, 200);
+                assert_eq!(min, 0);
+                assert_eq!(max, 100);
+            }
+            other => panic!("expected AllowedValueOutsideBounds, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_allowed_value_outside_type_range() {
+        // No explicit bounds: the type's own range is the effective one.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{n}"]
+            parameters:
+              n:
+                type: uint8
+                allowed: [0, 300]"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::AllowedValueOutsideBounds {
+                value, min, max, ..
+            }) => {
+                assert_eq!(value, 300);
+                assert_eq!(min, 0);
+                assert_eq!(max, 255);
+            }
+            other => panic!("expected AllowedValueOutsideBounds, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_allowed_values_at_effective_bounds() {
+        // Boundary values are legal choices, exactly as they are for min/max.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{n}"]
+            parameters:
+              n:
+                type: uint8
+                min: 10
+                max: 100
+                allowed: [10, 55, 100]"#,
+        );
+        parse_device_spec(&yaml).expect("allowed values at the bounds should parse");
+    }
+
+    #[test]
+    fn rejects_allowed_on_string_parameter() {
+        // Same philosophy as min/max on a non-numeric type: reject rather
+        // than silently ignore an author's constraint (allowed values are
+        // integers by schema, so on a string they describe nothing sendable).
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{s}"]
+            parameters:
+              s:
+                type: string
+                allowed: [1]"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::BoundsOnNonNumericType { bound, .. }) => {
+                assert_eq!(bound, "allowed");
+            }
+            other => panic!("expected BoundsOnNonNumericType, got {other:?}"),
         }
     }
 

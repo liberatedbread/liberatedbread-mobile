@@ -128,6 +128,13 @@ log "Screenshot server ready (pid $SHOT_PID)."
 
 # ── run the walkthrough ──────────────────────────────────────────────────────
 
+# Baseline stamp: only PNGs newer than this count as this run's output.
+# Without it, stale screenshots from an earlier walkthrough make a run that
+# captured nothing (server died after the readiness probe, every capture
+# skipped) look successful.
+RUN_STAMP="$(mktemp)"
+trap 'kill "$SHOT_PID" 2>/dev/null || true; rm -f "$RUN_STAMP"' EXIT
+
 cd "$PROJECT_DIR"
 flutter test integration_test/e2e_walkthrough_test.dart \
   -d "$UDID" \
@@ -136,10 +143,13 @@ flutter test integration_test/e2e_walkthrough_test.dart \
 
 # `flutter test` passing is not enough: the test skips screenshots it couldn't
 # get, so a run that captured nothing still exits 0. The images are the point
-# of this script, so no images is a failure.
-SHOT_COUNT="$(find "$OUT_DIR" -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')"
+# of this script, so no FRESH images is a failure — pre-existing PNGs from an
+# earlier run don't count.
+SHOT_COUNT="$(find "$OUT_DIR" -maxdepth 1 -type f -name '*.png' -newer "$RUN_STAMP" | wc -l | tr -d ' ')"
 if (( SHOT_COUNT == 0 )); then
-  err "The walkthrough passed but produced no screenshots in $OUT_DIR."
+  STALE_COUNT="$(find "$OUT_DIR" -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')"
+  err "The walkthrough passed but captured no NEW screenshots in $OUT_DIR"
+  err "($STALE_COUNT stale one(s) from an earlier run are present)."
   err "Check the [shot] lines above for why every capture was skipped."
   exit 1
 fi

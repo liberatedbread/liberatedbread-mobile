@@ -102,10 +102,25 @@ case "$REMOTE_DIR" in
   "~/"*) REMOTE_DIR="${REMOTE_DIR#\~/}" ;;
 esac
 
+# printf %q protects the explicit ssh commands below, but NOT rsync's
+# destination: OpenSSH reconstructs rsync's remote command through a shell,
+# and rsync does not escape backticks/$() in the path, so a value like
+# a`touch pwned`b would still execute on the Mac during the first sync.
+# macOS ships rsync 2.6.9, which predates --secluded-args, so the fix is to
+# constrain the character set instead: ordinary path characters only. This
+# also rejects spaces, which the rsync destination never handled anyway.
+if [[ ! "$REMOTE_DIR" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+  err "--remote-dir may only contain letters, digits, . _ / - (got: $REMOTE_DIR)"
+  err "Shell-special characters in the path would be re-parsed by the remote"
+  err "shell that rsync and ssh invoke on the Mac."
+  exit 1
+fi
+
 # Every remote command below is a string the Mac's shell re-parses, so escape
-# the path once here. Wrapping it in single quotes at each call site instead
-# would let a quote in --remote-dir / LIBERATED_BREAD_MAC_DIR break out of the
-# quoting and run as remote shell code.
+# the path once here (defence in depth behind the character allowlist above).
+# Wrapping it in single quotes at each call site instead would let a quote in
+# --remote-dir / LIBERATED_BREAD_MAC_DIR break out of the quoting and run as
+# remote shell code.
 REMOTE_DIR_Q="$(printf '%q' "$REMOTE_DIR")"
 
 for cmd in ssh rsync; do

@@ -127,4 +127,14 @@ pub enum SpecError {
 
     #[error("command '{command}' template references parameter '{parameter}', which is not declared in the command's parameters")]
     UnknownTemplateParameter { command: String, parameter: String },
+
+    #[error(
+        "parameter '{parameter_name}' lists allowed value {value}, outside its effective bounds {min}..={max}; every dropdown choice built from it would fail encoding"
+    )]
+    AllowedValueOutsideBounds {
+        parameter_name: String,
+        value: i64,
+        min: i64,
+        max: i64,
+    },
 }
