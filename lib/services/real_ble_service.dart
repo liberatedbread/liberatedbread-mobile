@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
+import '../core/error_text.dart';
 import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
@@ -29,6 +30,35 @@ BleConnectionState mapConnectionState(BluetoothConnectionState state) {
       return BleConnectionState.disconnecting;
     case BluetoothConnectionState.disconnected:
       return BleConnectionState.disconnected;
+  }
+}
+
+/// Map a flutter_blue_plus adapter state to the error that should be raised on
+/// the scan stream, or null when scanning may proceed.
+///
+/// [BluetoothAdapterState.unauthorized] is called out separately because it is
+/// how a real Bluetooth *permission* denial surfaces: iOS reports a denied or
+/// restricted CoreBluetooth authorization through the adapter state rather than
+/// by failing `startScan`. Collapsing it into [BleUnavailableException] would
+/// tell the user to "turn Bluetooth on" — the wrong setting, and one that looks
+/// already-correct to them, leaving no way out of the empty state. Every other
+/// non-`on` state keeps the previous radio-unavailable treatment.
+///
+/// Extracted as a pure top-level function so the mapping can be unit-tested
+/// without a real Bluetooth adapter (FlutterBluePlus's API is static, so the
+/// call site itself cannot be mocked).
+UserFacingException? adapterStateError(BluetoothAdapterState state) {
+  switch (state) {
+    case BluetoothAdapterState.on:
+      return null;
+    case BluetoothAdapterState.unauthorized:
+      return const BlePermissionDeniedException();
+    case BluetoothAdapterState.off:
+    case BluetoothAdapterState.turningOff:
+    case BluetoothAdapterState.turningOn:
+    case BluetoothAdapterState.unavailable:
+    case BluetoothAdapterState.unknown:
+      return const BleUnavailableException();
   }
 }
 
@@ -123,10 +153,28 @@ class RealBleService implements BleService {
       ].request();
       return statuses.values.every((s) => s.isGranted);
     }
-    if (Platform.isIOS) {
-      final status = await Permission.bluetooth.request();
-      return status.isGranted;
-    }
+    // iOS deliberately has NO branch here and falls through to true.
+    //
+    // CoreBluetooth raises the system Bluetooth prompt itself, natively, the
+    // first time a CBCentralManager starts scanning — flutter_blue_plus does
+    // that for us, and Info.plist already carries the required
+    // NSBluetoothAlwaysUsageDescription / NSBluetoothPeripheralUsageDescription
+    // strings. So there is nothing for a permission plugin to ask for up front.
+    //
+    // We must NOT ask permission_handler either: its iOS Bluetooth strategy is
+    // compiled out unless the CocoaPods post_install hook defines
+    // PERMISSION_BLUETOOTH=1. permission_handler_apple's PermissionHandlerEnums.h
+    // defaults it to 0, which declares BluetoothPermissionStrategy as an
+    // UnknownPermissionStrategy — and that answers every request with
+    // PermissionStatusPermanentlyDenied. Calling Permission.bluetooth.request()
+    // here therefore returned false unconditionally on a real iPhone, so scan()
+    // raised BlePermissionDeniedException before it ever reached CoreBluetooth
+    // and the OS prompt was never shown. Only mock/simulator paths were exercised
+    // in CI, so nothing caught it.
+    //
+    // A genuine iOS denial is not lost by returning true: it surfaces as
+    // BluetoothAdapterState.unauthorized on the adapter-state check in scan(),
+    // which adapterStateError maps back to BlePermissionDeniedException.
     return true;
   }
 
@@ -173,9 +221,13 @@ class RealBleService implements BleService {
           return;
         }
 
-        final adapterState = await FlutterBluePlus.adapterState.first;
-        if (adapterState != BluetoothAdapterState.on) {
-          controller.addError(const BleUnavailableException());
+        // Distinguishes "radio is off" from "permission was refused" — on iOS
+        // the latter is the only place a denial shows up, since the prompt is
+        // raised natively by CoreBluetooth rather than by requestPermissions().
+        final adapterError =
+            adapterStateError(await FlutterBluePlus.adapterState.first);
+        if (adapterError != null) {
+          controller.addError(adapterError);
           await closeIfOpen();
           return;
         }

@@ -39,6 +39,62 @@ void main() {
     });
   });
 
+  group('adapterStateError (F1: iOS permission denial vs radio off)', () {
+    test('on -> no error, scanning may proceed', () {
+      expect(adapterStateError(BluetoothAdapterState.on), isNull);
+    });
+
+    test('unauthorized -> permission denied, NOT "Bluetooth is off"', () {
+      // The regression this pins: on iOS the system Bluetooth prompt is raised
+      // natively by CoreBluetooth on first scan, so a refusal never comes back
+      // through requestPermissions() — it arrives here, as `unauthorized`.
+      // Reporting that as BleUnavailableException would tell the user to turn
+      // on a radio that is already on, with no path to the real fix.
+      final error = adapterStateError(BluetoothAdapterState.unauthorized);
+      expect(error, isA<BlePermissionDeniedException>());
+      expect(error, isNot(isA<BleUnavailableException>()));
+      expect(error!.message.toLowerCase(), contains('permission'));
+    });
+
+    test('off -> radio unavailable', () {
+      final error = adapterStateError(BluetoothAdapterState.off);
+      expect(error, isA<BleUnavailableException>());
+      expect(error!.message.toLowerCase(), contains('turned off'));
+    });
+
+    test('every other non-on state keeps the radio-unavailable treatment', () {
+      // Behaviour-preserving: before the unauthorized case was split out, ANY
+      // state other than `on` produced BleUnavailableException. Only
+      // `unauthorized` changed.
+      for (final state in const [
+        BluetoothAdapterState.unknown,
+        BluetoothAdapterState.unavailable,
+        BluetoothAdapterState.turningOn,
+        BluetoothAdapterState.turningOff,
+        BluetoothAdapterState.off,
+      ]) {
+        expect(
+          adapterStateError(state),
+          isA<BleUnavailableException>(),
+          reason: '$state should map to BleUnavailableException',
+        );
+      }
+    });
+
+    test('every adapter state is mapped; only `on` is scannable', () {
+      // Guards a future flutter_blue_plus adding an enum member: the switch is
+      // exhaustive, so a new state would fail to compile rather than silently
+      // fall through to "scanning is fine".
+      for (final state in BluetoothAdapterState.values) {
+        expect(
+          adapterStateError(state) == null,
+          state == BluetoothAdapterState.on,
+          reason: '$state nullability should match "is it `on`"',
+        );
+      }
+    });
+  });
+
   group('useWriteWithoutResponse (write-mode selection)', () {
     test('with-response only -> use response (false)', () {
       expect(

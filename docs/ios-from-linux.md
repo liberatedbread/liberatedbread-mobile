@@ -54,17 +54,55 @@ Actions macOS runner.
 1. Create an **Ad Hoc provisioning profile** on
    [developer.apple.com](https://developer.apple.com) that includes your
    device UDIDs.
-2. Export your distribution certificate as a `.p12` file from Keychain Access.
+2. Export your signing certificate as a `.p12` file from Keychain Access.
+
+   > **The `.p12` must contain an _Apple Development_ certificate.** A
+   > distribution certificate alone is **not** enough — the archive step fails
+   > before it ever reaches the export.
+   >
+   > Flutter picks the signing team by scanning
+   > `security find-identity -p codesigning -v` and keeping only identities
+   > whose name contains **Development** or **Developer** (`Apple Development:
+   > …`, `iPhone Developer: …`). `Apple Distribution: …` matches neither, so a
+   > distribution-only keychain yields an empty list and `flutter build ipa`
+   > aborts with:
+   >
+   > ```
+   > No valid code signing certificates were found
+   > ...
+   > No development certificates available to code sign app for device deployment
+   > ```
+   >
+   > (If you drive `xcodebuild archive` yourself instead, the same missing
+   > `DEVELOPMENT_TEAM` surfaces as *"Signing for 'Runner' requires a
+   > development team"*.) The ad-hoc **export** still uses the profile and the
+   > distribution identity — it is only the archive that needs a development
+   > certificate.
+   >
+   > In Keychain Access, select the Apple Development certificate **and** the
+   > distribution one, right-click → **Export 2 items…**, and save them as a
+   > single `.p12`.
+
 3. Add these secrets in **Settings → Secrets and variables → Actions**:
 
-   | Secret | Value |
-   |--------|-------|
-   | `IOS_CERTIFICATE_P12` | `base64 -i cert.p12` |
-   | `IOS_CERTIFICATE_PASSWORD` | password used when exporting |
-   | `IOS_PROVISIONING_PROFILE` | `base64 -i profile.mobileprovision` |
+   | Secret | Required | Value |
+   |--------|----------|-------|
+   | `IOS_CERTIFICATE_P12` | yes | `base64 -i cert.p12` — must include an Apple Development certificate |
+   | `IOS_CERTIFICATE_PASSWORD` | yes | password used when exporting the `.p12` |
+   | `IOS_PROVISIONING_PROFILE` | yes | `base64 -i profile.mobileprovision` |
+   | `IOS_TEAM_ID` | for export | your 10-character Apple Developer Team ID |
+   | `IOS_PROFILE_NAME` | for export | your Ad Hoc profile's name, exactly as it appears on developer.apple.com |
+   | `IOS_KEYCHAIN_PASSWORD` | no | password for the ephemeral CI keychain (any string; defaults to a build-local value) |
 
-4. Edit `ios/ExportOptions-adhoc.plist` — fill in your Team ID, bundle ID,
-   and profile name.
+4. Nothing to edit in `ios/ExportOptions-adhoc.plist`. It ships with
+   `YOUR_TEAM_ID` and `Liberated Bread Ad Hoc` placeholders, and the workflow
+   substitutes `IOS_TEAM_ID` and `IOS_PROFILE_NAME` into its own workspace copy
+   at build time — so no team ID or personal profile name is ever committed.
+   Set both secrets rather than editing the file. If `IOS_PROFILE_NAME` is
+   unset, `-exportArchive` fails with *"No profile matching 'Liberated Bread
+   Ad Hoc' found"* unless your profile happens to carry that exact name. The
+   bundle ID (`ca.pigscanfly.liberatedbread`) is the one value that is genuinely
+   committed — change it in the plist only if you are shipping under your own.
 
 **Triggering a build**
 
@@ -77,6 +115,10 @@ gh workflow run ios-adhoc.yml --ref <your-branch> -f mock=true
 
 The workflow uploads the `.ipa` as an artifact (~5–10 min build time).
 Download it from the Actions run page and install with Apple Configurator 2.
+
+With no signing secrets set at all, the workflow still runs: it skips signing
+and uploads an unsigned **iOS Simulator** `.app` bundle instead of an `.ipa`.
+That is useful as a compile check, but it cannot be installed on a phone.
 
 ## Option C — Remote Mac over SSH (hot reload, no push/pull)
 
