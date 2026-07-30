@@ -24,6 +24,27 @@ void main() {
     expect(decoded.enabled, registered.enabled);
   });
 
+  test('toString redacts the token and webhook id', () {
+    // Defense in depth: `'$config'` is how a whole secret-bearing object ends
+    // up in a log line, so the object refuses to render its own secrets.
+    final text = registered.toString();
+    expect(text, isNot(contains('secret')));
+    expect(text, isNot(contains('wh1')));
+    expect(text, contains('<redacted>'));
+    // The non-secret fields stay useful.
+    expect(text, contains('http://ha.local:8123'));
+    expect(text, contains('abc123'));
+  });
+
+  test('toString distinguishes an unset webhook from a redacted one', () {
+    const unregistered = HaConfig(
+      baseUrl: 'http://ha.local:8123',
+      token: 'secret',
+      deviceId: 'abc123',
+    );
+    expect(unregistered.toString(), contains('webhookId: <none>'));
+  });
+
   test('unregistered config omits webhook and is not registered', () {
     const config = HaConfig(
       baseUrl: 'http://ha.local:8123',

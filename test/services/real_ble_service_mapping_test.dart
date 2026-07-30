@@ -171,6 +171,21 @@ void main() {
       expect(updated!.name, 'Bulb');
     });
 
+    test('deviceCount counts distinct devices, not advertisements', () {
+      // Feeds the "scan finished: N device(s)" log line, so it must count
+      // devices rather than the fbp batches they arrived in.
+      final coalescer = ScanResultCoalescer();
+      expect(coalescer.deviceCount, 0);
+
+      coalescer.next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+      coalescer.next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+      coalescer.next(id: 'AA', name: 'Bulb', rssi: -42, isConnectable: true);
+      expect(coalescer.deviceCount, 1);
+
+      coalescer.next(id: 'BB', name: 'Plug', rssi: -60, isConnectable: true);
+      expect(coalescer.deviceCount, 2);
+    });
+
     test('devices are tracked independently by id', () {
       final coalescer = ScanResultCoalescer();
       coalescer.next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);

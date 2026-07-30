@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../core/hex.dart';
+import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import 'ble_service.dart';
@@ -113,6 +114,9 @@ bool useWriteWithoutResponse({
 class ScanResultCoalescer {
   final Map<String, IoTDevice> _emitted = {};
 
+  /// Distinct devices emitted so far in this scan, for the scan-finished log.
+  int get deviceCount => _emitted.length;
+
   IoTDevice? next({
     required String id,
     required String name,
@@ -216,6 +220,7 @@ class RealBleService implements BleService {
           // Surface a distinct error rather than silently closing the stream,
           // so the UI can render permission-specific guidance + recovery
           // instead of a generic empty state.
+          Log.ble.warning('scan refused: Bluetooth permission not granted');
           controller.addError(const BlePermissionDeniedException());
           await closeIfOpen();
           return;
@@ -224,9 +229,12 @@ class RealBleService implements BleService {
         // Distinguishes "radio is off" from "permission was refused" — on iOS
         // the latter is the only place a denial shows up, since the prompt is
         // raised natively by CoreBluetooth rather than by requestPermissions().
-        final adapterError =
-            adapterStateError(await FlutterBluePlus.adapterState.first);
+        // The state is held in a local purely so it can be named in the log.
+        final adapterState = await FlutterBluePlus.adapterState.first;
+        final adapterError = adapterStateError(adapterState);
         if (adapterError != null) {
+          Log.ble
+              .warning('scan refused: adapter state is ${adapterState.name}');
           controller.addError(adapterError);
           await closeIfOpen();
           return;
@@ -237,6 +245,7 @@ class RealBleService implements BleService {
         // or leave a stale native scan running.
         final previous = _scanSubscription;
         if (previous != null) {
+          Log.ble.debug('tearing down the previous scan before restarting');
           _scanSubscription = null;
           await previous.cancel();
           await FlutterBluePlus.stopScan();
@@ -262,12 +271,14 @@ class RealBleService implements BleService {
             }
           },
           onError: (Object error) {
+            Log.ble.error('scan stream error', error: error);
             controller.addError(error);
           },
         );
         _scanSubscription = sub;
 
         await FlutterBluePlus.startScan(timeout: timeout);
+        Log.ble.info('scan started (timeout ${timeout.inSeconds}s)');
 
         // startScan resolves once scanning has STARTED (its `timeout` only
         // arms a stop timer), so wait for the actual stop before tearing the
@@ -283,11 +294,16 @@ class RealBleService implements BleService {
               .timeout(timeout + const Duration(seconds: 5));
         } on TimeoutException {
           // Degrade to ending the scan normally rather than erroring the UI.
+          Log.ble.warning('no scan-stopped event within '
+              '${(timeout + const Duration(seconds: 5)).inSeconds}s; '
+              'ending the scan anyway');
         }
 
+        Log.ble.info('scan finished: ${coalescer.deviceCount} device(s)');
         await cancelSub();
         await closeIfOpen();
       } catch (e) {
+        Log.ble.error('scan failed', error: e);
         controller.addError(e);
         await cancelSub();
         await closeIfOpen();
@@ -319,6 +335,7 @@ class RealBleService implements BleService {
 
   @override
   Future<void> stopScan() async {
+    Log.ble.info('scan stopped by request');
     await FlutterBluePlus.stopScan();
     await _scanSubscription?.cancel();
     _scanSubscription = null;
@@ -326,19 +343,27 @@ class RealBleService implements BleService {
 
   @override
   Future<void> connect(String deviceId) async {
+    // Two lines, because the gap between them is the diagnosis: a connect can
+    // sit here for the full 15s timeout. Failures surface to the UI, which
+    // logs them via friendlyErrorText — logging them here too would duplicate.
+    Log.ble.info('connecting to $deviceId');
     final device = BluetoothDevice.fromId(deviceId);
     await device.connect(timeout: const Duration(seconds: 15));
+    Log.ble.info('connected to $deviceId');
   }
 
   @override
   Future<void> disconnect(String deviceId) async {
+    Log.ble.info('disconnecting from $deviceId');
     _servicesCache.remove(deviceId);
     final device = BluetoothDevice.fromId(deviceId);
     try {
       await device.disconnect();
-    } catch (_) {
+    } catch (e) {
       // disconnect() throws if the device is already disconnected; that's the
       // desired end-state, so treat it as a successful no-op.
+      Log.ble
+          .debug('disconnect($deviceId) threw; already disconnected', error: e);
     }
   }
 
@@ -378,6 +403,8 @@ class RealBleService implements BleService {
     if (cached != null) return cached;
     final device = BluetoothDevice.fromId(deviceId);
     final services = await device.discoverServices();
+    // Only on a cache miss, so this is once per connection, not per read.
+    Log.ble.info('discovered ${services.length} service(s) on $deviceId');
     _servicesCache[deviceId] = services;
     return services;
   }
@@ -446,6 +473,9 @@ class RealBleService implements BleService {
       try {
         final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
         await char.setNotifyValue(true);
+        // Once per subscription. The notifications themselves are deliberately
+        // NOT logged — that is the tight loop this logging must stay out of.
+        Log.ble.debug('notifications enabled for $charUuid on $deviceId');
         notifyingChar = char;
         // Use onValueReceived rather than lastValueStream: the latter replays
         // the last cached value on listen, which would surface a stale reading

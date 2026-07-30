@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
+import 'core/log.dart';
 import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
@@ -14,9 +15,15 @@ Future<void> main() async {
   // that matches the Rust mock output.
   try {
     await RustLib.init();
-    debugPrint('RustLib.init succeeded');
+    Log.app.info('RustLib.init succeeded; native core is available');
   } catch (e, st) {
-    debugPrint('RustLib.init failed ($e); falling back to Dart-side mock. $st');
+    // Loud on purpose: on desktop this is the first thing to check when spec
+    // parsing/matching does nothing — the app still runs, on the Dart mock.
+    Log.app.error(
+      'RustLib.init failed; falling back to the Dart-side mock',
+      error: e,
+      stackTrace: st,
+    );
   }
   runApp(const ProviderScope(child: LiberatedBreadApp()));
 }
