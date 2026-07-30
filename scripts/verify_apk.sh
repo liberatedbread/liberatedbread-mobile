@@ -205,6 +205,17 @@ entry_size() {
   awk -F'\t' -v want="$1" '$2 == want { print $1 }' "$WORK/libs.tsv"
 }
 
+is_required_abi() {
+  # True when $1 appears in --require-abis (the caller-pinned mandatory set).
+  local candidate="$1" required
+  IFS=',' read -r -a required <<< "$REQUIRE_ABIS"
+  local abi
+  for abi in "${required[@]}"; do
+    [[ "$abi" == "$candidate" ]] && return 0
+  done
+  return 1
+}
+
 log "Native libraries in the APK:"
 if [[ -s "$WORK/libs.tsv" ]]; then
   # Sorted by path so the log reads as a stable per-ABI table run over run.
@@ -228,8 +239,20 @@ while read -r abi; do
       # Flutter's own engine made it into the ABI slice, ours did not.
       fail "lib/$abi/$RUST_LIB is MISSING while lib/$abi/libflutter.so is present" \
            "— cargokit did not package the Rust library for $abi."
+    elif is_required_abi "$abi"; then
+      # Caller pinned this ABI as mandatory, so an empty slice is still a failure
+      # even though Flutter's engine is absent too.
+      fail "lib/$abi/$RUST_LIB is MISSING (and so is libflutter.so for $abi)," \
+           "yet $abi is in --require-abis."
     else
-      fail "lib/$abi/$RUST_LIB is MISSING (and so is libflutter.so for $abi)."
+      # Neither our library nor Flutter's engine is here, and nothing requires
+      # this ABI: it is a plugin-only slice, not a Flutter ABI at all. Release
+      # builds hit this on x86 — Flutter's default release ABIs are arm, arm64
+      # and x64, but a dependency (datastore_shared_counter) ships a prebuilt
+      # x86 .so, which creates lib/x86/ with no engine in it. Failing here would
+      # redden every release build for a non-problem.
+      warn "lib/$abi/ has neither $RUST_LIB nor libflutter.so — treating as a" \
+           "plugin-only ABI slice, not a Flutter target."
     fi
   elif [[ "$rust_size" -lt "$MIN_SO_BYTES" ]]; then
     fail "lib/$abi/$RUST_LIB is only ${rust_size} bytes (floor ${MIN_SO_BYTES}) — a stub or truncated link output, not a real build."
