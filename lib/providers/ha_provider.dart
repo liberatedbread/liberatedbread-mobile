@@ -4,13 +4,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/constants.dart';
 import '../core/ha_url.dart';
+import '../core/log.dart';
 import '../models/ha_config.dart';
 import '../services/ha_api_client.dart';
 import '../services/ha_sensor_forwarder.dart';
@@ -39,10 +39,14 @@ final urlOpenerProvider = Provider<Future<bool> Function(Uri)>(
 
 /// The app-wide sensor forwarder bridging decoded BLE values to HA.
 final haForwarderProvider = Provider<HaSensorForwarder>((ref) {
-  return HaSensorForwarder(
+  final forwarder = HaSensorForwarder(
     api: ref.watch(haApiClientProvider),
     readConfig: () => ref.read(haConfigProvider.future),
   );
+  // The status ChangeNotifier is owned here; dispose it with the provider so
+  // it doesn't leak its listener list.
+  ref.onDispose(forwarder.status.dispose);
+  return forwarder;
 });
 
 final haConfigProvider =
@@ -67,21 +71,34 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
       // OS restore invalidates keys). Treat as "not configured" so the
       // settings screen recovers and lets the user re-register, rather than
       // pinning the provider in a permanent AsyncError.
-      debugPrint('HA config read failed; treating as unconfigured: $e\n$st');
+      //
+      // Logging the error itself is safe here: the read FAILED, so no stored
+      // plaintext was produced for it to carry.
+      Log.ha.warning('config read failed; treating as unconfigured',
+          error: e, stackTrace: st);
       return null;
     }
     if (raw == null) return null;
     try {
       return HaConfig.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-    } catch (e, st) {
+    } catch (e) {
       // Stored blob is corrupt or truncated (FormatException) or has an
       // unexpected shape (TypeError). Clear it so a healthy re-registration
       // can overwrite it, and report as unconfigured instead of bricking.
-      debugPrint('HA config parse failed; clearing corrupt value: $e\n$st');
+      //
+      // SECURITY: `raw` is the decrypted config, i.e. the long-lived access
+      // token and the webhook id. `FormatException.toString()` quotes a window
+      // of its source around the error offset, so interpolating this exception
+      // ('$e') prints part of the token — measurably so for the truncated blob
+      // this branch exists to handle. Log the TYPE only; never the value.
+      Log.ha.warning('stored config is corrupt (${errorType(e)}); clearing it '
+          'so re-registration can recover');
       try {
         await store.delete(configKey);
       } catch (e2, st2) {
-        debugPrint('Failed to clear corrupt HA config: $e2\n$st2');
+        // Safe to log: a delete failure carries the key, not the value.
+        Log.ha.error('could not clear the corrupt config',
+            error: e2, stackTrace: st2);
       }
       return null;
     }
@@ -121,12 +138,17 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
       deviceId: deviceId,
     );
     await store.write(configKey, jsonEncode(config.toJson()));
+    // The base url is user-visible on the settings screen; the webhook id and
+    // token are not, and never go to a log. See `redact` in core/log.dart.
+    Log.ha.info('registered with Home Assistant at $normalized '
+        '(webhook ${redact(result.webhookId)})');
     state = AsyncData(config);
   }
 
   Future<void> setEnabled(bool enabled) async {
     final config = state.valueOrNull;
     if (config == null) return;
+    Log.ha.info('sensor forwarding ${enabled ? 'enabled' : 'disabled'}');
     final updated = config.copyWith(enabled: enabled);
     await ref
         .read(settingsStoreProvider)
@@ -138,6 +160,7 @@ class HaConfigNotifier extends AsyncNotifier<HaConfig?> {
   /// entry must be removed in HA's own UI - the screen says so.
   Future<void> disconnect() async {
     await ref.read(settingsStoreProvider).delete(configKey);
+    Log.ha.info('disconnected from Home Assistant; local config cleared');
     state = const AsyncData(null);
   }
 
