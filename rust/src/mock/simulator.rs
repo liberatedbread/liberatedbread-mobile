@@ -21,14 +21,16 @@ impl MockDeviceState {
 
     /// Store a written value for a characteristic.
     pub fn write(&mut self, char_uuid: &str, value: Vec<u8>) {
-        self.written.insert(char_uuid.to_lowercase(), value);
+        // ASCII-lowercase per crate convention (SEV2 §2.5): UUIDs are pure
+        // ASCII, and `read`/`read_raw` must normalize keys identically.
+        self.written.insert(char_uuid.to_ascii_lowercase(), value);
     }
 
     /// Generate a mock read value for a characteristic based on its format spec.
     /// If a value was previously written to this characteristic, returns that.
     /// Otherwise generates plausible defaults.
     pub fn read(&self, char_uuid: &str, format: &[FormatField]) -> Vec<u8> {
-        let key = char_uuid.to_lowercase();
+        let key = char_uuid.to_ascii_lowercase();
 
         // Return last written value if available
         if let Some(written) = self.written.get(&key) {
@@ -40,9 +42,11 @@ impl MockDeviceState {
     }
 
     /// Generate a mock read value for a characteristic that has no format spec.
-    /// Returns an empty vec (the caller should fall back to raw hex display).
+    /// Returns the previously written value if there is one, otherwise a
+    /// zero-filled buffer of `length` bytes (the caller falls back to raw hex
+    /// display either way).
     pub fn read_raw(&self, char_uuid: &str, length: usize) -> Vec<u8> {
-        let key = char_uuid.to_lowercase();
+        let key = char_uuid.to_ascii_lowercase();
         if let Some(written) = self.written.get(&key) {
             return written.clone();
         }
@@ -75,20 +79,19 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
             continue;
         }
 
-        // 2. Fall back to the name-based heuristic.
-        match field.field_type {
-            ValueType::Bool => slice[0] = 1, // default: on
-            ValueType::Uint8 => slice[0] = default_uint8_for_name(&field.name),
-            ValueType::Uint16 => {
-                let val = default_uint16_for_name(&field.name);
-                slice.copy_from_slice(&val.to_le_bytes());
-            }
-            ValueType::Int8 => slice[0] = 22, // ~22°C
-            ValueType::Int16 => {
-                let val: i16 = 220; // 22.0 if scaled
-                slice.copy_from_slice(&val.to_le_bytes());
-            }
-            ValueType::Int32 | ValueType::Uint32 | ValueType::Bytes | ValueType::String => {} // leave as zeros
+        // 2. Fall back to the name-based heuristic. The value goes through
+        // `write_value` (never a direct full-slice copy) because `length`
+        // may legally exceed the type's byte width — see `write_value`.
+        let heuristic: Option<i64> = match field.field_type {
+            ValueType::Bool => Some(1), // default: on
+            ValueType::Uint8 => Some(default_uint8_for_name(&field.name) as i64),
+            ValueType::Uint16 => Some(default_uint16_for_name(&field.name) as i64),
+            ValueType::Int8 => Some(22),   // ~22°C
+            ValueType::Int16 => Some(220), // 22.0 if scaled
+            ValueType::Int32 | ValueType::Uint32 | ValueType::Bytes | ValueType::String => None, // leave as zeros
+        };
+        if let Some(val) = heuristic {
+            write_value(slice, val, &field.field_type);
         }
     }
 
@@ -115,17 +118,27 @@ fn coerce_mock_default(val: &serde_yaml::Value, ty: &ValueType) -> Option<i64> {
     }
 }
 
-/// Write `val` into `slice` honoring the byte width and endianness of `ty`.
-/// `slice` must already be the correct length for `ty` (caller's invariant).
+/// Write `val` into the low bytes of `slice`, honoring the byte width and
+/// little-endian layout of `ty`.
+///
+/// `slice` is the field's full `length` extent and may legally be *longer*
+/// than the type's fixed width — the parser deliberately tolerates over-long
+/// fixed fields (`type: uint16, length: 3`, e.g. padded/reserved trailing
+/// bytes), so only the low `fixed_byte_size()` bytes are written and the tail
+/// stays zero, mirroring how `decode_field` reads only the low bytes. A
+/// whole-slice `copy_from_slice` here panics on exactly those specs, and this
+/// code is reachable from Dart via `mock_read_characteristic` on remote
+/// spec-pack YAML (H1). `slice` is never *shorter* than the fixed width: the
+/// parser rejects that at load time (`FieldLengthMismatch`).
 fn write_value(slice: &mut [u8], val: i64, ty: &ValueType) {
     match ty {
         ValueType::Bool => slice[0] = if val == 0 { 0 } else { 1 },
         ValueType::Uint8 => slice[0] = val as u8,
         ValueType::Int8 => slice[0] = val as i8 as u8,
-        ValueType::Uint16 => slice.copy_from_slice(&(val as u16).to_le_bytes()),
-        ValueType::Int16 => slice.copy_from_slice(&(val as i16).to_le_bytes()),
-        ValueType::Int32 => slice.copy_from_slice(&(val as i32).to_le_bytes()),
-        ValueType::Uint32 => slice.copy_from_slice(&(val as u32).to_le_bytes()),
+        ValueType::Uint16 => slice[..2].copy_from_slice(&(val as u16).to_le_bytes()),
+        ValueType::Int16 => slice[..2].copy_from_slice(&(val as i16).to_le_bytes()),
+        ValueType::Int32 => slice[..4].copy_from_slice(&(val as i32).to_le_bytes()),
+        ValueType::Uint32 => slice[..4].copy_from_slice(&(val as u32).to_le_bytes()),
         ValueType::Bytes | ValueType::String => {} // mock_default is ignored for these
     }
 }
@@ -333,5 +346,100 @@ mod tests {
         }];
         // 1234 = 0x04D2, little-endian = [0xD2, 0x04]
         assert_eq!(generate_defaults(&fields), vec![0xD2, 0x04]);
+    }
+
+    /// H1 regression: the parser deliberately tolerates a fixed-width type
+    /// over a longer field (`type: uint16, length: 3`), so the simulator must
+    /// write only the low `fixed_byte_size()` bytes and leave the tail zero —
+    /// a whole-slice `copy_from_slice` panics on exactly those specs, and
+    /// this path is reachable from Dart via `mock_read_characteristic`.
+    /// Covers both the heuristic path and the `mock_default` → `write_value`
+    /// path.
+    #[test]
+    fn overlong_fixed_fields_write_low_bytes_only() {
+        struct Case {
+            label: &'static str,
+            field: FormatField,
+            want: Vec<u8>,
+        }
+        let cases = [
+            Case {
+                label: "uint16 over 3 bytes, heuristic value",
+                field: FormatField {
+                    offset: 0,
+                    length: 3,
+                    name: "lux".into(), // heuristic: 500 = 0x01F4
+                    field_type: ValueType::Uint16,
+                    mock_default: None,
+                },
+                want: vec![0xF4, 0x01, 0x00],
+            },
+            Case {
+                label: "uint16 over 3 bytes, mock_default (write_value path)",
+                field: FormatField {
+                    offset: 0,
+                    length: 3,
+                    name: "lux".into(),
+                    field_type: ValueType::Uint16,
+                    mock_default: Some(serde_yaml::Value::Number(0x1234.into())),
+                },
+                want: vec![0x34, 0x12, 0x00],
+            },
+            Case {
+                label: "int16 over 4 bytes, heuristic value",
+                field: FormatField {
+                    offset: 0,
+                    length: 4,
+                    name: "reading".into(), // Int16 heuristic: 220 = 0x00DC
+                    field_type: ValueType::Int16,
+                    mock_default: None,
+                },
+                want: vec![0xDC, 0x00, 0x00, 0x00],
+            },
+            Case {
+                label: "uint32 over 8 bytes, mock_default (write_value path)",
+                field: FormatField {
+                    offset: 0,
+                    length: 8,
+                    name: "counter".into(),
+                    field_type: ValueType::Uint32,
+                    mock_default: Some(serde_yaml::Value::Number(0xAABB_CCDDi64.into())),
+                },
+                want: vec![0xDD, 0xCC, 0xBB, 0xAA, 0, 0, 0, 0],
+            },
+            Case {
+                label: "uint32 over 8 bytes, no default stays all zeros",
+                field: FormatField {
+                    offset: 0,
+                    length: 8,
+                    name: "counter".into(),
+                    field_type: ValueType::Uint32,
+                    mock_default: None,
+                },
+                want: vec![0; 8],
+            },
+        ];
+        for Case { label, field, want } in cases {
+            assert_eq!(
+                generate_defaults(std::slice::from_ref(&field)),
+                want,
+                "{label}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_raw_returns_zero_buffer_then_written_value() {
+        let mut state = MockDeviceState::new();
+        let uuid = "0000FFF9-0000-1000-8000-00805F9B34FB";
+
+        // No prior write: a zero buffer of exactly the requested length.
+        assert_eq!(state.read_raw(uuid, 4), vec![0u8; 4]);
+
+        // After a write, the stored value comes back verbatim (regardless of
+        // the requested fallback length). Write lowercase / read uppercase to
+        // pin the ASCII-lowercased key normalization shared by write/read.
+        state.write(&uuid.to_ascii_lowercase(), vec![9, 8, 7]);
+        assert_eq!(state.read_raw(uuid, 4), vec![9, 8, 7]);
     }
 }

@@ -325,16 +325,35 @@ class ParameterDto {
   final double? min;
   final double? max;
 
+  /// Enumerated set of allowed values. When present (and non-empty) the
+  /// device accepts only these values, so the UI should offer a choice
+  /// among them instead of a free min..max range.
+  final Int64List? allowed;
+
+  /// Human-readable labels for `allowed`, paired 1:1 by index (the upstream
+  /// spec-format contract). Only present when `allowed` is present and the
+  /// lengths match exactly — a mismatched spec keeps its `allowed` values
+  /// but has its labels dropped rather than mispaired (see the `From`
+  /// conversion below).
+  final List<String>? labels;
+
   const ParameterDto({
     required this.name,
     required this.valueType,
     this.min,
     this.max,
+    this.allowed,
+    this.labels,
   });
 
   @override
   int get hashCode =>
-      name.hashCode ^ valueType.hashCode ^ min.hashCode ^ max.hashCode;
+      name.hashCode ^
+      valueType.hashCode ^
+      min.hashCode ^
+      max.hashCode ^
+      allowed.hashCode ^
+      labels.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -344,7 +363,9 @@ class ParameterDto {
           name == other.name &&
           valueType == other.valueType &&
           min == other.min &&
-          max == other.max;
+          max == other.max &&
+          allowed == other.allowed &&
+          labels == other.labels;
 }
 
 /// A characteristic within a standard profile.

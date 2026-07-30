@@ -6,8 +6,15 @@
 name = "liberated_bread_core"
 version = "0.1.0"
 edition = "2021"
+# setup.sh and the README document 1.82 as the supported floor; declaring it
+# here makes cargo enforce that claim instead of leaving it as prose.
+rust-version = "1.82"
 description = "Shared Rust core for the Liberated Bread BLE companion app"
 license = "Apache-2.0"
+repository = "https://github.com/liberatedbread/liberatedbread-mobile"
+# This crate is consumed only as a cdylib/staticlib linked into the Flutter
+# app via cargokit; it is not meant for crates.io.
+publish = false
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
@@ -29,3 +36,24 @@ indexmap = { version = "2", features = ["serde"] }
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 thiserror = "2"
 anyhow = "1"
+
+# Release profile tuned for the mobile cdylib/staticlib the app ships: the
+# library rides inside every APK/IPA download, so binary size wins over the
+# last few percent of throughput (the hot path is BLE I/O, not CPU).
+#
+# panic = "abort" must NEVER be added here: flutter_rust_bridge converts Rust
+# panics into catchable Dart exceptions via catch_unwind, which requires
+# unwinding. With abort, any Rust panic would kill the entire app process
+# instead of surfacing as a Dart-side error.
+[profile.release]
+# Optimize for size — smallest code the compiler can emit.
+opt-level = "z"
+# Thin LTO: most of full LTO's dead-code elimination and cross-crate inlining
+# at a fraction of the link time.
+lto = "thin"
+# One codegen unit removes duplicated inline instantiations across units,
+# shrinking the binary further (at the cost of parallel codegen).
+codegen-units = 1
+# Strip symbol tables from the artifact; debug symbols stay available in the
+# separate build products for symbolication.
+strip = "symbols"

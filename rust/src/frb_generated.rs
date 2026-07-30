@@ -624,6 +624,18 @@ impl SseDecode for Vec<crate::api::device_api::ParameterDto> {
     }
 }
 
+impl SseDecode for Vec<i64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<i64>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -746,6 +758,28 @@ impl SseDecode for Option<i64> {
     }
 }
 
+impl SseDecode for Option<Vec<String>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<Vec<String>>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<Vec<i64>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<Vec<i64>>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for crate::api::device_api::ParameterDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -753,11 +787,15 @@ impl SseDecode for crate::api::device_api::ParameterDto {
         let mut var_valueType = <String>::sse_decode(deserializer);
         let mut var_min = <Option<f64>>::sse_decode(deserializer);
         let mut var_max = <Option<f64>>::sse_decode(deserializer);
+        let mut var_allowed = <Option<Vec<i64>>>::sse_decode(deserializer);
+        let mut var_labels = <Option<Vec<String>>>::sse_decode(deserializer);
         return crate::api::device_api::ParameterDto {
             name: var_name,
             value_type: var_valueType,
             min: var_min,
             max: var_max,
+            allowed: var_allowed,
+            labels: var_labels,
         };
     }
 }
@@ -1057,6 +1095,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ParameterDto {
             self.value_type.into_into_dart().into_dart(),
             self.min.into_into_dart().into_dart(),
             self.max.into_into_dart().into_dart(),
+            self.allowed.into_into_dart().into_dart(),
+            self.labels.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1325,6 +1365,16 @@ impl SseEncode for Vec<crate::api::device_api::ParameterDto> {
     }
 }
 
+impl SseEncode for Vec<i64> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <i64>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<u8> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1424,6 +1474,26 @@ impl SseEncode for Option<i64> {
     }
 }
 
+impl SseEncode for Option<Vec<String>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <Vec<String>>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<Vec<i64>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <Vec<i64>>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for crate::api::device_api::ParameterDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1431,6 +1501,8 @@ impl SseEncode for crate::api::device_api::ParameterDto {
         <String>::sse_encode(self.value_type, serializer);
         <Option<f64>>::sse_encode(self.min, serializer);
         <Option<f64>>::sse_encode(self.max, serializer);
+        <Option<Vec<i64>>>::sse_encode(self.allowed, serializer);
+        <Option<Vec<String>>>::sse_encode(self.labels, serializer);
     }
 }
 

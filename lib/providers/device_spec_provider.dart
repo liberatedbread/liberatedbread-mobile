@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/log.dart';
 import 'spec_pack_provider.dart';
 
 /// Loaded device spec YAML strings, keyed by source id. These are the raw YAML
@@ -27,7 +28,8 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
     } on FlutterError {
       // Asset not bundled - skip silently.
     } catch (e, st) {
-      debugPrint('Failed to load spec $path: $e\n$st');
+      Log.spec.warning('failed to load bundled spec $path',
+          error: e, stackTrace: st);
     }
   }
 
@@ -36,5 +38,7 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   final cached = await ref.watch(cachedSpecPacksProvider.future);
   specs.addAll(cached);
 
+  Log.spec.info('${specs.length} spec(s) available '
+      '(${specs.length - cached.length} bundled, ${cached.length} from packs)');
   return specs;
 });

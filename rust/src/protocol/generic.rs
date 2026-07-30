@@ -9,14 +9,19 @@ use crate::codec::types::{self, DecodedValues};
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// A protocol implementation that derives all behavior from a `DeviceSpec`.
 pub struct GenericProtocol {
-    spec: DeviceSpec,
+    /// Shared, not owned: `select_protocol` serves every FFI call from a
+    /// process-wide cache of `Arc<DeviceSpec>`, and holding the `Arc` here
+    /// means constructing a protocol clones a refcount instead of
+    /// deep-cloning the whole spec tree on each encode/decode hop.
+    spec: Arc<DeviceSpec>,
 }
 
 impl GenericProtocol {
-    pub fn new(spec: DeviceSpec) -> Self {
+    pub fn new(spec: Arc<DeviceSpec>) -> Self {
         Self { spec }
     }
 }
@@ -154,7 +159,7 @@ services:
 
     #[test]
     fn encode_fixed_command() {
-        let proto = GenericProtocol::new(example_spec());
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
         let bytes = proto
             .encode_command(
                 "0000fff1-0000-1000-8000-00805f9b34fb",
@@ -167,7 +172,7 @@ services:
 
     #[test]
     fn encode_template_command() {
-        let proto = GenericProtocol::new(example_spec());
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
         let params = HashMap::from([("brightness".into(), 50.0)]);
         let bytes = proto
             .encode_command(
@@ -181,7 +186,7 @@ services:
 
     #[test]
     fn decode_status() {
-        let proto = GenericProtocol::new(example_spec());
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
         let values = proto
             .decode_value("0000fff2-0000-1000-8000-00805f9b34fb", &[1, 80])
             .unwrap();
@@ -198,7 +203,7 @@ services:
     /// only one passes, so losing document order fails essentially every run.
     #[test]
     fn list_commands_keeps_declaration_order() {
-        let proto = GenericProtocol::new(example_spec());
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
         let cmds = proto.commands_for_characteristic("0000fff1-0000-1000-8000-00805f9b34fb");
         assert_eq!(
             cmds,
@@ -215,7 +220,7 @@ services:
 
     #[test]
     fn uuid_matching_is_case_insensitive() {
-        let proto = GenericProtocol::new(example_spec());
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
         let bytes = proto
             .encode_command(
                 "0000FFF1-0000-1000-8000-00805F9B34FB",
@@ -224,5 +229,78 @@ services:
             )
             .unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
+    }
+
+    // ── error paths (M4): each lookup failure must be its own typed error ──
+
+    const UNKNOWN_UUID: &str = "0000dead-0000-1000-8000-00805f9b34fb";
+    const COMMAND_UUID: &str = "0000fff1-0000-1000-8000-00805f9b34fb";
+    const STATUS_UUID: &str = "0000fff2-0000-1000-8000-00805f9b34fb";
+
+    #[test]
+    fn encode_unknown_characteristic_returns_characteristic_not_found() {
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
+        match proto.encode_command(UNKNOWN_UUID, "power_on", &HashMap::new()) {
+            Err(ProtocolError::CharacteristicNotFound { uuid }) => {
+                assert_eq!(uuid, UNKNOWN_UUID);
+            }
+            other => panic!("expected CharacteristicNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_unknown_characteristic_returns_characteristic_not_found() {
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
+        match proto.decode_value(UNKNOWN_UUID, &[1]) {
+            Err(ProtocolError::CharacteristicNotFound { uuid }) => {
+                assert_eq!(uuid, UNKNOWN_UUID);
+            }
+            other => panic!("expected CharacteristicNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_on_characteristic_without_commands_returns_no_commands() {
+        // The Status characteristic declares a format block but no commands.
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
+        match proto.encode_command(STATUS_UUID, "power_on", &HashMap::new()) {
+            Err(ProtocolError::NoCommands { uuid }) => assert_eq!(uuid, STATUS_UUID),
+            other => panic!("expected NoCommands, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn encode_unknown_command_name_returns_command_not_found() {
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
+        match proto.encode_command(COMMAND_UUID, "self_destruct", &HashMap::new()) {
+            Err(ProtocolError::CommandNotFound { uuid, command }) => {
+                assert_eq!(uuid, COMMAND_UUID);
+                assert_eq!(command, "self_destruct");
+            }
+            other => panic!("expected CommandNotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decode_on_characteristic_without_format_returns_no_format() {
+        // The Command characteristic declares commands but no format block.
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
+        match proto.decode_value(COMMAND_UUID, &[0]) {
+            Err(ProtocolError::NoFormat { uuid }) => assert_eq!(uuid, COMMAND_UUID),
+            other => panic!("expected NoFormat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fields_for_characteristic_lists_format_names_in_order() {
+        let proto = GenericProtocol::new(Arc::new(example_spec()));
+        assert_eq!(
+            proto.fields_for_characteristic(STATUS_UUID),
+            vec!["power_state", "brightness"]
+        );
+        // No format block and unknown UUID both yield an empty list — the
+        // listing API reports "nothing to show", never an error.
+        assert!(proto.fields_for_characteristic(COMMAND_UUID).is_empty());
+        assert!(proto.fields_for_characteristic(UNKNOWN_UUID).is_empty());
     }
 }

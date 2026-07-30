@@ -13,7 +13,7 @@
 <!-- How did you test these changes? -->
 
 - [ ] Unit tests pass (`flutter test`)
-- [ ] Lint passes (`flutter analyze`)
+- [ ] Lint passes (`flutter analyze --fatal-infos`)
 - [ ] Code is formatted (`dart format .`)
 - [ ] Rust tests pass (`cd rust && cargo test`)
 - [ ] Rust lint passes (`cd rust && cargo clippy --all-targets --all-features -- -D warnings`)
