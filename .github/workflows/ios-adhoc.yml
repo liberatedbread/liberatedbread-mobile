@@ -11,6 +11,9 @@ name: iOS ad-hoc build
 #
 # Optional:
 #   IOS_KEYCHAIN_PASSWORD – password for the ephemeral keychain (any string)
+#   IOS_TEAM_ID           – Apple Developer Team ID; substituted for the
+#                           YOUR_TEAM_ID placeholder in ios/ExportOptions-adhoc.plist
+#                           at build time, so no real team ID has to be committed
 #
 # Setup guide:
 #   1. In Xcode → Signing & Capabilities, set your Team and Bundle ID.
@@ -44,6 +47,7 @@ jobs:
   build:
     name: iOS ad-hoc IPA
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,6 +95,10 @@ jobs:
         run: |
           security create-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
           security default-keychain -s "$KEYCHAIN_NAME"
+          # Defensive: some runner images don't put a new keychain on the user
+          # search list, and codesign only consults keychains on that list.
+          # Keep login.keychain so Apple's intermediate certs stay visible.
+          security list-keychains -d user -s "$KEYCHAIN_NAME" login.keychain
           security unlock-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
           security set-keychain-settings -t 3600 -u "$KEYCHAIN_NAME"
 
@@ -111,6 +119,24 @@ jobs:
           echo "$PROFILE_B64" | base64 --decode \
             > ~/Library/MobileDevice/Provisioning\ Profiles/liberated-bread.mobileprovision
 
+      # ios/ExportOptions-adhoc.plist is committed with a YOUR_TEAM_ID
+      # placeholder so no real team ID lives in the repo. When the optional
+      # IOS_TEAM_ID secret is set, substitute it into the workspace copy here.
+      # Same probe-the-secret-via-env pattern as the signing detection above:
+      # `secrets` cannot be referenced in a step-level `if:`, so the emptiness
+      # check lives in the shell.
+      - name: Inject team ID into ExportOptions plist
+        if: steps.signing.outputs.available == 'true'
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          if [[ -n "$IOS_TEAM_ID" ]]; then
+            sed -i '' "s/YOUR_TEAM_ID/${IOS_TEAM_ID}/" ios/ExportOptions-adhoc.plist
+            echo "Substituted IOS_TEAM_ID into ios/ExportOptions-adhoc.plist"
+          else
+            echo "::warning::IOS_TEAM_ID secret not set — the export will fail unless ios/ExportOptions-adhoc.plist carries a real teamID."
+          fi
+
       # ── build ──────────────────────────────────────────────────────────────
       # Signed IPA uses --profile so the app can launch standalone (debug mode
       # requires a live Dart VM connection and aborts on install without one).
@@ -128,14 +154,16 @@ jobs:
         run: flutter build ios --debug --no-codesign --simulator $MOCK_FLAG
 
       # ── artifact ───────────────────────────────────────────────────────────
+      # The signed IPA is this workflow's entire deliverable: a run that ends
+      # without one must be red, so no continue-on-error here (even a quota
+      # failure should be loud) and missing files are an error.
       - name: Upload IPA
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
-        continue-on-error: true
         with:
           name: liberated-bread-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
           path: build/ios/ipa/*.ipa
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 1
 
       - name: Upload unsigned app bundle (no-secrets fallback)
