@@ -88,6 +88,21 @@ addresses and points you there.
 | Android SDK | API 34 | With NDK 23.1.7779620 (what Flutter 3.24.5 builds with) |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
+| GTK 3 + CMake/Ninja/clang | — | Linux desktop builds only — see below |
+
+For the **Linux desktop** target (`./scripts/run-linux.sh`), install the native
+toolchain once:
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+  clang cmake ninja-build pkg-config \
+  libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
+# optional: run headlessly (no display), as CI does
+sudo apt-get install -y xvfb
+```
+
+`libsecret-1-dev` is for `flutter_secure_storage_linux` (Home Assistant token
+storage); the rest is Flutter's standard Linux desktop toolchain.
 
 ## Quick Setup
 
@@ -120,20 +135,33 @@ export PATH="$HOME/.flutter-sdk/bin:$PATH"
 
 ### About platform scaffolds
 
-`android/` and `ios/` are committed. To regenerate them (for example when
+`android/`, `ios/` and `linux/` are committed. To regenerate them (for example when
 upgrading Flutter), back up the customized `android/app/src/main/AndroidManifest.xml`
 and `ios/Runner/Info.plist` first — they contain BLE permissions and usage
-strings — then run `flutter create . --platforms=android,ios --project-name liberated_bread_mobile --org ca.pigscanfly`
+strings — then run `flutter create . --platforms=android,ios,linux --project-name liberated_bread_mobile --org ca.pigscanfly`
 and merge the customizations back in. Note the real identifiers don't follow
 `flutter create`'s `<org>.<project>` convention: the app id is the flat
-`ca.pigscanfly.liberatedbread` (see `android/app/build.gradle` and the Xcode
-projects), so restore those along with the manifest/plist customizations.
+`ca.pigscanfly.liberatedbread` (see `android/app/build.gradle`, the Xcode
+projects, and `APPLICATION_ID` in `linux/CMakeLists.txt`), so restore those
+along with the manifest/plist customizations. For `linux/` also restore the
+window title and default size in `linux/my_application.cc` — the template
+resets them to the package name and 1280x720.
+
+> **Watch what `flutter create` touches.** Run it on a dirty tree and diff the
+> result before accepting it. On this project it also rewrites `.metadata`,
+> **replacing** the existing platform entries rather than adding to them (a
+> `--platforms=linux` run drops the `android`, `ios` and `macos` migration
+> records), and it drops a stock `test/widget_test.dart` that references a
+> `MyApp` widget this app doesn't have, which breaks `flutter test`.
 
 ## Running the App
 
 ```bash
 # Connected device or emulator (auto-detect)
 ./scripts/run.sh
+
+# Linux desktop — the fastest loop: no emulator, no simulator, hot reload
+./scripts/run-linux.sh --mock
 
 # Build + boot the Android emulator + install + run (Linux or macOS)
 ./scripts/run-android.sh --mock
@@ -161,6 +189,29 @@ emulator/simulator if one isn't already running. They accept `--mock`,
 `--release`, and pass extra args after `--` to `flutter run`.
 `run-ios.sh` also takes `--device "iPhone 15"` to pick a specific simulator.
 
+### Linux desktop
+
+`./scripts/run-linux.sh` builds a native GTK app and runs it on your desktop
+(x86-64). It's the quickest way to iterate on the UI — no emulator to boot, no
+device to pair, and hot reload works on the same Dart code that ships on mobile.
+It also takes `--headless` (runs under Xvfb, for machines with no display).
+
+What does and doesn't work there:
+
+- **Mock mode is the normal way to use it.** `--mock` needs no Bluetooth at all
+  and is the right choice for any UI work, and the only option in a container
+  or VM.
+- **Real BLE does work**, via BlueZ over D-Bus (`flutter_blue_plus_linux`). It
+  needs a physical adapter with `bluetoothd` running; add yourself to the
+  `bluetooth` group. Without an adapter, scans simply find nothing — the script
+  warns when it can't see a controller.
+- **`permission_handler` has no Linux implementation**, and nothing needs it to:
+  `lib/services/real_ble_service.dart` only calls it on Android and every other
+  platform falls through to "granted". BlueZ does the enforcing instead.
+- The window opens phone-shaped (430x900) rather than the template's
+  1280x720, since every screen is laid out for a phone. Resize it freely to
+  check responsive behaviour.
+
 ## Testing
 
 ```bash
@@ -171,6 +222,10 @@ emulator/simulator if one isn't already running. They accept `--mock`,
 flutter test                       # Dart unit + widget tests
 cd rust && cargo test              # Rust unit tests
 flutter test integration_test      # Integration tests (needs a device/emulator)
+
+# Integration tests on the Linux desktop — no emulator, no display needed
+xvfb-run -a flutter test integration_test -d linux --exclude-tags=e2e \
+  --dart-define=LIBERATED_BREAD_MOCK=true
 ```
 
 Linting:
@@ -256,7 +311,8 @@ enough. `scripts/test.sh` handles all of this automatically.
 │       └── spec/               # YAML parser and type definitions
 ├── assets/
 │   └── device_specs/           # Bundled fallback YAML device specs
-├── integration_test/           # End-to-end flow tests (needs emulator)
+├── integration_test/           # End-to-end flow tests (emulator, simulator,
+│                               #   or Linux desktop via Xvfb)
 ├── test/                       # Dart unit + widget tests
 ├── scripts/
 │   ├── setup.sh                # Full dev environment setup
@@ -264,9 +320,11 @@ enough. `scripts/test.sh` handles all of this automatically.
 │   ├── run-android.sh          # Boot the Android emulator + run
 │   ├── run-ios.sh              # Boot the iOS Simulator + run (macOS)
 │   ├── run-ios-device.sh       # Run on a paired physical iPhone (macOS)
+│   ├── run-linux.sh            # Linux desktop — fastest loop, no emulator
 │   ├── run-remote-mac.sh       # Linux → iPhone via a remote Mac over SSH
 │   ├── e2e-walkthrough.sh      # Scripted screenshot walkthrough (macOS)
 │   ├── e2e_shot_server.py      # Host-side screenshot server for the above
+│   ├── verify_linux_bundle.sh  # Assert the Linux bundle really contains the Rust .so
 │   └── test.sh                 # Local CI mirror (format, analyze, test, clippy)
 └── docs/
     ├── WALKTHROUGH.md          # E2E architecture walkthrough
