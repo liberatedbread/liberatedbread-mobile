@@ -671,11 +671,19 @@ jobs:
       #
       # A file whose tests are ALL excluded by --exclude-tags=e2e (today:
       # e2e_walkthrough_test.dart, which needs scripts/e2e_shot_server.py and a
-      # macOS host) makes `flutter test` print "No tests ran." and exit 1. That
-      # is a skip, not a failure, so it is matched explicitly rather than
-      # hardcoding the filename — add another all-e2e file and this still
-      # behaves. Any OTHER non-zero exit is a real failure and is collected so
-      # one run reports every broken file instead of stopping at the first.
+      # macOS host) must be skipped, not failed. Two layers, because the first
+      # attempt at this got burned: the primary check reads the @Tags(['e2e'])
+      # annotation from the file itself, which is the exact mechanism the
+      # exclusion acts on — deterministic, no dependency on runner output. The
+      # output-grep stays only as a fallback for a file that mixes tagged and
+      # untagged tests in a way the annotation scan can't see, and it matches
+      # BOTH strings flutter test emits for the nothing-to-run case: the plain
+      # runner prints "No tests ran." while the -d linux device runner prints
+      # "No tests match the requested tag selectors" — the first CI run of this
+      # step misclassified the excluded file as a failure over exactly that
+      # wording difference. Any other non-zero exit is a real failure and is
+      # collected so one run reports every broken file instead of stopping at
+      # the first.
       #
       # --timeout raises the per-test body limit only, exactly as in the Android
       # and iOS jobs; the step timeout is the outer bound on a hung test.
@@ -686,6 +694,11 @@ jobs:
           status=0
           for t in integration_test/*_test.dart; do
             echo "::group::$t"
+            if grep -qE "@Tags\(\[.*'e2e'.*\]\)" "$t"; then
+              echo "SKIP  $t (file-level @Tags(['e2e']) — excluded by --exclude-tags=e2e)"
+              echo "::endgroup::"
+              continue
+            fi
             log="$(mktemp)"
             if xvfb-run -a flutter test "$t" \
                  -d linux \
@@ -693,7 +706,7 @@ jobs:
                  --timeout 1200s \
                  --dart-define=LIBERATED_BREAD_MOCK=true 2>&1 | tee "$log"; then
               echo "PASS  $t"
-            elif grep -q 'No tests ran\.' "$log"; then
+            elif grep -qE 'No tests ran\.|No tests match the requested tag selectors' "$log"; then
               echo "SKIP  $t (every test in it is excluded by --exclude-tags=e2e)"
             else
               echo "::error file=$t::Integration test failed on the Linux desktop."

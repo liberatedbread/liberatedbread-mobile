@@ -11,7 +11,49 @@ No tagged release has been cut yet. Everything below is work toward the first
 `0.1.0` release; once it ships, these entries move under a dated `## [0.1.0]`
 heading.
 
+### Security
+
+- **Home Assistant token no longer leaks into logs.** A corrupt stored config
+  was logged via `'$e'`, and `FormatException.toString()` quotes a window of
+  its source — which here was the *decrypted* config, exposing 36 contiguous
+  characters of the long-lived access token and the entire webhook id to
+  logcat and terminals. Now only the exception type is logged; `redact()` /
+  `redactAll()` / `logSafeUrl()` helpers and a redacting `HaConfig.toString()`
+  make a repeat structurally hard.
+- `run-remote-mac.sh` no longer interpolates `--remote-dir` unescaped into
+  remote `ssh` commands (a quote in the path could execute arbitrary commands
+  on the remote Mac).
+
 ### Added
+
+- **Linux desktop target (x86-64)** — build and iterate without an emulator:
+  `./scripts/run-linux.sh --mock`, committed `linux/` scaffold, a
+  `verify_linux_bundle.sh` that checks the Rust library is bundled *and*
+  reachable (`RUNPATH` contains `$ORIGIN/lib`), and a CI job that builds
+  release without the mock define and runs the integration tests headlessly
+  under Xvfb — the first integration coverage needing no emulator/simulator.
+- **Structured logging** (`lib/core/log.dart`) — levelled, six fixed
+  categories (`[ble]`, `[spec]`, `[ha]`, `[packs]`, `[app]`, `[ui]`),
+  timestamps, an injectable sink for tests, and a warning floor in release
+  builds; ~40 log points across the BLE lifecycle, HA forwarding, spec
+  matching, and pack installs.
+- **Enumerated command parameters** — spec `allowed` values + `labels` now
+  cross the FFI boundary (`ParameterDto`) and render as a labelled dropdown
+  instead of a free-range slider; mismatched labels are dropped rather than
+  mispaired.
+- **Platform config-audit tests** (`test/platform/`) — 35+ fast tests pinning
+  the Android manifest, iOS/macOS plists, entitlements, application-identity
+  consistency, and the permission_handler-iOS Podfile invariant, each failure
+  message naming the user-visible breakage.
+- **CI artifact verification** — `scripts/verify_apk.sh` (Rust `.so` per ABI,
+  merged-manifest permissions, application id) and `scripts/verify_ios_app.sh`
+  (usage-description keys, linked FRB symbols) run against every built
+  artifact; Android additionally builds release/R8 with the real (non-mock)
+  BLE path compiled in; iOS runs simulator integration tests; `ios/Podfile`
+  is now committed.
+- **Android release signing** via a gitignored `android/key.properties`,
+  falling back to debug keys with a loud warning instead of silently
+  producing an unpublishable APK.
 
 - **Liberated Bread rebrand** — new Material 3 theme and palette
   (`LiberatedBreadApp` / `LiberatedBreadTheme`), regenerated platform icons, a
@@ -105,6 +147,41 @@ heading.
 
 ### Fixed
 
+- **Real BLE scanning tore itself down as soon as the native scan started**
+  (`startScan` returns at scan *start*), so real hardware showed "No devices
+  found" while the scan ran unwatched. The scan now waits for the adapter to
+  actually stop, coalesces result batches (stable `discoveredAt`, no
+  re-delivery of the previous scan's devices), and reports rssi/name changes
+  only.
+- **iOS could never scan**: with no `ios/Podfile`, permission_handler's iOS
+  Bluetooth strategy is compiled out and answers every request "permanently
+  denied" — before CoreBluetooth was ever reached. iOS now lets CoreBluetooth
+  prompt natively and maps the adapter's `unauthorized` state to the
+  permission-denied error.
+- **Android 5.0–11 BLE**: the manifest declared only the API 31+ permissions;
+  the legacy `BLUETOOTH`/`BLUETOOTH_ADMIN` pair (with `maxSdkVersion="30"`)
+  is now declared, so scanning no longer throws `SecurityException` on the
+  older half of the supported range.
+- **macOS**: `keychain-access-groups` added to both entitlements files
+  (sandboxed `flutter_secure_storage` failed with `errSecMissingEntitlement`,
+  so the HA token could not be stored) plus the local-network usage string.
+- **Rust core**: over-length fixed-width format fields no longer panic the
+  mock simulator (writes fill only the low `fixed_byte_size` bytes); a 64 KiB
+  parse-time cap stops spec-controlled multi-GB allocations; the dispatch
+  spec cache is bounded and shares parsed specs via `Arc`; `bool` template
+  parameters encode as a single 0/1 byte; typo'd `{parameter}` template
+  references are rejected at parse time instead of failing on first write.
+- `ref`-after-dispose guards in the HA and spec-pack settings screens; HA
+  toggle/disconnect failures are surfaced instead of silently dropped; mock
+  notify timers no longer outlive `dispose()`; `openAppSettings()` failures
+  are caught.
+- cargokit's Linux/Windows CMake exported a pre-rebrand
+  `_bundled_libraries` variable, so the Rust cdylib would silently not be
+  bundled into desktop builds; `rust_builder/android` carried the pre-rebrand
+  namespace.
+- `e2e-walkthrough.sh` could exit 0 with zero screenshots (no shot-server
+  readiness check); the shot server could hang on `simctl` and accept a stale
+  PNG as fresh; `session-start.sh` leaked temp files.
 - CI now installs the Android NDK the build actually uses
   (`FLUTTER_NDK_VERSION` pinned to 23.1.7779620 — Flutter 3.24.5 hardcodes it;
   installing anything else just made cargokit download this one mid-build),
