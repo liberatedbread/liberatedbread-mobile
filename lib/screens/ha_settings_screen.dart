@@ -157,8 +157,30 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
               'Send decoded values to Home Assistant while connected to '
               'devices'),
           value: config.enabled,
-          onChanged: (v) => ref.read(haConfigProvider.notifier).setEnabled(v),
+          onChanged: (v) async {
+            // The keystore write can fail; without a catch that is both a
+            // silently-ignored toggle and an unhandled async error.
+            try {
+              await ref.read(haConfigProvider.notifier).setEnabled(v);
+              if (mounted && _errorMessage != null) {
+                setState(() => _errorMessage = null);
+              }
+            } catch (e) {
+              if (!mounted) return;
+              setState(() => _errorMessage = friendlyErrorText(
+                    e,
+                    context: 'HA setEnabled',
+                    fallback: 'Could not save the forwarding setting.',
+                  ));
+            }
+          },
         ),
+        if (_errorMessage != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child:
+                Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+          ),
         ListenableBuilder(
           listenable: forwarder.status,
           builder: (context, _) {
@@ -249,8 +271,19 @@ class _HaSettingsScreenState extends ConsumerState<HaSettingsScreen> {
         ],
       ),
     );
-    if (confirmed == true) {
+    // mounted check: ConsumerState.ref throws a StateError if the screen was
+    // disposed while the dialog was up (use_build_context_synchronously does
+    // not catch ref-after-await).
+    if (confirmed != true || !mounted) return;
+    try {
       await ref.read(haConfigProvider.notifier).disconnect();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _errorMessage = friendlyErrorText(
+            e,
+            context: 'HA disconnect',
+            fallback: 'Could not disconnect from Home Assistant.',
+          ));
     }
   }
 

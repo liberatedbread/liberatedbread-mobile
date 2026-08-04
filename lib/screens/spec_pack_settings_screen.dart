@@ -194,6 +194,9 @@ class _SpecPackSettingsScreenState
     try {
       // Persist the URL so it survives even if the download fails.
       await ref.read(specPackUrlProvider.notifier).setUrl(url);
+      // mounted check before touching ref again: ConsumerState.ref throws a
+      // StateError once the screen is disposed.
+      if (!mounted) return;
       final result = await ref.read(specPackServiceProvider).install(url);
       if (!mounted) return;
       switch (result) {
@@ -224,8 +227,9 @@ class _SpecPackSettingsScreenState
 
   Future<void> _resetUrl() async {
     await ref.read(specPackUrlProvider.notifier).resetToDefault();
-    final url = ref.read(specPackUrlProvider).valueOrNull;
+    // mounted before the ref.read: ConsumerState.ref throws after dispose.
     if (!mounted) return;
+    final url = ref.read(specPackUrlProvider).valueOrNull;
     setState(() {
       if (url != null) _urlController.text = url;
       _errorMessage = null;
@@ -323,7 +327,8 @@ class _SpecPackSettingsScreenState
         ],
       ),
     );
-    if (confirmed != true) return;
+    // mounted before the ref.read: ConsumerState.ref throws after dispose.
+    if (confirmed != true || !mounted) return;
     await ref.read(specPackServiceProvider).clearCache();
     if (!mounted) return;
     ref.invalidate(installedSpecPacksProvider);

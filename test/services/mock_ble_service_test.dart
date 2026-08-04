@@ -87,6 +87,35 @@ void main() {
       // Second call must not throw even though controllers are already closed.
       await service.dispose();
     });
+
+    test('stops an active notify subscription from emitting', () async {
+      await service.connect('AA:BB:CC:DD:EE:01');
+
+      final emitted = <List<int>>[];
+      var done = false;
+      final subscription = service
+          .subscribeCharacteristic(
+            'AA:BB:CC:DD:EE:01',
+            '0000180f-0000-1000-8000-00805f9b34fb',
+            '00002a19-0000-1000-8000-00805f9b34fb',
+          )
+          .listen(emitted.add, onDone: () => done = true);
+
+      // Wait for the first periodic notification so the machinery is live.
+      await Future<void>.delayed(const Duration(milliseconds: 2100));
+      expect(emitted, isNotEmpty);
+
+      await service.dispose();
+      await Future<void>.delayed(Duration.zero);
+      expect(done, isTrue);
+
+      // No further emissions after dispose, even across another timer period.
+      final countAtDispose = emitted.length;
+      await Future<void>.delayed(const Duration(milliseconds: 2500));
+      expect(emitted.length, countAtDispose);
+
+      await subscription.cancel();
+    });
   });
 
   group('discoverServices', () {

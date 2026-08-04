@@ -24,6 +24,12 @@ export '../src/rust/api/device_api.dart'
         ProfileInfoDto,
         ProfileCharacteristicDto;
 
+// `ParameterDto.allowed` crosses the FFI as flutter_rust_bridge's Int64List
+// (a List<BigInt>, not dart:typed_data's). Re-export it so tests and widgets
+// can build parameter DTOs carrying allowed values while still depending only
+// on this abstraction.
+export 'package:flutter_rust_bridge/flutter_rust_bridge.dart' show Int64List;
+
 /// Abstraction over the Rust device-spec codec (flutter_rust_bridge FFI).
 ///
 /// The production implementation ([RealSpecCodec]) delegates to the generated

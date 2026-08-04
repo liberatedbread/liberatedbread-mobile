@@ -11,6 +11,10 @@ import 'value_format.dart';
 /// Stable Home Assistant `unique_id` for one decoded field of one
 /// characteristic on one device. The characteristic UUID is included so the
 /// same field name on two characteristics never collides.
+///
+/// The `ogiot_` prefix is the stable key for already-registered HA entities:
+/// renaming it would orphan every existing sensor, so it is deliberately kept
+/// through the rebrand.
 String haUniqueId(String deviceId, String charUuid, String fieldName) {
   return 'ogiot_${_sanitize(deviceId)}_${_shortUuid(charUuid)}'
       '_${_sanitize(fieldName)}';
@@ -27,6 +31,9 @@ HaSensorRegistration mapDecodedValue({
   final isBinary = value.boolValue != null || value.valueType == 'bool';
   final numeric = value.uintValue?.toInt() ?? value.intValue?.toInt();
 
+  // Every device-class branch requires a numeric value: HA rejects a string
+  // state on a numeric device class, so a string-valued "temperature" field
+  // must register as a plain sensor.
   String? deviceClass;
   String? unit;
   var icon = 'mdi:bluetooth';
@@ -34,12 +41,14 @@ HaSensorRegistration mapDecodedValue({
     deviceClass = 'battery';
     unit = '%';
     icon = 'mdi:battery';
-  } else if (fieldName.contains('humidity')) {
+  } else if (fieldName.contains('humidity') && numeric != null) {
     deviceClass = 'humidity';
+    // HA numeric device classes need a unit.
     unit = '%';
     icon = 'mdi:water-percent';
-  } else if (fieldName.contains('temp')) {
-    deviceClass = 'temperature';
+  } else if (fieldName.contains('temp') && numeric != null) {
+    // No device_class: specs carry no unit info, so °C vs °F is unknowable,
+    // and HA rejects unitless temperature sensors for statistics. Icon only.
     icon = 'mdi:thermometer';
   } else if (fieldName.contains('power') || fieldName.contains('brightness')) {
     icon = 'mdi:lightbulb';

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:liberated_bread_mobile/core/constants.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
@@ -64,9 +65,14 @@ class FakeBleService implements BleService {
   @override
   Future<bool> requestPermissions() async => true;
 
+  // Matches the fixed RealBleService contract: devices stream in during the
+  // scan window and the stream closes only when the window ends (here: when
+  // there is nothing left to emit) — never early with results still pending.
   @override
-  Stream<IoTDevice> scan(
-      {Duration timeout = const Duration(seconds: 10)}) async* {
+  Stream<IoTDevice> scan({
+    Duration timeout =
+        const Duration(seconds: AppConstants.defaultScanDuration),
+  }) async* {
     if (scanError != null) throw scanError!;
     for (final d in devicesToEmit) {
       if (scanStepDelay > Duration.zero) {

@@ -8,9 +8,10 @@ Everything visual about Liberated Bread comes from two files in
 | `brand.json` | The palette (hex values) |
 | `app_icon_mascot.svg` | The logo artwork |
 
-Everything else — 43 icon files across iOS/macOS/Android/web, the Android
-adaptive-icon background, the web manifest colours — is **generated** from
-those two. Don't hand-edit generated icons; they get overwritten.
+Everything else — 42 icon files across iOS/macOS/Android/web (plus the local
+`app_icon_preview.png` render, see below), the Android adaptive-icon
+background, the web manifest colours — is **generated** from those two. Don't
+hand-edit generated icons; they get overwritten.
 
 ## One-time setup
 

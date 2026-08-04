@@ -22,22 +22,41 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 log() { printf '[session-start] %s\n' "$*"; }
 
 # Keep verbose build output out of the session context; surface it only on
-# failure.
+# failure. The EXIT trap prints that tail first, then removes the log and any
+# half-finished SDK download, so a failed run leaves nothing behind — the
+# Flutter tarball alone is a few hundred MB.
 WORK_LOG="$(mktemp)"
-trap 'rc=$?; if [ "$rc" -ne 0 ]; then echo "[session-start] FAILED (exit $rc). Last output:"; tail -n 40 "$WORK_LOG"; fi' EXIT
+DOWNLOAD_TMP=""
+
+on_exit() {
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "[session-start] FAILED (exit $rc). Last output:"
+    tail -n 40 "$WORK_LOG"
+  fi
+  rm -f "$WORK_LOG"
+  if [ -n "$DOWNLOAD_TMP" ]; then
+    rm -rf "$DOWNLOAD_TMP"
+  fi
+  exit "$rc"
+}
+trap on_exit EXIT
 
 # 1. Flutter SDK, pinned to match CI.
 if [ ! -x "$FLUTTER_HOME/bin/flutter" ]; then
   log "Installing Flutter ${FLUTTER_VERSION}..."
   archive="flutter_linux_${FLUTTER_VERSION}-stable.tar.xz"
   url="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/${archive}"
-  tmp="$(mktemp -d)"
-  curl -fSL -o "$tmp/$archive" "$url" >>"$WORK_LOG" 2>&1
+  # Tracked in DOWNLOAD_TMP so the EXIT trap reclaims it if curl or tar fails
+  # part-way; cleared on success once it has been moved into place.
+  DOWNLOAD_TMP="$(mktemp -d)"
+  curl -fSL -o "$DOWNLOAD_TMP/$archive" "$url" >>"$WORK_LOG" 2>&1
   mkdir -p "$(dirname "$FLUTTER_HOME")"
-  tar xf "$tmp/$archive" -C "$tmp" >>"$WORK_LOG" 2>&1
+  tar xf "$DOWNLOAD_TMP/$archive" -C "$DOWNLOAD_TMP" >>"$WORK_LOG" 2>&1
   rm -rf "$FLUTTER_HOME"
-  mv "$tmp/flutter" "$FLUTTER_HOME"
-  rm -rf "$tmp"
+  mv "$DOWNLOAD_TMP/flutter" "$FLUTTER_HOME"
+  rm -rf "$DOWNLOAD_TMP"
+  DOWNLOAD_TMP=""
 else
   log "Flutter already installed at $FLUTTER_HOME"
 fi

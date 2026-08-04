@@ -106,7 +106,9 @@ void main() {
       expect(sensor.icon, 'mdi:lightbulb');
     });
 
-    test('temperature and humidity get device classes', () {
+    test('numeric temperature gets the icon but no device class', () {
+      // Specs carry no unit info, so °C vs °F is unknowable and HA rejects a
+      // unitless `temperature` device class for statistics.
       final temp = mapDecodedValue(
         deviceId: 'd',
         deviceName: 'Env',
@@ -118,8 +120,29 @@ void main() {
           intValue: 21,
         ),
       );
-      expect(temp.deviceClass, 'temperature');
+      expect(temp.deviceClass, isNull);
+      expect(temp.icon, 'mdi:thermometer');
+      expect(temp.state, 21);
+    });
 
+    test('string-valued temperature field gets no device class', () {
+      // A string state on a numeric device class is an invalid HA state.
+      final temp = mapDecodedValue(
+        deviceId: 'd',
+        deviceName: 'Env',
+        specChar: _customChar,
+        value: const DecodedValueDto(
+          name: 'temperature_label',
+          valueType: 'string',
+          display: 'warm',
+          stringValue: 'warm',
+        ),
+      );
+      expect(temp.deviceClass, isNull);
+      expect(temp.state, 'warm');
+    });
+
+    test('numeric humidity gets the device class and % unit', () {
       final humidity = mapDecodedValue(
         deviceId: 'd',
         deviceName: 'Env',
@@ -132,7 +155,25 @@ void main() {
         ),
       );
       expect(humidity.deviceClass, 'humidity');
+      // HA numeric device classes need a unit.
       expect(humidity.unitOfMeasurement, '%');
+    });
+
+    test('string-valued humidity field gets no device class or unit', () {
+      final humidity = mapDecodedValue(
+        deviceId: 'd',
+        deviceName: 'Env',
+        specChar: _customChar,
+        value: const DecodedValueDto(
+          name: 'humidity_status',
+          valueType: 'string',
+          display: 'dry',
+          stringValue: 'dry',
+        ),
+      );
+      expect(humidity.deviceClass, isNull);
+      expect(humidity.unitOfMeasurement, isNull);
+      expect(humidity.state, 'dry');
     });
 
     test('non-numeric value falls back to display text', () {

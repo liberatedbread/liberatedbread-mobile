@@ -9,8 +9,25 @@ name: iOS ad-hoc build
 #   IOS_CERTIFICATE_PASSWORD – password for the .p12
 #   IOS_PROVISIONING_PROFILE – base64-encoded .mobileprovision (ad-hoc profile)
 #
+# The .p12 must contain an **Apple Development** certificate: Flutter's
+# identity matcher only recognises "Apple Development"/"iPhone Developer"
+# identities, and without a match it never injects DEVELOPMENT_TEAM — so the
+# archive step fails with "Signing for 'Runner' requires a development team"
+# even though a distribution certificate is present. Export both certificates
+# into the one .p12 if you also need the distribution identity for the export.
+#
 # Optional:
 #   IOS_KEYCHAIN_PASSWORD – password for the ephemeral keychain (any string)
+#   IOS_TEAM_ID           – Apple Developer Team ID; substituted for the
+#                           YOUR_TEAM_ID placeholder in ios/ExportOptions-adhoc.plist
+#                           at build time, so no real team ID has to be committed
+#   IOS_PROFILE_NAME      – name of your Ad Hoc provisioning profile, exactly as
+#                           it appears on developer.apple.com; substituted for
+#                           the "Liberated Bread Ad Hoc" placeholder in
+#                           ios/ExportOptions-adhoc.plist. Without it,
+#                           -exportArchive fails with "No profile matching
+#                           'Liberated Bread Ad Hoc' found" unless your profile
+#                           happens to carry that exact name.
 #
 # Setup guide:
 #   1. In Xcode → Signing & Capabilities, set your Team and Bundle ID.
@@ -20,6 +37,10 @@ name: iOS ad-hoc build
 #        base64 -i certificate.p12 | pbcopy   # → IOS_CERTIFICATE_P12
 #        base64 -i profile.mobileprovision | pbcopy  # → IOS_PROVISIONING_PROFILE
 #   4. Add those secrets in the repo Settings → Secrets and variables → Actions.
+#   5. Add IOS_TEAM_ID and IOS_PROFILE_NAME too — the export step needs both.
+#
+# With no signing secrets set at all the workflow still runs: it falls back to
+# building (and uploading) an unsigned simulator .app bundle.
 
 on:
   workflow_dispatch:
@@ -44,6 +65,7 @@ jobs:
   build:
     name: iOS ad-hoc IPA
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,6 +113,10 @@ jobs:
         run: |
           security create-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
           security default-keychain -s "$KEYCHAIN_NAME"
+          # Defensive: some runner images don't put a new keychain on the user
+          # search list, and codesign only consults keychains on that list.
+          # Keep login.keychain so Apple's intermediate certs stay visible.
+          security list-keychains -d user -s "$KEYCHAIN_NAME" login.keychain
           security unlock-keychain -p "$KC_PASS" "$KEYCHAIN_NAME"
           security set-keychain-settings -t 3600 -u "$KEYCHAIN_NAME"
 
@@ -111,6 +137,45 @@ jobs:
           echo "$PROFILE_B64" | base64 --decode \
             > ~/Library/MobileDevice/Provisioning\ Profiles/liberated-bread.mobileprovision
 
+      # ios/ExportOptions-adhoc.plist is committed with YOUR_TEAM_ID and
+      # "Liberated Bread Ad Hoc" placeholders so neither a real team ID nor one
+      # developer's profile name lives in the repo. When the optional
+      # IOS_TEAM_ID / IOS_PROFILE_NAME secrets are set, substitute them into the
+      # workspace copy here. Same probe-the-secret-via-env pattern as the
+      # signing detection above: `secrets` cannot be referenced in a step-level
+      # `if:`, so the emptiness check lives in the shell. `sed -i ''` is the BSD
+      # form — this job runs on macos-latest.
+      - name: Inject team ID and profile name into ExportOptions plist
+        if: steps.signing.outputs.available == 'true'
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+        run: |
+          if [[ -n "$IOS_TEAM_ID" ]]; then
+            sed -i '' "s/YOUR_TEAM_ID/${IOS_TEAM_ID}/" ios/ExportOptions-adhoc.plist
+            echo "Substituted IOS_TEAM_ID into ios/ExportOptions-adhoc.plist"
+          else
+            echo "::warning::IOS_TEAM_ID secret not set — the export will fail unless ios/ExportOptions-adhoc.plist carries a real teamID."
+          fi
+
+          if [[ -n "$IOS_PROFILE_NAME" ]]; then
+            # Profile names are free-form text, unlike the alphanumeric team ID,
+            # so the value needs escaping twice before it can be sed'd into an
+            # XML plist:
+            #   1. XML — a bare & or < would make the plist unparseable, and
+            #      xcodebuild would reject it ("R&D Ad Hoc" is a realistic name).
+            #   2. sed replacement — \ and the | delimiter must be escaped, and
+            #      a bare & there expands to the whole match.
+            # Stage 1 must run first; it introduces the &s that stage 2 escapes.
+            name_xml=$(printf '%s' "$IOS_PROFILE_NAME" \
+              | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+            name_sed=$(printf '%s' "$name_xml" | sed -e 's/[\\|&]/\\&/g')
+            sed -i '' "s|Liberated Bread Ad Hoc|${name_sed}|" ios/ExportOptions-adhoc.plist
+            echo "Substituted IOS_PROFILE_NAME into ios/ExportOptions-adhoc.plist"
+          else
+            echo "::warning::IOS_PROFILE_NAME secret not set — -exportArchive will fail with \"No profile matching 'Liberated Bread Ad Hoc' found\" unless your Ad Hoc profile carries that exact name."
+          fi
+
       # ── build ──────────────────────────────────────────────────────────────
       # Signed IPA uses --profile so the app can launch standalone (debug mode
       # requires a live Dart VM connection and aborts on install without one).
@@ -127,15 +192,50 @@ jobs:
           MOCK_FLAG: ${{ inputs.mock && '--dart-define=LIBERATED_BREAD_MOCK=true' || '' }}
         run: flutter build ios --debug --no-codesign --simulator $MOCK_FLAG
 
+      # ── verify the artifact ────────────────────────────────────────────────
+      # This IPA is the one that gets installed on a real iPhone, which is where
+      # the BLE outage actually happened, so it is the most valuable place to
+      # assert on the bundle rather than on an exit code. A missing
+      # NSBluetoothAlwaysUsageDescription means iOS terminates the app the
+      # moment CoreBluetooth is touched; a CFBundleIdentifier that drifted from
+      # ca.pigscanfly.liberatedbread means the ad-hoc provisioning profile no
+      # longer matches and the install silently fails on the device.
+      #
+      # --skip-symbols here, unlike the CI simulator build: this is a profile
+      # build, and Xcode strips the app binary, so asserting on the Rust FFI
+      # symbols in a shipped IPA risks a false failure that cannot be validated
+      # without a signed device build. The unstripped debug bundle in ci.yml's
+      # ios-build job is where the linked-Rust-library assertion lives; adding
+      # an unverifiable variant of it here would be exactly the kind of check
+      # that can fail for the wrong reason.
+      - name: Verify signed IPA contents
+        if: steps.signing.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          ipa="$(find build/ios/ipa -name '*.ipa' -maxdepth 1 | head -1)"
+          if [ -z "$ipa" ]; then
+            echo "::error::No .ipa produced under build/ios/ipa"
+            exit 1
+          fi
+          ./scripts/verify_ios_app.sh "$ipa" --skip-symbols
+
+      # The fallback bundle is a debug build and is not stripped, so the full
+      # check — including the linked Rust library — applies.
+      - name: Verify unsigned simulator bundle contents
+        if: steps.signing.outputs.available == 'false'
+        run: ./scripts/verify_ios_app.sh build/ios/iphonesimulator/Runner.app
+
       # ── artifact ───────────────────────────────────────────────────────────
+      # The signed IPA is this workflow's entire deliverable: a run that ends
+      # without one must be red, so no continue-on-error here (even a quota
+      # failure should be loud) and missing files are an error.
       - name: Upload IPA
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
-        continue-on-error: true
         with:
           name: liberated-bread-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
           path: build/ios/ipa/*.ipa
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 1
 
       - name: Upload unsigned app bundle (no-secrets fallback)

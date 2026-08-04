@@ -10,5 +10,14 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<key>com.apple.security.device.bluetooth</key>
+	<true/>
+	<!-- Required by flutter_secure_storage 9.x under the App Sandbox: without a
+	     keychain-access-groups entitlement (an empty array is enough — it makes
+	     the app use its own default access group) every SecItem* call fails with
+	     errSecMissingEntitlement (-34018), so the Home Assistant token can be
+	     neither stored nor read. See lib/services/secure_settings_store.dart. -->
+	<key>keychain-access-groups</key>
+	<array/>
 </dict>
 </plist>

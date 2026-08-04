@@ -1,6 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 
+import '../core/log.dart';
+
 /// Persisted Home Assistant companion-mode configuration.
 class HaConfig {
   /// Normalized base URL (no trailing slash), e.g. `http://ha.local:8123`.
@@ -51,6 +53,15 @@ class HaConfig {
         'device_id': deviceId,
         'enabled': enabled,
       };
+
+  /// Deliberately redacted: [token] and [webhookId] are secrets, and the
+  /// default `Instance of 'HaConfig'` gives a future call site nothing useful,
+  /// which is how `'$config'` ends up in a log line. This makes interpolating
+  /// the whole object both useful AND safe.
+  @override
+  String toString() => 'HaConfig(baseUrl: $baseUrl, token: ${redact(token)}, '
+      'webhookId: ${redact(webhookId)}, deviceId: $deviceId, '
+      'enabled: $enabled)';
 
   factory HaConfig.fromJson(Map<String, dynamic> json) => HaConfig(
         baseUrl: json['base_url'] as String,

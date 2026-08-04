@@ -5,6 +5,15 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Release signing material, kept out of the repo. android/.gitignore excludes
+// key.properties and every *.keystore/*.jks, so this file is absent on CI and
+// on a fresh clone — which is the case the release buildType handles below.
+def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
+}
+
 android {
     namespace = "ca.pigscanfly.liberatedbread"
     compileSdk = flutter.compileSdkVersion
@@ -28,11 +37,35 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            release {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                storeFile = file(keystoreProperties["storeFile"])
+                storePassword = keystoreProperties["storePassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.release
+            } else {
+                // Fall back to the debug keys so `flutter run --release` and the
+                // CI release smoke build keep working without a keystore — but
+                // say so, loudly. A debug-signed APK cannot be published (Play
+                // rejects it) and carries the universally-shared Android debug
+                // key, so it grants no signing trust at all. This used to be a
+                // silent TODO: the build simply succeeded and produced an
+                // unpublishable artifact with nothing to indicate it.
+                logger.warn(
+                    "WARNING: android/key.properties not found - signing the " +
+                    "RELEASE build with DEBUG keys. This artifact is not " +
+                    "publishable. See https://flutter.dev/to/reference-keystore")
+                signingConfig = signingConfigs.debug
+            }
         }
     }
 }

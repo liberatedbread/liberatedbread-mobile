@@ -16,8 +16,11 @@ void main() {
     expect(rangeFor('bool', null, null), (min: 0.0, max: 1.0));
     expect(rangeFor('uint8', null, null), (min: 0.0, max: 255.0));
     expect(rangeFor('uint16', null, null), (min: 0.0, max: 65535.0));
+    expect(rangeFor('uint32', null, null), (min: 0.0, max: 4294967295.0));
     expect(rangeFor('int8', null, null), (min: -128.0, max: 127.0));
     expect(rangeFor('int16', null, null), (min: -32768.0, max: 32767.0));
+    expect(
+        rangeFor('int32', null, null), (min: -2147483648.0, max: 2147483647.0));
     expect(rangeFor('mystery', null, null), (min: 0.0, max: 255.0));
   });
 
@@ -44,5 +47,26 @@ void main() {
     expect(divisionsFor(0, 100), 100);
     expect(divisionsFor(0, 0), isNull);
     expect(divisionsFor(0, 65535), isNull);
+  });
+
+  test('allowedEntryLabel pairs label with wire value, or shows value alone',
+      () {
+    expect(allowedEntryLabel('OFF', 0), 'OFF (0)');
+    expect(allowedEntryLabel('Low', 200), 'Low (200)');
+    // Allowed values cross the FFI as BigInt; they must render identically.
+    expect(allowedEntryLabel('High', BigInt.from(1000)), 'High (1000)');
+    expect(allowedEntryLabel(null, BigInt.from(400)), '400');
+    // A degenerate empty label falls back to the raw value too.
+    expect(allowedEntryLabel('', 7), '7');
+  });
+
+  test('isNumericValueType accepts integer types only', () {
+    for (final t in ['uint8', 'uint16', 'uint32', 'int8', 'int16', 'int32']) {
+      expect(isNumericValueType(t), isTrue, reason: t);
+    }
+    // bool has its own switch control; string/bytes/unknown get no slider.
+    for (final t in ['bool', 'string', 'bytes', 'mystery']) {
+      expect(isNumericValueType(t), isFalse, reason: t);
+    }
   });
 }

@@ -1,6 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Android 12+ (API 31+) Bluetooth permissions. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Android 11 and below (API 21-30) use the legacy pair instead. minSdk is
+         21, and flutter_blue_plus_android ships a deliberately empty manifest
+         ("users can set exactly the permissions they want"), so this app's
+         manifest is the only source of them: without these, scanning and
+         connecting throw SecurityException on every device below Android 12. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- Required for BLE scanning on API 30 and below, and requested at runtime
+         on every API level (see RealBleService.requestPermissions). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- Home Assistant companion mode: registration + webhook pushes. -->
     <uses-permission android:name="android.permission.INTERNET" />

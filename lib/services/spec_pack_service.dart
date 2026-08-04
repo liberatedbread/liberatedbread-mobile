@@ -7,6 +7,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/log.dart';
+
 /// Downloads and caches a "pack" of device-spec YAML files described by a remote
 /// JSON manifest, so new device support can ship without an app-store update.
 ///
@@ -252,10 +254,12 @@ class SpecPackService {
   Future<InstallResult> install(String manifestUrl) async {
     final url = manifestUrl.trim();
     if (!isValidManifestUrl(url)) {
+      Log.packs.warning('install refused: not a valid http(s) URL');
       return const InstallFailed(SpecPackError(
           SpecPackErrorKind.invalidUrl, 'Enter a valid http(s) URL.'));
     }
     final manifestUri = Uri.parse(url);
+    Log.packs.info('installing from ${logSafeUrl(manifestUri)}');
 
     // 1. Fetch the manifest.
     final Uint8List manifestBytes;
@@ -263,21 +267,26 @@ class SpecPackService {
       manifestBytes =
           await _fetch(manifestUri, SpecPackLimits.maxManifestBytes);
     } on _FetchException catch (e) {
+      Log.packs.warning('manifest fetch failed: ${e.error.message}');
       return InstallFailed(e.toError());
     }
     final SpecPackManifest? manifest;
     try {
       manifest = SpecPackManifest.tryParse(utf8.decode(manifestBytes));
     } on FormatException {
+      Log.packs.warning('manifest rejected: not valid UTF-8 text');
       return const InstallFailed(SpecPackError(
           SpecPackErrorKind.malformedManifest,
           'The manifest was not valid UTF-8 text.'));
     }
     if (manifest == null) {
+      Log.packs.warning('manifest rejected: not a valid spec-pack manifest');
       return const InstallFailed(SpecPackError(
           SpecPackErrorKind.malformedManifest,
           'The manifest is not a valid spec-pack manifest.'));
     }
+    Log.packs.debug('manifest "${manifest.name}" v${manifest.version} lists '
+        '${manifest.specs.length} spec(s)');
 
     // 2. Download each spec, capping per-file and total size.
     final downloaded = <String, Uint8List>{};
@@ -353,6 +362,8 @@ class SpecPackService {
     }
 
     if (downloaded.isEmpty) {
+      Log.packs.warning('install failed: none of the ${manifest.specs.length} '
+          'spec(s) could be downloaded — ${_summarize(failures)}');
       return const InstallFailed(SpecPackError(
           SpecPackErrorKind.noSpecsInstalled,
           'None of the specs in the manifest could be downloaded.'));
@@ -370,11 +381,32 @@ class SpecPackService {
       // cacheIo is the one error kind whose message the settings screen shows
       // verbatim, so it has to read like a sentence; the raw failure (a path,
       // an errno) is for the log, not the user.
-      debugPrint('[liberated-bread] spec pack persist failed: $e');
+      Log.packs.error('install failed: could not write the pack to storage',
+          error: e);
       return const InstallFailed(SpecPackError(SpecPackErrorKind.cacheIo,
           'Could not save the pack to this device\'s storage.'));
     }
+    // One aggregate line, not one per spec: a manifest may list up to
+    // SpecPackLimits.maxSpecCount entries and this must not become a wall.
+    if (failures.isNotEmpty) {
+      Log.packs.warning(
+          '${failures.length} spec(s) skipped: ${_summarize(failures)}');
+    }
+    Log.packs.info('installed "${pack.name}" v${pack.version}: '
+        '${pack.specCount} spec(s) cached');
     return InstallOk(pack, partialFailures: failures);
+  }
+
+  /// The first few [failures] as one line, for a log that must stay scannable.
+  static String _summarize(List<SpecDownloadFailure> failures) {
+    const shown = 3;
+    final head = failures
+        .take(shown)
+        .map((f) => '${f.specFile} (${f.reason})')
+        .join(', ');
+    return failures.length > shown
+        ? '$head, and ${failures.length - shown} more'
+        : head;
   }
 
   /// Alias for [install]; refreshing re-fetches from the same URL.
@@ -400,13 +432,14 @@ class SpecPackService {
         if (pack != null) {
           packs.add(pack);
         } else {
-          debugPrint(
-              'SpecPackService: skipping corrupt pack record ${manifestFile.path}');
+          Log.packs
+              .warning('skipping corrupt pack record ${manifestFile.path}');
         }
       } catch (e) {
         // Skip an unreadable/corrupt pack record, but make the drop visible.
-        debugPrint('SpecPackService: skipping unreadable pack record '
-            '${manifestFile.path}: $e');
+        Log.packs.warning(
+            'skipping unreadable pack record ${manifestFile.path}',
+            error: e);
       }
     }
     packs.sort((a, b) => b.installedAt.compareTo(a.installedAt));
@@ -426,27 +459,34 @@ class SpecPackService {
     try {
       packs = await listInstalledPacks();
     } catch (e) {
-      debugPrint('SpecPackService: could not list cached packs, falling back '
-          'to bundled specs only: $e');
+      Log.packs.warning(
+          'could not list cached packs; falling back to bundled specs only',
+          error: e);
       return result;
     }
+    if (packs.isEmpty) return result;
+    // One root resolution for the whole walk, not one per pack.
+    final root = await _cacheRoot();
     for (final pack in packs) {
-      final dir = _packDir(await _cacheRoot(), pack.name);
+      final dir = _packDir(root, pack.name);
       for (final file in pack.specFiles) {
         try {
           final f = File('${dir.path}/specs/${_safeFileName(file)}');
           if (await f.exists()) {
             result['pack:${pack.name}/$file'] = await f.readAsString();
           } else {
-            debugPrint('SpecPackService: cached spec missing on disk for '
-                'pack:${pack.name}/$file');
+            Log.packs.warning(
+                'cached spec missing on disk: pack:${pack.name}/$file');
           }
         } catch (e) {
-          debugPrint('SpecPackService: skipping unreadable cached spec '
-              'pack:${pack.name}/$file: $e');
+          Log.packs.warning(
+              'skipping unreadable cached spec pack:${pack.name}/$file',
+              error: e);
         }
       }
     }
+    Log.packs.debug('loaded ${result.length} cached spec(s) from '
+        '${packs.length} pack(s)');
     return result;
   }
 
@@ -461,8 +501,12 @@ class SpecPackService {
     final dir = _packDir(root, name);
     // Never recursively delete a path that isn't strictly inside the cache
     // root, mirroring the guard in _persist.
-    if (!_isStrictlyInside(root, dir)) return;
+    if (!_isStrictlyInside(root, dir)) {
+      Log.packs.warning('refusing to remove pack "$name": unsafe path');
+      return;
+    }
     if (await dir.exists()) await dir.delete(recursive: true);
+    Log.packs.info('removed pack "$name"');
   }
 
   /// Delete every cached pack. Never throws.
@@ -470,8 +514,10 @@ class SpecPackService {
     try {
       final root = await _cacheRoot();
       if (await root.exists()) await root.delete(recursive: true);
-    } catch (_) {
+      Log.packs.info('pack cache cleared');
+    } catch (e) {
       // Best-effort.
+      Log.packs.warning('could not clear the pack cache', error: e);
     }
   }
 

@@ -1,6 +1,7 @@
 # Contributing to Liberated Bread Mobile
 
 Thank you for your interest in contributing! We welcome contributions from everyone.
+By participating you agree to our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## How to Contribute
 
@@ -8,7 +9,7 @@ Thank you for your interest in contributing! We welcome contributions from every
 2. **Create a branch** for your feature or fix: `git checkout -b feature/my-feature`
 3. **Write tests** for your changes
 4. **Run tests** to make sure everything passes: `flutter test` and `cd rust && cargo test`
-5. **Run the linter**: `flutter analyze` and `cd rust && cargo clippy --all-targets --all-features -- -D warnings`
+5. **Run the linter**: `flutter analyze --fatal-infos` (CI treats infos as fatal) and `cd rust && cargo clippy --all-targets --all-features -- -D warnings`
 6. **Format your code**: `dart format .` and `cd rust && cargo fmt --all`
 7. **Commit** your changes with a clear message
 8. **Push** to your fork and **open a Pull Request**

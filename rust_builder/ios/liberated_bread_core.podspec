@@ -5,13 +5,14 @@
 Pod::Spec.new do |s|
   s.name             = 'liberated_bread_core'
   s.version          = '0.0.1'
-  s.summary          = 'A new Flutter FFI plugin project.'
+  s.summary          = 'Rust core for Liberated Bread Mobile.'
   s.description      = <<-DESC
-A new Flutter FFI plugin project.
+The BLE and device-spec engine behind Liberated Bread Mobile, built from
+../../rust by cargokit and linked into the Flutter app over FFI.
                        DESC
-  s.homepage         = 'http://example.com'
-  s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.homepage         = 'https://github.com/liberatedbread/liberatedbread-mobile'
+  s.license          = { :type => 'Apache-2.0', :file => '../LICENSE' }
+  s.author           = 'Pigs Can Fly Labs LLC'
 
   # This will ensure the source files in Classes/ are included in the native
   # builds of apps using this FFI plugin. Podspec does not support relative

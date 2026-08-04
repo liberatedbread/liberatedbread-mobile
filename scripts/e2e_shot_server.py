@@ -44,6 +44,12 @@ PORT = int(os.environ.get("E2E_SHOT_PORT", "8099"))
 # magnitude above any blank one.
 MIN_FRAME_BYTES = int(os.environ.get("E2E_MIN_FRAME_BYTES", "20000"))
 
+# Wall-clock ceiling for one `simctl screenshot`. This server is single
+# threaded and the walkthrough blocks on each request, so an unbounded capture
+# against a wedged simulator would hang the whole run with no diagnostic. A
+# real capture takes well under a second; 30 s is "something is broken".
+CAPTURE_TIMEOUT_S = 30
+
 # Screenshot names come from the test and are pasted straight into a filesystem
 # path, so keep them to a boring alphabet.
 SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
@@ -115,10 +121,32 @@ class ShotHandler(BaseHTTPRequestHandler):
             return
 
         path = os.path.join(OUT_DIR, name + ".png")
-        proc = subprocess.run(
-            ["xcrun", "simctl", "io", UDID, "screenshot", "--type=png", path],
-            capture_output=True,
-        )
+
+        # Drop any PNG left by an earlier run *before* capturing. `simctl` does
+        # not truncate the target when it fails, so a stale file would still be
+        # sitting there at full size and would pass every check below as if it
+        # were the frame we just asked for.
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+        try:
+            proc = subprocess.run(
+                ["xcrun", "simctl", "io", UDID, "screenshot", "--type=png", path],
+                capture_output=True,
+                timeout=CAPTURE_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            # 500, not 422: a wedged simctl means *this server* can no longer
+            # do its job, which is a different failure from a bad frame. The
+            # timeout is what keeps that from hanging the walkthrough forever,
+            # since this server handles one request at a time.
+            reason = f"capture timed out after {CAPTURE_TIMEOUT_S}s (simctl hung?)"
+            print(f"[shot] {name} BAD bytes=0 -- {reason}", flush=True)
+            self._reply(500, reason.encode())
+            return
+
         size = os.path.getsize(path) if os.path.exists(path) else 0
 
         if proc.returncode != 0 or size == 0:

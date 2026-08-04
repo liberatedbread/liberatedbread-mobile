@@ -162,4 +162,42 @@ services:
         let bytes = mock_read_characteristic(device_id, char_uuid, TEST_YAML.into());
         assert_eq!(bytes, vec![0, 50]);
     }
+
+    /// H1 end-to-end: a spec-pack YAML declaring a fixed type over a longer
+    /// field (`type: uint16, length: 3`) parses — the parser deliberately
+    /// tolerates it — and a mock read through the real FFI entry point must
+    /// return low-byte data with zero padding, not panic in
+    /// `generate_defaults`'s slice copy.
+    #[test]
+    fn mock_read_tolerates_overlong_fixed_field_spec() {
+        let _guard = exclusive_state();
+        mock_reset();
+        let yaml = r#"
+device:
+  name: "Overlong"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+        name: "Status"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 3
+            name: "lux"
+            type: "uint16"
+"#;
+        let bytes = mock_read_characteristic(
+            "device-overlong".into(),
+            "0000fff3-0000-1000-8000-00805f9b34fb".into(),
+            yaml.into(),
+        );
+        // Low two bytes carry the heuristic (lux → 500 = 0x01F4, LE); the
+        // declared-but-unused third byte stays zero.
+        assert_eq!(bytes, vec![0xF4, 0x01, 0x00]);
+    }
 }

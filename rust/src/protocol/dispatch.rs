@@ -24,9 +24,21 @@ use crate::spec::types::DeviceSpec;
 /// hash: specs may be loaded from arbitrary remote URLs, and a hostile author
 /// could otherwise craft two specs whose hashes collide, causing the wrong
 /// `DeviceSpec` to be served for encode/decode. Keying on the full text makes
-/// a collision impossible. The extra memory is a handful of small strings.
+/// a collision impossible. The extra memory is a handful of small strings —
+/// bounded by [`SPEC_CACHE_MAX_ENTRIES`], because those same remote URLs
+/// could also feed us an endless stream of *distinct* keys (every whitespace
+/// variation of a spec is a new entry) and grow the map without limit.
 static SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Upper bound on cached specs. Generous for the legitimate workload (a
+/// handful of bundled specs plus a few installed packs), tiny against a
+/// hostile stream of never-repeating YAML strings. When the bound is hit the
+/// whole cache is cleared rather than LRU-evicted: reaching it at all means
+/// the workload is not the one the cache serves, and a documented clear is
+/// simpler than an eviction policy (or an LRU dependency) — the cost of a
+/// miss is one re-parse.
+const SPEC_CACHE_MAX_ENTRIES: usize = 32;
 
 fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolError> {
     let mut cache = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -34,6 +46,9 @@ fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolError> {
         return Ok(spec.clone());
     }
     let spec = Arc::new(parse_device_spec(yaml)?);
+    if cache.len() >= SPEC_CACHE_MAX_ENTRIES {
+        cache.clear();
+    }
     cache.insert(yaml.to_string(), spec.clone());
     Ok(spec)
 }
@@ -49,8 +64,10 @@ pub fn select_protocol(
     service_uuid: Option<&str>,
 ) -> Result<Box<dyn DeviceProtocol>, ProtocolError> {
     if let Some(yaml) = spec_yaml {
+        // Hand the Arc straight through: GenericProtocol shares the cached
+        // spec, so this is a refcount bump, not a deep clone per FFI call.
         let spec = parse_or_cached(yaml)?;
-        return Ok(Box::new(GenericProtocol::new((*spec).clone())));
+        return Ok(Box::new(GenericProtocol::new(spec)));
     }
     if let Some(uuid) = service_uuid {
         if let Some(profile) = profiles::lookup(uuid) {
@@ -182,8 +199,16 @@ services:
     // rather than reading the global cache length, which is shared with
     // every other test running on the multithreaded test runner.
 
+    /// The capacity test clears the shared global cache, which would race
+    /// the identity assertions of the identical-YAML test if the two
+    /// interleave on the parallel runner. Serialize just those two — the
+    /// remaining tests only compare *content* or the identity of *distinct*
+    /// specs, both of which survive a concurrent clear.
+    static CACHE_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn cache_returns_same_allocation_for_identical_yaml() {
+        let _guard = CACHE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let yaml = "
 device:
   name: \"cache-test-A\"
@@ -197,6 +222,49 @@ services: []
         assert!(
             Arc::ptr_eq(&a, &b),
             "second call should return a clone of the cached Arc, not a fresh parse"
+        );
+    }
+
+    /// The cache must stay bounded even when every request carries distinct
+    /// YAML (the remote-pack attack surface: whitespace-permuted copies of
+    /// one spec are all different keys). Prove an entry gets evicted after
+    /// SPEC_CACHE_MAX_ENTRIES fresh inserts — i.e. the map cannot grow
+    /// without limit.
+    #[test]
+    fn cache_clears_when_capacity_is_reached() {
+        let _guard = CACHE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let base = "
+device:
+  name: \"cap-test-base\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+";
+        let before = parse_or_cached(base).unwrap();
+
+        // Whatever the cache held beforehand, inserting MAX distinct specs
+        // after `base` guarantees at least one clear happens after `base`
+        // was cached (base + MAX fresh entries > MAX).
+        for i in 0..SPEC_CACHE_MAX_ENTRIES {
+            let yaml = format!(
+                "
+device:
+  name: \"cap-test-{i}\"
+  manufacturer: x
+  manufacturer_status: abandoned
+  protocol: ble
+services: []
+"
+            );
+            parse_or_cached(&yaml).unwrap();
+        }
+
+        let after = parse_or_cached(base).unwrap();
+        assert!(
+            !Arc::ptr_eq(&before, &after),
+            "base entry should have been evicted by the capacity clear; \
+             an identity hit here would mean the cache grew past its bound"
         );
     }
 

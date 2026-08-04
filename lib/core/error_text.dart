@@ -3,7 +3,7 @@
 //
 // Turning thrown objects into text a person should read.
 
-import 'package:flutter/foundation.dart';
+import 'log.dart';
 
 /// An exception whose [message] was written for a user to read.
 ///
@@ -23,14 +23,19 @@ abstract class UserFacingException implements Exception {
 ///
 /// So: [UserFacingException] messages pass through, because they were written
 /// for this. Everything else becomes [fallback] — and the real error goes to
-/// the debug log, where it is useful, tagged with [context] to say which
-/// operation failed.
+/// the log, where it is useful, tagged with [context] to say which operation
+/// failed.
+///
+/// The log line lands under [Log.ui] by default: "a user-visible operation
+/// failed and we showed fallback text". A non-UI caller passes its own
+/// category via [log] so the line is filed where a reader would look for it.
 String friendlyErrorText(
   Object error, {
   required String fallback,
   String? context,
+  Logger? log,
 }) {
   if (error is UserFacingException) return error.message;
-  debugPrint('[liberated-bread] ${context ?? 'operation failed'}: $error');
+  (log ?? Log.ui).warning(context ?? 'operation failed', error: error);
   return fallback;
 }

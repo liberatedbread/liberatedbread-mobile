@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/hex.dart';
+import '../core/log.dart';
 import '../services/spec_codec.dart';
 import 'device_spec_provider.dart';
 import 'spec_codec_provider.dart';
@@ -54,11 +55,13 @@ final parsedDeviceSpecsProvider =
   final specYamls = await ref.watch(deviceSpecsProvider.future);
 
   final parsed = <({DeviceSpecDto spec, String yaml})>[];
-  for (final yaml in specYamls.values) {
+  for (final entry in specYamls.entries) {
     try {
-      parsed.add((spec: await codec.loadDeviceSpec(yaml), yaml: yaml));
-    } catch (_) {
-      // Skip this spec.
+      parsed.add(
+          (spec: await codec.loadDeviceSpec(entry.value), yaml: entry.value));
+    } catch (e) {
+      // Skip this spec, but say so - a silent drop looks like a matching bug.
+      Log.spec.warning('failed to parse spec ${entry.key}', error: e);
     }
   }
   return parsed;
@@ -72,7 +75,11 @@ final matchedDeviceSpecProvider =
     FutureProvider.family<MatchedSpec?, SpecMatchRequest>((ref, req) async {
   final codec = ref.watch(specCodecProvider);
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
-  if (parsed.isEmpty) return null;
+  if (parsed.isEmpty) {
+    Log.spec.info('no parseable specs; ${req.deviceName} gets raw controls '
+        '(is the native codec loaded?)');
+    return null;
+  }
 
   final List<MatchResult> matches;
   try {
@@ -81,10 +88,16 @@ final matchedDeviceSpecProvider =
       deviceName: req.deviceName,
       advertisedServiceUuids: req.serviceUuids,
     );
-  } catch (_) {
+  } catch (e) {
+    // Degrade to "no spec matched" (raw controls still work), but log why.
+    Log.spec.warning('matching failed for ${req.deviceName}', error: e);
     return null;
   }
-  if (matches.isEmpty) return null;
+  if (matches.isEmpty) {
+    Log.spec.info('no spec matched ${req.deviceName} '
+        '(${parsed.length} considered, ${req.serviceUuids.length} service uuid(s))');
+    return null;
+  }
 
   // Rank: name-prefix matches first, then most matched service UUIDs. Sort a
   // copy — the list may be unmodifiable (a const fake, or a fixed-length list
@@ -110,6 +123,10 @@ final matchedDeviceSpecProvider =
     (p) => _sameSpecIdentity(p.spec, best.spec),
     orElse: () => parsed.first,
   );
+  Log.spec.info('matched ${req.deviceName} to "${winner.spec.deviceName}" '
+      '(${best.matchedByNamePrefix ? 'name prefix' : 'service uuid'}, '
+      '${best.matchedServiceUuids.length} uuid(s); '
+      '${matches.length} candidate(s))');
   return MatchedSpec(spec: winner.spec, yaml: winner.yaml);
 });
 
