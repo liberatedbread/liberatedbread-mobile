@@ -14,6 +14,16 @@ device:
     service_uuids:
       - "0000fff0-0000-1000-8000-00805f9b34fb"
 
+helpful_urls:
+  - title: "Example teardown notes"
+    url: "https://example.com/example-smart-bulb-teardown"
+    description: "Shows the board revision and radio module markings used to identify this family."
+
+helpful_videos:
+  - title: "Example setup walkthrough"
+    url: "https://video.example.com/watch/example-smart-bulb-setup"
+    description: "Demonstrates the pairing flow and the BLE capture points."
+
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Control Service"

@@ -9,9 +9,9 @@ import '../providers/ble_provider.dart';
 import '../core/error_text.dart';
 
 /// Raw characteristic widget — shows hex values and provides basic read/write.
-/// This is the fallback for characteristics not matched to a device spec.
-/// Once specs are connected via Rust, typed widgets (toggles, sliders, etc.)
-/// will be rendered instead.
+/// This is the fallback for characteristics not matched to a device spec;
+/// spec-matched characteristics render typed controls instead (see
+/// TypedCharacteristicWidget / TypedCommandWidget).
 class RawCharacteristicWidget extends ConsumerStatefulWidget {
   final String deviceId;
   final String serviceUuid;

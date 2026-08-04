@@ -32,5 +32,7 @@
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Liberated Bread connects to your Home Assistant server on your local network.</string>
 </dict>
 </plist>

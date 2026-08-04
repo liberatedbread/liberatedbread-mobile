@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/services.dart' show rootBundle;
+import '../core/constants.dart';
 import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
@@ -98,6 +99,10 @@ class MockBleService implements BleService {
   final Map<String, StreamController<BleConnectionState>> _connectionStreams =
       {};
 
+  /// Live notify controllers from [subscribeCharacteristic], tracked so
+  /// [dispose] can close them instead of leaving their timers polling.
+  final Set<StreamController<List<int>>> _notifyControllers = {};
+
   /// [loadSpec] is a legacy convenience for tests that only care about the
   /// bulb: it supplies that one spec's text regardless of asset path.
   MockBleService({
@@ -168,8 +173,10 @@ class MockBleService implements BleService {
   Future<bool> requestPermissions() async => true;
 
   @override
-  Stream<IoTDevice> scan(
-      {Duration timeout = const Duration(seconds: 10)}) async* {
+  Stream<IoTDevice> scan({
+    Duration timeout =
+        const Duration(seconds: AppConstants.defaultScanDuration),
+  }) async* {
     // Fresh mock state per scan when Rust is driving the simulator.
     if (rustAvailable) {
       try {
@@ -186,7 +193,9 @@ class MockBleService implements BleService {
         discoveredAt: DateTime.now(),
       );
     }
-    await Future<void>.delayed(Duration(seconds: timeout.inSeconds ~/ 3));
+    // Duration division, not `inSeconds ~/ 3`, which truncates to zero for
+    // sub-3-second timeouts.
+    await Future<void>.delayed(timeout ~/ 3);
   }
 
   @override
@@ -218,9 +227,19 @@ class MockBleService implements BleService {
   }
 
   /// Release resources held by this mock service. Closes every per-device
-  /// connection-state controller so they don't leak when the service is
-  /// discarded. Safe to call more than once.
+  /// connection-state controller and active notify stream so their timers
+  /// stop, and drops connection state so nothing keeps "notifying" a
+  /// discarded service. Safe to call more than once.
   Future<void> dispose() async {
+    _connected.clear();
+    final notifyControllers = _notifyControllers.toList();
+    _notifyControllers.clear();
+    for (final controller in notifyControllers) {
+      // Not awaited: a single-subscription controller's close() future only
+      // completes once a listener has received the done event, so awaiting a
+      // never-listened subscription would hang dispose.
+      if (!controller.isClosed) unawaited(controller.close());
+    }
     final controllers = _connectionStreams.values.toList();
     _connectionStreams.clear();
     for (final controller in controllers) {
@@ -333,6 +352,7 @@ class MockBleService implements BleService {
         timer = Timer.periodic(const Duration(seconds: 2), (t) {
           if (controller.isClosed || !(_connected[deviceId] ?? false)) {
             t.cancel();
+            _notifyControllers.remove(controller);
             if (!controller.isClosed) controller.close();
             return;
           }
@@ -340,13 +360,20 @@ class MockBleService implements BleService {
             (value) {
               if (!controller.isClosed) controller.add(value);
             },
+            // Without an onError, a failed read would surface as an
+            // unhandled async error instead of on the notify stream.
+            onError: (Object e) {
+              if (!controller.isClosed) controller.addError(e);
+            },
           );
         });
       },
       onCancel: () async {
         timer?.cancel();
+        _notifyControllers.remove(controller);
       },
     );
+    _notifyControllers.add(controller);
     return controller.stream;
   }
 }

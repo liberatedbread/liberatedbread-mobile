@@ -56,10 +56,21 @@ no-op and the at-`u64::MAX` surfacing path.
 ## 2.8 — ✅ Done
 
 `protocol::dispatch` now memoizes parsed specs in
-`SPEC_CACHE: LazyLock<Mutex<HashMap<u64, Arc<DeviceSpec>>>>`, keyed by
-`DefaultHasher` over the YAML bytes. Repeat calls with identical YAML
-skip the parse and clone the inner `DeviceSpec` from the cached `Arc`.
-Tests use `Arc::ptr_eq` to prove cache hits without depending on the
+`SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>>`, keyed
+deliberately by the **full YAML `String`** — not a hash. An earlier draft
+keyed on `DefaultHasher` over the YAML bytes, but specs can arrive from
+arbitrary remote pack URLs, and a hostile author could craft two specs
+whose 64-bit non-cryptographic hashes collide, serving the wrong
+`DeviceSpec` for encode/decode; the full-text key makes collisions
+impossible (rationale comment on `SPEC_CACHE` in `dispatch.rs`).
+Because those same remote URLs can also feed an endless stream of
+*distinct* keys (each whitespace variation is a new entry), the cache is
+now bounded at `SPEC_CACHE_MAX_ENTRIES = 32` — on hitting the bound it
+clears and refills rather than pulling in an LRU dependency. Repeat
+calls with identical YAML skip the parse and share the cached
+`Arc<DeviceSpec>` (held by `GenericProtocol` directly, so a cache hit is
+a refcount bump, not a deep clone). Tests use `Arc::ptr_eq` to prove
+cache hits and the capacity eviction without depending on the
 multithreaded test runner's shared cache state.
 
 ## 2.9 — ✅ Done
@@ -68,16 +79,36 @@ multithreaded test runner's shared cache state.
 rejects empty names at parse time with
 `"parameter name cannot be empty"`. New parser test covers `"{}"`.
 
-## Test fixture centralization
+## Test fixture centralization — ✅ Resolved (differently than planned)
 
-The bulb-YAML constant is duplicated across:
-- `rust/src/api/mock_api.rs::TEST_YAML`
-- `rust/src/spec/parser.rs::EXAMPLE_BULB_YAML`
-- `rust/src/protocol/generic.rs::example_spec()` (inline, not a const)
-- `rust/src/protocol/dispatch.rs::BULB_YAML` and `SPEC_OVERRIDING_BATTERY`
-- `test/services/mock_ble_service_rust_test.dart::_bulbYaml` (Dart side)
-- `assets/device_specs/example-bulb.yaml` (canonical asset)
+The planned `example_bulb_yaml()` helper was never built, and by the time
+this item was revisited it had become obsolete: the sites listed as
+"duplicates" deliberately diverged into minimal, purpose-built fixtures
+that no longer share a common bulb document:
 
-**Action:** promote to a `tests/fixtures.rs` helper module with a
-`pub fn example_bulb_yaml() -> &'static str`. The Dart test fixture and
-the asset file should stay separate (different boundaries).
+- `rust/src/api/mock_api.rs::TEST_YAML` — trimmed to exactly what mock
+  read/write needs (one readable characteristic, two fields).
+- `rust/src/protocol/dispatch.rs::BULB_YAML` and
+  `SPEC_OVERRIDING_BATTERY` — dispatcher-routing shapes (one probes
+  spec-vs-standard-profile precedence; neither is the bulb).
+- `rust/src/protocol/generic.rs::example_spec()` — six commands in
+  deliberately scrambled order to catch IndexMap→HashMap ordering
+  regressions; sharing it would destroy its point.
+- `rust/src/api/device_api.rs::TEST_YAML` / `ORDERING_YAML` —
+  purpose-built adversarial ordering (declaration order ≠ template
+  order, plus never-referenced parameters).
+
+`test_fixtures::make_minimal_spec` already centralizes the one genuinely
+shared skeleton (validation tests wrapping a characteristic block). The
+only full bulb copy left in Rust is `spec/parser.rs::EXAMPLE_BULB_YAML`,
+which is single-sited — a shared helper would have exactly one caller.
+
+The one true duplication found instead was **shipped asset ↔ vendored
+test fixture**: `assets/device_specs/example-bulb.yaml` had drifted from
+`rust/tests/specs/example-bulb.yaml` (the fixture carried an `entities:`
+block the asset lacked, despite `spec_tolerance.rs` describing fixtures
+as verbatim upstream copies). The asset now carries the block, and
+`rust/tests/vendored_assets.rs::shipped_example_bulb_matches_test_fixture_semantically`
+pins the pair to the same `serde_yaml::Value` so any future drift fails
+CI. The Dart test fixture stays separate (different boundary), as
+originally noted.
