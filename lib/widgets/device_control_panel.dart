@@ -61,7 +61,8 @@ class DeviceControlPanel extends ConsumerWidget {
       if (entity.platform != null && entity.platform != 'sensor') continue;
       final owning = services.where(
         (s) => s.characteristics.any(
-          (c) => normalizeUuid(c.uuid) ==
+          (c) =>
+              normalizeUuid(c.uuid) ==
               normalizeUuid(entity.stateCharacteristic),
         ),
       );
