@@ -147,6 +147,20 @@ heading.
 
 ### Fixed
 
+- **Linux desktop build failed on clang >= 20** with `identifier '_json'
+  preceded by whitespace in a literal operator declaration is deprecated
+  [-Werror,-Wdeprecated-literal-operator]`. Flutter's generated plugin
+  scaffolding calls `apply_standard_settings()` — and therefore
+  `linux/CMakeLists.txt`'s `-Werror` — on *third-party* plugin targets, so a
+  deprecation warning inside the `nlohmann/json.hpp` vendored in
+  `flutter_secure_storage_linux` failed the entire build. That header lives
+  under `linux/flutter/ephemeral/` and is recreated by `flutter pub get`, so it
+  was never a candidate for the fix. `-Werror` is now scoped to first-party
+  targets; plugin targets keep `-Wall` (warnings still printed, just not fatal)
+  plus a `check_cxx_compiler_flag`-probed `-Wno-deprecated-literal-operator`.
+  Since `flutter build linux` hardcodes `CXX=clang++`, this hit every developer
+  and CI runner whose distro had moved to clang 20 — not just clang users by
+  choice.
 - **Real BLE scanning tore itself down as soon as the native scan started**
   (`startScan` returns at scan *start*), so real hardware showed "No devices
   found" while the scan ran unwatched. The scan now waits for the adapter to
