@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/log.dart';
 import 'package:liberated_bread_mobile/models/ha_config.dart';
 import 'package:liberated_bread_mobile/services/ha_api_client.dart';
 import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
@@ -188,6 +189,34 @@ void main() {
     expect(api.stateUpdates, isEmpty);
     expect(forwarder.status.lastSuccess, isNull);
     expect(forwarder.status.lastError, isNull);
+  });
+
+  test('logs what each flush sent, and what a failure put back', () async {
+    final records = Log.captureRecords();
+    addTearDown(Log.reset);
+    final api = FakeHaApiClient();
+    final forwarder = _forwarder(api);
+
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+
+    // The healthy path is debug: with a chatty notify characteristic this is
+    // once per minSendInterval, so it must not be info.
+    final flushed = records.singleWhere((r) => r.message.startsWith('flushed'));
+    expect(flushed.level, LogLevel.debug);
+    expect(flushed.category, 'ha');
+    expect(flushed.message, 'flushed 1 state(s), 1 new registration(s)');
+
+    records.clear();
+    api.registerSensorError = const HaNetworkException('blip');
+    await forwarder.onDecodedValues(
+        deviceId: 'd', specChar: _batteryChar, values: [_battery]);
+
+    final failed = records.singleWhere((r) => r.level == LogLevel.warning);
+    expect(failed.category, 'ha');
+    expect(failed.message, contains('requeued 1 registration(s)'));
+    // The raw failure rides on the record, not smuggled into the message.
+    expect(failed.error, isA<HaNetworkException>());
   });
 
   test('re-queues a failed reading so a later flush recovers it', () async {

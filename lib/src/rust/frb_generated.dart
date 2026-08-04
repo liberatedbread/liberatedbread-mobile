@@ -573,6 +573,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Int64List dco_decode_list_prim_i_64_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dcoDecodeInt64List(raw);
+  }
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as List<int>;
@@ -649,16 +655,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<String>? dco_decode_opt_list_String(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_String(raw);
+  }
+
+  @protected
+  Int64List? dco_decode_opt_list_prim_i_64_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_list_prim_i_64_strict(raw);
+  }
+
+  @protected
   ParameterDto dco_decode_parameter_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return ParameterDto(
       name: dco_decode_String(arr[0]),
       valueType: dco_decode_String(arr[1]),
       min: dco_decode_opt_box_autoadd_f_64(arr[2]),
       max: dco_decode_opt_box_autoadd_f_64(arr[3]),
+      allowed: dco_decode_opt_list_prim_i_64_strict(arr[4]),
+      labels: dco_decode_opt_list_String(arr[5]),
     );
   }
 
@@ -1031,6 +1051,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getInt64List(len_);
+  }
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1152,14 +1179,44 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<String>? sse_decode_opt_list_String(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  Int64List? sse_decode_opt_list_prim_i_64_strict(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_list_prim_i_64_strict(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   ParameterDto sse_decode_parameter_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
     var var_valueType = sse_decode_String(deserializer);
     var var_min = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_max = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_allowed = sse_decode_opt_list_prim_i_64_strict(deserializer);
+    var var_labels = sse_decode_opt_list_String(deserializer);
     return ParameterDto(
-        name: var_name, valueType: var_valueType, min: var_min, max: var_max);
+        name: var_name,
+        valueType: var_valueType,
+        min: var_min,
+        max: var_max,
+        allowed: var_allowed,
+        labels: var_labels);
   }
 
   @protected
@@ -1459,6 +1516,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_prim_i_64_strict(
+      Int64List self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putInt64List(self);
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_loose(
       List<int> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1565,12 +1630,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_list_String(
+      List<String>? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_list_prim_i_64_strict(
+      Int64List? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_list_prim_i_64_strict(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_parameter_dto(ParameterDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.name, serializer);
     sse_encode_String(self.valueType, serializer);
     sse_encode_opt_box_autoadd_f_64(self.min, serializer);
     sse_encode_opt_box_autoadd_f_64(self.max, serializer);
+    sse_encode_opt_list_prim_i_64_strict(self.allowed, serializer);
+    sse_encode_opt_list_String(self.labels, serializer);
   }
 
   @protected

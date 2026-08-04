@@ -1,7 +1,7 @@
 # Liberated Bread Mobile
 
-[![CI](https://github.com/PigsCanFlyLabs/liberated-bread-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/PigsCanFlyLabs/liberated-bread-mobile/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/PigsCanFlyLabs/liberated-bread-mobile/branch/main/graph/badge.svg)](https://codecov.io/gh/PigsCanFlyLabs/liberated-bread-mobile)
+[![CI](https://github.com/liberatedbread/liberatedbread-mobile/actions/workflows/ci.yml/badge.svg)](https://github.com/liberatedbread/liberatedbread-mobile/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/liberatedbread/liberatedbread-mobile/branch/main/graph/badge.svg)](https://codecov.io/gh/liberatedbread/liberatedbread-mobile)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > Because your phone should be able to talk to your smart lightbulb even after
@@ -49,7 +49,12 @@ decoding characteristic values, and implementing standard Bluetooth profiles.
 - Read/write characteristic values with hex display
 - Standard BLE profile support (Battery Service, Device Information)
 - YAML-driven device specs for custom IoT protocols
+- Spec-driven typed device controls (buttons, sliders, decoded values —
+  generated straight from the YAML)
+- Downloadable remote spec packs — new device support without an app update
 - Home Assistant companion mode (forward BLE sensor readings to HA)
+- Secure on-device credential storage (HA tokens live in the platform
+  keychain/keystore, never in plain preferences)
 - Mock mode for development without BLE hardware
 - Material Design 3 with light/dark themes
 
@@ -80,9 +85,24 @@ addresses and points you there.
 |------|---------|-------|
 | Flutter | 3.24+ | Stable channel |
 | Rust | stable (1.82+) | Via rustup |
-| Android SDK | API 34 | With NDK 26.1 |
+| Android SDK | API 34 | With NDK 23.1.7779620 (what Flutter 3.24.5 builds with) |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
+| GTK 3 + CMake/Ninja/clang | — | Linux desktop builds only — see below |
+
+For the **Linux desktop** target (`./scripts/run-linux.sh`), install the native
+toolchain once:
+
+```bash
+sudo apt-get update && sudo apt-get install -y \
+  clang cmake ninja-build pkg-config \
+  libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
+# optional: run headlessly (no display), as CI does
+sudo apt-get install -y xvfb
+```
+
+`libsecret-1-dev` is for `flutter_secure_storage_linux` (Home Assistant token
+storage); the rest is Flutter's standard Linux desktop toolchain.
 
 ## Quick Setup
 
@@ -115,14 +135,24 @@ export PATH="$HOME/.flutter-sdk/bin:$PATH"
 
 ### About platform scaffolds
 
-`android/` and `ios/` are committed. To regenerate them (for example when
+`android/`, `ios/` and `linux/` are committed. To regenerate them (for example when
 upgrading Flutter), back up the customized `android/app/src/main/AndroidManifest.xml`
 and `ios/Runner/Info.plist` first — they contain BLE permissions and usage
-strings — then run `flutter create . --platforms=android,ios --project-name liberated_bread_mobile --org ca.pigscanfly`
+strings — then run `flutter create . --platforms=android,ios,linux --project-name liberated_bread_mobile --org ca.pigscanfly`
 and merge the customizations back in. Note the real identifiers don't follow
 `flutter create`'s `<org>.<project>` convention: the app id is the flat
-`ca.pigscanfly.liberatedbread` (see `android/app/build.gradle` and the Xcode
-projects), so restore those along with the manifest/plist customizations.
+`ca.pigscanfly.liberatedbread` (see `android/app/build.gradle`, the Xcode
+projects, and `APPLICATION_ID` in `linux/CMakeLists.txt`), so restore those
+along with the manifest/plist customizations. For `linux/` also restore the
+window title and default size in `linux/my_application.cc` — the template
+resets them to the package name and 1280x720.
+
+> **Watch what `flutter create` touches.** Run it on a dirty tree and diff the
+> result before accepting it. On this project it also rewrites `.metadata`,
+> **replacing** the existing platform entries rather than adding to them (a
+> `--platforms=linux` run drops the `android`, `ios` and `macos` migration
+> records), and it drops a stock `test/widget_test.dart` that references a
+> `MyApp` widget this app doesn't have, which breaks `flutter test`.
 
 ## Running the App
 
@@ -130,11 +160,18 @@ projects), so restore those along with the manifest/plist customizations.
 # Connected device or emulator (auto-detect)
 ./scripts/run.sh
 
+# Linux desktop — the fastest loop: no emulator, no simulator, hot reload
+./scripts/run-linux.sh --mock
+
 # Build + boot the Android emulator + install + run (Linux or macOS)
 ./scripts/run-android.sh --mock
 
 # Build + boot the iOS Simulator + install + run (macOS only)
 ./scripts/run-ios.sh --mock
+
+# Build + run on a paired physical iPhone (macOS only; --list shows devices,
+# --device picks one — see docs/ios-from-linux.md)
+./scripts/run-ios-device.sh --mock
 
 # From Linux: build + run on an iPhone via a remote Mac over SSH,
 # with automatic sync + hot reload on every save (see docs/ios-from-linux.md)
@@ -152,6 +189,29 @@ emulator/simulator if one isn't already running. They accept `--mock`,
 `--release`, and pass extra args after `--` to `flutter run`.
 `run-ios.sh` also takes `--device "iPhone 15"` to pick a specific simulator.
 
+### Linux desktop
+
+`./scripts/run-linux.sh` builds a native GTK app and runs it on your desktop
+(x86-64). It's the quickest way to iterate on the UI — no emulator to boot, no
+device to pair, and hot reload works on the same Dart code that ships on mobile.
+It also takes `--headless` (runs under Xvfb, for machines with no display).
+
+What does and doesn't work there:
+
+- **Mock mode is the normal way to use it.** `--mock` needs no Bluetooth at all
+  and is the right choice for any UI work, and the only option in a container
+  or VM.
+- **Real BLE does work**, via BlueZ over D-Bus (`flutter_blue_plus_linux`). It
+  needs a physical adapter with `bluetoothd` running; add yourself to the
+  `bluetooth` group. Without an adapter, scans simply find nothing — the script
+  warns when it can't see a controller.
+- **`permission_handler` has no Linux implementation**, and nothing needs it to:
+  `lib/services/real_ble_service.dart` only calls it on Android and every other
+  platform falls through to "granted". BlueZ does the enforcing instead.
+- The window opens phone-shaped (430x900) rather than the template's
+  1280x720, since every screen is laid out for a phone. Resize it freely to
+  check responsive behaviour.
+
 ## Testing
 
 ```bash
@@ -162,6 +222,10 @@ emulator/simulator if one isn't already running. They accept `--mock`,
 flutter test                       # Dart unit + widget tests
 cd rust && cargo test              # Rust unit tests
 flutter test integration_test      # Integration tests (needs a device/emulator)
+
+# Integration tests on the Linux desktop — no emulator, no display needed
+xvfb-run -a flutter test integration_test -d linux --exclude-tags=e2e \
+  --dart-define=LIBERATED_BREAD_MOCK=true
 ```
 
 Linting:
@@ -172,6 +236,10 @@ cd rust && cargo clippy --all-targets -- -D warnings
 ```
 
 Tests are not optional. They're a feature.
+
+There is also a scripted screenshot walkthrough of the whole app
+(`./scripts/e2e-walkthrough.sh`, macOS + iOS Simulator only, excluded from CI
+via its `e2e` tag) — see [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md).
 
 See [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for the full testing guide.
 
@@ -201,15 +269,19 @@ flutter_rust_bridge_codegen generate
 ```
 
 For `flutter test` to exercise the Rust path, the host-target library must be
-built and discoverable:
+built and discoverable. From the repo root:
 
 ```bash
-cd rust && cargo build
-export LD_LIBRARY_PATH=$PWD/target/debug     # macOS: DYLD_FALLBACK_LIBRARY_PATH
+(cd rust && cargo build)
+export LD_LIBRARY_PATH=$PWD/rust/target/debug
 flutter test
 ```
 
-`scripts/test.sh` handles this automatically.
+On macOS, don't bother with the `DYLD_*` equivalents — the Flutter SDK's
+`dart` binary uses the hardened runtime, which strips them. Instead the test
+helper (`test/helpers/host_rust_lib.dart`) loads `rust/target/debug/<lib>` by
+relative path (or the path in `LIBERATED_BREAD_RUST_LIB`), so building is
+enough. `scripts/test.sh` handles all of this automatically.
 
 ## Project Structure
 
@@ -218,12 +290,13 @@ flutter test
 ├── lib/
 │   ├── main.dart               # Entry point
 │   ├── app.dart                # App widget, routing, theme
-│   ├── core/                   # Constants, theme, hex/uuid helpers
-│   ├── models/                 # IoTDevice, DeviceCharacteristic, BleDiscoveredService
-│   ├── providers/              # Riverpod providers (BLE service, device specs)
-│   ├── screens/                # ScanScreen, DeviceScreen, CharacteristicScreen
-│   ├── services/               # BleService (abstract), RealBleService, MockBleService
-│   └── widgets/                # DeviceControlPanel, RawCharacteristicWidget
+│   ├── core/                   # Constants, theme, hex/uuid + HA helpers
+│   ├── models/                 # IoTDevice, BleDiscoveredService, HA models
+│   ├── providers/              # Riverpod providers (BLE, specs, spec packs, HA)
+│   ├── screens/                # Scan, Device, HA settings, spec-pack settings
+│   ├── services/               # BleService (real/mock), HA client, spec packs
+│   ├── widgets/                # Control panel, raw + typed characteristic widgets
+│   └── src/rust/               # Generated FRB bindings (committed, don't edit)
 ├── rust/
 │   └── src/
 │       ├── api/                # FFI boundary: device_api.rs, mock_api.rs
@@ -233,19 +306,31 @@ flutter test
 │       ├── protocol/
 │       │   ├── generic.rs      # YAML-driven GenericProtocol
 │       │   ├── traits.rs       # DeviceProtocol trait
+│       │   ├── dispatch.rs     # select_protocol() + spec cache
 │       │   └── profiles/       # Standard BLE profiles (battery, device_info)
 │       └── spec/               # YAML parser and type definitions
 ├── assets/
-│   └── device_specs/           # YAML device specification files
-├── integration_test/           # End-to-end flow tests (needs emulator)
+│   └── device_specs/           # Bundled fallback YAML device specs
+├── integration_test/           # End-to-end flow tests (emulator, simulator,
+│                               #   or Linux desktop via Xvfb)
 ├── test/                       # Dart unit + widget tests
 ├── scripts/
 │   ├── setup.sh                # Full dev environment setup
 │   ├── run.sh                  # Build and run with optional mock mode
+│   ├── run-android.sh          # Boot the Android emulator + run
+│   ├── run-ios.sh              # Boot the iOS Simulator + run (macOS)
+│   ├── run-ios-device.sh       # Run on a paired physical iPhone (macOS)
+│   ├── run-linux.sh            # Linux desktop — fastest loop, no emulator
+│   ├── run-remote-mac.sh       # Linux → iPhone via a remote Mac over SSH
+│   ├── e2e-walkthrough.sh      # Scripted screenshot walkthrough (macOS)
+│   ├── e2e_shot_server.py      # Host-side screenshot server for the above
+│   ├── verify_linux_bundle.sh  # Assert the Linux bundle really contains the Rust .so
 │   └── test.sh                 # Local CI mirror (format, analyze, test, clippy)
 └── docs/
     ├── WALKTHROUGH.md          # E2E architecture walkthrough
-    └── BUILD_AND_TEST.md       # Build, run, and test guide
+    ├── BUILD_AND_TEST.md       # Build, run, and test guide
+    ├── BRANDING.md             # Palette + app-icon pipeline
+    └── ios-from-linux.md       # iPhone workflows from a Linux machine
 ```
 
 ## Rust Core
@@ -301,29 +386,35 @@ services:
 See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) for the full spec format
 reference.
 
-### Syncing specs from protocol-docs
+### Remote spec packs
 
-The device specs are authored in
-[opengreeniot-protocol-docs](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs)
-and **vendored** into `assets/device_specs/` alongside a `manifest.json` that
-indexes them. The Dart loader
-(`lib/providers/device_spec_provider.dart`) is **manifest-driven**: it reads
-`manifest.json` and loads one `<id>.yaml` per listed device, so adding or
-updating a device is a data-only refresh — no Dart edit required.
+The bundled specs are only the fallback catalog. The app can also download
+**spec packs** at runtime, so new device support ships without waiting on an
+app-store release:
 
-To refresh from a local protocol-docs checkout:
+- **What it fetches** — a JSON pack manifest of the shape
+  `{"name": ..., "version": ..., "specs": ["bulb.yaml", ...]}`, each entry a
+  filename resolved relative to the manifest URL. The default URL points at
+  [opengreeniot-device-specs](https://github.com/PigsCanFlyLabs/opengreeniot-device-specs)'
+  `pack.json` (`AppConstants.defaultSpecPackUrl` in `lib/core/constants.dart`);
+  the user can override it, and the override persists in `SharedPreferences`.
+- **How** — `lib/services/spec_pack_service.dart` does the fetching: requests
+  are same-origin-only (redirects included), size-capped, and every downloaded
+  spec is validated through the real Rust codec *before* install, so a spec
+  that won't parse is rejected up front instead of silently skipped later.
+  Installed packs are cached under the app documents directory at
+  `spec_packs/<slug>/`. `lib/providers/spec_pack_provider.dart` drives it all.
+- **UI** — the puzzle-piece icon in the scan screen's AppBar opens
+  `SpecPackSettingsScreen`: install/refresh/remove packs, edit the URL.
+- **Merging** — `deviceSpecsProvider` merges the bundled assets with every
+  cached pack. Pack specs are namespaced `pack:<name>/<file>` so they can never
+  collide with bundled keys, and a pack failure never removes a bundled spec.
 
-```bash
-# Defaults to ../opengreeniot-protocol-docs
-./scripts/sync_device_specs.sh
-# or point at an explicit checkout
-./scripts/sync_device_specs.sh /path/to/opengreeniot-protocol-docs
-```
-
-This copies `device-specs/devices/*.yaml` and `site/api/v1/manifest.json` into
-`assets/device_specs/`. Afterwards run `(cd rust && cargo test)` — the
-`vendored_assets` test parses every vendored spec through the real Rust parser
-to confirm the catalog still loads.
+The bundled fallback specs themselves are a hardcoded list in
+`lib/providers/device_spec_provider.dart` (`AssetBundle` can't list a
+directory). Adding a bundled spec means adding it there **and** updating the
+expected-file assertion in `rust/tests/vendored_assets.rs`, which parses every
+bundled spec through the real Rust parser.
 
 ## Mock Mode
 
@@ -342,6 +433,8 @@ is faked.
 
 - [Architecture Walkthrough](docs/WALKTHROUGH.md) — E2E code walkthrough
 - [Build & Test Guide](docs/BUILD_AND_TEST.md) — Setup, build, run, and test
+- [Branding](docs/BRANDING.md) — Palette and app-icon pipeline
+- [iOS from Linux](docs/ios-from-linux.md) — iPhone workflows without leaving Linux
 - [Contributing](CONTRIBUTING.md) — How to contribute
 - [Security Policy](SECURITY.md) — Vulnerability reporting
 - [Changelog](CHANGELOG.md) — Release history

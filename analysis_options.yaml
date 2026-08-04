@@ -11,6 +11,9 @@ linter:
   rules:
     prefer_const_constructors: true
     prefer_const_declarations: true
+    # flutter_lints 5 dropped this from the defaults; keep it alongside the
+    # other const lints above.
+    prefer_const_literals_to_create_immutables: true
     avoid_print: true
     prefer_single_quotes: true
     cancel_subscriptions: true

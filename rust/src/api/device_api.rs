@@ -104,6 +104,16 @@ pub struct ParameterDto {
     pub value_type: String,
     pub min: Option<f64>,
     pub max: Option<f64>,
+    /// Enumerated set of allowed values. When present (and non-empty) the
+    /// device accepts only these values, so the UI should offer a choice
+    /// among them instead of a free min..max range.
+    pub allowed: Option<Vec<i64>>,
+    /// Human-readable labels for `allowed`, paired 1:1 by index (the upstream
+    /// spec-format contract). Only present when `allowed` is present and the
+    /// lengths match exactly — a mismatched spec keeps its `allowed` values
+    /// but has its labels dropped rather than mispaired (see the `From`
+    /// conversion below).
+    pub labels: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -248,6 +258,8 @@ impl From<&FormatField> for FormatFieldDto {
         Self {
             name: f.name.clone(),
             field_type: f.field_type.to_string(),
+            // Lossless: the parser caps offset+length at MAX_FIELD_EXTENT
+            // (64 KiB, spec/parser.rs), so both always fit in u32.
             offset: f.offset as u32,
             length: f.length as u32,
         }
@@ -282,11 +294,25 @@ impl From<(&str, &Command)> for CommandDto {
 
 impl From<(&str, &Parameter)> for ParameterDto {
     fn from((name, p): (&str, &Parameter)) -> Self {
+        // Labels pair with `allowed` 1:1 by index. Specs are loaded from
+        // untrusted packs, so a mismatch must not panic; and mispairing
+        // (zipping short, or padding) would silently attach the wrong label
+        // to a value the device really acts on. Decision: keep `allowed`
+        // (it is what the device accepts) and drop `labels` entirely unless
+        // both are present with exactly equal lengths. Labels without
+        // `allowed` have nothing to pair with and are dropped for the same
+        // reason.
+        let labels = match (&p.allowed, &p.labels) {
+            (Some(allowed), Some(labels)) if allowed.len() == labels.len() => Some(labels.clone()),
+            _ => None,
+        };
         Self {
             name: name.to_string(),
             value_type: p.value_type.to_string(),
             min: p.min.map(|v| v as f64),
             max: p.max.map(|v| v as f64),
+            allowed: p.allowed.clone(),
+            labels,
         }
     }
 }
@@ -353,10 +379,14 @@ pub fn match_device_to_spec(
     specs
         .into_iter()
         .filter_map(|spec| {
+            // An empty prefix is treated as absent, not as a wildcard:
+            // `"anything".starts_with("")` is true, so a spec carrying
+            // `local_name_prefix: ""` would otherwise claim every scanned
+            // device.
             let name_match = spec
                 .local_name_prefix
                 .as_ref()
-                .is_some_and(|prefix| device_name.starts_with(prefix));
+                .is_some_and(|prefix| !prefix.is_empty() && device_name.starts_with(prefix));
 
             // Return the lowercased intersection. Matches the docstring's
             // contract and gives Dart callers a predictable casing. We
@@ -460,7 +490,11 @@ pub fn identify_standard_profiles(service_uuids: Vec<String>) -> Vec<ProfileInfo
         .iter()
         .filter_map(|uuid| {
             profiles::lookup(uuid).map(|profile| ProfileInfoDto {
-                service_uuid: uuid.clone(),
+                // Lowercased for the same reason `match_device_to_spec`
+                // lowercases its matched UUIDs: Dart callers get one
+                // predictable casing regardless of what the platform's
+                // scanner reported.
+                service_uuid: uuid.to_ascii_lowercase(),
                 profile_name: profile.name().to_string(),
                 characteristics: profile
                     .characteristics()
@@ -517,9 +551,10 @@ services:
             type: "uint8"
 "#;
 
-    /// Spec commands/parameters are stored in HashMaps, so the DTO boundary is
-    /// what makes the order the UI renders deterministic: commands by name,
-    /// parameters in the order the command's template writes them.
+    /// Spec commands/parameters are stored in IndexMaps that preserve YAML
+    /// declaration order, and the DTO boundary must carry that order through
+    /// to the UI untouched — the assertions below check declaration order,
+    /// nothing sorted and nothing reconstructed from the template.
     /// Deliberately adversarial ordering, and deliberately wide.
     ///
     /// The six commands are declared in an order that is neither alphabetical
@@ -760,6 +795,20 @@ services:
     }
 
     #[test]
+    fn empty_local_name_prefix_matches_nothing() {
+        // `"x".starts_with("")` is true, so an empty prefix would otherwise
+        // claim every scanned device; it must behave like an absent prefix.
+        let mut dto = load_device_spec(TEST_YAML.into()).unwrap();
+        dto.local_name_prefix = Some(String::new());
+        dto.service_uuids.clear(); // no UUID axis either
+        let results = match_device_to_spec(vec![dto], "AnyDeviceAtAll".into(), vec![]);
+        assert!(
+            results.is_empty(),
+            "an empty local_name_prefix must not match by name"
+        );
+    }
+
+    #[test]
     fn match_returns_each_matching_spec() {
         let a = load_device_spec(TEST_YAML.into()).unwrap();
         let b = load_device_spec(TEST_YAML.into()).unwrap();
@@ -826,6 +875,19 @@ services:
         let uuids = vec!["0000fff0-0000-1000-8000-00805f9b34fb".to_string()];
         let profiles = identify_standard_profiles(uuids);
         assert!(profiles.is_empty());
+    }
+
+    #[test]
+    fn identify_standard_profiles_lowercases_service_uuid() {
+        // The scanner may report uppercase UUIDs; the DTO must come back
+        // lowercased, matching match_device_to_spec's casing contract.
+        let uuids = vec!["0000180F-0000-1000-8000-00805F9B34FB".to_string()];
+        let profiles = identify_standard_profiles(uuids);
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(
+            profiles[0].service_uuid,
+            "0000180f-0000-1000-8000-00805f9b34fb"
+        );
     }
 
     #[test]

@@ -51,8 +51,13 @@ native library isn't bundled (e.g. test builds that skip cargokit);
 ### Navigation Flow
 
 ```
-ScanScreen → (tap device) → DeviceScreen → (tap characteristic) → CharacteristicScreen
+ScanScreen → (tap device) → DeviceScreen
 ```
+
+Characteristics render inline on `DeviceScreen` — there is no separate
+per-characteristic screen. The scan screen's AppBar also pushes two settings
+screens: `SpecPackSettingsScreen` (puzzle-piece icon) and `HaSettingsScreen`
+(gear icon).
 
 All navigation uses standard `Navigator.push` with `MaterialPageRoute`.
 
@@ -121,6 +126,28 @@ Simple in-memory registry for discovered devices. Provides sorted access
 (by RSSI descending) and lookup by ID. Used by `ScanScreen` to maintain the
 device list across scan cycles.
 
+### The rest of `lib/services/`, briefly
+
+- `spec_codec.dart` — abstract codec interface; re-exports the FRB DTOs so
+  widgets and tests never import generated bindings directly.
+- `real_spec_codec.dart` — production `SpecCodec`; a thin pass-through to the
+  Rust FFI.
+- `spec_pack_service.dart` — downloads and caches remote spec packs
+  (same-origin-only, size-capped, codec-validated; see the README's
+  "Remote spec packs" section).
+- `ha_api_client.dart` — abstract Home Assistant `mobile_app` API
+  (registration + webhook sensor pushes); the seam where MQTT or a two-way
+  command channel would plug in later.
+- `http_ha_api_client.dart` — the HTTP implementation: Bearer-token
+  registration, then unauthenticated pushes to `/api/webhook/{id}`.
+- `ha_sensor_forwarder.dart` — bridges decoded BLE readings to HA sensor
+  updates; recovers dropped readings on failure and exposes forwarder health.
+- `settings_store.dart` — minimal key/value persistence interface.
+- `prefs_settings_store.dart` — `SharedPreferences`-backed store for
+  non-secrets (e.g. the spec-pack URL).
+- `secure_settings_store.dart` — platform keychain/keystore-backed store via
+  `flutter_secure_storage`; the HA token and webhook id live here.
+
 ---
 
 ## 3. Models
@@ -143,20 +170,18 @@ Computed properties:
 
 Equality and `hashCode` are based on `id`.
 
-### `DeviceCharacteristic` — `lib/models/device_characteristic.dart`
+### Hex display helpers — `lib/core/hex.dart`
 
-Represents a characteristic's current value:
+There is no per-characteristic model wrapping raw values; widgets hold the raw
+`List<int>` and format it with free functions from `lib/core/hex.dart`:
+`bytesToHex` renders bytes as `"00 ff 0a"`, `asciiPreview` returns the value
+as text when every byte is printable ASCII (else `null`), and `tryParseHex`
+parses user-entered hex input tolerantly (`0x` prefixes, separators).
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `uuid` | `String` | Characteristic UUID |
-| `name` | `String?` | Human-readable name |
-| `value` | `List<int>` | Raw bytes |
-| `canRead/Write/Notify` | `bool` | Permissions |
+### HA models — `lib/models/ha_config.dart`, `lib/models/ha_sensor.dart`
 
-Computed properties:
-- `hexValue` — Bytes formatted as `"00 ff 0a"` or `"(empty)"`
-- `stringValue` — Decoded as ASCII if all bytes are printable, else `null`
+`HaConfig` (server URL, token, webhook id, forwarding flag) and the sensor
+payload models for Home Assistant companion mode.
 
 ### `BleDiscoveredService` — `lib/models/ble_discovered_service.dart`
 
@@ -180,18 +205,43 @@ final bleServiceProvider = Provider<BleService>((ref) {
 
 ### `deviceSpecsProvider` — `lib/providers/device_spec_provider.dart`
 
-Loads YAML device spec files from assets:
+Loads device spec YAML strings from two merged sources: the specs bundled as
+app assets (the fallback, keyed by asset path) and any remote spec packs the
+user has installed (keyed `pack:<name>/<file>`, so keys can never collide).
+Bundled specs always load even when no pack is installed; a pack failure never
+removes a bundled spec.
 
-```dart
-final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
-  // Loads assets/device_specs/example-bulb.yaml
-  // Returns the raw YAML strings keyed by asset path.
-});
-```
+Note: `AssetBundle` doesn't support directory listing, so bundled spec files
+are enumerated explicitly in a hardcoded list — new bundled specs must be
+added there (and to the `rust/tests/vendored_assets.rs` assertion). A missing
+asset is skipped silently; malformed YAML is logged.
 
-Note: `AssetBundle` doesn't support directory listing, so spec files are
-enumerated explicitly in a hardcoded list — new specs must be added there.
-A missing asset is skipped silently; malformed YAML is logged.
+### `specCodecProvider` — `lib/providers/spec_codec_provider.dart`
+
+Provides the `SpecCodec` (the `RealSpecCodec` Rust FFI in production);
+overridden with a fake in tests, mirroring `bleServiceProvider`.
+
+### `matchedDeviceSpecProvider` — `lib/providers/device_spec_match_provider.dart`
+
+A family provider matching a connected device (name + discovered service
+UUIDs) against every loaded spec through the Rust matcher. The family key
+(`SpecMatchRequest`) has value equality so the cache survives widget rebuilds;
+the result carries both the parsed DTO and the raw YAML (the codec takes
+YAML).
+
+### Spec-pack providers — `lib/providers/spec_pack_provider.dart`
+
+`specPackServiceProvider` (the downloader/cache), `specPackUrlProvider` (the
+manifest URL, persisted in `SharedPreferences`, defaulting to
+`AppConstants.defaultSpecPackUrl`), `cachedSpecPacksProvider` (cached specs
+for `deviceSpecsProvider` to merge), and `installedSpecPacksProvider` (pack
+metadata for the settings screen).
+
+### HA providers — `lib/providers/ha_provider.dart`
+
+`settingsStoreProvider` (keychain-backed store), `haApiClientProvider`,
+`haForwarderProvider`, and the `haConfigProvider` notifier that loads,
+registers, and updates the persisted Home Assistant configuration.
 
 ---
 
@@ -214,7 +264,8 @@ The home screen. Shows a list of discovered BLE devices.
 
 Connection and service discovery screen.
 
-**State machine**: `connecting` → `discovering` → `ready` (or `error`)
+**State machine**: `connecting` → `discovering` → `ready` (plus `error`, and
+`disconnected` when an established link drops)
 
 **Behavior**:
 1. `initState()` calls `_connect()` — connects and discovers services
@@ -224,18 +275,34 @@ Connection and service discovery screen.
 5. Error: error message with retry option
 6. `dispose()` disconnects from the device
 
-### CharacteristicScreen — `lib/screens/characteristic_screen.dart`
+### HaSettingsScreen — `lib/screens/ha_settings_screen.dart`
 
-Detail view for a single characteristic. Shows UUID, permission flags, and
-raw value display. Navigated from `RawCharacteristicWidget`.
+Home Assistant companion-mode setup and status. Unconfigured: URL +
+long-lived-token form with live Tailscale remote-access hints. Registered:
+connection status, forwarding toggle, and disconnect.
+
+### SpecPackSettingsScreen — `lib/screens/spec_pack_settings_screen.dart`
+
+Install and manage downloadable spec packs: an editable, validated manifest
+URL, install/refresh with loading and success/error states, and the list of
+installed packs with per-pack remove and clear-all.
 
 ### DeviceControlPanel — `lib/widgets/device_control_panel.dart`
 
-Renders a list of services as expandable cards. Each service shows its
-characteristics using `RawCharacteristicWidget`.
+Renders a list of services as expandable cards, and is where spec matching
+meets the UI: it watches `matchedDeviceSpecProvider` for the connected
+device's name + service UUIDs. Characteristics covered by a matched spec
+render as `TypedCharacteristicWidget` (typed commands and decoded values);
+everything else falls back to `RawCharacteristicWidget`. The raw browser
+shows immediately and is replaced in place once a match resolves — there is
+no separate characteristic screen.
 
-Future: Once FRB is connected and specs are matched, this will render typed
-controls (toggles, sliders, color pickers) instead of raw hex.
+### Typed control widgets — `lib/widgets/typed_*.dart`
+
+`TypedCharacteristicWidget` composes `TypedCommandWidget` (buttons for fixed
+commands, sliders for parameterized ones, straight from the spec's
+`commands`) and `DecodedValueWidget` (decoded `format` fields, live-updating
+on notify).
 
 ### RawCharacteristicWidget — `lib/widgets/raw_characteristic_widget.dart`
 
@@ -262,6 +329,7 @@ library for FFI via `flutter_rust_bridge`.
 rust/src/
 ├── lib.rs              # Crate root — declares all modules
 ├── error.rs            # ProtocolError + SpecError enums
+├── test_fixtures.rs    # #[cfg(test)] shared spec fixtures for unit tests
 ├── api/
 │   ├── mod.rs
 │   ├── device_api.rs   # FFI API: DTOs + public functions
@@ -290,9 +358,14 @@ rust/src/
 ### Error Types — `error.rs`
 
 Two error enums:
-- **`ProtocolError`** — 10 variants for encoding/decoding failures
-  (characteristic not found, buffer too short, parameter out of range, etc.)
-- **`SpecError`** — Wraps `serde_yaml::Error` for parse failures
+- **`ProtocolError`** — encoding/decoding/lookup failures:
+  `CharacteristicNotFound`, `BufferTooShort`, `ParameterOutOfRange`,
+  `UnsupportedCommandEncoding`, `NoProtocolForRequest`, and friends — see
+  `rust/src/error.rs` for the full list.
+- **`SpecError`** — spec parse and validation failures: `YamlParse` (wraps
+  `serde_yaml::Error`) plus post-deserialize validation variants such as
+  `FieldLengthMismatch`, `ParameterBoundsInverted`, and `DuplicateName` —
+  again, `rust/src/error.rs` is the authority.
 
 Both derive `thiserror::Error` for clean error messages.
 
@@ -328,8 +401,10 @@ all services.
 **Decoding** (`decode_field`, `decode_all_fields`):
 - Reads bytes at the specified offset and length
 - Interprets based on `ValueType`: bool, uint8, uint16 (LE), int8, int16 (LE),
-  bytes, string (UTF-8 with null trim)
-- Returns `HashMap<String, DecodedValue>`
+  int32 (LE), uint32 (LE), bytes, string (UTF-8 with null trim)
+- Returns `DecodedValues` — a newtype over `Vec<(String, DecodedValue)>` that
+  preserves the spec's `format` order (which is the device's byte order); a
+  `HashMap` would shuffle the readout on every process start
 
 **Encoding** (`encode_command`):
 - Fixed commands: returns the `value` bytes directly
@@ -344,11 +419,14 @@ all services.
 ```rust
 pub trait DeviceProtocol: Send + Sync {
     fn encode_command(&self, char_uuid, command_name, params) -> Result<Vec<u8>>;
-    fn decode_value(&self, char_uuid, bytes) -> Result<HashMap<String, DecodedValue>>;
+    fn decode_value(&self, char_uuid, bytes) -> Result<DecodedValues>;
     fn commands_for_characteristic(&self, char_uuid) -> Vec<String>;
     fn fields_for_characteristic(&self, char_uuid) -> Vec<String>;
 }
 ```
+
+The two `Vec<String>` listings come back in spec declaration order — that
+order is the author's, and the trait docs forbid callers from sorting it.
 
 Parameter types are elided above for readability — see
 `rust/src/protocol/traits.rs` for the exact signatures (e.g. `encode_command`
@@ -452,7 +530,7 @@ Device specs are YAML files in `assets/device_specs/`. Full schema:
 device:
   name: "Device Name"
   manufacturer: "Manufacturer Name"
-  manufacturer_status: "abandoned"  # abandoned | shutdown | unsupported
+  manufacturer_status: "abandoned"  # abandoned | active | shutdown | unsupported
   protocol: "ble"                   # ble | wifi | zigbee | zwave
   notes: "Optional notes"          # Optional
   identification:                   # Optional: for auto-matching
@@ -479,7 +557,7 @@ services:
             template: [0x02, "{param_name}"]   # "{...}" = parameter placeholder
             parameters:
               param_name:
-                type: uint8           # bool | uint8 | uint16 | int8 | int16 | bytes | string
+                type: uint8           # bool | uint8 | uint16 | int8 | int16 | int32 | uint32 | bytes | string
                 min: 0
                 max: 100
 
@@ -489,6 +567,8 @@ services:
             length: 1
             name: "field_name"
             type: "bool"              # Same types as parameters
+            mock_default: true        # Optional: what the mock simulator returns
+                                      # for unwritten reads (see §6)
 ```
 
 ### Supported Value Types
@@ -500,8 +580,26 @@ services:
 | `uint16` | 2 bytes | Unsigned, little-endian |
 | `int8` | 1 byte | Signed -128 to 127 |
 | `int16` | 2 bytes | Signed, little-endian |
+| `int32` | 4 bytes | Signed, little-endian |
+| `uint32` | 4 bytes | Unsigned, little-endian |
 | `bytes` | N bytes | Raw bytes |
 | `string` | N bytes | UTF-8, null-terminated |
+
+### Tolerated extension keys
+
+Real protocol-docs specs carry more than the schema above, and the parser
+accepts it rather than rejecting a working spec. Some extension keys are
+parsed-and-preserved by name but not yet executed — `Command.setting_id` /
+`.encoding` / `.payload`, `Parameter.allowed` / `.labels` / `.notes`,
+`ParameterSet.color_order`, `Characteristic.encryption` / `.framing`,
+`Service.notes`, `device.variants` / `.protobuf` / `.state_machine` /
+`.version_fields`, and `identification.mdns_service_type` / `.ssid_prefix` /
+`.default_port`. Anything else unrecognized at the top level or under
+`identification` lands in a flattened `extensions` catch-all instead of
+failing the parse (under `parameters`, every key that isn't the reserved
+`color_order` is simply a parameter definition). The structs that drive
+actual reads and writes keep `deny_unknown_fields`, so typos there still fail
+loudly — see `rust/src/spec/types.rs` and `rust/tests/spec_tolerance.rs`.
 
 ---
 
@@ -580,10 +678,21 @@ Device discovered with service UUIDs: ["180f", "180a", "fff0"]
 - Standard BLE profile decoding (Battery, Device Info)
 - FRB bridge wired end-to-end: `RustLib.init()` at startup,
   `MockBleService` delegates to `rust/src/api/mock_api.rs`
+- Spec matching in the UI: `DeviceControlPanel` watches
+  `matchedDeviceSpecProvider` and renders typed controls (buttons, sliders,
+  decoded values) for matched characteristics
+- Remote spec packs, downloaded, validated, and cached on device
+- Home Assistant companion mode, forwarding spec-decoded readings
+- Persistence where it matters: the spec-pack cache on disk, the pack URL in
+  `SharedPreferences`, and HA credentials in the platform keychain/keystore
 
 ### What's Pending
-- **Typed control widgets** — Currently shows raw hex. The UI will render
-  toggles, sliders, color pickers based on matched device specs.
-- **Device spec matching in UI** — Specs are loaded but not yet matched
-  against discovered devices.
-- **Persistence** — No local storage for discovered devices or specs.
+- **Persistence of discovered devices** — `DeviceManager` is in-memory only;
+  the scan list resets on every app restart.
+- **Parsed-but-not-executed spec extensions** — `encryption`/`framing`
+  declarations, protobuf `setting_id` commands, and `json`/`tlv` payload
+  encodings parse fine (see §7) but the codec doesn't execute them yet; the
+  raw-byte fallback stays visible for those characteristics.
+- **Non-BLE transports** — WiFi specs parse (their `mqtt_topics` /
+  `http_endpoints` ride in the `extensions` bag), but the app speaks BLE
+  only.

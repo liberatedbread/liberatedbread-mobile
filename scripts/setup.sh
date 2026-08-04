@@ -160,20 +160,25 @@ install_flutter() {
     fi
   fi
 
-  local parent
-  parent="$(dirname "$FLUTTER_HOME")"
+  # Extract into a private staging directory, never into $(dirname
+  # "$FLUTTER_HOME"): the archive's top-level `flutter/` would silently
+  # overwrite an unrelated ~/flutter checkout — exactly what a developer whose
+  # manual install isn't on PATH (the only way to reach this branch) may have.
+  # Staged under CACHE_DIR rather than /tmp so the final mv is a same-
+  # filesystem rename, not a multi-GB copy through a possibly-tmpfs /tmp.
+  local staging
+  staging="$(mktemp -d "$CACHE_DIR/flutter-extract.XXXXXX")"
   case "$archive" in
     *.tar.xz)
-      tar xf "$archive_path" -C "$parent"
+      tar xf "$archive_path" -C "$staging"
       ;;
     *.zip)
-      unzip -qo "$archive_path" -d "$parent"
+      unzip -qo "$archive_path" -d "$staging"
       ;;
   esac
-  if [[ "$parent/flutter" != "$FLUTTER_HOME" ]]; then
-    rm -rf "$FLUTTER_HOME"
-    mv "$parent/flutter" "$FLUTTER_HOME"
-  fi
+  rm -rf "$FLUTTER_HOME"
+  mv "$staging/flutter" "$FLUTTER_HOME"
+  rm -rf "$staging"
 
   # Mark the cached archive as good only after extraction succeeded.
   printf '%s\n' "$url" > "$marker"
@@ -235,17 +240,13 @@ install_rust() {
     i686-linux-android
 
   if [[ "$OS" == "Darwin" ]]; then
+    # Same target set CI installs: device, Apple-Silicon simulator, and
+    # Intel-Mac simulator.
     log "Adding iOS cross-compilation targets..."
     rustup target add \
       aarch64-apple-ios \
-      aarch64-apple-ios-sim
-  fi
-
-  if ! command_exists cargo-ndk; then
-    log "Installing cargo-ndk..."
-    cargo install cargo-ndk
-  else
-    log "cargo-ndk already installed."
+      aarch64-apple-ios-sim \
+      x86_64-apple-ios
   fi
 }
 
@@ -253,13 +254,16 @@ install_rust() {
 
 install_frb_codegen() {
   if command_exists flutter_rust_bridge_codegen; then
+    # Same version parse as scripts/test.sh — keep the two in sync so both
+    # agree on what "matches the pin" means.
     local current
-    current="$(flutter_rust_bridge_codegen --version 2>/dev/null | awk '{print $NF}' || echo unknown)"
+    current="$(flutter_rust_bridge_codegen --version 2>/dev/null \
+      | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
     if [[ "$current" == "$FRB_VERSION" ]]; then
       log "flutter_rust_bridge_codegen ${FRB_VERSION} already installed."
       return
     fi
-    warn "flutter_rust_bridge_codegen ${current} does not match pinned ${FRB_VERSION}. Reinstalling..."
+    warn "flutter_rust_bridge_codegen ${current:-unknown} does not match pinned ${FRB_VERSION}. Reinstalling..."
     cargo install --locked --force "flutter_rust_bridge_codegen@${FRB_VERSION}"
     return
   fi
@@ -289,12 +293,14 @@ setup_android_sdk() {
   log "Installing Android SDK components..."
   yes | "$sdkmanager" --licenses 2>/dev/null || true
 
+  # Don't hide stderr on the installs below: when they fail, the reason
+  # (network, licenses, disk) must reach the user alongside the warning.
   "$sdkmanager" \
     "platform-tools" \
     "build-tools;${ANDROID_API}.0.0" \
     "platforms;android-${ANDROID_API}" \
     "ndk;${NDK_VERSION}" \
-    2>/dev/null || warn "Some SDK components may have failed to install."
+    || warn "Some SDK components may have failed to install."
 
   # Create emulator AVD
   local avdmanager=""
@@ -309,13 +315,13 @@ setup_android_sdk() {
       log "AVD liberated_bread_test already exists."
     else
       log "Installing system image for emulator..."
-      "$sdkmanager" "system-images;android-${ANDROID_API};google_apis;x86_64" 2>/dev/null || true
+      "$sdkmanager" "system-images;android-${ANDROID_API};google_apis;x86_64" || true
 
       log "Creating AVD liberated_bread_test..."
       echo "no" | "$avdmanager" create avd \
         -n liberated_bread_test \
         -k "system-images;android-${ANDROID_API};google_apis;x86_64" \
-        --force 2>/dev/null || warn "Failed to create AVD. You may need to create it manually."
+        --force || warn "Failed to create AVD. You may need to create it manually."
     fi
   else
     warn "avdmanager not found. Skipping emulator AVD creation."
@@ -337,7 +343,7 @@ setup_macos() {
 
   if command_exists pod; then
     log "CocoaPods found. Running pod install..."
-    (cd "$PROJECT_DIR/ios" && pod install 2>/dev/null) || warn "pod install failed — may need Xcode project first."
+    (cd "$PROJECT_DIR/ios" && pod install) || warn "pod install failed — may need Xcode project first."
   else
     warn "CocoaPods not found. Install with: gem install cocoapods"
   fi

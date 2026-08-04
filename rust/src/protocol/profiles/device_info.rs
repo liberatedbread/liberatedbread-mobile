@@ -49,6 +49,11 @@ impl DeviceProtocol for DeviceInfoProtocol {
         let value = if name == "system_id" {
             DecodedValue::String(bytes_to_hex(bytes, ":"))
         } else {
+            // Non-UTF-8 bytes fall back to a space-separated hex rendering
+            // inside DecodedValue::String — the SIG says these fields are
+            // UTF-8, but real hardware lies, and showing hex beats erroring
+            // out of the whole Device Information card. Same fallback as
+            // codec::types::decode_field's String arm.
             let s = std::str::from_utf8(bytes)
                 .map(|s| s.trim_end_matches('\0').to_string())
                 .unwrap_or_else(|_| bytes_to_hex(bytes, " "));

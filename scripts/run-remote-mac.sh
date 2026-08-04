@@ -102,6 +102,27 @@ case "$REMOTE_DIR" in
   "~/"*) REMOTE_DIR="${REMOTE_DIR#\~/}" ;;
 esac
 
+# printf %q protects the explicit ssh commands below, but NOT rsync's
+# destination: OpenSSH reconstructs rsync's remote command through a shell,
+# and rsync does not escape backticks/$() in the path, so a value like
+# a`touch pwned`b would still execute on the Mac during the first sync.
+# macOS ships rsync 2.6.9, which predates --secluded-args, so the fix is to
+# constrain the character set instead: ordinary path characters only. This
+# also rejects spaces, which the rsync destination never handled anyway.
+if [[ ! "$REMOTE_DIR" =~ ^[A-Za-z0-9._/-]+$ ]]; then
+  err "--remote-dir may only contain letters, digits, . _ / - (got: $REMOTE_DIR)"
+  err "Shell-special characters in the path would be re-parsed by the remote"
+  err "shell that rsync and ssh invoke on the Mac."
+  exit 1
+fi
+
+# Every remote command below is a string the Mac's shell re-parses, so escape
+# the path once here (defence in depth behind the character allowlist above).
+# Wrapping it in single quotes at each call site instead would let a quote in
+# --remote-dir / LIBERATED_BREAD_MAC_DIR break out of the quoting and run as
+# remote shell code.
+REMOTE_DIR_Q="$(printf '%q' "$REMOTE_DIR")"
+
 for cmd in ssh rsync; do
   if ! command -v "$cmd" &>/dev/null; then
     err "$cmd not found. Install it (e.g. apt install openssh-client rsync)."
@@ -113,7 +134,7 @@ done
 # One master connection; every subsequent ssh/rsync reuses it, so the
 # sync-on-save loop doesn't pay a handshake each time.
 
-CTRL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ogiot-ssh.XXXXXX")"
+CTRL_DIR="$(mktemp -d "${TMPDIR:-/tmp}/liberated-bread-ssh.XXXXXX")"
 CTRL_PATH="$CTRL_DIR/ctl"
 SSH_OPTS=(
   -o ControlMaster=auto
@@ -122,12 +143,27 @@ SSH_OPTS=(
   -o ServerAliveInterval=15
 )
 
+# rsync's -e takes a *single* string that rsync splits itself. Its splitter
+# honours single/double quotes but not backslashes (so printf %q is the wrong
+# tool here), and passing "${SSH_OPTS[*]}" flattened would split a ControlPath
+# under a TMPDIR with a space into two arguments. Quote each option instead;
+# '' is how rsync's parser spells a literal quote.
+sq() { printf "'%s'" "${1//\'/\'\'}"; }
+SSH_E_ARG="ssh"
+for _opt in "${SSH_OPTS[@]}"; do
+  SSH_E_ARG+=" $(sq "$_opt")"
+done
+unset _opt
+
 ssh_run()  { ssh "${SSH_OPTS[@]}" "$HOST" "$@"; }
 # -t allocates a tty so `flutter run` is interactive (r/R/q work) and dies
 # with the connection instead of lingering on the Mac.
 ssh_tty()  { ssh -t "${SSH_OPTS[@]}" "$HOST" "$@"; }
 
-REMOTE_PIDFILE="/tmp/liberated-bread-flutter-$$.pid"
+# The Mac's /tmp is world-writable, so keep this name unguessable rather than
+# derived from our PID: a predictable path is one another user on a shared Mac
+# could pre-create as a symlink. Fixed for the life of this run.
+REMOTE_PIDFILE="/tmp/liberated-bread-flutter-$$-${RANDOM}${RANDOM}${RANDOM}.pid"
 WATCHER_PID=""
 
 cleanup() {
@@ -178,12 +214,12 @@ RSYNC_EXCLUDES=(
 
 sync_tree() {
   rsync -az --delete "${RSYNC_EXCLUDES[@]}" \
-    -e "ssh ${SSH_OPTS[*]}" \
+    -e "$SSH_E_ARG" \
     "$PROJECT_DIR/" "$HOST:$REMOTE_DIR/"
 }
 
 log "Syncing working tree to $HOST:$REMOTE_DIR ..."
-ssh_run "mkdir -p '$REMOTE_DIR'"
+ssh_run "mkdir -p $REMOTE_DIR_Q"
 sync_tree
 log "Sync complete."
 
@@ -195,7 +231,7 @@ fi
 
 if [[ "$BOOTSTRAP" == "true" ]]; then
   log "Running scripts/setup.sh on $HOST (first run takes a while)..."
-  ssh_tty "cd '$REMOTE_DIR' && ./scripts/setup.sh"
+  ssh_tty "cd $REMOTE_DIR_Q && ./scripts/setup.sh"
 fi
 
 if ! ssh_run "export PATH=\"\${FLUTTER_HOME:-\$HOME/.flutter-sdk}/bin:\$PATH\"; command -v flutter" >/dev/null 2>&1; then
@@ -208,7 +244,7 @@ fi
 # ── list devices ─────────────────────────────────────────────────────────────
 
 if [[ "$LIST_ONLY" == "true" ]]; then
-  ssh_run "cd '$REMOTE_DIR' && ./scripts/run-ios-device.sh --list"
+  ssh_run "cd $REMOTE_DIR_Q && ./scripts/run-ios-device.sh --list"
   exit 0
 fi
 
@@ -232,7 +268,7 @@ if (( ${#PASSTHROUGH[@]} > 0 )); then
   RUN_ARGS+=("${PASSTHROUGH[@]}")
 fi
 
-REMOTE_CMD="cd '$REMOTE_DIR' && $RUN_SCRIPT"
+REMOTE_CMD="cd $REMOTE_DIR_Q && $RUN_SCRIPT"
 for a in "${RUN_ARGS[@]}"; do
   REMOTE_CMD+=" $(printf '%q' "$a")"
 done

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 //! Rust types mapping to the OpenGreenIoT device spec YAML schema.
-//! See: opengreeniot/device-specs/schema.json
+//! See the `opengreeniot-protocol-docs` repository — the upstream source of
+//! the vendored specs under `rust/tests/specs/` — for the schema and the
+//! real-world specs these types must tolerate.
 
 use indexmap::IndexMap;
 use serde::Deserialize;

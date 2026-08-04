@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/log.dart';
 import 'spec_pack_provider.dart';
 
 /// Asset path of the vendored spec catalogue index.
@@ -38,7 +39,8 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
       // hand-edited manifest.
       debugPrint('Spec listed in manifest but not bundled: $path');
     } catch (e, st) {
-      debugPrint('Failed to load spec $path: $e\n$st');
+      Log.spec.warning('failed to load bundled spec $path',
+          error: e, stackTrace: st);
     }
   }
 
@@ -47,6 +49,8 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   final cached = await ref.watch(cachedSpecPacksProvider.future);
   specs.addAll(cached);
 
+  Log.spec.info('${specs.length} spec(s) available '
+      '(${specs.length - cached.length} bundled, ${cached.length} from packs)');
   return specs;
 });
 

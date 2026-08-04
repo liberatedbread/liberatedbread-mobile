@@ -265,7 +265,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           const SizedBox(height: 24),
           Center(
             child: ElevatedButton(
-              onPressed: () => openAppSettings(),
+              // Fire-and-forget like the other teardown calls in this file: a
+              // failure to open the settings app must not become an unhandled
+              // async error.
+              onPressed: () =>
+                  unawaited(openAppSettings().catchError((Object _) => false)),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(0, 48),
                 padding: const EdgeInsets.symmetric(horizontal: 24),

@@ -45,8 +45,8 @@ pub enum ProtocolError {
     #[error("command has neither value nor template")]
     EmptyCommand,
 
-    #[error("command uses setting_id or encoding, which are not supported by the legacy encoder — use typed controls instead")]
-    UnsupportedCommandEncoding,
+    #[error("command requires '{0}' encoding, which is not supported by the legacy raw-byte encoder — use typed controls instead")]
+    UnsupportedCommandEncoding(String),
 
     #[error("standard profile does not support commands")]
     ProfileReadOnly,
@@ -84,6 +84,14 @@ pub enum SpecError {
         length: usize,
     },
 
+    #[error("format field '{field_name}' offset+length exceeds the maximum characteristic extent of {max} bytes: offset={offset}, length={length}")]
+    FieldExtentTooLarge {
+        field_name: String,
+        offset: usize,
+        length: usize,
+        max: usize,
+    },
+
     #[error(
         "parameter '{parameter_name}' {bound} value {value} does not fit in declared type {value_type}"
     )]
@@ -115,5 +123,18 @@ pub enum SpecError {
         kind: String,
         name: String,
         characteristic: String,
+    },
+
+    #[error("command '{command}' template references parameter '{parameter}', which is not declared in the command's parameters")]
+    UnknownTemplateParameter { command: String, parameter: String },
+
+    #[error(
+        "parameter '{parameter_name}' lists allowed value {value}, outside its effective bounds {min}..={max}; every dropdown choice built from it would fail encoding"
+    )]
+    AllowedValueOutsideBounds {
+        parameter_name: String,
+        value: i64,
+        min: i64,
+        max: i64,
     },
 }
