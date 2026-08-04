@@ -1,0 +1,192 @@
+# Spider Farmer GGS BLE Grow Light Controller
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Spider Farmer GGS Grow Light Controller"
+  manufacturer: "Spider Farmer"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    BLE grow light controller for Spider Farmer LED grow lights.
+    Marketed as requiring a cloud app but actually uses a simple local
+    BLE protocol with (on older firmware) unencrypted JSON telemetry. $30-50.
+    Companion app: Android com.sf.meizhi / iOS id 6476436750 ("Spider
+    Farmer") — an ODM white-label app.
+
+    PROTOCOL: device advertises with name "SF-GGS-CB"; GATT service UUID is
+    0x00FF (both working codebases — ggs_ble.py in the cited cr0ssn0tice
+    repo and smurfy/esphome-spiderfarmer_ble; only the cr0ssn0tice README
+    table says 0xFF00). Device continuously streams JSON telemetry
+    notifications on characteristic 0xFF01. Commands are sent as JSON write
+    requests on 0xFF02.
+
+    FIRMWARE QUALIFIER: unencrypted JSON holds for controller FW <= 3.2
+    (and PS5 1.7 / PS10 2.9 / LC 1.5). Controller FW 3.14 encrypts BLE
+    payloads with AES-CBC (key/IV per product/firmware, unpublished) and
+    this spec is largely invalid there — the community advises staying on
+    FW <= 3.2 if local BLE matters.
+
+    TELEMETRY (notify on 0xFF01): JSON wrapped in a method envelope —
+    {"method":"getDevSta","code":200,"data":{...}} where data is:
+    ```
+    {"sensor":{"temp":25.4,"humi":55.2,"vpd":1.2},
+     "fan":{"level":3,"on":1},
+     "blower":{"level":0},
+     "light":{"level":100,"on":1}}
+    ```
+    - temp: temperature in °C
+    - humi: relative humidity in %
+    - vpd: vapor pressure deficit
+    - fan.level: fan speed level
+    - light.level: dimming level (0-100)
+    - light.on: light power state (0/1)
+
+    COMMANDS (write JSON to 0xFF02):
+    - Get status: `{"method":"getDevSta"}`
+    - Set light: `{"method":"setLight","data":{"on":1,"level":50}}`
+    - Set fan: `{"method":"setFan","data":{"on":1,"level":N}}` (level 0-10)
+    - Set blower: `{"method":"setBlower","data":{"modeType":0,"on":1,"level":N}}` (level 0-100)
+    - Also observed (pre-encryption firmware): getSysSta (device id + FW/HW
+      versions), getConfigFile, setMode, setOnOff, setDevTimezone,
+      setDevActive / setDevDeactive
+    - on: 0=off, 1=on; light level: 0-100
+
+    DISCOVERY: name "SF-GGS-CB" is the only confirmed signal (whether a
+    service UUID is present in the advertisement is unverified). Exact-match
+    on "SF-GGS-CB" covers only the controller; the family also includes
+    SF-GGS-PS5 / SF-GGS-PS10 power strips and the SF-GGS-LC light
+    controller, so an "SF-GGS-" prefix match would cover the family.
+    No pairing or bonding required.
+
+    Notifications carry a structured 20-byte vendor frame header (per
+    smurfy/esphome-spiderfarmer_ble parse_data()), not "Espressif
+    fragmentation garbage": magic 0xAAAA0003, payload size, msgtype
+    (0x0001 = plaintext JSON, 0x0002 = AES-encrypted), CRC-16 of the total
+    payload, total size, block offset, block size, then block data and a
+    trailing CRC-16; fragmentation/reassembly is a vendor protocol layer.
+    The ESP32 MQTT bridge example at
+    github.com/cr0ssn0tice/Spider-Farmer-GGS-Controller-MQTT accumulates
+    fragments into a buffer and parses when `fan"` and `}}` are both present.
+
+    CONFIDENCE: HIGH for service/characteristic UUIDs (0x00FF/0xFF01/0xFF02),
+    JSON telemetry format, getDevSta and setLight commands — sourced from the
+    Python BLE control script (ggs_ble.py) and ESP32 MQTT bridge (Arduino
+    sketch), corroborated by smurfy/esphome-spiderfarmer_ble; applies to
+    FW <= 3.2 only (LOW for current encrypted firmware).
+    MEDIUM: write format for fan/brightness/on/off fully confirmed.
+    LOW: scheduling/timer commands.
+
+  identification:
+    local_name: "SF-GGS-CB"
+    service_uuids:
+      - "000000ff-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "exact"
+            value: "SF-GGS-CB"
+          service_uuids:
+            - "000000ff-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning. Device advertises as "SF-GGS-CB". Subscribe to
+      0xFF01 for JSON telemetry. Write commands to 0xFF02.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for "SF-GGS-CB", connect, subscribe to 0xFF01 notifications.
+          Write JSON commands to 0xFF02.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the GGS controller."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Scan for exact name "SF-GGS-CB" or 0x00FF service and connect.
+            actor: "client"
+          - action: >
+              Subscribe to notifications on 0xFF01 and buffer/parse JSON.
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: "Power-cycling resets the connection."
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove and reapply power."
+              actor: "user"
+              expect: "Device powers on and advertises as SF-GGS-CB."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No bonding. Any central can connect."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: > 
+        Cloud-free local protocol. Marketed cloud dependency is unused
+        by the local BLE path.
+
+services:
+  - uuid: "000000ff-0000-1000-8000-00805f9b34fb"
+    name: "Spider Farmer GGS Service"
+    characteristics:
+      - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          JSON telemetry stream, wrapped: {"method":"getDevSta","code":200,
+          "data":{...}}. Device sends fragmented JSON packets behind a
+          20-byte 0xAAAA0003 vendor frame header (msgtype 0x0001 plaintext /
+          0x0002 AES-CBC on FW 3.14+). Buffer and accumulate until valid
+          JSON with "fan" and "}}" is complete. Telemetry data includes:
+          sensor (temp, humi, vpd), fan (level, on), blower (level),
+          light (level, on).
+
+      - uuid: "0000ff02-0000-1000-8000-00805f9b34fb"
+        name: "Write"
+        properties: ["write"]
+        notes: >
+          Command channel. Write JSON strings:
+          - Status: `{"method":"getDevSta"}`
+          - Set light: `{"method":"setLight","data":{"on":1,"level":50}}`
+          - Set fan: `{"method":"setFan","data":{"on":1,"level":N}}` (0-10)
+          - Set blower: `{"method":"setBlower","data":{"modeType":0,"on":1,"level":N}}` (0-100)
+          - Also observed (FW <= 3.2): getSysSta, getConfigFile, setMode,
+            setOnOff, setDevTimezone, setDevActive/setDevDeactive
+          Use write_with_response (GATT write request) for reliability.
+
+entities:
+  - platform: "light"
+    name: "Grow Light"
+    features: ["brightness"]
+    state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+    command_characteristic: "0000ff02-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Temperature"
+    state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Humidity"
+    state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "VPD"
+    state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"
+  - platform: "fan"
+    name: "Fan"
+    features: ["speed"]
+    state_characteristic: "0000ff01-0000-1000-8000-00805f9b34fb"

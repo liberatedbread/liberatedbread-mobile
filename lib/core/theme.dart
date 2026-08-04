@@ -47,8 +47,6 @@ class LiberatedBreadTheme {
   static final ThemeData dark = _build(Brightness.dark);
 
   static ThemeData _build(Brightness brightness) {
-    final isDark = brightness == Brightness.dark;
-    final barColor = isDark ? tealDark : teal;
     final base = ColorScheme.fromSeed(
       seedColor: breadOrange,
       brightness: brightness,
@@ -71,13 +69,19 @@ class LiberatedBreadTheme {
       useMaterial3: true,
       colorScheme: scheme,
       scaffoldBackgroundColor: scheme.surface,
-      // A turquoise top bar echoes the logo background; bread-orange drives the
-      // primary call-to-action (the scan FAB). Foregrounds are derived from the
-      // fill via [onBrand] so both stay above the WCAG contrast floor.
+      // The top bar sits flush with the page surface rather than carrying a
+      // turquoise fill: with the content surfaces doing the work, a coloured bar
+      // competed with the device cards for attention. The brand still leads
+      // through the bread-orange scan FAB and the turquoise accents (radar
+      // sweep, signal meters, status dots). Foreground is derived from the fill
+      // via [onBrand], so it stays above the WCAG contrast floor in both
+      // brightnesses — `brand_test.dart` enforces that ratio.
       appBarTheme: AppBarTheme(
-        backgroundColor: barColor,
-        foregroundColor: onBrand(barColor),
+        backgroundColor: scheme.surface,
+        foregroundColor: onBrand(scheme.surface),
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
         centerTitle: false,
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
