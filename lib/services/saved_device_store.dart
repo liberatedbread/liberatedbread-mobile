@@ -107,6 +107,6 @@ class SavedDeviceStore {
     return devices;
   }
 
-  Future<void> _write(List<SavedDevice> devices) =>
-      _prefs.setString(_key, jsonEncode(devices.map((d) => d.toJson()).toList()));
+  Future<void> _write(List<SavedDevice> devices) => _prefs.setString(
+      _key, jsonEncode(devices.map((d) => d.toJson()).toList()));
 }

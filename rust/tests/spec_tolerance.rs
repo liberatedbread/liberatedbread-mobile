@@ -308,9 +308,7 @@ fn entities_resolve_only_when_the_characteristic_exists() {
 
     let resolved = spec.resolved_entities();
     assert!(
-        resolved
-            .iter()
-            .any(|(entity, _)| entity.name == "Battery"),
+        resolved.iter().any(|(entity, _)| entity.name == "Battery"),
         "the Battery entity binds to a declared characteristic and should resolve"
     );
 
@@ -420,8 +418,8 @@ entities:
 
     // An entity with no declared scale must report none, so the caller shows
     // the decoder's own display string rather than silently multiplying by 1.
-    let unscaled = parse_device_spec(include_str!("specs/example-bulb.yaml"))
-        .expect("bulb spec should parse");
+    let unscaled =
+        parse_device_spec(include_str!("specs/example-bulb.yaml")).expect("bulb spec should parse");
     let battery = unscaled
         .entities
         .iter()

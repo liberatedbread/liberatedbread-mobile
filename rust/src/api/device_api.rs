@@ -185,10 +185,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                     platform: entity.platform.clone(),
                     device_class: entity.device_class.clone(),
                     unit: entity.unit.clone(),
-                    state_characteristic: entity
-                        .state_characteristic
-                        .clone()
-                        .unwrap_or_default(),
+                    state_characteristic: entity.state_characteristic.clone().unwrap_or_default(),
                     can_notify: characteristic
                         .properties
                         .contains(&CharacteristicProperty::Notify),
