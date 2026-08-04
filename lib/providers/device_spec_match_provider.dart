@@ -40,16 +40,19 @@ class MatchedSpec {
   const MatchedSpec({required this.spec, required this.yaml});
 }
 
-/// Resolves the best-matching device spec for a connected device, or `null`
-/// when none match or the native codec is unavailable. Matching uses the device
-/// name prefix and the discovered service UUIDs (an [IoTDevice] does not carry
-/// advertised UUIDs).
-final matchedDeviceSpecProvider =
-    FutureProvider.family<MatchedSpec?, SpecMatchRequest>((ref, req) async {
+/// Every bundled spec, parsed once.
+///
+/// Parsing is cached here rather than inside [matchedDeviceSpecProvider]
+/// because that provider is a family: it would otherwise re-parse the whole
+/// catalogue for every distinct device. With one bundled spec that was
+/// invisible; the vendored catalogue is 70+ specs, so it would mean 70+ FFI
+/// parses per connect. Specs that fail to parse (bad YAML, or the native
+/// library unavailable) are skipped, so one bad spec can't take out matching.
+final parsedDeviceSpecsProvider =
+    FutureProvider<List<({DeviceSpecDto spec, String yaml})>>((ref) async {
   final codec = ref.watch(specCodecProvider);
   final specYamls = await ref.watch(deviceSpecsProvider.future);
 
-  // Parse each bundled spec; skip any that fail (bad YAML, or native absent).
   final parsed = <({DeviceSpecDto spec, String yaml})>[];
   for (final yaml in specYamls.values) {
     try {
@@ -58,6 +61,17 @@ final matchedDeviceSpecProvider =
       // Skip this spec.
     }
   }
+  return parsed;
+});
+
+/// Resolves the best-matching device spec for a connected device, or `null`
+/// when none match or the native codec is unavailable. Matching uses the device
+/// name prefix and the discovered service UUIDs (an [IoTDevice] does not carry
+/// advertised UUIDs).
+final matchedDeviceSpecProvider =
+    FutureProvider.family<MatchedSpec?, SpecMatchRequest>((ref, req) async {
+  final codec = ref.watch(specCodecProvider);
+  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
   if (parsed.isEmpty) return null;
 
   final List<MatchResult> matches;

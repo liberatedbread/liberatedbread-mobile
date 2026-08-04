@@ -19,6 +19,7 @@ const _spec = DeviceSpecDto(
   protocol: 'ble',
   localNamePrefix: 'ACME_',
   serviceUuids: [_svcUuid],
+  entities: <EntityDto>[],
   services: [
     ServiceDto(uuid: _svcUuid, name: 'Control Service', characteristics: [
       CharacteristicDto(
@@ -73,6 +74,7 @@ void main() {
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
       serviceUuids: [_svcUuid],
+      entities: <EntityDto>[],
       services: [],
     );
     final codec = FakeSpecCodec(
@@ -132,6 +134,7 @@ void main() {
       protocol: 'ble',
       localNamePrefix: 'ALPHA_',
       serviceUuids: [svcA],
+      entities: <EntityDto>[],
       services: [],
     );
     const specB = DeviceSpecDto(
@@ -141,6 +144,7 @@ void main() {
       protocol: 'ble',
       localNamePrefix: 'BETA_',
       serviceUuids: [svcB],
+      entities: <EntityDto>[],
       services: [],
     );
     // A separate, non-const instance with the same content as specB, simulating
@@ -154,6 +158,7 @@ void main() {
       protocol: 'ble',
       localNamePrefix: 'BETA_',
       serviceUuids: List<String>.of(const [svcB]),
+      entities: <EntityDto>[],
       services: const [],
     );
 

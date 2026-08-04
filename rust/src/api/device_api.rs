@@ -28,6 +28,38 @@ pub struct DeviceSpecDto {
     pub local_name_prefix: Option<String>,
     pub service_uuids: Vec<String>,
     pub services: Vec<ServiceDto>,
+    /// Declared sensor/control surfaces that resolve to a real characteristic,
+    /// in spec order. This is what lets the app render named readings with
+    /// units instead of a raw GATT browser.
+    pub entities: Vec<EntityDto>,
+}
+
+/// A spec-declared reading: what to call it, what unit it is in, and which
+/// characteristic carries it.
+#[derive(Debug, Clone)]
+pub struct EntityDto {
+    pub name: String,
+    /// e.g. "sensor". Absent in some hand-written specs.
+    pub platform: Option<String>,
+    /// e.g. "temperature", "battery". Drives icon/formatting choices.
+    pub device_class: Option<String>,
+    /// e.g. "F", "%". Rendered next to the value.
+    pub unit: Option<String>,
+    /// UUID of the characteristic carrying this value. Guaranteed to resolve
+    /// to a characteristic in this spec — unresolvable entities are dropped.
+    pub state_characteristic: String,
+    /// Whether the bound characteristic supports notifications, i.e. whether
+    /// this reading can stream rather than being polled by read.
+    pub can_notify: bool,
+    /// Whether the bound characteristic declares a `format:` block. False means
+    /// the value cannot be decoded yet — a spec gap, not an app failure.
+    pub has_format: bool,
+    /// Name of the decoded field carrying this entity's value, when the spec
+    /// declares one. `None` means "use the first decoded field".
+    pub value_field: Option<String>,
+    /// Multiplier for the decoded value, e.g. 0.01 when a device reports
+    /// centidegrees. `None` means the decoded value is already in `unit`.
+    pub value_scale: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +124,13 @@ pub struct DecodedValueDto {
     pub int_value: Option<i64>,
     pub uint_value: Option<i64>, // FRB doesn't support u64, use i64
     pub string_value: Option<String>,
+    /// Multiplier from the spec's `format:` block, when it declares one. The
+    /// decoded value stays raw so the caller keeps both halves; applying this
+    /// is what turns a SIG temperature's 2350 into 23.5.
+    pub scale: Option<f64>,
+    /// Unit symbol from the spec's `format:` block, used when the entity
+    /// surfacing this reading does not name one.
+    pub unit: Option<String>,
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
@@ -124,6 +163,37 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
             services: spec.services.iter().map(ServiceDto::from).collect(),
+            // Only entities that resolve to a real characteristic cross the
+            // FFI boundary: an entity pointing at a UUID the spec never
+            // declares can never produce a reading, and shipping it would put
+            // a permanently blank tile in the UI.
+            entities: spec
+                .resolved_entities()
+                .into_iter()
+                .map(|(entity, characteristic)| EntityDto {
+                    name: entity.name.clone(),
+                    platform: entity.platform.clone(),
+                    device_class: entity.device_class.clone(),
+                    unit: entity.unit.clone(),
+                    state_characteristic: entity
+                        .state_characteristic
+                        .clone()
+                        .unwrap_or_default(),
+                    can_notify: characteristic
+                        .properties
+                        .contains(&CharacteristicProperty::Notify),
+                    // Whether the bound characteristic declares a byte layout.
+                    // Without one there is nothing to decode the payload with,
+                    // so the UI shows the entity as awaiting a spec update
+                    // rather than rendering a raw blob under a friendly name.
+                    has_format: characteristic
+                        .format
+                        .as_ref()
+                        .is_some_and(|f| !f.is_empty()),
+                    value_field: entity.value_field().map(str::to_owned),
+                    value_scale: entity.value_scale(),
+                })
+                .collect(),
         }
     }
 }
@@ -238,6 +308,8 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
             int_value: None,
             uint_value: None,
             string_value: None,
+            scale: None,
+            unit: None,
         };
         match value {
             DecodedValue::Bool(v) => dto.bool_value = Some(*v),
@@ -342,9 +414,20 @@ pub fn decode_value(
 ) -> anyhow::Result<Vec<DecodedValueDto>> {
     let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
     let decoded = proto.decode_value(&char_uuid, &bytes)?;
+    // Presentation metadata is looked up by field name rather than by position:
+    // `decode_all_fields` collapses a repeated field name into one entry, so the
+    // two lists are not guaranteed to line up index for index.
+    let meta = proto.field_meta_for_characteristic(&char_uuid);
     Ok(decoded
         .iter()
-        .map(|(name, value)| DecodedValueDto::from((name.as_str(), value)))
+        .map(|(name, value)| {
+            let mut dto = DecodedValueDto::from((name.as_str(), value));
+            if let Some(m) = meta.iter().find(|m| &m.name == name) {
+                dto.scale = m.scale;
+                dto.unit = m.unit.clone();
+            }
+            dto
+        })
         .collect())
 }
 
@@ -778,6 +861,64 @@ services:
     fn decode_with_no_spec_or_service_fails() {
         let result = decode_value(None, None, "anything".to_string(), vec![0]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn decode_carries_format_scale_and_unit_across_the_boundary() {
+        // The SIG temperature characteristic reports hundredths of a degree, and
+        // upstream specs declare that on the format field. If the multiplier
+        // does not cross the FFI boundary the UI has no way to recover it, and
+        // 23.5 °C renders as 2350.
+        let yaml = r#"
+device:
+  name: "SIG Thermometer"
+  manufacturer: "Someone"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+services:
+  - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
+    name: "Environmental Sensing"
+    characteristics:
+      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
+        name: "Temperature"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 2
+            name: "temperature"
+            type: "int16"
+            scale: 0.01
+            unit: "C"
+"#;
+        let values = decode_value(
+            Some(yaml.to_string()),
+            None,
+            "00002a6e-0000-1000-8000-00805f9b34fb".to_string(),
+            2350i16.to_le_bytes().to_vec(),
+        )
+        .unwrap();
+
+        assert_eq!(values.len(), 1);
+        // The raw reading stays raw — decoding is lossless and the caller
+        // applies the conversion.
+        assert_eq!(values[0].int_value, Some(2350));
+        assert_eq!(values[0].scale, Some(0.01));
+        assert_eq!(values[0].unit.as_deref(), Some("C"));
+    }
+
+    #[test]
+    fn decode_reports_no_scale_when_the_spec_declares_none() {
+        // Absence must stay absent: a defaulted scale of 1.0 would be
+        // indistinguishable from a declared one, and would let a later bug
+        // multiply a raw count silently.
+        let values = decode_value(
+            Some(TEST_YAML.to_string()),
+            None,
+            "0000fff2-0000-1000-8000-00805f9b34fb".to_string(),
+            vec![1, 80],
+        )
+        .unwrap();
+        assert!(values.iter().all(|v| v.scale.is_none()));
     }
 
     #[test]

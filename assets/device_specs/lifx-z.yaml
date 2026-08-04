@@ -1,0 +1,178 @@
+# LIFX Z — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "LIFX Z"
+  manufacturer: "LIFX"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  transport: "udp"
+  notes: >
+    LIFX Z LED strips support the LIFX binary LAN protocol over UDP port 56700
+    with no authentication. The observed strips advertise HomeKit HAP over mDNS
+    with md=LIFX Z; consumers can resolve IP address from mDNS and then send a
+    UDP GetService message to port 56700 for full LIFX metadata. LIFX Z is a
+    multizone light strip; common units expose eight zones using HSBK color.
+    The current schema does not have a native UDP endpoint type, so protocol
+    details are captured in protocol_handler and lifx_lan_protocol.
+
+    MATTER CAVEAT: LIFX's Matter firmware rollout (Sept 2025) is eligible on
+    LCM3-edition hardware (firmware v3.x) only — the original LIFX Z (firmware
+    v2.x) is excluded — and updating to Matter DECOMMISSIONS the HomeKit/HAP
+    integration. Units that take the Matter update stop advertising
+    _hap._tcp.local., which kills the mDNS discovery signal this spec relies
+    on; discover those units by UDP broadcast GetService instead.
+  identification:
+    mdns_service_type: "_hap._tcp.local."
+    default_port: 56700
+    identity_keys:
+      primary: "mac"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_hap._tcp.local."
+          txt_record_keys: ["id", "md"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:id"
+                key: "mac"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["mac"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      LIFX strips must be joined to WiFi before the LAN protocol is usable. The
+      onboarding exchange itself has not been captured in this project — the
+      device hosts a temporary AP that the vendor app talks to, and the older
+      published LAN protocol had SetAccessPoint/GetAccessPoint messages that
+      are now marked deprecated. Once provisioned, control is unauthenticated
+      UDP and needs no further setup.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Unprovisioned devices advertise their own access point named after
+          the product and serial. The vendor app joins it and hands over the
+          home network credentials. Field layout and transport for that
+          exchange are unverified here — capture required before a replacement
+          client can be written.
+        softap:
+          ssid_prefix: "LIFX"
+          open_network: true
+        steps:
+          - action: "Power the strip and wait for it to advertise its setup AP."
+            actor: "user"
+            timeout_seconds: 60
+          - action: "Capture the vendor app's provisioning exchange over that AP."
+            actor: "client"
+            notes: "Open gap: needed to document the credential transfer."
+    factory_reset:
+      confidence: "medium"
+      effect: "Clears WiFi credentials and returns the device to its unprovisioned, AP-hosting state."
+      procedures:
+        - name: "Five power cycles"
+          indicator: "The light cycles colours to confirm the reset."
+          steps:
+            - action: "Switch the fixture off and on five times, leaving it on for about two seconds each time."
+              actor: "user"
+            - action: "Wait for the colour-cycle confirmation, then look for the setup AP."
+              actor: "device"
+              timeout_seconds: 60
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        No documented in-place credential update; treat a router change as a
+        reset-and-reprovision.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "WiFi credentials"
+      issued_to_client: []
+      notes: >
+        Post-setup LAN control is unauthenticated UDP on port 56700, so no
+        client credential is issued and anything on the LAN can drive the strip.
+
+protocol_handler: "lifx_lan_udp"
+
+lifx_lan_protocol:
+  transport: "udp"
+  port: 56700
+  authentication: "none"
+  color_model: "HSBK"
+  zone_count: 8
+  discovery_flow:
+    - "Browse _hap._tcp.local. and keep records where TXT md is LIFX Z."
+    - "Use txt:id as the stable MAC/accessory identifier."
+    - "Resolve the mDNS host address."
+    - "Send LIFX LAN GetService message type 2 to UDP port 56700."
+  message_types:
+    get_service: 2
+    state_service: 3
+    get: 101
+    set_color: 102
+    state: 107
+    set_power: 117
+  message_type_notes: >
+    set_power 117 is light-level power (LightSetPower); the device-level
+    SetPower message is 21. set_color 102 sets ALL zones at once — per-zone
+    control needs the multizone family below. Full machine-readable message
+    definitions (pkt_type, sizes, fields) are published officially in the
+    LIFX/public-protocol repo (protocol.yml) — the codegen source for a
+    lifx_lan_udp handler.
+  multizone_messages:
+    set_color_zones: 501
+    get_color_zones: 502
+    state_zone: 503
+    state_multi_zone: 506
+    multizone_get_effect: 507
+    multizone_set_effect: 508
+    multizone_state_effect: 509
+    extended_set_color_zones: 510
+    extended_get_color_zones: 511
+    extended_state_multi_zone: 512
+
+evidence:
+  live_lan_probe:
+    date: "2026-07-16"
+    devices:
+      - address: "192.168.1.149"
+        mdns_service_type: "_hap._tcp"
+        hap_model: "LIFX Z"
+        udp_port: 56700
+      - address: "192.168.1.151"
+        mdns_service_type: "_hap._tcp"
+        hap_model: "LIFX Z"
+        udp_port: 56700
+        http_port_open: 80
+      - address: "192.168.1.168"
+        mdns_service_type: "_hap._tcp"
+        hap_model: "LIFX Z"
+        udp_port: 56700
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Optional Embedded HTTP Root"
+    description: "Some observed LIFX Z devices have TCP port 80 open, but LAN control is the binary UDP protocol on port 56700."
+
+entities:
+  - platform: "light"
+    name: "LIFX Z Multizone Strip"
+    features: ["brightness", "color", "color_temperature"]
+    state_topic: "udp://{host}:56700"
+    commands:
+      turn_on: "SetPower"
+      turn_off: "SetPower"
+      set_color: "SetColor"
+

@@ -6,22 +6,35 @@ import 'package:flutter/services.dart' show rootBundle;
 import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
+import '../src/rust/api/device_api.dart' as device_api;
 import '../src/rust/api/mock_api.dart' as rust;
 import '../src/rust/frb_generated.dart' show RustLib;
 import 'ble_service.dart';
 
 /// Mock device definition for demo mode.
+///
+/// A mock device is a name, a signal strength, and the spec it pretends to be.
+/// Its GATT tree is derived from that spec rather than written out here, so
+/// demoing another device is a one-line catalogue entry — the same "the spec is
+/// the source of truth" rule the app follows for real hardware.
 class _MockDeviceDef {
   final String id;
   final String name;
   final int rssi;
-  final List<BleDiscoveredService> services;
+
+  /// Asset path of the spec this device advertises.
+  final String specAsset;
+
+  /// GATT tree used when the spec cannot be parsed — i.e. when the native
+  /// library isn't loaded, as in plain unit tests.
+  final List<BleDiscoveredService> fallbackServices;
 
   const _MockDeviceDef({
     required this.id,
     required this.name,
     required this.rssi,
-    required this.services,
+    required this.specAsset,
+    this.fallbackServices = const [],
   });
 }
 
@@ -68,10 +81,16 @@ const _batteryService = BleDiscoveredService(
 ///
 /// Enabled at runtime via `--dart-define=LIBERATED_BREAD_MOCK=true`.
 class MockBleService implements BleService {
-  /// Path under `rootBundle` that resolves to the device spec YAML used for
-  /// Rust-side decoding. Overridable for tests; defaults to the example bulb.
-  final Future<String> Function() _loadSpec;
-  String? _cachedSpec;
+  /// Loads a spec YAML by asset path. Overridable for tests, which run without
+  /// an asset bundle; defaults to `rootBundle`.
+  final Future<String> Function(String asset) _loadAsset;
+
+  /// Parsed-once spec text, keyed by asset path.
+  final Map<String, String> _specCache = {};
+
+  /// Derived-once GATT tree, keyed by asset path. Deriving means an FFI parse,
+  /// and `discoverServices` is called on every connect.
+  final Map<String, List<BleDiscoveredService>> _servicesCache = {};
 
   final _random = Random(42);
   final Map<String, bool> _connected = {};
@@ -79,13 +98,21 @@ class MockBleService implements BleService {
   final Map<String, StreamController<BleConnectionState>> _connectionStreams =
       {};
 
-  MockBleService({Future<String> Function()? loadSpec})
-      : _loadSpec = loadSpec ?? _defaultLoader;
+  /// [loadSpec] is a legacy convenience for tests that only care about the
+  /// bulb: it supplies that one spec's text regardless of asset path.
+  MockBleService({
+    Future<String> Function()? loadSpec,
+    Future<String> Function(String asset)? loadAsset,
+  }) : _loadAsset = loadAsset ??
+            (loadSpec == null ? rootBundle.loadString : ((_) => loadSpec()));
 
-  static Future<String> _defaultLoader() =>
-      rootBundle.loadString('assets/device_specs/example-bulb.yaml');
+  Future<String> _specForAsset(String asset) async =>
+      _specCache[asset] ??= await _loadAsset(asset);
 
-  Future<String> _spec() async => _cachedSpec ??= await _loadSpec();
+  _MockDeviceDef _defFor(String deviceId) => _mockDevices.firstWhere(
+        (d) => d.id == deviceId,
+        orElse: () => throw StateError('Unknown mock device: $deviceId'),
+      );
 
   /// True once `RustLib.init()` has successfully loaded the native library.
   /// Exposed as a static so tests and the provider can check initialization.
@@ -98,18 +125,32 @@ class MockBleService implements BleService {
     }
   }
 
+  static const _bulbSpec = 'assets/device_specs/example-bulb.yaml';
+
   static const List<_MockDeviceDef> _mockDevices = [
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:01',
       name: 'ACME_Living_Room',
       rssi: -45,
-      services: [_controlService, _batteryService],
+      specAsset: _bulbSpec,
+      fallbackServices: [_controlService, _batteryService],
     ),
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:02',
       name: 'ACME_Bedroom',
       rssi: -62,
-      services: [_controlService, _batteryService],
+      specAsset: _bulbSpec,
+      fallbackServices: [_controlService, _batteryService],
+    ),
+    // A second, unrelated spec from the vendored catalogue. Nothing about this
+    // device is written into the app: its services, characteristics and six
+    // readings all come out of the YAML, which is the point — it is the same
+    // path a real Airthings would take, minus the radio.
+    _MockDeviceDef(
+      id: 'AA:BB:CC:DD:EE:03',
+      name: 'Airthings Wave Plus',
+      rssi: -58,
+      specAsset: 'assets/device_specs/airthings-wave-family.yaml',
     ),
   ];
 
@@ -190,11 +231,40 @@ class MockBleService implements BleService {
   @override
   Future<List<BleDiscoveredService>> discoverServices(String deviceId) async {
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    final device = _mockDevices.firstWhere(
-      (d) => d.id == deviceId,
-      orElse: () => throw StateError('Unknown mock device: $deviceId'),
-    );
-    return device.services;
+    final device = _defFor(deviceId);
+
+    final cached = _servicesCache[device.specAsset];
+    if (cached != null) return cached;
+
+    if (rustAvailable) {
+      try {
+        final spec = await device_api.loadDeviceSpec(
+          yaml: await _specForAsset(device.specAsset),
+        );
+        final services = [
+          for (final service in spec.services)
+            BleDiscoveredService(
+              uuid: service.uuid,
+              characteristics: [
+                for (final char in service.characteristics)
+                  BleDiscoveredCharacteristic(
+                    uuid: char.uuid,
+                    canRead: char.canRead,
+                    canWrite: char.canWrite,
+                    // A spec says a characteristic is writable without saying
+                    // which write mode, and the model requires a writable
+                    // characteristic to declare at least one. Write-without-
+                    // response is the common BLE control case.
+                    canWriteWithoutResponse: char.canWrite,
+                    canNotify: char.canNotify,
+                  ),
+              ],
+            ),
+        ];
+        return _servicesCache[device.specAsset] = services;
+      } catch (_) {/* fall through to the static tree */}
+    }
+    return device.fallbackServices;
   }
 
   @override
@@ -206,7 +276,7 @@ class MockBleService implements BleService {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     if (rustAvailable) {
       try {
-        final spec = await _spec();
+        final spec = await _specForAsset(_defFor(deviceId).specAsset);
         final bytes = await rust.mockReadCharacteristic(
           deviceId: deviceId,
           charUuid: charUuid,

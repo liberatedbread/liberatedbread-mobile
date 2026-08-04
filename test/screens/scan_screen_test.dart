@@ -9,13 +9,22 @@ import 'package:liberated_bread_mobile/providers/ha_provider.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/screens/ha_settings_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
+import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_ha_api_client.dart';
 import '../fakes/in_memory_settings_store.dart';
 
+/// Resolved in [setUp] so the scan screen can read saved devices synchronously
+/// during build, the same way `main()` wires it in production.
+late SharedPreferences _prefs;
+
 Widget _wrap(FakeBleService fake) => ProviderScope(
-      overrides: [bleServiceProvider.overrideWithValue(fake)],
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
       child: const MaterialApp(home: ScanScreen()),
     );
 
@@ -31,10 +40,16 @@ IoTDevice _device(String id,
 }
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    _prefs = await SharedPreferences.getInstance();
+  });
+
   testWidgets('shows empty-state prompt before scanning', (tester) async {
     await tester.pumpWidget(_wrap(FakeBleService()));
     expect(find.text('Scan for BLE Devices'), findsOneWidget);
-    expect(find.byType(ListTile), findsNothing);
+    // No results section until a scan has actually produced something.
+    expect(find.text('Found'), findsNothing);
   });
 
   testWidgets('populates the list after scan', (tester) async {
@@ -49,7 +64,41 @@ void main() {
 
     expect(find.text('ACME_A'), findsOneWidget);
     expect(find.text('ACME_B'), findsOneWidget);
-    expect(find.byType(ListTile), findsNWidgets(2));
+    expect(find.text('Found'), findsOneWidget);
+    expect(find.text('2 devices found'), findsOneWidget);
+  });
+
+  testWidgets('History lists a previously paired device', (tester) async {
+    // Seed a saved record the way a successful connect would have.
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1':
+          '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+    });
+    _prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(_wrap(FakeBleService()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('History'), findsOneWidget);
+    expect(find.text('Probe One'), findsOneWidget);
+  });
+
+  testWidgets('forgetting a saved device removes it from History',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1':
+          '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+    });
+    _prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(_wrap(FakeBleService()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Forget Probe One'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Probe One'), findsNothing);
+    expect(find.text('History'), findsNothing);
   });
 
   testWidgets('FAB is disabled while scanning is in-flight', (tester) async {
@@ -88,6 +137,7 @@ void main() {
     await tester.pumpWidget(ProviderScope(
       overrides: [
         bleServiceProvider.overrideWithValue(FakeBleService()),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
         settingsStoreProvider.overrideWithValue(InMemorySettingsStore()),
         haApiClientProvider.overrideWithValue(FakeHaApiClient()),
       ],

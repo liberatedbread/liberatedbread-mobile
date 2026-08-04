@@ -80,15 +80,43 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
             ValueType::Bool => slice[0] = 1, // default: on
             ValueType::Uint8 => slice[0] = default_uint8_for_name(&field.name),
             ValueType::Uint16 => {
-                let val = default_uint16_for_name(&field.name);
+                let val = match field.scale {
+                    // The spec says what a raw count means, so work backwards
+                    // from a plausible physical reading. Airthings' temperature
+                    // is `scale: 0.01`, so 22 °C is a raw 2200 — without this
+                    // the simulator's raw 2200 would now render as 22.00 for a
+                    // scaled spec but 2200 for an unscaled one, and demo mode
+                    // would show whichever the last spec happened to imply.
+                    Some(scale) => raw_for_physical(nominal_for_name(&field.name), scale) as u16,
+                    None => default_uint16_for_name(&field.name),
+                };
                 slice.copy_from_slice(&val.to_le_bytes());
             }
             ValueType::Int8 => slice[0] = 22, // ~22°C
             ValueType::Int16 => {
-                let val: i16 = 220; // 22.0 if scaled
+                let val = match field.scale {
+                    Some(scale) => raw_for_physical(nominal_for_name(&field.name), scale) as i16,
+                    // No declared scale: keep the historical raw constant, since
+                    // nothing in the spec says what the units are.
+                    None => 220,
+                };
                 slice.copy_from_slice(&val.to_le_bytes());
             }
-            ValueType::Int32 | ValueType::Uint32 | ValueType::Bytes | ValueType::String => {} // leave as zeros
+            // A declared scale is enough to place a plausible reading; without
+            // one there is no basis for a guess, so these stay zero.
+            ValueType::Uint32 => {
+                if let Some(scale) = field.scale {
+                    let val = raw_for_physical(nominal_for_name(&field.name), scale) as u32;
+                    slice.copy_from_slice(&val.to_le_bytes());
+                }
+            }
+            ValueType::Int32 => {
+                if let Some(scale) = field.scale {
+                    let val = raw_for_physical(nominal_for_name(&field.name), scale) as i32;
+                    slice.copy_from_slice(&val.to_le_bytes());
+                }
+            }
+            ValueType::Bytes | ValueType::String => {} // leave as zeros
         }
     }
 
@@ -149,6 +177,38 @@ fn default_uint8_for_name(name: &str) -> u8 {
     }
 }
 
+/// A plausible reading in the field's own unit, chosen by name.
+///
+/// The counterpart to [`default_uint16_for_name`] for specs that declare a
+/// `scale`: that one guesses at a raw count, this one names the physical value
+/// and lets [`raw_for_physical`] derive the count the device would send.
+fn nominal_for_name(name: &str) -> f64 {
+    let lower = name.to_lowercase();
+    if lower.contains("temp") {
+        22.0
+    } else if lower.contains("humid") {
+        55.0
+    } else if lower.contains("lux") || lower.contains("light") {
+        500.0
+    } else if lower.contains("battery") || lower.contains("percent") {
+        85.0
+    } else {
+        100.0
+    }
+}
+
+/// Invert a spec's `scale` to get the raw count a device would report for
+/// `physical`. A non-positive or non-finite scale is meaningless as a
+/// multiplier, so the physical value passes through unchanged rather than
+/// producing an infinity.
+fn raw_for_physical(physical: f64, scale: f64) -> i64 {
+    if scale.is_finite() && scale > 0.0 {
+        (physical / scale).round() as i64
+    } else {
+        physical.round() as i64
+    }
+}
+
 fn default_uint16_for_name(name: &str) -> u16 {
     let lower = name.to_lowercase();
     if lower.contains("temp") {
@@ -176,6 +236,8 @@ mod tests {
             name: "power_state".into(),
             field_type: ValueType::Bool,
             mock_default: None,
+            scale: None,
+            unit: None,
         }];
 
         // Before write, get defaults
@@ -197,6 +259,8 @@ mod tests {
                 name: "power_state".into(),
                 field_type: ValueType::Bool,
                 mock_default: None,
+                scale: None,
+                unit: None,
             },
             FormatField {
                 offset: 1,
@@ -204,6 +268,8 @@ mod tests {
                 name: "brightness".into(),
                 field_type: ValueType::Uint8,
                 mock_default: None,
+                scale: None,
+                unit: None,
             },
             FormatField {
                 offset: 2,
@@ -211,6 +277,8 @@ mod tests {
                 name: "battery_percent".into(),
                 field_type: ValueType::Uint8,
                 mock_default: None,
+                scale: None,
+                unit: None,
             },
         ];
         let bytes = generate_defaults(&fields);
@@ -229,6 +297,8 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::Number(99.into())),
+            scale: None,
+            unit: None,
         }];
         assert_eq!(generate_defaults(&fields), vec![99]);
     }
@@ -241,6 +311,8 @@ mod tests {
             name: "power".into(),
             field_type: ValueType::Bool,
             mock_default: Some(serde_yaml::Value::Bool(true)),
+            scale: None,
+            unit: None,
         }];
         assert_eq!(generate_defaults(&fields), vec![1]);
     }
@@ -253,6 +325,8 @@ mod tests {
             name: "power".into(),
             field_type: ValueType::Bool,
             mock_default: Some(serde_yaml::Value::Bool(false)),
+            scale: None,
+            unit: None,
         }];
         assert_eq!(generate_defaults(&fields), vec![0]);
     }
@@ -266,6 +340,8 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::String("nope".into())),
+            scale: None,
+            unit: None,
         }];
         assert_eq!(generate_defaults(&fields), vec![80]); // heuristic for "brightness"
     }
@@ -279,6 +355,8 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::Number(999.into())),
+            scale: None,
+            unit: None,
         }];
         assert_eq!(generate_defaults(&fields), vec![80]); // heuristic, not 999 % 256
     }
@@ -291,6 +369,8 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::Number((-1).into())),
+            scale: None,
+            unit: None,
         }];
         assert_eq!(generate_defaults(&fields), vec![80]); // heuristic, not 255
     }
@@ -304,6 +384,8 @@ mod tests {
             name: "temp".into(),
             field_type: ValueType::Int16,
             mock_default: Some(serde_yaml::Value::Number((-40000).into())),
+            scale: None,
+            unit: None,
         }];
         // Heuristic for Int16: 220 LE → [0xDC, 0x00].
         assert_eq!(generate_defaults(&fields), vec![0xDC, 0x00]);
@@ -318,6 +400,8 @@ mod tests {
             name: "power".into(),
             field_type: ValueType::Bool,
             mock_default: Some(serde_yaml::Value::Number(2.into())),
+            scale: None,
+            unit: None,
         }];
         assert_eq!(generate_defaults(&fields), vec![1]); // heuristic: bool default-on
     }
@@ -330,8 +414,75 @@ mod tests {
             name: "lux".into(),
             field_type: ValueType::Uint16,
             mock_default: Some(serde_yaml::Value::Number(1234.into())),
+            scale: None,
+            unit: None,
         }];
         // 1234 = 0x04D2, little-endian = [0xD2, 0x04]
         assert_eq!(generate_defaults(&fields), vec![0xD2, 0x04]);
     }
+
+    #[test]
+    fn scaled_field_defaults_to_a_plausible_physical_reading() {
+        // A SIG temperature characteristic is int16 in hundredths of a degree.
+        // The simulator has to send the raw count for ~22 C (2200), because the
+        // reader now applies the spec's scale — sending 220 would demo a 2.2 C
+        // room.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "temperature".into(),
+            field_type: ValueType::Int16,
+            mock_default: None,
+            scale: Some(0.01),
+            unit: Some("C".into()),
+        }];
+        assert_eq!(generate_defaults(&fields), 2200i16.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn unscaled_field_keeps_its_raw_default() {
+        // With no declared scale nothing says what the count means, so the
+        // historical constant stands rather than a guess.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "temperature".into(),
+            field_type: ValueType::Int16,
+            mock_default: None,
+            scale: None,
+            unit: None,
+        }];
+        assert_eq!(generate_defaults(&fields), 220i16.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn mock_default_still_wins_over_a_declared_scale() {
+        // An explicit `mock_default` is the spec author speaking directly; the
+        // scale-aware heuristic must not override it.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "temperature".into(),
+            field_type: ValueType::Int16,
+            mock_default: Some(serde_yaml::Value::Number(1234.into())),
+            scale: Some(0.01),
+            unit: None,
+        }];
+        assert_eq!(generate_defaults(&fields), 1234i16.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn nonsense_scale_does_not_produce_an_infinite_raw_value() {
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "temperature".into(),
+            field_type: ValueType::Int16,
+            mock_default: None,
+            scale: Some(0.0),
+            unit: None,
+        }];
+        assert_eq!(generate_defaults(&fields), 22i16.to_le_bytes().to_vec());
+    }
+
 }

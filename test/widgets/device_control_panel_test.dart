@@ -79,6 +79,7 @@ void main() {
       protocol: 'ble',
       localNamePrefix: 'ACME_',
       serviceUuids: [svcUuid],
+      entities: <EntityDto>[],
       services: [
         ServiceDto(uuid: svcUuid, name: 'Control Service', characteristics: [
           CharacteristicDto(

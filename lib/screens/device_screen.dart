@@ -7,8 +7,10 @@ import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/ha_provider.dart';
+import '../providers/saved_device_provider.dart';
 import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
+import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
@@ -67,6 +69,21 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       ref
           .read(haForwarderProvider)
           .noteDeviceName(widget.device.id, widget.device.displayName);
+
+      // Persist on a *successful* connect, not on discovery: History should
+      // list devices the user actually paired with, not everything that ever
+      // appeared in a scan. Fire-and-forget — a preferences write failure must
+      // not take down a live connection.
+      unawaited(
+        ref
+            .read(savedDevicesProvider.notifier)
+            .touch(
+              id: widget.device.id,
+              name: widget.device.displayName,
+              seenAt: DateTime.now(),
+            )
+            .catchError((Object _) {}),
+      );
       _watchConnection();
       setState(() => _state = _ScreenState.discovering);
 
@@ -154,95 +171,359 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.device.displayName)),
+      appBar: AppBar(
+        // The default 56pt toolbar clips a two-line title, which silently hid
+        // the status row.
+        toolbarHeight: 72,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(widget.device.displayName),
+            // A live status line under the name: connection state was
+            // previously only inferable from whichever body state happened to
+            // be on screen.
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Theme.of(context).appBarTheme.foregroundColor,
+                  ),
+                ),
+                Text(
+                  _statusLabel,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).appBarTheme.foregroundColor,
+                      ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
       body: _buildBody(),
     );
   }
 
+  String get _statusLabel => switch (_state) {
+        _ScreenState.connecting => 'Connecting',
+        _ScreenState.discovering => 'Discovering services',
+        _ScreenState.ready => 'Connected',
+        _ScreenState.error => 'Connection failed',
+        _ScreenState.disconnected => 'Disconnected',
+      };
+
   Widget _buildBody() {
     switch (_state) {
+      // Pairing is two distinct steps and can take several seconds on real
+      // hardware, so it gets a step list rather than an unlabelled spinner:
+      // when it stalls, the user can see *which* step stalled.
       case _ScreenState.connecting:
-        return const _CenteredProgress('Connecting...');
+        return const _PairingProgress(
+          label: 'Connecting...',
+          step: 0,
+          deviceName: null,
+        );
 
       case _ScreenState.discovering:
-        return const _CenteredProgress('Discovering services...');
+        return const _PairingProgress(
+          label: 'Discovering services...',
+          step: 1,
+          deviceName: null,
+        );
 
       case _ScreenState.error:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 64, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(_error ?? 'Connection failed',
-                    style: const TextStyle(color: Colors.red),
-                    textAlign: TextAlign.center),
-                const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  onPressed: _connect,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Retry'),
-                ),
-              ],
-            ),
-          ),
+        return _StatusState(
+          icon: Icons.error_outline,
+          severity: _Severity.error,
+          title: 'Connection failed',
+          message: _error ?? 'Connection failed',
+          actionLabel: 'Retry',
+          onAction: _connect,
         );
 
       case _ScreenState.disconnected:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.bluetooth_disabled,
-                    size: 64, color: Colors.orange),
-                const SizedBox(height: 16),
-                const Text('Device disconnected',
-                    style: TextStyle(fontSize: 18)),
-                const SizedBox(height: 8),
-                const Text(
-                    'The connection was lost. Move closer or check the device '
-                    'is powered on, then reconnect.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey)),
-                const SizedBox(height: 24),
-                ElevatedButton.icon(
-                  onPressed: _connect,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('Reconnect'),
-                ),
-              ],
-            ),
-          ),
+        return _StatusState(
+          icon: Icons.bluetooth_disabled,
+          severity: _Severity.warning,
+          title: 'Device disconnected',
+          message: 'The connection was lost. Move closer or check the device '
+              'is powered on, then reconnect.',
+          actionLabel: 'Reconnect',
+          onAction: _connect,
         );
 
       case _ScreenState.ready:
-        return DeviceControlPanel(
-          deviceId: widget.device.id,
-          deviceName: widget.device.displayName,
-          services: _services,
+        return Column(
+          children: [
+            _ConnectedHeader(
+              name: widget.device.displayName,
+              serviceCount: _services.length,
+              onDisconnect: () async {
+                await _cleanupConnection();
+                if (!mounted) return;
+                setState(() => _state = _ScreenState.disconnected);
+              },
+            ),
+            Expanded(
+              child: DeviceControlPanel(
+                deviceId: widget.device.id,
+                deviceName: widget.device.displayName,
+                services: _services,
+              ),
+            ),
+          ],
         );
     }
   }
 }
 
-class _CenteredProgress extends StatelessWidget {
-  final String label;
-  const _CenteredProgress(this.label);
+/// Live summary above the controls: what's connected, how much was discovered,
+/// and a way out.
+///
+/// Previously the only cue that a device was connected was the presence of
+/// controls; disconnecting meant backing out of the screen.
+class _ConnectedHeader extends StatelessWidget {
+  final String name;
+  final int serviceCount;
+  final Future<void> Function() onDisconnect;
+
+  const _ConnectedHeader({
+    required this.name,
+    required this.serviceCount,
+    required this.onDisconnect,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Row(
         children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 16),
-          Text(label),
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: scheme.secondaryContainer,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(Icons.memory, color: scheme.onSecondaryContainer),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      margin: const EdgeInsets.only(right: 6),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: scheme.secondary,
+                      ),
+                    ),
+                    Text(
+                      'Connected  ·  $serviceCount service'
+                      '${serviceCount == 1 ? '' : 's'}',
+                      style: text.bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onDisconnect,
+            style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
+            child: const Text('Disconnect'),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// Two-step pairing progress: connect, then discover services.
+class _PairingProgress extends StatelessWidget {
+  final String label;
+  final int step;
+  final String? deviceName;
+
+  const _PairingProgress({
+    required this.label,
+    required this.step,
+    required this.deviceName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    const steps = ['Connecting', 'Discovering services'];
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const RadarScanner(scanning: true, size: 168),
+            const SizedBox(height: 32),
+            Text(
+              label,
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Keep the device powered on and nearby.',
+              textAlign: TextAlign.center,
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 28),
+            for (var i = 0; i < steps.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Done steps get a check, the active step a filled dot, and
+                    // pending steps a hollow ring — readable without colour.
+                    if (i < step)
+                      Icon(Icons.check_circle,
+                          size: 18, color: scheme.secondary)
+                    else if (i == step)
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: scheme.secondary,
+                        ),
+                      )
+                    else
+                      Icon(Icons.circle_outlined,
+                          size: 18, color: scheme.outlineVariant),
+                    const SizedBox(width: 10),
+                    Text(
+                      steps[i],
+                      style: text.bodyMedium?.copyWith(
+                        color: i <= step
+                            ? scheme.onSurface
+                            : scheme.onSurfaceVariant,
+                        fontWeight:
+                            i == step ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _Severity { error, warning }
+
+/// Full-screen connection status with a recovery action.
+///
+/// Mirrors the scan screen's empty-state layout so connect failures, drops and
+/// empty scans all read as the same kind of moment instead of three different
+/// one-off layouts. Severity picks the semantic colour role, so the states stay
+/// legible in dark mode where the previous hardcoded red/orange/grey did not.
+class _StatusState extends StatelessWidget {
+  final IconData icon;
+  final _Severity severity;
+  final String title;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _StatusState({
+    required this.icon,
+    required this.severity,
+    required this.title,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final isError = severity == _Severity.error;
+    final disc = isError ? scheme.errorContainer : scheme.tertiaryContainer;
+    final accent = isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(color: disc, shape: BoxShape.circle),
+              child: Icon(icon, size: 44, color: accent),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 320),
+              child: Text(
+                message,
+                textAlign: TextAlign.center,
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  height: 1.5,
+                ),
+              ),
+            ),
+            const SizedBox(height: 28),
+            ElevatedButton.icon(
+              onPressed: onAction,
+              icon: const Icon(Icons.refresh),
+              label: Text(actionLabel),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
