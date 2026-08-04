@@ -37,6 +37,7 @@ class EntitySensorCard extends ConsumerStatefulWidget {
 
 class _EntitySensorCardState extends ConsumerState<EntitySensorCard> {
   String? _value;
+
   /// Resolved at decode time: the entity's own unit, or the format field's when
   /// the entity does not name one.
   String? _unit;
@@ -165,7 +166,12 @@ class _EntitySensorCardState extends ConsumerState<EntitySensorCard> {
     // scale of 0.01 wants 2 places, 0.1 wants 1, and an integral scale none.
     final decimals = scale >= 1
         ? 0
-        : scale.toString().split('.').last.replaceAll(RegExp(r'0+$'), '').length;
+        : scale
+            .toString()
+            .split('.')
+            .last
+            .replaceAll(RegExp(r'0+$'), '')
+            .length;
     return scaled.toStringAsFixed(decimals);
   }
 

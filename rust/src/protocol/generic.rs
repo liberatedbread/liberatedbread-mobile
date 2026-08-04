@@ -33,11 +33,12 @@ impl DeviceProtocol for GenericProtocol {
         command_name: &str,
         params: &HashMap<String, f64>,
     ) -> Result<Vec<u8>, ProtocolError> {
-        let (_, characteristic) = self.spec.find_writable_characteristic(char_uuid).ok_or_else(|| {
-            ProtocolError::CharacteristicNotFound {
+        let (_, characteristic) = self
+            .spec
+            .find_writable_characteristic(char_uuid)
+            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
-            }
-        })?;
+            })?;
 
         let commands =
             characteristic
@@ -58,11 +59,12 @@ impl DeviceProtocol for GenericProtocol {
     }
 
     fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
-        let (_, characteristic) = self.spec.find_decodable_characteristic(char_uuid).ok_or_else(|| {
-            ProtocolError::CharacteristicNotFound {
+        let (_, characteristic) = self
+            .spec
+            .find_decodable_characteristic(char_uuid)
+            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
-            }
-        })?;
+            })?;
 
         let format = characteristic
             .format

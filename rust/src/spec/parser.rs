@@ -1089,19 +1089,19 @@ http_endpoints:
     #[test]
     fn tolerates_unknown_field_in_characteristic() {
         // Typo detection is preserved on the protocol-execution structs: an
-                let yaml = make_minimal_spec(
+        let yaml = make_minimal_spec(
             r#"        properties: ["read"]
         bogus_characteristic_key: 1"#,
         );
-        let spec = parse_device_spec(&yaml)
-            .expect("a descriptive key here must not fail the parse");
+        let spec =
+            parse_device_spec(&yaml).expect("a descriptive key here must not fail the parse");
         assert_eq!(spec.device.name, "x");
     }
 
     #[test]
     fn tolerates_unknown_field_in_service() {
         // N1: a typo at the service level (drives which GATT service is used)
-                let yaml = r#"
+        let yaml = r#"
 device:
   name: x
   manufacturer: x
@@ -1113,15 +1113,14 @@ services:
     bogus_service_key: 1
     characteristics: []
 "#;
-        let spec = parse_device_spec(&yaml)
-            .expect("a descriptive key here must not fail the parse");
+        let spec = parse_device_spec(yaml).expect("a descriptive key here must not fail the parse");
         assert_eq!(spec.device.name, "x");
     }
 
     #[test]
     fn tolerates_unknown_field_in_command() {
         // N1: a typo at the command level (e.g. `templte` instead of
-                let yaml = make_minimal_spec(
+        let yaml = make_minimal_spec(
             r#"        properties: ["write"]
         commands:
           do_thing:
@@ -1129,15 +1128,15 @@ services:
             value: [0x01]
             bogus_command_key: 1"#,
         );
-        let spec = parse_device_spec(&yaml)
-            .expect("a descriptive key here must not fail the parse");
+        let spec =
+            parse_device_spec(&yaml).expect("a descriptive key here must not fail the parse");
         assert_eq!(spec.device.name, "x");
     }
 
     #[test]
     fn tolerates_unknown_field_in_parameter() {
         // N1: a typo in a parameter definition (e.g. `mn` instead of `min`)
-                let yaml = make_minimal_spec(
+        let yaml = make_minimal_spec(
             r#"        properties: ["write"]
         commands:
           do_thing:
@@ -1148,15 +1147,15 @@ services:
                 type: uint8
                 bogus_parameter_key: 1"#,
         );
-        let spec = parse_device_spec(&yaml)
-            .expect("a descriptive key here must not fail the parse");
+        let spec =
+            parse_device_spec(&yaml).expect("a descriptive key here must not fail the parse");
         assert_eq!(spec.device.name, "x");
     }
 
     #[test]
     fn tolerates_unknown_field_in_format_field() {
         // N1: a typo in a format field (e.g. `ofset`) would misparse a read
-                let yaml = make_minimal_spec(
+        let yaml = make_minimal_spec(
             r#"        properties: ["read"]
         format:
           - offset: 0
@@ -1165,8 +1164,8 @@ services:
             type: uint8
             bogus_format_key: 1"#,
         );
-        let spec = parse_device_spec(&yaml)
-            .expect("a descriptive key here must not fail the parse");
+        let spec =
+            parse_device_spec(&yaml).expect("a descriptive key here must not fail the parse");
         assert_eq!(spec.device.name, "x");
     }
 

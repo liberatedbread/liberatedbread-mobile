@@ -301,7 +301,6 @@ pub struct Service {
     /// Free-form documentation about the service.
     #[serde(default)]
     pub notes: Option<String>,
-
 }
 
 /// A BLE GATT characteristic.
@@ -335,7 +334,6 @@ pub struct Characteristic {
     /// executed.
     #[serde(default)]
     pub framing: Option<serde_yaml::Value>,
-
 }
 
 /// BLE characteristic property.
@@ -380,7 +378,6 @@ pub struct Command {
     /// Structured payload description for `json`/`tlv` encodings.
     #[serde(default)]
     pub payload: Option<serde_yaml::Value>,
-
 }
 
 /// The `parameters` block of a command.
@@ -401,7 +398,6 @@ pub struct ParameterSet {
     /// Actual parameter definitions, keyed by name.
     #[serde(flatten)]
     pub params: IndexMap<String, Parameter>,
-
 }
 
 /// An element in a command template — either a fixed byte or a parameter reference.
@@ -482,7 +478,6 @@ pub struct Parameter {
     /// Free-form documentation about the parameter.
     #[serde(default)]
     pub notes: Option<String>,
-
 }
 
 /// Binary format field for parsing readable/notifiable characteristic values.

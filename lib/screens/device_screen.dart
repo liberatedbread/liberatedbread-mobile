@@ -480,7 +480,8 @@ class _StatusState extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final isError = severity == _Severity.error;
     final disc = isError ? scheme.errorContainer : scheme.tertiaryContainer;
-    final accent = isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
+    final accent =
+        isError ? scheme.onErrorContainer : scheme.onTertiaryContainer;
 
     return Center(
       child: Padding(
