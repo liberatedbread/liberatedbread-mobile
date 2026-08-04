@@ -1,0 +1,379 @@
+# LEDs2RAVE4 / Lunchbox Dream LED (SP107E/SP110E) device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SP107E/SP110E LED Controller"
+  manufacturer: "Shenzhen Sperll Optoelectronic (SPLED)"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    SPI LED pixel controllers used in LEDs2RAVE4 / Lunchbox Dream LED products.
+    Two distinct variants that do NOT share the same BLE service UUID:
+      * SP107E ("LED Chord") — Nordic UART service 0xFFE0, single characteristic
+        0xFFE1 (write + notify). Fixed 4-byte command frame [d0, d1, d2, cmd_byte];
+        no length prefix, no checksum. check_device (cmd 0x01) returns 15 bytes.
+        Adds music-reactive modes and matrix support.
+      * SP110E ("LED Hue") — same Nordic UART service 0xFFE0 / characteristic
+        0xFFE1 as the SP107E (mbullington sp110e.md gist: "My device's service id
+        is 0xFFE0 and has one characteristic 0xFFE1"), but a different 4-byte
+        opcode set (the sp110e_* commands on the 0xFFE0 service below).
+      * SPOTLED matrix panels (com.led.spotled) — service 0xFF20, characteristic
+        0xFF21 (command) and 0xFF22 (data). Framed transport: 4-byte length +
+        2-byte command ID + 4-byte serial number + content + 1-byte SUM checksum
+        (length_prefix true, checksum = sum).
+
+    DESIGN APP PER GENERATION (the app, not the model name, identifies the protocol):
+      * Dream LED Skin v1        -> LED CHORD (com.spled.pzse)   -> SP107E, 0xFFE0
+      * Dream LED Skin 2.0       -> SPOTLED   (com.led.spotled)  -> framed, 0xFF20
+      * Dream Skin 3.0 early     -> SPOTLED   (com.led.spotled)  -> framed, 0xFF20
+      * Dream Skin 3.0 recent    -> iLEDColor (com.led.iledcolor) -> UNMAPPED
+    LEDs2RAVE4 changed the DreamPanel v3 controller board mid-production-run. Vendor
+    guidance for telling the v3 boards apart: if the panel's serial number renders
+    horizontally, the unit needs iLEDColor rather than SPOTLED.
+
+    THE 0xFF20 STANZA IS THE SPOTLED PROTOCOL. It is independently corroborated by
+    github.com/iwalton3/python-spotled, a clean-room library built from BLE sniffing
+    of SPOTLED devices, which uses exactly 0xFF20 / 0xFF21 (command) / 0xFF22 (data)
+    and the same length + command-ID + serial + content + sum framing. Confirmed
+    command IDs on 0xFF21: 0x01 SendingDataStart (len 10), 0x03 SendingDataFinish
+    (len 10), 0x10 GetVersion (len 4), 0x12 GetDisplayInfo (len 4), 0x14 GetBufferSize
+    (len 4). Data payloads on 0xFF22 use a 15-byte header (uint32 header length = 15,
+    uint16 command type 0x8004, uint32 serial, uint32 content length, 1-byte checksum)
+    followed by typed records [uint32 length][uint16 type][fields][checksum]:
+    2 color, 3 character, 4 text, 5 font, 7 time, 8 effect, 9 speed, 10 number bar,
+    11 animation (max 20 frames), 13 font character, 14 brightness (0-100),
+    15 screen mode (0 normal / 1 upside-down / 2 mirror / 3 both), 96 frame
+    (width, height, depth 1=mono 24=RGB, bitmap). Effects: 0 none, 1 up, 2 down,
+    3 left, 4 right, 5 stack, 6 expand, 7 laser. Flow control is device-driven: write
+    (MTU - 3) byte chunks, and after every (buffer_size / chunk_size) chunks a
+    ContinueSending notification (type 255) carries the offset to RESUME FROM — use
+    that offset, not your own cursor. A PauseSending response means a bad MTU (chunks
+    too large OR too small). GetDisplayInfo returns width, height, color depth (16 mono /
+    255 RGB), frame limit, brightness and font info — query it instead of hardcoding
+    a panel size.
+    RESOLVED: the 0xFF20 framed transport is the SPOTLED panel protocol, not an
+    "SP110E" board — real SP110E hardware uses 0xFFE0/0xFFE1 like the SP107E
+    (mbullington gist), so the sp110e_* 4-byte opcodes live on the 0xFFE0 service.
+    The SP110E label on 0xFF20 in early notes was a misattribution.
+
+    CONFIDENCE: variant split, service/characteristic UUIDs and SP107E core opcodes
+    (led_on 0xAA, led_off 0xBB, check_device 0x01, set_color cmd 0x0C) HIGH —
+    set_color is 0x0C per two independent sources (monty68/uniled led_chord.py
+    SET_COLOR=12; and7ey gist of the decompiled LED CHORD app), while 0x04 is
+    SET_RGB_SEQ (color order): sending [r,g,b,0x04] reprograms the chip's RGB
+    sequence instead of setting a color. The 0xFF20 framing, command IDs, record
+    types and effect values are HIGH (python-spotled). The detailed per-opcode
+    command tables below were decompiled to scratch from a secondary source and
+    are NOT all independently re-verified — treat individual effect/brightness
+    opcodes as MEDIUM and confirm remaining opcodes via live capture. The full
+    SP107E opcode map and the 26-byte status layout are decoded in
+    monty68/uniled led_chord.py (rename 0x03, RGB order 0x04, IC model 0x05,
+    segments/pixels 0x06, speed 0x09, white brightness 0x0B, static color 0x0C,
+    auto modes 0x0D/0x0F/0x12, strip music color 0x0E, matrix col/dot colors
+    0x10/0x11, music gain 0x13).
+    SPOTLED app status: effectively deprecated on new Android — no longer
+    installable on recent Android versions (LEDs2RAVE4 publishes a sideload
+    guide and points users to the alternative app "PIXELY GLOW"); iOS SPOTLED
+    last updated 2023-10-12 (v1.9.4). The seller behind LED Chord / LED Hue is
+    Shenzhen Sperll Optoelectronic Technology Co., Ltd. ("SPLED").
+    NOTE: the sibling app "iledcolor" (com.led.iledcolor) exposed NO BLE UUIDs
+    statically (likely cloud-only) — flagged for live capture. It ships on CURRENT
+    DreamPanel v3 hardware and is tracked as its own target
+    (targets/iledcolor-led-panel.md). Probe an iLEDColor panel for 0xFF20 before
+    assuming a new protocol.
+  identification:
+    local_name_prefix: "SP1"
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+      - "0000ff20-0000-1000-8000-00805f9b34fb"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "SP1"
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+            - "0000ff20-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. SP107E/SP110E controllers accept a connection from any
+      central; the LED strip layout is configured by command after connecting,
+      not during setup.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          advertised_name: "SP1"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+  variants:
+    - model: "SP107E"
+      identification:
+        local_name_prefix: "SP107e"
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    - model: "SP110E"
+      identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    - model: "SPOTLED Matrix Panel (Dream Skin)"
+      identification:
+        local_name_prefix: "LBXDRMSKIN_LED_"
+        service_uuids:
+          - "0000ff20-0000-1000-8000-00805f9b34fb"
+
+services:
+  # SP107E / SP110E — Nordic UART, 4-byte fixed command frame
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "SP107E/SP110E LED Control Service (Nordic UART)"
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Control"
+        properties: ["write", "notify"]
+        notes: >
+          Fixed 4-byte command frame [d0, d1, d2, cmd_byte]; no length prefix,
+          no checksum. Notifications (e.g. check_device's 15-byte reply) arrive
+          on this same characteristic. Confidence: core opcodes HIGH, others MEDIUM.
+          SP110E hardware uses this same service/characteristic with its own
+          4-byte opcode set (mbullington sp110e.md gist: "My device's service id
+          is 0xFFE0 and has one characteristic 0xFFE1") — the sp110e_* commands
+          below. The full SP107E opcode map and 26-byte status layout are
+          decoded in monty68/uniled led_chord.py.
+        commands:
+          sp107e_check_device:
+            description: "SP107E: probe/handshake (cmd 0x01); response is 15 bytes"
+            value: [0x00, 0x00, 0x00, 0x01]
+          sp107e_power_on:
+            description: "SP107E: Turn on (cmd 0xAA)"
+            value: [0x00, 0x00, 0x00, 0xAA]
+          sp107e_power_off:
+            description: "SP107E: Turn off (cmd 0xBB)"
+            value: [0x00, 0x00, 0x00, 0xBB]
+          sp107e_set_color:
+            description: "SP107E: Set static RGB color (cmd 0x0C — NOT 0x04; 0x04 is SET_RGB_SEQ color order and would reprogram the chip's RGB sequence)"
+            template: ["{red}", "{green}", "{blue}", 0x0C]
+            parameters:
+              color_order: "rgb"
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp107e_set_brightness:
+            description: "SP107E: Set brightness (secondary source, verify)"
+            template: ["{level}", 0x00, 0x00, 0x0A]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp107e_set_effect:
+            description: "SP107E: Set effect 0x01-0xB4 dynamic, 0xB5 static (secondary source, verify)"
+            template: ["{mode}", 0x00, 0x00, 0x08]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 249
+          sp107e_status_query:
+            description: "SP107E: Query status, returns 26 bytes in 2 packets (secondary source, verify)"
+            value: [0x00, 0x00, 0x00, 0x02]
+          sp110e_power_on:
+            description: "SP110E: Turn on (secondary source, verify)"
+            value: [0x00, 0x00, 0x00, 0xAA]
+          sp110e_power_off:
+            description: "SP110E: Turn off (secondary source, verify)"
+            value: [0x00, 0x00, 0x00, 0xAB]
+          sp110e_set_color:
+            description: "SP110E: Set static RGB color (secondary source, verify)"
+            template: ["{red}", "{green}", "{blue}", 0x1E]
+            parameters:
+              color_order: "rgb"
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp110e_set_brightness:
+            description: "SP110E: Set brightness 0x00-0xFF (secondary source, verify)"
+            template: ["{level}", 0x00, 0x00, 0x2A]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp110e_set_effect:
+            description: "SP110E: Set effect 0x01-0x78 dynamic, 0x79 static (secondary source, verify)"
+            template: ["{mode}", 0x00, 0x00, 0x2C]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 121
+          sp110e_set_speed:
+            description: "SP110E: Set animation speed 0x00-0xFF (secondary source, verify)"
+            template: ["{speed}", 0x00, 0x00, 0x03]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp110e_status_query:
+            description: "SP110E: Query device status, returns 12 bytes (secondary source, verify)"
+            value: [0x00, 0x00, 0x00, 0x10]
+
+  # SPOTLED matrix panel — framed transport (len + cmdID + serial + content + 1-byte sum)
+  - uuid: "0000ff20-0000-1000-8000-00805f9b34fb"
+    name: "SPOTLED Matrix Panel Service"
+    characteristics:
+      - uuid: "0000ff21-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write", "notify"]
+        notes: >
+          SPOTLED app protocol (com.led.spotled), corroborated by
+          github.com/iwalton3/python-spotled. Canonical reference:
+          spotled-led-panel.yaml — keep in sync.
+
+          NO characteristic-level `framing` is declared here ON PURPOSE. The
+          spotled_* values/templates below are COMPLETE frames — they already carry
+          their own leading length byte and command ID — and are written to the
+          characteristic verbatim. Declaring framing.length_prefix/checksum would make
+          a consumer prepend a second length and append a checksum, producing packets
+          the panel rejects. The command channel carries no checksum at all; the sum
+          checksum belongs to the 0xFF22 data payload records.
+
+          Command frame layout: [uint8 frame_length][uint8 command_id]
+          [uint16_be serial][uint16_be command_type][uint32_be command_length].
+          The spotled_* commands below are HIGH confidence.
+        commands:
+          spotled_sending_data_start:
+            description: >
+              SPOTLED: announce an incoming data payload. Frame is
+              [len=10][0x01][uint16 serial][uint16 command_type][uint32 command_length].
+            template: [0x0A, 0x01, "{serial_hi}", "{serial_lo}", "{type_hi}", "{type_lo}", "{len_b3}", "{len_b2}", "{len_b1}", "{len_b0}"]
+            parameters:
+              serial_hi: { type: "uint8" }
+              serial_lo: { type: "uint8" }
+              type_hi: { type: "uint8" }
+              type_lo: { type: "uint8" }
+              len_b3: { type: "uint8" }
+              len_b2: { type: "uint8" }
+              len_b1: { type: "uint8" }
+              len_b0: { type: "uint8" }
+          spotled_sending_data_finish:
+            description: >
+              SPOTLED: payload fully transmitted. Same 10-byte layout as
+              spotled_sending_data_start with command ID 0x03.
+            template: [0x0A, 0x03, "{serial_hi}", "{serial_lo}", "{type_hi}", "{type_lo}", "{len_b3}", "{len_b2}", "{len_b1}", "{len_b0}"]
+            parameters:
+              serial_hi: { type: "uint8" }
+              serial_lo: { type: "uint8" }
+              type_hi: { type: "uint8" }
+              type_lo: { type: "uint8" }
+              len_b3: { type: "uint8" }
+              len_b2: { type: "uint8" }
+              len_b1: { type: "uint8" }
+              len_b0: { type: "uint8" }
+          spotled_get_version:
+            description: "SPOTLED: device type + device/software revision (13-byte reply)."
+            value: [0x04, 0x10, 0x00, 0x00]
+          spotled_get_display_info:
+            description: >
+              SPOTLED: query panel geometry — width, height, color depth
+              (16 mono / 255 RGB), frame limit, brightness, font info (11-byte reply).
+              Use this instead of hardcoding a panel size.
+            value: [0x04, 0x12, 0x00, 0x00]
+          spotled_get_buffer_size:
+            description: "SPOTLED: device data buffer size (7-byte reply)."
+            value: [0x04, 0x14, 0x00, 0x00]
+
+      - uuid: "0000ff22-0000-1000-8000-00805f9b34fb"
+        name: "Data"
+        properties: ["write"]
+        notes: >
+          Bulk data channel (used alongside the 0xFF21 command channel). SPOTLED
+          payloads: 15-byte header (uint32 header length = 15, uint16 command type
+          0x8004, uint32 serial, uint32 content length, 1-byte checksum) followed by
+          typed records. Canonical reference: spotled-led-panel.yaml — keep in sync.
+          Records are [uint32 length][uint16 type][fields][checksum]. Record types:
+          2 color, 3 character, 4 text, 5 font, 7 time, 8 effect, 9 speed,
+          10 number bar, 11 animation (max 20 frames), 13 font character,
+          14 brightness (0-100), 15 screen mode, 96 frame (width, height,
+          depth 1=mono / 24=RGB, bitmap). Checksum is the byte sum of the covered
+          range, negated ((~sum) + 1) when it exceeds 0xFF, truncated to one byte.
+          Flow control is device-driven — wait for the ContinueSending notification
+          (type 255) on 0xFF21 and resume from the offset it carries.
+
+entities:
+  - platform: "light"
+    name: "LED Strip"
+    features: ["brightness", "color"]
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "sp107e_power_on"
+      turn_off: "sp107e_power_off"
+      set_color: "sp107e_set_color"
+      set_brightness: "sp107e_set_brightness"

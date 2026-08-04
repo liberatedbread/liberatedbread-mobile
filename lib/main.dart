@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'app.dart';
+import 'providers/saved_device_provider.dart';
 import 'src/rust/frb_generated.dart';
 
 Future<void> main() async {
@@ -18,5 +20,14 @@ Future<void> main() async {
   } catch (e, st) {
     debugPrint('RustLib.init failed ($e); falling back to Dart-side mock. $st');
   }
-  runApp(const ProviderScope(child: LiberatedBreadApp()));
+  // Resolved once here so the saved-device list is readable synchronously
+  // during build; widgets never await preferences mid-frame.
+  final prefs = await SharedPreferences.getInstance();
+
+  runApp(
+    ProviderScope(
+      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      child: const LiberatedBreadApp(),
+    ),
+  );
 }

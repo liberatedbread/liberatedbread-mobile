@@ -13,6 +13,7 @@ import '../src/rust/api/device_api.dart';
 export '../src/rust/api/device_api.dart'
     show
         DeviceSpecDto,
+        EntityDto,
         ServiceDto,
         CharacteristicDto,
         CommandDto,

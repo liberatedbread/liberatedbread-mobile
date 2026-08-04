@@ -13,6 +13,9 @@ import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
 
+import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_ha_api_client.dart';
 
@@ -37,12 +40,24 @@ final _device = IoTDevice(
   discoveredAt: DateTime(2026),
 );
 
+/// Resolved in [setUp]; the device screen records a saved device on a
+/// successful connect, so the store must be wired the same way `main()` does.
+late SharedPreferences _prefs;
+
 Widget _wrap(FakeBleService fake) => ProviderScope(
-      overrides: [bleServiceProvider.overrideWithValue(fake)],
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
       child: MaterialApp(home: DeviceScreen(device: _device)),
     );
 
 void main() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
+    _prefs = await SharedPreferences.getInstance();
+  });
+
   testWidgets('shows connecting state immediately', (tester) async {
     final fake = FakeBleService();
     await tester.pumpWidget(_wrap(fake));
