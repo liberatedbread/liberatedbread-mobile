@@ -42,14 +42,103 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     "Debug" "Profile" "Release")
 endif()
 
+# The targets in this build that are OURS — the only ones we can actually fix a
+# warning in. Every other caller of apply_standard_settings() below is plugin
+# code that Flutter's generated scaffolding pulled in (see the comment on that
+# function), so this list is what separates "our code, warnings are errors"
+# from "someone else's code, warnings are warnings".
+#
+# Keep in sync with the add_executable() call below. Adding a first-party
+# target and forgetting to list it here is safe in the only direction that
+# matters: it loses -Werror, it does not gain a broken build.
+set(FIRST_PARTY_TARGETS "${BINARY_NAME}")
+
+# Warning suppressions for third-party plugin sources — see the
+# apply_standard_settings() comment below for why third-party code ends up
+# compiled with our flags at all.
+#
+# Every flag here is probed with check_cxx_compiler_flag() before use, because
+# the compiler is not something this file gets to pin. `flutter build linux`
+# hardcodes CC=clang / CXX=clang++ (flutter_tools/lib/src/linux/build_linux.dart),
+# so in practice this builds under whichever clang the developer's distro
+# ships — anywhere from 11 to 21 across the machines this project is built on.
+# GCC still turns up whenever cmake is driven directly (IDE integrations, tool
+# scripts, `cmake -S linux`), and GCC is the one that accepts a bad -Wno-*
+# quietly. An unguarded -Wno-* is NOT harmless on a compiler that does not
+# know it:
+#
+#   * Clang emits "unknown warning option" under -Wunknown-warning-option,
+#     which -Werror then turns into an error — the exact failure we are fixing.
+#   * GCC accepts an unknown -Wno-* silently, and then, if any OTHER diagnostic
+#     fires in that translation unit, retroactively errors on the unrecognized
+#     option. A latent breakage that shows up only once unrelated code warns.
+#
+# The probe deliberately tests the POSITIVE spelling (-Wdeprecated-literal-
+# operator) and adds the negative one. Probing "-Wno-foo" directly is the
+# classic false positive: GCC accepts unknown negative options quietly, so the
+# check would pass on GCC 11 and we would append a flag GCC does not know —
+# precisely the second bullet above. The positive spelling is rejected loudly
+# by every compiler that does not implement it, which is what makes the probe
+# meaningful. (Verified on this project: probing "-Wno-deprecated-literal-
+# operator" returns true on GCC 11; probing the positive form returns false.)
+include(CheckCXXCompilerFlag)
+
+set(THIRD_PARTY_WARNING_SUPPRESSIONS "")
+
+# -Wdeprecated-literal-operator: the nlohmann/json.hpp vendored into
+# flutter_secure_storage_linux declares `operator "" _json(...)` — the C++11
+# spelling with whitespace before the identifier, deprecated by CWG2521.
+# Measured against real toolchains (see the PR that added this):
+#
+#   clang 11    does not know the flag at all
+#   clang 17-19 know the flag; diagnostic is OFF unless -Wdeprecated is passed
+#   clang 20-21 diagnostic is ON BY DEFAULT — this is where -Werror breaks
+#   gcc 11      no such diagnostic, and does not know the flag
+#
+# So the build breaks on clang >= 20 and is completely invisible to anyone
+# still on an older clang, which is why this reproduced on one machine and not
+# another rather than on everyone's at once. The header lives
+# under linux/flutter/ephemeral/.plugin_symlinks/ — a symlink into ~/.pub-cache
+# that `flutter pub get` recreates — so it is not ours to patch, and any edit to
+# it would be undone by the next clean checkout.
+foreach(positive_flag "-Wdeprecated-literal-operator")
+  string(MAKE_C_IDENTIFIER "CXX_HAS${positive_flag}" probe_result_var)
+  check_cxx_compiler_flag("${positive_flag}" ${probe_result_var})
+  if(${probe_result_var})
+    string(REPLACE "-W" "-Wno-" negative_flag "${positive_flag}")
+    list(APPEND THIRD_PARTY_WARNING_SUPPRESSIONS "${negative_flag}")
+  endif()
+endforeach()
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by
 # default. In most cases, you should add new options to specific targets instead
 # of modifying this function.
+#
+# "plugins use this function by default" is not a style note, it is the whole
+# problem: Flutter's generated linux/flutter/generated_plugins.cmake
+# add_subdirectory()s each plugin, and the plugin's own CMakeLists.txt calls
+# apply_standard_settings() on its target. So -Werror, written here for OUR
+# runner, lands on third-party and vendored sources we cannot edit and do not
+# control the compiler warnings of. That is a build break waiting on someone
+# else's release cadence: every new compiler version that adds a diagnostic
+# firing anywhere in a plugin's dependency tree fails our build, for a warning
+# in code we have no way to fix.
+#
+# So -Werror is scoped to FIRST_PARTY_TARGETS. Third-party targets keep -Wall,
+# so their warnings are still printed and still visible in build logs, they
+# just do not fail the build. They additionally get the probed suppressions
+# above, which keep known-noisy vendored headers from burying real warnings in
+# the log — noise reduction, not the load-bearing part of the fix.
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_14)
-  target_compile_options(${TARGET} PRIVATE -Wall -Werror)
+  target_compile_options(${TARGET} PRIVATE -Wall)
+  if("${TARGET}" IN_LIST FIRST_PARTY_TARGETS)
+    target_compile_options(${TARGET} PRIVATE -Werror)
+  else()
+    target_compile_options(${TARGET} PRIVATE ${THIRD_PARTY_WARNING_SUPPRESSIONS})
+  endif()
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
 endfunction()
