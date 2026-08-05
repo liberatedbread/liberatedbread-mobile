@@ -4,7 +4,7 @@
 
 device:
   name: "SP107E/SP110E LED Controller"
-  manufacturer: "SPLED"
+  manufacturer: "Shenzhen Sperll Optoelectronic (SPLED)"
   manufacturer_status: "unsupported"
   protocol: "ble"
   notes: >
@@ -14,10 +14,14 @@ device:
         0xFFE1 (write + notify). Fixed 4-byte command frame [d0, d1, d2, cmd_byte];
         no length prefix, no checksum. check_device (cmd 0x01) returns 15 bytes.
         Adds music-reactive modes and matrix support.
-      * SP110E ("LED Hue") — service 0xFF20, characteristic 0xFF21 (command) and
-        0xFF22 (data). Framed transport: 4-byte length + 2-byte command ID + 4-byte
-        serial number + content + 1-byte SUM checksum (length_prefix true,
-        checksum = sum).
+      * SP110E ("LED Hue") — same Nordic UART service 0xFFE0 / characteristic
+        0xFFE1 as the SP107E (mbullington sp110e.md gist: "My device's service id
+        is 0xFFE0 and has one characteristic 0xFFE1"), but a different 4-byte
+        opcode set (the sp110e_* commands on the 0xFFE0 service below).
+      * SPOTLED matrix panels (com.led.spotled) — service 0xFF20, characteristic
+        0xFF21 (command) and 0xFF22 (data). Framed transport: 4-byte length +
+        2-byte command ID + 4-byte serial number + content + 1-byte SUM checksum
+        (length_prefix true, checksum = sum).
 
     DESIGN APP PER GENERATION (the app, not the model name, identifies the protocol):
       * Dream LED Skin v1        -> LED CHORD (com.spled.pzse)   -> SP107E, 0xFFE0
@@ -48,19 +52,31 @@ device:
     too large OR too small). GetDisplayInfo returns width, height, color depth (16 mono /
     255 RGB), frame limit, brightness and font info — query it instead of hardcoding
     a panel size.
-    FLAGGED: whether this 0xFF20 matrix-panel firmware is genuinely an "SP110E" board
-    is UNCONFIRMED. The framed transport bears no resemblance to the SP110E 4-byte
-    command set, so the SP110E label on this service may be a misattribution carried
-    forward from early notes.
+    RESOLVED: the 0xFF20 framed transport is the SPOTLED panel protocol, not an
+    "SP110E" board — real SP110E hardware uses 0xFFE0/0xFFE1 like the SP107E
+    (mbullington gist), so the sp110e_* 4-byte opcodes live on the 0xFFE0 service.
+    The SP110E label on 0xFF20 in early notes was a misattribution.
 
     CONFIDENCE: variant split, service/characteristic UUIDs and SP107E core opcodes
-    (led_on 0xAA, led_off 0xBB, check_device 0x01, set_rgb cmd 0x04) HIGH. The 0xFF20
-    framing, command IDs, record types and effect values are HIGH (python-spotled).
-    The detailed per-opcode command tables below were decompiled to scratch from a
-    secondary source and are NOT all independently re-verified — treat individual
-    effect/brightness opcodes as MEDIUM and confirm remaining opcodes via live
-    capture. The SP110E 4-byte-style opcodes below predate the confirmed 0xFF20
-    framed transport and need re-mapping onto that framing (follow-up).
+    (led_on 0xAA, led_off 0xBB, check_device 0x01, set_color cmd 0x0C) HIGH —
+    set_color is 0x0C per two independent sources (monty68/uniled led_chord.py
+    SET_COLOR=12; and7ey gist of the decompiled LED CHORD app), while 0x04 is
+    SET_RGB_SEQ (color order): sending [r,g,b,0x04] reprograms the chip's RGB
+    sequence instead of setting a color. The 0xFF20 framing, command IDs, record
+    types and effect values are HIGH (python-spotled). The detailed per-opcode
+    command tables below were decompiled to scratch from a secondary source and
+    are NOT all independently re-verified — treat individual effect/brightness
+    opcodes as MEDIUM and confirm remaining opcodes via live capture. The full
+    SP107E opcode map and the 26-byte status layout are decoded in
+    monty68/uniled led_chord.py (rename 0x03, RGB order 0x04, IC model 0x05,
+    segments/pixels 0x06, speed 0x09, white brightness 0x0B, static color 0x0C,
+    auto modes 0x0D/0x0F/0x12, strip music color 0x0E, matrix col/dot colors
+    0x10/0x11, music gain 0x13).
+    SPOTLED app status: effectively deprecated on new Android — no longer
+    installable on recent Android versions (LEDs2RAVE4 publishes a sideload
+    guide and points users to the alternative app "PIXELY GLOW"); iOS SPOTLED
+    last updated 2023-10-12 (v1.9.4). The seller behind LED Chord / LED Hue is
+    Shenzhen Sperll Optoelectronic Technology Co., Ltd. ("SPLED").
     NOTE: the sibling app "iledcolor" (com.led.iledcolor) exposed NO BLE UUIDs
     statically (likely cloud-only) — flagged for live capture. It ships on CURRENT
     DreamPanel v3 hardware and is tracked as its own target
@@ -147,14 +163,18 @@ device:
           - "0000ffe0-0000-1000-8000-00805f9b34fb"
     - model: "SP110E"
       identification:
+        service_uuids:
+          - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    - model: "SPOTLED Matrix Panel (Dream Skin)"
+      identification:
         local_name_prefix: "LBXDRMSKIN_LED_"
         service_uuids:
           - "0000ff20-0000-1000-8000-00805f9b34fb"
 
 services:
-  # SP107E — Nordic UART, 4-byte fixed command frame
+  # SP107E / SP110E — Nordic UART, 4-byte fixed command frame
   - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
-    name: "SP107E LED Control Service (Nordic UART)"
+    name: "SP107E/SP110E LED Control Service (Nordic UART)"
     characteristics:
       - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
         name: "Control"
@@ -163,6 +183,11 @@ services:
           Fixed 4-byte command frame [d0, d1, d2, cmd_byte]; no length prefix,
           no checksum. Notifications (e.g. check_device's 15-byte reply) arrive
           on this same characteristic. Confidence: core opcodes HIGH, others MEDIUM.
+          SP110E hardware uses this same service/characteristic with its own
+          4-byte opcode set (mbullington sp110e.md gist: "My device's service id
+          is 0xFFE0 and has one characteristic 0xFFE1") — the sp110e_* commands
+          below. The full SP107E opcode map and 26-byte status layout are
+          decoded in monty68/uniled led_chord.py.
         commands:
           sp107e_check_device:
             description: "SP107E: probe/handshake (cmd 0x01); response is 15 bytes"
@@ -174,8 +199,8 @@ services:
             description: "SP107E: Turn off (cmd 0xBB)"
             value: [0x00, 0x00, 0x00, 0xBB]
           sp107e_set_color:
-            description: "SP107E: Set static RGB color (cmd 0x04)"
-            template: ["{red}", "{green}", "{blue}", 0x04]
+            description: "SP107E: Set static RGB color (cmd 0x0C — NOT 0x04; 0x04 is SET_RGB_SEQ color order and would reprogram the chip's RGB sequence)"
+            template: ["{red}", "{green}", "{blue}", 0x0C]
             parameters:
               color_order: "rgb"
               red:
@@ -209,10 +234,60 @@ services:
           sp107e_status_query:
             description: "SP107E: Query status, returns 26 bytes in 2 packets (secondary source, verify)"
             value: [0x00, 0x00, 0x00, 0x02]
+          sp110e_power_on:
+            description: "SP110E: Turn on (secondary source, verify)"
+            value: [0x00, 0x00, 0x00, 0xAA]
+          sp110e_power_off:
+            description: "SP110E: Turn off (secondary source, verify)"
+            value: [0x00, 0x00, 0x00, 0xAB]
+          sp110e_set_color:
+            description: "SP110E: Set static RGB color (secondary source, verify)"
+            template: ["{red}", "{green}", "{blue}", 0x1E]
+            parameters:
+              color_order: "rgb"
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp110e_set_brightness:
+            description: "SP110E: Set brightness 0x00-0xFF (secondary source, verify)"
+            template: ["{level}", 0x00, 0x00, 0x2A]
+            parameters:
+              level:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp110e_set_effect:
+            description: "SP110E: Set effect 0x01-0x78 dynamic, 0x79 static (secondary source, verify)"
+            template: ["{mode}", 0x00, 0x00, 0x2C]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 121
+          sp110e_set_speed:
+            description: "SP110E: Set animation speed 0x00-0xFF (secondary source, verify)"
+            template: ["{speed}", 0x00, 0x00, 0x03]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          sp110e_status_query:
+            description: "SP110E: Query device status, returns 12 bytes (secondary source, verify)"
+            value: [0x00, 0x00, 0x00, 0x10]
 
-  # SP110E — framed transport (len + cmdID + serial + content + 1-byte sum)
+  # SPOTLED matrix panel — framed transport (len + cmdID + serial + content + 1-byte sum)
   - uuid: "0000ff20-0000-1000-8000-00805f9b34fb"
-    name: "SPOTLED Matrix Panel Service (labelled SP110E in earlier notes)"
+    name: "SPOTLED Matrix Panel Service"
     characteristics:
       - uuid: "0000ff21-0000-1000-8000-00805f9b34fb"
         name: "Command"
@@ -232,9 +307,7 @@ services:
 
           Command frame layout: [uint8 frame_length][uint8 command_id]
           [uint16_be serial][uint16_be command_type][uint32_be command_length].
-          The spotled_* commands below are HIGH confidence. The sp110e_* 4-byte-style
-          opcodes are from a secondary source, are NOT SPOTLED frames, and predate
-          this transport — they need re-mapping (follow-up), confidence MEDIUM.
+          The spotled_* commands below are HIGH confidence.
         commands:
           spotled_sending_data_start:
             description: >
@@ -276,56 +349,6 @@ services:
           spotled_get_buffer_size:
             description: "SPOTLED: device data buffer size (7-byte reply)."
             value: [0x04, 0x14, 0x00, 0x00]
-          sp110e_power_on:
-            description: "SP110E: Turn on (secondary source, verify against framed transport)"
-            value: [0x00, 0x00, 0x00, 0xAA]
-          sp110e_power_off:
-            description: "SP110E: Turn off (secondary source, verify)"
-            value: [0x00, 0x00, 0x00, 0xAB]
-          sp110e_set_color:
-            description: "SP110E: Set static RGB color (secondary source, verify)"
-            template: ["{red}", "{green}", "{blue}", 0x1E]
-            parameters:
-              color_order: "rgb"
-              red:
-                type: "uint8"
-                min: 0
-                max: 255
-              green:
-                type: "uint8"
-                min: 0
-                max: 255
-              blue:
-                type: "uint8"
-                min: 0
-                max: 255
-          sp110e_set_brightness:
-            description: "SP110E: Set brightness 0x00-0xFF (secondary source, verify)"
-            template: ["{level}", 0x00, 0x00, 0x2A]
-            parameters:
-              level:
-                type: "uint8"
-                min: 0
-                max: 255
-          sp110e_set_effect:
-            description: "SP110E: Set effect 0x01-0x78 dynamic, 0x79 static (secondary source, verify)"
-            template: ["{mode}", 0x00, 0x00, 0x2C]
-            parameters:
-              mode:
-                type: "uint8"
-                min: 0
-                max: 121
-          sp110e_set_speed:
-            description: "SP110E: Set animation speed 0x01-0xBA (secondary source, verify)"
-            template: ["{speed}", 0x00, 0x00, 0x03]
-            parameters:
-              speed:
-                type: "uint8"
-                min: 1
-                max: 186
-          sp110e_status_query:
-            description: "SP110E: Query device status, returns 12 bytes (secondary source, verify)"
-            value: [0x00, 0x00, 0x00, 0x10]
 
       - uuid: "0000ff22-0000-1000-8000-00805f9b34fb"
         name: "Data"

@@ -21,6 +21,13 @@ device:
     MAX HEAT LEVEL: 10 (0x0A). DO NOT EXCEED.
     WARNING: No BLE security — any nearby device can control the heat.
     WARNING: Burn/fire/electrical risk — see target.md safety section.
+    ODM: MEC Addheat Co., Ltd. (addheat.com) — the "mec" in
+    com.hotwired.mec. MEC Addheat's own first-party ADDHEAT app
+    (com.anji.mec, updated 2025-08) is the same codebase white-labeled.
+    The cloud backend app.ventureheat.com is still live (probed
+    2026-07-31), so this spec likely covers Venture Heat's Bluetooth
+    HeatSync/AddHeat line and other MEC Addheat white-labels, not just
+    HOTWIRED.
   identification:
     service_uuids:
       - "0000ffb0-0000-1000-8000-00805f9b34fb"
@@ -121,6 +128,12 @@ services:
   # Fallback service for older hardware variant
   - uuid: "0000ffb0-0000-1000-8000-00805f9b34fb"
     name: "HOTWIRED Heated Gear Control Service (alt characteristics)"
+    notes: >
+      Groups the fee1/fee2 fallback characteristics. Their parent service UUID
+      is NOT known: the app never references a 0000fee0 service — it matches
+      the fee1/fee2 characteristics while iterating ALL discovered services
+      (BluetoothService.java:105, :109). The duplicated ffb0 UUID here is a
+      grouping placeholder, not a confirmed on-device service.
     characteristics:
       - uuid: "0000fee2-0000-1000-8000-00805f9b34fb"
         name: "Command Write (fallback)"
@@ -133,7 +146,9 @@ services:
         properties: ["read", "notify"]
         notes: >
           Alternate notify characteristic for older hardware revision.
-          Same response format as ffb2.
+          Response format assumed same as ffb2 but UNPROVEN — the stock
+          app enables notifications only on ffb2 and discards fee1 values
+          without parsing (BluetoothService.java:143-145, :362-384).
 
 commands:
   set_heat:
@@ -203,7 +218,11 @@ notifications:
           description: >
             Battery status byte. Parsed as binary:
             bits 0-3: charging flag (0=absent, non-zero=present)
-            bits 4-7: level 0-4 mapping to 0/25/50/75/100%
+            bits 5-7: level 0-4 mapping to 0/25/50/75/100% — as
+            implemented (ControlActivity.java:1230 parses
+            hexString2binaryString(...).substring(5); likely intended
+            bits 4-7 — the app's off-by-one). Harmless either way:
+            observed values only reach 4.
         - offset: "8-10"
           name: "temp"
           description: "Internal temperature (unused by stock app)"
@@ -270,6 +289,10 @@ safety:
     - Never auto-apply last level on reconnect without explicit user confirmation
     - "Off" must be reachable in one tap
     - Current commanded level must be displayed unambiguously at all times
+    Stock-app behavior worth knowing: every ON toggle in the vendor app sends
+    level 10 (full power) — ControlActivity.java calls control("01", …, 10).
+    A replacement client should pick its own default-on level deliberately
+    rather than copying that.
 
 entities:
   - platform: "climate"

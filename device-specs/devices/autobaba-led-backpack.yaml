@@ -5,26 +5,34 @@
 device:
   name: "AUTOBABA LED Backpack"
   manufacturer: "LOY SPACE / popled.cn"
-  manufacturer_status: "abandoned"
+  manufacturer_status: "active"
   protocol: "ble"
   notes: >
     Programmable full-color LED backpack screen. Uses the LOY SPACE / popled.cn protocol
     (identical to NYAN GEAR). Supports BLE and Wi-Fi (AP mode, SSID starts with "YS",
     default password 12345678, UDP port 9090).
     BLE device name starts with "YS" or "TL".
-    Packet format: [0xAA, 0x55, addr_hi, addr_lo, len_hi, len_lo, sno_hi, sno_lo, flags, type, ...payload].
-    Commands are JSON-based, serialized to binary TLV packets.
-    Images sent as 24-bit uncompressed BMP.
+    Wire frame (hardware-verified by samrodrigues/loy-space-protocol and
+    icedac/open-loyspace): BLE writes carry an outer u16-LE total-length prefix,
+    then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE), sno (u16-LE),
+    flags (0xC1), subflag, ...payload, checksum (u16-LE)]. Every frame ends with
+    a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF,
+    little-endian); the device silently rejects bad checksums. Notifications
+    omit the outer prefix.
+    Commands are JSON objects app-side, serialized to binary TLV opcodes on the
+    wire — the JSON text itself never crosses the link.
+    Image/program upload is GIF89a streamed in chunks (a 24-bit BMP encoder
+    exists app-side as a conversion artifact, but BMP is not the wire format).
     Supports multiple resolutions: 16x16, 32x16, 32x32, 48x28, 64x20, 64x64, 96x128, 160x32, 192x40.
     Backend API: store-cdn.popled.cn.
     Sliding window ACK protocol with max window size 3-10.
-    BLE transport: commands are JSON objects serialized into framed binary packets
-    with a 0xAA55 magic header (bytes AA 55) + 2 reserved + little-endian uint16
-    payload length, then the JSON bytes; chunked at ~180 bytes/write. Regular JSON
-    commands carry NO checksum (firmware images use MD5 separately).
+    Chunked at ~180 bytes per BLE write.
+    Vendor ecosystem active: LOY SPACE app updated 2026-03-25, NYAN GEAR
+    2025-12-04, backend CDN live.
     CONFIDENCE: HIGH — service/char UUIDs, name prefixes and command JSON verified in
     the uni-app app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2,
-    NotifyId 0000FFF1; header magic constant present).
+    NotifyId 0000FFF1; header magic constant present); wire framing cross-checked
+    against two independent hardware-verified RE repos.
   identification:
     local_name_prefix: "YS"
     service_uuids:
@@ -98,7 +106,7 @@ device:
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
 # Custom consumer-side handler: JSON command serialization into the popled 0xAA55
-# framed transport (shared with the NYAN BT Image Controller). Declarative.
+# framed binary-TLV transport (shared with the NYAN BT Image Controller). Declarative.
 protocol_handler: "popled_json"
 
 # Full-color image / animation upload (device-reported resolution may differ;
@@ -114,25 +122,29 @@ services:
     name: "LOY SPACE BLE Service"
     characteristics:
       - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
-        name: "Notify / Write"
-        properties: ["read", "write", "notify"]
-        framing:
-          length_prefix: true
-          max_chunk_size: 180
+        name: "Notify"
+        properties: ["notify"]
         notes: >
-          NotifyId in app-service.js. 0xAA55 header + 2 reserved + LE uint16 length
-          frame; no checksum on JSON commands. Evidence: common module b8e6 get_pkt_data.
+          NotifyId in app-service.js. NOTIFY-only — writes go to FFF2
+          (write-without-response); enable the CCCD before writing or frames
+          are not ACKed. Notifications carry the 0xAA55 inner frame without the
+          outer u16-LE length prefix used on writes. Evidence: common module
+          b8e6 get_pkt_data; hardware-verified by samrodrigues/loy-space-protocol.
 
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Write"
-        properties: ["write"]
+        properties: ["write_without_response"]
         framing:
           length_prefix: true
           max_chunk_size: 180
         notes: >
-          WriteId in app-service.js. JSON commands are wrapped as
-          {"cmd": <command>, "sno": <sequence>} and framed with the 0xAA55 header.
-          checksum OMITTED: none on regular JSON commands (firmware uses MD5).
+          WriteId in app-service.js. Write-without-response is mandatory
+          (regular writes hang). App-side commands are JSON objects wrapped as
+          {"cmd": <command>, "sno": <sequence>}, but the wire payload is binary
+          TLV opcodes — the app serializes JSON to TLV before send. Each write
+          carries an outer u16-LE total-length prefix and every frame ends with
+          a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF, LE);
+          the device silently rejects bad checksums.
         commands:
           power_toggle:
             description: 'Toggle screen power. JSON: {"cmd":{"power":{"type":0}},"sno":N}'

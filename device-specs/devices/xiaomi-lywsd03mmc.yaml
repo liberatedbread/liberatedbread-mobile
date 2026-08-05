@@ -28,21 +28,30 @@ device:
       - Exposes standard Device Information (0x180A) and Battery (0x180F) services
       - Supports BLE 5.0+ LE Long Range (Coded PHY S=8)
 
-    ATC CUSTOM ADVERTISEMENT FORMAT (unencrypted, 3-byte mode):
-      Service Data UUID: 0x181A (Environmental Sensing)
-      byte 0: temperature = (value / 2) - 40.0 (°C)
-      byte 1: humidity = value / 2 (%)
-      byte 2: bits 6-0 = battery %, bit 7 = trigger flag
+    UNENCRYPTED ATC (atc1441) ADVERTISEMENT FORMAT — Service Data UUID 0x181A:
+      bytes 0-5: MAC (big-endian)
+      bytes 6-7: temperature int16 BE, ×0.1 °C
+      byte 8: humidity %
+      byte 9: battery %
+      bytes 10-11: battery mV (uint16 BE)
+      byte 12: advertisement counter
 
-    PVVX CUSTOM ADVERTISEMENT FORMAT (unencrypted, 6-byte mode):
-      Same 0x181A UUID.
-      bytes 0-1: temperature in 0.01°C (int16 LE)
-      bytes 2-3: humidity in 0.01% (uint16 LE)
-      byte 4: battery %
-      byte 5: trigger/status flags
+    UNENCRYPTED PVVX CUSTOM ADVERTISEMENT FORMAT — same 0x181A UUID, 13-14 B:
+      bytes 0-5: MAC
+      bytes 6-7: temperature int16 LE, ×0.01 °C
+      bytes 8-9: humidity uint16 LE, ×0.01 %
+      bytes 10-11: battery mV (uint16)
+      byte 12: battery %
+      byte 13: advertisement counter
+      byte 14: trigger/status flags
+    (custom_beacon.h adv_atc1441_t / adv_custom_t)
 
-    ENCRYPTED ATC FORMAT: AES-CCM with bindkey, nonce = MAC+header(5 bytes),
-    auth data = 0x11, MAC len = 4. Same payload layouts as above, encrypted.
+    ENCRYPTED ATC/Custom BEACONS: AES-CCM with bindkey, nonce = MAC+header(5
+    bytes), auth data = 0x11, MAC len = 4. The decrypted plaintexts are the
+    compact 3-byte (temp=(v/2)-40 °C, hum=v/2 %, battery bits 6-0 + trigger
+    bit 7) and 6-byte (temp int16 LE 0.01 °C, humi uint16 LE 0.01 %, battery
+    %, flags) layouts in payload_formats below — those two layouts do NOT
+    appear on the air unencrypted.
 
     GATT CONNECTION (custom firmware): device advertises as "ATC_XXXXXX"
     (where XXXXXX are last 3 bytes of MAC). Standard services:
@@ -54,9 +63,16 @@ device:
     ALSO SUPPORTS: MHO-C401/C401N, MJWSD05MMC, Qingping CGG1-M/CGDK2,
     Tuya TH03/ZTH01/02/05 — all with same custom firmware and Telink SoC.
 
+    CURRENT STATUS (verified 2026-07-31): custom firmware v5.8 defaults to
+    the BTHome v2 advertisement format. The same hardware converts to Zigbee
+    via pvvx/ZigbeeTLc (Z03MMC). Units sold since 2025-03 with PCB marks
+    B1.5*/B1.6* use SPI LCD controllers and cheaper clone sensors, drawing
+    more current with a low-contrast display — pvvx currently advises
+    against buying LYWSD03MMC (ATC_MiThermometer issue #664).
+
     STOCK FIRMWARE DISCOVERY: name "LYWSD03MMC", service UUID 0xFE95
-    (MiBeacon), random address type. Data is encrypted; decryption
-    requires bindkey obtained from Xiaomi cloud or the Mi Home app.
+    (MiBeacon). Data is encrypted; decryption requires bindkey obtained
+    from Xiaomi cloud or the Mi Home app.
 
     CONFIDENCE: HIGH for custom firmware advertisement formats,
     service UUIDs, and GATT services — sourced from
@@ -98,9 +114,16 @@ device:
       data.
 
       Battery must be >40% for reliable OTA flashing on LYWSD03MMC.
+
+      LOCKDOWN CAVEAT: devices shipping stock firmware 2.1.1_0159 require Mi
+      Home registration plus an extracted Mi token/bindkey (e.g. via
+      Xiaomi-cloud-tokens-extractor) before the TelinkMiFlasher OTA works —
+      the unauthenticated stock OTA was closed by Xiaomi, so the cloud-free
+      flashing path no longer holds for recent stock (ATC_MiThermometer
+      issue #602).
     methods:
       - type: "ble_provisioning"
-        verified: true
+        verified: false
         description: >
           Flash custom firmware via web browser OTA to enable direct
           unencrypted BLE advertisement of temperature, humidity, and
@@ -110,8 +133,6 @@ device:
         steps:
           - action: "Visit TelinkMiFlasher.html in Chrome/Edge/Opera."
             actor: "client"
-          - action: "Press and hold the device button to reset bindings, then release."
-            actor: "user"
           - action: "Click 'Connect' and select LYWSD03MMC from the browser BLE chooser."
             actor: "client"
           - action: "Click 'Do Activation' to extract decryption key."
@@ -172,20 +193,27 @@ device:
       notes: "Stock firmware with encrypted MiBeacon. Service UUID 0xFE95."
     - model: "MHO-C401"
       identification:
-        local_name_prefix: "MHO_C401"
+        local_name_prefix: "MHO_"
+      notes: "Custom firmware advertises as MHO_XXXXXX (ble_set_name in ble.c)."
     - model: "MHO-C401N"
       identification:
-        local_name_prefix: "MHO_C401N"
+        local_name_prefix: "MHO_"
+      notes: "Custom firmware advertises as MHO_XXXXXX, same prefix as MHO-C401."
     - model: "MJWSD05MMC"
       identification:
-        local_name_prefix: "MJWSD05MMC"
+        local_name_prefix: "BTH_"
+      notes: "Custom firmware advertises as BTH_XXXXXX; English-hardware units use BTE_."
     - model: "CGG1-M (Qingping)"
       identification:
-        local_name_prefix: "CGG1"
+        local_name_prefix: "CGG_"
 
   payload_formats:
     ATC_3byte:
-      description: "3-byte unencrypted ATC advertisement payload (Service Data 0x181A)."
+      description: >
+        3-byte ATC layout. NOTE: this compact layout exists only as the
+        AES-CCM PLAINTEXT of the ENCRYPTED ATC beacon (adv_atc_data_t in
+        custom_beacon.h) — it never appears on the air unencrypted. The
+        unencrypted on-air ATC format is ATC_atc1441 below.
       fields:
         - index: 0
           name: "temperature_raw"
@@ -203,7 +231,11 @@ device:
         - "battery = byte[2] & 0x7F"
         - "trigger_flag = (byte[2] >> 7) & 1"
     PVVX_6byte:
-      description: "6-byte unencrypted PVVX advertisement payload (Service Data 0x181A)."
+      description: >
+        6-byte Custom layout. NOTE: as with ATC_3byte, this is the AES-CCM
+        PLAINTEXT of the ENCRYPTED Custom beacon (adv_cust_data_t in
+        custom_beacon.h) — the unencrypted on-air Custom format is
+        Custom_unencrypted below.
       fields:
         - index: 0
           name: "temperature"
@@ -223,18 +255,79 @@ device:
         - "humidity = uint16_le(bytes[2:4]) / 100.0"
         - "battery = byte[4]"
         - "flags = byte[5]"
+    ATC_atc1441:
+      description: >
+        Unencrypted on-air ATC advertisement (adv_atc1441_t in
+        custom_beacon.h), Service Data 0x181A.
+      fields:
+        - index: 0
+          name: "mac"
+          description: "Device MAC, 6 bytes, big-endian."
+        - index: 6
+          name: "temperature"
+          description: "int16 big-endian, ×0.1 °C."
+        - index: 8
+          name: "humidity"
+          description: "uint8, percent."
+        - index: 9
+          name: "battery_percent"
+          description: "uint8, percent."
+        - index: 10
+          name: "battery_mv"
+          description: "uint16 big-endian, millivolts."
+        - index: 12
+          name: "counter"
+          description: "Advertisement counter."
+      parse_rules:
+        - "temp = int16_be(bytes[6:8]) / 10.0"
+        - "humidity = byte[8]"
+        - "battery_percent = byte[9]"
+        - "battery_mv = uint16_be(bytes[10:12])"
+    Custom_unencrypted:
+      description: >
+        Unencrypted on-air Custom (pvvx) advertisement (adv_custom_t in
+        custom_beacon.h), Service Data 0x181A, 14 bytes.
+      fields:
+        - index: 0
+          name: "mac"
+          description: "Device MAC, 6 bytes."
+        - index: 6
+          name: "temperature"
+          description: "int16 LE, ×0.01 °C."
+        - index: 8
+          name: "humidity"
+          description: "uint16 LE, ×0.01 %."
+        - index: 10
+          name: "battery_mv"
+          description: "uint16, millivolts."
+        - index: 12
+          name: "battery_percent"
+          description: "uint8, percent."
+        - index: 13
+          name: "counter"
+          description: "Advertisement counter; a flags byte follows on 15-byte frames."
+      parse_rules:
+        - "temp = int16_le(bytes[6:8]) / 100.0"
+        - "humidity = uint16_le(bytes[8:10]) / 100.0"
+        - "battery_mv = uint16_le(bytes[10:12])"
+        - "battery_percent = byte[12]"
 
 services:
   - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
     name: "Environmental Sensing Service"
     notes: >
       Used in advertisement Service Data for ATC custom firmware beacon
-      broadcasts. Not used as a GATT service — data is obtained from
-      passive BLE scanning of the advertisement payload.
+      broadcasts, AND exposed as a real GATT service by the custom firmware
+      (app_att.c): Temperature 0x2A6E and Humidity 0x2A6F, both read +
+      notify. Data is therefore available either from passive BLE scanning
+      of the advertisement payload or over a GATT connection.
     characteristics:
       - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
         name: "Temperature"
-        properties: ["read"]
+        properties: ["read", "notify"]
+      - uuid: "00002a6f-0000-1000-8000-00805f9b34fb"
+        name: "Humidity"
+        properties: ["read", "notify"]
 
   - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
     name: "Device Information Service"
@@ -267,10 +360,12 @@ entities:
     name: "Temperature"
     device_class: "temperature"
     unit: "°C"
+    state_characteristic: "00002a6e-0000-1000-8000-00805f9b34fb"
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
+    state_characteristic: "00002a6f-0000-1000-8000-00805f9b34fb"
   - platform: "sensor"
     name: "Battery"
     device_class: "battery"

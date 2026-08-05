@@ -40,6 +40,16 @@ device:
     exercised by us. The original capture work covers DUAL-BATTERY scooters
     only; single-battery response shapes may differ.
 
+    ECU EVIDENCE (2026-07-31): axelmuhr/niu_n1s_ecu is a full Ghidra
+    disassembly of an N1S (V1.x) ECU -- STM32F103 + Neoway M590E GSM/GPRS
+    modem + u-blox MAX-7Q GPS, RS-485 vehicle bus (9600 8N1, frames starting
+    with 0x68), and a persistent ECU-to-cloud TCP link at fk-ecu.niu.com:8888
+    executing server-issued remote commands (lock/unlock, GPS on/off). That
+    ECU generation has NO BLE hardware, so the app's BLE proximity link is a
+    newer-generation feature. The cloud also exposes a remote-command
+    endpoint /v5/cmd/creat (seen in Vxider/NiuDataWidget), and on UQi models
+    the scooter list returns the serial as sn_id instead of sn.
+
     NEVER COMMIT: a real token, account identifier or scooter serial. A token
     grants access to the owner's scooter including its live location, and ride
     history is a movement record of a person, not machine telemetry.
@@ -82,17 +92,19 @@ device:
       applicable: false
       effect: >
         No owner-accessible factory reset is documented. Unbinding is an
-        account-side operation performed through the vendor app or NIU
-        support, not a procedure on the vehicle -- which is itself part of the
-        dependency this spec records: the owner cannot unilaterally clear the
-        binding on their own hardware.
+        account-side operation with no on-vehicle procedure: NIU's own
+        support documentation describes self-service in-app unbind by the
+        currently-bound owner (Me tab -> device -> red "Unbind" button ->
+        confirm), which frees the scooter for a new owner. NIU support is
+        only needed when the previous owner is unavailable.
     rejoin:
       requires_factory_reset: false
       notes: >
         Not a network binding, so there is no router-replacement question. The
-        equivalent concern is transfer of ownership, which is an account
-        operation and, on current evidence, cannot be completed by the owner
-        alone.
+        equivalent concern is transfer of ownership: an account operation, but
+        one the currently-bound owner can complete self-service in the app;
+        support involvement is only needed when the previous owner is
+        unavailable.
     credentials:
       wifi_passphrase_protection: "not_applicable"
       notes: >
@@ -147,14 +159,14 @@ cloud:
       returns: "Battery detail; dual-battery models report per pack"
       verification: "reported"
     - path: "/motoinfo/overallTally"
-      method: "GET"
+      method: "POST"
       name: "overall_tally"
-      returns: "Lifetime totals"
+      returns: "Lifetime totals (POST with sn in the form body; evcc niu.go, ioBroker.niu)"
       verification: "reported"
     - path: "/v5/track/list/v2"
-      method: "GET"
+      method: "POST"
       name: "track_list"
-      returns: "Ride/track history (personal movement data)"
+      returns: "Ride/track history, POST with JSON body {sn, index, pagesize} (personal movement data)"
       verification: "reported"
 
 local_access:
@@ -176,7 +188,7 @@ local_access:
       url: "https://escootparts.com/product/niu-bluetooth-controller/"
       role: "replacement_part"
       replaces: "stock motor controller"
-      fits: "N1S, N1, NQi Sport, NQi, UQi GT, UQi+, MQi+, M+ (several amperage variants)"
+      fits: "UQI+, UQIGT, MQI+, NQI/N1S, MQIL (per the live product page; N1, NQi Sport and M+ are no longer listed)"
       reversible: true
       notes: >
         Sold as a performance part -- higher amperage to the motor -- with
