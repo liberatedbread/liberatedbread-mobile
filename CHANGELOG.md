@@ -24,6 +24,45 @@ heading.
   remote `ssh` commands (a quote in the path could execute arbitrary commands
   on the remote Mac).
 
+### Changed
+
+- **`assets/` is gone; everything ships from the vendored subtree.** Both the
+  device specs and the number registries were duplicated — 1.2MB and 1.7MB of
+  byte-identical copies of `vendor/protocol-specs/`, made by
+  `scripts/sync_device_specs.sh` and committed alongside their originals. Two
+  copies of the same data with nothing checking they agree is a bug waiting for
+  someone to edit the wrong one.
+
+  `pubspec.yaml` now bundles the subtree paths directly, and the loader reads
+  upstream's own `index.json` instead of a rewritten `manifest.json`. Refreshing
+  the catalogue becomes `git subtree pull` and nothing else, so
+  `sync_device_specs.sh` is deleted rather than kept as a step people can forget.
+
+  Not symlinks: a Windows checkout without developer mode or `core.symlinks`
+  writes a text file containing a path, and Flutter's asset pipeline treats
+  symlinks inconsistently across platforms. Both failures are silent — an empty
+  catalogue, no error — where a wrong path is a loud missing asset.
+
+  **Remote spec packs are unaffected**, and now have tests saying so: bundled
+  specs are keyed by subtree asset path and remote ones by `pack:<name>/<file>`,
+  and the two namespaces are pinned as non-overlapping so neither half can
+  shadow the other in the merged catalogue.
+- **iOS deployment target 12.0 → 13.0.** Flutter 3.44 no longer supports an
+  iOS 12 target. The Podfile now pins the platform explicitly rather than
+  leaving it commented out, so CocoaPods and the Xcode project cannot drift
+  apart. Flutter 3.44 also stopped building 32-bit x86 for Android, so the APK
+  ABI assertions no longer name it.
+
+### Fixed
+
+- **A `--` inside an XML comment broke the Android manifest.** XML forbids it —
+  it is the first half of the comment terminator — and the manifest merger fails
+  the whole build with "Error parsing AndroidManifest.xml" and no line number.
+  Every existing platform test passed, because the hand-rolled comment stripper
+  in `test/platform/platform_config_reader.dart` just scans to the next `-->`.
+  `test/platform/xml_wellformedness_test.dart` now closes that gap for the
+  manifest, both plists and both entitlements files.
+
 ### Added
 
 - **Bottom ad banner on the scan screen** — a small dismissible house-ad bar

@@ -611,7 +611,8 @@ Plus integration tests under `rust/tests/`:
 - `spec_tolerance.rs` — parses the real protocol-docs specs vendored under
   `rust/tests/specs/`, proving vendor extension blocks and WiFi specs are
   tolerated rather than rejected by `deny_unknown_fields`
-- `vendored_assets.rs` — asserts every bundled spec in `assets/device_specs/`
+- `vendored_assets.rs` — asserts every bundled spec in
+  `vendor/protocol-specs/device-specs/`
   parses through the real parser, and that the bundled set matches its
   expected file list (update it when adding a bundled spec)
 

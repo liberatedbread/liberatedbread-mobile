@@ -9,28 +9,44 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/log.dart';
 import 'spec_pack_provider.dart';
 
-/// Asset path of the vendored spec catalogue index.
-const _manifestPath = 'assets/device_specs/manifest.json';
-const _specDir = 'assets/device_specs';
+/// Root of the vendored protocol-specs subtree, as an asset path.
+///
+/// Specs are bundled straight out of the subtree rather than copied into
+/// `assets/`: a copy would be 1.2MB of the same YAML twice in the tree, and a
+/// second thing to go stale. `pubspec.yaml` bundles these paths.
+const specsRoot = 'vendor/protocol-specs';
+
+/// Asset path of the spec catalogue index — upstream's own `index.json`, read
+/// as-is rather than through a rewritten copy.
+const specManifestPath = '$specsRoot/device-specs/index.json';
+
+/// Used when the manifest is missing or unreadable, so a broken vendoring
+/// degrades to "mock mode still works" rather than an app with no specs.
+const fallbackSpecPath = 'device-specs/examples/example-bulb.yaml';
+
+/// The asset path for an index entry's repo-relative [indexPath].
+///
+/// Index entries are relative to the specs repo root (`device-specs/devices/
+/// foo.yaml`), and the subtree puts that root at [specsRoot].
+String specAssetPath(String indexPath) => '$specsRoot/$indexPath';
 
 /// Loaded device spec YAML strings, keyed by source id. These are the raw YAML
 /// strings passed to Rust for parsing.
 ///
-/// Bundled specs are discovered through `manifest.json`, vendored from the
-/// protocol-specs repo's `index.json` by `scripts/sync_device_specs.sh`. That
-/// indirection is the point: adding or updating a device becomes a data-only
-/// refresh — re-run the sync script and the device is available, with no Dart
-/// edit. The previous hardcoded list meant every new device needed a code
-/// change, which is why only the example bulb ever shipped.
+/// Bundled specs are discovered through the subtree's own `index.json`, so
+/// adding or updating a device is a data-only refresh: pull the subtree and the
+/// device is available, with no Dart edit. The previous hardcoded list meant
+/// every new device needed a code change, which is why only the example bulb
+/// ever shipped.
 ///
-/// Two sources are merged: the bundled assets (keyed by asset path) and any
-/// remote packs the user has installed (keyed `pack:<name>/<file>`). A failure
+/// Two sources are merged: the bundled assets (keyed by asset path, which
+/// always begins `vendor/`) and any remote packs the user has installed (keyed
+/// `pack:<name>/<file>`). The two key spaces cannot collide, and a failure
 /// loading remote packs never removes a bundled spec.
 final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   final specs = <String, String>{};
 
-  for (final file in await _bundledSpecFiles()) {
-    final path = '$_specDir/$file';
+  for (final path in await _bundledSpecPaths()) {
     try {
       specs[path] = await rootBundle.loadString(path);
     } on FlutterError {
@@ -54,30 +70,31 @@ final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   return specs;
 });
 
-/// Spec filenames listed in the vendored manifest.
+/// Asset paths of every spec listed in the vendored index.
 ///
-/// Falls back to the example bulb when the manifest is missing or unreadable,
-/// so a broken vendor step degrades to the previous behaviour (mock mode still
-/// works) rather than an app with no specs at all.
-Future<List<String>> _bundledSpecFiles() async {
-  const fallback = ['example-bulb.yaml'];
+/// Falls back to the example bulb when the index is missing or unreadable, so a
+/// broken vendoring degrades to the previous behaviour (mock mode still works)
+/// rather than an app with no specs at all.
+Future<List<String>> _bundledSpecPaths() async {
+  final fallback = [specAssetPath(fallbackSpecPath)];
   try {
-    final raw = await rootBundle.loadString(_manifestPath);
+    final raw = await rootBundle.loadString(specManifestPath);
     final decoded = jsonDecode(raw);
     if (decoded is! List) return fallback;
 
-    final files = <String>[];
+    final paths = <String>[];
     for (final entry in decoded) {
       if (entry is! Map) continue;
-      // `file` is written by the sync script; `path` is the upstream field,
-      // accepted as a fallback so a manually copied index.json still works.
-      final file = entry['file'] ?? entry['path'];
-      if (file is! String || file.isEmpty) continue;
-      files.add(file.split('/').last);
+      // `path` is upstream's field, relative to the specs repo root. `file` is
+      // still accepted because an older vendored manifest wrote bare filenames,
+      // and reading one of those must not empty the catalogue.
+      final path = entry['path'] ?? entry['file'];
+      if (path is! String || path.isEmpty) continue;
+      paths.add(specAssetPath(path));
     }
-    return files.isEmpty ? fallback : files;
+    return paths.isEmpty ? fallback : paths;
   } catch (e) {
-    debugPrint('Failed to read spec manifest ($e); using bundled fallback.');
+    debugPrint('Failed to read spec index ($e); using bundled fallback.');
     return fallback;
   }
 }

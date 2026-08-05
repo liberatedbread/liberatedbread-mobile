@@ -149,7 +149,9 @@ void main() {
         ],
         encoded: Uint8List.fromList([1, 1]),
       ),
-      specs: const {'assets/device_specs/example-bulb.yaml': 'dummy'},
+      specs: const {
+        'vendor/protocol-specs/device-specs/examples/example-bulb.yaml': 'dummy'
+      },
     ));
     await tester.pumpAndSettle();
 

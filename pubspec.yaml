@@ -35,17 +35,16 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/device_specs/
-    # Bundled straight out of the subtree rather than copied into assets/.
-    #
-    # assets/device_specs/ exists because vendoring it is a real transform: two
-    # upstream directories flattened into one, with a rewritten manifest. The
-    # registries need none of that -- they are already flat and already exactly
-    # the shape NumberRegistry reads -- so a copy under assets/ would be 1.7MB
-    # of byte-identical duplication in the tree, and a second thing to go stale.
-    #
-    # Listed file by file rather than as a directory so SOURCES.md, which is
-    # documentation for people reading the repo, does not ship inside the app.
+    # Everything ships straight out of the vendored protocol-specs subtree.
+    # There is no copy under assets/: the subtree is the single source of truth,
+    # so there is nothing to keep in step and nothing to go stale. The specs are
+    # read through the subtree's own index.json, unmodified.
+    - vendor/protocol-specs/device-specs/index.json
+    - vendor/protocol-specs/device-specs/devices/
+    - vendor/protocol-specs/device-specs/examples/
+    # Registries listed file by file rather than as a directory so SOURCES.md,
+    # which is documentation for people reading the repo, does not ship inside
+    # the app.
     - vendor/protocol-specs/registries/ieee-oui.tsv
     - vendor/protocol-specs/registries/ieee-oui28.tsv
     - vendor/protocol-specs/registries/ieee-oui36.tsv

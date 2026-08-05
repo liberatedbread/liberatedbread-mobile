@@ -382,7 +382,10 @@ The Rust core (`rust/src/`) provides protocol logic independent of Flutter:
 
 ## Device Specs
 
-Device behavior is defined in YAML files under `assets/device_specs/`. Example:
+Device behavior is defined in YAML files, bundled straight out of the vendored
+protocol-specs subtree at `vendor/protocol-specs/device-specs/`. There is no
+copy under `assets/`: the subtree is the single source of truth, so refreshing
+the catalogue is `git subtree pull`, not a sync step. Example:
 
 ```yaml
 device:

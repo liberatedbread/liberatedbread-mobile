@@ -34,8 +34,8 @@ void main() {
 
   setUpAll(() async {
     rustReady = await initHostRustLib();
-    yaml = await rootBundle
-        .loadString('assets/device_specs/airthings-wave-family.yaml');
+    yaml = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/airthings-wave-family.yaml');
     if (rustReady) spec = await codec.loadDeviceSpec(yaml);
   });
 
