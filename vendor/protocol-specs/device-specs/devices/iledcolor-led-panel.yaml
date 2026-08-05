@@ -1,0 +1,95 @@
+# iLEDColor LED Panel — Device Spec
+# Generated from static analysis of com.led.iledcolor
+# APK source: apkeep (Google Play mirror)
+# XAPK SHA-256: df33e91e2467f7c379bcaa7b497bb1bed91aea9a282817b1af632283d79f1505
+
+device:
+  name: "iLEDColor LED Matrix Panel (DreamPanel v3)"
+  manufacturer: "Shenzhen I-ledshow Technology Co., Ltd."
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    This app replaced SPOTLED for DreamPanel v3 hardware (horizontal serial
+    number). Built on JieLi (JL) Bluetooth OTA SDK. LED command format is
+    embedded in JL proprietary protocol inside native libraries.
+
+    LED control commands are sent through the JL OTA data pipe (0000ae01).
+    The actual LED command format (brightness, image upload, GIF frames) is
+    embedded within JL's proprietary protocol and encoded in native .so libraries.
+    Static analysis cannot recover the command format — HCI snoop is essential.
+
+    Architecture: JieLi (JL) Bluetooth OTA SDK with native .so libraries.
+    BLE Manager: ec/c.java, OTA Handler: ec/f.java, Send Thread: ec/i.java.
+
+    SPOTLED compatibility probe: check service 0000ff20-0000-1000-8000-00805f9b34fb.
+
+    Research status: APK acquired and decompiled. JL OTA service UUIDs recovered.
+    LED command format in native libs — needs HCI snoop. Native reverse-
+    engineering may be required if snoop is unavailable.
+
+  setup:
+    required: false
+    confidence: low
+    notes: >
+      Nothing is provisioned. The panel is a BLE peripheral built on the JieLi
+      OTA SDK: it advertises, accepts a connection, and takes commands on the JL
+      data pipe. There is no account, no network join and no pairing step.
+
+      Confidence is low because the command format inside the JL pipe has not
+      been recovered — the panel can be connected to, but what to send it is
+      still unknown without an HCI snoop.
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT and write to the JL OTA data pipe (0000ae01). The
+          framing inside that pipe is JieLi proprietary and not yet recovered.
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the panel on; it advertises immediately."
+            actor: user
+          - action: "Scan for the panel and connect over GATT."
+            actor: client
+          - action: >
+              Probe for service 0000ff20-0000-1000-8000-00805f9b34fb to tell
+              SPOTLED-generation hardware from DreamPanel v3.
+            actor: client
+          - action: "Open the JL data pipe characteristic (0000ae01) for write and notify."
+            actor: client
+            expect: "Pipe opens. Payload format inside it is TBD."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. A reset almost certainly exists — the panel stores
+        uploaded images and GIF frames — but the command lives inside the
+        unrecovered JL protocol, so no procedure can be stated without guessing
+        at opcodes. Power-cycling does not clear stored content.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The panel joins no network. Any client may connect once the previous one
+        disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only device; no WiFi passphrase is transferred. The link is
+        unauthenticated, so anyone in range can drive the display.
+
+services:
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "JL OTA Service"
+    notes: "JieLi Bluetooth OTA service (used for data transport)."
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "JL OTA Write"
+        notes: "JL OTA write characteristic (data/commands to device)."
+        properties: ["write", "write_without_response"]
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "JL OTA Notify"
+        notes: "JL OTA notification characteristic."
+        properties: ["notify"]

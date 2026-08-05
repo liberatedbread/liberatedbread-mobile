@@ -1,0 +1,282 @@
+# Xiaomi Mi Flora / Flower Care plant sensor
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Xiaomi Mi Flora Plant Sensor"
+  manufacturer: "Xiaomi / HHCC Plant Technology Co., Ltd."
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    Plant/soil sensor measuring soil moisture (%), temperature (°C), light
+    intensity (lux), and soil conductivity/fertility (µS/cm). Coin cell
+    (CR2032) powered, ~1 year battery life. $12-17.
+
+    PROTOCOL: this device does NOT expose standard GATT service UUIDs in its
+    advertisement. The miflora library (github.com/basnijholt/miflora)
+    discovers ATT handles at runtime. The known handles are:
+      0x03 — Device Name (read)
+      0x33 — Mode Change (write): send 0xA01F to enable real-time sensor mode
+      0x35 — Sensor Data (read): 16 bytes, LE-encoded
+      0x38 — Firmware Version + Battery (read): byte[0]=battery%, bytes[2:]=FW version string
+      0x3C — History Read (read): 16-byte entries
+      0x3E — History Control (write): 0xA00000 init, 0xA20000 success, 0xA30000 failed
+      0x41 — Device Time (read): 4-byte LE uint32 seconds
+
+    SENSOR DATA (handle 0x35, 16 bytes, little-endian):
+      bytes 0-1: temperature in 0.1°C (int16 LE)
+      byte 2: unknown
+      bytes 3-6: light intensity in lux (uint32 LE)
+      byte 7: soil moisture in % (0-100)
+      bytes 8-9: soil conductivity in µS/cm (uint16 LE)
+      bytes 10-15: unknown
+
+    FIRMWARE ≥2.6.6: requires writing 0xA01F to handle 0x33 before each
+    read to switch the sensor into real-time mode. Older firmware reads
+    handle 0x35 directly.
+
+    HISTORY: up to ~1800 hourly measurements stored on device. History entries
+    (16 bytes each): bytes 0-3=device_time(seconds LE), bytes 4-6=temp(LE,
+    ones-complement for negative), bytes 7-9=light(LE), byte 11=moisture,
+    bytes 12-13=conductivity(LE).
+
+    Ropot variant: 24-byte sensor data — no light sensor.
+
+    CONFIDENCE: HIGH for handles, sensor data encoding, mode-change command,
+    firmware-version parsing and history format — sourced from the miflora
+    library source code in production use across Home Assistant and other
+    integrations. Advertised names "Flower care" / "Flower mate" are
+    community-documented.
+
+  identification:
+    local_name_prefix: "Flower"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Flower"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning or pairing — read-only sensor. Connect and read handles
+      directly. No bonding required for data reads. Firmware update may need
+      bonding (unverified).
+    methods:
+      - type: "ble_direct"
+        verified: true
+        description: >
+          Scan for "Flower care" / "Flower mate" advertisement, connect via
+          MAC address, write 0xA01F to handle 0x33 (fw≥2.6.6), read handle
+          0x35 for sensor data, disconnect.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Scan for Flower care / Flower mate BLE advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and read sensor data via documented handles."
+            actor: "client"
+    factory_reset:
+      applicable: true
+      confidence: "medium"
+      effect: "Clears paired device state. Battery removal also clears active connection."
+      procedures:
+        - name: "Remove and reinsert battery"
+          steps:
+            - action: "Remove CR2032 battery for 10+ seconds, then reinsert."
+              actor: "user"
+              expect: "Device advertises again."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No persistent pairing. Any central can connect and read."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only passive sensor. No auth."
+
+  variants:
+    - model: "Ropot (no light sensor)"
+      identification:
+        local_name_prefix: "Flower"
+      notes: >
+        24-byte sensor data on handle 0x35. Parsing differs: no light field.
+        temp is still bytes 0-1 (LE int16), moisture at byte 7, conductivity
+        at bytes 8-9.
+
+services:
+  - uuid: "00000000-0000-1000-8000-00805f9b34fb"
+    name: "Xiaomi Mi Flora Proprietary Service (handle-discovered)"
+    notes: >
+      This device does not advertise a standard service UUID. Handles are
+      discovered at runtime via GATT primary service discovery. The
+      characteristic UUIDs below are placeholders keyed to the known
+      ATT handle numbers. A consumer MUST discover handles dynamically
+      rather than assuming fixed UUIDs. The handle numbers are:
+      0x03=name, 0x33=mode_change, 0x35=sensor_data, 0x38=fw_battery,
+      0x3C=history_read, 0x3E=history_control, 0x41=device_time.
+    characteristics:
+      - uuid: "00000035-0000-1000-8000-00805f9b34fb"
+        name: "Sensor Data"
+        properties: ["read"]
+        notes: >
+          ATT handle 0x35. Returns 16 (or 24 for Ropot) bytes of sensor data,
+          little-endian encoded. Must first write 0xA01F to handle 0x33
+          (mode change) on firmware ≥2.6.6 to enable real-time mode.
+        format:
+          - offset: 0
+            length: 2
+            name: "temperature"
+            type: "int16"
+            unit: "°C"
+            scale: 0.1
+            endianness: "little"
+          - offset: 3
+            length: 4
+            name: "light"
+            type: "uint32"
+            unit: "lux"
+            endianness: "little"
+          - offset: 7
+            length: 1
+            name: "moisture"
+            type: "uint8"
+            unit: "%"
+          - offset: 8
+            length: 2
+            name: "conductivity"
+            type: "uint16"
+            unit: "µS/cm"
+            endianness: "little"
+
+      - uuid: "00000033-0000-1000-8000-00805f9b34fb"
+        name: "Mode Change"
+        properties: ["write"]
+        notes: >
+          ATT handle 0x33. Write 0xA01F to enable real-time sensor mode
+          (required for firmware ≥2.6.6). Write 0xFDFF to blink the top LED
+          once. Older firmware does not need the mode-change write.
+        commands:
+          enable_realtime:
+            description: "Enable real-time sensor read mode (fw ≥2.6.6)."
+            value: [0xA0, 0x1F]
+            verification: "confirmed"
+          blink_led:
+            description: "Blink device LED once."
+            value: [0xFD, 0xFF]
+            verification: "confirmed"
+
+      - uuid: "00000038-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Version + Battery"
+        properties: ["read"]
+        notes: >
+          ATT handle 0x38. Returns variable-length data.
+          byte[0] = battery percentage (0-100).
+          bytes[2:] = firmware version string (ASCII).
+        format:
+          - offset: 0
+            length: 1
+            name: "battery"
+            type: "uint8"
+            unit: "%"
+          - offset: 2
+            length: 8
+            name: "firmware_version"
+            type: "string"
+
+      - uuid: "0000003e-0000-1000-8000-00805f9b34fb"
+        name: "History Control"
+        properties: ["write"]
+        notes: >
+          ATT handle 0x3E. Write 0xA00000 to init history read, 0xA20000 to
+          clear history (CONFIRMED), 0xA1+2byte_addr to request a specific
+          history entry index.
+        commands:
+          history_read_init:
+            description: "Initialize history read session."
+            value: [0xA0, 0x00, 0x00]
+            verification: "confirmed"
+          history_clear:
+            description: "Clear all stored history data on device. IRREVERSIBLE."
+            value: [0xA2, 0x00, 0x00]
+            advanced: true
+            advanced_reason: "Permanently deletes all historical data from device storage with no recovery."
+            verification: "confirmed"
+
+      - uuid: "0000003c-0000-1000-8000-00805f9b34fb"
+        name: "History Read"
+        properties: ["read"]
+        notes: >
+          ATT handle 0x3C. After writing history_read_init to 0x3E, read this
+          handle for history metadata (bytes 0-1 = uint16 LE count). Then for
+          each entry i, write 0xA1 + 2-byte-LE-address to 0x3E, read 0x3C for
+          the 16-byte history entry.
+        format:
+          - offset: 0
+            length: 2
+            name: "history_entry_count"
+            type: "uint16"
+            endianness: "little"
+
+      - uuid: "00000041-0000-1000-8000-00805f9b34fb"
+        name: "Device Time"
+        properties: ["read"]
+        notes: >
+          ATT handle 0x41. 4-byte little-endian uint32 device time in seconds.
+        format:
+          - offset: 0
+            length: 4
+            name: "device_time_seconds"
+            type: "uint32"
+            unit: "seconds"
+            endianness: "little"
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: "Standard BLE battery service (if exposed via GATT). May not be present on all firmware versions; use handle 0x38 instead."
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
+    state_field: "sensor_data.temperature"
+  - platform: "sensor"
+    name: "Soil Moisture"
+    device_class: "humidity"
+    unit: "%"
+    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
+    state_field: "sensor_data.moisture"
+  - platform: "sensor"
+    name: "Light Intensity"
+    device_class: "illuminance"
+    unit: "lux"
+    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
+    state_field: "sensor_data.light"
+  - platform: "sensor"
+    name: "Soil Conductivity"
+    unit: "µS/cm"
+    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
+    state_field: "sensor_data.conductivity"
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00000038-0000-1000-8000-00805f9b34fb"
+    state_field: "firmware_battery.battery"

@@ -1,0 +1,233 @@
+# Roku External Control Protocol — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Roku External Control Protocol"
+  manufacturer: "Roku / TCL"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  transport: "http"
+  notes: >
+    Roku ECP is a local REST-style HTTP API exposed on port 8060 with no
+    authentication. Discovery is two-step: SSDP M-SEARCH for roku:ecp returns
+    a LOCATION such as http://<ip>:8060/, then consumers must fetch
+    http://<ip>:8060/query/device-info to get XML identity. The same discovered
+    host:8060 is used for /query/*, /keypress/*, /launch/*, /search/browse,
+    and /input/* endpoints. AirPlay mDNS can also locate compatible TCL Roku
+    TVs but ECP identity comes from /query/device-info.
+  identification:
+    ssdp_search_target: "roku:ecp"
+    mdns_service_type: "_airplay._tcp.local."
+    default_port: 8060
+    identity_keys:
+      primary: "serial"
+      secondary: "device_id"
+      display: "user_device_name"
+
+  discovery:
+    methods:
+      - type: "ssdp"
+        ssdp:
+          search_targets: ["roku:ecp"]
+          query_path: "/query/device-info"
+          response_mapping:
+            location:
+              url: "LOCATION"
+              action: "fetch_xml"
+              parse:
+                device_identity:
+                  stable_keys:
+                    - source: "xml://device-info/serial-number"
+                      key: "serial"
+                    - source: "xml://device-info/device-id"
+                      key: "device_id"
+                  display:
+                    source: "xml://device-info/user-device-name"
+                  variant:
+                    source: "xml://device-info/model-name"
+      - type: "mdns"
+        mdns:
+          service_type: "_airplay._tcp.local."
+          identity_mapping:
+            stable_keys:
+              - source: "txt:deviceid"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["serial", "device_id"]
+      display: "user_device_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      Roku onboarding happens entirely on the device's own screen with the
+      remote; there is no app-driven provisioning protocol to reimplement. ECP
+      itself needs no pairing — it is open to every host on the LAN once the
+      device is online, which is a discovery convenience and a security
+      liability at the same time.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Guided first-run setup on the TV/player: language, network selection,
+          passphrase entry with the on-screen keyboard, then a software update
+          and (optionally) an account link. The account link gates channel
+          installs, not ECP.
+        steps:
+          - action: "Power on the device and follow the on-screen setup with the remote."
+            actor: "user"
+          - action: "Select the WiFi network and enter the passphrase on the device itself."
+            actor: "user"
+            expect: "Device reports a successful connection and checks for updates."
+          - action: "Confirm ECP is reachable from the LAN."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "GET /query/device-info"
+            expect: "XML identity document on port 8060."
+    factory_reset:
+      confidence: "high"
+      effect: "Clears network credentials, account link, installed channels and settings; the device returns to first-run setup."
+      procedures:
+        - name: "Menu factory reset"
+          steps:
+            - action: "Settings > System > Advanced system settings > Factory reset."
+              actor: "user"
+        - name: "Hardware reset button"
+          hold_seconds: 20
+          indicator: "Device reboots into the first-run wizard."
+          steps:
+            - action: "Press and hold the recessed Reset button (pinhole on some models) for about 20 seconds while powered."
+              actor: "user"
+              notes: "Use this when the screen is unusable; the menu path is preferred otherwise."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Settings > Network > Set up connection re-runs only the network step. A
+        factory reset is never needed just to change routers.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "WiFi credentials"
+        - "Roku account link token"
+      issued_to_client: []
+      notes: >
+        ECP has no authentication at all. Anything that can route to port 8060
+        can drive the device, so treat network reachability as the entire
+        access control model and expect that some models let the user disable
+        external control in Settings.
+
+  variants:
+    - model: "C113X"
+      name: "TCL 50S525 Roku TV"
+      identification:
+        model_name: "TCL 50S525"
+        roku_model: "C113X"
+      characteristics:
+        - "Live device Television Boat observed on Ethernet with Roku OS 15.2.4."
+    - model: "8116X"
+      name: "TCL 32S327 Roku TV"
+      identification:
+        model_name: "TCL 32S327"
+        roku_model: "8116X"
+      characteristics:
+        - "Live devices Tugboat and HKTV observed on WiFi with Roku OS 15.2.4."
+    - model: "G133X"
+      name: "TCL 43S45 Roku TV"
+      identification:
+        model_name: "TCL 43S45"
+        roku_model: "G133X"
+      characteristics:
+        - "Live device Sharting Around the House With Mr. Farts observed on Ethernet with Roku OS 15.2.4."
+
+evidence:
+  live_lan_probe:
+    date: "2026-07-16"
+    devices:
+      - name: "Television Boat"
+        model: "TCL 50S525"
+        roku_model: "C113X"
+        serial: "X00100P9Y6U9"
+        address: "10.69.200.179"
+        link: "ethernet"
+        software_version: "15.2.4"
+      - name: "Tugboat"
+        model: "TCL 32S327"
+        roku_model: "8116X"
+        serial: "YK0007372293"
+        address: "10.69.200.99"
+        link: "wifi"
+        software_version: "15.2.4"
+      - name: "Sharting Around the House With Mr. Farts"
+        model: "TCL 43S45"
+        roku_model: "G133X"
+        serial: "X01200VJFAN3"
+        address: "10.69.199.93"
+        link: "ethernet"
+        software_version: "15.2.4"
+      - name: "HKTV"
+        model: "TCL 32S327"
+        roku_model: "8116X"
+        serial: "YK00CE026676"
+        address: "10.69.194.215"
+        link: "wifi"
+        software_version: "15.2.4"
+
+http_endpoints:
+  - method: "GET"
+    path: "/query/device-info"
+    name: "Device Info"
+    description: "XML device identity, model, user display name, serial, device-id, network type, and software version."
+    response_body:
+      content_type: "application/xml"
+  - method: "GET"
+    path: "/query/apps"
+    name: "Installed Apps"
+    description: "XML list of installed Roku channels and launchable app IDs."
+    response_body:
+      content_type: "application/xml"
+  - method: "GET"
+    path: "/query/active-app"
+    name: "Active App"
+    description: "Current foreground app and active media context."
+    response_body:
+      content_type: "application/xml"
+  - method: "GET"
+    path: "/query/media-player"
+    name: "Media Player"
+    description: "Playback state, position, duration, and media metadata when available."
+    response_body:
+      content_type: "application/xml"
+  - method: "POST"
+    path: "/keypress/{key}"
+    name: "Keypress"
+    description: "Send a remote-control key such as Home, Back, Select, Up, Down, Left, Right, Play, Rev, or Fwd."
+  - method: "POST"
+    path: "/launch/{app_id}"
+    name: "Launch App"
+    description: "Launch an installed Roku app by app ID from /query/apps."
+  - method: "POST"
+    path: "/search/browse?keyword={keyword}"
+    name: "Search Browse"
+    description: "Open Roku search/browse UI for a keyword."
+  - method: "POST"
+    path: "/input/{source}"
+    name: "Input Source"
+    description: "Switch a Roku TV input source such as HDMI1, HDMI2, AV, or tuner."
+
+entities:
+  - platform: "sensor"
+    name: "Active App"
+    state_topic: "/query/active-app"
+  - platform: "sensor"
+    name: "Media Player"
+    state_topic: "/query/media-player"
+  - platform: "select"
+    name: "Input Source"
+    commands:
+      select_option: "/input/{source}"
+

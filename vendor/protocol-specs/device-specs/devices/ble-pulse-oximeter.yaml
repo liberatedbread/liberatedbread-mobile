@@ -1,0 +1,94 @@
+# BLE Pulse Oximeter (SP001/BerryMed) — Device Spec
+# Generated from static analysis of com.wakeup.smartspo (Wearfit BO)
+# APK source: apkeep (Google Play mirror)
+# APK SHA-256: 37834803 bytes bare APK
+
+device:
+  name: "BLE Fingertip Pulse Oximeter (SP001 / BerryMed)"
+  manufacturer: "Manridy (likely ODM)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    Uses standard Nordic UART service. Data format for SpO2/PR/PI readings
+    is sent as notifications on UART TX characteristic.
+    Packet size: 20 bytes (MTU-3).
+    Data parsing via chignon package (BroadcastCommand, BroadcastData, DataPacket).
+
+    Expected measurements: SpO2%, pulse rate (BPM), perfusion index (%).
+
+    Research status: APK acquired, decompiled. Nordic UART service UUIDs
+    recovered. Data frame format TBD — needs HCI snoop.
+    Reference: github.com/jcomas/PulseOximeterSP001 (existing partial implementation).
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      There is nothing to provision. The oximeter exposes a Nordic UART service
+      and streams measurements as notifications to whichever client connects;
+      it holds no account, no network credential and no pairing state. Setup is
+      "clip it on and connect".
+
+      Confidence is medium rather than high because this has not been run
+      against hardware here — the UUIDs come from a decompiled APK and the data
+      frame format is still TBD.
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT and subscribe to notifications on the Nordic UART TX
+          characteristic. No pairing, bonding or app account is involved.
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Clip the oximeter onto a finger; it powers on and begins advertising."
+            actor: user
+          - action: "Scan for the device and connect over GATT."
+            actor: client
+          - action: "Subscribe to notifications on the UART TX characteristic."
+            actor: client
+            expect: "20-byte measurement frames arrive continuously."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. The device stores no credential or binding that a reset
+        would clear, so a reset may not exist at all; no reset command was found
+        in the decompiled app. Power-cycling by removing the batteries is the
+        only state change observed, and whether it clears anything is untested.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Not applicable in the usual sense — the device joins no network. Any
+        client may connect once the previous one disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No credential of any kind crosses the link. The connection is
+        unauthenticated and unencrypted, so anyone in range can read
+        measurements — a privacy consideration for a medical reading.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service"
+    notes: "Nordic UART service (standard async serial bridge)."
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART RX"
+        notes: "RX characteristic (write commands to device)."
+        properties: ["write", "write_without_response"]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "UART TX"
+        notes: "TX characteristic (notifications from device)."
+        properties: ["notify"]
+
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Smart Bracelet Service"
+    notes: "Alternate service also referenced in the Wearfit app."
+    characteristics:
+      - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+        name: "Smart Bracelet Measurement"
+        properties: ["write", "notify"]

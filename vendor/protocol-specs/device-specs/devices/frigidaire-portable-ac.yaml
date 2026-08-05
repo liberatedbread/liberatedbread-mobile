@@ -1,0 +1,229 @@
+# Frigidaire WiFi Portable Air Conditioner — Device Specification
+# Status: Cloud-only discovery confirmed by APK static analysis (updated 2026-07-15).
+#   App package analyzed: com.electrolux.oneapp.android.frigidaire v1.24, v2.0, v3.6
+#   APK/XAPK source: APKPure via apkeep. Older versions below 3.0 were obtained
+#   and decompiled; local networking remained provisioning/enrollment only.
+#   No steady-state LAN control discovery was found; local networking appears
+#   limited to SoftAP/AllJoyn/OCP provisioning and enrollment.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Frigidaire WiFi Portable Air Conditioner"
+  manufacturer: "Frigidaire (Electrolux)"
+  manufacturer_status: "unsupported"
+  protocol: "wifi"
+  notes: >
+    WiFi-connected portable AC units controlled via the Frigidaire app
+    (Electrolux platform). Covers FHPC series (8K BTU) and FHPH series
+    (13K BTU). Same cloud platform as window AC units but adds Dehumidify
+    mode and drain-full indicator.
+
+    DISCOVERY/AUTHENTICATION: this is WiFi cloud control, not a steady-state
+    local LAN protocol. APK static analysis of Frigidaire
+    com.electrolux.oneapp.android.frigidaire v1.24, v2.0, and v3.6 found OCP
+    cloud endpoints and websocket hosts, plus provisioning-only local paths:
+    SoftAP SSID hints (AJ, @E, IOT, Air_Conditioner, Dehumidifier), Delta NIU
+    TCP/TLS setup, AllJoyn onboarding/enrollment classes, UDP broadcast on port
+    3000, a direct setup connection to 192.168.6.1:3002, and in v2.0 a cleartext
+    network-security exception for 192.168.0.1. Searches for mDNS/NSD,
+    SSDP/UPnP, .local service discovery, local REST/websocket endpoints, LAN
+    control feature flags, and AWS Greengrass/local proxy patterns found no
+    usable post-pairing LAN discovery/control path for these AC units.
+
+    Discovery for users happens through the Frigidaire/Electrolux app account
+    after app-based pairing. The replacement control path must authenticate to
+    the Electrolux cloud/OCP account, enumerate appliances assigned to that
+    account, then send commands through the cloud API or websocket.
+
+    Protocol details still need network captures to confirm exact request and
+    payload formats, but local device discovery is closed as cloud-only for
+    post-pairing control based on the inspected APK.
+  identification:
+    ssid_prefix: "Dehumidifier"
+    discovery: "Electrolux/Frigidaire app and cloud account enumeration"
+    local_discovery: false
+    provisioning_local_only:
+      softap_ssid_prefixes: ["AJ", "@E", "IOT", "Air_Conditioner", "Dehumidifier"]
+      protocols: ["AllJoyn onboarding", "OCP provisioning"]
+      setup_endpoint: "192.168.6.1:3002"
+      legacy_cleartext_exception: "192.168.0.1"
+      udp_broadcast_port: 3000
+      legacy_setup_commands:
+        - "DELTA_NIU_HTTP_REQUEST"
+        - "DELTA_NIU_COOKIE_SIGN"
+        - "DELTA_NIU_SET_CLOUD_PASSWORD"
+        - "OCP_CLOUD_POST_APPLIANCE"
+        - "AJ_NIU_ONBOARD"
+        - "LOCAL_ROBOT_PASSWORD"
+    cloud_provider: "Electrolux OCP / Frigidaire app"
+    cloud_endpoints_observed:
+      - "https://api.ocp-dev.electrolux.one"
+      - "https://api.ocp-staging.electrolux.one"
+      - "https://frigidaire.app.electrolux.one/"
+      - "wss://ws.eu.ocp-dev.electrolux.one"
+      - "wss://ws.eu.ocp-staging.electrolux.one"
+      - "/appliance/api/v2/appliances?includeMetadata=true"
+      - "/appliance/api/v2/appliances/{applianceId}/command"
+      - "/appliance/api/v3/appliances/info"
+      - "/remote-control/api/v1/appliances/"
+
+  discovery:
+    methods:
+      - type: "cloud"
+        cloud:
+          provider: "electrolux_ocp"
+          auth_method: "oauth2"
+          device_list_endpoint:
+            method: "GET"
+            url: "https://api.electrolux.com/ocp/v1/appliances"
+            response_mapping:
+              stable_keys:
+                - source: "json://applianceId"
+              display:
+                source: "json://name"
+    identity:
+      stable_keys: ["appliance_id"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Onboarding is cloud-mediated and is the reason this appliance has no
+      local control story: the unit is bound to an Electrolux account during
+      setup, and every documented control path goes back through that account.
+      See the local API audit for the evidence that no local endpoint survives
+      provisioning.
+    methods:
+      - type: "cloud_account"
+        verified: false
+        description: >
+          The vendor app puts the appliance into pairing mode, transfers the
+          home network credentials, and registers the appliance against an
+          Electrolux account. Neither the credential transfer nor the
+          registration handshake has been captured here.
+        cloud:
+          provider: "Electrolux / Frigidaire"
+          local_alternative: >
+            None found. The local API audit across firmware v1.24, v2.0 and
+            v3.6 confirmed there is no local HTTP, SSDP or mDNS control surface
+            to fall back on.
+        steps:
+          - action: "Put the unit into pairing mode from its own control panel."
+            actor: "user"
+            notes: "Typically holding the WiFi/Connect button until the WiFi indicator blinks; confirm against the model's manual."
+          - action: "Complete onboarding in the vendor app, which transfers credentials and registers the appliance."
+            actor: "user"
+          - action: "Capture this exchange."
+            actor: "client"
+            notes: "Open gap: the highest-value capture target for this device, since it is the only moment local credentials are in play."
+    factory_reset:
+      confidence: "low"
+      effect: "Expected to clear WiFi credentials and the account binding, returning the unit to pairing mode. Not verified here."
+      procedures:
+        - name: "Control panel button sequence"
+          steps:
+            - action: "Hold the WiFi/Connect button on the unit until the WiFi indicator blinks to re-enter pairing mode."
+              actor: "user"
+              notes: "Vendor-documented and model-specific; verify against the manual before relying on it."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Changing routers means re-running app onboarding. If the vendor cloud
+        is retired, that path disappears and the unit cannot be re-bound at
+        all — the practical definition of a bricked smart appliance.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "WiFi credentials"
+        - "Cloud/account binding for the appliance"
+      issued_to_client: []
+
+http_endpoints:
+  - method: "GET"
+    path: "/appliance/api/v2/appliances?includeMetadata=true"
+    name: "Appliance List"
+    description: "Cloud account enumeration path observed in APK strings."
+    response_body:
+      content_type: "application/json"
+
+  - method: "GET"
+    path: "/appliance/api/v3/appliances/info"
+    name: "Appliance Info"
+    description: "Fetch appliance metadata for account-enumerated appliances."
+    response_body:
+      content_type: "application/json"
+
+  - method: "POST"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    name: "Appliance Command"
+    description: "Cloud command path observed in APK strings; exact payload requires traffic capture."
+    request_body:
+      content_type: "application/json"
+
+  - method: "POST"
+    path: "/remote-control/api/v1/appliances/"
+    name: "Remote Control"
+    description: "Cloud remote-control path observed in APK strings; exact payload requires traffic capture."
+    request_body:
+      content_type: "application/json"
+
+entities:
+  - platform: "climate"
+    name: "Portable Air Conditioner"
+    features: ["target_temperature", "fan_mode", "hvac_mode"]
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      current_temperature: "current_temperature"
+      target_temperature: "target_temperature"
+      fan_mode: "fan_speed"
+      hvac_mode: "mode"
+    commands:
+      set_temperature: "set_temperature"
+      set_fan_mode: "set_fan_speed"
+      set_hvac_mode: "set_mode"
+      turn_on: "set_power_on"
+      turn_off: "set_power_off"
+
+  - platform: "sensor"
+    name: "Room Temperature"
+    device_class: "temperature"
+    unit: "°F"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "current_temperature"
+
+  - platform: "binary_sensor"
+    name: "Filter Alert"
+    device_class: "problem"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "filter_alert"
+
+  - platform: "binary_sensor"
+    name: "Drain Full"
+    device_class: "problem"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "drain_full"
+
+  - platform: "switch"
+    name: "Sleep Mode"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "sleep_mode"
+    commands:
+      turn_on: "set_sleep_on"
+      turn_off: "set_sleep_off"
+
+  - platform: "switch"
+    name: "Display"
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "display"
+    commands:
+      turn_on: "set_display_on"
+      turn_off: "set_display_off"

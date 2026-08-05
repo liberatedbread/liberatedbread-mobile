@@ -1,0 +1,229 @@
+# Philips Hue Bridge — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Philips Hue Bridge"
+  manufacturer: "Signify / Philips Hue"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  transport: "http"
+  notes: >
+    Hue Bridge v2 exposes a local HTTP REST API on port 80. GET /api/config
+    returns bridge metadata without authentication. Control endpoints require a
+    whitelist username created by POST /api while the physical link button is
+    pressed. Discovery should prefer the Hue-specific mDNS service and fall
+    back to UPnP/SSDP device description XML.
+  identification:
+    mdns_service_type: "_hue._tcp.local."
+    ssdp_search_targets:
+      - "upnp:rootdevice"
+      - "urn:schemas-upnp-org:device:Basic:1"
+    default_port: 80
+    identity_keys:
+      primary: "bridgeid"
+      secondary: "mac"
+      tertiary: "udn"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_hue._tcp.local."
+          port: 80
+          txt_record_keys: ["bridgeid", "apiversion", "modelid", "mac"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:bridgeid"
+                key: "bridgeid"
+              - source: "txt:mac"
+                key: "mac"
+            display:
+              source: "name"
+      - type: "ssdp"
+        ssdp:
+          search_targets:
+            - "upnp:rootdevice"
+            - "urn:schemas-upnp-org:device:Basic:1"
+          response_mapping:
+            location:
+              url: "LOCATION"
+              action: "fetch_xml"
+              parse:
+                device_identity:
+                  stable_keys:
+                    - source: "xml://device/UDN"
+                      key: "udn"
+                    - source: "xml://device/serialNumber"
+                      key: "serial"
+                  display:
+                    source: "xml://device/friendlyName"
+    identity:
+      stable_keys: ["bridgeid", "mac", "udn"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      Two separate things have to happen before a client can control a Hue
+      Bridge: the bridge has to reach the LAN (Ethernet only — the v2 bridge
+      has no WiFi radio and no credential provisioning of its own), and the
+      client has to be authorized by the physical link button. Only the second
+      step is a protocol flow.
+    methods:
+      - type: "wired"
+        verified: false
+        description: >
+          Plug the bridge into the router with Ethernet and power it. It takes
+          a DHCP lease and starts answering mDNS/SSDP; there is no WiFi
+          passphrase to transfer, so there is no setup AP and no credential
+          encryption problem.
+        steps:
+          - action: "Connect the bridge to the LAN over Ethernet and apply power."
+            actor: "user"
+            expect: "All three front LEDs light; the bridge answers _hue._tcp.local."
+            timeout_seconds: 120
+      - type: "button_pairing"
+        verified: false
+        description: >
+          The bridge issues an API username (whitelist entry) to any client
+          that asks within roughly 30 seconds of the physical link button being
+          pressed. This is a proximity proof, not an account: no cloud login is
+          involved and the username keeps working after the vendor cloud goes
+          away.
+        steps:
+          - action: "POST /api with a devicetype string to confirm the bridge rejects unauthorized clients."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /api"
+              arguments:
+                - name: "devicetype"
+                  type: "string"
+                  required: true
+                  description: "application#instance identifier, e.g. opengreeniot#hub."
+            expect: "Error type 101, 'link button not pressed' — proves the bridge is reachable and unpaired."
+          - action: "Press the round link button on the top of the bridge."
+            actor: "user"
+          - action: "Repeat POST /api within the pairing window."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /api"
+            expect: "success.username — store it; it is the only credential needed for all later control."
+            timeout_seconds: 30
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears every whitelist username and the bridge's own ZigBee network
+        configuration. Paired bulbs stay joined to the old, now-forgotten
+        network and must be re-added (or reset themselves) afterwards, so a
+        bridge reset is a much bigger event than a WiFi device reset.
+      procedures:
+        - name: "Recessed restore button"
+          indicator: "LEDs cycle and the bridge reboots."
+          steps:
+            - action: "Press the recessed button on the underside of the bridge with a paperclip and hold until the LEDs cycle."
+              actor: "user"
+            - action: "Wait for the bridge to reboot and re-acquire a DHCP lease."
+              actor: "device"
+              timeout_seconds: 120
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving the bridge to a different router is a cable move plus a new DHCP
+        lease. Stored usernames survive, so previously authorized clients keep
+        working; only the IP changes, which is why clients must key off the TXT
+        bridgeid rather than the address.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Whitelist usernames issued to paired clients"
+        - "ZigBee network key for paired lights"
+      issued_to_client:
+        - "API username (bearer-equivalent; sent in the URL path on plain HTTP)"
+      notes: >
+        The username is transmitted in the URL on unencrypted HTTP and never
+        expires on its own. Treat it as a long-lived LAN secret and delete
+        unused whitelist entries.
+
+evidence:
+  live_lan_probe:
+    date: "2026-07-16"
+    address: "10.69.200.190"
+    modelid: "BSB002"
+    hardware: "Hue Bridge v2 square"
+    api_version: "1.78.0"
+    serial: "00178861fcb0"
+    mac: "00:17:88:61:fc:b0"
+    bridgeid: "001788FFFE61FCB0"
+    protocol: "REST API on port 80"
+
+http_endpoints:
+  - method: "GET"
+    path: "/api/config"
+    name: "Bridge Config"
+    description: "Unauthenticated bridge info including name, bridgeid, MAC, modelid, software version, API version, and network settings."
+    response_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/api"
+    name: "Create User"
+    description: "Press-link pairing endpoint that creates a whitelist username when the bridge link button has been pressed."
+    request_body:
+      content_type: "application/json"
+      fields:
+        - name: "devicetype"
+          type: "string"
+          required: true
+          description: "Application identifier used for the created Hue whitelist username."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/api/{username}/lights"
+    name: "Lights"
+    description: "Enumerate Hue lights paired to the bridge."
+    response_body:
+      content_type: "application/json"
+  - method: "PUT"
+    path: "/api/{username}/lights/{id}/state"
+    name: "Set Light State"
+    description: "Set on/off, brightness, color, color temperature, effects, or alert state for a light."
+    request_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/api/{username}/sensors"
+    name: "Sensors"
+    description: "Enumerate Hue sensors exposed by the bridge."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/api/{username}/groups"
+    name: "Groups"
+    description: "Enumerate rooms, zones, and light groups."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/api/{username}/scenes"
+    name: "Scenes"
+    description: "Enumerate bridge scenes."
+    response_body:
+      content_type: "application/json"
+
+entities:
+  - platform: "light"
+    name: "Hue Light"
+    state_topic: "/api/{username}/lights/{id}"
+    commands:
+      turn_on: "/api/{username}/lights/{id}/state"
+      turn_off: "/api/{username}/lights/{id}/state"
+      set_brightness: "/api/{username}/lights/{id}/state"
+      set_color: "/api/{username}/lights/{id}/state"
+  - platform: "sensor"
+    name: "Hue Sensor"
+    state_topic: "/api/{username}/sensors/{id}"
+
