@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: '3.24.5'
+  FLUTTER_VERSION: '3.44.8'
   # The NDK cargokit actually builds against, shared by every job that compiles
   # the Rust crate for Android. android/app/build.gradle sets
   # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
@@ -33,7 +33,7 @@ env:
   # 3.24.5 hardcodes 23.1.7779620 (packages/flutter_tools/gradle/src/main/
   # groovy/flutter.groovy). Installing any other version just means cargokit
   # downloads this one itself, mid-build. Keep in sync with FLUTTER_VERSION.
-  FLUTTER_NDK_VERSION: '23.1.7779620'
+  FLUTTER_NDK_VERSION: '28.2.13676358'
 
 jobs:
   flutter:

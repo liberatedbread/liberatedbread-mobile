@@ -606,12 +606,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return ImageWritePlanDto(
       serviceUuid: dco_decode_String(arr[0]),
       characteristicUuid: dco_decode_String(arr[1]),
       writes: dco_decode_list_list_prim_u_8_strict(arr[2]),
+      nextFrameIndex: dco_decode_u_32(arr[3]),
     );
   }
 
@@ -1102,10 +1103,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_serviceUuid = sse_decode_String(deserializer);
     var var_characteristicUuid = sse_decode_String(deserializer);
     var var_writes = sse_decode_list_list_prim_u_8_strict(deserializer);
+    var var_nextFrameIndex = sse_decode_u_32(deserializer);
     return ImageWritePlanDto(
         serviceUuid: var_serviceUuid,
         characteristicUuid: var_characteristicUuid,
-        writes: var_writes);
+        writes: var_writes,
+        nextFrameIndex: var_nextFrameIndex);
   }
 
   @protected
@@ -1670,6 +1673,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.serviceUuid, serializer);
     sse_encode_String(self.characteristicUuid, serializer);
     sse_encode_list_list_prim_u_8_strict(self.writes, serializer);
+    sse_encode_u_32(self.nextFrameIndex, serializer);
   }
 
   @protected

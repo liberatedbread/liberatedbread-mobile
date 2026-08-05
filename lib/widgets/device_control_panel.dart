@@ -43,8 +43,12 @@ class DeviceControlPanel extends ConsumerWidget {
     final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
       ..sort();
 
-    // Collapse loading / error to null so the raw browser shows immediately
-    // and is replaced in place once a spec match resolves.
+    // valueOrNull rather than asData: on a recompute (e.g. a spec choice was
+    // just saved) riverpod re-emits AsyncLoading, and asData would go null —
+    // momentarily unmounting typed controls and the LED editor (destroying
+    // its drawn frames) before the fresh result lands. valueOrNull keeps the
+    // previous outcome through the reload; a first load still starts null,
+    // showing the raw browser until the match resolves.
     final outcome = ref
         .watch(matchedDeviceSpecProvider(
           SpecMatchRequest(
@@ -53,8 +57,7 @@ class DeviceControlPanel extends ConsumerWidget {
             serviceUuids: serviceUuids,
           ),
         ))
-        .asData
-        ?.value;
+        .valueOrNull;
     final match = outcome?.chosen;
 
     // Entities the spec declares, paired with the discovered service that
@@ -84,19 +87,34 @@ class DeviceControlPanel extends ConsumerWidget {
     // readings once a spec is chosen. Chooser and banner are mutually
     // exclusive today — no spec is chosen while a choice is pending — but
     // built as a list so that isn't load-bearing.
+    // Every slot is keyed: leading slots appear/disappear as the match
+    // resolves or the user answers the chooser, and without keys Flutter
+    // re-pairs the STATEFUL service cards positionally — a card labeled with
+    // service B would keep service A's element state (including notify
+    // subscriptions bound in initState) after the shift.
     final leading = <Widget>[
       if (outcome != null && outcome.needsChoice)
-        _SpecChoicePrompt(deviceId: deviceId, candidates: outcome.candidates),
+        _SpecChoicePrompt(
+          key: const ValueKey('spec-choice-prompt'),
+          deviceId: deviceId,
+          candidates: outcome.candidates,
+        ),
       if (outcome != null && outcome.source == SpecChoiceSource.saved)
-        _SavedChoiceBanner(deviceId: deviceId, chosen: outcome.chosen!),
+        _SavedChoiceBanner(
+          key: const ValueKey('saved-choice-banner'),
+          deviceId: deviceId,
+          chosen: outcome.chosen!,
+        ),
       if (match != null && match.spec.imageUpload != null)
         LedImageWidget(
+          key: const ValueKey('led-image-editor'),
           deviceId: deviceId,
           imageUpload: match.spec.imageUpload!,
           specYaml: match.yaml,
         ),
       if (readings.isNotEmpty)
         _ReadingsSection(
+          key: const ValueKey('readings-section'),
           deviceId: deviceId,
           readings: readings,
           specYaml: match!.yaml,
@@ -108,9 +126,11 @@ class DeviceControlPanel extends ConsumerWidget {
       itemCount: services.length + leading.length,
       itemBuilder: (context, index) {
         if (index < leading.length) return leading[index];
+        final service = services[index - leading.length];
         return _ServiceCard(
+          key: ValueKey('service:${normalizeUuid(service.uuid)}'),
           deviceId: deviceId,
-          service: services[index - leading.length],
+          service: service,
           matched: match,
         );
       },
@@ -131,7 +151,8 @@ class _SavedChoiceBanner extends ConsumerWidget {
   final String deviceId;
   final MatchedSpec chosen;
 
-  const _SavedChoiceBanner({required this.deviceId, required this.chosen});
+  const _SavedChoiceBanner(
+      {super.key, required this.deviceId, required this.chosen});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -190,7 +211,8 @@ class _SpecChoicePrompt extends ConsumerWidget {
   final String deviceId;
   final List<MatchedSpec> candidates;
 
-  const _SpecChoicePrompt({required this.deviceId, required this.candidates});
+  const _SpecChoicePrompt(
+      {super.key, required this.deviceId, required this.candidates});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -271,6 +293,7 @@ class _ReadingsSection extends StatelessWidget {
   final String specYaml;
 
   const _ReadingsSection({
+    super.key,
     required this.deviceId,
     required this.readings,
     required this.specYaml,
@@ -310,6 +333,7 @@ class _ServiceCard extends StatelessWidget {
   final MatchedSpec? matched;
 
   const _ServiceCard({
+    super.key,
     required this.deviceId,
     required this.service,
     required this.matched,

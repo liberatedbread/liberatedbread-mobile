@@ -78,6 +78,11 @@ pub struct ImageWritePlanDto {
     /// Ordered write payloads. The caller sends them back-to-back on the
     /// characteristic; ordering is part of the protocol (fragment reassembly).
     pub writes: Vec<Vec<u8>>,
+    /// The frame index to pass for the NEXT frame. A frame spanning P wire
+    /// packets consumes P sequence numbers, so advancing by 1 would make the
+    /// next frame's serials collide with this one's and corrupt fragment
+    /// reassembly on the device — always continue from this value.
+    pub next_frame_index: u32,
 }
 
 /// A spec-declared reading: what to call it, what unit it is in, and which
@@ -217,7 +222,11 @@ fn image_upload_dto(spec: &DeviceSpec) -> Option<ImageUploadDto> {
         .iter()
         .find(|f| f.feature_type == "image_upload")?;
     let handler = spec.protocol_handler.clone();
-    let encodable = handler.as_deref() == Some(crate::protocol::daniao::HANDLER_NAME);
+    // Same registry encode_image_frame dispatches on, so a handler can never
+    // be advertised as encodable without an encoder (or vice versa).
+    let encodable = handler
+        .as_deref()
+        .is_some_and(|name| crate::protocol::image_upload_handler(name).is_some());
     Some(ImageUploadDto {
         handler,
         encodable,
@@ -530,33 +539,35 @@ pub fn encode_image_frame(
     frame_index: u32,
     max_payload_per_write: u32,
 ) -> anyhow::Result<ImageWritePlanDto> {
-    use crate::protocol::daniao;
-
-    let spec = parse_device_spec(&spec_yaml)?;
-    match spec.protocol_handler.as_deref() {
-        Some(daniao::HANDLER_NAME) => {
-            let writes = daniao::encode_display_frame(
-                &rgb,
-                width,
-                height,
-                frame_index,
-                max_payload_per_write as usize,
-            )?;
-            Ok(ImageWritePlanDto {
-                service_uuid: daniao::SERVICE_UUID.to_string(),
-                characteristic_uuid: daniao::DDP_WRITE_UUID.to_string(),
-                writes,
-            })
-        }
-        Some(other) => Err(crate::error::ProtocolError::ImageUploadUnsupported {
-            reason: format!("protocol handler '{other}' has no encoder in this build"),
-        }
-        .into()),
-        None => Err(crate::error::ProtocolError::ImageUploadUnsupported {
+    // Streaming calls this once per frame with the same YAML, so parse
+    // through the same bounded cache encode_command/decode_value use — a
+    // cache hit instead of a full re-parse per frame.
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let Some(handler_name) = spec.protocol_handler.as_deref() else {
+        return Err(crate::error::ProtocolError::ImageUploadUnsupported {
             reason: "the device spec declares no protocol_handler".to_string(),
         }
-        .into()),
-    }
+        .into());
+    };
+    let Some(handler) = crate::protocol::image_upload_handler(handler_name) else {
+        return Err(crate::error::ProtocolError::ImageUploadUnsupported {
+            reason: format!("protocol handler '{handler_name}' has no encoder in this build"),
+        }
+        .into());
+    };
+    let frame = (handler.encode)(
+        &rgb,
+        width,
+        height,
+        frame_index,
+        max_payload_per_write as usize,
+    )?;
+    Ok(ImageWritePlanDto {
+        service_uuid: handler.service_uuid.to_string(),
+        characteristic_uuid: handler.characteristic_uuid.to_string(),
+        next_frame_index: frame_index.wrapping_add(frame.packets),
+        writes: frame.writes,
+    })
 }
 
 /// Decode raw bytes from a BLE read/notify into named values.
@@ -982,6 +993,24 @@ services: []
         );
         assert_eq!(plan.writes.len(), 1);
         assert!(plan.writes[0].ends_with(&[0x10, 0x20, 0x30]));
+        assert_eq!(plan.next_frame_index, 1, "one packet consumed one serial");
+    }
+
+    #[test]
+    fn encode_image_frame_advances_index_by_packets_consumed() {
+        // 40x34 RGB at the 20-byte payload floor splits into two DDP packets
+        // (serials 5 and 6), so the next frame must start at 7 — advancing by
+        // one would make its first packet collide with this frame's second.
+        let plan = encode_image_frame(
+            IMAGE_SPEC_YAML.into(),
+            40,
+            34,
+            vec![0xAB; 40 * 34 * 3],
+            5,
+            20,
+        )
+        .unwrap();
+        assert_eq!(plan.next_frame_index, 7);
     }
 
     #[test]

@@ -630,10 +630,12 @@ impl SseDecode for crate::api::device_api::ImageWritePlanDto {
         let mut var_serviceUuid = <String>::sse_decode(deserializer);
         let mut var_characteristicUuid = <String>::sse_decode(deserializer);
         let mut var_writes = <Vec<Vec<u8>>>::sse_decode(deserializer);
+        let mut var_nextFrameIndex = <u32>::sse_decode(deserializer);
         return crate::api::device_api::ImageWritePlanDto {
             service_uuid: var_serviceUuid,
             characteristic_uuid: var_characteristicUuid,
             writes: var_writes,
+            next_frame_index: var_nextFrameIndex,
         };
     }
 }
@@ -1310,6 +1312,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageWritePlanDto
             self.service_uuid.into_into_dart().into_dart(),
             self.characteristic_uuid.into_into_dart().into_dart(),
             self.writes.into_into_dart().into_dart(),
+            self.next_frame_index.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1586,6 +1589,7 @@ impl SseEncode for crate::api::device_api::ImageWritePlanDto {
         <String>::sse_encode(self.service_uuid, serializer);
         <String>::sse_encode(self.characteristic_uuid, serializer);
         <Vec<Vec<u8>>>::sse_encode(self.writes, serializer);
+        <u32>::sse_encode(self.next_frame_index, serializer);
     }
 }
 
