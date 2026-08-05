@@ -81,6 +81,62 @@ bool shouldStopNativeScanOnCancel({
 }) =>
     active == null || identical(active, own);
 
+/// Delay before retrying a service discovery that returned zero services, or
+/// null when [attempt] retries have already happened and the empty result
+/// should be accepted as final.
+///
+/// A connectable GATT peripheral virtually always exposes at least the
+/// Generic Access/Attribute services, so an empty discovery result is almost
+/// never real — it is a race with the platform's service resolution. The
+/// concrete case this fixes: flutter_blue_plus's Linux backend answers
+/// discoverServices from BlueZ's current D-Bus object tree WITHOUT waiting
+/// for BlueZ's ServicesResolved flag, so a discovery issued right after
+/// connect sees an empty tree. The log signature is "discovered 0 service(s)"
+/// only milliseconds after "connected" (observed with SmartDawn/Daniao
+/// controllers: 7ms).
+///
+/// Resolution normally lands within a couple of seconds, so the delays grow
+/// from quick to patient: ~6s total across 5 retries, enough for a slow
+/// peripheral without pinning the "Discovering services" screen open forever
+/// when the device genuinely exposes nothing.
+///
+/// Extracted as a pure top-level function so the schedule can be unit-tested
+/// without a real Bluetooth adapter.
+Duration? nextEmptyDiscoveryRetryDelay(int attempt) {
+  const delays = [
+    Duration(milliseconds: 200),
+    Duration(milliseconds: 400),
+    Duration(milliseconds: 800),
+    Duration(milliseconds: 1600),
+    Duration(milliseconds: 3200),
+  ];
+  return attempt < delays.length ? delays[attempt] : null;
+}
+
+/// Whether an error thrown by `setNotifyValue` is the Linux backend's
+/// spurious confirmation timeout, which should be tolerated because the
+/// subscription is actually live.
+///
+/// flutter_blue_plus_linux (3.0.2, the newest release compatible with
+/// flutter_blue_plus 1.35.4) performs BlueZ StartNotify/StopNotify
+/// synchronously inside the platform call — by the time the call returns,
+/// notifications are flowing. But flutter_blue_plus core then waits for an
+/// onDescriptorWritten event for the CCCD (0x2902), which that backend never
+/// emits: BlueZ manages the CCCD internally and does not even expose it as a
+/// descriptor. So on Linux every setNotifyValue "times out" AFTER succeeding.
+/// Tolerating exactly (Linux && setNotifyValue && timeout) turns that into a
+/// logged warning instead of a dead subscription; every other error — wrong
+/// characteristic, device disconnected, a genuine unacked CCCD write on
+/// Android/iOS — still surfaces.
+///
+/// Extracted as a pure top-level function so the tolerance can be unit-tested
+/// without a real Bluetooth adapter.
+bool isSpuriousLinuxNotifyTimeout(Object error, {required bool isLinux}) =>
+    isLinux &&
+    error is FlutterBluePlusException &&
+    error.function == 'setNotifyValue' &&
+    error.code == FbpErrorCode.timeout.index;
+
 /// Decide whether a write should be sent WITHOUT a response, given a
 /// characteristic's advertised write properties.
 ///
@@ -350,6 +406,11 @@ class RealBleService implements BleService {
     final device = BluetoothDevice.fromId(deviceId);
     await device.connect(timeout: const Duration(seconds: 15));
     Log.ble.info('connected to $deviceId');
+    // The MTU decides the usable write payload (ATT MTU - 3), which
+    // fragmented protocols (e.g. SmartDawn's DDP framing) depend on. fbp
+    // requests 512 on Android during connect; other platforms negotiate on
+    // their own and may just report the 23-byte default here.
+    Log.ble.debug('mtu for $deviceId: ${device.mtuNow}');
   }
 
   @override
@@ -398,14 +459,65 @@ class RealBleService implements BleService {
   /// Load GATT services for a device, caching the result so follow-up
   /// read/write/subscribe calls don't trigger a fresh discovery round-trip.
   /// The cache is invalidated in [disconnect].
+  ///
+  /// An empty result is retried on the [nextEmptyDiscoveryRetryDelay]
+  /// schedule: right after connect the platform may not have resolved the
+  /// GATT database yet (BlueZ's ServicesResolved race on Linux), and
+  /// accepting that first empty answer is what produced "no services found"
+  /// on devices that definitely have them.
   Future<List<BluetoothService>> _loadServices(String deviceId) async {
     final cached = _servicesCache[deviceId];
     if (cached != null) return cached;
     final device = BluetoothDevice.fromId(deviceId);
-    final services = await device.discoverServices();
+
+    // subscribeToServicesChanged: false, twice over. (1) The default (true)
+    // makes fbp subscribe to the GATT Service Changed characteristic (0x2A05)
+    // as part of discovery, so a peripheral that never acks that CCCD write
+    // turns the whole discovery into a "setNotifyValue timed out" failure
+    // after 15s. (2) On Linux that subscribe can never be confirmed at all
+    // (see [isSpuriousLinuxNotifyTimeout]), making the timeout certain
+    // whenever the device exposes 0x2A05. We re-discover on every connection
+    // (the cache clears in [disconnect]), so nothing here relies on
+    // service-changed notifications.
+    final stopwatch = Stopwatch()..start();
+    var attempt = 0;
+    var services =
+        await device.discoverServices(subscribeToServicesChanged: false);
+    while (services.isEmpty) {
+      final delay = nextEmptyDiscoveryRetryDelay(attempt);
+      if (delay == null) break;
+      attempt += 1;
+      Log.ble.debug('discovery on $deviceId returned no services after '
+          '${stopwatch.elapsedMilliseconds}ms; retry $attempt in '
+          '${delay.inMilliseconds}ms (services may still be resolving)');
+      await Future<void>.delayed(delay);
+      services =
+          await device.discoverServices(subscribeToServicesChanged: false);
+    }
+
     // Only on a cache miss, so this is once per connection, not per read.
-    Log.ble.info('discovered ${services.length} service(s) on $deviceId');
-    _servicesCache[deviceId] = services;
+    // The elapsed time is diagnostic: a discovery that "finished" within a
+    // few ms of connecting almost certainly raced service resolution rather
+    // than actually talking to the device.
+    if (services.isEmpty) {
+      Log.ble.warning('discovered 0 service(s) on $deviceId in '
+          '${stopwatch.elapsedMilliseconds}ms (${attempt + 1} attempt(s)); '
+          'spec matching and typed controls need discovered services');
+    } else {
+      Log.ble.info('discovered ${services.length} service(s) on $deviceId '
+          'in ${stopwatch.elapsedMilliseconds}ms'
+          '${attempt > 0 ? ' after ${attempt + 1} attempts' : ''}');
+      for (final service in services) {
+        Log.ble.debug('  service ${service.uuid}: '
+            '${service.characteristics.length} characteristic(s) '
+            '[${service.characteristics.map((c) => c.uuid).join(', ')}]');
+      }
+      // Cache only a non-empty result. An empty one is far more likely the
+      // not-yet-resolved race than a genuinely empty GATT database, and
+      // caching it would pin every later read/write/subscribe on this
+      // connection to "characteristic not found".
+      _servicesCache[deviceId] = services;
+    }
     return services;
   }
 
@@ -472,7 +584,11 @@ class RealBleService implements BleService {
     () async {
       try {
         final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
-        await char.setNotifyValue(true);
+        // Logged BEFORE the enable so a hang inside setNotifyValue (a CCCD
+        // write the peripheral never acks) is visible as an unanswered line
+        // instead of the log only ever showing successes.
+        Log.ble.debug('enabling notifications for $charUuid on $deviceId');
+        await _setNotifyValue(char, enable: true);
         // Once per subscription. The notifications themselves are deliberately
         // NOT logged — that is the tight loop this logging must stay out of.
         Log.ble.debug('notifications enabled for $charUuid on $deviceId');
@@ -509,7 +625,7 @@ class RealBleService implements BleService {
       notifyingChar = null;
       if (char != null) {
         try {
-          await char.setNotifyValue(false);
+          await _setNotifyValue(char, enable: false);
         } catch (_) {
           // Best-effort: ignore failures during teardown.
         }
@@ -517,5 +633,29 @@ class RealBleService implements BleService {
     };
 
     return controller.stream;
+  }
+
+  /// Enable/disable notifications, tolerating the Linux backend's spurious
+  /// confirmation timeout (see [isSpuriousLinuxNotifyTimeout]: the
+  /// subscription is live by the time it fires).
+  ///
+  /// On Linux the wait is also shortened: the confirmation event cannot
+  /// arrive from the current backend, so the default 15s would be pure dead
+  /// time before every (working) subscription. 3s still leaves room for a
+  /// future fixed backend to confirm for real.
+  Future<void> _setNotifyValue(
+    BluetoothCharacteristic char, {
+    required bool enable,
+  }) async {
+    final isLinux = Platform.isLinux;
+    try {
+      await char.setNotifyValue(enable, timeout: isLinux ? 3 : 15);
+    } catch (e) {
+      if (!isSpuriousLinuxNotifyTimeout(e, isLinux: isLinux)) rethrow;
+      Log.ble.warning(
+          'treating setNotifyValue(${char.uuid}, $enable) confirmation '
+          'timeout as success: the Linux backend cannot confirm CCCD writes '
+          'but has already applied the change');
+    }
   }
 }
