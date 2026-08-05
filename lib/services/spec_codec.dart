@@ -26,12 +26,18 @@ export '../src/rust/api/device_api.dart'
         ImageWritePlanDto,
         MatchResult,
         MatchConfidence,
+        MacPrefixDto,
         ScanMatch,
         ScannedDeviceDto,
         NetworkDeviceDto,
         SpecIdentityDto,
         ProfileInfoDto,
         ProfileCharacteristicDto;
+
+// `MacPrefixDto.confidence` is generated into the spec module rather than the
+// api one, because the enum is declared where the catalogue is parsed. Callers
+// of this abstraction should not have to know that.
+export '../src/rust/spec/types.dart' show MacPrefixConfidence;
 
 // `ParameterDto.allowed` crosses the FFI as flutter_rust_bridge's Int64List
 // (a List<BigInt>, not dart:typed_data's). Re-export it so tests and widgets

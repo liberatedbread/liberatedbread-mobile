@@ -430,11 +430,11 @@ pub struct Identification {
     /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
     ///
     /// The weakest signal the catalogue carries: an OUI belongs to a vendor,
-    /// not a product, so it is only ever a ranking hint. See
-    /// [`MatchConfidence`](crate::api::device_api::MatchConfidence) for how the
-    /// matcher weighs it.
+    /// not a product. How weak depends on the block, which is what each entry's
+    /// `confidence` says. See
+    /// [`MatchConfidence`](crate::api::device_api::MatchConfidence).
     #[serde(default)]
-    pub mac_prefixes: Option<Vec<String>>,
+    pub mac_prefixes: Option<Vec<MacPrefix>>,
     /// mDNS/Bonjour service type for WiFi discovery (e.g. `_http._tcp`).
     #[serde(default)]
     pub mdns_service_type: Option<String>,
@@ -474,6 +474,61 @@ impl Identification {
         }
         ids
     }
+}
+
+/// One MAC prefix, with how much of its block belongs to this device.
+///
+/// Accepts either a bare string or a `{prefix, confidence, notes}` map, because
+/// the catalogue is hand-written and most entries have nothing interesting to
+/// say. A bare string means [`MacPrefixConfidence::Low`] — the safe reading,
+/// and the right one for a prefix nobody has checked.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum MacPrefix {
+    Bare(String),
+    Detailed {
+        prefix: String,
+        #[serde(default)]
+        confidence: MacPrefixConfidence,
+        #[serde(flatten)]
+        extensions: HashMap<String, serde_yaml::Value>,
+    },
+}
+
+impl MacPrefix {
+    pub fn prefix(&self) -> &str {
+        match self {
+            MacPrefix::Bare(prefix) => prefix,
+            MacPrefix::Detailed { prefix, .. } => prefix,
+        }
+    }
+
+    pub fn confidence(&self) -> MacPrefixConfidence {
+        match self {
+            MacPrefix::Bare(_) => MacPrefixConfidence::Low,
+            MacPrefix::Detailed { confidence, .. } => *confidence,
+        }
+    }
+}
+
+/// How much of an address block belongs to this device.
+///
+/// An OUI names whoever bought the block, which is frequently not who built the
+/// product, so the default is deliberately the pessimistic one.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum MacPrefixConfidence {
+    /// The block is shared — subdivided into MA-M/MA-S assignments held by
+    /// unrelated companies, or belonging to a third-party radio module's
+    /// vendor. Ranks a device, and nothing more.
+    #[default]
+    Low,
+    /// The block really is this manufacturer's, but covers their whole
+    /// catalogue: "something this vendor made", not "this device".
+    Medium,
+    /// The block is used by this device family and effectively nothing else.
+    /// Rare, and it needs evidence.
+    High,
 }
 
 /// The identifying part of a spec's BLE manufacturer-specific advertisement
