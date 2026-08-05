@@ -1,0 +1,271 @@
+# SPOTLED LED matrix panel device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SPOTLED LED Panel"
+  manufacturer: "Host No.4 Technology (Chengdu) Co., Ltd."
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    OEM full-color LED matrix panels driven by the SPOTLED app (com.led.spotled,
+    iOS id 1564039607), claiming 140k+ users. Not brand-specific: the same app and
+    protocol drive LED hats, name badges, backpack and hydration-pack skins, chest
+    panels and long flexible banner signs (32x256 arrays are commonly sold), each
+    rebranded by a different reseller. The Lunchbox / LEDs 2 RAVE 4 Dream Skin 2.0
+    and early Dream Skin 3.0 panels are members of this family — see
+    leds2rave4-lunchbox-led.yaml, which carries the same 0xFF20 service alongside
+    the SP107E/SP110E generations of that product line. THIS spec is the canonical
+    SPOTLED reference; keep the two in sync.
+
+    NO PAIRING: devices are connected from inside the app, not via system Bluetooth.
+    There is no bonding and no auth — anything in range can drive the panel. Treat
+    that as a wearer-privacy note, not an obstacle.
+
+    DISCOVERY: there is no reliable advertised-name prefix across the family because
+    resellers set their own. The 0xFF20 service is the dependable signal. Known
+    product-specific names include "LBXDRMSKIN_LED_" (Lunchbox Dream Skin).
+
+    CONNECTION BOOTSTRAP (all steps required for a working client):
+      1. Connect, negotiate MTU (falls back to 23 if not negotiated).
+      2. Enable notifications: write 00 00 00 01 to the CCCD (handle 0x0F
+      observed;
+         discover it rather than hardcoding).
+      3. Discover the 0xFF21 (command) and 0xFF22 (data) handles under 0xFF20.
+      4. GetBufferSize — determines upload chunking cadence.
+      5. GetDisplayInfo — width, height, color depth, frame limit, brightness.
+    Chunk pacing and content rendering both depend on steps 4 and 5; a client that
+    skips them cannot upload reliably.
+
+    COMMAND FRAME (0xFF21): [uint8 frame_length][uint8 command_id]
+    [uint16_be serial][uint16_be command_type][uint32_be command_length].
+    Serial numbers wrap: uint16 for commands, uint32 for data payloads.
+
+    DATA FRAME (0xFF22): 15-byte header — [uint32_be header_length = 15]
+    [uint16_be command_type = 0x8004][uint32_be serial][uint32_be content_length]
+    [uint8 checksum] — followed by typed content records, each
+    [uint32_be length][uint16_be type][fields][uint8 checksum]. Record types:
+    2 color, 3 character, 4 text, 5 font, 7 time, 8 effect, 9 speed, 10 number bar,
+    11 animation (max 20 frames), 13 font character, 14 brightness (0-100),
+    15 screen mode (0 normal / 1 upside-down / 2 mirror / 3 both), 96 frame
+    (width, height, depth 1=mono 24=RGB, bitmap).
+    Effects (type 8): 0 none, 1 up, 2 down, 3 left, 4 right, 5 stack, 6 expand,
+    7 laser.
+    CHECKSUM: byte sum of the covered range; if it exceeds 0xFF, negate ((~sum) + 1);
+    keep the low byte.
+
+    UPLOAD FLOW CONTROL (most common failure mode): send SendingDataStart with the
+    payload length and check the SendingData reply matches serial + command type with
+    error code 0. Write the payload to 0xFF22 in chunks of (MTU - 3) bytes. After
+    every (buffer_size / chunk_size) chunks the device emits a ContinueSending
+    notification — RESUME FROM THE OFFSET IT RETURNS, not from your own cursor.
+    Finish with SendingDataFinish. A PauseSending response means a bad MTU: chunks
+    too large OR too small. Derive chunk size from the negotiated MTU every
+    connection rather than assuming the 23-byte default.
+
+    RESPONSES (notify on 0xFF21): type 2 SendingData (serial, error code, command
+    type), type 255 ContinueSending (serial, command type, continue_from offset),
+    PauseSending (read error), DisplayInfo (width, height, color_depth 16=mono /
+    255=RGB, frame_limit, brightness, font_info), Version (device_type,
+    device_revision, software_revision), BufferSize (buffer_size).
+
+    TEXT: two paths. Rendering client-side into an Animation record (type 11) of
+    frames is faster and more capable. Sending Character records (type 3, capped
+    around 72 chars) lets the device lay text out but is slower and more limited.
+    Custom glyphs must be uploaded as FontCharacter records (type 13) before the
+    text referencing them.
+
+    CONFIDENCE: service/characteristic UUIDs, framing, command IDs, record types,
+    effect values, checksum rule and the flow-control algorithm are HIGH — sourced
+    from github.com/iwalton3/python-spotled, a clean-room library built from BLE
+    sniffing and in production use. FLAGGED as LOWER confidence: the CCCD handle
+    0x0F is observed on specific units rather than guaranteed, and colour Frame
+    records (depth 24) are implemented upstream but were never tested against RGB
+    hardware by the original author.
+
+  identification:
+    service_uuids:
+      - "0000ff20-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000ff20-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. Identify by the 0xFF20 service UUID rather than by name:
+      the same OEM protocol ships in hats, badges, backpack skins and banner
+      signs with no consistent advertising name.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+
+  variants:
+    - model: "Lunchbox Dream Skin 2.0 / 3.0 (early boards)"
+      identification:
+        local_name_prefix: "LBXDRMSKIN_LED_"
+        service_uuids:
+          - "0000ff20-0000-1000-8000-00805f9b34fb"
+      notes: >
+        See leds2rave4-lunchbox-led.yaml for the full product-line context,
+        including the SP107E v1 generation and the iLEDColor v3 board revision.
+
+services:
+  - uuid: "0000ff20-0000-1000-8000-00805f9b34fb"
+    name: "SPOTLED Service"
+    initialization:
+      - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+        write: [0x00, 0x00, 0x00, 0x01]
+        delay_ms: 0
+      - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+        write: [0x04, 0x14, 0x00, 0x00]
+        read: true
+      - characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+        write: [0x04, 0x12, 0x00, 0x00]
+        read: true
+    characteristics:
+      - uuid: "0000ff21-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write", "notify"]
+        notes: >
+          Control channel. NO characteristic-level `framing` is declared ON PURPOSE:
+          the values/templates below are COMPLETE frames — each already carries its
+          own leading length byte and command ID — and are written verbatim.
+          Declaring framing.length_prefix/checksum would make a consumer prepend a
+          second length and append a checksum, producing packets the panel rejects.
+          The command channel carries no checksum at all; the sum checksum belongs to
+          the 0xFF22 data payload records.
+
+          Frame layout [uint8 length][uint8 command_id]
+          [uint16_be serial][uint16_be command_type][uint32_be command_length].
+          Responses arrive as notifications here. The Get* commands below are
+          fixed 4-byte frames; the SendingData* commands are parameterised because
+          their serial number, command type and payload length change per upload.
+        commands:
+          get_version:
+            description: "Device type + device/software revision (13-byte reply)."
+            value: [0x04, 0x10, 0x00, 0x00]
+          get_display_info:
+            description: >
+              Query panel geometry: width, height, color depth (16 mono / 255 RGB),
+              frame limit, brightness, font info (11-byte reply). Use this instead of
+              hardcoding a panel size.
+            value: [0x04, 0x12, 0x00, 0x00]
+          get_buffer_size:
+            description: >
+              Device data buffer size (7-byte reply). Required — the upload chunk
+              cadence is buffer_size / (MTU - 3).
+            value: [0x04, 0x14, 0x00, 0x00]
+          sending_data_start:
+            description: >
+              Announce an incoming data payload:
+              [0x0A][0x01][uint16_be serial][uint16_be command_type]
+              [uint32_be payload_length]. Expect a SendingData reply with a matching
+              serial and command type and error code 0.
+            template: [0x0A, 0x01, "{serial_hi}", "{serial_lo}", "{type_hi}", "{type_lo}", "{len_b3}", "{len_b2}", "{len_b1}", "{len_b0}"]
+            parameters:
+              serial_hi: { type: "uint8" }
+              serial_lo: { type: "uint8" }
+              type_hi: { type: "uint8" }
+              type_lo: { type: "uint8" }
+              len_b3: { type: "uint8" }
+              len_b2: { type: "uint8" }
+              len_b1: { type: "uint8" }
+              len_b0: { type: "uint8" }
+          sending_data_finish:
+            description: >
+              Payload fully transmitted. Same 10-byte layout as sending_data_start
+              with command ID 0x03.
+            template: [0x0A, 0x03, "{serial_hi}", "{serial_lo}", "{type_hi}", "{type_lo}", "{len_b3}", "{len_b2}", "{len_b1}", "{len_b0}"]
+            parameters:
+              serial_hi: { type: "uint8" }
+              serial_lo: { type: "uint8" }
+              type_hi: { type: "uint8" }
+              type_lo: { type: "uint8" }
+              len_b3: { type: "uint8" }
+              len_b2: { type: "uint8" }
+              len_b1: { type: "uint8" }
+              len_b0: { type: "uint8" }
+
+      - uuid: "0000ff22-0000-1000-8000-00805f9b34fb"
+        name: "Data"
+        properties: ["write"]
+        notes: >
+          Bulk payload channel. NO characteristic-level `framing` is declared ON
+          PURPOSE. The length prefix and sum checksum here belong to the PAYLOAD
+          (its 15-byte header, and each typed record within it), not to individual
+          BLE writes: the payload is serialized once, then sliced into raw chunks.
+          A consumer applying framing per write would prepend a length and append a
+          checksum to every chunk and corrupt the upload.
+
+          Write in (MTU - 3) byte chunks between
+          sending_data_start and sending_data_finish, honouring the ContinueSending
+          offset. Payload structure (15-byte header + typed records) is described in
+          the device notes above. Brightness is record type 14 (0-100) and screen
+          mode is record type 15 — both are sent as data payloads here, NOT as
+          commands on 0xFF21.
+
+entities:
+  - platform: "light"
+    name: "LED Panel"
+    features: ["brightness"]
+    state_characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+  - platform: "select"
+    name: "Screen Mode"
+    state_characteristic: "0000ff21-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      "0": "normal"
+      "1": "upside_down"
+      "2": "mirror"
+      "3": "mirror_upside_down"

@@ -1,0 +1,72 @@
+name: Docs Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Lint helper scripts
+        run: ruff check .
+      - name: Run tests
+        run: pytest -q
+
+  validate-specs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Validate device specs against schema.json
+        run: python scripts/validate_specs.py
+      - name: Verify device-specs/index.json is up to date
+        run: |
+          python scripts/generate_index.py
+          git diff --exit-code device-specs/index.json
+
+  build:
+    needs: [lint-and-test, validate-specs]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Verify device-spec JSON API is fresh and valid
+        run: python scripts/build_index.py --check
+      - run: mkdocs build --strict
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Verify device-spec JSON API is fresh and valid
+        run: python scripts/build_index.py --check
+      - run: mkdocs gh-deploy --force

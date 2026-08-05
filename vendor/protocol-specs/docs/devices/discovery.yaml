@@ -1,0 +1,110 @@
+# OpenGreenIoT machine-readable discovery reference.
+#
+# Device specs may include device.discovery to describe how a consumer can find
+# devices without per-device discovery code. This reference shows the four
+# supported method types with real values from device-specs/devices/.
+#
+# The shape below is illustrative. In a spec file, place one or more method
+# entries under device.discovery.methods and configure device.discovery.identity
+# with the stable fields emitted by the method parser.
+
+---
+# BLE scan example: Ember Mug.
+discovery:
+  methods:
+    - type: "ble_scan"
+      ble:
+        local_name:
+          match: "prefix"
+          value: "Ember"
+        service_uuids:
+          - "fc543622-236c-4c94-8fa9-944a3e5353fa"
+          - "fc543621-236c-4c94-8fa9-944a3e5353fa"
+          - "fc5421a1-236c-4c94-8fa9-944a3e5353fa"
+        manufacturer_data:
+          company_id: 961
+          match: "prefix"
+          description: "Ember BLE advertisements use Bluetooth SIG company ID 0x03C1."
+  identity:
+    stable_keys: ["address"]
+    display: "local_name"
+
+---
+# SSDP example: Belkin Wemo.
+discovery:
+  methods:
+    - type: "ssdp"
+      ssdp:
+        multicast_group: "239.255.255.250"
+        multicast_port: 1900
+        search_targets:
+          - "urn:Belkin:service:basicevent:1"
+          - "urn:Belkin:device:controllee:1"
+          - "urn:Belkin:device:socket:1"
+          - "urn:Belkin:device:insight:1"
+        response_mapping:
+          location:
+            url: "LOCATION"
+            action: "fetch_xml"
+            parse:
+              device_identity:
+                stable_keys:
+                  - source: "xml://device/UDN"
+                    key: "udn"
+                  - source: "xml://device/serialNumber"
+                    key: "serial"
+                  - source: "xml://device/macAddress"
+                    key: "mac"
+                display:
+                  source: "xml://device/friendlyName"
+                variant:
+                  source: "xml://device/deviceType"
+              control_endpoints:
+                source: "xml://device/serviceList/service"
+                fields:
+                  service_type: "serviceType"
+                  control_url: "controlURL"
+                  event_sub_url: "eventSubURL"
+        port_fallback: [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
+  identity:
+    stable_keys: ["udn", "serial", "mac"]
+    display: "friendlyName"
+
+---
+# mDNS / DNS-SD example: Vector Robot.
+discovery:
+  methods:
+    - type: "mdns"
+      mdns:
+        service_type: "_ankivector._tcp.local."
+        port: 443
+        txt_record_keys: ["serial"]
+        identity_mapping:
+          stable_keys:
+            - source: "txt:serial"
+            - source: "hostname"
+          display:
+            source: "name"
+  identity:
+    stable_keys: ["serial", "hostname"]
+    display: "name"
+
+---
+# Cloud account enumeration example: Frigidaire / Electrolux OCP.
+discovery:
+  methods:
+    - type: "cloud"
+      cloud:
+        provider: "electrolux_ocp"
+        auth_method: "oauth2"
+        device_list_endpoint:
+          method: "GET"
+          url: "https://api.electrolux.com/ocp/v1/appliances"
+          response_mapping:
+            stable_keys:
+              - source: "json://applianceId"
+            display:
+              source: "json://name"
+  identity:
+    stable_keys: ["appliance_id"]
+    display: "name"

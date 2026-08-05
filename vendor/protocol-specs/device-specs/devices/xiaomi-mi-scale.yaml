@@ -1,0 +1,206 @@
+# Xiaomi Mi Scale BLE Body Composition Scale
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Xiaomi Mi Scale Body Composition Scale"
+  manufacturer: "Xiaomi / Huami"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    Xiaomi Mi Scale v1 and v2 body composition scales. v1 is weight-only;
+    v2 adds impedance measurement for body composition (body fat, muscle,
+    water, bone mass, visceral fat, BMR). Price $20-30.
+
+    PROTOCOL: uses BLE standard Weight Scale service (0x181D) plus a
+    custom Mi vendor service (0x1530) for v2 configuration. Weight readings
+    arrive as live 13-byte (v2) or 10-byte (v1) notifications. History data
+    is downloaded via a handshake protocol on characteristic 0x2A2F.
+
+    WEIGHT FRAME (10-byte, both variants): [ctrl_byte] [weight_lo]
+    [weight_hi] [year_lo] [year_hi] [month] [day] [hour] [min] [sec].
+    Control byte bits: Bit0=LBS, Bit4=Jin, Bit5=Stabilized,
+    Bit7=WeightRemoved. Valid only when Bit5=1 AND Bit7=0.
+    Weight division: /100 for lbs/jin, /200 for kg.
+
+    v2 LIVE FRAME (13-byte): extends 10-byte format. Control byte 1 bits:
+    Bit0=LBS, Bit1=hasImpedance. Control byte 2 bits: Bit5=Stabilized,
+    Bit6=isCatty, Bit7=WeightRemoved. Impedance at bytes 9-10 (uint16 LE)
+    when hasImpedance=1.
+
+    HISTORY DOWNLOAD: enable notify on 0x2A2F, write magic `01 96 8A BD 62`,
+    write "only last" marker `01 FF FF <id_hi> <id_lo>`, write trigger `02`.
+    Data arrives as 10-byte records ending with `03` stop byte. Finish with
+    `03` ack and `04 FF FF <id_hi> <id_lo>` acknowledge.
+
+    V2 ONLY: set scale unit via vendor characteristic 0x1542 under
+    service 0x1530 with `06 04 00 <unit>` (0=kg, 1=jin, 2=lbs).
+
+    DISCOVERY: advertised names: "MIBCS", "MIBFS", "MI SCALE2",
+    "MI_SCALE_*". Service UUID 0x181D is present on both v1 and v2.
+    Service 0x1530 is v2-only.
+
+    CONFIDENCE: HIGH for all UUIDs, weight frame format, control bits,
+    history protocol, and v2 impedance frames — sourced from
+    github.com/oliexdev/openScale, a production Android app with
+    years of real-world use across hundreds of users.
+
+  identification:
+    service_uuids:
+      - "0000181d-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000181d-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning. Scale advertises when stepped on or powered.
+      For history download, sync current time to 0x2A2B before
+      requesting data.
+    methods:
+      - type: "ble_direct"
+        verified: true
+        description: >
+          Scan for 0x181D service, connect, subscribe for weight
+          notifications. No pairing required for basic reading.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Step on scale to wake it."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Scan for 0x181D Weight Scale service or known name prefixes
+              (MIBCS, MIBFS, MI_SCALE) and connect.
+            actor: "client"
+          - action: >
+              Subscribe to notifications on 0x2A9D (weight measurement)
+              and/or 0x2A2F (history).
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        Remove battery to clear internal state. No credential storage.
+      procedures:
+        - name: "Battery removal"
+          steps:
+            - action: "Remove batteries for 30 seconds and reinsert."
+              actor: "user"
+              expect: "Scale resets and advertises."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No bonding. Scale accepts connections from any central."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only. No auth. Health data — handle with privacy awareness."
+
+  variants:
+    - model: "Mi Scale v1"
+      identification:
+        local_name_prefix: "MI_SCALE"
+      notes: >
+        Weight only, no impedance. Service 0x181D. 10-byte frames.
+        History on 0x2A2F under 0x181D. No vendor service.
+    - model: "Mi Body Composition Scale v2"
+      identification:
+        local_name_prefix: "MIBCS"
+      notes: >
+        Body composition via impedance. Service 0x181B (primary) + 0x1530
+        vendor service. 13-byte live frames with impedance. Unit config
+        via 0x1542.
+    - model: "Mi Body Composition Scale (MIBFS)"
+      identification:
+        local_name_prefix: "MIBFS"
+      notes: "Same as v2, different advertised name prefix."
+    - model: "Mi Scale 2"
+      identification:
+        local_name: "MI SCALE2"
+      notes: "v2 capabilities."
+
+helpful_urls:
+  - title: "openScale"
+    url: "https://github.com/oliexdev/openScale"
+    description: "Production Android app and the cited source for the Mi Scale weight frame, history sync and impedance handling."
+
+services:
+  - uuid: "0000181d-0000-1000-8000-00805f9b34fb"
+    name: "Weight Scale Service"
+    notes: >
+      Standard BLE Weight Scale service. Primary for v1; alternate for v2.
+      Carries weight measurement (0x2A9D), weight scale feature (0x2A9E),
+      current time (0x2A2B), and Mi history (0x2A2F).
+    characteristics:
+      - uuid: "00002a9d-0000-1000-8000-00805f9b34fb"
+        name: "Weight Measurement"
+        properties: ["notify"]
+        notes: >
+          Standard BLE Weight Measurement characteristic. Often absent
+          on Mi scales — weight arrives via 0x2A2F instead. When present,
+          carries 10-byte weight frame.
+
+      - uuid: "00002a2f-0000-3512-2118-0009af100700"
+        name: "History"
+        properties: ["write", "notify"]
+        notes: >
+          Custom history characteristic. Write magic bytes `01 96 8A BD 62`
+          to enable, then `01 FF FF <id_hi> <id_lo>` for "only last",
+          then `02` to trigger transfer. Data arrives as 10-byte records.
+          Stop marker is single byte `03`. Acknowledge with `03` then
+          `04 FF FF <id_hi> <id_lo>`.
+
+      - uuid: "00002a2b-0000-1000-8000-00805f9b34fb"
+        name: "Current Time"
+        properties: ["write"]
+        notes: >
+          Write current time before history download:
+          `[year_lo, year_hi, month, day, hour, min, sec, 0x00, 0x00, 0x01]`
+
+  - uuid: "00001530-0000-3512-2118-0009af100700"
+    name: "Mi Vendor Service (v2 only)"
+    notes: >
+      v2-only. Provides unit configuration via 0x1542.
+    characteristics:
+      - uuid: "00001542-0000-3512-2118-0009af100700"
+        name: "Mi Config"
+        properties: ["write"]
+        notes: >
+          Set scale unit: `06 04 00 <unit>` where 0=kg, 1=jin, 2=lbs.
+
+  - uuid: "0000181b-0000-1000-8000-00805f9b34fb"
+    name: "Body Composition Service (v2 only)"
+    notes: >
+      v2 primary service. Carries history, current time, and weight
+      measurement for v2 scales.
+    characteristics:
+      - uuid: "00002a9d-0000-1000-8000-00805f9b34fb"
+        name: "Weight Measurement"
+        properties: ["notify"]
+
+entities:
+  - platform: "sensor"
+    name: "Weight"
+    state_characteristic: "00002a9d-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Impedance"
+    state_characteristic: "00002a2f-0000-3512-2118-0009af100700"
+  - platform: "select"
+    name: "Unit"
+    state_characteristic: "00001542-0000-3512-2118-0009af100700"
+    state_mapping:
+      "0": "kg"
+      "1": "jin"
+      "2": "lbs"

@@ -1,0 +1,21 @@
+# Tooling configuration for the repository's Python helper scripts.
+# There is no installable package here — the scripts under scripts/ and tools/
+# are run directly and depend only on the standard library plus the packages in
+# requirements.txt.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["workspace", "data"]
+
+[tool.ruff.lint]
+# Pyflakes, pycodestyle and bugbear: real defects rather than style opinions.
+select = ["E", "F", "W", "B"]
+ignore = [
+    # Long lines are pervasive in the generated tables and reference URLs.
+    "E501",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["scripts"]
+python_files = ["test_*.py"]

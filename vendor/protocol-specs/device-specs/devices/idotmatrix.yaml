@@ -1,0 +1,259 @@
+# iDotMatrix pixel display device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "iDotMatrix"
+  manufacturer: "iDotMatrix / Tech"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers,
+    schedules). No pairing required.
+
+    PRIMARY (recovered) protocol — service 0xFEE9, from jadx of com.tech.idotmatrix:
+    framed binary packets with a 16-byte header per 4096-byte payload chunk:
+      [0-1]  total packet length (uint16 BE)
+      [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase
+      [3]    sub-type: 0x00 data / 0x02 MultiColor/Phrase
+      [4]    chunk flag: 0=first, 2=continuation
+      [5-8]  total data length (uint32 LE)
+      [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)
+      [13-14] time/delay (uint16 BE)
+      [15]   speed/type byte
+      [16+]  payload
+    BLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for
+    GIF/image, 50 ms/chunk for text. Notify response: [?,0,cmd_type,sub_type,status]
+    with status 0=invalid, 1=next-chunk, 2=error, 3=finished.
+    Display sizes (ScreenData.getLedSize): 1010=10x10, 1001=1x100, 1116=16x11,
+    1318=18x13, 1619=19x16, 1920=20x19, 2020=32x32 (default), 2010=10x20,
+    3010=10x30, 3820=20x38.
+    FLAGGED: exact image pixel encoding (RGB565 bitmap laid out by device type)
+    needs live BLE capture to confirm; text glyph width varies by device/font.
+    CONFIDENCE: UUIDs, framing header, CRC32, chunk sizes, command types, response
+    format all HIGH; image pixel layout MEDIUM.
+    Evidence: Ble.java:354-362 (UUIDs), GifAgreement.java:160-196/271-286 (framing,
+    CRC32, response), ScreenData.java (display sizes), CrcUtils.java (java.util.zip.CRC32).
+
+    ALTERNATE (legacy) protocol — service 0xFA02: some iDotMatrix units / the popular
+    community "python-idotmatrix" library speak an unframed 0xFA02 protocol with short
+    length-prefixed byte commands ([len, 0x00, cmd, ...]). That command set is preserved
+    below as a second service ("iDotMatrix Legacy (0xFA02) Service") for those devices;
+    a given unit speaks one protocol or the other. Name prefix "IDM-".
+  identification:
+    local_name_prefix: "IDM-"
+    service_uuids:
+      - "0000fee9-0000-1000-8000-00805f9b34fb"
+      - "0000fa02-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "IDM-"
+          service_uuids:
+            - "0000fee9-0000-1000-8000-00805f9b34fb"
+            - "0000fa02-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. The vendor app adds a cloud content library, but none of
+      it is required to connect to and drive the display.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          advertised_name: "IDM-"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+# Custom consumer-side handler: builds framed image/GIF/text packets, computes the
+# CRC32, and drives MTU-aware chunked writes. Declarative.
+protocol_handler: "idotmatrix_image"
+
+# Chunked RGB565 bitmap / GIF upload with CRC32 integrity per transfer.
+features:
+  - type: "image_upload"
+    format: "rgb565"
+    max_width: 32
+    max_height: 32
+
+services:
+  # PRIMARY recovered protocol (com.tech.idotmatrix)
+  - uuid: "0000fee9-0000-1000-8000-00805f9b34fb"
+    name: "iDotMatrix Data Service"
+    characteristics:
+      - uuid: "d44bc439-abfd-45a2-b575-925416129600"
+        name: "Data Write/Read"
+        properties: ["write", "read"]
+        framing:
+          length_prefix: true
+          checksum: "crc32"
+          max_chunk_size: 4096
+        notes: >
+          All framed protocol commands (GIF/Image/Text/Phrase) are written here.
+          16-byte header + up to 4096-byte payload per frame; CRC32 (java.util.zip.CRC32)
+          over the whole data payload. Evidence: Ble.java:355-356, GifAgreement.java:160-196.
+
+      - uuid: "d44bc439-abfd-45a2-b575-925416129601"
+        name: "Data Notify"
+        properties: ["notify"]
+        notes: "Transfer-progress responses. Evidence: Ble.java:358, GifAgreement.java:271-286."
+        format:
+          - offset: 0
+            length: 1
+            name: "unknown"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "reserved_zero"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "command_type"
+            type: "uint8"
+          - offset: 3
+            length: 1
+            name: "sub_type"
+            type: "uint8"
+          - offset: 4
+            length: 1
+            name: "status"
+            type: "uint8"
+
+  # OTA service (com.tech.idotmatrix)
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "iDotMatrix OTA Service"
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "OTA Write"
+        properties: ["write"]
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "OTA Notify"
+        properties: ["notify"]
+
+  # ALTERNATE legacy protocol (0xFA02 / python-idotmatrix ecosystem)
+  - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+    name: "iDotMatrix Legacy (0xFA02) Service"
+    characteristics:
+      - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+        name: "Write Data"
+        properties: ["write"]
+        commands:
+          screen_on:
+            description: "Turn screen on"
+            value: [0x05, 0x00, 0x07, 0x01, 0x01]
+          screen_off:
+            description: "Turn screen off"
+            value: [0x05, 0x00, 0x07, 0x01, 0x00]
+          freeze_screen:
+            description: "Freeze/unfreeze screen"
+            value: [0x04, 0x00, 0x03, 0x00]
+          set_brightness:
+            description: "Set brightness (5-100%)"
+            template: [0x05, 0x00, 0x04, 0x80, "{brightness}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 5
+                max: 100
+          flip_screen:
+            description: "Rotate screen 180 degrees (0=normal, 1=flipped)"
+            template: [0x05, 0x00, 0x06, 0x80, "{flip}"]
+            parameters:
+              flip:
+                type: "uint8"
+                min: 0
+                max: 1
+          set_speed:
+            description: "Set animation speed"
+            template: [0x05, 0x00, 0x03, 0x01, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          enter_diy_mode:
+            description: "Enter DIY image mode (0=disable, 1=enable)"
+            template: [0x05, 0x00, 0x04, 0x01, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 1
+          set_password:
+            description: "Set 6-digit password (000000-999999). Reset device to clear."
+            template: [0x08, 0x00, 0x04, 0x02, 0x01, "{pwd_high}", "{pwd_mid}", "{pwd_low}"]
+            parameters:
+              pwd_high:
+                type: "uint8"
+                min: 0
+                max: 255
+              pwd_mid:
+                type: "uint8"
+                min: 0
+                max: 255
+              pwd_low:
+                type: "uint8"
+                min: 0
+                max: 255
+
+      - uuid: "0000fa03-0000-1000-8000-00805f9b34fb"
+        name: "Read Data"
+        properties: ["read"]
+
+entities:
+  - platform: "light"
+    name: "Pixel Display"
+    features: ["brightness"]
+    state_characteristic: "0000fa03-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "screen_on"
+      turn_off: "screen_off"
+      set_brightness: "set_brightness"

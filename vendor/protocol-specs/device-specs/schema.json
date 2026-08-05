@@ -1,0 +1,1904 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengreeniot.pigscanfly.ca/device-spec.schema.json",
+  "title": "OpenGreenIoT Device Spec",
+  "description": "Schema for OpenGreenIoT device specification files (BLE and WiFi). Permissive by design: unknown keys are allowed so bespoke, device-specific metadata (e.g. protobuf/state_machine blocks) can travel alongside the standard fields. Consumers (the Flutter+Rust mobile app, Home Assistant) parse the subset they understand and ignore the rest.",
+  "type": "object",
+  "required": ["device"],
+  "allOf": [
+    {
+      "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own.",
+      "if": {
+        "required": ["device"],
+        "properties": {
+          "device": {
+            "required": ["type"],
+            "properties": { "type": { "pattern": "^reference-" } }
+          }
+        }
+      },
+      "then": true,
+      "else": {
+        "anyOf": [
+          { "required": ["services"] },
+          { "required": ["http_endpoints"] },
+          { "required": ["mqtt_topics"] },
+          { "required": ["obd"] },
+          { "required": ["bus"] },
+          { "required": ["cloud"] }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "hex_bytes": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f?]{2}( [0-9A-Fa-f?]{2})*$",
+      "description": "Space-separated hex byte sequence, e.g. '22 F1 90'. A '??' byte is an unknown/placeholder position. Automotive traces are conventionally written this way, so OBD payloads use hex strings rather than the integer arrays used for BLE writes."
+    },
+    "can_id": {
+      "type": "string",
+      "pattern": "^0x[0-9A-Fa-f]{3,8}$",
+      "description": "CAN identifier in hex, e.g. '0x7E0' (11-bit) or '0x18DAF110' (29-bit)."
+    },
+    "obd_capability": {
+      "type": "string",
+      "enum": [
+        "single_frame",
+        "multiframe_rx",
+        "multiframe_tx",
+        "flow_control",
+        "custom_headers",
+        "raw_frames",
+        "monitor_all",
+        "alt_can_bus",
+        "non_standard_bitrate"
+      ],
+      "description": "One adapter capability. Requests declare what they need (`requires`) and adapters declare what they provide (`adapter_profile.capabilities`), so a consumer can decide up front whether a given dongle can run a given command instead of failing halfway through. single_frame: payloads of 7 bytes or fewer. multiframe_rx/tx: ISO 15765-2 segmentation in each direction — transmit is where clone firmware fails; some adapters expose it as a long-message mode (the UniCarScan UCSI-2100 accepts payloads up to 255 bytes where a stock ELM327 stops at 8). flow_control: client-supplied flow control (ATFCSH/ATFCSD/ATFCSM). custom_headers: arbitrary request/filter IDs (ATSH/ATCRA). raw_frames: auto-formatting off (ATCAF0), client does its own ISO-TP. monitor_all: passive bus sniffing (ATMA). alt_can_bus: manufacturer CAN buses on non-standard pins or wiring — Ford MS-CAN (medium-speed) and GM SW-CAN (single-wire), which tools such as FORScan need for body and chassis modules. non_standard_bitrate: buses outside the legislated OBD-II rates.",
+      "default": "single_frame"
+    },
+    "diagnostic_description": {
+      "type": "object",
+      "description": "Reference to a vendor ECU-description file — a BMW/EDIABAS SGBD (.prg) or group file (.grp), an ODX/PDX container, a CDD, an A2L or a CAN database. These files are the authoritative definition of a module's jobs, results, addressing and scaling, so naming the exact file lets a consumer look the definition up instead of relying only on what we recovered by hand. NOTE: reference these files, never ship them — they are vendor copyright. Record where a licensed copy comes from in `source`.",
+      "required": ["type", "name"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["sgbd-prg", "sgbd-grp", "odx", "pdx", "cdd", "a2l", "dbc", "ldf", "other"],
+          "description": "File format. 'sgbd-prg' is a compiled BMW/EDIABAS ECU description (KOMBI.prg); 'sgbd-grp' is the group file that dispatches to the right variant (D_MOTOR.grp)."
+        },
+        "name": {
+          "type": "string",
+          "description": "Filename as the vendor toolchain names it, e.g. 'KOMBI.prg'."
+        },
+        "group": {
+          "type": "string",
+          "description": "For an sgbd-prg, the .grp group file that selects it. Group files are the entry point when the exact variant is not known up front."
+        },
+        "variant": {
+          "type": "string",
+          "description": "ECU variant this description covers, when one group spans several."
+        },
+        "version": { "type": "string" },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "Checksum of the exact file the facts here were derived from, so a consumer can tell whether it is looking at the same one."
+        },
+        "source": {
+          "type": "string",
+          "description": "Where a licensed copy is obtained (e.g. an EDIABAS/INPA/ISTA installation, a vendor tool bundle). Not a download link for redistributed vendor files."
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["jobs", "results", "ecu_address", "scaling", "dtc_text", "coding"]
+          },
+          "description": "What this file authoritatively defines for the module."
+        },
+        "notes": { "type": "string" },
+        "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
+    "verification": {
+      "type": "string",
+      "enum": ["confirmed", "reported", "hypothesis"],
+      "description": "How much weight this fact carries. 'confirmed' = observed in our own capture or read back from the device; 'reported' = stated by vendor/community documentation but not reproduced here; 'hypothesis' = inferred and not yet tested. Anything not 'confirmed' must not be executed against a vehicle without review.",
+      "default": "hypothesis"
+    },
+    "helpful_reference": {
+      "type": "object",
+      "required": ["title", "url"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human title for the link. Use the page or video title when it is clear; otherwise write the shortest label that tells a reader why to open it."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "description": "HTTP(S) URL only. These links are for human follow-up, so verify they resolve before adding them; a dead link is worse than no link."
+        },
+        "description": {
+          "type": "string",
+          "description": "Why this reference is useful for this device. Do not make the reader guess whether a link is a teardown, a protocol write-up, vendor documentation, forum evidence, or a working implementation."
+        }
+      }
+    },
+    "initialization": {
+      "type": "array",
+      "description": "Ordered handshake / setup steps executed after connecting and before normal commands. Allowed at the top level and per-service.",
+      "items": {
+        "type": "object",
+        "required": ["characteristic"],
+        "properties": {
+          "characteristic": {
+            "type": "string",
+            "description": "Target characteristic UUID for this step."
+          },
+          "write": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Byte sequence to write in this step."
+          },
+          "read": {
+            "type": "boolean",
+            "description": "If true, read from the characteristic in this step (e.g. to capture a handshake response / encryption key)."
+          },
+          "delay_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Delay in milliseconds to wait after this step."
+          }
+        }
+      }
+    },
+    "encryption": {
+      "type": "object",
+      "description": "Declares that a characteristic's payload is encrypted and how to derive the key.",
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["aes-128-ecb", "aes-128-ofb", "aes-128-ctr"],
+          "description": "Symmetric cipher/mode used for this characteristic's payload."
+        },
+        "key_derivation": {
+          "type": "string",
+          "enum": ["static", "handshake", "device-specific"],
+          "description": "How the key is obtained: a fixed static key, established via a connection handshake, or derived per device."
+        },
+        "static_key": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]+$",
+          "description": "Hex-encoded static key, present only when key_derivation is 'static'."
+        }
+      }
+    },
+    "setup_step": {
+      "type": "object",
+      "description": "One ordered step in a provisioning or reset procedure, written so a consumer can render it as a wizard page or execute it directly.",
+      "required": ["action"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Short imperative description of the step (e.g. 'Join the device setup AP')."
+        },
+        "actor": {
+          "type": "string",
+          "enum": ["user", "client", "device"],
+          "default": "client",
+          "description": "Who performs the step: the human ('user', e.g. pressing a button), the controlling app ('client'), or the device itself ('device', e.g. rebooting)."
+        },
+        "request": {
+          "type": "object",
+          "description": "Protocol call this step issues, when the step is machine-executable.",
+          "properties": {
+            "protocol": {
+              "type": "string",
+              "enum": ["soap", "http", "ble_gatt", "udp", "mqtt", "mdns", "ssdp"],
+              "description": "Transport used for this step."
+            },
+            "service": { "type": "string", "description": "Service URN, GATT service UUID, or API namespace." },
+            "action": { "type": "string", "description": "SOAP action, HTTP path, or GATT message name." },
+            "arguments": {
+              "type": "array",
+              "description": "Named arguments this call takes.",
+              "items": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "type": { "type": "string" },
+                  "description": { "type": "string" },
+                  "required": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "expect": {
+          "type": "string",
+          "description": "Observable success signal for this step (LED pattern, response value, state transition)."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "How long a consumer should wait for this step to complete before treating it as failed."
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "payload_formats": {
+      "type": "object",
+      "description": "How to parse payloads that are not self-describing, keyed by the value's name (e.g. MetaInfo, ApList, InsightParams). Keyed by name rather than invented per-device keys so a consumer finds payload documentation the same way for every device. Allowed wherever payloads are returned: on a setup method, and at the top level alongside a device's control surface.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": { "type": "string" },
+          "fields": {
+            "type": "array",
+            "description": "Positional or named fields within the payload.",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "properties": {
+                "index": { "type": "integer", "minimum": 0, "description": "Position, for delimited payloads." },
+                "name": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          },
+          "values": {
+            "type": "object",
+            "description": "Meaning of each value, for enumerated payloads.",
+            "additionalProperties": { "type": "string" }
+          },
+          "parse_rules": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ordered, unambiguous parsing instructions. Spell out the traps: header lines to skip, trailing separators, columns that must be located from the end rather than by index, fields firmware may append."
+          },
+          "example": { "type": "string", "description": "A literal payload. Keep it real enough to test against — it is what an implementer will parse first." }
+        }
+      }
+    },
+    "framing": {
+      "type": "object",
+      "description": "Structured packet framing applied on top of raw BLE writes for this characteristic.",
+      "properties": {
+        "length_prefix": {
+          "type": "boolean",
+          "description": "Whether each frame is prefixed with its length."
+        },
+        "checksum": {
+          "type": "string",
+          "enum": ["crc32", "xor", "sum"],
+          "description": "Checksum algorithm appended to each frame."
+        },
+        "max_chunk_size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum payload bytes per frame (e.g. for chunked image uploads)."
+        }
+      }
+    }
+  },
+  "properties": {
+    "device": {
+      "type": "object",
+      "required": ["name", "manufacturer", "manufacturer_status", "protocol"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable device name."
+        },
+        "manufacturer": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Original device manufacturer."
+        },
+        "manufacturer_status": {
+          "type": "string",
+          "enum": ["abandoned", "shutdown", "unsupported", "active"],
+          "description": "Why this device needs open source rescue. Enum kept aligned with the mobile Rust ManufacturerStatus enum (the mobile consumer now supports 'active'). Use 'active' when the manufacturer is still in business and shipping the product but the protocol is closed/proprietary; use 'unsupported' when there is simply no open/official support for third-party interoperability."
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["ble", "wifi", "zigbee", "zwave", "obd2", "uart", "can"],
+          "description": "Primary communication protocol. Enum kept aligned with the mobile Rust Protocol enum. NOTE: 'obd2' covers devices reached through a vehicle diagnostic connector (see the top-level `obd` block); 'uart' and 'can' cover devices on a plain wired local bus with no radio at all (see the top-level `bus` block) -- an e-bike motor talking to its display, for example. The mobile Rust Protocol enum does NOT yet consume any of these three, so such specs are documentation/tooling targets rather than mobile-app targets today; reaching one from a phone needs a bridge."
+        },
+        "type": {
+          "type": "string",
+          "description": "Free-form device class, e.g. 'smart-scale' or 'ebike-controller'. One value is load-bearing: a `type` starting with 'reference-' (e.g. 'reference-diagnostic-protocol', 'reference-transport-protocol') marks the file as a published-protocol reference rather than a device. Reference specs document a standard other specs cite instead of restating -- SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing -- and so are exempt from the rule that a spec must document an access surface (`services`, `http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`)."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes about the device."
+        },
+        "identification": {
+          "type": "object",
+          "description": "How to identify this device during scanning.",
+          "properties": {
+            "local_name_prefix": {
+              "type": "string",
+              "description": "BLE advertisement local name prefix."
+            },
+            "service_uuids": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/uuid" },
+              "description": "BLE service UUIDs advertised by the device."
+            },
+            "mdns_service_type": {
+              "type": "string",
+              "description": "mDNS/Bonjour service type for WiFi discovery (e.g. _http._tcp)."
+            },
+            "ssid_prefix": {
+              "type": "string",
+              "description": "WiFi SSID prefix when device is in AP mode."
+            },
+            "default_port": {
+              "type": "integer",
+              "description": "Default TCP port for the device's local API."
+            }
+          }
+        },
+        "discovery": {
+          "type": "object",
+          "description": "How to automatically discover this device on a network. A consumer that parses the schema can implement discovery without per-device hardcoding.",
+          "properties": {
+            "methods": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Ordered discovery methods to try, first is preferred.",
+              "items": {
+                "type": "object",
+                "required": ["type"],
+                "oneOf": [
+                  {
+                    "properties": {
+                      "type": { "const": "ble_scan" },
+                      "ble": {
+                        "type": "object",
+                        "properties": {
+                          "local_name": {
+                            "type": "object",
+                            "properties": {
+                              "match": { "type": "string", "enum": ["prefix", "exact", "contains"], "default": "prefix" },
+                              "value": { "type": "string" }
+                            }
+                          },
+                          "service_uuids": {
+                            "type": "array",
+                            "items": { "$ref": "#/$defs/uuid" }
+                          },
+                          "manufacturer_data": {
+                            "type": "object",
+                            "properties": {
+                              "company_id": { "type": "integer" },
+                              "match": { "type": "string", "enum": ["prefix", "exact", "masked"], "default": "prefix" },
+                              "pattern": { "type": "string", "pattern": "^[0-9a-fA-F]+$" },
+                              "mask": { "type": "string", "pattern": "^[0-9a-fA-F]+$" },
+                              "description": { "type": "string" }
+                            },
+                            "required": ["company_id"]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "type": { "const": "ssdp" },
+                      "ssdp": {
+                        "type": "object",
+                        "required": ["search_targets", "response_mapping"],
+                        "properties": {
+                          "multicast_group": { "type": "string", "default": "239.255.255.250" },
+                          "multicast_port": { "type": "integer", "default": 1900 },
+                          "search_targets": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": { "type": "string" }
+                          },
+                          "response_mapping": {
+                            "type": "object",
+                            "required": ["location"],
+                            "properties": {
+                              "location": {
+                                "type": "object",
+                                "required": ["action", "parse"],
+                                "properties": {
+                                  "url": { "type": "string", "description": "SSDP response header for the URL. Default LOCATION." },
+                                  "action": { "type": "string", "enum": ["fetch_xml", "fetch_json"] },
+                                  "parse": {
+                                    "type": "object",
+                                    "required": ["device_identity"],
+                                    "properties": {
+                                      "device_identity": {
+                                        "type": "object",
+                                        "required": ["stable_keys"],
+                                        "properties": {
+                                          "stable_keys": {
+                                            "type": "array",
+                                            "minItems": 1,
+                                            "items": {
+                                              "type": "object",
+                                              "required": ["source"],
+                                              "properties": {
+                                                "source": { "type": "string", "description": "XPath-like: xml://device/UDN or json://applianceId" },
+                                                "key": { "type": "string", "description": "Short name for this key (udn, serial, mac)" }
+                                              }
+                                            }
+                                          },
+                                          "display": {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": { "type": "string", "description": "XPath-like: xml://device/friendlyName" }
+                                            }
+                                          },
+                                          "variant": {
+                                            "type": "object",
+                                            "properties": {
+                                              "source": { "type": "string", "description": "XPath-like: xml://device/deviceType" }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "parse_rules": {
+                                        "type": "array",
+                                        "items": { "type": "string" },
+                                        "description": "How to parse the fetched description: namespace handling, which elements are standard, and what to do with vendor extensions."
+                                      },
+                                      "example": {
+                                        "type": "string",
+                                        "description": "A literal description document, real enough to parse in a test."
+                                      },
+                                      "control_endpoints": {
+                                        "type": "object",
+                                        "properties": {
+                                          "source": { "type": "string" },
+                                          "fields": {
+                                            "type": "object",
+                                            "properties": {
+                                              "service_type": { "type": "string" },
+                                              "control_url": { "type": "string" },
+                                              "event_sub_url": { "type": "string" }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "port_fallback": {
+                            "type": "array",
+                            "items": { "type": "integer" },
+                            "description": "Ordered port probe list for devices with unstable ports (e.g., Wemo)."
+                          },
+                          "request": {
+                            "type": "object",
+                            "description": "The M-SEARCH datagram itself. A client cannot guess CRLF line endings, the quoted MAN value or the trailing blank line, and SSDP responders reject requests that get them wrong.",
+                            "properties": {
+                              "transport": { "type": "string" },
+                              "line_ending": { "type": "string", "description": "e.g. CRLF." },
+                              "template": { "type": "string", "description": "Request template with {multicast_group}, {multicast_port}, {mx} and {search_target} placeholders." },
+                              "template_notes": { "type": "string" },
+                              "mx": { "type": "integer", "description": "MX header value: the maximum seconds a device may wait before replying." },
+                              "socket_options": { "type": "object", "additionalProperties": true },
+                              "example": { "type": "string", "description": "A literal datagram, so an implementation can be diffed against it." }
+                            }
+                          },
+                          "response": {
+                            "type": "object",
+                            "description": "How to read the unicast replies.",
+                            "properties": {
+                              "format": { "type": "string" },
+                              "header_matching": { "type": "string", "description": "e.g. case-insensitive." },
+                              "headers_used": { "type": "object", "additionalProperties": { "type": "string" } },
+                              "dedupe_by": { "type": "string", "description": "Header a client should deduplicate on — one device answers once per search target." },
+                              "dedupe_notes": { "type": "string" },
+                              "example": { "type": "string" }
+                            }
+                          },
+                          "match": {
+                            "type": "object",
+                            "description": "How to tell this device's responses from every other UPnP responder on the LAN. Essential whenever ssdp:all is among the search targets, since without it a discovery client reports printers and routers as devices.",
+                            "properties": {
+                              "description": { "type": "string" },
+                              "rule": { "type": "string" },
+                              "manufacturer_exact": { "type": "string" }
+                            }
+                          },
+                          "timing": {
+                            "type": "object",
+                            "description": "Listen windows and probe timeouts. The response wait must be at least MX.",
+                            "additionalProperties": true
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "type": { "const": "mdns" },
+                      "mdns": {
+                        "type": "object",
+                        "required": ["service_type", "identity_mapping"],
+                        "properties": {
+                          "service_type": { "type": "string", "description": "DNS-SD service type, e.g. _ankivector._tcp.local." },
+                          "port": { "type": "integer" },
+                          "txt_record_keys": {
+                            "type": "array",
+                            "items": { "type": "string" }
+                          },
+                          "identity_mapping": {
+                            "type": "object",
+                            "required": ["stable_keys"],
+                            "properties": {
+                              "stable_keys": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                  "type": "object",
+                                  "required": ["source"],
+                                  "properties": {
+                                    "source": { "type": "string", "description": "txt:serial, hostname, or name" }
+                                  }
+                                }
+                              },
+                              "display": {
+                                "type": "object",
+                                "properties": {
+                                  "source": { "type": "string", "default": "name" }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "type": { "const": "cloud" },
+                      "cloud": {
+                        "type": "object",
+                        "required": ["provider", "auth_method", "device_list_endpoint"],
+                        "properties": {
+                          "provider": { "type": "string" },
+                          "auth_method": { "type": "string", "enum": ["oauth2", "api_key", "cognito"] },
+                          "auth_params": { "type": "object", "description": "Provider-specific auth parameters." },
+                          "device_list_endpoint": {
+                            "type": "object",
+                            "required": ["method", "url", "response_mapping"],
+                            "properties": {
+                              "method": { "type": "string" },
+                              "url": { "type": "string" },
+                              "response_mapping": {
+                                "type": "object",
+                                "required": ["stable_keys"],
+                                "properties": {
+                                  "stable_keys": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "items": {
+                                      "type": "object",
+                                      "required": ["source"],
+                                      "properties": {
+                                        "source": { "type": "string", "description": "json://applianceId" }
+                                      }
+                                    }
+                                  },
+                                  "display": {
+                                    "type": "object",
+                                    "properties": {
+                                      "source": { "type": "string", "description": "json://name" }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "identity": {
+              "type": "object",
+              "description": "How to name and order discovered devices. Stable keys are for collision-resistant identity; display is for user-facing UI.",
+              "required": ["stable_keys"],
+              "properties": {
+                "stable_keys": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string" },
+                  "description": "Field names in priority order for stable device identity. First non-empty value wins. BLE typically: ['address']. Wemo: ['udn', 'serial', 'mac']. Vector: ['serial', 'hostname']."
+                },
+                "display": {
+                  "type": "string",
+                  "description": "Field name for user-facing display. 'friendlyName' for Wemo, 'name' for mDNS, 'local_name' for BLE."
+                }
+              }
+            },
+            "static_ip_required": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, no automatic network discovery is possible and the user must enter an IP."
+            }
+          }
+        },
+        "setup": {
+          "type": "object",
+          "description": "Initial device setup (provisioning/onboarding): how a factory-fresh — or factory-reset — device is brought onto the user's network and made controllable. This is deliberately distinct from `discovery` (finding an already-provisioned device) and from top-level `initialization` (the per-connection handshake). WiFi devices usually need a real onboarding flow; most BLE devices do not, and should say so with `required: false`.",
+          "properties": {
+            "required": {
+              "type": "boolean",
+              "description": "Whether the device must be provisioned before it can be discovered and controlled. False for devices that are usable straight out of the box (typical for BLE-only devices)."
+            },
+            "confidence": {
+              "type": "string",
+              "enum": ["high", "medium", "low"],
+              "description": "How well the setup flow is verified. 'high' = confirmed against hardware or a working open implementation; 'medium' = derived from public source/vendor docs but not replayed; 'low' = inferred, needs capture."
+            },
+            "methods": {
+              "type": "array",
+              "minItems": 1,
+              "description": "Ordered onboarding methods to try, first is preferred.",
+              "items": {
+                "type": "object",
+                "required": ["type"],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "softap_http",
+                      "softap_soap",
+                      "ble_provisioning",
+                      "ble_direct",
+                      "wps",
+                      "smartconfig",
+                      "wired",
+                      "device_ui",
+                      "hub_pairing",
+                      "button_pairing",
+                      "cloud_account"
+                    ],
+                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP or SOAP; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
+                  },
+                  "description": { "type": "string" },
+                  "softap": {
+                    "type": "object",
+                    "description": "Details of the temporary access point the device hosts while in setup mode.",
+                    "properties": {
+                      "ssid_prefix": { "type": "string", "description": "Case-insensitive SSID prefix that identifies the setup AP." },
+                      "ssid_examples": { "type": "array", "items": { "type": "string" } },
+                      "open_network": { "type": "boolean", "description": "True when the setup AP has no passphrase." },
+                      "passphrase_source": { "type": "string", "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')." },
+                      "gateway_ip": { "type": "string", "description": "IP the device answers on while hosting the setup AP." },
+                      "port": { "type": "integer", "description": "TCP port of the setup API on the setup AP." },
+                      "credential_encryption": {
+                        "type": "object",
+                        "description": "How the WiFi passphrase is protected on the wire during provisioning.",
+                        "properties": {
+                          "algorithm": { "type": "string" },
+                          "padding": { "type": "string", "description": "Block cipher padding scheme, e.g. pkcs7." },
+                          "key_derivation": { "type": "string", "description": "Where the key material comes from (e.g. 'device metadata returned by GetMetaInfo')." },
+                          "algorithm_steps": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "The encryption as an ordered, unambiguous procedure. Prose like 'AES-128-CBC with a key derived from device metadata' is not implementable; state the byte-level detail — whether values are UTF-8 or hex-decoded, how many hash rounds, the padding, the output encoding."
+                          },
+                          "variants": {
+                            "type": "array",
+                            "description": "Alternative key derivations where firmware generations differ. Each entry must say how a client decides it applies.",
+                            "items": {
+                              "type": "object",
+                              "required": ["method"],
+                              "properties": {
+                                "method": { "type": "integer" },
+                                "keydata": { "type": "string", "description": "Key material layout for this variant." },
+                                "add_lengths": { "type": "boolean" },
+                                "selector": { "type": "string", "description": "How a client decides this variant applies." }
+                              }
+                            }
+                          },
+                          "openssl_equivalent": {
+                            "type": "object",
+                            "description": "An equivalent openssl(1) invocation, for implementations without a crypto library — and as a second description of the algorithm that can be checked against the first.",
+                            "properties": {
+                              "command": { "type": "string" },
+                              "notes": { "type": "string" }
+                            }
+                          },
+                          "password_constraints": {
+                            "type": "object",
+                            "properties": {
+                              "min_length": { "type": "integer", "minimum": 0 },
+                              "max_length": { "type": "integer", "minimum": 1 },
+                              "notes": { "type": "string" }
+                            }
+                          },
+                          "test_vectors": {
+                            "type": "object",
+                            "description": "Known-good values so an implementation can be verified without hardware — the highest-value thing this block can carry. Use a documentation-range MAC and an invented serial so the vectors identify no real device, and add a test asserting they stay reproducible.",
+                            "properties": {
+                              "description": { "type": "string" },
+                              "input": { "type": "object", "description": "The inputs every vector is derived from.", "additionalProperties": true },
+                              "vectors": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+                            }
+                          },
+                          "encoding": { "type": "string", "description": "How the ciphertext is encoded before transmission (e.g. base64 plus hex length suffix)." },
+                          "notes": { "type": "string" }
+                        }
+                      }
+                    }
+                  },
+                  "ble": {
+                    "type": "object",
+                    "description": "Details of a BLE-based provisioning channel.",
+                    "properties": {
+                      "advertised_name": { "type": "string", "description": "Name pattern advertised while in setup/pairing mode." },
+                      "protocol": { "type": "string", "description": "Name of the provisioning protocol (e.g. 'Anki RTS')." },
+                      "service_uuid": { "$ref": "#/$defs/uuid" },
+                      "write_characteristic": { "$ref": "#/$defs/uuid" },
+                      "read_characteristic": { "$ref": "#/$defs/uuid" },
+                      "pairing_required": { "type": "boolean", "description": "Whether BLE bonding / a PIN is required before provisioning messages are accepted." },
+                      "pin_source": { "type": "string", "description": "Where the pairing PIN comes from (device screen, sticker, fixed default)." }
+                    }
+                  },
+                  "cloud": {
+                    "type": "object",
+                    "description": "Details of a cloud-account-only onboarding path.",
+                    "properties": {
+                      "provider": { "type": "string" },
+                      "local_alternative": { "type": "string", "description": "Any known way to provision without the vendor cloud, or an explicit statement that none is known." }
+                    }
+                  },
+                  "steps": {
+                    "type": "array",
+                    "description": "Ordered provisioning steps.",
+                    "items": { "$ref": "#/$defs/setup_step" }
+                  },
+                  "verified": {
+                    "type": "boolean",
+                    "description": "True only when this exact flow has been executed successfully against hardware. Always state it: an absent flag reads as an oversight rather than as 'not yet verified'."
+                  },
+                  "payload_formats": { "$ref": "#/$defs/payload_formats" },
+                  "timing": {
+                    "type": "object",
+                    "description": "Timing constants a client must honour. Onboarding flows are full of values that look arbitrary but are not (minimum poll timeouts, deliberate duplicate sends); record them rather than leaving the next implementer to rediscover them by failing.",
+                    "additionalProperties": true
+                  },
+                  "troubleshooting": {
+                    "type": "array",
+                    "description": "Known failure modes and their causes. Onboarding fails for a small number of recurring reasons — wrong band, unsupported security mode, wrong credential variant — and naming them is often the difference between a working implementation and an abandoned one.",
+                    "items": {
+                      "type": "object",
+                      "required": ["symptom"],
+                      "properties": {
+                        "symptom": { "type": "string" },
+                        "causes": { "type": "array", "items": { "type": "string" } }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "factory_reset": {
+              "type": "object",
+              "description": "How to return the device to its unprovisioned state. Required knowledge for rebinding a device to a new network or a new owner.",
+              "properties": {
+                "applicable": {
+                  "anyOf": [{ "type": "boolean" }, { "const": "unknown" }],
+                  "default": true,
+                  "description": "Set false when the device has no meaningful factory reset — a vehicle reached over a diagnostic connector, or hardware with no stored state to clear. Set 'unknown' when the device probably has one but nobody has established it; that requires `confidence: low` and no `procedures`. State why in `effect` and omit `procedures` in both cases; inventing a procedure to fill the field is worse than saying there is none, and on safety-relevant hardware it is actively dangerous."
+                },
+                "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+                "effect": { "type": "string", "description": "What a reset actually clears (credentials, name, rules, pairings, telemetry history)." },
+                "procedures": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["name"],
+                    "properties": {
+                      "name": { "type": "string", "description": "Short label, e.g. 'Restore button while powering on'." },
+                      "applies_to": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Variant models this procedure applies to; omit when it applies to all."
+                      },
+                      "hold_seconds": { "type": "integer", "minimum": 0 },
+                      "indicator": { "type": "string", "description": "LED/screen/audio signal that confirms the reset took." },
+                      "steps": {
+                        "type": "array",
+                        "items": { "$ref": "#/$defs/setup_step" }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "rejoin": {
+              "type": "object",
+              "description": "Moving an already-provisioned device to a different WiFi network or controller (new router, new SSID, new owner).",
+              "properties": {
+                "requires_factory_reset": {
+                  "type": "boolean",
+                  "description": "True when there is no in-place way to hand the device new credentials and a reset is the only path."
+                },
+                "in_place_supported": {
+                  "type": "boolean",
+                  "description": "True when the device accepts new credentials while still joined to the old network (or while reachable by the client)."
+                },
+                "notes": { "type": "string" },
+                "steps": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/setup_step" }
+                }
+              }
+            },
+            "credentials": {
+              "type": "object",
+              "description": "What secrets the setup flow moves around, so consumers can handle them correctly and users can judge the risk.",
+              "properties": {
+                "wifi_passphrase_protection": {
+                  "type": "string",
+                  "enum": ["plaintext", "device_encrypted", "tls", "unknown", "not_applicable"],
+                  "description": "How the user's WiFi passphrase is protected in transit during provisioning."
+                },
+                "stored_on_device": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Secrets persisted on the device by setup (WiFi passphrase, cloud tokens, pairing keys)."
+                },
+                "issued_to_client": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Secrets the device or cloud hands back to the client and that must be stored for later control (API username, bearer GUID, pinned certificate)."
+                },
+                "notes": { "type": "string" }
+              }
+            },
+            "notes": { "type": "string" }
+          }
+        },
+        "variants": {
+          "type": "array",
+          "description": "Distinct device models that share the same BLE service UUIDs but differ in command set. Consumers match a connected device to a variant via its identification block.",
+          "items": {
+            "type": "object",
+            "required": ["model"],
+            "properties": {
+              "model": {
+                "type": "string",
+                "description": "Model identifier (e.g. 'SP107E')."
+              },
+              "identification": {
+                "type": "object",
+                "description": "How to identify this specific variant during scanning.",
+                "properties": {
+                  "local_name_prefix": {
+                    "type": "string",
+                    "description": "BLE advertisement local name prefix that distinguishes this variant."
+                  },
+                  "service_uuids": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/uuid" },
+                    "description": "BLE service UUIDs advertised by this variant."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "initialization": { "$ref": "#/$defs/initialization" },
+    "helpful_urls": {
+      "type": "array",
+      "description": "Human-oriented references for this device: teardowns, protocol write-ups, vendor documentation, forum threads and working open implementations. This is not a proof chain for every field; it is the short list that helps the next person understand or reproduce the work without spelunking through notes.",
+      "items": { "$ref": "#/$defs/helpful_reference" }
+    },
+    "helpful_videos": {
+      "type": "array",
+      "description": "Human-oriented video references for this device: teardown footage, setup walkthroughs, capture demonstrations or protocol explainers. Do not restrict this to YouTube; PeerTube, Vimeo, Invidious and direct video URLs are just as valid when they resolve and are relevant.",
+      "items": { "$ref": "#/$defs/helpful_reference" }
+    },
+    "protocol_handler": {
+      "type": "string",
+      "description": "Names a consumer-side (e.g. Rust) handler implementation to dispatch to for devices whose protocol cannot be fully expressed in YAML (image assembly, custom crypto, etc.). Lets a registry select the right code path automatically instead of hardcoding a device->handler map."
+    },
+    "features": {
+      "type": "array",
+      "description": "Declares high-level device capabilities that go beyond raw GATT reads/writes. The capability is declarative; some (e.g. image_upload) require dedicated consumer-side code to implement.",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["image_upload", "firmware_update", "audio_upload"],
+            "description": "Capability type."
+          },
+          "max_width": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum image width in pixels (for image_upload)."
+          },
+          "max_height": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum image height in pixels (for image_upload)."
+          },
+          "format": {
+            "type": "string",
+            "enum": ["1bit-bitmap", "gif", "rgb565", "rgb888", "png"],
+            "description": "Binary format the device expects for uploaded assets."
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["uuid", "name"],
+        "allOf": [
+          {
+            "$comment": "A service with no characteristics is only worth listing if it says why none are documented. Without that, a reader cannot tell 'this service is empty' from 'nobody has dumped it yet', and the gap invites someone to guess UUIDs -- which is exactly what this repo does not do.",
+            "if": { "not": { "required": ["characteristics"] } },
+            "then": {
+              "required": ["notes"],
+              "properties": { "notes": { "type": "string", "minLength": 1 } }
+            }
+          }
+        ],
+        "properties": {
+          "uuid": {
+            "$ref": "#/$defs/uuid",
+            "description": "BLE service UUID."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable service name."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free-form notes about the service. Required when `characteristics` is omitted, where it must say why no characteristic is documented -- e.g. the service is advertised by a variant whose UUIDs were never extracted."
+          },
+          "initialization": { "$ref": "#/$defs/initialization" },
+          "characteristics": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["uuid", "name", "properties"],
+              "properties": {
+                "uuid": {
+                  "$ref": "#/$defs/uuid",
+                  "description": "BLE characteristic UUID."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Human-readable characteristic name."
+                },
+                "properties": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["read", "write", "write_without_response", "notify", "indicate"]
+                  },
+                  "description": "BLE characteristic properties. Enum kept aligned with the mobile Rust CharacteristicProperty enum."
+                },
+                "encryption": { "$ref": "#/$defs/encryption" },
+                "framing": { "$ref": "#/$defs/framing" },
+                "commands": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "required": ["description"],
+                    "allOf": [
+                      {
+                        "$comment": "An advanced opcode must explain itself: consumers are required to surface advanced_reason at the opt-in point, which is impossible if it is absent or empty.",
+                        "if": {
+                          "properties": { "advanced": { "const": true } },
+                          "required": ["advanced"]
+                        },
+                        "then": {
+                          "required": ["advanced_reason"],
+                          "properties": {
+                            "advanced_reason": { "type": "string", "minLength": 1 }
+                          }
+                        }
+                      }
+                    ],
+                    "properties": {
+                      "description": {
+                        "type": "string"
+                      },
+                      "advanced": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Marks an opcode as advanced: it goes further than a typical consumer app would, because it can damage hardware, void a warranty, alter a vehicle's legal classification, or otherwise carry consequences a casual user would not expect. This is a SIGNPOST, NOT A GATE. Consumers SHOULD keep the capability available and put it behind a deliberate action (a toggle, a confirmation) so nobody trips into it by accident, and SHOULD surface `advanced_reason` at that moment. Consumers SHOULD NOT hide it, require an account for it, or nag: the intended users include repair cafes, independent technicians and owners doing their own maintenance. Absent or false means an ordinary command.",
+                        "$comment": "Advisory metadata: it does not change how the command is encoded or transmitted. Orthogonal to confidence -- `advanced` says what happens if the command works, not how sure we are that it works."
+                      },
+                      "verification": {
+                        "$ref": "#/$defs/verification",
+                        "description": "How much weight this command's byte sequence carries. Same vocabulary the OBD blocks use, so confidence is machine-readable rather than buried in prose. Orthogonal to `advanced`: this says how sure we are the command works, `advanced` says what happens when it does."
+                      },
+                      "advanced_reason": {
+                        "type": "string",
+                        "description": "Short human-readable explanation shown to the user at the opt-in point. State what changes, the realistic consequence, and how to recover -- concrete beats scary. Good: 'Raises the motor current limit; above the motor's rating this can overheat the primary gear. Read and save the current block first so you can restore it.' Bad: 'Dangerous - advanced users only.' Do not moralise or tell the user not to proceed; note the consequence once, factually. Required when `advanced` is true."
+                      },
+                      "value": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer"
+                        },
+                        "description": "Fixed byte sequence for this command."
+                      },
+                      "template": {
+                        "type": "array",
+                        "description": "Parameterized byte sequence. Strings are parameter references."
+                      },
+                      "encoding": {
+                        "type": "string",
+                        "enum": ["bytes", "json", "tlv"],
+                        "default": "bytes",
+                        "description": "How the command payload is serialized. 'bytes' is a raw byte sequence (value/template); 'json' and 'tlv' commands describe their payload via the `payload` object. NOTE: the mobile Rust parser currently assumes 'bytes'; json/tlv require dedicated handler code."
+                      },
+                      "payload": {
+                        "type": "object",
+                        "description": "Structured payload description for json/tlv encoded commands.",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "description": "Payload key/field name (or TLV tag name)."
+                          },
+                          "value_type": {
+                            "type": "string",
+                            "description": "Type of the payload value (e.g. string, int, bool)."
+                          }
+                        }
+                      },
+                      "parameters": {
+                        "type": "object",
+                        "description": "Command parameter definitions, keyed by parameter name. The reserved key `color_order` is not a parameter but declares RGB channel byte order for this command's color parameters.",
+                        "properties": {
+                          "color_order": {
+                            "type": "string",
+                            "enum": ["rgb", "rbg", "grb", "gbr", "brg", "bgr"],
+                            "default": "rgb",
+                            "description": "Byte order in which R/G/B channel values are emitted for this command (e.g. Shining Mask uses 'rbg'). Defaults to 'rgb'."
+                          }
+                        },
+                        "additionalProperties": {
+                          "type": "object",
+                          "required": ["type"],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
+                              "description": "Parameter value type. NOTE: int32/uint32 are accepted for devices such as the AdMore Light Bar (protobuf setvalue fields) but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
+                            },
+                            "min": {
+                              "type": "integer"
+                            },
+                            "max": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "format": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["offset", "length", "name", "type"],
+                    "properties": {
+                      "offset": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "length": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": ["bool", "uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
+                        "description": "Field value type. NOTE: int32/uint32 are accepted here for parity with the parameter enum but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
+                      }
+                    }
+                  },
+                  "description": "Binary format of readable/notifiable characteristic values."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "http_endpoints": {
+      "type": "array",
+      "minItems": 1,
+      "description": "HTTP/REST API endpoints for WiFi devices.",
+      "items": {
+        "type": "object",
+        "required": ["method", "path", "name"],
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            "description": "HTTP method."
+          },
+          "path": {
+            "type": "string",
+            "description": "URL path (e.g. /api/status). May contain {param} placeholders."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable endpoint name."
+          },
+          "description": {
+            "type": "string",
+            "description": "What this endpoint does."
+          },
+          "request_body": {
+            "type": "object",
+            "description": "Expected request body schema.",
+            "properties": {
+              "content_type": {
+                "type": "string",
+                "description": "MIME type (e.g. application/json)."
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "type"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string" },
+                    "description": { "type": "string" },
+                    "required": { "type": "boolean" },
+                    "enum": {
+                      "type": "array",
+                      "items": {}
+                    },
+                    "min": { "type": "number" },
+                    "max": { "type": "number" }
+                  }
+                }
+              }
+            }
+          },
+          "response_body": {
+            "type": "object",
+            "description": "Expected response body schema.",
+            "properties": {
+              "content_type": {
+                "type": "string"
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "type"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string" },
+                    "description": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "mqtt_topics": {
+      "type": "array",
+      "minItems": 1,
+      "description": "MQTT topics for cloud-connected or local-broker WiFi devices.",
+      "items": {
+        "type": "object",
+        "required": ["topic", "name", "direction"],
+        "properties": {
+          "topic": {
+            "type": "string",
+            "description": "MQTT topic pattern. May contain {device_id} or similar placeholders."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable topic name."
+          },
+          "direction": {
+            "type": "string",
+            "enum": ["publish", "subscribe", "both"],
+            "description": "Message direction from the app's perspective."
+          },
+          "description": {
+            "type": "string",
+            "description": "What this topic carries."
+          },
+          "qos": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2,
+            "description": "MQTT QoS level."
+          },
+          "payload_format": {
+            "type": "object",
+            "description": "Payload structure.",
+            "properties": {
+              "encoding": {
+                "type": "string",
+                "enum": ["json", "binary", "protobuf", "string"],
+                "description": "Payload encoding format."
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "type"],
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string" },
+                    "description": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "obd": {
+      "type": "object",
+      "description": "Diagnostic access for devices reached through a vehicle diagnostic connector (OBD-II / UDS) rather than a radio. Vehicles are safety-critical: entries here describe read paths and owner-facing maintenance functions only, and any request whose `verification` is not 'confirmed' must be treated as untested.",
+      "required": ["transport"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["vehicle", "adapter", "module", "reference"],
+          "default": "vehicle",
+          "description": "What this device IS on the diagnostic link, which is the first thing that distinguishes OBD-II specs from each other. 'vehicle' = the thing being diagnosed (a bike, a car). 'adapter' = the dongle that bridges a host to the connector; its `adapter_profile` says what it can do. 'module' = a single ECU or accessory documented on its own rather than as part of a whole vehicle. 'reference' = no physical device at all: a published protocol table (SAE J1979 PIDs, ISO 14229 UDS services) that other specs cite instead of restating; pair it with a `device.type` starting with 'reference-'."
+        },
+        "adapter_profile": {
+          "type": "object",
+          "description": "Capability classification, meaningful when `role` is 'adapter'. The class is the headline; `capabilities` is what a consumer should actually match request requirements against.",
+          "properties": {
+            "class": {
+              "type": "string",
+              "enum": ["basic-clone", "standards-elm327", "advanced-stn", "native-can"],
+              "description": "Capability tier. 'basic-clone': cloned ELM327 firmware — legislated single-frame reads only, unreliable beyond. 'standards-elm327': genuine ELM327 v1.4/1.5 behaviour. 'advanced-stn': STN chipset (OBDLink LX/MX+/CX) — reliable multi-frame transmit, client flow control, ST extensions. 'native-can': a real CAN interface (SocketCAN, PCAN, Kvaser) with no AT-command layer between the client and the bus."
+            },
+            "capabilities": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/obd_capability" },
+              "description": "Everything this adapter class can be relied on to do."
+            },
+            "known_limitations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Behaviour that fails or is unreliable on this class, in plain language."
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "connector": {
+          "type": "object",
+          "description": "Physical diagnostic socket on the vehicle.",
+          "properties": {
+            "standard": {
+              "type": "string",
+              "enum": ["sae-j1962", "iso-19689", "proprietary"],
+              "description": "Connector standard: 16-pin automotive (sae-j1962), 6-pin Euro 5 motorcycle (iso-19689), or vendor-specific."
+            },
+            "location": {
+              "type": "string",
+              "description": "Where the socket is on the vehicle, e.g. 'under the pillion seat'."
+            },
+            "model_years": {
+              "type": "string",
+              "description": "Which model years use this connector, when a vehicle changed connectors mid-life."
+            },
+            "pins": {
+              "type": "array",
+              "description": "Pin assignments that matter for diagnostics.",
+              "items": {
+                "type": "object",
+                "required": ["pin", "signal"],
+                "properties": {
+                  "pin": { "type": "integer", "minimum": 1 },
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal on this pin, e.g. 'CAN-H', 'CAN-L', 'K-line', 'ground', 'battery +12V'."
+                  },
+                  "verification": { "$ref": "#/$defs/verification" }
+                }
+              }
+            }
+          }
+        },
+        "transport": {
+          "type": "object",
+          "description": "Link and transport layer used to reach the ECU.",
+          "required": ["standard"],
+          "properties": {
+            "standard": {
+              "type": "string",
+              "enum": ["iso15765-4", "iso9141-2", "iso14230-4", "sae-j1850-pwm", "sae-j1850-vpw"],
+              "description": "Diagnostic link standard. 'iso15765-4' is CAN with ISO-TP segmentation."
+            },
+            "bitrate": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Bus bitrate in bit/s (500000 for the usual OBD-II CAN variant)."
+            },
+            "addressing": {
+              "type": "string",
+              "enum": ["11bit", "29bit"],
+              "description": "CAN identifier width."
+            },
+            "request_id": { "$ref": "#/$defs/can_id" },
+            "response_id": { "$ref": "#/$defs/can_id" },
+            "functional_id": {
+              "$ref": "#/$defs/can_id",
+              "description": "Functional broadcast request ID (0x7DF on standard OBD-II)."
+            },
+            "tester_present_ms": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Interval at which TesterPresent (3E 00) must be sent to hold a non-default session."
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "description_files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic_description" },
+          "description": "Vehicle-level ECU-description files — typically the .grp group files that dispatch to per-variant .prg SGBDs."
+        },
+        "adapter_requirements": {
+          "type": "array",
+          "description": "Adapter constraints observed in practice, e.g. functions that only work with an STN-chipset adapter because they need multi-frame ISO-TP with custom headers.",
+          "items": { "type": "string" }
+        },
+        "ecus": {
+          "type": "array",
+          "description": "Nodes on the diagnostic bus and which data each owns. Knowing the owner matters when a value displayed on one module is stored in another.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "request_id": { "$ref": "#/$defs/can_id" },
+              "response_id": { "$ref": "#/$defs/can_id" },
+              "owns": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Data this node is believed to store, e.g. 'odometer', 'service interval'."
+              },
+              "description_files": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/diagnostic_description" },
+                "description": "ECU-description files covering this module — the .prg SGBD and the .grp that selects it."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "requests": {
+          "type": "array",
+          "description": "Diagnostic requests, including hypotheses that have not been captured yet. Every entry carries its own `verification` so unproven candidates can be recorded without being mistaken for facts.",
+          "items": {
+            "type": "object",
+            "required": ["name", "verification"],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "command_class": {
+                "type": "string",
+                "enum": ["basic", "advanced"],
+                "default": "advanced",
+                "description": "The dividing line that decides which adapters can run this request. 'basic': legislated OBD-II (SAE J1979 modes), single-frame, no session or security prerequisite — works on essentially any adapter including clones. 'advanced': manufacturer or UDS territory — needs a non-default session, security access, custom headers, or multi-frame ISO-TP, and therefore a capable adapter. Defaults to 'advanced' so an unclassified request is never assumed to be the safe kind."
+              },
+              "requires": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/obd_capability" },
+                "description": "Adapter capabilities this request depends on. Match against `adapter_profile.capabilities` to know before connecting whether a given dongle can run it."
+              },
+              "service": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{2}$",
+                "description": "UDS/OBD service byte in hex, e.g. '22' (ReadDataByIdentifier), '31' (RoutineControl)."
+              },
+              "request": { "$ref": "#/$defs/hex_bytes" },
+              "expected_response": { "$ref": "#/$defs/hex_bytes" },
+              "prerequisites": {
+                "type": "array",
+                "description": "Ordered requests that must succeed first (session control, security access).",
+                "items": { "$ref": "#/$defs/hex_bytes" }
+              },
+              "security_access_required": {
+                "type": "boolean",
+                "description": "Whether a SecurityAccess (27) seed/key exchange is needed before this request is accepted."
+              },
+              "writes": {
+                "type": "boolean",
+                "default": false,
+                "description": "True if this request mutates vehicle state. Consumers should gate these behind explicit confirmation."
+              },
+              "job": {
+                "type": "string",
+                "description": "Name of the job in the referenced description file that this request implements, e.g. an EDIABAS SGBD job name. Ties a recovered frame back to its authoritative definition."
+              },
+              "results": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Result names the reply carries, as named by the description file (e.g. STAT_SERVICE_KMSTAND_DATA). These are how a consumer looks up scaling and units rather than hardcoding offsets."
+              },
+              "advanced": {
+                "type": "boolean",
+                "default": false,
+                "description": "True for functions that need expertise to use safely — ECU coding and flashing, immobiliser and key operations, adaptation writes, brake-system procedures. These are IN SCOPE and documented: reviving an old bike routinely needs them. The flag tells a consumer to warn and to require confirmation, not to hide the function. Pair with `notes` describing the specific risk (bricking, a module that must be re-coded to the vehicle, a procedure that continues in the service manual)."
+              },
+              "verification": { "$ref": "#/$defs/verification" },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "data_identifiers": {
+          "type": "array",
+          "description": "Known or suspected ReadDataByIdentifier (22) DIDs and how to decode them.",
+          "items": {
+            "type": "object",
+            "required": ["did", "name", "verification"],
+            "properties": {
+              "did": {
+                "type": "string",
+                "pattern": "^0x([0-9A-Fa-f]{4}|[0-9A-Fa-f]{6})$",
+                "description": "Data identifier in hex. Four digits is the ISO 14229 two-byte DID used by ReadDataByIdentifier (0x22), e.g. '0xF190'. Six digits is a three-byte read address, which is what vendor dialects that predate UDS put on the wire -- Subaru SSM addresses such as '0x000008' are three address bytes, so truncating them to two would name a different location."
+              },
+              "name": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["bool", "uint8", "uint16", "uint32", "bytes", "string", "date"],
+                "description": "How the response payload decodes."
+              },
+              "unit": { "type": "string" },
+              "scale": {
+                "type": "number",
+                "description": "Multiplier applied to the raw value to get `unit`. Use `formula` instead when the conversion has an offset or is otherwise not a single multiply."
+              },
+              "formula": {
+                "type": "string",
+                "description": "Decode expression in terms of the raw value `x`, e.g. 'x - 40' or '(x - 128) * 0.78125'. Present because most real scalings carry an offset, which `scale` alone cannot express -- reducing '(x - 128) * 0.78125' to 0.78125 silently drops the offset and yields a wrong reading."
+              },
+              "source": {
+                "type": "string",
+                "description": "Where this identifier and its scaling came from, e.g. a vendor ECU definition entry."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "extended_parameters": {
+          "type": "array",
+          "description": "Vendor logging parameters whose read address is not a constant: it is defined per-ROM in an ECU definition file and differs between calibrations, so it cannot be written down here. RomRaider's Subaru 'extended' params are the case this exists for. They are identified by the vendor's parameter id and resolved against the matching ECU def at read time -- listing one under `data_identifiers` would mean inventing an address.",
+          "items": {
+            "type": "object",
+            "required": ["logparam", "name", "verification"],
+            "properties": {
+              "logparam": {
+                "type": "string",
+                "description": "Vendor parameter id as the ECU definition names it, e.g. 'E21'."
+              },
+              "name": { "type": "string" },
+              "type": {
+                "type": "string",
+                "enum": ["bool", "uint8", "uint16", "uint32", "bytes", "string", "date"],
+                "description": "How the response payload decodes."
+              },
+              "unit": { "type": "string" },
+              "scale": {
+                "type": "number",
+                "description": "Multiplier applied to the raw value to get `unit`."
+              },
+              "formula": {
+                "type": "string",
+                "description": "Decode expression in terms of the raw value `x`."
+              },
+              "source": {
+                "type": "string",
+                "description": "Which ECU definition this parameter and its scaling came from."
+              },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        }
+      }
+    },
+    "payload_formats": { "$ref": "#/$defs/payload_formats" },
+    "cloud": {
+      "type": "object",
+      "description": "A vendor cloud service the device depends on. Present ONLY to record the dependency honestly -- this is the problem, not the interface we want consumers to build on. A spec may satisfy the schema with `cloud` alone, which is precisely the 'cloud-only, no local path' case: it makes that state machine-readable instead of leaving it as prose in a notes field, so a consumer can say 'this device stops working when the vendor does' rather than silently offering endpoints that will one day 404. Pair with `local_access` to record what, if anything, would free it.",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "True when the device's documented functions do not work without this service. This is the flag that marks a device cloud-only."
+        },
+        "vendor_service": {
+          "type": "string",
+          "description": "Human-readable name of the service, e.g. 'NIU cloud'."
+        },
+        "hosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Base hosts, e.g. 'https://app-api-fk.niu.com'. Note where hosts are region-dependent."
+        },
+        "auth": {
+          "type": "object",
+          "description": "How a client authenticates. Record the shape only -- NEVER a real token, credential, account identifier or device serial.",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["oauth2", "bearer_token", "api_key", "basic", "session_cookie", "other"]
+            },
+            "endpoint": { "type": "string", "description": "Path that issues the credential, e.g. '/v3/api/oauth2/token'." },
+            "notes": { "type": "string" },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "endpoints": {
+          "type": "array",
+          "description": "Documented cloud endpoints. Recorded as evidence of the dependency and because they are useful while the service lives -- not as a local control surface.",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string" },
+              "method": { "type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "default": "GET" },
+              "name": { "type": "string" },
+              "returns": { "type": "string", "description": "What the response carries, in prose." },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "failure_mode": {
+          "type": "string",
+          "description": "What actually stops working when the service goes away or the account is closed. State it concretely -- this is the sentence a user needs before buying or keeping the device."
+        },
+        "data_leaves_device": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Categories of data the device sends to the vendor, e.g. 'location', 'ride history'. Flag anything that is personal data about a person rather than telemetry about a machine."
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "local_access": {
+      "type": "object",
+      "description": "Whether this device can be controlled without the vendor's service, and what it takes. Answers the question a repair café asks first: 'can I actually do anything with this one?' Applies to any spec, not only cloud devices.",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["native", "bridge_hardware", "replacement_hardware", "firmware_replacement", "none_known"],
+          "description": "'native': the device speaks a local protocol as shipped -- the normal case in this registry. 'bridge_hardware': a local interface exists but reaching it needs an adapter that is not part of the product (a BLE-to-UART bridge, a CAN interface). 'replacement_hardware': no local interface exists on the stock part, and local control means swapping a component for an aftermarket one. 'firmware_replacement': the stock hardware can be freed, but only by replacing its firmware. 'none_known': no path known today -- an honest dead end, not an omission.",
+          "default": "native"
+        },
+        "summary": { "type": "string" },
+        "covers": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Functions the local path actually gives you."
+        },
+        "not_covered": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Functions that REMAIN cloud- or vendor-dependent even after taking this path. Filling this in matters: aftermarket hardware routinely frees one subsystem while leaving the rest tethered, and a spec that omits this reads as a bigger win than it is."
+        },
+        "hardware": {
+          "type": "array",
+          "description": "Known hardware that provides or restores local access. Recorded as documentation of what exists, not as an endorsement or a purchase recommendation.",
+          "items": {
+            "type": "object",
+            "required": ["name", "role"],
+            "properties": {
+              "name": { "type": "string" },
+              "vendor": { "type": "string" },
+              "url": { "type": "string", "description": "Product or project page. Third-party commercial listings change and go dead; treat as a pointer, not a citation." },
+              "role": {
+                "type": "string",
+                "enum": ["bridge", "replacement_part", "diagnostic_adapter", "programmer"],
+                "description": "'bridge': sits alongside the stock hardware and exposes an existing local interface. 'replacement_part': substitutes a stock component. 'diagnostic_adapter': connects a host to an existing diagnostic or debug interface. 'programmer': writes firmware or parameters."
+              },
+              "replaces": { "type": "string", "description": "Stock component this substitutes, when role is replacement_part." },
+              "fits": { "type": "string", "description": "Models this is sold as fitting." },
+              "reversible": { "type": "boolean", "description": "Whether the stock part can be refitted afterwards. Worth stating -- it is the difference between an experiment and a commitment." },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "bus": {
+      "type": "object",
+      "description": "A plain wired local bus -- UART/TTL serial or raw CAN -- for devices with no radio and no diagnostic connector. An e-bike motor talking to its display lives here. Distinct from `obd`: that models a diagnostic session (connector standard, ECU addressing, UDS services, security access) reached through a standardised socket, whereas this models an internal bus whose traffic is simply there to be read. A consumer needs a physical adapter to reach one of these, so specs here are documentation and bridge-building targets. Vehicles: the same care as `obd` applies -- anything that transmits on a bus with a motor on it is `advanced`.",
+      "required": ["link"],
+      "properties": {
+        "link": {
+          "type": "object",
+          "description": "Physical layer parameters -- what you set on the adapter before any byte makes sense.",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["uart", "can"],
+              "description": "'uart': asynchronous TTL serial, point-to-point on a harness line. 'can': a CAN bus carrying raw frames (NOT ISO-TP diagnostics -- that is `obd`)."
+            },
+            "baud": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "UART baud rate, e.g. 1200 (Bafang BBS02) or 9600 (Tongsheng TSDZ2). Getting this wrong yields plausible-looking garbage, so it is worth stating even when it seems obvious."
+            },
+            "framing": {
+              "type": "string",
+              "description": "UART framing, e.g. '8N1'."
+            },
+            "bitrate": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "CAN bitrate in bit/s, e.g. 500000."
+            },
+            "logic_level": {
+              "type": "string",
+              "description": "Signalling level where it matters for adapter choice, e.g. '3.3V TTL'."
+            },
+            "wiring": {
+              "type": "array",
+              "description": "How to physically reach the bus: which wire or pin carries what.",
+              "items": {
+                "type": "object",
+                "required": ["signal"],
+                "properties": {
+                  "signal": {
+                    "type": "string",
+                    "description": "Signal on this conductor, e.g. 'CAN-H', 'motor TX', 'ground'."
+                  },
+                  "pin": { "type": "integer", "minimum": 1 },
+                  "wire_colour": { "type": "string" },
+                  "connector": {
+                    "type": "string",
+                    "description": "Connector this pin belongs to, e.g. 'D-Sub 9 (CiA DS-102)', '6-pin Tongsheng'."
+                  },
+                  "notes": { "type": "string" },
+                  "verification": { "$ref": "#/$defs/verification" }
+                }
+              }
+            },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "style": {
+          "type": "string",
+          "enum": ["request_response", "stream", "broadcast"],
+          "description": "How traffic is organised, which decides what a consumer must implement. 'request_response': the host asks and the device answers, so messages carry `request`/`response` (Bafang BBS02). 'stream': both ends push fixed-shape packets at a fixed rate with nobody asking, so messages carry `start_byte` and `rate_hz` -- and note that transmitting at all means continuously asserting state (Tongsheng TSDZ2). 'broadcast': nodes emit frames keyed by identifier onto a shared bus, so messages carry `can_id` (Bosch CAN)."
+        },
+        "checksum": {
+          "type": "object",
+          "description": "Integrity scheme. Worth stating precisely: a mismatched checksum rule is the usual reason a first implementation is silently rejected by the device.",
+          "properties": {
+            "algorithm": {
+              "type": "string",
+              "enum": ["sum8", "sum8-mod256", "crc8", "crc16", "none", "other"],
+              "description": "Algorithm over the frame. 'sum8'/'sum8-mod256' is a plain 8-bit additive checksum."
+            },
+            "scope": {
+              "type": "string",
+              "description": "Exactly which bytes are summed, and whether it differs by direction. State this even when it seems obvious -- the Bafang BBS02 sums every preceding byte on a read response but skips the first code byte on a write request, and that asymmetry is the classic cause of rejected writes."
+            },
+            "notes": { "type": "string" },
+            "verification": { "$ref": "#/$defs/verification" }
+          }
+        },
+        "messages": {
+          "type": "array",
+          "description": "The message catalogue. One entry per distinct exchange, packet shape or frame, whichever this bus uses; the `fields` array is the part every style shares.",
+          "items": {
+            "type": "object",
+            "required": ["name", "verification"],
+            "allOf": [
+              {
+                "$comment": "Same rule as BLE commands: an advanced message must explain itself.",
+                "if": {
+                  "properties": { "advanced": { "const": true } },
+                  "required": ["advanced"]
+                },
+                "then": {
+                  "required": ["advanced_reason"],
+                  "properties": {
+                    "advanced_reason": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "direction": {
+                "type": "string",
+                "enum": ["to_device", "from_device", "bidirectional"],
+                "description": "Which way this message travels, from the host's point of view."
+              },
+              "request": {
+                "$ref": "#/$defs/hex_bytes",
+                "description": "Bytes the host sends (request_response style). Include any payload and checksum actually required -- not every read is a bare opcode."
+              },
+              "response": {
+                "$ref": "#/$defs/hex_bytes",
+                "description": "Expected reply prefix, where a fixed one exists. '??' marks a variable byte."
+              },
+              "can_id": {
+                "$ref": "#/$defs/can_id",
+                "description": "Frame identifier (broadcast style)."
+              },
+              "start_byte": {
+                "type": "string",
+                "pattern": "^[0-9A-Fa-f]{2}$",
+                "description": "Fixed leading byte identifying this packet shape (stream style), e.g. '43'."
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Total frame length in bytes, including any start byte and checksum."
+              },
+              "rate_hz": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "How many times a second this packet is emitted (stream/broadcast style)."
+              },
+              "payload_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Where `fields` offsets are measured from, when they are relative to a payload rather than the whole frame. Omit when offsets are frame-absolute. State it either way rather than leaving a reader to infer it."
+              },
+              "fields": {
+                "type": "array",
+                "description": "Decoded fields. Offsets are frame-absolute unless `payload_offset` says otherwise.",
+                "items": {
+                  "type": "object",
+                  "required": ["offset", "name"],
+                  "properties": {
+                    "offset": { "type": "integer", "minimum": 0 },
+                    "length": { "type": "integer", "minimum": 1, "default": 1 },
+                    "name": { "type": "string" },
+                    "type": {
+                      "type": "string",
+                      "enum": ["uint8", "uint16", "int8", "int16", "uint32", "int32", "bytes", "string", "bitfield", "bool"]
+                    },
+                    "endianness": {
+                      "type": "string",
+                      "enum": ["little", "big"],
+                      "default": "little"
+                    },
+                    "unit": { "type": "string" },
+                    "scale": {
+                      "type": "number",
+                      "description": "Multiplier applied to the raw value to get `unit`."
+                    },
+                    "encoding": {
+                      "type": "string",
+                      "description": "Value encoding in prose where an enum or code table applies, e.g. '0x1F-0x3C = 16in-30in, 0x37 = 700C'."
+                    },
+                    "array_len": {
+                      "type": "integer",
+                      "minimum": 2,
+                      "description": "Number of consecutive same-width entries starting at `offset`. Use this for repeated per-level values instead of describing them in prose -- it is exactly the distinction between ten current limits followed by ten speed limits and ten interleaved pairs, which is the kind of thing that is otherwise got wrong silently."
+                    },
+                    "notes": { "type": "string" },
+                    "verification": { "$ref": "#/$defs/verification" }
+                  }
+                }
+              },
+              "writes": {
+                "type": "boolean",
+                "default": false,
+                "description": "True if this message mutates device state. Note that in 'stream' style a control packet writes by existing at all -- it asserts its fields on every repetition."
+              },
+              "advanced": {
+                "type": "boolean",
+                "default": false,
+                "description": "Same meaning as on BLE commands: goes further than a typical consumer app would. A signpost, not a gate."
+              },
+              "advanced_reason": {
+                "type": "string",
+                "description": "Why, in the terms described for BLE commands: what changes, the realistic consequence, and how to recover."
+              },
+              "notes": { "type": "string" },
+              "verification": { "$ref": "#/$defs/verification" }
+            }
+          }
+        },
+        "notes": { "type": "string" }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["platform", "name"],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select"],
+            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar."
+          },
+          "name": {
+            "type": "string"
+          },
+          "device_class": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state_characteristic": {
+            "$ref": "#/$defs/uuid"
+          },
+          "state_field": {
+            "type": "string",
+            "description": "Source of this entity's state on a `bus` device, as 'message_name.field_name' (e.g. 'motor_status.speed'). The bus analogue of `state_characteristic`: bus devices have no GATT characteristic to point at, so an entity binds to a decoded field of a catalogued message instead.",
+            "pattern": "^[A-Za-z0-9_]+\\.[A-Za-z0-9_]+$"
+          },
+          "state_topic": {
+            "type": "string",
+            "description": "MQTT topic or HTTP endpoint that provides entity state (for WiFi devices)."
+          },
+          "state_mapping": {
+            "type": "object"
+          },
+          "commands": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}
