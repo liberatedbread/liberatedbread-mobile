@@ -191,8 +191,8 @@ void main() {
     });
   });
 
-  // Against the real vendored files, so a mangled or forgotten
-  // scripts/sync_device_specs.sh run is caught here rather than on a phone.
+  // Against the real vendored files, so a bad or stale `git subtree pull` is
+  // caught here rather than on a phone.
   group('the vendored registries', () {
     setUpAll(TestWidgetsFlutterBinding.ensureInitialized);
 

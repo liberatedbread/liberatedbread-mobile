@@ -16,7 +16,9 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-specs_dir="${1:-$repo_root/assets/device_specs}"
+# The real catalogue. examples/ holds only the fabricated test bulb, which
+# would otherwise pad the coverage figures with a device nobody owns.
+specs_dir="${1:-$repo_root/vendor/protocol-specs/device-specs/devices}"
 
 if [[ ! -d "$specs_dir" ]]; then
   echo "no such spec directory: $specs_dir" >&2

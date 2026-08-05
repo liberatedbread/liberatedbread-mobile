@@ -51,7 +51,7 @@ class _MockDeviceDef {
 }
 
 // Service definitions shared by all mock devices. Keep this in sync with
-// assets/device_specs/example-bulb.yaml.
+// vendor/protocol-specs/device-specs/examples/example-bulb.yaml.
 const _controlService = BleDiscoveredService(
   uuid: '0000fff0-0000-1000-8000-00805f9b34fb',
   characteristics: [
@@ -141,7 +141,8 @@ class MockBleService implements BleService {
     }
   }
 
-  static const _bulbSpec = 'assets/device_specs/example-bulb.yaml';
+  static const _bulbSpec =
+      'vendor/protocol-specs/device-specs/examples/example-bulb.yaml';
 
   // The four entries deliberately advertise different things, so demo mode
   // exercises every rung of the scan-time confidence ladder rather than only
@@ -174,7 +175,8 @@ class MockBleService implements BleService {
       id: 'AA:BB:CC:DD:EE:03',
       name: 'Airthings Wave Plus',
       rssi: -58,
-      specAsset: 'assets/device_specs/airthings-wave-family.yaml',
+      specAsset:
+          'vendor/protocol-specs/device-specs/devices/airthings-wave-family.yaml',
       companyIds: [820],
     ),
     // Nameless, silent, and identifiable only by the vendor half of its
@@ -186,7 +188,8 @@ class MockBleService implements BleService {
       id: 'C4:7C:8D:11:22:04',
       name: '',
       rssi: -78,
-      specAsset: 'assets/device_specs/xiaomi-miflora.yaml',
+      specAsset:
+          'vendor/protocol-specs/device-specs/devices/xiaomi-miflora.yaml',
     ),
   ];
 

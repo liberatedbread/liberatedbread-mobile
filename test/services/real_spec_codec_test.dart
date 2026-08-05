@@ -22,7 +22,8 @@ void main() {
 
   setUpAll(() async {
     rustReady = await initHostRustLib();
-    yaml = await rootBundle.loadString('assets/device_specs/example-bulb.yaml');
+    yaml = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/examples/example-bulb.yaml');
   });
 
   test('loadDeviceSpec parses the bundled bulb spec', () async {
