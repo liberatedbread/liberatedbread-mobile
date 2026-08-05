@@ -1,0 +1,254 @@
+# ProGLOW / TTCBLE Motorcycle LED Controller device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "ProGLOW Motorcycle LED Controller"
+  manufacturer: "ProGLOW / TTCBLE"
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    Motorcycle ground-effect LED controller from com.ttcble.proglow static
+    analysis. Normal command sends are unencoded GATT writes to characteristic
+    0x1001. Packets start with header 0x3C; state/response parsing expects 0x4D.
+    No CRC/checksum was found in the normal command builder.
+  identification:
+    service_uuids:
+      - "00001000-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00001000-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "service_uuid"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, but the controller expects a six-byte password command
+      before it accepts lighting commands. That is an in-session unlock with a
+      shared default value, not a per-device pairing secret.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+services:
+  - uuid: "00001000-0000-1000-8000-00805f9b34fb"
+    name: "ProGLOW BLE Service"
+    characteristics:
+      - uuid: "00001001-0000-1000-8000-00805f9b34fb"
+        name: "Command Write"
+        properties: ["write"]
+        notes: "All observed ProGLOW commands target this characteristic and start with 0x3C."
+        commands:
+          password:
+            description: "Send six-byte password"
+            template: [0x3C, 0x09, "{password}"]
+            parameters:
+              password:
+                type: "bytes"
+          sync_time:
+            description: "Sync device time and protection settings"
+            template: [0x3C, 0x00, "{second}", "{minute}", "{hour}", "{day}", "{month}", "{year_low}", "{year_high}", "{battery_protection}", "{brake_signal}", "{brake_override}"]
+            parameters:
+              second:
+                type: "uint8"
+                min: 0
+                max: 59
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+              day:
+                type: "uint8"
+                min: 1
+                max: 31
+              month:
+                type: "uint8"
+                min: 1
+                max: 12
+              year_low:
+                type: "uint8"
+                min: 0
+                max: 255
+              year_high:
+                type: "uint8"
+                min: 0
+                max: 255
+              battery_protection:
+                type: "uint8"
+                min: 0
+                max: 255
+              brake_signal:
+                type: "uint8"
+                min: 0
+                max: 255
+              brake_override:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_power:
+            description: "Set on/off for a channel mask"
+            template: [0x3C, 0x01, "{channel_mask}", "{on_off}"]
+            channel_masks:
+              channel_1: 0x01
+              channel_2: 0x02
+              channel_3: 0x04
+              channel_4: 0x08
+              all: 0x07
+              all_2: 0x0F
+            parameters:
+              channel_mask:
+                type: "uint8"
+                min: 0
+                max: 15
+              on_off:
+                type: "uint8"
+                min: 0
+                max: 1
+          set_effect_mode:
+            description: "Set effect mode"
+            template: [0x3C, 0x02, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_speed:
+            description: "Set effect speed; app sends 6 - speed"
+            template: [0x3C, 0x03, "{six_minus_speed}"]
+            parameters:
+              six_minus_speed:
+                type: "uint8"
+                min: 0
+                max: 6
+          set_brightness:
+            description: "Set brightness"
+            template: [0x3C, 0x04, "{brightness}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_home_multi_color:
+            description: "Set home/multi-color mode; 20-byte packet with up to four RGB triples in first packet"
+            template: [0x3C, 0x05, "{mode}", "{submode}", "{color_count}", "{channel_mask}", "{packet_index}", "{rgb_triples_padded}"]
+            fixed_length: 20
+            channel_masks:
+              channel_1: 0x01
+              channel_2: 0x02
+              channel_3: 0x04
+              channel_4: 0x08
+              all: 0x07
+            packet_layout:
+              0: "0x3C header"
+              1: "0x05 command"
+              2: "mode"
+              3: "submode"
+              4: "color_count"
+              5: "channel_mask"
+              6: "packet_index"
+              7: "RGB triples, up to four colors in first packet; additional colors use second 20-byte packet"
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 255
+              submode:
+                type: "uint8"
+                min: 0
+                max: 255
+              color_count:
+                type: "uint8"
+                min: 1
+                max: 8
+              channel_mask:
+                type: "uint8"
+                min: 1
+                max: 15
+              packet_index:
+                type: "uint8"
+                min: 0
+                max: 1
+              rgb_triples_padded:
+                type: "bytes"
+      - uuid: "00001002-0000-1000-8000-00805f9b34fb"
+        name: "Characteristic 2"
+        properties: ["read", "notify"]
+      - uuid: "00001003-0000-1000-8000-00805f9b34fb"
+        name: "Characteristic 3"
+        properties: ["read", "notify"]
+      - uuid: "00001004-0000-1000-8000-00805f9b34fb"
+        name: "Read"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "response_header"
+            type: "uint8"
+      - uuid: "00001005-0000-1000-8000-00805f9b34fb"
+        name: "Register Write"
+        properties: ["write"]
+
+entities:
+  - platform: "light"
+    name: "ProGLOW LEDs"
+    features: ["brightness", "color", "effect"]
+    state_characteristic: "00001004-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "set_power"
+      turn_off: "set_power"
+      set_brightness: "set_brightness"
+      set_effect: "set_effect_mode"
+      set_color: "set_home_multi_color"

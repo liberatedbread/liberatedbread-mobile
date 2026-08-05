@@ -1,0 +1,483 @@
+# Chef iQ Sense device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Chef iQ Sense"
+  manufacturer: "Chefman / Chef iQ"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    Smart thermometer hub (CQ60) with wireless probes and ESP32-WROOM-E chipset.
+    Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi for cloud (AWS IoT MQTT).
+    React Native app with Hermes bytecode (v96); protocol logic decompiled via hermes-dec.
+    Five BLE UUID families for different device generations and functions.
+    BLE manufacturer ID: 0x05CD. Device name: exactly "CQ60".
+    Temperatures are IEEE 754 single-precision floats, natively in Fahrenheit.
+    Probe data uses TLV (Tag-Length-Value) binary encoding with typed attribute IDs.
+    Three command channels: thermometer (048A), system (9C6F), FTP/OTA (F640).
+    Cloud: api.chefiq.com (REST), graph.chefiq.com (GraphQL), iot.chefiq.com (MQTT).
+    Auth: AWS Cognito. The identity-pool id us-east-1:f95270e2-a024-41dc-bf5e-2d5df159f259
+    is a PUBLIC client-side identifier (region:uuid format), NOT a secret credential -- it
+    ships in every copy of the app and grants nothing without a valid user login. Retained
+    here (and in docs/devices/chef-iq-sense.md) for interoperability; no vendor secret is
+    published. No certificate pinning.
+    MQTT topics: ciq-v2/dt/thermometer/{cognito_id}~{device_id}/+.
+    Wi-Fi provisioning over BLE via Family C (8A71) characteristics, versioned V1/V2/V3.
+    FCC ID: ESP32WROVERE.
+  identification:
+    local_name_prefix: "CQ60"
+    service_uuids:
+      - "048a00ff-cd06-4d57-a048-ccd5cb9f8f43"
+      - "9c6f00fc-0420-41c1-bd98-7a015c45dc5a"
+      - "8a7100fe-babe-b7ae-074f-86d0c0b50089"
+      - "6ac400fb-5bc3-4e99-acb8-f85d442b9ae4"
+      - "f64000fd-6f49-4b5b-9bf8-76b3775d4d01"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "CQ60"
+          service_uuids:
+            - "048a00ff-cd06-4d57-a048-ccd5cb9f8f43"
+            - "9c6f00fc-0420-41c1-bd98-7a015c45dc5a"
+            - "8a7100fe-babe-b7ae-074f-86d0c0b50089"
+            - "6ac400fb-5bc3-4e99-acb8-f85d442b9ae4"
+            - "f64000fd-6f49-4b5b-9bf8-76b3775d4d01"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The CQ60 hub is a BLE device that also needs WiFi, and the two roles are
+      cleanly separated: probes and live readings work over BLE with no setup
+      at all, while cloud/MQTT features need the WiFi credentials that are
+      pushed over the Family C (8A71) provisioning service. A local-first
+      client can stop after BLE and never provision WiFi — worth saying out
+      loud, because the vendor app treats the account as mandatory.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          For local use, no provisioning is required: scan for the local name
+          CQ60, connect, and use the thermometer (048A) and system (9C6F)
+          services directly.
+        ble:
+          advertised_name: "CQ60"
+          pairing_required: false
+        steps:
+          - action: "Scan for a device advertising the local name CQ60 with manufacturer ID 0x05CD and connect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          WiFi credentials are written over the Family C service. The
+          characteristic set is versioned V1/V2/V3 across device generations,
+          so read the network-info characteristic first and match the version
+          before writing.
+        ble:
+          service_uuid: "8a7100fe-babe-b7ae-074f-86d0c0b50089"
+          write_characteristic: "8a71ffa3-babe-b7ae-074f-86d0c0b50089"
+          read_characteristic: "8a71ffa0-babe-b7ae-074f-86d0c0b50089"
+          pairing_required: false
+        steps:
+          - action: "Read the network info characteristic to learn the provisioning version and current state."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              service: "8a7100fe-babe-b7ae-074f-86d0c0b50089"
+              action: "Read 8a71ffa0 (Network Info)"
+          - action: "Read the scanned-network characteristic to enumerate visible access points."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Read 8a71ffa1 (Scanned Network)"
+          - action: "Write the target SSID and passphrase to the set-network characteristic."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Write 8a71ffa3 (Set Wi-Fi Network)"
+            notes: "Payload encoding is version-dependent and has not been replayed against hardware here."
+          - action: "Subscribe to the network info characteristic for the join result."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+              action: "Notify 8a71ffa0 (Network Info)"
+            timeout_seconds: 60
+    factory_reset:
+      confidence: "low"
+      effect: "Removing the stored credential over BLE unprovisions WiFi without touching probe pairings or the account."
+      procedures:
+        - name: "Remove credential over BLE"
+          steps:
+            - action: "Write to the remove-credential characteristic 8a71ffa5."
+              actor: "client"
+              notes: "Protocol-level unprovision; the hardware button sequence for a full reset is not documented here."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        BLE stays available whatever the WiFi state, so a new network is just
+        another write to 8a71ffa3 — optionally preceded by a remove-credential
+        write to 8a71ffa5. No physical reset needed.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "WiFi credentials"
+        - "AWS IoT device identity for cloud MQTT"
+      issued_to_client: []
+      notes: >
+        BLE writes here are not encrypted or bonded, so the passphrase is
+        exposed to anything sniffing the connection event during provisioning.
+        Provision in a quiet RF environment or skip WiFi entirely for local use.
+services:
+  - uuid: "048a00ff-cd06-4d57-a048-ccd5cb9f8f43"
+    name: "Thermometer/Probe Service (Family A)"
+    characteristics:
+      - uuid: "048af000-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Probe Data"
+        properties: ["notify"]
+
+      - uuid: "048af001-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Session Data"
+        properties: ["notify"]
+
+      - uuid: "048af010-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Docked List"
+        properties: ["read", "notify"]
+
+      - uuid: "048af011-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Registered List"
+        properties: ["read"]
+
+      - uuid: "048af014-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Session Probe List"
+        properties: ["read", "notify"]
+
+      - uuid: "048af020-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "System Notification"
+        properties: ["notify"]
+
+      - uuid: "048af021-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Session Notification"
+        properties: ["notify"]
+
+      - uuid: "048af022-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Cooking State Notification"
+        properties: ["notify"]
+
+      - uuid: "048afff0-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Thermometer Command Request"
+        properties: ["write"]
+        commands:
+          get_version:
+            description: "Get thermometer firmware version"
+            value: [0]
+          register_probe:
+            description: "Register a probe to the hub"
+            value: [16]
+          deregister_probe:
+            description: "Remove a probe registration"
+            value: [17]
+          update_probe:
+            description: "Update probe settings"
+            value: [18]
+          start_session:
+            description: "Start a cooking session"
+            value: [20]
+          get_probe_attributes:
+            description: "Read probe attribute data"
+            value: [21]
+          get_session_attributes:
+            description: "Read session attribute data"
+            value: [22]
+          update_session:
+            description: "Update running session parameters"
+            value: [23]
+          cancel_session:
+            description: "Cancel a cooking session"
+            value: [24]
+          end_session:
+            description: "End a cooking session"
+            value: [25]
+          get_cooking_state_notification_ids:
+            description: "List cooking state notification IDs"
+            value: [32]
+          get_cooking_state_notification:
+            description: "Read a cooking state notification"
+            value: [33]
+          set_cooking_state_notification:
+            description: "Create a cooking state notification"
+            value: [34]
+          update_cooking_state_notification:
+            description: "Update a cooking state notification"
+            value: [35]
+          delete_cooking_state_notification:
+            description: "Delete a cooking state notification"
+            value: [36]
+          start_cooking_state_notification:
+            description: "Activate a cooking state notification"
+            value: [37]
+          get_session_notification_ids:
+            description: "List session notification IDs"
+            value: [48]
+          get_session_notification:
+            description: "Read a session notification"
+            value: [49]
+          set_session_notification:
+            description: "Create a session notification"
+            value: [50]
+          update_session_notification:
+            description: "Update a session notification"
+            value: [51]
+          delete_session_notification:
+            description: "Delete a session notification"
+            value: [52]
+          get_session_notification_status:
+            description: "Get session notification status"
+            value: [58]
+
+      - uuid: "048afff1-cd06-4d57-a048-ccd5cb9f8f43"
+        name: "Thermometer Command Response"
+        properties: ["notify"]
+
+  - uuid: "9c6f00fc-0420-41c1-bd98-7a015c45dc5a"
+    name: "System/Config Service (Family B)"
+    characteristics:
+      - uuid: "9c6ff050-0420-41c1-bd98-7a015c45dc5a"
+        name: "Cloud Status"
+        properties: ["read", "notify"]
+        format:
+          # 4-byte signed little-endian integer (SignedInt32). Corrected from the
+          # earlier int8/length-4 mismatch. Evidence: docs/devices/chef-iq-sense.md
+          # documents 9C6FF050 as "SignedInt32", and the app's Hermes bundle parses
+          # this characteristic with readInt32LE. NOTE: int32 is not yet consumed by
+          # the mobile Rust ValueType enum (known 32-bit gap).
+          - offset: 0
+            length: 4
+            name: "cloud_status"
+            type: "int32"
+
+      - uuid: "9c6ff051-0420-41c1-bd98-7a015c45dc5a"
+        name: "Battery Status"
+        properties: ["read", "notify"]
+
+      - uuid: "9c6ff052-0420-41c1-bd98-7a015c45dc5a"
+        name: "Battery Level"
+        properties: ["read"]
+
+      - uuid: "9c6ff054-0420-41c1-bd98-7a015c45dc5a"
+        name: "Mute"
+        properties: ["read", "write", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "muted"
+            type: "bool"
+
+      - uuid: "9c6ff055-0420-41c1-bd98-7a015c45dc5a"
+        name: "Volume"
+        properties: ["read", "write", "notify"]
+
+      - uuid: "9c6fff81-0420-41c1-bd98-7a015c45dc5a"
+        name: "Device Name"
+        properties: ["read", "write"]
+        format:
+          - offset: 0
+            length: 32
+            name: "device_name"
+            type: "string"
+
+      - uuid: "9c6fff82-0420-41c1-bd98-7a015c45dc5a"
+        name: "Has New Update"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "has_update"
+            type: "bool"
+
+      - uuid: "9c6fff84-0420-41c1-bd98-7a015c45dc5a"
+        name: "OTA Progress"
+        properties: ["read", "notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "progress_percent"
+            type: "uint8"
+
+      - uuid: "9c6fff85-0420-41c1-bd98-7a015c45dc5a"
+        name: "Generation"
+        properties: ["read"]
+        format:
+          - offset: 0
+            length: 1
+            name: "generation"
+            type: "uint8"
+
+      - uuid: "9c6fffb0-0420-41c1-bd98-7a015c45dc5a"
+        name: "Signature"
+        properties: ["read"]
+
+      - uuid: "9c6fffc0-0420-41c1-bd98-7a015c45dc5a"
+        name: "Temperature Unit"
+        properties: ["read", "write", "notify"]
+        commands:
+          set_fahrenheit:
+            description: "Set temperature unit to Fahrenheit"
+            value: [0]
+          set_celsius:
+            description: "Set temperature unit to Celsius"
+            value: [1]
+        format:
+          - offset: 0
+            length: 1
+            name: "temp_unit"
+            type: "uint8"
+
+      - uuid: "9c6fffc1-0420-41c1-bd98-7a015c45dc5a"
+        name: "Data Update Interval"
+        properties: ["read", "write", "notify"]
+
+      - uuid: "9c6ffff0-0420-41c1-bd98-7a015c45dc5a"
+        name: "System Command Request"
+        properties: ["write"]
+        commands:
+          get_version:
+            description: "Get firmware version"
+            value: [0]
+          factory_reset:
+            description: "Factory reset the device"
+            value: [1]
+          app_reboot:
+            description: "Reboot the device"
+            value: [2]
+          set_epoch_time:
+            description: "Set the device clock (Unix epoch)"
+            value: [3]
+          set_timezone:
+            description: "Set the device timezone"
+            value: [4]
+          set_language:
+            description: "Set the device language"
+            value: [5]
+          get_epoch_time:
+            description: "Read the device clock"
+            value: [6]
+          get_timezone:
+            description: "Get the device timezone"
+            value: [7]
+          get_language:
+            description: "Get the device language"
+            value: [8]
+
+      - uuid: "9c6ffff1-0420-41c1-bd98-7a015c45dc5a"
+        name: "System Command Response"
+        properties: ["notify"]
+
+  - uuid: "8a7100fe-babe-b7ae-074f-86d0c0b50089"
+    name: "Wi-Fi Provisioning Service (Family C)"
+    characteristics:
+      - uuid: "8a71ffa0-babe-b7ae-074f-86d0c0b50089"
+        name: "Network Info"
+        properties: ["read", "notify"]
+
+      - uuid: "8a71ffa1-babe-b7ae-074f-86d0c0b50089"
+        name: "Scanned Network"
+        properties: ["read"]
+
+      - uuid: "8a71ffa2-babe-b7ae-074f-86d0c0b50089"
+        name: "Saved Network"
+        properties: ["read"]
+
+      - uuid: "8a71ffa3-babe-b7ae-074f-86d0c0b50089"
+        name: "Set Wi-Fi Network"
+        properties: ["write"]
+
+      - uuid: "8a71ffa4-babe-b7ae-074f-86d0c0b50089"
+        name: "Wi-Fi Mode"
+        properties: ["read", "write", "notify"]
+
+      - uuid: "8a71ffa5-babe-b7ae-074f-86d0c0b50089"
+        name: "Remove Credential"
+        properties: ["write"]
+
+  - uuid: "6ac400fb-5bc3-4e99-acb8-f85d442b9ae4"
+    name: "User/Identity Service (Family D)"
+    characteristics:
+      - uuid: "6ac4ff80-5bc3-4e99-acb8-f85d442b9ae4"
+        name: "User Name"
+        properties: ["read", "write"]
+
+      - uuid: "6ac4ff83-5bc3-4e99-acb8-f85d442b9ae4"
+        name: "User ID"
+        properties: ["read", "write"]
+
+      - uuid: "6ac4ffb1-5bc3-4e99-acb8-f85d442b9ae4"
+        name: "Cognito ID"
+        properties: ["read", "write"]
+
+      - uuid: "6ac4ffb2-5bc3-4e99-acb8-f85d442b9ae4"
+        name: "Notification Key"
+        properties: ["read", "write"]
+
+  - uuid: "f64000fd-6f49-4b5b-9bf8-76b3775d4d01"
+    name: "FTP/File Transfer Service (Family E)"
+    characteristics:
+      - uuid: "f640fff0-6f49-4b5b-9bf8-76b3775d4d01"
+        name: "FTP Command Request"
+        properties: ["write"]
+        commands:
+          get_version:
+            description: "Get FTP service version"
+            value: [0]
+          file_read_start:
+            description: "Begin reading a file from device"
+            value: [1]
+          file_read_transfer:
+            description: "Continue reading file data"
+            value: [2]
+          file_read_end:
+            description: "Complete file read"
+            value: [3]
+          file_write_start:
+            description: "Begin writing a file to device (OTA)"
+            value: [4]
+          file_write_transfer:
+            description: "Continue writing file data"
+            value: [5]
+          file_write_end:
+            description: "Complete file write"
+            value: [6]
+
+      - uuid: "f640fff1-6f49-4b5b-9bf8-76b3775d4d01"
+        name: "FTP Command Response"
+        properties: ["notify"]
+
+entities:
+  - platform: "sensor"
+    name: "Internal Temperature"
+    device_class: "temperature"
+    unit: "F"
+    state_characteristic: "048af000-cd06-4d57-a048-ccd5cb9f8f43"
+
+  - platform: "sensor"
+    name: "Ambient Temperature"
+    device_class: "temperature"
+    unit: "F"
+    state_characteristic: "048af000-cd06-4d57-a048-ccd5cb9f8f43"
+
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "9c6ff052-0420-41c1-bd98-7a015c45dc5a"

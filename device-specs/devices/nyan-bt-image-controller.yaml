@@ -1,0 +1,190 @@
+# NYAN BT Image Controller device spec (LOY SPACE protocol)
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "NYAN BT Image Controller"
+  manufacturer: "NYAN GEAR / LOY SPACE / popled.cn"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+  notes: >
+    BLE-only variant of the LOY SPACE protocol (identical to AUTOBABA LED Backpack).
+    White-label reskin of the LOY SPACE platform with BLE-only mode (no Wi-Fi).
+    BLE device name starts with "YS" or "TL".
+    Packet format: [0xAA, 0x55, addr_hi, addr_lo, len_hi, len_lo, sno_hi, sno_lo, flags, type, ...payload].
+    JSON-based commands, 24-bit BMP image upload.
+    Default resolution: 32x16. Supports same resolution table as AUTOBABA.
+    Backend: store-cdn.popled.cn (shared API key and auth).
+    BLE transport identical to AUTOBABA: JSON commands framed with a 0xAA55 magic
+    header (bytes AA 55) + 2 reserved + LE uint16 payload length, chunked ~180 B/write,
+    no checksum on JSON commands. NYAN adds rt_draw (real-time pixel draw), game and
+    pwd (password) commands on top of the shared command set.
+    CONFIDENCE: HIGH — service/char UUIDs and command JSON verified in the uni-app
+    app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2, NotifyId 0000FFF1;
+    rt_draw/game/pwd/dev_info/del_all/value_fix tokens present).
+  identification:
+    local_name_prefix: "YS"
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "YS"
+          service_uuids:
+            - "0000fff0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. Shares the LOY SPACE controller lineage with the AUTOBABA
+      backpack, including the YS advertising name prefix.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          advertised_name: "YS"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+# Custom consumer-side handler: JSON command serialization into the popled 0xAA55
+# framed transport (shared with the AUTOBABA LED Backpack). Declarative.
+protocol_handler: "popled_json"
+
+# Full-color image / animation upload (device-reported resolution may differ).
+features:
+  - type: "image_upload"
+    format: "gif"
+    max_width: 32
+    max_height: 16
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "LOY SPACE BLE Service"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Notify / Write"
+        properties: ["read", "write", "notify"]
+        framing:
+          length_prefix: true
+          max_chunk_size: 180
+        notes: "NotifyId in app-service.js. 0xAA55 + 2 reserved + LE uint16 length; no checksum on JSON commands."
+
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: "Write"
+        properties: ["write"]
+        framing:
+          length_prefix: true
+          max_chunk_size: 180
+        notes: >
+          WriteId in app-service.js. JSON commands wrapped as
+          {"cmd": <command>, "sno": <sequence>} and framed with the 0xAA55 header.
+          checksum OMITTED (none on JSON commands).
+        commands:
+          power_toggle:
+            description: 'Toggle screen power. JSON: {"cmd":{"power":{"type":0}},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.power.type"
+              value_type: "int"
+          set_brightness:
+            description: 'Set brightness 0-15. JSON: {"cmd":{"light":{"type":0,"value_fix":N}},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.light.value_fix"
+              value_type: "int"
+          get_device_info:
+            description: 'Query device info. JSON: {"cmd":{"get":"dev_info"},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.get"
+              value_type: "string"
+          delete_all_programs:
+            description: 'Delete all programs. JSON: {"cmd":{"delete":{"del_all":1}},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.delete.del_all"
+              value_type: "int"
+          set_rotation:
+            description: 'Set screen rotation. JSON: {"cmd":{"rotate":N},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.rotate"
+              value_type: "int"
+          play_program:
+            description: 'Play a program by index. JSON: {"cmd":{"pgm_play":{"model":0,"index":N}},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.pgm_play.index"
+              value_type: "int"
+          rt_draw:
+            description: 'Real-time pixel draw (NYAN). JSON: {"cmd":{"rt_draw":{...}},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.rt_draw"
+              value_type: "object"
+          set_password:
+            description: 'Set / send device password (NYAN). JSON: {"cmd":{"pwd":"..."},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.pwd"
+              value_type: "string"
+          game_command:
+            description: 'Game-mode command (NYAN). JSON: {"cmd":{"game":{...}},"sno":N}'
+            encoding: "json"
+            payload:
+              key: "cmd.game"
+              value_type: "object"
+
+entities:
+  - platform: "light"
+    name: "LED Screen"
+    features: ["brightness"]
+    commands:
+      set_brightness: "set_brightness"

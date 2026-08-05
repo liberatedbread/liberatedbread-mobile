@@ -1,0 +1,242 @@
+# PAX vaporizer device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Enriched by reverse-engineering the official Android app `com.pax.app`
+# ("PAX Mobile"), pulled from APKPure via apkeep and statically decompiled with
+# jadx (clean-room, artifacts gitignored under workspace/). Cross-referenced
+# against the independent third-party web reimplementation `pax-romana`
+# (github.com/evertonstz/pax-romana). Evidence source files include:
+#   com/pax/peace/encryption/b.java   AESEncryption.kt
+#   com/pax/peace/encryption/a.java   AESCTREncryption.kt
+#   com/pax/peace/encryption/i.java   EncryptionProvider.kt
+#   com/pax/peace/g/q/l.java          decrypt path
+#   com/pax/peace/models/u.java       PAXAttribute.kt
+#   com/pax/peace/g/p/g.java          PaxServiceType.kt
+#   com/pax/peace/g/p/b.java          AdvertisingInformation.kt
+#   com/pax/peace/g/p/e.java          ManufacturerBitField.kt
+#   com/pax/peace/g/p/c.java          DIS serial-number read
+#   com/pax/peace/j/b.java            NumberExtensions.kt
+
+device:
+  name: "PAX Vaporizer"
+  manufacturer: "PAX Labs"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    Supports PAX 3, PAX Era, PAX Era Pro. Uses AES-128 OFB encryption.
+    Master key (hex): f7c866c38f78753086293bd57dd32540.
+    This key is LOCALLY verified: it appears as the decimal byte array
+    {247,200,102,195,143,120,117,48,134,41,59,213,125,211,37,64} at
+    com/pax/peace/encryption/b.java:60 (which is why a text grep for the hex
+    string "F7C866" finds nothing). It is also independently documented in public
+    PAX reverse-engineering (e.g. blraaz.me / open-source pax libraries).
+    Key derivation: read 8-char serial, duplicate to 16 bytes,
+    AES-128-ECB encrypt with master key -> per-device key.
+    Encrypt: AES-128-OFB with per-device key and random 16-byte IV.
+    Wire format: [IV (16 bytes)] + [ciphertext]. On read, first 16 bytes = IV.
+    Default IV: deadbeefdeadbeefdeadbeefdeadbeef (fallback only).
+    Also has AES-128-CTR mode for initial pairing/enrollment (service ...0210, char ...0212).
+    Temperature encoding: uint16 LE, value / 10 = degrees C.
+    Nordic Semiconductor chipset. FCC ID: 2AJWD-PAX3.
+    PAX is explicitly allowed by project policy.
+
+    Enrich-branch evidence annotations: the advertised 128-bit service UUID
+    8e320200-64d2-11e6-bdf4-0800200c9a66 is from PaxServiceType.kt. BLE local
+    name is user-customizable and therefore a weak signal. AdvertisingInformation.kt
+    shows manufacturer-specific data contains a 2-byte status bitfield and 8-byte
+    ASCII serial number after decryption; ManufacturerBitField.kt unpacks the
+    little-endian bitfield, but exact semantics remain partly unresolved. Device
+    Information Service serial-number characteristic 00002a25 is read to obtain
+    the 8-character serial for key derivation. AESEncryption.kt confirms the
+    master key byte array and AES/OFB128/NoPadding data-plane cipher. The enrich
+    branch found app code returning ciphertext plus trailing IV on encrypt and
+    reading the IV from the last 16 bytes on decrypt; it also reclassified
+    deadbeefdeadbeefdeadbeefdeadbeef as the fixed AES-CTR pairing/enrollment IV,
+    not an OFB fallback. Attribute IDs are multiplexed by byte 0 and map to
+    PAXAttribute.kt; STATUS_UPDATE and many per-attribute payloads remain
+    documented in prose because the schema cannot express all variants.
+  identification:
+    local_name_prefix: "PAX"
+    service_uuids:
+      - "8e320200-64d2-11e6-bdf4-0800200c9a66"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "PAX"
+          service_uuids:
+            - "8e320200-64d2-11e6-bdf4-0800200c9a66"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No network provisioning. The device does use an encrypted command channel,
+      so a client must complete the documented key handshake after connecting —
+      that is session setup, not onboarding.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          advertised_name: "PAX"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+
+helpful_urls:
+  - title: "Reverse Engineering Bluetooth Vapes -- Part 1"
+    url: "https://blraaz.me/reverse-engineering/2021/08/29/bluetooth-reverse-engineering.html"
+    description: "Public PAX Bluetooth reverse-engineering write-up cited by the device page and notes."
+  - title: "tristanseifert/kush-kontroller.app"
+    url: "https://github.com/tristanseifert/kush-kontroller.app"
+    description: "Open-source PAX controller implementation cited by the device page."
+
+# Custom consumer-side handler: derives the per-device OFB session key and
+# frames [IV || ciphertext]. Declarative — names a future Rust handler.
+protocol_handler: "pax_ofb"
+
+services:
+  - uuid: "8e320200-64d2-11e6-bdf4-0800200c9a66"
+    name: "PAX Service"
+    characteristics:
+      - uuid: "8e320201-64d2-11e6-bdf4-0800200c9a66"
+        name: "Read Data"
+        properties: ["read"]
+        encryption:
+          algorithm: "aes-128-ofb"
+          key_derivation: "device-specific"
+          static_key: "F7C866C38F78753086293BD57DD32540"
+        notes: >
+          Read payload is AES-128-OFB encrypted; first 16 bytes of each read = IV.
+          Confidence HIGH. Evidence: com/pax/peace/encryption/b.java:58 (AES/OFB128),
+          b.java:60 (16-byte ECB key-derivation key), g/p/f.java:33 (this char UUID).
+        format:
+          - offset: 0
+            length: 1
+            name: "message_type"
+            type: "uint8"
+
+      - uuid: "8e320202-64d2-11e6-bdf4-0800200c9a66"
+        name: "Write Command"
+        properties: ["write"]
+        encryption:
+          algorithm: "aes-128-ofb"
+          key_derivation: "device-specific"
+          static_key: "F7C866C38F78753086293BD57DD32540"
+        notes: >
+          static_key is the hardcoded AES-128-ECB KEY-DERIVATION key, NOT the
+          payload key. The actual OFB session key =
+          AES-ECB(static_key, peripheral_serial duplicated to 16 bytes); the write
+          payload is then AES-128-OFB(session_key, random 16-byte IV) with the IV
+          prepended on the wire. A secondary AES-128-CTR path (enrollment/pairing,
+          key stored in the app DB) also exists. Confidence HIGH.
+          Evidence: com/pax/peace/encryption/b.java:53,58,60,65,70,74;
+          a.java:26 (AES/CTR); com/pax/peace/d.java:8-9 (service/write UUIDs).
+        commands:
+          get_actual_temp:
+            description: "Request current temperature (encrypted, type 0x01)"
+            value: [0x01]
+          set_heater_setpoint:
+            description: "Set target temperature (encrypted, type 0x02, uint16 LE temp*10)"
+            template: [0x02, "{temp_low}", "{temp_high}"]
+            parameters:
+              temp_low:
+                type: "uint8"
+                min: 0
+                max: 255
+              temp_high:
+                type: "uint8"
+                min: 0
+                max: 255
+          get_battery:
+            description: "Request battery level (encrypted, type 0x03)"
+            value: [0x03]
+          set_lock:
+            description: "Set lock status (encrypted, type 0x06, 0=unlock, 1=lock)"
+            template: [0x06, "{lock_state}"]
+            parameters:
+              lock_state:
+                type: "uint8"
+                min: 0
+                max: 1
+          get_supported_attributes:
+            description: "Request supported attributes bitfield (type 0x18)"
+            value: [0x18]
+          request_status_update:
+            description: "Request full status update (type 0xFE)"
+            value: [0xFE]
+
+      - uuid: "8e320203-64d2-11e6-bdf4-0800200c9a66"
+        name: "Notification Trigger"
+        properties: ["read", "notify"]
+        encryption:
+          algorithm: "aes-128-ofb"
+          key_derivation: "device-specific"
+          static_key: "F7C866C38F78753086293BD57DD32540"
+        notes: >
+          Data-ready notify characteristic; notified payloads use the same
+          AES-128-OFB session key as the read/write characteristics.
+          Confidence HIGH. Evidence: com/pax/peace/g/p/f.java:31 (this char UUID).
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "C"
+    state_characteristic: "8e320201-64d2-11e6-bdf4-0800200c9a66"
+    state_mapping:
+      value: "message_type"
+
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "8e320201-64d2-11e6-bdf4-0800200c9a66"
+    state_mapping:
+      value: "message_type"

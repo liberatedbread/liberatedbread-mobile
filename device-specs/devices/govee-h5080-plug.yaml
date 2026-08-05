@@ -1,0 +1,144 @@
+# Govee H5080 BLE Smart Plug — device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Static analysis of com.govee.home APK (jadx 1.5.1)
+# H5080 family uses a DIFFERENT BLE protocol than the H6001 bulb family.
+
+device:
+  name: "Govee H5080 Smart Plug"
+  manufacturer: "Govee (Shenzhen Intellirocks Tech / iHoment)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    BLE smart plug family from Govee. The H5080 protocol is DISTINCT from
+    the H6001 bulb family — it uses custom 128-bit UUIDs (not the standard
+    16-bit SIG-assigned space) and has its own command structure.
+    
+    Family members:
+    - H5080: single plug
+    - H5081: single plug variant
+    - H5083: dual plug (goodsType=50)
+    - H5085: single plug with Matter support
+    - H5089: triple plug (goodsType=90)
+    - H5160: triple plug variant
+
+    CONFIDENCE: LOW-MEDIUM. UUIDs confirmed from APK static analysis.
+    Command byte format inferred from CmdTurn.java — bits 0-3 carry on/off
+    state, bits 4-7 carry port selector. Needs HCI snoop to verify exact
+    packet structure.
+
+  identification:
+    service_uuids:
+      - "00010203-0405-0607-0809-0a0b0c0d1910"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "00010203-0405-0607-0809-0a0b0c0d1910"
+          manufacturer_data:
+            company_id: 63678
+            description: >
+              Govee parses goodsType from manufacturer-specific data bytes
+              in the scan record. Plug family goodsTypes: 50=dual, 90=triple.
+              Exact byte encoding TBD (needs HCI snoop).
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Likely no pairing required, consistent with Govee's BLE product
+      philosophy. Device advertises on power-up.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Expected: no provisioning needed. Scan, connect, write commands.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the plug and scan for BLE advertisements."
+            actor: "client"
+          - action: "Connect and write control commands."
+            actor: "client"
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. The plug is BLE-only and holds no network credential or
+        binding, so there may be nothing a reset would clear; no reset command
+        was recovered from the app. Cutting mains power is the only state change
+        confirmed, and it is not known to clear anything.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The plug joins no network and holds no bond. Any client may connect once
+        the previous one disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only; no WiFi passphrase crosses the link. No authentication was
+        found, so anyone in range can switch the outlet — worth surfacing, given
+        this controls mains power.
+
+services:
+  - uuid: "00010203-0405-0607-0809-0a0b0c0d1910"
+    name: "Govee H5080 Plug Service"
+    characteristics:
+      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b11"
+        name: "Control Write / Notify"
+        properties: ["write", "notify"]
+        notes: >
+          Primary control characteristic. Commands use IoT-style JSON
+          with cmd type "turn". The CmdTurn class encodes on/off state
+          in a single byte:
+          - Bits 0-3: on/off state (1=port0 on, 2=port1 on, 4=port2 on, 15=all on)
+          - Bits 4-7: port selector (16=port0, 32=port1, 64=port2)
+          
+          Example: byte 0x11 = port 0 on (0x10 | 0x01)
+                   byte 0x21 = port 1 on (0x20 | 0x02)
+                   byte 0x00 = port 0 off (0x10 | 0x00)
+          
+          TBD: Need HCI snoop to confirm exact wire format and framing.
+        commands:
+          turn_on:
+            description: "Turn outlet on. Port is encoded in the command byte."
+            encoding: "bytes"
+            payload:
+              bytes: [0x00]
+          turn_off:
+            description: "Turn outlet off."
+            encoding: "bytes"
+            payload:
+              bytes: [0x00]
+
+features: []
+  # switch_control omitted — not in schema feature enum.
+  # Single, dual, or triple outlet control. H5085 also supports Matter.
+
+entities:
+  - platform: "switch"
+    name: "Plug Outlet"
+    features: ["on_off"]
+    commands:
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+
+references:
+  - "https://github.com/virtuald/govee-ble-plugs"
+  - "https://github.com/egold555/Govee-Reverse-Engineering"
+
+# TO VALIDATE:
+# - HCI snoop to confirm custom UUIDs on wire
+# - Verify exact command packet format (IoT JSON framing)
+# - Decode manufacturer-specific data for goodsType
+# - Confirm H5085 Matter commissioning flow

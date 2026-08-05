@@ -1,0 +1,150 @@
+# Govee H6001 BLE Smart Bulb — device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Static analysis of com.govee.home APK (jadx 1.5.1)
+# Cross-referenced with chvolkmann/govee_btled RE
+
+device:
+  name: "Govee H6001 Smart Bulb"
+  manufacturer: "Govee (Shenzhen Intellirocks Tech / iHoment)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    BLE-only smart bulb from Govee's legacy bulb family (H6001, H6101, H6104).
+    Protocol uses 20-byte fixed packets with XOR checksum in final byte.
+    Three command prefixes: 0xAA (ACK), 0x33 (control), 0xA3 (extended).
+    The app's internal namespace "com.ihoment.base2app" reveals Govee's
+    corporate identity as iHoment/Shenzhen Intellirocks.
+    CONFIDENCE: MODERATE for UUIDs (from APK static analysis — the 0xFFE0/0xFFE1
+    UUIDs appear in H6104 and H6101 BleComm classes); HIGH for command format
+    (corroborated by independent RE at github.com/chvolkmann/govee_btled).
+
+  identification:
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    local_name_prefix: "Govee_H6001"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 63678
+            description: >
+              Govee identifies devices by parsing a 'goodsType' byte from the
+              manufacturer-specific data section of the BLE scan record.
+              Bulb family is goodsType=20. The actual encoding is TBD
+              (needs HCI snoop capture).
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No pairing or bonding required. Device advertises on power-up and
+      accepts open BLE writes from any connected central.
+    methods:
+      - type: "ble_direct"
+        verified: true
+        description: >
+          No provisioning needed. Power on, scan, connect, write.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the bulb and scan for BLE advertisements."
+            actor: "client"
+          - action: "Connect to the device and write control commands."
+            actor: "client"
+    factory_reset:
+      confidence: "medium"
+      effect: "Resets to factory defaults (likely power-cycle sequence)."
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Toggle power rapidly 5 times."
+              actor: "user"
+              expect: "Bulb blinks to confirm reset and re-advertises."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The bulb is BLE-only and joins no network, so there is nothing to
+        rejoin. No bond is held: any central may connect once the previous one
+        disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only; no WiFi passphrase crosses the link. The bulb accepts open
+        writes from any connected central, so control is available to anyone in
+        range.
+
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "Govee Legacy Bulb Service"
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Control Write"
+        properties: ["write", "notify"]
+        notes: >
+          Primary write characteristic for all control commands.
+          Commands are 20-byte fixed-length packets with XOR checksum.
+        commands:
+          power_on:
+            description: "Turn bulb on. Packet: [0x33, 0x01, 0x01, 0x00...0x00, <xor>]"
+            encoding: "bytes"
+            payload:
+              bytes: [0x33, 0x01, 0x01]
+          power_off:
+            description: "Turn bulb off. Packet: [0x33, 0x01, 0x00, 0x00...0x00, <xor>]"
+            encoding: "bytes"
+            payload:
+              bytes: [0x33, 0x01, 0x00]
+          set_brightness:
+            description: "Set brightness 0-255. Packet: [0x33, 0x04, <val>, 0x00*17, <xor>]"
+            encoding: "bytes"
+            payload:
+              bytes: [0x33, 0x04, 0x80]
+          set_color:
+            description: "Set RGB color. Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*14, <xor>]"
+            encoding: "bytes"
+            payload:
+              bytes: [0x33, 0x05, 0x02, 0xFF, 0xFF, 0xFF]
+
+  - uuid: "0000fd00-0000-1000-8000-00805f9b34fb"
+    name: "Govee OTA Service"
+    notes: >
+      Firmware update service. Not needed for control.
+    characteristics:
+      - uuid: "0000fd01-0000-1000-8000-00805f9b34fb"
+        name: "OTA Write"
+        properties: ["write"]
+      - uuid: "0000fd02-0000-1000-8000-00805f9b34fb"
+        name: "OTA Notify"
+        properties: ["notify"]
+
+features: []
+  # light_control omitted — not in schema feature enum.
+  # Standard RGB bulb with dimming. No color temperature control confirmed.
+
+entities:
+  - platform: "light"
+    name: "Bulb"
+    features: ["brightness", "color"]
+    commands:
+      power_on: "power_on"
+      power_off: "power_off"
+      set_brightness: "set_brightness"
+      set_color: "set_color"
+
+references:
+  - "https://github.com/chvolkmann/govee_btled"
+  - "https://github.com/egold555/Govee-Reverse-Engineering"
+  - "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"

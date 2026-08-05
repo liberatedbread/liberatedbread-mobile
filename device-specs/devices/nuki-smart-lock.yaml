@@ -1,0 +1,672 @@
+# Nuki Smart Lock — Device Spec (BLE)
+# Reverse-engineered from io.nuki APK v2026.7.1 (jadx decompilation)
+# Cross-referenced with public Nuki BLE API docs at developer.nuki.io
+#
+# APK SHA-256: b737cd2f... (114 MB, 26,111 classes)
+# Key source files: BleConstants.java, BleResponse.java, KeyturnerStatesResponse.java,
+#   LockState.java, LockAction.kt, Utils.kt, ErrorReportResponse.java
+
+device:
+  name: "Nuki Smart Lock"
+  manufacturer: "Nuki Home Solutions GmbH"
+  manufacturer_status: "active"
+  category: "smart_lock"
+  type: "electronic_door_lock"
+  protocol: "ble"
+  transport: "ble-gatt"
+  models:
+    - "Smart Lock 1.0"
+    - "Smart Lock 2.0"
+    - "Smart Lock 3.0"
+    - "Smart Lock 4.0"
+    - "Smart Lock Pro"
+  notes: >
+    The Nuki Smart Lock is a retrofit electronic door lock that mounts over
+    an existing Euro-profile cylinder. It communicates primarily via BLE
+    with an optional WiFi bridge for remote access.
+
+    Protocol: encrypted BLE GATT with challenge-response authentication
+    (public key exchange, nonce, authorization IDs). Lock actions are
+    CRC-16 authenticated. All multi-byte values are little-endian.
+
+    The app supports multiple Nuki device types (Smart Lock, Opener, Door
+    Sensor, Keypad, Fob, Box, Bridge) each with their own BLE service UUIDs
+    but sharing the same command/response protocol over a GATT data
+    characteristic.
+
+    Research status: APK decompiled, full UUID map and command IDs recovered.
+    Message frame format confirmed via BleResponse.java disassembly.
+    Lock state enum and error codes fully enumerated.
+    Pairing/auth flow understood at protocol level from public docs.
+    CRC-16 implementation confirmed (XModem/CCITT, poly 0x1021, reflected).
+
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      Unlike most devices in this repo, the Nuki lock genuinely must be
+      provisioned before it will do anything: every command after pairing
+      carries an authorization ID that only the pairing exchange can issue.
+      Pairing is public-key based (CMD 3 PublicKeyRequest, CMD 4/5
+      challenge-response) and gated by a 6-digit security PIN the owner sets on
+      first setup.
+
+      The lock is put into pairing mode physically, by holding its button. That
+      is deliberate: it means possession of the door, not proximity to it, is
+      what authorises a new client.
+
+      Confidence is medium — the flow is understood from the decompiled app and
+      Nuki's public BLE API documentation, but has not been run against a lock
+      here. Treat the step ordering as documented rather than observed.
+    methods:
+      - type: ble_provisioning
+        description: >
+          Pair over BLE by exchanging public keys, answering the
+          challenge-response, and verifying the security PIN. On success the
+          lock issues an authorization ID that authenticates all later commands.
+        verified: false
+        ble:
+          pairing_required: true
+        steps:
+          - action: >
+              Put the lock into pairing mode by holding its button until the
+              ring LED indicates it is discoverable.
+            actor: user
+          - action: "Connect over BLE and discover the keyturner pairing service."
+            actor: client
+          - action: "Exchange public keys (CMD 3: PublicKeyRequest / PublicKeyResponse)."
+            actor: client
+          - action: >
+              Complete challenge-response authentication (CMD 4:
+              ChallengeResponse, CMD 5: AuthorizationAuthenticatorRequest).
+            actor: client
+          - action: "Enter the 6-digit security PIN when the client asks for it."
+            actor: user
+          - action: "Verify the PIN (CMD 32: VerifySecurityPinRequest)."
+            actor: client
+            expect: >
+              The lock returns an authorization ID. Store it with the keypair —
+              losing it means re-pairing.
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A factory reset exists and clears authorizations, the security PIN and
+        calibration — the lock must be re-taught its door afterwards. The exact
+        button sequence is not established here: it is documented by Nuki per
+        hardware generation and differs between Smart Lock 1.0-4.0 and Pro, and
+        a guessed sequence on a door lock can leave someone locked out of their
+        home. Consult Nuki's documentation for the specific model.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A previously paired client rejoins with its stored keypair and
+        authorization ID; no reset is needed. A reset is only required to revoke
+        an authorization that can no longer be removed through the app — for
+        example after losing the phone that held it. The optional WiFi bridge is
+        provisioned separately and is not part of this flow.
+    credentials:
+      # No WiFi passphrase exists here: the lock is BLE-only and the optional
+      # bridge handles network credentials separately. The secrets that do cross
+      # this link are recorded below and in `notes`.
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Client public keys and their authorization IDs"
+        - "6-digit security PIN"
+      issued_to_client:
+        - "Authorization ID, issued on successful pairing"
+        - "Lock public key, from the key exchange"
+      notes: >
+        No WiFi passphrase crosses this link — the lock itself is BLE-only, and
+        the separate WiFi bridge handles network credentials on its own. The
+        security PIN is user-chosen and verified over the encrypted channel
+        established by the key exchange.
+
+identification:
+  manufacturer_id: "Nuki"
+  model_detection:
+    - method: "ble_service_uuid"
+      keyturner_service: "A92EE000-5501-11E4-916C-0800200C9A66"
+    - method: "ble_device_name"
+      patterns: ["Nuki_", "Nuki_SL_", "Nuki_Opener_", "Nuki_Door_Sensor_"]
+
+ble:
+  connection:
+    transport: "le"
+    phy_preference: "le_1m"
+    mtu_negotiation: true
+    preferred_mtu: 185
+    bonding_required: true
+
+services:
+  # --- Keyturner (Smart Lock) ---
+  - uuid: "A92EE000-5501-11E4-916C-0800200C9A66"
+    name: "Keyturner Service"
+    description: "Primary GATT service for Nuki Smart Lock (Keyturner)"
+    device: "smart_lock"
+    characteristics:
+      - uuid: "A92EE101-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Data"
+        type: "data"
+        description: >
+          Command/response characteristic for lock operations, configuration,
+          state queries, and firmware updates. Supports write, read, notify.
+        properties: ["write", "read", "notify", "indicate"]
+      - uuid: "A92EE100-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Pairing Service"
+        type: "pairing"
+        description: "Pairing/security service for initial device bonding"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92EEF00-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Pairing Data"
+        type: "pairing_data"
+        description: "Pairing data characteristic"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92EE200-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Service"
+        type: "firmware"
+        description: "Firmware update service"
+        properties: ["write", "notify"]
+      - uuid: "A92EE201-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Data"
+        type: "firmware_data"
+        description: "Firmware transfer data"
+        properties: ["write", "notify"]
+      - uuid: "A92EE202-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Status"
+        type: "firmware_status"
+        description: "Firmware transfer status"
+        properties: ["notify", "read"]
+      - uuid: "A92EE203-5501-11E4-916C-0800200C9A66"
+        name: "Keyturner Firmware Verify"
+        type: "firmware_verify"
+        description: "Firmware verification"
+        properties: ["write", "read"]
+
+  # --- Keypad (paired with Keyturner) ---
+  - uuid: "A92EE400-5501-11E4-916C-0800200C9A66"
+    name: "Keypad Pairing Service"
+    description: "Keypad pairing with parent Smart Lock"
+    device: "keypad"
+    characteristics:
+      - uuid: "A92EE300-5501-11E4-916C-0800200C9A66"
+        name: "Keypad Data Service"
+        type: "data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92EE301-5501-11E4-916C-0800200C9A66"
+        name: "Keypad Data"
+        type: "data"
+        properties: ["write", "read", "notify"]
+
+  # --- Opener ---
+  - uuid: "A92AE000-5501-11E4-916C-0800200C9A66"
+    name: "Opener Service"
+    description: "Primary GATT service for Nuki Opener (door intercom opener)"
+    device: "opener"
+    characteristics:
+      - uuid: "A92AE101-5501-11E4-916C-0800200C9A66"
+        name: "Opener Data"
+        type: "data"
+        properties: ["write", "read", "notify", "indicate"]
+      - uuid: "A92AE100-5501-11E4-916C-0800200C9A66"
+        name: "Opener Pairing Service"
+        type: "pairing"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AEF00-5501-11E4-916C-0800200C9A66"
+        name: "Opener Pairing Data"
+        type: "pairing_data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AE200-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware"
+        type: "firmware"
+        properties: ["write", "notify"]
+      - uuid: "A92AE201-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware Data"
+        type: "firmware_data"
+        properties: ["write", "notify"]
+      - uuid: "A92AE202-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware Status"
+        type: "firmware_status"
+        properties: ["notify", "read"]
+      - uuid: "A92AE203-5501-11E4-916C-0800200C9A66"
+        name: "Opener Firmware Verify"
+        type: "firmware_verify"
+        properties: ["write", "read"]
+
+  # --- Door Sensor ---
+  - uuid: "A92AA000-5501-11E4-916C-0800200C9A66"
+    name: "Door Sensor Service"
+    description: "Nuki Door Sensor — magnetic door open/close detection"
+    device: "door_sensor"
+    characteristics:
+      - uuid: "A92AA101-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Data"
+        type: "data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AA100-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Pairing"
+        type: "pairing"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AAF00-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Pairing Data"
+        type: "pairing_data"
+        properties: ["write", "read", "notify"]
+      - uuid: "A92AA200-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware"
+        type: "firmware"
+        properties: ["write", "notify"]
+      - uuid: "A92AA201-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware Data"
+        type: "firmware_data"
+        properties: ["write", "notify"]
+      - uuid: "A92AA202-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware Status"
+        type: "firmware_status"
+        properties: ["notify", "read"]
+      - uuid: "A92AA203-5501-11E4-916C-0800200C9A66"
+        name: "Door Sensor Firmware Verify"
+        type: "firmware_verify"
+        properties: ["write", "read"]
+
+  # --- Standard Device Information ---
+  - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
+    name: "Device Information Service"
+    description: "Standard BLE Device Information (model, serial, firmware)"
+    device: "all"
+    characteristics:
+      - uuid: "00002A24-0000-1000-8000-00805F9B34FB"
+        name: "Model Number String"
+        type: "device_info"
+        properties: ["read"]
+      - uuid: "00002A25-0000-1000-8000-00805F9B34FB"
+        name: "Serial Number String"
+        type: "device_info"
+        properties: ["read"]
+      - uuid: "00002A26-0000-1000-8000-00805F9B34FB"
+        name: "Firmware Revision String"
+        type: "device_info"
+        properties: ["read"]
+
+advertising:
+  discovery_method: "ble_scan"
+  local_name_prefixes:
+    - "Nuki_"
+    - "Nuki_SL_"
+    - "Nuki_Opener_"
+    - "Nuki_Door_Sensor_"
+  service_uuids:
+    - "A92EE000-5501-11E4-916C-0800200C9A66"   # Keyturner
+    - "A92AE000-5501-11E4-916C-0800200C9A66"   # Opener
+    - "A92AA000-5501-11E4-916C-0800200C9A66"   # Door Sensor
+  scan_response:
+    prefix: "0201061521"
+    ibeacon_prefix: "0201061AFF4C000215"
+    notes: >
+      Devices embed their service UUID in scan response data. The app uses
+      CRC-16 mask/pattern matching to filter scan results efficiently:
+      mask = CRC16(prefix + CRC16_of_UUID_bytes)
+      pattern = CRC16(prefix + UUID_bytes_as_little_endian)
+
+protocol:
+  framing:
+    byte_order: "little_endian"
+    crc:
+      algorithm: "CRC-16-CCITT"
+      polynomial: "0x1021"
+      initial: "0xFFFF"
+      reflected: true
+      xor_out: "0x0000"
+      notes: "XModem variant. Used on scan response data and message authentication."
+
+  message_format:
+    description: >
+      Messages are read from ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN).
+      The base BleResponse class defines:
+        channel (int, set externally) — routing/message type
+        command (short) — command/response identifier
+        payload — variable-length, command-specific data
+
+  pairing:
+    description: >
+      Nuki uses public-key based pairing with challenge-response authentication:
+      1. BLE connection and service discovery
+      2. Public key exchange (CMD 3: PublicKeyRequest / PublicKeyResponse)
+      3. Challenge-response authentication (CMD 4: ChallengeResponse, CMD 5: AuthorizationAuthenticatorRequest)
+      4. Security PIN verification (CMD 32: VerifySecurityPinRequest)
+      5. On success, the device returns an authorization ID used for subsequent commands
+    nuki_specific:
+      security_pin: "6-digit numeric PIN set during initial setup"
+      authorization_id: "Integer ID assigned after successful pairing, used to authenticate all commands"
+
+  commands:
+    # --- Core Keyturner Commands ---
+    request_data:
+      id: 1
+      name: "RequestDataRequest"
+      direction: "client_to_device"
+      description: "Request device data (serial number, etc.)"
+
+    device_type:
+      id: 2
+      name: "DeviceTypeResponse"
+      direction: "device_to_client"
+      description: "Returns device type identifier"
+
+    public_key:
+      id: 3
+      name: "PublicKeyRequest / PublicKeyResponse"
+      direction: "bidirectional"
+      description: "Public key exchange for pairing/authorization"
+
+    challenge:
+      id: 4
+      name: "ChallengeResponse"
+      direction: "device_to_client"
+      description: "Challenge data for authentication"
+
+    authorization_authenticator:
+      id: 5
+      name: "AuthorizationAuthenticatorRequest"
+      direction: "client_to_device"
+      description: "Send authorization authenticator after challenge"
+
+    keyturner_states:
+      id: 12
+      name: "KeyturnerStatesResponse"
+      direction: "device_to_client"
+      description: >
+        Full device state notification. Returns lock state, battery, door sensor
+        state, WiFi/Thread connectivity, night mode, and accessory status.
+      fields:
+        - name: "nukiState"
+          type: "uint8"
+          description: "Operational state of the lock"
+        - name: "lockState"
+          type: "uint16"
+          description: "LockState enum value (0=uncalibrated, 1=locked, 3=unlocked, etc.)"
+        - name: "trigger"
+          type: "uint8"
+          description: "Source of the last state change (app=0, manual=1, button=2, auto=3, etc.)"
+        - name: "currentTime"
+          type: "datetime"
+          description: "Device current time (year, month, day, hour, min, sec)"
+        - name: "criticalBattery"
+          type: "bool"
+          description: "Battery critically low"
+        - name: "batteryPercent"
+          type: "uint16"
+          description: "Battery charge percentage (0-100)"
+        - name: "batteryCharging"
+          type: "bool"
+          description: "Battery is currently charging"
+        - name: "doorSensorState"
+          type: "uint8"
+          description: "Door state (0/1=deactivated, 2=closed, 3=opened, 4=unknown, 5=calibrating)"
+        - name: "nightModeActive"
+          type: "bool"
+          description: "Night mode is currently active"
+
+    lock_action:
+      id: 13
+      name: "LockActionRequest / DoorLockActionRequest"
+      direction: "client_to_device"
+      description: "Perform a lock/unlock/unlatch/lock-n-go action"
+      fields:
+        - name: "lockAction"
+          type: "uint8"
+          values:
+            0: "UNLOCK"
+            1: "LOCK"
+            2: "UNLATCH"
+            3: "LOCK_N_GO"
+            4: "LOCK_N_GO_WITH_UNLATCH"
+        - name: "trigger"
+          type: "uint8"
+          values:
+            0: "APP"
+            1: "MANUAL"
+            2: "BUTTON"
+            3: "AUTO"
+            4: "KEYPAD"
+            5: "TIME_CONTROL"
+            6: "WEARABLE"
+            7: "FOB"
+        - name: "flags"
+          type: "uint8"
+          description: "Option flags (bitfield)"
+        - name: "authId"
+          type: "uint32"
+          description: "Authorization ID (assigned during pairing)"
+
+    status:
+      id: 14
+      name: "StatusResponse"
+      direction: "device_to_client"
+      description: "Simple status response (OK/error)"
+
+    set_config:
+      id: 19
+      name: "SetConfigRequest"
+      direction: "client_to_device"
+      description: "Write device configuration (auto-lock timer, button enabled, LED brightness, etc.)"
+
+    request_config:
+      id: 20
+      name: "RequestConfigRequest"
+      direction: "client_to_device"
+      description: "Read current device configuration"
+
+    set_security_pin:
+      id: 25
+      name: "SetSecurityPinRequest"
+      direction: "client_to_device"
+      description: "Set or change the security PIN (6 digits)"
+
+    request_calibration:
+      id: 26
+      name: "RequestCalibrationRequest"
+      direction: "client_to_device"
+      description: "Start lock calibration procedure"
+
+    authorization_id_invite:
+      id: 31
+      name: "AuthorizationIdInviteResponse"
+      direction: "device_to_client"
+      description: "Returns authorization ID after successful pairing invite"
+
+    verify_security_pin:
+      id: 32
+      name: "VerifySecurityPinRequest"
+      direction: "client_to_device"
+      description: "Verify security PIN to authorize operations"
+
+    update_time:
+      id: 33
+      name: "UpdateTimeRequest"
+      direction: "client_to_device"
+      description: "Synchronize device clock (timezone-aware)"
+
+    authorization_entry_count:
+      id: 39
+      name: "AuthorizationEntryCountResponse"
+      direction: "device_to_client"
+      description: "Number of authorized users/devices"
+
+    keypad_code_id:
+      id: 66
+      name: "KeypadCodeIdResponse"
+      direction: "client_to_device"
+      description: "Add/update a keypad access code"
+
+    request_keypad_codes:
+      id: 67
+      name: "RequestKeypadCodesRequest"
+      direction: "client_to_device"
+      description: "List all configured keypad codes"
+
+    keypad_code_count:
+      id: 68
+      name: "KeypadCodeCountResponse"
+      direction: "device_to_client"
+      description: "Count of configured keypad codes"
+
+    remove_keypad_code:
+      id: 71
+      name: "RemoveKeypadCodeRequest"
+      direction: "client_to_device"
+      description: "Delete a keypad access code"
+
+    # --- Error reporting ---
+    error_report:
+      id: 7
+      name: "ErrorReportResponse / KeyturnerErrorReportResponse"
+      direction: "device_to_client"
+      description: "Error response with code and optional message"
+
+  error_codes:
+    generic:
+      1: "ERROR_BAD_PARAMETER"
+      2: "ERROR_NOT_AUTHORIZED"
+      3: "ERROR_BAD_PIN"
+      253: "ERROR_BAD_CRC"
+      254: "ERROR_BAD_LENGTH"
+      255: "ERROR_UNKNOWN"
+    pairing:
+      16: "PAIRING_ERROR_NOT_PAIRING"
+      17: "PAIRING_ERROR_BAD_AUTHENTICATOR"
+      18: "PAIRING_ERROR_BAD_PARAMETER"
+      19: "PAIRING_ERROR_MAX_USER"
+    keyturner:
+      32: "KEYTURNER_ERROR_NOT_AUTHORIZED"
+      33: "KEYTURNER_ERROR_BAD_PIN"
+      34: "KEYTURNER_ERROR_BAD_NONCE"
+      35: "KEYTURNER_ERROR_BAD_PARAMETER"
+      36: "KEYTURNER_ERROR_INVALID_AUTH_ID"
+      37: "KEYTURNER_ERROR_DISABLED"
+      38: "KEYTURNER_ERROR_REMOTE_NOT_ALLOWED"
+      39: "KEYTURNER_TIME_NOT_ALLOWED"
+      40: "KEYTURNER_ERROR_TOO_MANY_PIN_ATTEMPTS"
+      41: "KEYTURNER_ERROR_TOO_MANY_ENTRIES"
+      42: "KEYTURNER_ERROR_CODE_ALREADY_EXISTS"
+      64: "KEYTURNER_ERROR_AUTO_UNLOCK_TOO_RECENT"
+      65: "KEYTURNER_ERROR_POSITION_UNKNOWN"
+      66: "KEYTURNER_ERROR_MOTOR_BLOCKED"
+      67: "KEYTURNER_ERROR_CLUTCH_FAILURE"
+      68: "KEYTURNER_ERROR_MOTOR_TIMEOUT"
+      69: "KEYTURNER_ERROR_BUSY"
+      70: "KEYTURNER_ERROR_CANCELED"
+      71: "KEYTURNER_ERROR_NOT_CALIBRATED"
+      72: "KEYTURNER_MOTOR_POSITION_LIMIT"
+      73: "KEYTURNER_ERROR_MOTOR_LOW_VOLTAGE"
+      74: "KEYTURNER_ERROR_MOTOR_POWER_FAILURE"
+      75: "KEYTURNER_ERROR_CLUTCH_POWER_FAILURE"
+      76: "KEYTURNER_ERROR_VOLTAGE_TOO_LOW"
+      77: "KEYTURNER_ERROR_FIRMWARE_UPDATE_NEEDED"
+      78: "KEYTURNER_ERROR_REJECTED"
+      79: "KEYTURNER_ERROR_REJECTED_NIGHT_MODE"
+      96: "KEYTURNER_ERROR_DS_CALIBRATION_FAILED"
+      97: "KEYTURNER_ERROR_DS_TIMEOUT"
+      98: "KEYTURNER_ERROR_DS_BROKEN"
+
+  lock_states:
+    0: "UNCALIBRATED — Lock not yet calibrated, cannot operate"
+    1: "LOCKED — Door is locked"
+    2: "UNLOCKING — Motor is unlocking"
+    3: "UNLOCKED — Door is unlocked"
+    4: "LOCKING — Motor is locking"
+    5: "UNLATCHED — Lock is unlatched (door can be pushed open)"
+    6: "UNLOCKED_LOCKNGO_ACTIVE — Unlocked with Lock-n-Go active"
+    7: "UNLATCHING — Motor is unlatching"
+    252: "CALIBRATION — Lock is in calibration mode"
+    253: "BOOT_RUN — Lock is booting up"
+    254: "MOTOR_BLOCKED — Motor is blocked, cannot move"
+    255: "UNDEFINED — State unknown"
+
+  lock_actions:
+    0: "UNLOCK — Unlock the door"
+    1: "LOCK — Lock the door"
+    2: "UNLATCH — Unlatch (pull back the latch)"
+    3: "LOCK_N_GO — Lock and unlatch (single cycle)"
+    4: "LOCK_N_GO_WITH_UNLATCH — Lock-n-Go with unlatch at end"
+
+  door_sensor_states:
+    0: "DEACTIVATED"
+    1: "DEACTIVATED (alt)"
+    2: "DOOR_CLOSED"
+    3: "DOOR_OPENED"
+    4: "DOOR_UNKNOWN"
+    5: "CALIBRATING"
+
+additional_devices:
+  opener:
+    name: "Nuki Opener"
+    service_uuid: "A92AE000-5501-11E4-916C-0800200C9A66"
+    data_characteristic: "A92AE101-5501-11E4-916C-0800200C9A66"
+    description: "Retrofit intercom door opener. Uses same command protocol as Smart Lock."
+    commands:
+      opener_lock_action:
+        id: 13
+        name: "OpenerLockActionRequest"
+        description: "Open door / toggle ring-to-open"
+      opener_states:
+        id: 12
+        name: "OpenerStatesResponse"
+        description: "Opener device state (ring-to-open timer, battery, etc.)"
+      opener_status:
+        id: 14
+        name: "OpenerStatusResponse"
+        description: "Simple open/closed status"
+
+  door_sensor:
+    name: "Nuki Door Sensor"
+    service_uuid: "A92AA000-5501-11E4-916C-0800200C9A66"
+    data_characteristic: "A92AA101-5501-11E4-916C-0800200C9A66"
+    description: "Magnetic door sensor for detecting open/closed state."
+    commands:
+      door_sensor_states:
+        id: 12
+        name: "DoorStatesResponse"
+        description: "Door sensor state (open/closed/calibrating)"
+      door_sensor_status:
+        id: 14
+        name: "DoorStatusResponse"
+        description: "Simple door open/closed status"
+
+  keypad:
+    name: "Nuki Keypad"
+    service_uuid: "A92CE000-5501-11E4-916C-0800200C9A66"
+    pairing_service_uuid: "A92EE400-5501-11E4-916C-0800200C9A66"
+    description: >
+      Wireless numeric keypad that pairs with a Smart Lock. Manages access codes
+      (6-digit PINs). Keypad pairs through the parent Smart Lock's BLE connection
+      (service A92EE400) and communicates via A92EE300/A92EE301.
+
+  fob:
+    name: "Nuki Fob"
+    service_uuid: "A92CF000-5501-11E4-916C-0800200C9A66"
+    description: >
+      NFC/BLE key fob for touch-to-unlock. Uses fob-specific commands (15-28)
+      for authorization and configuration.
+
+  box:
+    name: "Nuki Box"
+    service_uuid: "A92BE000-5501-11E4-916C-0800200C9A66"
+    description: "Nuki Box (wall-mounted access point)"
+
+sources:
+  - type: "apk_decompilation"
+    path: "~/research/nuki/nuki-decompiled/"
+    apk: "io.nuki v2026.7.1"
+    decompiler: "jadx"
+    key_files:
+      - "sources/android/content/C4173Xt.java (BleConstants.java)"
+      - "sources/android/content/AbstractC5828du.java (BleResponse.java)"
+      - "sources/android/content/C6385fW1.java (KeyturnerStatesResponse.java)"
+      - "sources/android/content/C12525xP0.java (ErrorReportResponse.java)"
+      - "sources/android/content/D52.java (LockState.java)"
+      - "sources/android/content/C7538iv.java (BluetoothPeripheral.kt)"
+      - "sources/android/content/V74.java (Utils.kt — CRC-16 implementation)"
+  - type: "public_documentation"
+    url: "https://developer.nuki.io/"
+    description: "Nuki BLE API (publicly documented)"

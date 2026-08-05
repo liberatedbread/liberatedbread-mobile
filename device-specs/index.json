@@ -1,0 +1,640 @@
+[
+  {
+    "name": "AdMore Light Bar Pro",
+    "path": "device-specs/devices/admore-light-bar.yaml",
+    "protocol": "ble",
+    "manufacturer": "AdMore Lighting Inc.",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Airthings Wave Family",
+    "path": "device-specs/devices/airthings-wave-family.yaml",
+    "protocol": "ble",
+    "manufacturer": "Airthings ASA",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "AUTOBABA LED Backpack",
+    "path": "device-specs/devices/autobaba-led-backpack.yaml",
+    "protocol": "ble",
+    "manufacturer": "LOY SPACE / popled.cn",
+    "manufacturer_status": "abandoned",
+    "protocol_handler": "popled_json",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Bafang BBS02 Mid-Drive",
+    "path": "device-specs/devices/bafang-bbs02.yaml",
+    "protocol": "uart",
+    "manufacturer": "Suzhou Bafang Electric Motor Science-Technology",
+    "manufacturer_status": "active",
+    "helpful_urls": [
+      {
+        "title": "OpenBafangTool UART protocol docs",
+        "url": "https://github.com/andrey-pr/OpenBafangTool/blob/master/docs/Bafang%20UART%20protocol.md",
+        "description": "Community UART protocol documentation cited by the device page."
+      },
+      {
+        "title": "OpenBafangTool UART motor API",
+        "url": "https://github.com/andrey-pr/OpenBafangTool/blob/master/docs/Bafang%20UART%20motor%20API.md",
+        "description": "Parameter block and command reference cited by the device page."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "BLE Fingertip Pulse Oximeter (SP001 / BerryMed)",
+    "path": "device-specs/devices/ble-pulse-oximeter.yaml",
+    "protocol": "ble",
+    "manufacturer": "Manridy (likely ODM)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Bluetooth LED Name Badge",
+    "path": "device-specs/devices/bluetooth-led-name-badge.yaml",
+    "protocol": "ble",
+    "manufacturer": "Generic (multiple OEMs)",
+    "manufacturer_status": "abandoned",
+    "protocol_handler": "ledbadge_bitmap",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "BMW Motorcycle Diagnostics",
+    "path": "device-specs/devices/bmw-motorcycle-diagnostics.yaml",
+    "protocol": "obd2",
+    "manufacturer": "BMW Motorrad",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Bosch Performance Line CX (Gen4)",
+    "path": "device-specs/devices/bosch-ebike-cx-gen4.yaml",
+    "protocol": "can",
+    "manufacturer": "Bosch eBike Systems",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Cat Printer Mini Thermal Printer",
+    "path": "device-specs/devices/cat-printer.yaml",
+    "protocol": "ble",
+    "manufacturer": "Unbranded / Yu Tian (YT01) / various OEMs",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Chef iQ Sense",
+    "path": "device-specs/devices/chef-iq-sense.yaml",
+    "protocol": "ble",
+    "manufacturer": "Chefman / Chef iQ",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "CoolLEDX LED Sign",
+    "path": "device-specs/devices/coolledx-led-sign.yaml",
+    "protocol": "ble",
+    "manufacturer": "Juntong Technology",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Divoom Pixoo WiFi",
+    "path": "device-specs/devices/divoom-pixoo.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Divoom",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Dyson Air Purifier",
+    "path": "device-specs/devices/dyson-air-purifier.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Dyson",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ELK-BLEDOM BLE LED Strip Controller",
+    "path": "device-specs/devices/elk-bledom-led-strip.yaml",
+    "protocol": "ble",
+    "manufacturer": "Unbranded / various OEMs (Zhiling/DuoCo etc.)",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Ember Mug",
+    "path": "device-specs/devices/ember-mug.yaml",
+    "protocol": "ble",
+    "manufacturer": "Ember Technologies",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Enphase Envoy",
+    "path": "device-specs/devices/enphase-envoy.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Enphase Energy",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ETEKCITY ESN00 Smart Nutrition Scale",
+    "path": "device-specs/devices/etekcity-smart-scale.yaml",
+    "protocol": "ble",
+    "manufacturer": "ETEKCITY (VeSync platform)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Fardriver ND-series Motor Controller",
+    "path": "device-specs/devices/fardriver-controller.yaml",
+    "protocol": "ble",
+    "manufacturer": "Nanjing Fardriver Controller Co.",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Fichero / AiYin D11 Thermal Label Printer",
+    "path": "device-specs/devices/fichero-d11-printer.yaml",
+    "protocol": "ble",
+    "manufacturer": "Xiamen Print Future Technology Co., Ltd",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Frigidaire WiFi Portable Air Conditioner",
+    "path": "device-specs/devices/frigidaire-portable-ac.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Frigidaire (Electrolux)",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Frigidaire WiFi Window Air Conditioner",
+    "path": "device-specs/devices/frigidaire-window-ac.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Frigidaire (Electrolux)",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Gerbing / GYDE ThermoGauge Heated Clothing Controller",
+    "path": "device-specs/devices/gerbing-thermogauge.yaml",
+    "protocol": "ble",
+    "manufacturer": "GYDE (Gerbing Heated Clothing)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Govee H5075 Thermometer/Hygrometer",
+    "path": "device-specs/devices/govee-h5075-thermo.yaml",
+    "protocol": "ble",
+    "manufacturer": "Govee (Shenzhen Intellirocks Tech Co., Ltd.)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Govee H5080 Smart Plug",
+    "path": "device-specs/devices/govee-h5080-plug.yaml",
+    "protocol": "ble",
+    "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Govee H6001 Smart Bulb",
+    "path": "device-specs/devices/govee-h6001-bulb.yaml",
+    "protocol": "ble",
+    "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "HOTWIRED 12V Bluetooth Heated Gear",
+    "path": "device-specs/devices/hotwired-heated-gear.yaml",
+    "protocol": "ble",
+    "manufacturer": "Comoto Holdings, Inc. (HOTWIRED brand)",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Philips Hue Bridge",
+    "path": "device-specs/devices/hue-bridge.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Signify / Philips Hue",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "iBBQ / Inkbird BLE Meat Thermometer",
+    "path": "device-specs/devices/ibbq-meat-thermo.yaml",
+    "protocol": "ble",
+    "manufacturer": "Inkbird / Tenergy Solis / various OEMs",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "iDotMatrix",
+    "path": "device-specs/devices/idotmatrix.yaml",
+    "protocol": "ble",
+    "manufacturer": "iDotMatrix / Tech",
+    "manufacturer_status": "unsupported",
+    "protocol_handler": "idotmatrix_image",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "iLEDColor LED Matrix Panel (DreamPanel v3)",
+    "path": "device-specs/devices/iledcolor-led-panel.yaml",
+    "protocol": "ble",
+    "manufacturer": "Shenzhen I-ledshow Technology Co., Ltd.",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Inkbird BBQ Thermometer (BLE)",
+    "path": "device-specs/devices/inkbird-bbq-thermometer.yaml",
+    "protocol": "ble",
+    "manufacturer": "Inkbird",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ISO 15765-2 CAN Transport Layer (ISO-TP) Reference",
+    "path": "device-specs/devices/iso15765-2-can-transport.yaml",
+    "protocol": "can",
+    "manufacturer": "ISO",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "iTag BLE Key Finder",
+    "path": "device-specs/devices/itag-ble-tracker.yaml",
+    "protocol": "ble",
+    "manufacturer": "Unbranded / various OEMs",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SP107E/SP110E LED Controller",
+    "path": "device-specs/devices/leds2rave4-lunchbox-led.yaml",
+    "protocol": "ble",
+    "manufacturer": "SPLED",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "LIFX Z",
+    "path": "device-specs/devices/lifx-z.yaml",
+    "protocol": "wifi",
+    "manufacturer": "LIFX",
+    "manufacturer_status": "active",
+    "protocol_handler": "lifx_lan_udp",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Lutron Caseta Smart Bridge 2",
+    "path": "device-specs/devices/lutron-caseta-smart-bridge.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Lutron",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "M6 Smart Fitness Band",
+    "path": "device-specs/devices/m6-fitness-band.yaml",
+    "protocol": "ble",
+    "manufacturer": "Unknown (AliExpress generic / Mi Band clone)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Magic Display",
+    "path": "device-specs/devices/magic-display.yaml",
+    "protocol": "ble",
+    "manufacturer": "tirohk / AiTURE",
+    "manufacturer_status": "abandoned",
+    "protocol_handler": "cdbwsoft_ecb",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "MoTool Slacker",
+    "path": "device-specs/devices/motool-slacker.yaml",
+    "protocol": "ble",
+    "manufacturer": "MoTool",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "NIIMBOT D110 / B21 Thermal Label Printer",
+    "path": "device-specs/devices/niimbot-d110.yaml",
+    "protocol": "ble",
+    "manufacturer": "NIIMBOT (Wuhan Jincheng Intelligent Technology Co., Ltd.)",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "NIU Electric Scooter",
+    "path": "device-specs/devices/niu-escooter.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Niu Technologies",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Nuki Smart Lock",
+    "path": "device-specs/devices/nuki-smart-lock.yaml",
+    "protocol": "ble",
+    "manufacturer": "Nuki Home Solutions GmbH",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "NYAN BT Image Controller",
+    "path": "device-specs/devices/nyan-bt-image-controller.yaml",
+    "protocol": "ble",
+    "manufacturer": "NYAN GEAR / LOY SPACE / popled.cn",
+    "manufacturer_status": "abandoned",
+    "protocol_handler": "popled_json",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "OBD-II Bluetooth Adapter (ELM327 / STN)",
+    "path": "device-specs/devices/obd2-bluetooth-adapter.yaml",
+    "protocol": "ble",
+    "manufacturer": "Generic (ELM327 clones), ScanTool.net, Vgate, LELink",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "OBD-II PID Reference (SAE J1979)",
+    "path": "device-specs/devices/obd2-pid-reference.yaml",
+    "protocol": "obd2",
+    "manufacturer": "SAE International",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Oral-B iO Smart Brush",
+    "path": "device-specs/devices/oral-b-io-smartbrush.yaml",
+    "protocol": "ble",
+    "manufacturer": "Procter & Gamble",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "PAX Vaporizer",
+    "path": "device-specs/devices/pax-vape.yaml",
+    "protocol": "ble",
+    "manufacturer": "PAX Labs",
+    "manufacturer_status": "unsupported",
+    "protocol_handler": "pax_ofb",
+    "helpful_urls": [
+      {
+        "title": "Reverse Engineering Bluetooth Vapes -- Part 1",
+        "url": "https://blraaz.me/reverse-engineering/2021/08/29/bluetooth-reverse-engineering.html",
+        "description": "Public PAX Bluetooth reverse-engineering write-up cited by the device page and notes."
+      },
+      {
+        "title": "tristanseifert/kush-kontroller.app",
+        "url": "https://github.com/tristanseifert/kush-kontroller.app",
+        "description": "Open-source PAX controller implementation cited by the device page."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ProGLOW Motorcycle LED Controller",
+    "path": "device-specs/devices/proglow-motorcycle-led.yaml",
+    "protocol": "ble",
+    "manufacturer": "ProGLOW / TTCBLE",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Rachio Controller",
+    "path": "device-specs/devices/rachio-controller.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Rachio",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Roku External Control Protocol",
+    "path": "device-specs/devices/roku-ecp.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Roku / TCL",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Seeblue Motorcycle LED Controller",
+    "path": "device-specs/devices/seeblue-motorcycle-led.yaml",
+    "protocol": "ble",
+    "manufacturer": "Seeblue / LEDGlow",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SensorPush HT1 / HTP.xw",
+    "path": "device-specs/devices/sensorpush-ht1-htpxw.yaml",
+    "protocol": "ble",
+    "manufacturer": "SensorPush",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Shining Glasses",
+    "path": "device-specs/devices/shining-glasses.yaml",
+    "protocol": "ble",
+    "manufacturer": "Shenzhen Shining Bright Technology",
+    "manufacturer_status": "abandoned",
+    "protocol_handler": "cdbwsoft_ecb",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Shining Mask",
+    "path": "device-specs/devices/shining-mask.yaml",
+    "protocol": "ble",
+    "manufacturer": "Shenzhen Shining Bright Technology",
+    "manufacturer_status": "unsupported",
+    "protocol_handler": "shiningmask_ecb",
+    "helpful_urls": [
+      {
+        "title": "Bishop Fox: Invasion of the Face Changers",
+        "url": "https://bishopfox.com/blog/invasion-of-the-face-changers-halloween-hijinks-with-bluetooth-led-masks",
+        "description": "Bluetooth LED mask reverse-engineering write-up cited by the device page."
+      },
+      {
+        "title": "GoneUp/mask-go",
+        "url": "https://github.com/GoneUp/mask-go",
+        "description": "Open-source implementation cited by the device page and notes."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SmartThings Hub v2",
+    "path": "device-specs/devices/smartthings-hub-v2.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Samsung SmartThings",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Spider Farmer GGS Grow Light Controller",
+    "path": "device-specs/devices/spider-farmer-ggs.yaml",
+    "protocol": "ble",
+    "manufacturer": "Spider Farmer",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SPOTLED LED Panel",
+    "path": "device-specs/devices/spotled-led-panel.yaml",
+    "protocol": "ble",
+    "manufacturer": "Host No.4 Technology (Chengdu) Co., Ltd.",
+    "manufacturer_status": "unsupported",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Subaru Impreza / WRX / STi",
+    "path": "device-specs/devices/subaru-impreza.yaml",
+    "protocol": "obd2",
+    "manufacturer": "Subaru Corporation",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SwitchBot BLE Device Family",
+    "path": "device-specs/devices/switchbot-ble.yaml",
+    "protocol": "ble",
+    "manufacturer": "Wonderlabs, Inc. (SwitchBot)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ThermoPro TempSpike / TP9xx BBQ Thermometer",
+    "path": "device-specs/devices/thermopro-tempspike-bbq.yaml",
+    "protocol": "ble",
+    "manufacturer": "ThermoPro (Adsmart)",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Triumph Tiger 900",
+    "path": "device-specs/devices/triumph-tiger-900.yaml",
+    "protocol": "obd2",
+    "manufacturer": "Triumph Motorcycles Ltd.",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Tongsheng TSDZ2 Mid-Drive",
+    "path": "device-specs/devices/tsdz2-tongsheng.yaml",
+    "protocol": "uart",
+    "manufacturer": "Tongsheng",
+    "manufacturer_status": "active",
+    "helpful_urls": [
+      {
+        "title": "hurzhurz/tsdz2 serial communication documentation",
+        "url": "https://github.com/hurzhurz/tsdz2/blob/master/serial-communication.md",
+        "description": "Community protocol documentation cited by the device page and used for the stock UART packet layout."
+      },
+      {
+        "title": "TSDZ2 wiki communication protocol",
+        "url": "https://github.com/OpenSource-EBike-firmware/TSDZ2_wiki/wiki/Communication-Protocol",
+        "description": "Community protocol notes for Tongsheng TSDZ2 firmware variants."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ISO 14229 UDS (Unified Diagnostic Services) Reference",
+    "path": "device-specs/devices/uds-services-reference.yaml",
+    "protocol": "obd2",
+    "manufacturer": "ISO",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Vector Robot",
+    "path": "device-specs/devices/vector-robot.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Anki / Digital Dream Labs",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Belkin Wemo Smart Devices",
+    "path": "device-specs/devices/wemo-devices.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Belkin",
+    "manufacturer_status": "shutdown",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Xiaomi Mijia LYWSD03MMC Thermometer/Hygrometer",
+    "path": "device-specs/devices/xiaomi-lywsd03mmc.yaml",
+    "protocol": "ble",
+    "manufacturer": "Xiaomi",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Xiaomi Mi Scale Body Composition Scale",
+    "path": "device-specs/devices/xiaomi-mi-scale.yaml",
+    "protocol": "ble",
+    "manufacturer": "Xiaomi / Huami",
+    "manufacturer_status": "unsupported",
+    "helpful_urls": [
+      {
+        "title": "openScale",
+        "url": "https://github.com/oliexdev/openScale",
+        "description": "Production Android app and the cited source for the Mi Scale weight frame, history sync and impedance handling."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Xiaomi Mi Flora Plant Sensor",
+    "path": "device-specs/devices/xiaomi-miflora.yaml",
+    "protocol": "ble",
+    "manufacturer": "Xiaomi / HHCC Plant Technology Co., Ltd.",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "XKGlow XKChrome Motorcycle LED Controller",
+    "path": "device-specs/devices/xkglow-chrome.yaml",
+    "protocol": "ble",
+    "manufacturer": "XKGlow",
+    "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Example Smart Bulb",
+    "path": "device-specs/examples/example-bulb.yaml",
+    "protocol": "ble",
+    "manufacturer": "Acme Corp",
+    "manufacturer_status": "abandoned",
+    "helpful_urls": [
+      {
+        "title": "Example teardown notes",
+        "url": "https://example.com/example-smart-bulb-teardown",
+        "description": "Shows the board revision and radio module markings used to identify this family."
+      }
+    ],
+    "helpful_videos": [
+      {
+        "title": "Example setup walkthrough",
+        "url": "https://video.example.com/watch/example-smart-bulb-setup",
+        "description": "Demonstrates the pairing flow and the BLE capture points."
+      }
+    ],
+    "schema_version": "2020-12"
+  }
+]
