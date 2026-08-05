@@ -23,6 +23,9 @@ class _FailingBleService implements BleService {
   Future<bool> requestPermissions() async => true;
 
   @override
+  Future<int> mtu(String deviceId) async => 23;
+
+  @override
   Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) =>
       const Stream.empty();
 

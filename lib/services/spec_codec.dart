@@ -20,6 +20,8 @@ export '../src/rust/api/device_api.dart'
         ParameterDto,
         FormatFieldDto,
         DecodedValueDto,
+        ImageUploadDto,
+        ImageWritePlanDto,
         MatchResult,
         ProfileInfoDto,
         ProfileCharacteristicDto;
@@ -69,4 +71,19 @@ abstract class SpecCodec {
   Future<List<ProfileInfoDto>> identifyStandardProfiles(
     List<String> serviceUuids,
   );
+
+  /// Encode one RGB888 image frame into the ordered BLE writes that display
+  /// it, dispatched on the spec's `protocol_handler`.
+  ///
+  /// [rgb] is row-major, `width * height * 3` bytes. [frameIndex] sequences
+  /// consecutive frames of an animation, and [maxPayloadPerWrite] is the
+  /// usable bytes per BLE write (ATT MTU - 3; 20 when the MTU is unknown).
+  Future<ImageWritePlanDto> encodeImageFrame({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required int frameIndex,
+    required int maxPayloadPerWrite,
+  });
 }

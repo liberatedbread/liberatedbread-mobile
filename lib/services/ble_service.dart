@@ -99,4 +99,12 @@ abstract class BleService {
     String serviceUuid,
     String charUuid,
   );
+
+  /// The current ATT MTU for a connected device, in bytes.
+  ///
+  /// Callers that chunk bulk transfers (image frames) size their writes from
+  /// this: usable payload per write is `mtu - 3`. Returns the BLE minimum of
+  /// 23 when the platform has not reported a negotiated value — sizing for 23
+  /// is always safe, just slower.
+  Future<int> mtu(String deviceId);
 }

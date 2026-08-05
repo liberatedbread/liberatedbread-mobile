@@ -64,4 +64,22 @@ class RealSpecCodec implements SpecCodec {
     List<String> serviceUuids,
   ) =>
       rust.identifyStandardProfiles(serviceUuids: serviceUuids);
+
+  @override
+  Future<ImageWritePlanDto> encodeImageFrame({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required int frameIndex,
+    required int maxPayloadPerWrite,
+  }) =>
+      rust.encodeImageFrame(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        frameIndex: frameIndex,
+        maxPayloadPerWrite: maxPayloadPerWrite,
+      );
 }

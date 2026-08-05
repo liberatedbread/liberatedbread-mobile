@@ -37,6 +37,9 @@ class FakeBleService implements BleService {
   /// When set, [discoverServices] awaits this before resolving.
   final Completer<void>? discoverGate;
 
+  /// Returned by [mtu]; the BLE minimum unless a test raises it.
+  final int mtuToReturn;
+
   final List<String> connectedIds = [];
   final List<String> disconnectedIds = [];
   final List<({String deviceId, String charUuid, List<int> value})> writes = [];
@@ -60,6 +63,7 @@ class FakeBleService implements BleService {
     this.connectionStateStream,
     this.connectGate,
     this.discoverGate,
+    this.mtuToReturn = 23,
   });
 
   @override
@@ -139,4 +143,7 @@ class FakeBleService implements BleService {
     String charUuid,
   ) =>
       notifyStream ?? const Stream<List<int>>.empty();
+
+  @override
+  Future<int> mtu(String deviceId) async => mtuToReturn;
 }
