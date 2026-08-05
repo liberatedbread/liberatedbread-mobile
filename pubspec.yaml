@@ -35,3 +35,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/device_specs/
+    # IEEE address blocks and Bluetooth SIG assigned numbers, vendored from the
+    # protocol-specs repo. ~1.7MB of sorted TSV that compresses to a few hundred
+    # KB in the bundle; it is what lets an anonymous device be named at all.
+    - assets/registries/
