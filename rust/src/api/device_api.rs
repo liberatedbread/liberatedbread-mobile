@@ -1511,7 +1511,7 @@ services:
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("rust crate should have a parent repo dir")
-            .join("assets/device_specs/example-bulb.yaml");
+            .join("vendor/protocol-specs/device-specs/examples/example-bulb.yaml");
         let yaml = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
 
