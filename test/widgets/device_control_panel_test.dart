@@ -81,15 +81,19 @@ void main() {
       (tester) async {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     const charUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
-    const spec = DeviceSpecDto(
+    // `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, which has
+    // no const form.
+    final spec = DeviceSpecDto(
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
       localNamePrefix: 'ACME_',
-      serviceUuids: [svcUuid],
-      entities: <EntityDto>[],
-      services: [
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      entities: const <EntityDto>[],
+      services: const [
         ServiceDto(uuid: svcUuid, name: 'Control Service', characteristics: [
           CharacteristicDto(
             uuid: charUuid,
@@ -132,11 +136,12 @@ void main() {
       ble: FakeBleService(),
       codec: FakeSpecCodec(
         spec: spec,
-        matches: const [
+        matches: [
           MatchResult(
             spec: spec,
             matchedByNamePrefix: true,
-            matchedServiceUuids: [svcUuid],
+            matchedServiceUuids: const [svcUuid],
+            confidence: MatchConfidence.strong,
           ),
         ],
         encoded: Uint8List.fromList([1, 1]),

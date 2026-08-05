@@ -29,6 +29,17 @@ device:
     GBL files, legacy SONOS images are TI CC2640 binaries; current firmware is
     E-Platform V82 and iO4/iO5 V36.
 
+  # No local name prefix and no advertised service UUID: as the setup notes
+  # below say, a scanner filtering on services never sees this brush at all.
+  # The manufacturer-data company ID is the only pre-connect signal there is.
+  identification:
+    manufacturer_data:
+      company_id: 56320
+      company_id_hex: "0xDC00"
+      description: >
+        Procter & Gamble. Both device classes advertise under it — brush
+        payloads are 15 bytes (the app accepts >= 5), chargers >= 10.
+
   setup:
     required: false
     confidence: medium

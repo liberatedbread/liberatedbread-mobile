@@ -30,12 +30,23 @@ class _MockDeviceDef {
   /// library isn't loaded, as in plain unit tests.
   final List<BleDiscoveredService> fallbackServices;
 
+  /// Service UUIDs this device pretends to advertise. Separate from
+  /// [fallbackServices]: an advertisement is 31 bytes and rarely carries the
+  /// whole GATT tree, and the difference is exactly what the scan-time matcher
+  /// has to work with.
+  final List<String> serviceUuids;
+
+  /// Company IDs this device pretends to advertise under.
+  final List<int> companyIds;
+
   const _MockDeviceDef({
     required this.id,
     required this.name,
     required this.rssi,
     required this.specAsset,
     this.fallbackServices = const [],
+    this.serviceUuids = const [],
+    this.companyIds = const [],
   });
 }
 
@@ -132,14 +143,21 @@ class MockBleService implements BleService {
 
   static const _bulbSpec = 'assets/device_specs/example-bulb.yaml';
 
+  // The four entries deliberately advertise different things, so demo mode
+  // exercises every rung of the scan-time confidence ladder rather than only
+  // the easy one. See MatchConfidence in the Rust api.
   static const List<_MockDeviceDef> _mockDevices = [
+    // Advertises its service UUID: the strongest pre-connect signal there is.
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:01',
       name: 'ACME_Living_Room',
       rssi: -45,
       specAsset: _bulbSpec,
       fallbackServices: [_controlService, _batteryService],
+      serviceUuids: ['0000fff0-0000-1000-8000-00805f9b34fb'],
     ),
+    // Same product, but advertising nothing except its name — the common case
+    // for a device whose advertisement is already full.
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:02',
       name: 'ACME_Bedroom',
@@ -150,12 +168,25 @@ class MockBleService implements BleService {
     // A second, unrelated spec from the vendored catalogue. Nothing about this
     // device is written into the app: its services, characteristics and six
     // readings all come out of the YAML, which is the point — it is the same
-    // path a real Airthings would take, minus the radio.
+    // path a real Airthings would take, minus the radio. It is recognised by
+    // its manufacturer-data company ID, which is what the real spec declares.
     _MockDeviceDef(
       id: 'AA:BB:CC:DD:EE:03',
       name: 'Airthings Wave Plus',
       rssi: -58,
       specAsset: 'assets/device_specs/airthings-wave-family.yaml',
+      companyIds: [820],
+    ),
+    // Nameless, silent, and identifiable only by the vendor half of its
+    // address. Present because this is the case the scan list used to bury: an
+    // unhelpfully anonymous device that is nonetheless worth a second look.
+    // Xiaomi's OUI covers far more than the plant monitor, so the app must
+    // offer it as a possibility rather than a claim.
+    _MockDeviceDef(
+      id: 'C4:7C:8D:11:22:04',
+      name: '',
+      rssi: -78,
+      specAsset: 'assets/device_specs/xiaomi-miflora.yaml',
     ),
   ];
 
@@ -191,6 +222,8 @@ class MockBleService implements BleService {
         rssi: device.rssi + _random.nextInt(10) - 5,
         isConnectable: true,
         discoveredAt: DateTime.now(),
+        serviceUuids: device.serviceUuids,
+        companyIds: device.companyIds,
       );
     }
     // Duration division, not `inSeconds ~/ 3`, which truncates to zero for

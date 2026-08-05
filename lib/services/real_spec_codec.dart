@@ -30,6 +30,13 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
+  Future<List<ScanMatch>> matchScannedDevice({
+    required List<SpecIdentityDto> identities,
+    required ScannedDeviceDto device,
+  }) =>
+      rust.matchScannedDevice(identities: identities, device: device);
+
+  @override
   Future<Uint8List> encodeCommand({
     String? specYaml,
     String? serviceUuid,

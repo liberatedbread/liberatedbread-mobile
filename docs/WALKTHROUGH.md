@@ -260,6 +260,29 @@ The home screen. Shows a list of discovered BLE devices.
 4. When in mock mode, an "MOCK" chip appears in the AppBar
 5. Tap a device → navigate to `DeviceScreen`
 
+**Ranking**: a scan in a populated building is mostly other people's earbuds,
+so the list does not sort on signal strength alone. Each device's advertisement
+— local name, service UUIDs, manufacturer-data company IDs, and (where the
+platform exposes one) the MAC OUI — goes through `scanGuessProvider`, and
+`rankScannedDevices` splits the result into a **Likely supported** section and
+everything else.
+
+The four signals are weighted, not pooled; `MatchConfidence` in
+`rust/src/api/device_api.rs` is where that judgement lives, and both the scan
+matcher and the post-connect `matchDeviceToSpec` go through the same core so
+they cannot drift. A service UUID is near proof. A name prefix or company ID is
+good evidence. A MAC OUI identifies a vendor rather than a product, so an
+OUI-only match stays *out* of the promoted section and is labelled "Possibly
+&lt;manufacturer&gt;" — never a device name. On Apple platforms CoreBluetooth
+substitutes a per-host UUID for the address, so there is no OUI to read and
+`IoTDevice.macAddress` returns null rather than treating the UUID's hex digits
+as one.
+
+Matching is keyed on device *identity* (`ScanIdentity`), not device id, so the
+hundreds of advertisements one device emits during a scan resolve to a single
+FFI call; only `SpecIdentityDto` — a few strings per spec — crosses the
+boundary, not the parsed catalogue.
+
 ### DeviceScreen — `lib/screens/device_screen.dart`
 
 Connection and service discovery screen.
@@ -537,6 +560,10 @@ device:
     local_name_prefix: "PREFIX_"   # Match by BLE advertised name
     service_uuids:                 # Match by advertised service UUIDs
       - "0000fff0-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:             # Match by advertisement company ID
+      company_id: 961              # decimal; company_id_hex is for readers
+      additional_company_ids: [89] # older firmware, rebadged models
+    mac_prefixes: ["C4:7C:8D"]     # IEEE OUI — ranking hint ONLY, see below
 
 # Required: BLE services and characteristics
 services:

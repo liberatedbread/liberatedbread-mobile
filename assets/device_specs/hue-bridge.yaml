@@ -48,6 +48,12 @@ device:
     containers; an md5-verified BSB002 1978074000 image is archived in the
     verification research dir (research/hue-bridge/firmware/).
   identification:
+    mac_prefixes:
+      # 00:17:88 is the long-standing Philips Lighting BV OUI carried by the
+      # BSB001/BSB002 bridges (see the live probe under `examples` below);
+      # C4:29:96 appears on the 2025 Bridge Pro (BSB003).
+      - "00:17:88"
+      - "C4:29:96"
     mdns_service_type: "_hue._tcp.local."
     ssdp_search_targets:
       - "upnp:rootdevice"
