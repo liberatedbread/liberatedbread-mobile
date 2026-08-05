@@ -28,6 +28,7 @@ export '../src/rust/api/device_api.dart'
         MatchConfidence,
         ScanMatch,
         ScannedDeviceDto,
+        NetworkDeviceDto,
         SpecIdentityDto,
         ProfileInfoDto,
         ProfileCharacteristicDto;
@@ -65,6 +66,15 @@ abstract class SpecCodec {
   Future<List<ScanMatch>> matchScannedDevice({
     required List<SpecIdentityDto> identities,
     required ScannedDeviceDto device,
+  });
+
+  /// Rank the catalogue against one device found on the local network.
+  ///
+  /// Shares [matchScannedDevice]'s confidence vocabulary, so a badge means the
+  /// same thing whichever tab it appears on.
+  Future<List<ScanMatch>> matchNetworkDevice({
+    required List<SpecIdentityDto> identities,
+    required NetworkDeviceDto device,
   });
 
   /// Encode a named command into bytes for a BLE write.

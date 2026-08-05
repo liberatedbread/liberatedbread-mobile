@@ -105,6 +105,9 @@ final specIdentitiesProvider =
         serviceUuids: p.spec.serviceUuids,
         companyIds: p.spec.companyIds,
         macPrefixes: p.spec.macPrefixes,
+        mdnsServiceType: p.spec.mdnsServiceType,
+        ssdpSearchTargets: p.spec.ssdpSearchTargets,
+        defaultPort: p.spec.defaultPort,
       ),
   ];
 });

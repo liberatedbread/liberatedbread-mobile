@@ -145,6 +145,22 @@ void main() {
             'complete and sensor forwarding silently stops.',
       );
     });
+
+    test('local-network discovery permissions are declared', () {
+      expect(
+        declared,
+        containsAll(const [
+          'android.permission.ACCESS_WIFI_STATE',
+          'android.permission.CHANGE_WIFI_MULTICAST_STATE',
+        ]),
+        reason: 'The Wi-Fi tab (lib/services/real_network_scan_service.dart) '
+            'discovers devices over mDNS and SSDP, both of which are IP '
+            'multicast. Without CHANGE_WIFI_MULTICAST_STATE the app cannot '
+            'take a multicast lock, and the Wi-Fi driver filters multicast '
+            'frames out to save power -- so the scan returns nothing at all, '
+            'silently, on a real phone.',
+      );
+    });
   });
 
   group('AndroidManifest covers the whole minSdk range', () {

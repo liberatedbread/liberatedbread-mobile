@@ -32,6 +32,9 @@ final _spec = DeviceSpecDto(
   serviceUuids: const [_svcUuid],
   companyIds: _noCompanyIds,
   macPrefixes: const [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: const [],
+  defaultPort: null,
   entities: const <EntityDto>[],
   services: const [
     ServiceDto(uuid: _svcUuid, name: 'Control Service', characteristics: [
@@ -235,6 +238,9 @@ void main() {
       serviceUuids: const [_svcUuid],
       companyIds: _noCompanyIds,
       macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
       entities: const <EntityDto>[],
       services: const [],
     );
@@ -496,6 +502,9 @@ void main() {
       serviceUuids: const [svcA],
       companyIds: _noCompanyIds,
       macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
       entities: const <EntityDto>[],
       services: const [],
     );
@@ -508,6 +517,9 @@ void main() {
       serviceUuids: const [svcB],
       companyIds: _noCompanyIds,
       macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
       entities: const <EntityDto>[],
       services: const [],
     );
@@ -524,6 +536,9 @@ void main() {
       serviceUuids: List<String>.of(const [svcB]),
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
       entities: const <EntityDto>[],
       services: const [],
     );
