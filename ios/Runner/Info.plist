@@ -70,6 +70,10 @@
 		<string>_wled._tcp</string>
 		<string>_enphase-envoy._tcp</string>
 		<string>_home-assistant._tcp</string>
+		<string>_smartthings._tcp</string>
+		<string>_airplay._tcp</string>
+		<string>_dyson_mqtt._tcp</string>
+		<string>_ankivector._tcp</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

@@ -12,6 +12,7 @@ import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
+import '../core/log.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
@@ -74,16 +75,30 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // list devices the user actually paired with, not everything that ever
       // appeared in a scan. Fire-and-forget — a preferences write failure must
       // not take down a live connection.
-      unawaited(
-        ref
-            .read(savedDevicesProvider.notifier)
-            .touch(
-              id: widget.device.id,
-              name: widget.device.displayName,
-              seenAt: DateTime.now(),
-            )
-            .catchError((Object _) {}),
-      );
+      //
+      // The try/catch is what makes that true. `catchError` only covers the
+      // returned future, and the first `ref.read` here builds the notifier,
+      // which reads the store synchronously — so an unreadable store throws
+      // *before* there is a future to attach to, straight out into the connect
+      // path's own catch, and the user sees a connection that worked reported
+      // as one that failed.
+      try {
+        unawaited(
+          ref
+              .read(savedDevicesProvider.notifier)
+              .touch(
+                id: widget.device.id,
+                name: widget.device.displayName,
+                seenAt: DateTime.now(),
+              )
+              .catchError((Object _) {}),
+        );
+      } catch (e) {
+        Log.ble.warning(
+          'could not record ${widget.device.id} in saved devices',
+          error: e,
+        );
+      }
       _watchConnection();
       setState(() => _state = _ScreenState.discovering);
 

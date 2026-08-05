@@ -157,6 +157,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       // the provider never blocks: bundled/cached content first, network later.
       bottomNavigationBar: const AdBannerBar(),
       floatingActionButton: FloatingActionButton.extended(
+        // Explicit because HomeShell keeps this screen and the Wi-Fi one alive
+        // together in an IndexedStack, so both FABs are in the tree at once and
+        // the default tag would collide. A Hero tag collision is not a layout
+        // nit: it throws out of the hero controller the moment any route is
+        // pushed, which is every tap on a device.
+        heroTag: 'scan-fab',
         onPressed: _isScanning ? null : _startScan,
         icon: _isScanning
             ? SizedBox(

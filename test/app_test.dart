@@ -41,6 +41,34 @@ void main() {
     expect(find.text('Wi-Fi'), findsOneWidget);
   });
 
+  testWidgets('every Hero tag in the shell is unique', (tester) async {
+    // HomeShell holds all three tabs alive in an IndexedStack, so every tab's
+    // Heroes are in the tree at the same time — including two FloatingActionButtons
+    // that would otherwise share the default tag. A collision is not cosmetic:
+    // the hero controller throws on the next route push, which is every tap on
+    // a device, and it throws from a scheduler callback where the stack trace
+    // points at Flutter rather than at the two widgets involved.
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(FakeBleService()),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
+      child: const LiberatedBreadApp(),
+    ));
+    await tester.pump();
+
+    final tags = tester
+        .widgetList<Hero>(find.byType(Hero, skipOffstage: false))
+        .map((h) => h.tag.toString())
+        .toList();
+    expect(
+      tags.toSet(),
+      hasLength(tags.length),
+      reason: 'Heroes alive together in the shell must have distinct tags; '
+          'found $tags',
+    );
+  });
+
   testWidgets('the bottom bar switches destination', (tester) async {
     await tester.pumpWidget(ProviderScope(
       overrides: [
