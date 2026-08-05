@@ -1,0 +1,278 @@
+# Xiaomi Mijia LYWSD03MMC BLE Thermometer/Hygrometer
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Xiaomi Mijia LYWSD03MMC Thermometer/Hygrometer"
+  manufacturer: "Xiaomi"
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    Compact BLE thermometer and hygrometer with E-ink display. Telink
+    TLSR8251 SoC, CR2032 battery, 6-12 month battery life. $4-6.
+    6 hardware versions: B1.4, B1.5, B1.6, B1.7, B1.9, B2.0.
+
+    STOCK FIRMWARE: broadcasts Xiaomi MiBeacon format (service UUID 0xFE95)
+    with encrypted payload. Requires Xiaomi cloud account and Mi Home app
+    to decrypt. The encryption bindkey can be extracted from the Mi Home
+    app for use with third-party integrations.
+
+    CUSTOM FIRMWARE (recommended for local control): the pvvx/ATC_MiThermometer
+    project provides OTA-flashable firmware (via web browser at
+    https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html) that:
+      - Broadcasts unencrypted temperature/humidity/battery
+      - Supports 4 advertisement formats: ATC, Xiaomi, Custom, BTHome v2
+      - Has configurable advertising interval and TX power
+      - Provides GATT connection mode for configuration
+      - Supports encrypted beacons with PIN-code or bindkey
+      - Exposes standard Device Information (0x180A) and Battery (0x180F) services
+      - Supports BLE 5.0+ LE Long Range (Coded PHY S=8)
+
+    ATC CUSTOM ADVERTISEMENT FORMAT (unencrypted, 3-byte mode):
+      Service Data UUID: 0x181A (Environmental Sensing)
+      byte 0: temperature = (value / 2) - 40.0 (°C)
+      byte 1: humidity = value / 2 (%)
+      byte 2: bits 6-0 = battery %, bit 7 = trigger flag
+
+    PVVX CUSTOM ADVERTISEMENT FORMAT (unencrypted, 6-byte mode):
+      Same 0x181A UUID.
+      bytes 0-1: temperature in 0.01°C (int16 LE)
+      bytes 2-3: humidity in 0.01% (uint16 LE)
+      byte 4: battery %
+      byte 5: trigger/status flags
+
+    ENCRYPTED ATC FORMAT: AES-CCM with bindkey, nonce = MAC+header(5 bytes),
+    auth data = 0x11, MAC len = 4. Same payload layouts as above, encrypted.
+
+    GATT CONNECTION (custom firmware): device advertises as "ATC_XXXXXX"
+    (where XXXXXX are last 3 bytes of MAC). Standard services:
+      0x180A — Device Information (manufacturer, model, firmware version)
+      0x180F — Battery Service (battery level)
+    Configuration is done via proprietary characteristics on the ATC service.
+    Set defaults command: write 0x56, disable Long Range: write 0xDD.
+
+    ALSO SUPPORTS: MHO-C401/C401N, MJWSD05MMC, Qingping CGG1-M/CGDK2,
+    Tuya TH03/ZTH01/02/05 — all with same custom firmware and Telink SoC.
+
+    STOCK FIRMWARE DISCOVERY: name "LYWSD03MMC", service UUID 0xFE95
+    (MiBeacon), random address type. Data is encrypted; decryption
+    requires bindkey obtained from Xiaomi cloud or the Mi Home app.
+
+    CONFIDENCE: HIGH for custom firmware advertisement formats,
+    service UUIDs, and GATT services — sourced from
+    github.com/pvvx/ATC_MiThermometer and confirmed by Home Assistant
+    Passive BLE Monitor, BTHome, and other integrations. Stock firmware
+    MiBeacon format documented by Xiaomi but encrypted payload requires
+    cloud-derived bindkey. Firmware is OTA-flashable and reversible.
+
+  identification:
+    local_name_prefix: "ATC"
+    service_uuids:
+      - "0000181a-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "ATC"
+          service_uuids:
+            - "0000181a-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      STOCK FIRMWARE requires Xiaomi cloud account and Mi Home app for
+      initial pairing and bindkey extraction. CUSTOM FIRMWARE eliminates
+      this requirement — flash via web browser OTA from
+      https://pvvx.github.io/ATC_MiThermometer/TelinkMiFlasher.html
+      (Chrome/Edge/Opera with Experimental Web Platform features enabled).
+      Firmware change is reversible (original firmware images available).
+      After flashing, device advertises as "ATC_XXXXXX" with unencrypted
+      data.
+
+      Battery must be >40% for reliable OTA flashing on LYWSD03MMC.
+    methods:
+      - type: "ble_provisioning"
+        verified: true
+        description: >
+          Flash custom firmware via web browser OTA to enable direct
+          unencrypted BLE advertisement of temperature, humidity, and
+          battery without Xiaomi cloud dependency.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Visit TelinkMiFlasher.html in Chrome/Edge/Opera."
+            actor: "client"
+          - action: "Press and hold the device button to reset bindings, then release."
+            actor: "user"
+          - action: "Click 'Connect' and select LYWSD03MMC from the browser BLE chooser."
+            actor: "client"
+          - action: "Click 'Do Activation' to extract decryption key."
+            actor: "client"
+          - action: "Click 'Custom Firmware' and then 'Start Flashing'."
+            actor: "client"
+            expect: "Device reboots and advertises as ATC_XXXXXX."
+      - type: "cloud_account"
+        # The custom-firmware path above is the one this repo documents and
+        # exercises; the stock Mi Home route is recorded as the alternative it
+        # replaces, not as a flow verified here.
+        verified: false
+        description: >
+          Alternative: pair with Xiaomi Mi Home app to obtain bindkey,
+          then use stock firmware with encrypted MiBeacon decryption.
+        cloud:
+          provider: "Xiaomi Mi Home"
+          local_alternative: "Flash custom firmware for fully local control."
+    factory_reset:
+      confidence: "high"
+      effect: "Clears bindkey, PIN, comfort settings, and measurement history. Returns to custom firmware defaults."
+      procedures:
+        - name: "Send 0x56 command via GATT"
+          steps:
+            - action: "Connect to ATC_XXXXXX device via GATT."
+              actor: "client"
+            - action: "Write 0x56 to the configuration characteristic."
+              actor: "client"
+              expect: "Device resets to defaults."
+        - name: "Remove and reinsert battery"
+          steps:
+            - action: "Remove CR2032 battery for 10+ seconds, then reinsert."
+              actor: "user"
+              expect: "Device advertises with default settings."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Custom firmware: scan for ATC_XXXXXX. Stock: requires Mi Home re-pairing."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Bindkey (stock firmware, for MiBeacon encryption)"
+        - "PIN code (custom firmware, optional)"
+      issued_to_client:
+        - "Bindkey (stock firmware, obtained from Xiaomi cloud)"
+      notes: "Custom firmware stores no cloud credentials. Optional PIN for GATT access control."
+
+  variants:
+    - model: "LYWSD03MMC (custom firmware ATC)"
+      identification:
+        local_name_prefix: "ATC_"
+      notes: "Custom firmware. 6 hardware versions. Name format: ATC_XXXXXX."
+    - model: "LYWSD03MMC (stock firmware)"
+      identification:
+        local_name_prefix: "LYWSD03MMC"
+        service_uuids:
+          - "0000fe95-0000-1000-8000-00805f9b34fb"
+      notes: "Stock firmware with encrypted MiBeacon. Service UUID 0xFE95."
+    - model: "MHO-C401"
+      identification:
+        local_name_prefix: "MHO_C401"
+    - model: "MHO-C401N"
+      identification:
+        local_name_prefix: "MHO_C401N"
+    - model: "MJWSD05MMC"
+      identification:
+        local_name_prefix: "MJWSD05MMC"
+    - model: "CGG1-M (Qingping)"
+      identification:
+        local_name_prefix: "CGG1"
+
+  payload_formats:
+    ATC_3byte:
+      description: "3-byte unencrypted ATC advertisement payload (Service Data 0x181A)."
+      fields:
+        - index: 0
+          name: "temperature_raw"
+          description: "Temperature = (value / 2.0) - 40.0 °C."
+        - index: 1
+          name: "humidity_raw"
+          description: "Humidity = value / 2.0 %."
+        - index: 2
+          name: "battery_and_flags"
+          description: "Bits 6-0 = battery %, bit 7 = trigger/status flag."
+      example: "6c 64 63"
+      parse_rules:
+        - "temp = (byte[0] / 2.0) - 40.0"
+        - "humidity = byte[1] / 2.0"
+        - "battery = byte[2] & 0x7F"
+        - "trigger_flag = (byte[2] >> 7) & 1"
+    PVVX_6byte:
+      description: "6-byte unencrypted PVVX advertisement payload (Service Data 0x181A)."
+      fields:
+        - index: 0
+          name: "temperature"
+          description: "Temperature in 0.01°C (int16 LE)."
+        - index: 2
+          name: "humidity"
+          description: "Humidity in 0.01% (uint16 LE)."
+        - index: 4
+          name: "battery"
+          description: "Battery percentage."
+        - index: 5
+          name: "flags"
+          description: "Status/trigger flags."
+      example: "ce 08 94 13 64 00"
+      parse_rules:
+        - "temp = int16_le(bytes[0:2]) / 100.0"
+        - "humidity = uint16_le(bytes[2:4]) / 100.0"
+        - "battery = byte[4]"
+        - "flags = byte[5]"
+
+services:
+  - uuid: "0000181a-0000-1000-8000-00805f9b34fb"
+    name: "Environmental Sensing Service"
+    notes: >
+      Used in advertisement Service Data for ATC custom firmware beacon
+      broadcasts. Not used as a GATT service — data is obtained from
+      passive BLE scanning of the advertisement payload.
+    characteristics:
+      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
+        name: "Temperature"
+        properties: ["read"]
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    notes: >
+      Standard BLE Device Information. Exposed by custom firmware v1.5+
+      when connected via GATT. Provides manufacturer name, model number,
+      serial number, firmware revision, hardware revision, and software
+      revision.
+    characteristics:
+      - uuid: "00002a29-0000-1000-8000-00805f9b34fb"
+        name: "Manufacturer Name String"
+        properties: ["read"]
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: "Standard BLE Battery Service. Exposed by custom firmware."
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"

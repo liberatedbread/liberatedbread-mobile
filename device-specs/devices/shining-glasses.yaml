@@ -1,0 +1,215 @@
+# Shining Glasses device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Shining Glasses"
+  manufacturer: "Shenzhen Shining Bright Technology"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+  notes: >
+    Bluetooth-controlled LED glasses. Uses identical protocol to Shining Mask
+    (same UUIDs, AES encryption, ASCII-based 16-byte command format, DATS/DATCP handshake).
+    AES-128-ECB encryption via native libAES.so with a fixed default key
+    (aes.keyExpansionDefault() is a JNI native method; the 16-byte key lives in the
+    .so binary, NOT in Java — likely the same key as Magic Display, same cdbwsoft codebase).
+    Manufacturer advertising data filter: {0x54, 0x52, 0x00, 0x41} ("TR" + 0x0041).
+    Supports display modes: 5x36, 12x48, 16x64 (configurable per product variant).
+    Default grid: 128 columns x 16 rows.
+    No pairing required.
+    CONFIDENCE: command/UUID mapping HIGH (jadx of com.icwork.shiningglass);
+    AES key UNRECOVERABLE from the Java APK (native lib not captured).
+    Evidence: com/icwork/shiningglass/base/App.java:21 (keyExpansionDefault);
+    model/data/DiyAgreement.java (command framing, REOK ack parsing).
+  identification:
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fff0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "service_uuid"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. Commands are AES-encrypted with a fixed key, so any
+      client that implements the framing can connect straight away.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+# Custom consumer-side handler for the cdbwsoft AES-128-ECB command framing
+# (shared with Magic Display). Declarative.
+protocol_handler: "cdbwsoft_ecb"
+
+services:
+  - uuid: "d44bc439-abfd-45a2-b575-925416129600"
+    name: "QPP Command Service (encrypted)"
+    notes: >
+      Quintic Private Profile (QPP): the service UUID intentionally equals its
+      first
+      characteristic UUID (d44bc439-...-925416129600). This is the Quintic/NXP
+      QN-series
+      convention, NOT a copy-paste error. Same UUID family as Magic Display
+      (cdbwsoft).
+    characteristics:
+      - uuid: "d44bc439-abfd-45a2-b575-925416129600"
+        name: "Command"
+        properties: ["write"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "static"
+        notes: >
+          AES-128-ECB, fixed static key. static_key OMITTED: the key is in the
+          native libAES.so (aes.keyExpansionDefault, JNI) and is not present in the
+          decompiled Java APK; likely identical to Magic Display's key (same
+          cdbwsoft codebase). Confidence: HIGH structure, key UNRECOVERABLE.
+        commands:
+          set_brightness:
+            description: "Set brightness (AES encrypted). Plaintext: [0x06, 'L','I',0x47,0x48,'T', brightness]"
+            template: [0x06, 0x4C, 0x49, 0x47, 0x48, 0x54, "{brightness}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_speed:
+            description: "Set animation speed. Plaintext: [0x06, 'S','P','E','E',0x44, speed]"
+            template: [0x06, 0x53, 0x50, 0x45, 0x45, 0x44, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          select_animation:
+            description: "Select built-in animation by index"
+            template: [0x05, 0x41, 0x35, 0x49, 0x34, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          select_image:
+            description: "Select built-in image by index"
+            template: [0x05, 0x49, 0x34, 0x41, 0x47, "{index}"]
+            parameters:
+              index:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_foreground_color:
+            description: "Set text foreground color (R,G,B)"
+            template: [0x06, 0x46, 0x43, "{flag}", "{red}", "{green}", "{blue}"]
+            parameters:
+              flag:
+                type: "uint8"
+                min: 0
+                max: 255
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          enter_diy_mode:
+            description: "Enter DIY drawing mode (single frame)"
+            value: [0x06, 0x53, 0x34, 0x56, 0x45, 0x57, 0x01]
+          exit_diy_mode:
+            description: "Exit DIY mode without saving"
+            value: [0x06, 0x53, 0x34, 0x56, 0x45, 0x57, 0x00]
+          exit_diy_save:
+            description: "Exit DIY mode and save"
+            value: [0x06, 0x53, 0x34, 0x56, 0x45, 0x57, 0x02]
+          play_diy:
+            description: "Play DIY animation"
+            value: [0x04, 0x50, 0x4C, 0x41, 0x59]
+          stop_rhythm:
+            description: "Stop rhythm/audio mode"
+            value: [0x04, 0x53, 0x4F, 0x55, 0x54]
+
+      - uuid: "d44bc439-abfd-45a2-b575-925416129601"
+        name: "Notification"
+        properties: ["notify"]
+
+      - uuid: "d44bc439-abfd-45a2-b575-92541612960a"
+        name: "Image Upload"
+        properties: ["write"]
+
+      - uuid: "d44bc439-abfd-45a2-b575-92541612960b"
+        name: "Audio/DIY Realtime"
+        properties: ["write"]
+
+  # Texas Instruments profile advertised by TI-based hardware variants; this is the
+  # 0000fff0 UUID listed under identification.service_uuids (matches Magic Display).
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "TI Service"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "TI Command"
+        properties: ["write", "notify"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "static"
+        notes: "TI-variant command characteristic; same AES-128-ECB native key (key OMITTED, in libAES.so)."
+
+entities:
+  - platform: "light"
+    name: "Glasses Display"
+    features: ["brightness", "color"]
+    commands:
+      set_brightness: "set_brightness"
