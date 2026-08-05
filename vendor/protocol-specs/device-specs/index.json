@@ -20,7 +20,7 @@
     "path": "device-specs/devices/autobaba-led-backpack.yaml",
     "protocol": "ble",
     "manufacturer": "LOY SPACE / popled.cn",
-    "manufacturer_status": "abandoned",
+    "manufacturer_status": "active",
     "protocol_handler": "popled_json",
     "schema_version": "2020-12"
   },
@@ -49,7 +49,7 @@
     "path": "device-specs/devices/ble-pulse-oximeter.yaml",
     "protocol": "ble",
     "manufacturer": "Manridy (likely ODM)",
-    "manufacturer_status": "active",
+    "manufacturer_status": "abandoned",
     "schema_version": "2020-12"
   },
   {
@@ -57,7 +57,7 @@
     "path": "device-specs/devices/bluetooth-led-name-badge.yaml",
     "protocol": "ble",
     "manufacturer": "Generic (multiple OEMs)",
-    "manufacturer_status": "abandoned",
+    "manufacturer_status": "active",
     "protocol_handler": "ledbadge_bitmap",
     "schema_version": "2020-12"
   },
@@ -130,7 +130,7 @@
     "path": "device-specs/devices/ember-mug.yaml",
     "protocol": "ble",
     "manufacturer": "Ember Technologies",
-    "manufacturer_status": "unsupported",
+    "manufacturer_status": "active",
     "schema_version": "2020-12"
   },
   {
@@ -282,7 +282,7 @@
     "name": "SP107E/SP110E LED Controller",
     "path": "device-specs/devices/leds2rave4-lunchbox-led.yaml",
     "protocol": "ble",
-    "manufacturer": "SPLED",
+    "manufacturer": "Shenzhen Sperll Optoelectronic (SPLED)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
   },
@@ -324,15 +324,15 @@
     "name": "MoTool Slacker",
     "path": "device-specs/devices/motool-slacker.yaml",
     "protocol": "ble",
-    "manufacturer": "MoTool",
-    "manufacturer_status": "unsupported",
+    "manufacturer": "Slacker LLC (formerly MoTool)",
+    "manufacturer_status": "active",
     "schema_version": "2020-12"
   },
   {
     "name": "NIIMBOT D110 / B21 Thermal Label Printer",
     "path": "device-specs/devices/niimbot-d110.yaml",
     "protocol": "ble",
-    "manufacturer": "NIIMBOT (Wuhan Jincheng Intelligent Technology Co., Ltd.)",
+    "manufacturer": "NIIMBOT (Wuhan Jingchen Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
   },
@@ -357,7 +357,7 @@
     "path": "device-specs/devices/nyan-bt-image-controller.yaml",
     "protocol": "ble",
     "manufacturer": "NYAN GEAR / LOY SPACE / popled.cn",
-    "manufacturer_status": "abandoned",
+    "manufacturer_status": "active",
     "protocol_handler": "popled_json",
     "schema_version": "2020-12"
   },
@@ -399,9 +399,14 @@
         "description": "Public PAX Bluetooth reverse-engineering write-up cited by the device page and notes."
       },
       {
-        "title": "tristanseifert/kush-kontroller.app",
-        "url": "https://github.com/tristanseifert/kush-kontroller.app",
-        "description": "Open-source PAX controller implementation cited by the device page."
+        "title": "tristanseifert/pax-controller-test",
+        "url": "https://github.com/tristanseifert/pax-controller-test",
+        "description": "Open-source PAX BLE controller (Swift, ISC); source of the protocol details cited by the device page. Archived upstream."
+      },
+      {
+        "title": "varenc/pax-app-bluetooth-server",
+        "url": "https://github.com/varenc/pax-app-bluetooth-server",
+        "description": "Preserves the official PAX Web Bluetooth app bundle (captured April 2026 before the May 2026 shutdown); best public source for the Era Pro enrollment path."
       }
     ],
     "schema_version": "2020-12"
@@ -451,7 +456,7 @@
     "path": "device-specs/devices/shining-glasses.yaml",
     "protocol": "ble",
     "manufacturer": "Shenzhen Shining Bright Technology",
-    "manufacturer_status": "abandoned",
+    "manufacturer_status": "active",
     "protocol_handler": "cdbwsoft_ecb",
     "schema_version": "2020-12"
   },
@@ -472,6 +477,36 @@
         "title": "GoneUp/mask-go",
         "url": "https://github.com/GoneUp/mask-go",
         "description": "Open-source implementation cited by the device page and notes."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "SmartDawn Smart Lights",
+    "path": "device-specs/devices/smartdawn-smart-lights.yaml",
+    "protocol": "ble",
+    "manufacturer": "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)",
+    "manufacturer_status": "active",
+    "helpful_urls": [
+      {
+        "title": "SmartDawn store — smart lights collection",
+        "url": "https://smartdawn.com/collections/smart-lights",
+        "description": "Vendor storefront listing the product families this spec covers."
+      },
+      {
+        "title": "SmartDawn on Google Play (com.daniaokeji.smartdawn)",
+        "url": "https://play.google.com/store/apps/details?id=com.daniaokeji.smartdawn",
+        "description": "Official companion app; v1.2.4 was the source of this protocol map (jadx decompile)."
+      },
+      {
+        "title": "Hangzhou Daniao Technology (ODM)",
+        "url": "https://daniaokeji.com/",
+        "description": "Platform vendor behind SmartDawn/SuperPix/SmartPixel apps and controllers."
+      },
+      {
+        "title": "FCC-hosted SmartDawn curtain-lights manual",
+        "url": "https://fccid.io/m/03e7be1bfdf844811e2d2cef87f6127da9424fa5c4ea7d89950479b3f244e0c4.pdf",
+        "description": "User manual for JY25CUT-series curtain lights confirming BLE app control and the physical mode button."
       }
     ],
     "schema_version": "2020-12"
@@ -565,7 +600,29 @@
     "path": "device-specs/devices/vector-robot.yaml",
     "protocol": "wifi",
     "manufacturer": "Anki / Digital Dream Labs",
-    "manufacturer_status": "active",
+    "manufacturer_status": "shutdown",
+    "helpful_urls": [
+      {
+        "title": "WireOS",
+        "url": "https://github.com/os-vector/wire-os",
+        "description": "Actively maintained open firmware for unlocked (OSKR/dev) robots; 3.0.1.32 at verification time. The only fully supported path now that official OTA servers are dead."
+      },
+      {
+        "title": "wire-pod",
+        "url": "https://github.com/kercre123/wire-pod",
+        "description": "Community replacement for the cloud GUID/token step, built on DDL's open-sourced vector-cloud."
+      },
+      {
+        "title": "DDL vector-cloud",
+        "url": "https://github.com/digital-dream-labs/vector-cloud",
+        "description": "DDL's MIT-licensed robot cloud/gateway server, open-sourced alongside vector-bluetooth before the company went dark."
+      },
+      {
+        "title": "DDL support portal",
+        "url": "https://support.anki.bot/",
+        "description": "Still online; articles 383/384 document Firmware Recovery Mode vs Clear User Data, article 108 the firmware changelog."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -574,6 +631,27 @@
     "protocol": "wifi",
     "manufacturer": "Belkin",
     "manufacturer_status": "shutdown",
+    "helpful_urls": [
+      {
+        "title": "open-wemo",
+        "url": "https://github.com/blackbxdev/open-wemo",
+        "description": "Post-shutdown open-source app/bridge (created ~2026-03) keeping the F7C063, WSP070 and WSP080 usable after the Belkin app shutdown."
+      },
+      {
+        "title": "Wemo Insight teardown and OpenWrt port",
+        "url": "https://svenschwermer.de/wemo",
+        "description": "Full F7C029 Insight hardware/firmware teardown (RT5350F SoC, u-boot env independently confirming the 10.22.22.1 setup network, cloud endpoints) with a mainline OpenWrt port and package feed."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "WLED Addressable LED Controller",
+    "path": "device-specs/devices/wled-controller.yaml",
+    "protocol": "wifi",
+    "manufacturer": "WLED project (Aircoookie and contributors)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
     "schema_version": "2020-12"
   },
   {

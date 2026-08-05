@@ -18,9 +18,16 @@ device:
     16-bit short UUID. Suffix "4F72616C2D42" decodes to "Oral-B" in ASCII.
     Manufacturer ID 0xDC00 = Procter & Gamble (byte 2=-36/decimal, byte 3=0).
     Protocol versions V001 through V009 across brush generations.
-    Discovery uses manufacturer-specific advertisement data (>14 bytes minimum).
+    Discovery uses manufacturer-specific advertisement data (app filters:
+    brush >= 5 bytes, charger >= 10; the full brush advertisement is 15 bytes).
     Two device classes: Brush (FFxx UUIDs) and Charger (3Cxx UUIDs).
-    Supports OTA firmware updates via dedicated characteristic set.
+    Supports OTA firmware updates via dedicated characteristic set. P&G's
+    official firmware host fw.iot-dev.alchemy.codes (hardcoded in the app's
+    own strings) serves unauthenticated RSA-signed update manifests for model
+    bytes 0x0031 (SONOS IO), 0x0034 (iO4), 0x0035 (iO5) and 0x0036 (E-Platform
+    = iO6-iO10): E-Platform/iO4/iO5 images are Silicon Labs Gecko Bootloader
+    GBL files, legacy SONOS images are TI CC2640 binaries; current firmware is
+    E-Platform V82 and iO4/iO5 V36.
 
   setup:
     required: false
@@ -49,7 +56,9 @@ device:
             actor: user
           - action: >
               Scan for manufacturer-specific advertisement data under
-              manufacturer ID 0xDC00, requiring at least 14 bytes of payload.
+              manufacturer ID 0xDC00. The app's brush filter needs at least 5
+              payload bytes (charger filter 10); the full brush advertisement
+              is 15 bytes.
             actor: client
           - action: "Connect over GATT and discover the A0F0xxxx-5047-4D53-8208-4F72616C2D42 services."
             actor: client
@@ -90,6 +99,9 @@ services:
       A0F0FF** characteristics are the Brush device class and A0F03C** are the
       Charger device class; no separate charger service UUID was recovered, so
       both sets are listed here under the one documented service.
+      Older (pre-iO) brushes additionally expose FF01 DeviceID, FF02 DeviceInfo,
+      FF03 UserID and FF2A (purpose unknown), per MatrixEditor/oralb-io and
+      Bluetooth-Devices/oralb-ble; app v10 does not reference them.
     characteristics:
       - uuid: "A0F0FF04-5047-4D53-8208-4F72616C2D42"
         name: DeviceState
@@ -226,64 +238,68 @@ services:
 
 advertising:
   discovery_method: manufacturer_data
+  # Byte map from the app's own Advertisement.java (v10.8.0, 15-byte
+  # serialization), corroborated field-for-field by MatrixEditor/oralb-io
+  # brush.py and Bluetooth-Devices/oralb-ble parser.py. There is no battery
+  # byte — battery level comes from the FF05 GATT read.
   manufacturer_data_format:
     - byte_offset: 0
-      name: manufacturer_id
-      size: 2
-      description: "0xDC00 (Procter & Gamble)"
+      name: manufacturer_length
+      size: 1
+      description: Length of the manufacturer data structure
+    - byte_offset: 1
+      name: ad_type
+      size: 1
+      description: AD type (manufacturer-specific data)
     - byte_offset: 2
-      name: product_type
-      size: 1
-      description: Brush or Charger type identifier
-    - byte_offset: 3
-      name: reserved
-      size: 1
-      description: Always 0x00
+      name: company_id
+      size: 2
+      description: "0xDC 0x00 little-endian = 0x00DC (Procter & Gamble)"
     - byte_offset: 4
-      name: data_length
-      size: 1
-      description: Manufacturer data payload length
-    - byte_offset: 5
-      name: brush_type
-      size: 1
-      description: Brush model variant (iO 3-10)
-    - byte_offset: 6
-      name: state
-      size: 1
-      description: Device state flags
-    - byte_offset: 7
       name: protocol_version
       size: 1
       description: Protocol version (V001-V009)
+    - byte_offset: 5
+      name: device_type
+      size: 1
+      description: Brush model variant (iO 3-10)
+    - byte_offset: 6
+      name: software_version
+      size: 1
+      description: Firmware/software version
+    - byte_offset: 7
+      name: device_state
+      size: 1
+      description: Device state (idle, running, charging, etc.)
     - byte_offset: 8
-      name: battery
+      name: status
       size: 1
-      description: Battery level
+      description: "Bit field: bit 3 = power-button press, bit 2 = mode-button press, bit 7 = high pressure"
     - byte_offset: 9
-      name: mode
+      name: brush_time_min
       size: 1
-      description: Current brushing mode
+      description: Brushing timer minutes
     - byte_offset: 10
-      name: pressure
-      size: 1
-      description: Pressure sensor value
-    - byte_offset: 11
-      name: timer
+      name: brush_time_sec
       size: 1
       description: Brushing timer seconds
+    - byte_offset: 11
+      name: brush_mode
+      size: 1
+      description: Current brushing mode
     - byte_offset: 12
-      name: smiley
+      name: brush_progress
       size: 1
-      description: Brushing quality smiley
+      description: Brushing progress — used to derive the smiley
     - byte_offset: 13
-      name: quadrant
+      name: quadrant_or_subtype
       size: 1
-      description: Current quadrant
+      description: Quadrant completion (V001-V007) or device sub-type (V008/V009)
     - byte_offset: 14
-      name: errors
+      name: total_quadrants
       size: 1
-      description: Error flags
-  minimum_length: 14
+      description: Total quadrant count
+  minimum_length: 5
 
 brushing_modes:
   - id: 0x00

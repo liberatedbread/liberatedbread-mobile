@@ -17,8 +17,11 @@ device:
     PROTOCOL: fixed 9-byte packets with envelope [0x7E, seq, cmd, p1, p2,
     p3, p4, flag, 0xEF]. Byte 2 is a per-command sequence number (0x00
     works; app uses unique values). Byte 8 is typically 0x00 or 0x10 but
-    does not affect functionality. No bonding, no auth, no response from
-    device — write-only protocol.
+    does not affect functionality. No bonding, no auth. NOT write-only:
+    devices send 9-byte 7E…EF state notifications on characteristic
+    0xFFF4 (power state 0x23/0xF0/0x01 = on, 0x24/0x00 = off, plus RGB
+    and brightness), and a state query command exists
+    (7e 00 01 fa 00 00 00 00 ef).
 
     Commands are grouped: command byte 3 identifies the operation category,
     byte 4 the sub-command. The app distinguishes "data" vs "control"
@@ -28,11 +31,19 @@ device:
     vary widely: "ELK-BLEDOM", "MELK", "LEDBLE", "ELK-BULB", "ELK-LAMPL".
     No pairing required — any central in range can connect and write.
 
+    UUID FAMILIES: the 0xFFF0/0xFFF3/0xFFF4 set does not cover every
+    advertised name. LEDBLE, JACKYLED, "LED-" and XROCKER variants use
+    write 0xFFE1 / notify 0xFFE2; DMRRBA-007 uses the Nordic UART service
+    (write 0x6E400002, notify 0x6E400003).
+
     CONFIDENCE: HIGH for service UUID, characteristic UUID, packet format,
     color/brightness/color-temperature commands — sourced from
     github.com/FergusInLondon/ELK-BLEDOM, a clean-room RE from the Android
-    APK. Commands beyond the visual ones (timing, mic streaming) are
-    documented but less tested.
+    APK. State readback (0xFFF4), the MELK/MODELX login handshake, the
+    alternate UUID families and the scheduler/time-sync/mic commands are
+    sourced from github.com/dave-code-ruiz/elkbledom (actively maintained
+    HACS component). Commands beyond the visual ones (timing, mic
+    streaming) are documented but less tested.
 
   identification:
     service_uuids:
@@ -54,13 +65,17 @@ device:
     confidence: "high"
     notes: >
       No provisioning. Device advertises when powered. No bonding or
-      pairing required — write-only protocol with no authentication.
+      pairing required and no authentication. Not write-only: state
+      notifications arrive on 0xFFF4 — subscribe to it for feedback.
     methods:
       - type: "ble_direct"
-        verified: true
+        verified: false
         description: >
           Scan for 0xFFF0 service UUID, connect, and write 9-byte packets
-          to characteristic 0xFFF3. No initialization sequence required.
+          to characteristic 0xFFF3. Classic devices need no initialization
+          sequence; newer MELK-*/MODELX firmware disconnects unless a login
+          handshake (7e 07 83, then 7e 04 04, about 1 s apart) is written
+          immediately after connect.
         ble:
           pairing_required: false
         steps:
@@ -119,9 +134,10 @@ services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "ELK-BLEDOM Service"
     notes: >
-      Single service with one write characteristic. Write-only — the
-      device sends no responses. All packets use the 9-byte format:
-      [0x7E] [seq] [cmd] [p1] [p2] [p3] [p4] [flag] [0xEF].
+      Single service with a write characteristic (0xFFF3) and a notify
+      characteristic (0xFFF4) that carries state responses. All packets
+      use the 9-byte format: [0x7E] [seq] [cmd] [p1] [p2] [p3] [p4]
+      [flag] [0xEF].
 
       Byte 2 (sequence) can be 0x00 for basic operation. Byte 8 (flag)
       is typically 0x00 or 0x10 — both work identically.
@@ -130,9 +146,9 @@ services:
         name: "Write"
         properties: ["write"]
         notes: >
-          Write-only characteristic for all commands. No framing declared
-          because each 9-byte write is a complete packet. No responses are
-          sent by the device.
+          Write characteristic for all commands. No framing declared
+          because each 9-byte write is a complete packet. State responses
+          and notifications arrive on 0xFFF4.
         commands:
           set_rgb_color:
             description: >
@@ -147,11 +163,12 @@ services:
               flag: { type: "uint8", default: 0x00 }
           set_brightness:
             description: >
-              Set brightness. Command 0x01. Brightness 0-255, light_mode 0-255.
+              Set brightness. Command 0x01. Brightness 0-100 (0x64) at the
+              app level; light_mode 0-255.
             template: [0x7E, "{seq}", 0x01, "{brightness}", "{light_mode}", 0x00, 0x00, "{flag}", 0xEF]
             parameters:
               seq: { type: "uint8", default: 0x00 }
-              brightness: { type: "uint8", min: 0, max: 255 }
+              brightness: { type: "uint8", min: 0, max: 100 }
               light_mode: { type: "uint8", default: 0xFF }
               flag: { type: "uint8", default: 0x00 }
           set_color_temperature:
@@ -193,9 +210,74 @@ services:
               cmd: { type: "uint8" }
               mode: { type: "uint8", min: 0, max: 255 }
               flag: { type: "uint8", default: 0x00 }
+          get_state:
+            description: >
+              Query device state (command 0x01, sub-command 0xFA). The
+              9-byte state response arrives as a notification on 0xFFF4.
+            value: [0x7E, 0x00, 0x01, 0xFA, 0x00, 0x00, 0x00, 0x00, 0xEF]
+          set_effect_speed:
+            description: "Set effect speed. Command 0x02, speed in byte 3."
+            template: [0x7E, "{seq}", 0x02, "{speed}", 0x00, 0x00, 0x00, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              speed: { type: "uint8", min: 0, max: 255 }
+              flag: { type: "uint8", default: 0x00 }
+          set_scheduler:
+            description: >
+              Scheduler on/off. Command 0x82: hours, minutes, then 0x00,
+              0x00 = schedule on / 0x01 = schedule off, and a days bitmask
+              (add 0x80 when the schedule is enabled).
+            template: [0x7E, "{seq}", 0x82, "{hours}", "{minutes}", 0x00, "{on_off}", "{days}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              hours: { type: "uint8", min: 0, max: 23 }
+              minutes: { type: "uint8", min: 0, max: 59 }
+              on_off: { type: "uint8", values: { "0": "schedule on", "1": "schedule off" } }
+              days: { type: "uint8" }
+          sync_time:
+            description: >
+              Sync the device clock. Command 0x83: hours, minutes, seconds,
+              ISO day-of-week (1-7).
+            template: [0x7E, "{seq}", 0x83, "{hours}", "{minutes}", "{seconds}", "{day_of_week}", 0x00, 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              hours: { type: "uint8", min: 0, max: 23 }
+              minutes: { type: "uint8", min: 0, max: 59 }
+              seconds: { type: "uint8", min: 0, max: 59 }
+              day_of_week: { type: "uint8", min: 1, max: 7 }
+          set_mic_effect:
+            description: "Microphone effect mode (command 0x05, sub-command 0x03), value 0x80-0x87."
+            template: [0x7E, "{seq}", 0x05, 0x03, "{effect}", 0x04, 0xFF, 0xFF, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              effect: { type: "uint8", min: 128, max: 135 }
+              flag: { type: "uint8", default: 0x00 }
+          set_mic_sensitivity:
+            description: "Microphone sensitivity 0-100 (command 0x04, sub-command 0x06)."
+            template: [0x7E, "{seq}", 0x04, 0x06, "{sensitivity}", 0xFF, 0xFF, 0xFF, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              sensitivity: { type: "uint8", min: 0, max: 100 }
+              flag: { type: "uint8", default: 0x00 }
+          set_mic_on_off:
+            description: "External microphone on/off (command 0x04, sub-command 0x07). On = 0x01, off = 0x00."
+            template: [0x7E, "{seq}", 0x04, 0x07, "{state}", 0xFF, 0xFF, 0xFF, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              state: { type: "uint8", values: { "0": "off", "1": "on" } }
+              flag: { type: "uint8", default: 0x00 }
+
+      - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          State notifications. The device pushes 9-byte 7E…EF packets
+          here — power state (0x23/0xF0/0x01 = on, 0x24/0x00 = off),
+          RGB values and brightness — including the response to the
+          0xFA state query. Subscribe to it for state readback.
 
 entities:
   - platform: "light"
     name: "LED Strip"
     features: ["brightness", "color", "color_temperature", "effect"]
-    state_characteristic: "0000fff3-0000-1000-8000-00805f9b34fb"
+    state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"

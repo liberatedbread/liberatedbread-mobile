@@ -4,20 +4,32 @@
 
 device:
   name: "MoTool Slacker"
-  manufacturer: "MoTool"
-  manufacturer_status: "unsupported"
+  manufacturer: "Slacker LLC (formerly MoTool)"
+  manufacturer_status: "active"
   protocol: "ble"
   notes: >
     Motorcycle digital suspension sag measurement tool (V4/V5).
-    Uses an HM-10/HM-19-style BLE UART module (CC2541/CC2640 based) with
-    service 0xFFE0 and a single serial pass-through characteristic 0xFFE1.
+    Vendor is active: live Shopify store at getslacker.com, V5 user guide dated
+    2025-07-26, and both apps updated April 2026. The company is now "Slacker
+    LLC" (getslacker.com); the legacy motool.com domain is dead, though the app
+    seller remains "Motool LLC".
+    Believed to use an HM-10/HM-19-style BLE UART module (CC2541/CC2640 based)
+    with service 0xFFE0 and a single serial pass-through characteristic 0xFFE1 —
+    plausible-but-unverified: FFE0/FFE1 is the canonical HM-10 CC2541 UART
+    profile, but the spec's APK strings.xml evidence was not retained and no
+    public GATT capture exists; needs HCI confirmation.
     The companion Flutter app (co.motool.serviceassistant) has a "Virtual Remote"
-    feature to trigger measurements from the phone; this was subscription-gated
-    via RevenueCat. All BLE command construction is in AOT-compiled Dart (libapp.so),
+    feature to trigger measurements from the phone. The standalone Slacker
+    Virtual Remote app is 100% FREE with full basic control (Reset/Auto
+    Zero/display); the subscription only gates Service Assistant cloud/notes
+    features (Motool developer reply on the Play listing, 2025-06-22).
+    All BLE command construction is in AOT-compiled Dart (libapp.so),
     so exact command bytes require HCI snoop capture to confirm.
     Known command LABELS from string analysis: "Reset", "Auto Zero", display mode change,
     and travel selection. Sag values are reported as mm or percentage of travel.
-    V5 adds a percentage-of-travel display mode requiring fork/shock travel settings.
+    V5 adds a percentage-of-travel display mode requiring fork/shock travel settings;
+    the travel value syncs app→device at connect and is WIPED at power-off (the V5
+    always boots in MM mode), so a replacement client must re-send travel each session.
     Firebase backend: motool-service-assistant.firebaseio.com.
 
     FLAG (unrecoverable): the raw command BYTES sent over 0xFFE1 are NOT statically
@@ -27,7 +39,8 @@ device:
     HCI snoop log (btsnoop_hci.log) while driving the app's Virtual Remote. Do not
     infer or invent opcodes. Evidence: workspace/static/motool-slacker/.../strings.xml
     (0000ffe0 x3, 0000ffe1 x12), jadx resources flutterblue.proto (Flutter BLE plugin).
-    CONFIDENCE: UUIDs HIGH; command bytes UNKNOWN (needs live capture).
+    CONFIDENCE: UUIDs PLAUSIBLE-BUT-UNVERIFIED (canonical HM-10 profile; APK
+    evidence not retained — needs live capture); command bytes UNKNOWN (needs live capture).
   identification:
     service_uuids:
       - "0000ffe0-0000-1000-8000-00805f9b34fb"

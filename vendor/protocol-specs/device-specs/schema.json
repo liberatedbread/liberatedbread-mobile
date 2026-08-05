@@ -308,7 +308,49 @@
         "manufacturer_status": {
           "type": "string",
           "enum": ["abandoned", "shutdown", "unsupported", "active"],
-          "description": "Why this device needs open source rescue. Enum kept aligned with the mobile Rust ManufacturerStatus enum (the mobile consumer now supports 'active'). Use 'active' when the manufacturer is still in business and shipping the product but the protocol is closed/proprietary; use 'unsupported' when there is simply no open/official support for third-party interoperability."
+          "description": "Why this device needs open source rescue. Enum kept aligned with the mobile Rust ManufacturerStatus enum (the mobile consumer now supports 'active'). Use 'active' when the manufacturer is still in business and shipping the product but the protocol is closed/proprietary; use 'unsupported' when there is simply no open/official support for third-party interoperability. NOTE: this says what the vendor is doing, not whether the protocol is published -- see `openness`. A device can be 'active' and completely open."
+        },
+        "openness": {
+          "type": "object",
+          "description": "Whether this protocol had to be recovered at all. Nearly every spec here documents a closed protocol that somebody worked out from captures, firmware or an app teardown; a few document one whose authors publish it and want third parties to implement it. Those are different kinds of document and should not read alike -- the first is our best reconstruction and can simply be wrong, the second is a summary of somebody else's authoritative text and should send the reader there. Recording which one a spec is also tells a consumer where to look when the protocol changes, and stops the registry implying that everything in it was prised out of a vendor that did not want to be read. Absent means `undocumented`: the default, and by a wide margin the commonest case.",
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["open_by_design", "documented_api", "undocumented", "hostile"],
+              "default": "undocumented",
+              "description": "'open_by_design': the protocol is published by the people who build the thing and third-party clients are an intended use -- typically open-source firmware or an open standard. Nothing was reverse engineered, and upstream rather than this file is authoritative. 'documented_api': the vendor publishes an official interface, but the product is otherwise closed -- the published surface is often partial, may require an account or a developer agreement, and can be withdrawn. 'undocumented': nothing is published; everything here was recovered by observation. 'hostile': the vendor actively works to stop third-party clients (pinned certificates, signed firmware, client attestation, terms forbidding interoperation) -- documented anyway, but expect it to be broken on purpose."
+            },
+            "reverse_engineered": {
+              "type": "boolean",
+              "description": "True when any part of this spec was recovered by observation rather than read from published documentation. Stated separately from `status` because the two genuinely come apart: a vendor with a documented API usually leaves the interesting half of it undocumented, so a 'documented_api' spec is commonly part citation and part reconstruction. On an 'open_by_design' spec this should be false -- and that is the point of the field, because it says the work here was reading and summarising rather than liberating."
+            },
+            "upstream_docs": {
+              "type": "array",
+              "description": "Where the authoritative documentation lives, so a reader can go to the source instead of trusting our summary -- and so a spec that has fallen behind is visibly stale rather than quietly wrong.",
+              "items": {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url": { "type": "string", "pattern": "^https?://" },
+                  "title": { "type": "string" },
+                  "covers": {
+                    "type": "string",
+                    "description": "Which part of this spec the page is the authority for, e.g. 'JSON API state and info objects'. Per-page rather than one blanket link: upstream documentation is rarely uniform in quality, and knowing which sections are cited and which are not is what makes the rest reviewable."
+                  }
+                }
+              }
+            },
+            "source_code": {
+              "type": "string",
+              "description": "Repository implementing the protocol, where it is public. On an 'open_by_design' device this outranks every other citation: the firmware is the specification, and a constant read straight out of it cannot drift the way prose around it does."
+            },
+            "license": {
+              "type": "string",
+              "description": "SPDX identifier of the firmware or reference implementation, where it is public. Worth recording separately from the rest: it decides whether a consumer may fork the device's own software rather than merely speak to it, which is a different and much larger freedom than an open protocol."
+            },
+            "notes": { "type": "string" }
+          }
         },
         "protocol": {
           "type": "string",
