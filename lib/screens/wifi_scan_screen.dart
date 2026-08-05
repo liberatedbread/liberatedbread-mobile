@@ -246,6 +246,9 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
+        // See the note on ScanScreen's FAB: both live in HomeShell's
+        // IndexedStack at the same time, so the tags have to differ.
+        heroTag: 'wifi-scan-fab',
         onPressed: _isScanning ? null : _startScan,
         icon: _isScanning
             ? SizedBox(
