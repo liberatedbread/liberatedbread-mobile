@@ -77,13 +77,16 @@ class DeviceControlPanel extends ConsumerWidget {
     }
 
     // Leading slots above the raw service list: the spec chooser when several
-    // specs tie (raw controls stay usable below it), then any spec-declared
-    // readings once a spec is chosen. Mutually exclusive today — no spec is
-    // chosen while a choice is pending — but built as a list so that isn't
-    // load-bearing.
+    // specs tie (raw controls stay usable below it), a banner when the active
+    // spec is a saved user choice (with the way to change it), then any
+    // spec-declared readings once a spec is chosen. Chooser and banner are
+    // mutually exclusive today — no spec is chosen while a choice is pending
+    // — but built as a list so that isn't load-bearing.
     final leading = <Widget>[
       if (outcome != null && outcome.needsChoice)
         _SpecChoicePrompt(deviceId: deviceId, candidates: outcome.candidates),
+      if (outcome != null && outcome.source == SpecChoiceSource.saved)
+        _SavedChoiceBanner(deviceId: deviceId, chosen: outcome.chosen!),
       if (readings.isNotEmpty)
         _ReadingsSection(
           deviceId: deviceId,
@@ -103,6 +106,66 @@ class DeviceControlPanel extends ConsumerWidget {
           matched: match,
         );
       },
+    );
+  }
+}
+
+/// Shows that this device's controls come from a spec the user picked, with
+/// the way to change it.
+///
+/// Without this, a saved choice is invisible — the panel simply renders the
+/// chosen spec's controls, indistinguishable from a confident automatic
+/// match — so a wrong pick would be permanent with nothing to revisit.
+/// Clearing the stored choice re-runs matching in place: if the candidates
+/// still tie, the chooser card returns; if matching has since become
+/// unambiguous, the automatic winner takes over and this banner disappears.
+class _SavedChoiceBanner extends ConsumerWidget {
+  final String deviceId;
+  final MatchedSpec chosen;
+
+  const _SavedChoiceBanner({required this.deviceId, required this.chosen});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+        child: Row(
+          children: [
+            Icon(Icons.bookmark_outlined, size: 20, color: scheme.secondary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    chosen.spec.deviceName,
+                    style:
+                        text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'Device type you picked',
+                    style: text.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
+              onPressed: () =>
+                  ref.read(specChoicesProvider.notifier).clear(deviceId),
+              child: const Text('Change'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
