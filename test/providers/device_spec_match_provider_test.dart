@@ -91,28 +91,66 @@ void main() {
 
       final ranked = rankSpecMatches(
         [nameOnly, uuidOnly, corroborated],
-        deviceHasServiceUuids: false,
+        discoveredUuids: const [],
       );
       expect(ranked, [corroborated, uuidOnly, nameOnly]);
     });
 
     test(
-        'a name-only match whose spec declares UUIDs is dropped when the '
-        'device discovered other services (the short-prefix collision case)',
-        () {
+        'a name-only match is dropped when the device carries none of the '
+        'spec\'s GATT services (the short-prefix collision case)', () {
       // A device named e.g. "DNS-Widget" trips a two-letter prefix like "DN"
-      // but demonstrably lacks the spec's GATT service: not a match.
+      // but demonstrably lacks the spec's GATT service: not a match. _spec's
+      // services block declares _svcUuid, absent from what was discovered.
+      const discovered = ['0000aaaa-0000-1000-8000-00805f9b34fb'];
       expect(
-        isContradictedNameOnlyMatch(nameOnly, deviceHasServiceUuids: true),
+        isContradictedNameOnlyMatch(nameOnly, discoveredUuids: discovered),
         isTrue,
       );
       expect(
-        rankSpecMatches([nameOnly], deviceHasServiceUuids: true),
+        rankSpecMatches([nameOnly], discoveredUuids: discovered),
         isEmpty,
       );
     });
 
-    test('a name-only match survives when the spec declares no UUIDs', () {
+    test(
+        'a name-only match survives when the spec\'s GATT services ARE on '
+        'the device (advertisement-only identification UUIDs)', () {
+      // The Govee/Mi-Flora shape: identification.service_uuids carries an
+      // advertisement service-data UUID that never appears in a GATT table,
+      // so the UUID axis can't corroborate — but the spec's real GATT
+      // services are present on the device. That is support, not
+      // contradiction; the regression this pins is those devices silently
+      // degrading to the raw browser.
+      const advOnly = DeviceSpecDto(
+        deviceName: 'Thermo',
+        manufacturer: 'Govee-ish',
+        manufacturerStatus: 'active',
+        protocol: 'ble',
+        localNamePrefix: 'GVH',
+        // Advertisement service-data UUID, never a GATT service.
+        serviceUuids: ['00008888-0000-1000-8000-00805f9b34fb'],
+        entities: <EntityDto>[],
+        services: [
+          ServiceDto(uuid: _svcUuid, name: 'Real GATT', characteristics: []),
+        ],
+      );
+      const match = MatchResult(
+        spec: advOnly,
+        matchedByNamePrefix: true,
+        matchedServiceUuids: [], // the adv UUID matched nothing discovered
+      );
+      expect(
+        isContradictedNameOnlyMatch(match, discoveredUuids: const [_svcUuid]),
+        isFalse,
+      );
+      expect(
+        rankSpecMatches([match], discoveredUuids: const [_svcUuid]),
+        [match],
+      );
+    });
+
+    test('a name-only match survives when the spec declares no services', () {
       const nameIsOnlyAxis = DeviceSpecDto(
         deviceName: 'NameOnly',
         manufacturer: 'X',
@@ -129,11 +167,11 @@ void main() {
         matchedServiceUuids: [],
       );
       expect(
-        isContradictedNameOnlyMatch(match, deviceHasServiceUuids: true),
+        isContradictedNameOnlyMatch(match, discoveredUuids: const ['1234']),
         isFalse,
       );
       expect(
-        rankSpecMatches([match], deviceHasServiceUuids: true),
+        rankSpecMatches([match], discoveredUuids: const ['1234']),
         [match],
       );
     });
@@ -141,7 +179,7 @@ void main() {
     test('a name-only match survives when nothing was discovered', () {
       // No discovered services = no evidence against the name.
       expect(
-        isContradictedNameOnlyMatch(nameOnly, deviceHasServiceUuids: false),
+        isContradictedNameOnlyMatch(nameOnly, discoveredUuids: const []),
         isFalse,
       );
     });
@@ -149,7 +187,7 @@ void main() {
     test('topTiedSpecMatches returns the leading equal-rank run', () {
       final ranked = rankSpecMatches(
         [corroborated, uuidOnly, corroborated],
-        deviceHasServiceUuids: true,
+        discoveredUuids: const [_svcUuid],
       );
       expect(topTiedSpecMatches(ranked), hasLength(2));
       expect(topTiedSpecMatches(const []), isEmpty);

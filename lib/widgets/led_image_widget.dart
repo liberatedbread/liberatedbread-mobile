@@ -47,20 +47,22 @@ Uint8List resizeFrame(
   return out;
 }
 
-/// Canvas sizes offered for a device whose real resolution is reported at
-/// runtime, bounded by the spec's platform maximum.
+/// Starting canvas dimension for a device-reported panel the app hasn't
+/// queried yet: a common small size, clamped to the spec's platform bound.
+/// Pure for tests.
+int initialCanvasSize(int? max) => max == null || max >= 16 ? 16 : max;
+
+/// Parse a user-entered canvas dimension, clamped to `1..max`.
 ///
-/// Common LED-matrix sizes rather than a free-form field: the user is
-/// matching a physical panel, and a short list beats a keyboard. Always
-/// non-empty — a tiny maximum offers just itself. Pure for tests.
-List<int> canvasSizeOptions(int? max) {
-  const common = [8, 12, 16, 20, 24, 32, 48, 64];
-  final bound = max ?? common.last;
-  final options = [
-    for (final size in common)
-      if (size <= bound) size
-  ];
-  return options.isEmpty ? [bound] : options;
+/// Free-form entry rather than a preset list: real panels report sizes like
+/// 25x50, and forcing the nearest preset shears every row on the device (the
+/// display buffer is row-major at the device's true width). Returns null for
+/// non-numeric input so the caller can keep the previous size. Pure for
+/// tests.
+int? parseCanvasSize(String input, {int? max}) {
+  final value = int.tryParse(input.trim());
+  if (value == null) return null;
+  return value.clamp(1, max ?? 255);
 }
 
 /// Animation-rate slider bounds and initial value in milliseconds per frame,
@@ -114,7 +116,12 @@ const List<Color> _palette = [
   Colors.black,
 ];
 
-class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
+// AutomaticKeepAliveClientMixin: this State holds the user's drawing and the
+// live streaming loop, and it lives inside the control panel's virtualized
+// ListView — without keep-alive, scrolling the editor past the cache extent
+// disposes it, silently stopping an active stream and discarding the frames.
+class _LedImageWidgetState extends ConsumerState<LedImageWidget>
+    with AutomaticKeepAliveClientMixin {
   late int _width;
   late int _height;
   final List<Uint8List> _frames = [];
@@ -124,24 +131,35 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
   int _selectedColor = 1; // red: visible on the black default canvas
   Timer? _previewTimer;
   bool _streaming = false;
+
+  /// Incremented on every stream start/stop. The streaming loop captures its
+  /// epoch and exits when it no longer matches, so a stop followed by a quick
+  /// restart cannot revive the old loop off the shared boolean and leave two
+  /// loops interleaving writes.
+  int _streamEpoch = 0;
   bool _sending = false;
   int _frameSequence = 0;
+
+  /// Bumped on every edit that mutates pixel bytes in place, so the painter
+  /// can detect changes the buffer identity cannot (see [_GridPainter]).
+  int _paintRevision = 0;
   String? _error;
 
   ImageUploadDto get _spec => widget.imageUpload;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
     super.initState();
     // Fixed-resolution panels get their declared size; device-reported ones
     // start at a common small size the user can adjust.
-    final sizes = canvasSizeOptions(_spec.maxWidth);
     _width = _spec.resolutionDeviceReported
-        ? (sizes.contains(16) ? 16 : sizes.last)
+        ? initialCanvasSize(_spec.maxWidth)
         : (_spec.maxWidth ?? 16);
-    final heights = canvasSizeOptions(_spec.maxHeight);
     _height = _spec.resolutionDeviceReported
-        ? (heights.contains(16) ? 16 : heights.last)
+        ? initialCanvasSize(_spec.maxHeight)
         : (_spec.maxHeight ?? 16);
     _intervalMs = frameIntervalBoundsMs(_spec).initial;
     _frames.add(Uint8List(_width * _height * 3));
@@ -151,6 +169,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
   void dispose() {
     _previewTimer?.cancel();
     _streaming = false;
+    _streamEpoch++;
     super.dispose();
   }
 
@@ -165,12 +184,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
       frame[index] = (color.r * 255).round();
       frame[index + 1] = (color.g * 255).round();
       frame[index + 2] = (color.b * 255).round();
+      _paintRevision++;
     });
   }
 
   void _resizeCanvas({int? width, int? height}) {
     final newWidth = width ?? _width;
     final newHeight = height ?? _height;
+    if (newWidth == _width && newHeight == _height) return;
     setState(() {
       for (var i = 0; i < _frames.length; i++) {
         _frames[i] =
@@ -178,6 +199,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
       }
       _width = newWidth;
       _height = newHeight;
+      _paintRevision++;
     });
   }
 
@@ -205,38 +227,77 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
     });
   }
 
+  void _stopPreview() {
+    _previewTimer?.cancel();
+    _previewTimer = null;
+  }
+
   void _togglePreview() {
     if (_previewTimer != null) {
-      _previewTimer?.cancel();
-      setState(() => _previewTimer = null);
+      setState(_stopPreview);
       return;
     }
-    setState(() {
-      _previewTimer = Timer.periodic(Duration(milliseconds: _intervalMs), (_) {
-        if (!mounted) return;
-        setState(() => _current = (_current + 1) % _frames.length);
-      });
+    setState(_startPreviewTimer);
+  }
+
+  void _startPreviewTimer() {
+    _previewTimer = Timer.periodic(Duration(milliseconds: _intervalMs), (_) {
+      if (!mounted) return;
+      setState(() => _current = (_current + 1) % _frames.length);
     });
   }
 
-  Future<void> _sendFrame(int index) async {
-    final ble = ref.read(bleServiceProvider);
-    // An unreported MTU shows up as the 23-byte floor, which encodes to the
-    // spec-safe 20-byte payload; a real negotiated MTU shrinks write counts.
+  /// Timer.periodic captures its Duration at creation, so a running preview
+  /// must be re-armed when the rate slider moves — otherwise the preview
+  /// keeps the stale cadence and misrepresents what streaming will send.
+  void _setIntervalMs(int value) {
+    setState(() {
+      _intervalMs = value;
+      if (_previewTimer != null) {
+        _stopPreview();
+        _startPreviewTimer();
+      }
+    });
+  }
+
+  /// Leaving animation mode must stop the preview: its only stop control
+  /// unmounts in static mode, and a hidden timer would keep cycling frames
+  /// under the user's cursor (and under Send).
+  void _setAnimationMode(bool animation) {
+    setState(() {
+      _animationMode = animation;
+      if (!animation) _stopPreview();
+    });
+  }
+
+  /// Usable bytes per BLE write, resolved once per send/stream — the MTU is
+  /// fixed for the life of the connection, so re-querying it per frame would
+  /// only add an async hop inside the frame budget. An unreported MTU shows
+  /// up as the 23-byte floor, which encodes to the spec-safe 20-byte payload.
+  Future<int> _resolvePayloadPerWrite() async {
     var mtu = 23;
     try {
-      mtu = await ble.mtu(widget.deviceId);
+      mtu = await ref.read(bleServiceProvider).mtu(widget.deviceId);
     } catch (_) {
       // Sizing for the floor is always safe, just slower.
     }
+    return writePayloadForMtu(mtu);
+  }
+
+  Future<void> _sendFrame(int index, int payloadPerWrite) async {
     final plan = await ref.read(specCodecProvider).encodeImageFrame(
           specYaml: widget.specYaml,
           width: _width,
           height: _height,
           rgb: _frames[index],
-          frameIndex: _frameSequence++,
-          maxPayloadPerWrite: writePayloadForMtu(mtu),
+          frameIndex: _frameSequence,
+          maxPayloadPerWrite: payloadPerWrite,
         );
+    // Continue from the plan's next index, not += 1: a frame spanning several
+    // wire packets consumes that many sequence numbers, and re-using them on
+    // the next frame corrupts fragment reassembly on the device.
+    _frameSequence = plan.nextFrameIndex;
+    final ble = ref.read(bleServiceProvider);
     for (final write in plan.writes) {
       await ble.writeCharacteristic(
         widget.deviceId,
@@ -253,7 +314,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
       _error = null;
     });
     try {
-      await _sendFrame(_current);
+      await _sendFrame(_current, await _resolvePayloadPerWrite());
     } catch (e) {
       if (mounted) {
         setState(() => _error = friendlyErrorText(
@@ -274,21 +335,34 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
   /// streamed frames.
   Future<void> _toggleStreaming() async {
     if (_streaming) {
-      setState(() => _streaming = false);
+      setState(() {
+        _streaming = false;
+        _streamEpoch++;
+      });
       return;
     }
+    // The epoch pins this loop to this activation: a stop + quick restart
+    // bumps it, so an old loop parked in an await exits at its next check
+    // instead of being revived by the shared boolean and doubling the send
+    // rate with interleaved fragments.
+    final epoch = ++_streamEpoch;
     setState(() {
       _streaming = true;
       _error = null;
+      // The local preview advances _current on its own timer; left running
+      // it would fight the stream loop's advance (with 2 frames the net is
+      // zero — the device would receive the same frame forever).
+      _stopPreview();
     });
     Log.ble.info('streaming ${_frames.length}-frame animation to '
         '${widget.deviceId} every ${_intervalMs}ms');
-    while (mounted && _streaming) {
+    final payloadPerWrite = await _resolvePayloadPerWrite();
+    while (mounted && _streaming && epoch == _streamEpoch) {
       final started = DateTime.now();
       try {
-        await _sendFrame(_current);
+        await _sendFrame(_current, payloadPerWrite);
       } catch (e) {
-        if (!mounted) return;
+        if (!mounted || epoch != _streamEpoch) return;
         setState(() {
           _streaming = false;
           _error = friendlyErrorText(
@@ -299,7 +373,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
         });
         return;
       }
-      if (!mounted || !_streaming) break;
+      if (!mounted || !_streaming || epoch != _streamEpoch) break;
       setState(() => _current = (_current + 1) % _frames.length);
       final elapsed = DateTime.now().difference(started);
       final wait = Duration(milliseconds: _intervalMs) - elapsed;
@@ -311,6 +385,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin contract.
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -375,8 +450,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
                 selected: {_animationMode},
                 onSelectionChanged: _streaming
                     ? null
-                    : (selection) =>
-                        setState(() => _animationMode = selection.first),
+                    : (selection) => _setAnimationMode(selection.first),
               ),
             ],
             const SizedBox(height: 12),
@@ -397,6 +471,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
               width: _width,
               height: _height,
               rgb: _frames[_current],
+              revision: _paintRevision,
               onPaint: _paintCell,
             ),
             const SizedBox(height: 10),
@@ -419,21 +494,24 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
                 onTogglePreview: _togglePreview,
               ),
               const SizedBox(height: 4),
-              Row(
-                children: [
-                  Text('Frame every ${_intervalMs}ms',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant)),
-                  Expanded(
-                    child: Slider(
-                      value: _intervalMs.toDouble(),
-                      min: frameIntervalBoundsMs(_spec).min.toDouble(),
-                      max: frameIntervalBoundsMs(_spec).max.toDouble(),
-                      onChanged: (v) => setState(() => _intervalMs = v.round()),
+              Builder(builder: (context) {
+                final bounds = frameIntervalBoundsMs(_spec);
+                return Row(
+                  children: [
+                    Text('Frame every ${_intervalMs}ms',
+                        style: text.bodySmall
+                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                    Expanded(
+                      child: Slider(
+                        value: _intervalMs.toDouble(),
+                        min: bounds.min.toDouble(),
+                        max: bounds.max.toDouble(),
+                        onChanged: (v) => _setIntervalMs(v.round()),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                );
+              }),
             ],
             if (_error != null) ...[
               const SizedBox(height: 8),
@@ -443,22 +521,36 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
               ),
             ],
             const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                icon: Icon(_animationMode
-                    ? (_streaming ? Icons.stop : Icons.play_arrow)
-                    : Icons.upload),
-                label: Text(_animationMode
-                    ? (_streaming ? 'Stop streaming' : 'Stream to device')
-                    : 'Send to device'),
-                onPressed: _sending
-                    ? null
-                    : _animationMode
-                        ? _toggleStreaming
-                        : _sendCurrentFrame,
-              ),
-            ),
+            Builder(builder: (context) {
+              // One mode table for icon, label AND action — three parallel
+              // conditionals would have to be kept in sync by hand.
+              final (icon, label, action) =
+                  switch ((_animationMode, _streaming)) {
+                (false, _) => (
+                    Icons.upload,
+                    'Send to device',
+                    _sendCurrentFrame
+                  ),
+                (true, false) => (
+                    Icons.play_arrow,
+                    'Stream to device',
+                    _toggleStreaming
+                  ),
+                (true, true) => (
+                    Icons.stop,
+                    'Stop streaming',
+                    _toggleStreaming
+                  ),
+              };
+              return SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: Icon(icon),
+                  label: Text(label),
+                  onPressed: _sending ? null : action,
+                ),
+              );
+            }),
           ],
         ),
       ),
@@ -466,8 +558,13 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget> {
   }
 }
 
-/// Width/height pickers for panels whose real resolution the device reports
-/// at runtime and the app has not yet learned.
+/// Width/height entry for panels whose real resolution the device reports at
+/// runtime and the app has not yet learned.
+///
+/// Free-form numeric fields, not a preset list: real panels report sizes
+/// like 25x50, and a near-miss width shears every transmitted row (the
+/// device's display buffer is row-major at its true width). Values clamp to
+/// 1..the spec's platform bound.
 class _CanvasSizeRow extends StatelessWidget {
   final int width;
   final int height;
@@ -489,40 +586,49 @@ class _CanvasSizeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget picker({
+    Widget field({
+      required Key key,
       required String label,
       required int value,
       required int? max,
       required ValueChanged<int> onChanged,
     }) {
-      final options = canvasSizeOptions(max);
       return Expanded(
-        child: DropdownButtonFormField<int>(
-          initialValue: options.contains(value) ? value : options.first,
+        child: TextFormField(
+          // Keyed by the committed value so an external change (or a clamp)
+          // rebuilds the field showing the real size instead of stale text.
+          key: key,
+          initialValue: '$value',
+          enabled: enabled,
+          keyboardType: TextInputType.number,
           decoration: InputDecoration(
-            labelText: label,
+            labelText: max == null ? label : '$label (1-$max)',
             border: const OutlineInputBorder(),
             isDense: true,
           ),
-          items: [
-            for (final size in options)
-              DropdownMenuItem(value: size, child: Text('$size')),
-          ],
-          onChanged: enabled ? (v) => v == null ? null : onChanged(v) : null,
+          // Commit on submit only: committing per keystroke would rebuild
+          // the value-keyed field mid-typing ("25" would commit at "2" and
+          // drop focus). Unparseable input keeps the previous canvas.
+          onFieldSubmitted: (input) {
+            final parsed = parseCanvasSize(input, max: max);
+            if (parsed != null) onChanged(parsed);
+          },
         ),
       );
     }
 
     return Row(
       children: [
-        picker(
+        field(
+          key: ValueKey('led-canvas-width-$width'),
           label: 'Width',
           value: width,
           max: maxWidth,
           onChanged: onWidthChanged,
         ),
         const SizedBox(width: 10),
-        picker(
+        field(
+          key: ValueKey('led-canvas-height-$height'),
           label: 'Height',
           value: height,
           max: maxHeight,
@@ -538,6 +644,9 @@ class _PixelGridEditor extends StatelessWidget {
   final int width;
   final int height;
   final Uint8List rgb;
+
+  /// Monotonic edit counter; see [_GridPainter.shouldRepaint].
+  final int revision;
   final void Function(Offset local, double cellSize) onPaint;
 
   const _PixelGridEditor({
@@ -545,6 +654,7 @@ class _PixelGridEditor extends StatelessWidget {
     required this.width,
     required this.height,
     required this.rgb,
+    required this.revision,
     required this.onPaint,
   });
 
@@ -563,6 +673,7 @@ class _PixelGridEditor extends StatelessWidget {
               width: width,
               height: height,
               rgb: rgb,
+              revision: revision,
               gridColor: Theme.of(context).colorScheme.outlineVariant,
             ),
           ),
@@ -576,12 +687,21 @@ class _GridPainter extends CustomPainter {
   final int width;
   final int height;
   final Uint8List rgb;
+
+  /// Monotonic edit counter from the editor state. The pixel buffer is
+  /// mutated IN PLACE, so comparing `rgb` by identity can never detect an
+  /// edit — today an enclosing LayoutBuilder happens to force a repaint on
+  /// every rebuild, but relying on that would make painting silently stop
+  /// rendering the moment that wrapper changes. The revision makes the
+  /// repaint decision explicit.
+  final int revision;
   final Color gridColor;
 
   _GridPainter({
     required this.width,
     required this.height,
     required this.rgb,
+    required this.revision,
     required this.gridColor,
   });
 
@@ -612,6 +732,7 @@ class _GridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GridPainter old) =>
+      old.revision != revision ||
       old.rgb != rgb ||
       old.width != width ||
       old.height != height ||

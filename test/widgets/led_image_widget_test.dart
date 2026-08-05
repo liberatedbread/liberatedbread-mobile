@@ -89,17 +89,34 @@ void main() {
     });
   });
 
-  group('canvasSizeOptions', () {
-    test('offers common sizes up to the platform bound', () {
-      expect(canvasSizeOptions(32), [8, 12, 16, 20, 24, 32]);
+  group('initialCanvasSize', () {
+    test('defaults to 16 within the platform bound', () {
+      expect(initialCanvasSize(255), 16);
+      expect(initialCanvasSize(null), 16);
     });
 
-    test('no bound means the full list', () {
-      expect(canvasSizeOptions(null), [8, 12, 16, 20, 24, 32, 48, 64]);
+    test('a tiny bound clamps the default', () {
+      expect(initialCanvasSize(5), 5);
+    });
+  });
+
+  group('parseCanvasSize', () {
+    test('accepts any in-range size, not just presets', () {
+      // Real panels report sizes like 25x50; forcing a preset would shear
+      // every transmitted row.
+      expect(parseCanvasSize('25', max: 255), 25);
+      expect(parseCanvasSize(' 50 ', max: 255), 50);
     });
 
-    test('a tiny bound still offers itself', () {
-      expect(canvasSizeOptions(5), [5]);
+    test('clamps to 1..max', () {
+      expect(parseCanvasSize('0', max: 255), 1);
+      expect(parseCanvasSize('999', max: 255), 255);
+      expect(parseCanvasSize('999', max: null), 255);
+    });
+
+    test('non-numeric input returns null (keep the previous size)', () {
+      expect(parseCanvasSize('abc', max: 255), isNull);
+      expect(parseCanvasSize('', max: 255), isNull);
     });
   });
 
@@ -140,6 +157,7 @@ void main() {
           Uint8List.fromList([1, 2]),
           Uint8List.fromList([3, 4]),
         ],
+        nextFrameIndex: 2,
       ),
     );
     final ble = FakeBleService();
@@ -260,8 +278,51 @@ void main() {
       codec: FakeSpecCodec(),
     ));
 
-    expect(find.text('Width'), findsOneWidget);
-    expect(find.text('Height'), findsOneWidget);
+    expect(find.textContaining('Width'), findsOneWidget);
+    expect(find.textContaining('Height'), findsOneWidget);
+
+    // Free-form entry: a non-preset size like a real 25-wide panel works.
+    await tester.enterText(
+        find.byKey(const ValueKey('led-canvas-width-16')), '25');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('led-canvas-width-25')), findsOneWidget);
+  });
+
+  testWidgets('switching to Static stops a running preview', (tester) async {
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: _encodableSpec,
+        specYaml: 'yaml',
+      ),
+      ble: FakeBleService(),
+      codec: FakeSpecCodec(),
+    ));
+
+    await _scrollAndTap(tester, find.text('Animation'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.byTooltip('Add frame'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.byTooltip('Preview'));
+    await tester.pump();
+
+    // Leaving animation mode must cancel the timer: its stop control
+    // unmounts, and a hidden timer would keep cycling the canvas (and
+    // change which frame Send uploads). If the timer survived, the pending
+    // periodic callbacks would fail the test as un-drained timers.
+    await _scrollAndTap(tester, find.text('Static'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 700));
+
+    // Back in animation mode the selection is still frame 2 (where the user
+    // left it), not somewhere a runaway timer advanced to.
+    await _scrollAndTap(tester, find.text('Animation'));
+    await tester.pump();
+    final chip2 = tester.widget<ChoiceChip>(
+      find.widgetWithText(ChoiceChip, '2'),
+    );
+    expect(chip2.selected, isTrue);
   });
 
   testWidgets('unimplemented handler states it plainly, offers no send',
