@@ -314,6 +314,13 @@ heap to answer a question asked a few dozen times per scan. Address lookups try
 the longest block first; see `vendor/protocol-specs/registries/SOURCES.md` for
 why, and for why a vendor name from an OUI is frequently the *chip* vendor.
 
+Note the asset path: `pubspec.yaml` bundles the registries from the subtree
+directly, not from `assets/`. `assets/device_specs/` is a copy because vendoring
+it is a real transform (two upstream directories flattened into one, with a
+rewritten manifest); the registries arrive already flat and already in the shape
+`NumberRegistry` reads, so copying them would only put 1.7MB of byte-identical
+duplication in the tree and give the two copies a chance to disagree.
+
 **Ranking**: a scan in a populated building is mostly other people's earbuds,
 so the list does not sort on signal strength alone. Each device's advertisement
 — local name, service UUIDs, manufacturer-data company IDs, and (where the

@@ -124,15 +124,22 @@ class NumberRegistry {
     serviceUuids: RegistryTable.empty,
   );
 
+  /// Where the registries live in the bundle.
+  ///
+  /// The subtree path, not a copy under `assets/`: these files need no
+  /// transform on the way in, so duplicating 1.7MB of them into `assets/` would
+  /// buy nothing but a second copy to go stale. `pubspec.yaml` bundles them
+  /// from here directly.
+  static const _dir = 'vendor/protocol-specs/registries';
+
   /// Asset paths and key widths, longest address block first.
   static const addressBlockAssets = <({String asset, int keyWidth})>[
-    (asset: 'assets/registries/ieee-oui36.tsv', keyWidth: 9),
-    (asset: 'assets/registries/ieee-oui28.tsv', keyWidth: 7),
-    (asset: 'assets/registries/ieee-oui.tsv', keyWidth: 6),
+    (asset: '$_dir/ieee-oui36.tsv', keyWidth: 9),
+    (asset: '$_dir/ieee-oui28.tsv', keyWidth: 7),
+    (asset: '$_dir/ieee-oui.tsv', keyWidth: 6),
   ];
-  static const companyIdsAsset = 'assets/registries/bluetooth-company-ids.tsv';
-  static const serviceUuidsAsset =
-      'assets/registries/bluetooth-service-uuids.tsv';
+  static const companyIdsAsset = '$_dir/bluetooth-company-ids.tsv';
+  static const serviceUuidsAsset = '$_dir/bluetooth-service-uuids.tsv';
 
   /// Load and index every table using [loadAsset].
   ///

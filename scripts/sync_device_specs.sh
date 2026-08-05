@@ -2,8 +2,14 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Vendor device specs and number registries from a liberatedbread-protocol-specs
-# checkout into assets/device_specs/ and assets/registries/.
+# Vendor device specs from a liberatedbread-protocol-specs checkout into
+# assets/device_specs/.
+#
+# The number registries are NOT copied. They need no transform, so pubspec.yaml
+# bundles them straight out of vendor/protocol-specs/registries/; copying them
+# would put 1.7MB of byte-identical duplication in the tree. This script only
+# checks they are present, because their absence is silent at runtime -- the app
+# degrades to unnamed devices rather than failing.
 #
 # The specs are authored in the protocol-specs repo and vendored here so the app
 # ships a working catalogue offline. Adding or updating a device is then a
@@ -22,7 +28,6 @@ set -euo pipefail
 
 SRC="${1:-$(dirname "$0")/../vendor/protocol-specs}"
 DEST="$(dirname "$0")/../assets/device_specs"
-REGISTRY_DEST="$(dirname "$0")/../assets/registries"
 
 if [[ ! -d "$SRC/device-specs/devices" ]]; then
   echo "error: no device-specs/devices in '$SRC'" >&2
@@ -73,20 +78,25 @@ PY
 
 # The number registries (IEEE address blocks, Bluetooth SIG assigned numbers)
 # name the maker of hardware that is in no catalogue at all, which is most of
-# what a scan actually returns. Absent on an older checkout, so this is a
-# warning rather than an error -- the app degrades to unnamed devices.
-registry_count=0
-if [[ -d "$SRC/registries" ]]; then
-  mkdir -p "$REGISTRY_DEST"
-  find "$REGISTRY_DEST" -maxdepth 1 -name '*.tsv' -delete
-  for registry in "$SRC"/registries/*.tsv; do
-    [[ -e "$registry" ]] || continue
-    cp "$registry" "$REGISTRY_DEST/"
-    registry_count=$((registry_count + 1))
-  done
-  echo "vendored $registry_count registry file(s) into $REGISTRY_DEST"
+# what a scan actually returns. They are bundled from the subtree directly --
+# see pubspec.yaml -- so there is nothing to copy; check they exist, because a
+# missing registry is silent at runtime.
+#
+# Only meaningful when syncing from the subtree itself, which is the default. A
+# sync from some other checkout leaves the bundled registries untouched, so
+# there is nothing to warn about.
+registry_dir="$(dirname "$0")/../vendor/protocol-specs/registries"
+if [[ -d "$registry_dir" ]]; then
+  registry_count=$(find "$registry_dir" -maxdepth 1 -name '*.tsv' | wc -l)
+  if [[ "$registry_count" -eq 0 ]]; then
+    echo "warning: $registry_dir has no .tsv files; device vendor names will" >&2
+    echo "         be unavailable. Re-pull the protocol-specs subtree." >&2
+  else
+    echo "registries: $registry_count file(s) bundled from the subtree (not copied)"
+  fi
 else
-  echo "warning: no registries/ in '$SRC'; device vendor names will be unavailable" >&2
+  echo "warning: no vendor/protocol-specs/registries; device vendor names will" >&2
+  echo "         be unavailable. Re-pull the protocol-specs subtree." >&2
 fi
 
 echo "vendored $count spec file(s) into $DEST"

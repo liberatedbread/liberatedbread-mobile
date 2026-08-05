@@ -36,7 +36,18 @@ flutter:
   uses-material-design: true
   assets:
     - assets/device_specs/
-    # IEEE address blocks and Bluetooth SIG assigned numbers, vendored from the
-    # protocol-specs repo. ~1.7MB of sorted TSV that compresses to a few hundred
-    # KB in the bundle; it is what lets an anonymous device be named at all.
-    - assets/registries/
+    # Bundled straight out of the subtree rather than copied into assets/.
+    #
+    # assets/device_specs/ exists because vendoring it is a real transform: two
+    # upstream directories flattened into one, with a rewritten manifest. The
+    # registries need none of that -- they are already flat and already exactly
+    # the shape NumberRegistry reads -- so a copy under assets/ would be 1.7MB
+    # of byte-identical duplication in the tree, and a second thing to go stale.
+    #
+    # Listed file by file rather than as a directory so SOURCES.md, which is
+    # documentation for people reading the repo, does not ship inside the app.
+    - vendor/protocol-specs/registries/ieee-oui.tsv
+    - vendor/protocol-specs/registries/ieee-oui28.tsv
+    - vendor/protocol-specs/registries/ieee-oui36.tsv
+    - vendor/protocol-specs/registries/bluetooth-company-ids.tsv
+    - vendor/protocol-specs/registries/bluetooth-service-uuids.tsv
