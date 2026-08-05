@@ -1,0 +1,201 @@
+# ELK-BLEDOM Generic BLE LED Strip Controller
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "ELK-BLEDOM BLE LED Strip Controller"
+  manufacturer: "Unbranded / various OEMs (Zhiling/DuoCo etc.)"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  notes: >
+    Generic BLE LED strip controllers sold under dozens of brand names:
+    JACKYLED, auraLED, HueLite, MELK, LEDBLE, ELK-BULB, ELK-LAMPL, and
+    many others. Extremely cheap ($2-15) PWM LED controllers with a common
+    BLE protocol. Advertises HID service 0x1812 but does not actually
+    implement it — ignore.
+
+    PROTOCOL: fixed 9-byte packets with envelope [0x7E, seq, cmd, p1, p2,
+    p3, p4, flag, 0xEF]. Byte 2 is a per-command sequence number (0x00
+    works; app uses unique values). Byte 8 is typically 0x00 or 0x10 but
+    does not affect functionality. No bonding, no auth, no response from
+    device — write-only protocol.
+
+    Commands are grouped: command byte 3 identifies the operation category,
+    byte 4 the sub-command. The app distinguishes "data" vs "control"
+    messages but they use the same packet format.
+
+    DISCOVERY: service UUID 0xFFF0 is the reliable signal. Advertised names
+    vary widely: "ELK-BLEDOM", "MELK", "LEDBLE", "ELK-BULB", "ELK-LAMPL".
+    No pairing required — any central in range can connect and write.
+
+    CONFIDENCE: HIGH for service UUID, characteristic UUID, packet format,
+    color/brightness/color-temperature commands — sourced from
+    github.com/FergusInLondon/ELK-BLEDOM, a clean-room RE from the Android
+    APK. Commands beyond the visual ones (timing, mic streaming) are
+    documented but less tested.
+
+  identification:
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000fff0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning. Device advertises when powered. No bonding or
+      pairing required — write-only protocol with no authentication.
+    methods:
+      - type: "ble_direct"
+        verified: true
+        description: >
+          Scan for 0xFFF0 service UUID, connect, and write 9-byte packets
+          to characteristic 0xFFF3. No initialization sequence required.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the LED strip controller."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Scan for the 0xFFF0 service UUID (ignore HID 0x1812) and connect.
+            actor: "client"
+          - action: >
+              Write 9-byte command packets to characteristic 0xFFF3.
+            actor: "client"
+    factory_reset:
+      confidence: "high"
+      effect: >
+        No credential state. Power-cycling resets to default state.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove and reapply power."
+              actor: "user"
+              expect: "Device powers on in default state."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No bonding. Any central within range can connect and write.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No auth. Physical proximity is the only access control."
+
+  variants:
+    - model: "ELK-BLEDOM"
+      identification:
+        local_name_prefix: "ELK-BLEDOM"
+    - model: "MELK"
+      identification:
+        local_name_prefix: "MELK"
+    - model: "LEDBLE"
+      identification:
+        local_name_prefix: "LEDBLE"
+    - model: "ELK-BULB"
+      identification:
+        local_name_prefix: "ELK-BULB"
+    - model: "ELK-LAMPL"
+      identification:
+        local_name_prefix: "ELK-LAMPL"
+    - model: "JACKYLED"
+      identification:
+        local_name_prefix: "JACKYLED"
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "ELK-BLEDOM Service"
+    notes: >
+      Single service with one write characteristic. Write-only — the
+      device sends no responses. All packets use the 9-byte format:
+      [0x7E] [seq] [cmd] [p1] [p2] [p3] [p4] [flag] [0xEF].
+
+      Byte 2 (sequence) can be 0x00 for basic operation. Byte 8 (flag)
+      is typically 0x00 or 0x10 — both work identically.
+    characteristics:
+      - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+        name: "Write"
+        properties: ["write"]
+        notes: >
+          Write-only characteristic for all commands. No framing declared
+          because each 9-byte write is a complete packet. No responses are
+          sent by the device.
+        commands:
+          set_rgb_color:
+            description: >
+              Set RGB color. Command 0x05, sub-command 0x03.
+              Red, green, blue are uint8 values (0-255).
+            template: [0x7E, "{seq}", 0x05, 0x03, "{red}", "{green}", "{blue}", "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+              flag: { type: "uint8", default: 0x00 }
+          set_brightness:
+            description: >
+              Set brightness. Command 0x01. Brightness 0-255, light_mode 0-255.
+            template: [0x7E, "{seq}", 0x01, "{brightness}", "{light_mode}", 0x00, 0x00, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              brightness: { type: "uint8", min: 0, max: 255 }
+              light_mode: { type: "uint8", default: 0xFF }
+              flag: { type: "uint8", default: 0x00 }
+          set_color_temperature:
+            description: >
+              Set color temperature. Command 0x05, sub-command 0x02.
+              warm and cold values must total 100.
+            template: [0x7E, "{seq}", 0x05, 0x02, "{warm}", "{cold}", 0x00, 0x00, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              warm: { type: "uint8", min: 0, max: 100 }
+              cold: { type: "uint8", min: 0, max: 100 }
+              flag: { type: "uint8", default: 0x10 }
+          set_single_color:
+            description: >
+              Set a predefined single color. Command 0x05, sub-command 0x01.
+              Color index 0-100 (maps to app's single-color palette).
+            template: [0x7E, "{seq}", 0x05, 0x01, "{color}", 0xFF, 0xFF, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              color: { type: "uint8", min: 0, max: 100 }
+              flag: { type: "uint8", default: 0x10 }
+          set_light_on_off:
+            description: >
+              Turn light on or off. Command byte varies by app version.
+              On = 0x01, Off = 0x00.
+            template: [0x7E, "{seq}", "{cmd}", "{state}", 0xFF, 0xFF, 0xFF, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              cmd: { type: "uint8" }
+              state: { type: "uint8", values: { "0": "off", "1": "on" } }
+              flag: { type: "uint8", default: 0x00 }
+          set_mode:
+            description: >
+              Set effect mode. Index 0-255 per app mode list
+              (strobe, fade, etc.).
+            template: [0x7E, "{seq}", "{cmd}", "{mode}", 0xFF, 0xFF, 0xFF, "{flag}", 0xEF]
+            parameters:
+              seq: { type: "uint8", default: 0x00 }
+              cmd: { type: "uint8" }
+              mode: { type: "uint8", min: 0, max: 255 }
+              flag: { type: "uint8", default: 0x00 }
+
+entities:
+  - platform: "light"
+    name: "LED Strip"
+    features: ["brightness", "color", "color_temperature", "effect"]
+    state_characteristic: "0000fff3-0000-1000-8000-00805f9b34fb"
