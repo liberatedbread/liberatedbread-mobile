@@ -55,6 +55,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw);
 
   @protected
+  EntityDto dco_decode_entity_dto(dynamic raw);
+
+  @protected
   double dco_decode_f_64(dynamic raw);
 
   @protected
@@ -77,6 +80,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<DeviceSpecDto> dco_decode_list_device_spec_dto(dynamic raw);
+
+  @protected
+  List<EntityDto> dco_decode_list_entity_dto(dynamic raw);
 
   @protected
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw);
@@ -189,6 +195,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   DeviceSpecDto sse_decode_device_spec_dto(SseDeserializer deserializer);
 
   @protected
+  EntityDto sse_decode_entity_dto(SseDeserializer deserializer);
+
+  @protected
   double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
@@ -214,6 +223,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   List<DeviceSpecDto> sse_decode_list_device_spec_dto(
       SseDeserializer deserializer);
+
+  @protected
+  List<EntityDto> sse_decode_list_entity_dto(SseDeserializer deserializer);
 
   @protected
   List<FormatFieldDto> sse_decode_list_format_field_dto(
@@ -338,6 +350,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_device_spec_dto(DeviceSpecDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_entity_dto(EntityDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
 
   @protected
@@ -365,6 +380,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_device_spec_dto(
       List<DeviceSpecDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_entity_dto(
+      List<EntityDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_format_field_dto(

@@ -6,7 +6,7 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
@@ -176,6 +176,15 @@ class DecodedValueDto {
   final PlatformInt64? uintValue;
   final String? stringValue;
 
+  /// Multiplier from the spec's `format:` block, when it declares one. The
+  /// decoded value stays raw so the caller keeps both halves; applying this
+  /// is what turns a SIG temperature's 2350 into 23.5.
+  final double? scale;
+
+  /// Unit symbol from the spec's `format:` block, used when the entity
+  /// surfacing this reading does not name one.
+  final String? unit;
+
   const DecodedValueDto({
     required this.name,
     required this.valueType,
@@ -184,6 +193,8 @@ class DecodedValueDto {
     this.intValue,
     this.uintValue,
     this.stringValue,
+    this.scale,
+    this.unit,
   });
 
   @override
@@ -194,7 +205,9 @@ class DecodedValueDto {
       boolValue.hashCode ^
       intValue.hashCode ^
       uintValue.hashCode ^
-      stringValue.hashCode;
+      stringValue.hashCode ^
+      scale.hashCode ^
+      unit.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -207,7 +220,9 @@ class DecodedValueDto {
           boolValue == other.boolValue &&
           intValue == other.intValue &&
           uintValue == other.uintValue &&
-          stringValue == other.stringValue;
+          stringValue == other.stringValue &&
+          scale == other.scale &&
+          unit == other.unit;
 }
 
 /// A parsed device specification, ready for use by the Flutter app.
@@ -221,6 +236,11 @@ class DeviceSpecDto {
   final List<String> serviceUuids;
   final List<ServiceDto> services;
 
+  /// Declared sensor/control surfaces that resolve to a real characteristic,
+  /// in spec order. This is what lets the app render named readings with
+  /// units instead of a raw GATT browser.
+  final List<EntityDto> entities;
+
   const DeviceSpecDto({
     required this.deviceName,
     required this.manufacturer,
@@ -230,6 +250,7 @@ class DeviceSpecDto {
     this.localNamePrefix,
     required this.serviceUuids,
     required this.services,
+    required this.entities,
   });
 
   @override
@@ -241,7 +262,8 @@ class DeviceSpecDto {
       notes.hashCode ^
       localNamePrefix.hashCode ^
       serviceUuids.hashCode ^
-      services.hashCode;
+      services.hashCode ^
+      entities.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -255,7 +277,82 @@ class DeviceSpecDto {
           notes == other.notes &&
           localNamePrefix == other.localNamePrefix &&
           serviceUuids == other.serviceUuids &&
-          services == other.services;
+          services == other.services &&
+          entities == other.entities;
+}
+
+/// A spec-declared reading: what to call it, what unit it is in, and which
+/// characteristic carries it.
+class EntityDto {
+  final String name;
+
+  /// e.g. "sensor". Absent in some hand-written specs.
+  final String? platform;
+
+  /// e.g. "temperature", "battery". Drives icon/formatting choices.
+  final String? deviceClass;
+
+  /// e.g. "F", "%". Rendered next to the value.
+  final String? unit;
+
+  /// UUID of the characteristic carrying this value. Guaranteed to resolve
+  /// to a characteristic in this spec — unresolvable entities are dropped.
+  final String stateCharacteristic;
+
+  /// Whether the bound characteristic supports notifications, i.e. whether
+  /// this reading can stream rather than being polled by read.
+  final bool canNotify;
+
+  /// Whether the bound characteristic declares a `format:` block. False means
+  /// the value cannot be decoded yet — a spec gap, not an app failure.
+  final bool hasFormat;
+
+  /// Name of the decoded field carrying this entity's value, when the spec
+  /// declares one. `None` means "use the first decoded field".
+  final String? valueField;
+
+  /// Multiplier for the decoded value, e.g. 0.01 when a device reports
+  /// centidegrees. `None` means the decoded value is already in `unit`.
+  final double? valueScale;
+
+  const EntityDto({
+    required this.name,
+    this.platform,
+    this.deviceClass,
+    this.unit,
+    required this.stateCharacteristic,
+    required this.canNotify,
+    required this.hasFormat,
+    this.valueField,
+    this.valueScale,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      platform.hashCode ^
+      deviceClass.hashCode ^
+      unit.hashCode ^
+      stateCharacteristic.hashCode ^
+      canNotify.hashCode ^
+      hasFormat.hashCode ^
+      valueField.hashCode ^
+      valueScale.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EntityDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          platform == other.platform &&
+          deviceClass == other.deviceClass &&
+          unit == other.unit &&
+          stateCharacteristic == other.stateCharacteristic &&
+          canNotify == other.canNotify &&
+          hasFormat == other.hasFormat &&
+          valueField == other.valueField &&
+          valueScale == other.valueScale;
 }
 
 class FormatFieldDto {

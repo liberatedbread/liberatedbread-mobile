@@ -54,7 +54,7 @@ pub fn mock_read_characteristic(
 
     match parse_device_spec(&spec_yaml) {
         Ok(spec) => {
-            if let Some((_, characteristic)) = spec.find_characteristic(&char_uuid) {
+            if let Some((_, characteristic)) = spec.find_decodable_characteristic(&char_uuid) {
                 if let Some(ref format) = characteristic.format {
                     return state.read(&char_uuid, format);
                 }
