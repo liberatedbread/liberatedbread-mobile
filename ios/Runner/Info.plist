@@ -52,7 +52,25 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Location access needed for Bluetooth scanning.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Liberated Bread connects to your Home Assistant server on your local network.</string>
+	<string>Liberated Bread finds IoT devices on your Wi-Fi network, and connects to your Home Assistant server.</string>
+	<!-- iOS 14+ will not deliver mDNS answers for a service type that is not
+	     declared here, and fails silently when one is missing. The generic
+	     DNS-SD meta-query is what lets the scan enumerate service types it has
+	     no spec for; the rest are the types this app's device specs name. -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_services._dns-sd._udp</string>
+		<string>_hue._tcp</string>
+		<string>_leap._tcp</string>
+		<string>_lap._tcp</string>
+		<string>_lutron._tcp</string>
+		<string>_hap._tcp</string>
+		<string>_http._tcp</string>
+		<string>_ipp._tcp</string>
+		<string>_wled._tcp</string>
+		<string>_enphase-envoy._tcp</string>
+		<string>_home-assistant._tcp</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

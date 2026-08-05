@@ -92,6 +92,9 @@ void main() {
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
       macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
         ServiceDto(uuid: svcUuid, name: 'Control Service', characteristics: [

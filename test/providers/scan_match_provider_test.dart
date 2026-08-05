@@ -23,6 +23,9 @@ final _spec = DeviceSpecDto(
   serviceUuids: const [_svcUuid],
   companyIds: Uint16List.fromList(const [961]),
   macPrefixes: const ['C4:7C:8D'],
+  mdnsServiceType: null,
+  ssdpSearchTargets: const [],
+  defaultPort: null,
   entities: const <EntityDto>[],
   services: const [],
 );
@@ -42,6 +45,7 @@ ScanMatch _match(
       matchedServiceUuids: const [],
       matchedCompanyIds: Uint16List(0),
       matchedMacPrefix: null,
+      matchedServiceTypes: const [],
     );
 
 IoTDevice _device({

@@ -39,6 +39,13 @@ pub struct DeviceSpecDto {
     /// Empty when the spec declares none. See [`MatchConfidence`] for why these
     /// only ever rank a device rather than identify one.
     pub mac_prefixes: Vec<String>,
+    /// mDNS/DNS-SD service type this device announces itself under, e.g.
+    /// `_hue._tcp`. The network counterpart of a vendor service UUID.
+    pub mdns_service_type: Option<String>,
+    /// SSDP/UPnP search targets this device answers to.
+    pub ssdp_search_targets: Vec<String>,
+    /// Default TCP port for the device's local API.
+    pub default_port: Option<u16>,
     pub services: Vec<ServiceDto>,
     /// Declared sensor/control surfaces that resolve to a real characteristic,
     /// in spec order. This is what lets the app render named readings with
@@ -334,6 +341,26 @@ pub struct ScannedDeviceDto {
     pub mac_address: Option<String>,
 }
 
+/// What a scanner saw about one device on the local network.
+///
+/// The Wi-Fi counterpart of [`ScannedDeviceDto`]. Separate because the signals
+/// genuinely differ: there is no RSSI, no manufacturer data, and the address is
+/// a DHCP lease rather than a hardware identity.
+#[derive(Debug, Clone)]
+pub struct NetworkDeviceDto {
+    /// Service instance name (mDNS) or friendly name (SSDP). Empty when the
+    /// device advertised none.
+    pub name: String,
+    /// Hostname the device claims, e.g. `Lutron-083e013d.local`.
+    pub hostname: Option<String>,
+    /// mDNS/DNS-SD service types it advertises.
+    pub service_types: Vec<String>,
+    /// SSDP search targets it answered to.
+    pub ssdp_targets: Vec<String>,
+    /// Port the advertised service listens on.
+    pub port: Option<u16>,
+}
+
 /// The identifying fields of a spec, without the services, characteristics and
 /// entities that make a [`DeviceSpecDto`] large.
 ///
@@ -348,6 +375,13 @@ pub struct SpecIdentityDto {
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
     pub mac_prefixes: Vec<String>,
+    /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
+    pub mdns_service_type: Option<String>,
+    /// SSDP search targets, for the Wi-Fi scan path.
+    pub ssdp_search_targets: Vec<String>,
+    /// Default TCP port. The weakest network signal by far -- port 80 says
+    /// nothing -- so it only ever ranks, never identifies.
+    pub default_port: Option<u16>,
 }
 
 /// One spec that a scanned device might be, and why we think so.
@@ -366,6 +400,9 @@ pub struct ScanMatch {
     /// The spec MAC prefix that the device's address starts with, as the spec
     /// wrote it. `None` when the address did not match (or was not available).
     pub matched_mac_prefix: Option<String>,
+    /// mDNS service types and SSDP search targets that matched, on the Wi-Fi
+    /// path. Always empty for a BLE match.
+    pub matched_service_types: Vec<String>,
 }
 
 // ── Conversions from internal types ─────────────────────────────────────────
@@ -412,6 +449,9 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
             mac_prefixes: spec.mac_prefixes.clone(),
+            mdns_service_type: spec.mdns_service_type.clone(),
+            ssdp_search_targets: spec.ssdp_search_targets.clone(),
+            default_port: spec.default_port,
         }
     }
 }
@@ -434,6 +474,11 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             mac_prefixes: ident
                 .and_then(|i| i.mac_prefixes.clone())
                 .unwrap_or_default(),
+            mdns_service_type: ident.and_then(|i| i.mdns_service_type.clone()),
+            ssdp_search_targets: ident
+                .and_then(|i| i.ssdp_search_targets.clone())
+                .unwrap_or_default(),
+            default_port: ident.and_then(|i| i.default_port),
             services: spec.services.iter().map(ServiceDto::from).collect(),
             // Only entities with something real behind them cross the FFI
             // boundary: a resolvable state characteristic, at least one
@@ -791,17 +836,26 @@ pub fn encode_entity_value(
 #[derive(Default)]
 struct MatchAxes {
     by_name_prefix: bool,
+    /// Strong tier: a vendor-allocated identifier the device volunteered.
     service_uuids: Vec<String>,
+    /// Strong tier, network side: mDNS service types and SSDP search targets.
+    service_types: Vec<String>,
+    /// Likely tier.
     company_ids: Vec<u16>,
+    /// Possible tier: identifies a vendor, not a product.
     mac_prefix: Option<String>,
+    /// Possible tier, network side: port 80 says nothing about who is on it.
+    port: Option<u16>,
 }
 
 impl MatchAxes {
     fn is_empty(&self) -> bool {
         !self.by_name_prefix
             && self.service_uuids.is_empty()
+            && self.service_types.is_empty()
             && self.company_ids.is_empty()
             && self.mac_prefix.is_none()
+            && self.port.is_none()
     }
 
     /// How many distinct axes agreed. Used to promote a pile of weak signals:
@@ -810,12 +864,15 @@ impl MatchAxes {
     fn agreeing(&self) -> usize {
         usize::from(self.by_name_prefix)
             + usize::from(!self.service_uuids.is_empty())
+            + usize::from(!self.service_types.is_empty())
             + usize::from(!self.company_ids.is_empty())
             + usize::from(self.mac_prefix.is_some())
+            + usize::from(self.port.is_some())
     }
 
     fn confidence(&self) -> MatchConfidence {
-        if !self.service_uuids.is_empty() || self.agreeing() >= 2 {
+        if !self.service_uuids.is_empty() || !self.service_types.is_empty() || self.agreeing() >= 2
+        {
             MatchConfidence::Strong
         } else if self.by_name_prefix || !self.company_ids.is_empty() {
             MatchConfidence::Likely
@@ -918,7 +975,92 @@ fn match_axes(identity: &SpecIdentityDto, device: &ScannedDeviceDto) -> MatchAxe
         service_uuids,
         company_ids,
         mac_prefix,
+        ..MatchAxes::default()
     }
+}
+
+/// Compare one spec identity against one device seen on the local network.
+///
+/// Deliberately the same [`MatchAxes`] and therefore the same confidence rule
+/// as the BLE path: an mDNS service type or an SSDP search target is a
+/// vendor-specific identifier the device volunteered, which is the network
+/// equivalent of a vendor service UUID, while a default port is the equivalent
+/// of an OUI -- port 80 tells you nothing about who is listening on it.
+fn match_network_axes(identity: &SpecIdentityDto, device: &NetworkDeviceDto) -> MatchAxes {
+    // A spec that declares nothing about the network cannot match a host on it.
+    // Without this, any BLE spec whose local_name_prefix happened to prefix an
+    // mDNS instance name would surface on the Wi-Fi tab -- the network analogue
+    // of treating an empty prefix as a wildcard. The name prefix is a
+    // corroborating signal here, never an admitting one.
+    let declares_mdns = identity
+        .mdns_service_type
+        .as_ref()
+        .is_some_and(|t| !t.is_empty());
+    if !declares_mdns && identity.ssdp_search_targets.is_empty() && identity.default_port.is_none()
+    {
+        return MatchAxes::default();
+    }
+
+    let mut service_types: Vec<String> = Vec::new();
+    if let Some(declared) = identity
+        .mdns_service_type
+        .as_ref()
+        .filter(|t| !t.is_empty())
+    {
+        // Specs write `_hue._tcp.local.`, `_hue._tcp.local` and `_hue._tcp`
+        // interchangeably, and so do devices. Compare on the trimmed stem so a
+        // trailing-dot difference is not a missed device.
+        let wanted = normalize_service_type(declared);
+        if device
+            .service_types
+            .iter()
+            .any(|t| normalize_service_type(t) == wanted)
+        {
+            service_types.push(declared.clone());
+        }
+    }
+    for target in &identity.ssdp_search_targets {
+        if device
+            .ssdp_targets
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(target))
+        {
+            service_types.push(target.clone());
+        }
+    }
+
+    // The spec's local_name_prefix does double duty here: on the network side a
+    // device's instance name or hostname is what carries the vendor's branding
+    // (`Lutron-083e013d.local`), the same way a BLE local name does.
+    let by_name_prefix = identity.local_name_prefix.as_ref().is_some_and(|prefix| {
+        !prefix.is_empty()
+            && (device.name.starts_with(prefix)
+                || device
+                    .hostname
+                    .as_deref()
+                    .is_some_and(|h| h.starts_with(prefix)))
+    });
+
+    let port = identity
+        .default_port
+        .filter(|declared| device.port == Some(*declared));
+
+    MatchAxes {
+        by_name_prefix,
+        service_types,
+        port,
+        ..MatchAxes::default()
+    }
+}
+
+/// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
+/// dot, no `.local` suffix.
+fn normalize_service_type(raw: &str) -> String {
+    let lower = raw.trim().trim_end_matches('.').to_ascii_lowercase();
+    lower
+        .strip_suffix(".local")
+        .map(str::to_owned)
+        .unwrap_or(lower)
 }
 
 /// Find every spec matching a device we are already talking to, with the
@@ -963,6 +1105,48 @@ pub fn match_device_to_spec(
         .collect()
 }
 
+/// Rank the catalogue against a single device found on the local network, best
+/// match first.
+///
+/// The Wi-Fi counterpart of [`match_scanned_device`], sharing its confidence
+/// rule so a "Likely supported" badge means the same thing on both tabs.
+/// Returns `vec![]` when nothing matches.
+pub fn match_network_device(
+    identities: Vec<SpecIdentityDto>,
+    device: NetworkDeviceDto,
+) -> Vec<ScanMatch> {
+    let mut matches: Vec<ScanMatch> = identities
+        .iter()
+        .enumerate()
+        .filter_map(|(index, identity)| {
+            let axes = match_network_axes(identity, &device);
+            (!axes.is_empty()).then(|| ScanMatch {
+                spec_index: index as u32,
+                device_name: identity.device_name.clone(),
+                manufacturer: identity.manufacturer.clone(),
+                confidence: axes.confidence(),
+                matched_by_name_prefix: axes.by_name_prefix,
+                matched_service_uuids: Vec::new(),
+                matched_company_ids: Vec::new(),
+                matched_mac_prefix: None,
+                matched_service_types: axes.service_types,
+            })
+        })
+        .collect();
+
+    matches.sort_by(|a, b| {
+        b.confidence
+            .cmp(&a.confidence)
+            .then(
+                b.matched_service_types
+                    .len()
+                    .cmp(&a.matched_service_types.len()),
+            )
+            .then(a.spec_index.cmp(&b.spec_index))
+    });
+    matches
+}
+
 /// Rank the catalogue against a single device seen during a scan, best match
 /// first.
 ///
@@ -992,6 +1176,7 @@ pub fn match_scanned_device(
                 matched_service_uuids: axes.service_uuids,
                 matched_company_ids: axes.company_ids,
                 matched_mac_prefix: axes.mac_prefix,
+                matched_service_types: axes.service_types,
             })
         })
         .collect();
@@ -1766,6 +1951,166 @@ services:
     #[test]
     fn scan_match_no_results() {
         assert!(match_scanned_device(vec![scan_identity()], anonymous_device()).is_empty());
+    }
+
+    // ── Local-network matching ──────────────────────────────────────────────
+
+    const NETWORK_YAML: &str = r#"
+device:
+  name: "Test Bridge"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "wifi"
+  identification:
+    local_name_prefix: "TestBridge-"
+    mdns_service_type: "_testbridge._tcp.local."
+    ssdp_search_targets:
+      - "urn:test:device:bridge:1"
+    default_port: 8081
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Root"
+"#;
+
+    fn network_identity() -> SpecIdentityDto {
+        SpecIdentityDto::from(&load_device_spec(NETWORK_YAML.into()).unwrap())
+    }
+
+    fn anonymous_host() -> NetworkDeviceDto {
+        NetworkDeviceDto {
+            name: String::new(),
+            hostname: None,
+            service_types: vec![],
+            ssdp_targets: vec![],
+            port: None,
+        }
+    }
+
+    #[test]
+    fn network_identity_axes_reach_the_dto() {
+        let dto = load_device_spec(NETWORK_YAML.into()).unwrap();
+        assert_eq!(
+            dto.mdns_service_type.as_deref(),
+            Some("_testbridge._tcp.local.")
+        );
+        assert_eq!(dto.ssdp_search_targets, vec!["urn:test:device:bridge:1"]);
+        assert_eq!(dto.default_port, Some(8081));
+    }
+
+    #[test]
+    fn an_mdns_service_type_alone_is_strong() {
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[0].matched_service_types.len(), 1);
+    }
+
+    #[test]
+    fn a_trailing_dot_is_not_a_missed_device() {
+        // Specs and devices both write `_x._tcp`, `_x._tcp.local` and
+        // `_x._tcp.local.` interchangeably.
+        for advertised in ["_testbridge._tcp", "_TestBridge._TCP.local."] {
+            let device = NetworkDeviceDto {
+                service_types: vec![advertised.into()],
+                ..anonymous_host()
+            };
+            let matches = match_network_device(vec![network_identity()], device);
+            assert_eq!(matches.len(), 1, "{advertised} should have matched");
+        }
+    }
+
+    #[test]
+    fn an_ssdp_search_target_alone_is_strong() {
+        let device = NetworkDeviceDto {
+            ssdp_targets: vec!["urn:test:device:bridge:1".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn a_hostname_prefix_alone_is_likely() {
+        // Network devices carry their branding in the hostname rather than in
+        // any advertised "name" field.
+        let device = NetworkDeviceDto {
+            hostname: Some("TestBridge-083e013d.local".into()),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+        assert!(matches[0].matched_by_name_prefix);
+    }
+
+    #[test]
+    fn a_default_port_alone_is_only_possible() {
+        // Port 8081 is not evidence of anything much, and port 80 is evidence
+        // of nothing at all.
+        let device = NetworkDeviceDto {
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+    }
+
+    #[test]
+    fn a_network_match_reports_no_ble_axes() {
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert!(matches[0].matched_service_uuids.is_empty());
+        assert!(matches[0].matched_company_ids.is_empty());
+        assert!(matches[0].matched_mac_prefix.is_none());
+    }
+
+    #[test]
+    fn a_ble_only_spec_matches_no_network_device() {
+        // scan_identity() has no mdns/ssdp/port, so it must never claim a host.
+        let device = NetworkDeviceDto {
+            name: "TEST_Kitchen".into(),
+            service_types: vec!["_testbridge._tcp.local".into()],
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![scan_identity()], device);
+        assert!(
+            matches.is_empty(),
+            "a BLE spec's local_name_prefix must not be enough on its own here"
+        );
+    }
+
+    #[test]
+    fn network_matches_come_back_best_first() {
+        let mut weak = network_identity();
+        weak.device_name = "Weak".into();
+        weak.mdns_service_type = None;
+        weak.ssdp_search_targets = vec![];
+        weak.local_name_prefix = None;
+
+        let device = NetworkDeviceDto {
+            hostname: Some("TestBridge-1.local".into()),
+            service_types: vec!["_testbridge._tcp.local".into()],
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![weak, network_identity()], device);
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].device_name, "Test Bridge");
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[1].confidence, MatchConfidence::Possible);
+    }
+
+    #[test]
+    fn network_match_no_results() {
+        assert!(match_network_device(vec![network_identity()], anonymous_host()).is_empty());
     }
 
     #[test]
