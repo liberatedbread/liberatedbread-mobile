@@ -14,14 +14,14 @@ use std::collections::HashMap;
 ///
 /// The top level is where protocol-docs specs accumulate metadata and
 /// vendor-specific blocks that the mobile core does not (yet) execute:
-/// `entities`, `http_endpoints`, `mqtt_topics`, `initialization`, `features`,
-/// `protocol_handler`, and bespoke keys like admore's `protobuf` /
-/// `state_machine` / `version_fields`. Rather than enumerate every one (and
-/// re-reject the next new spec), we drop `deny_unknown_fields` here and sweep
-/// all unrecognized top-level keys into `extensions`. `device` stays required;
-/// `services` is now optional (WiFi specs carry `http_endpoints`/`mqtt_topics`
-/// and no GATT services), so it defaults to an empty vec. Typo detection is
-/// preserved on the protocol-execution structs below, not here.
+/// `http_endpoints`, `mqtt_topics`, `initialization`, and bespoke keys like
+/// admore's `protobuf` / `state_machine` / `version_fields`. Rather than
+/// enumerate every one (and re-reject the next new spec), we drop
+/// `deny_unknown_fields` here and sweep all unrecognized top-level keys into
+/// `extensions`. `device` stays required; `services` is now optional (WiFi
+/// specs carry `http_endpoints`/`mqtt_topics` and no GATT services), so it
+/// defaults to an empty vec. Typo detection is preserved on the
+/// protocol-execution structs below, not here.
 #[derive(Debug, Clone, Deserialize)]
 pub struct DeviceSpec {
     pub device: DeviceInfo,
@@ -37,8 +37,56 @@ pub struct DeviceSpec {
     /// them rather than assume they bind.
     #[serde(default)]
     pub entities: Vec<Entity>,
+    /// Named consumer-side handler for protocols that cannot be fully
+    /// expressed in YAML (image assembly, custom crypto). Promoted out of
+    /// `extensions` because the image-upload path dispatches on it — see
+    /// `crate::protocol::daniao` for the first implementation.
+    #[serde(default)]
+    pub protocol_handler: Option<String>,
+    /// High-level capabilities beyond raw GATT reads/writes (`image_upload`,
+    /// `firmware_update`, ...). Declarative: each entry says what the device
+    /// accepts; whether this crate can drive it depends on
+    /// [`DeviceSpec::protocol_handler`] naming an implemented handler.
+    #[serde(default)]
+    pub features: Vec<Feature>,
     /// Parsed-but-ignored top-level extension blocks, preserved verbatim so no
     /// information is lost even though nothing interprets them yet.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// One `features:` entry — a declared high-level capability.
+///
+/// Every field but `type` is optional and unknown keys sweep into
+/// `extensions`: these blocks are hand-written across the catalogue and a new
+/// annotation must not fail existing parses.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Feature {
+    #[serde(rename = "type")]
+    pub feature_type: String,
+    /// Binary format the device expects (e.g. `rgb888`, `gif`, `1bit-bitmap`).
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub max_width: Option<u32>,
+    #[serde(default)]
+    pub max_height: Option<u32>,
+    /// `"fixed"` when max_width/max_height are the panel's actual size,
+    /// `"device_reported"` when they are platform bounds and the real
+    /// resolution comes from the device at runtime.
+    #[serde(default)]
+    pub resolution_source: Option<String>,
+    /// Whether the device accepts multi-frame sequences (animations), not
+    /// just a single static image.
+    #[serde(default)]
+    pub animation: Option<bool>,
+    #[serde(default)]
+    pub max_frames: Option<u32>,
+    /// Fastest frame flip the device supports, in milliseconds.
+    #[serde(default)]
+    pub min_frame_interval_ms: Option<u32>,
+    #[serde(default)]
+    pub default_frame_interval_ms: Option<u32>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }

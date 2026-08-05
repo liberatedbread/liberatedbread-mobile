@@ -163,6 +163,29 @@ helpful_urls:
     url: "https://fccid.io/m/03e7be1bfdf844811e2d2cef87f6127da9424fa5c4ea7d89950479b3f244e0c4.pdf"
     description: "User manual for JY25CUT-series curtain lights confirming BLE app control and the physical mode button."
 
+# Consumer-side encoder for the fragment framing + DDP pixel packets below —
+# what a client dispatches on to push image/animation frames (the transport
+# cannot be expressed as declarative command templates).
+protocol_handler: "daniao_ddp"
+
+features:
+  - type: "image_upload"
+    format: "rgb888"
+    # Platform bounds, not a panel size: width and height are u8 fields in
+    # the advertisement's manufacturer-data record and in the DeviceInfo
+    # protobuf (M_DEVICE_INFO_NOTIFY, mt=2103); each model reports its own
+    # resolution at runtime.
+    max_width: 255
+    max_height: 255
+    resolution_source: "device_reported"
+    # The vendor app's draw / photo-to-light / music modes stream standard
+    # DDP DISPLAY packets (datatype 0x01) to the DDP write characteristic;
+    # animations are achieved by streaming frames at the desired rate.
+    # Stored multi-frame effects additionally exist via the BIN-channel
+    # install flow (mt 29xx), not yet mapped well enough to encode. No
+    # documented minimum frame interval — throughput is MTU-bound.
+    animation: true
+
 services:
   - uuid: "00000074-1972-1925-3022-077119514e44"
     name: "Daniao DDP Service"
