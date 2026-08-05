@@ -53,15 +53,23 @@ check_frb_bindings() {
     return 0
   fi
   flutter_rust_bridge_codegen generate
-  # `git diff --exit-code` catches edits to tracked generated files but is
-  # blind to brand-new (untracked) ones, so also fail on ANY pending change
-  # under the generated paths. Keep in sync with .github/workflows/ci.yml.
-  git diff --exit-code lib/src/rust/ rust/src/frb_generated.rs
-  local drift
-  drift="$(git status --porcelain --untracked-files=all lib/src/rust rust/src/frb_generated.rs)"
-  if [[ -n "$drift" ]]; then
-    echo "FRB generated output is stale (modified or untracked files):" >&2
-    echo "$drift" >&2
+  # -I exempts exactly one hunk: flutter_rust_bridge's header comment listing
+  # the trait methods it declined to bind takes its names from derive
+  # expansions, so `#[derive(Eq)]` reads as `assert_receiver_is_total_eq` under
+  # rustc 1.94 and `assert_fields_are_eq` under 1.97. Nothing in the bindings
+  # changes with it, and CI floats on stable, so without the exemption a rustc
+  # release fails this check for a comment. A hunk carrying anything else still
+  # fails. Keep in sync with .github/workflows/ci.yml.
+  git diff --exit-code \
+    -I '^// These function are ignored because they are on traits' \
+    lib/src/rust/ rust/src/frb_generated.rs
+  # `git diff` is blind to brand-new (untracked) files, so a first-ever
+  # generated file would pass the check above.
+  local untracked
+  untracked="$(git status --porcelain --untracked-files=all lib/src/rust rust/src/frb_generated.rs | grep '^??' || true)"
+  if [[ -n "$untracked" ]]; then
+    echo "FRB generated files that are not committed:" >&2
+    echo "$untracked" >&2
     return 1
   fi
 }
