@@ -1,0 +1,130 @@
+site_name: OpenGreenIoT Protocol Docs
+site_description: Reverse-engineered IoT device protocol documentation
+site_author: Pigs Can Fly Labs LLC
+repo_name: PigsCanFlyLabs/opengreeniot-protocol-docs
+repo_url: https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs
+copyright: Copyright &copy; 2026 Pigs Can Fly Labs LLC
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: green
+      accent: light-green
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: green
+      accent: light-green
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - search.suggest
+    - content.code.copy
+
+hooks:
+  - scripts/mkdocs_hooks.py
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Overview: getting-started/index.md
+      - Tools: getting-started/tools.md
+      - Methodology: getting-started/methodology.md
+  - Devices:
+      - Device Registry: devices/index.md
+      - LED Sign & Panel Design Apps: devices/led-sign-apps.md
+      - Ember Mug: devices/ember-mug.md
+      - Bluetooth LED Name Badge: devices/bluetooth-led-name-badge.md
+      - iDotMatrix: devices/idotmatrix.md
+      - LEDs2Rave4 Lunchbox LED: devices/leds2rave4-lunchbox-led.md
+      - SPOTLED LED Panels: devices/spotled-led-panel.md
+      - CoolLEDX / CoolLED1248 Signs: devices/coolledx-led-sign.md
+      - Shining Mask: devices/shining-mask.md
+      - PAX Vape: devices/pax-vape.md
+      - Shining Glasses: devices/shining-glasses.md
+      - Magic Display: devices/magic-display.md
+      - Chef iQ Sense: devices/chef-iq-sense.md
+      - AUTOBABA LED Backpack: devices/autobaba-led-backpack.md
+      - Nyan BT Image Controller: devices/nyan-bt-image-controller.md
+      - MoTool Slacker: devices/motool-slacker.md
+      - AdMore Light Bar Pro: devices/admore-light-bar.md
+      - Belkin Wemo Smart Devices: devices/wemo-devices.md
+      - WiFi Discovery Guide: devices/wifi-discovery.md
+      - Frigidaire Connected ACs: devices/frigidaire-ac.md
+      - OBD-II Bluetooth Adapters: devices/obd2-bluetooth-adapter.md
+      - Triumph Tiger 900: devices/triumph-tiger-900.md
+      - BMW Motorcycle Diagnostics: devices/bmw-motorcycle-diagnostics.md
+      - Fardriver Motor Controller: devices/fardriver-controller.md
+      - Bafang BBS02 Mid-Drive: devices/bafang-bbs02.md
+      - Tongsheng TSDZ2 Mid-Drive: devices/tsdz2-tongsheng.md
+      - Bosch Performance Line CX Gen4: devices/bosch-ebike-cx-gen4.md
+      - NIU Electric Scooter: devices/niu-escooter.md
+      - Guides:
+          - WiFi Discovery: devices/wifi-discovery.md
+          - Wemo Setup & Reset: devices/wemo-setup.md
+          - Device Page Template: devices/_template.md
+      - BLE Devices:
+          - Ember Mug: devices/ember-mug.md
+          - Bluetooth LED Name Badge: devices/bluetooth-led-name-badge.md
+          - iDotMatrix: devices/idotmatrix.md
+          - LEDs2Rave4 Lunchbox LED: devices/leds2rave4-lunchbox-led.md
+          - Shining Mask: devices/shining-mask.md
+          - PAX Vape: devices/pax-vape.md
+          - Shining Glasses: devices/shining-glasses.md
+          - Magic Display: devices/magic-display.md
+          - Chef iQ Sense: devices/chef-iq-sense.md
+          - AUTOBABA LED Backpack: devices/autobaba-led-backpack.md
+          - Nyan BT Image Controller: devices/nyan-bt-image-controller.md
+          - MoTool Slacker: devices/motool-slacker.md
+          - AdMore Light Bar Pro: devices/admore-light-bar.md
+          - ProGlow Motorcycle LED: devices/proglow-motorcycle-led.md
+          - SeeBlue Motorcycle LED: devices/seeblue-motorcycle-led.md
+      - WiFi Devices:
+          - Belkin Wemo Smart Devices: devices/wemo-devices.md
+          - Anki Vector Robot: devices/vector-robot.md
+          - Roku External Control Protocol: devices/roku-ecp.md
+          - Philips Hue Bridge: devices/hue-bridge.md
+          - Enphase Envoy: devices/enphase-envoy.md
+          - Dyson Air Purifier: devices/dyson-air-purifier.md
+          - LIFX Z: devices/lifx-z.md
+          - Lutron Caseta Smart Bridge 2: devices/lutron-caseta-smart-bridge.md
+          - Rachio Controller: devices/rachio-controller.md
+          - SmartThings Hub v2: devices/smartthings-hub-v2.md
+          - Frigidaire Connected ACs: devices/frigidaire-ac.md
+          - Frigidaire Portable AC: devices/frigidaire-portable-ac.md
+          - Frigidaire Window AC: devices/frigidaire-window-ac.md
+          - Frigidaire Local API Audit: devices/frigidaire-local-api-audit.md
+  - Reverse Engineering Workspace:
+      - Executive Summary: EXEC_SUMMARY.md
+      - Clean-room Rules: CLEANROOM_RULES.md
+      - Auto-detection Workflow: AUTODETECTION.md
+      - APK Decompile Playbook: APK_DECOMPILE_PLAYBOOK.md
+  - Protocols:
+      - Overview: protocols/index.md
+      - Initial Device Setup: protocols/device-setup.md
+      - Common BLE Patterns: protocols/ble-common.md
+      - Common WiFi Patterns: protocols/wifi-common.md
+      - Common OBD-II Patterns: protocols/obd2-common.md
+  - Data API:
+      - Overview: api/index.md
+      - Reading a Device Spec: api/spec-format.md
+  - Contributing:
+      - How to Contribute: contributing/index.md
+      - Documentation Guide: contributing/documentation-guide.md

@@ -1,0 +1,258 @@
+# SwitchBot BLE smart actuator/sensor family
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SwitchBot BLE Device Family"
+  manufacturer: "Wonderlabs, Inc. (SwitchBot)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    Family of BLE smart home devices: Bot (button pusher), Meter/TH (temp/humidity),
+    Curtain, Motion Sensor, Contact Sensor, Color Bulb, LED Strip Light, Smart Lock,
+    Plug Mini, Humidifier, and Meter Plus. Manufacturer publishes an open BLE API at
+    github.com/OpenWonderLabs/SwitchBotAPI-BLE — this spec is a clean-room encoding
+    of that documentation plus community implementations (Danielhiversen/pySwitchbot).
+
+    COMMUNICATION: all devices share the same service UUID and frame format.
+    REQ frame (client→device) written to TX char: [0x57 magic][header byte]
+    [payload...]. Header bits 7:6 = version (0), bits 5:4 = encryption mode
+    (0 = none), bits 3:0 = command. RESP frame (device→client) notified on RX
+    char: [status byte][payload...]. Status codes: 0x01 OK, 0x02 ERROR, 0x03 BUSY,
+    0x04 protocol incompatible, 0x05 unsupported command, 0x06 low battery,
+    0x07 encrypted, 0x08 unencrypted, 0x09 password error, 0x0A unsupported
+    encryption, 0x0B mesh failure, 0x0C network failure.
+
+    DISCOVERY: service data UUID 0xFD3D in SCAN_RSP (firmware ≥v6.4), 0x000D
+    (older). Company ID 0x0969 (new) / 0x0059 (old) in manufacturer data.
+    Device type in service data byte 0 bits 6:0 — see variants below.
+    Advertised names vary per product: "WoHand" (Bot), "WoSensorTH" (Meter),
+    "WoCurtain" (Curtain), etc.
+
+    CONFIDENCE: service/characteristic UUIDs, frame format, magic byte, status
+    codes, command IDs and per-device payload encoding are HIGH — sourced from
+    the official manufacturer API repo and verified by community implementations.
+    Advertised name patterns are community-documented and may vary per firmware
+    revision. Broadcast mode (SwitchBot/Simple/iBeacon) is selectable per device.
+
+  identification:
+    service_uuids:
+      - "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
+    local_name_prefix: "Wo"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
+          service_data:
+            - "0000fd3d-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 2409
+            description: "SwitchBot company ID 0x0969 (new firmware v6.4+); older: 0x0059 (89)"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning — BLE connection only. Some devices (Lock, newer firmware)
+      may require a PIN/password for encrypted communication. Pairing is
+      optional for most devices; the Bot, Meter, and Curtain work with
+      unencrypted commands.
+    methods:
+      - type: "ble_direct"
+        verified: true
+        description: >
+          Scan for the service UUID (0xFD3D service data or 0x0969 manufacturer
+          data), connect, optionally send password to enable encrypted commands.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Scan for SwitchBot devices via service data UUID 0xFD3D."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and optionally authenticate with device password."
+            actor: "client"
+    factory_reset:
+      confidence: "medium"
+      effect: "Clears pairing info, timer settings, and encryption keys. Hold button for ~5 seconds on most devices."
+      procedures:
+        - name: "Hold button for 5+ seconds"
+          steps:
+            - action: "Press and hold the device button until LED flashes."
+              actor: "user"
+              expect: "LED blinks, device restarts advertising in default mode."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Unpair from OS Bluetooth settings if previously bonded, then reconnect."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only. Encryption is optional; Bot/Meter work with no auth."
+
+  variants:
+    - model: "Bot (WoHand)"
+      identification:
+        local_name_prefix: "WoHand"
+      notes: "Device type 0x48 ('H') in service data. Button-pusher actuator."
+    - model: "Meter / MeterTH (WoSensorTH)"
+      identification:
+        local_name_prefix: "WoSensorTH"
+      notes: "Device type 0x54 ('T') in service data. Temperature/humidity sensor."
+    - model: "Curtain (WoCurtain)"
+      identification:
+        local_name_prefix: "WoCurtain"
+      notes: "Device type 0x63 ('c') in service data. Curtain motor."
+    - model: "Curtain 3"
+      identification:
+        local_name_prefix: "WoCurtain"
+      notes: "Device type 0x7B ('{') in service data. Curtain 3 variant."
+    - model: "Motion Sensor"
+      identification:
+        local_name_prefix: "WoMotion"
+      notes: "Device type 0x73 ('s') in service data. PIR motion sensor."
+    - model: "Contact Sensor"
+      identification:
+        local_name_prefix: "WoContact"
+      notes: "Device type 0x64 ('d') in service data. Door/window contact sensor."
+    - model: "Color Bulb"
+      identification:
+        local_name_prefix: "WoBulb"
+      notes: "Device type 0x75 ('u') in service data. RGB smart bulb."
+    - model: "LED Strip Light"
+      identification:
+        local_name_prefix: "WoStrip"
+      notes: "Device type 0x72 ('r') in service data. LED strip controller."
+    - model: "Plug Mini"
+      identification:
+        local_name_prefix: "WoPlug"
+      notes: "Device type 0x67 ('g') in service data. Smart plug."
+    - model: "Smart Lock"
+      identification:
+        local_name_prefix: "WoLock"
+      notes: "Device type 0x6F ('o') in service data. Smart door lock."
+    - model: "Humidifier"
+      identification:
+        local_name_prefix: "WoHumi"
+      notes: "Device type 0x65 ('e') in service data."
+    - model: "Meter Plus"
+      identification:
+        local_name_prefix: "WoSensorTH"
+      notes: "Device type 0x69 ('i') in service data. Enhanced temp/humidity with display."
+
+services:
+  - uuid: "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
+    name: "SwitchBot Communication Service"
+    characteristics:
+      - uuid: "cba20002-224d-11e6-9fb8-0002a5d5c51b"
+        name: "TX (Client → Device)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Write channel from client to device. Frame format:
+          [0x57 magic][header][payload...].
+          Header bits: [7:6]=version(0), [5:4]=encryption(0=none), [3:0]=command.
+          Commands: 0x1=execute action, 0x2=get info, 0x3=set info,
+          0x8=get time, 0x9=set time, 0xF=extended command.
+        commands:
+          bot_press:
+            description: "Bot: press and release the arm."
+            value: [0x57, 0x01, 0x00]
+            verification: "confirmed"
+          bot_turn_on:
+            description: "Bot: press for 'on' in switch mode."
+            value: [0x57, 0x01, 0x01]
+            verification: "confirmed"
+          bot_turn_off:
+            description: "Bot: press for 'off' in switch mode."
+            value: [0x57, 0x01, 0x02]
+            verification: "confirmed"
+          get_basic_info:
+            description: "Get device basic info: battery%, firmware version, mode."
+            value: [0x57, 0x02]
+            verification: "confirmed"
+          set_bot_mode:
+            description: >
+              Set Bot mode. Payload: [strength (always 100=0x64)][mode].
+              Mode bits: [7:4]=0=one-button/1=two-state-switch,
+              [3:0]=0=press-on-pull-off/1=inverted. Example [0x57,0x03,0x64,0x10]
+              sets two-state mode, normal direction.
+            template: [0x57, 0x03, 0x64, "{mode}"]
+            parameters:
+              mode: { type: "uint8", min: 0, max: 255 }
+            verification: "confirmed"
+          set_long_press_duration:
+            description: "Set long press duration in seconds. Frame: 0x57 0x0F 0x08 [seconds]."
+            template: [0x57, 0x0F, 0x08, "{seconds}"]
+            parameters:
+              seconds: { type: "uint8", min: 1, max: 255 }
+            verification: "confirmed"
+          meter_read_sensor:
+            description: >
+              Meter/MeterTH: read current temperature and humidity via extended
+              command 0x31. Send: 0x57 0x0F 0x31. Response payload:
+              [fractional_temp_byte][integer_temp_byte][humidity_byte].
+            value: [0x57, 0x0F, 0x31]
+            verification: "confirmed"
+          meter_set_temperature_mode:
+            description: >
+              Set Meter temperature display: 0x01=Celsius, 0x02=Fahrenheit.
+              Frame: 0x57 0x0F 0x30 [mode].
+            template: [0x57, 0x0F, 0x30, "{mode}"]
+            parameters:
+              mode: { type: "uint8", min: 1, max: 2 }
+            verification: "confirmed"
+          meter_read_hardware_version:
+            description: "Read Meter hardware version via 0x57 0x0F 0x14."
+            value: [0x57, 0x0F, 0x14]
+            verification: "confirmed"
+
+      - uuid: "cba20003-224d-11e6-9fb8-0002a5d5c51b"
+        name: "RX (Device → Client)"
+        properties: ["notify", "read"]
+        notes: >
+          Notification channel from device to client. Response frame:
+          [status byte][payload...]. Status: 0x01=OK, 0x02=ERROR, 0x03=BUSY,
+          0x05=unsupported, 0x06=low battery. For GetBasicInfo (0x02):
+          payload = [battery%][fw_version*0.1][strength][ADC_hi][ADC_lo]
+          [motor_cal_hi][motor_cal_lo][timer_count][act_mode][hold_times]
+          [service_data_byte0][service_data_byte1]. For MeterReadSensor (0x31):
+          payload = [temp_frac][temp_int][humidity].
+        format:
+          - offset: 0
+            length: 1
+            name: "status"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "battery_percent"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "firmware_version_raw"
+            type: "uint8"
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read"]
+        notes: "Standard BLE battery level characteristic."
+
+entities:
+  - platform: "switch"
+    name: "Bot Press"
+    state_characteristic: "cba20003-224d-11e6-9fb8-0002a5d5c51b"
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"

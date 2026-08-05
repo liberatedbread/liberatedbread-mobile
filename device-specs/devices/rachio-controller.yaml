@@ -1,0 +1,117 @@
+# Rachio Controller — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Rachio Controller"
+  manufacturer: "Rachio"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  transport: "homekit"
+  notes: >
+    The observed Rachio controller advertises HomeKit HAP over mDNS with a
+    model string matching Rachio-AABBCC. The HAP accessory ID is stable across
+    IP changes and should be used for identity. Port 80 is open on the device,
+    but this spec currently documents local discovery rather than a complete
+    unauthenticated control protocol.
+  identification:
+    mdns_service_type: "_hap._tcp.local."
+    default_port: 80
+    identity_keys:
+      primary: "hap_id"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_hap._tcp.local."
+          txt_record_keys: ["id", "md", "c#", "pv"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:id"
+                key: "hap_id"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["hap_id"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Onboarding has not been captured in this project. What is confirmed from
+      the LAN probe is the post-setup state: the controller advertises a
+      HomeKit HAP service, which implies a HAP setup code on the device label
+      and a HAP pairing flow that would let a local client control it without
+      the Rachio cloud. That path is unimplemented here.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          The controller is reported to host its own access point during
+          onboarding, with the vendor app transferring home network
+          credentials. Neither the SSID pattern nor the credential exchange has
+          been verified here.
+        steps:
+          - action: "Capture the vendor app's onboarding exchange against the controller's setup AP."
+            actor: "client"
+            notes: "Open gap."
+      - type: "button_pairing"
+        verified: false
+        description: >
+          HomeKit pairing using the 8-digit setup code printed on the device,
+          which would provide cloud-free local control if implemented.
+        steps:
+          - action: "Perform a HAP pair-setup against the advertised _hap._tcp service using the printed setup code."
+            actor: "client"
+            notes: "Not implemented in this project; the most promising route to local control."
+    factory_reset:
+      confidence: "low"
+      effect: "Expected to clear WiFi credentials, HomeKit pairings and schedules. Not verified here."
+      procedures:
+        - name: "Front button held"
+          hold_seconds: 10
+          indicator: "LED ring changes pattern."
+          steps:
+            - action: "Press and hold the button on the front of the controller until the LED ring changes."
+              actor: "user"
+              notes: "Vendor-documented hold times vary by generation; verify against the unit."
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: "Unverified. Assume reset-and-reprovision until the onboarding flow is captured."
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "WiFi credentials"
+        - "HomeKit pairing keys"
+      issued_to_client:
+        - "HomeKit long-term public key pair, if HAP pairing is used"
+
+evidence:
+  live_lan_probe:
+    date: "2026-07-16"
+    address: "192.168.1.186"
+    hostname: "WICED-hap-B68A9A.local"
+    mdns_service_type: "_hap._tcp"
+    model_txt: "Rachio-AABBCC"
+    port: 80
+    hap_id: "0A:01:0A:AA:BB:CC"
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Device HTTP Root"
+    description: "TCP port 80 was observed open. Control path is not yet documented as a complete local unauthenticated REST API."
+
+entities:
+  - platform: "switch"
+    name: "Irrigation Zone"
+    state_topic: "homekit://{hap_id}"
+    commands:
+      turn_on: "HAP characteristic write"
+      turn_off: "HAP characteristic write"
+

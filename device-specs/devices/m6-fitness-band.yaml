@@ -1,0 +1,365 @@
+# M6 Smart Fitness Band — Device Spec
+# Generated from static analysis of com.veryfit.multi (Veryfit 2.0 APK)
+# APK source: APKPure via apkeep
+# APK SHA-256: 98fab69b465f77f84b44d7ea859678a115474999691e72b2c814716a8aa6d530
+#
+# Hardware RE: rbaron.net (Telink TLSR8232 SoC, ST7735 OLED, PPG sensor)
+# Software RE: static analysis of decompiled smali from companion APK
+#
+# NOTE: The companion app package ID for the M6 band is UNCONFIRMED.
+# com.veryfit.multi (Veryfit 2.0) is a generic fitness band app compatible
+# with many cheap Chinese smart bands. All UUIDs below are recovered from
+# the Veryfit 2.0 APK and may apply to the M6 band but are not confirmed
+# against hardware.
+
+device:
+  name: "M6 Smart Fitness Band"
+  manufacturer: "Unknown (AliExpress generic / Mi Band clone)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  notes: >
+    The M6 Smart Fitness Band is a ~$6 Mi Band clone sold on AliExpress.
+    Hardware uses Telink TLSR8232 SoC with ST7735 OLED display, PPG heart
+    rate sensor, and vibration motor. The companion app is unconfirmed;
+    com.veryfit.multi (Veryfit 2.0) is a plausible generic fitness app.
+
+    The Veryfit 2.0 app uses a single custom 128-bit BLE service multiplexing
+    all device functions through four characteristics (normal write/notify and
+    health write/notify). Commands are 20-byte fixed-length frames with a
+    command ID at byte 0 and a sub-command key at byte 1.
+
+    BLE connection flow: scan for service 00000AF0, connect, enable
+    notifications on NOTIFY_UUID_NORMAL and NOTIFY_UUID_HEALTH, then
+    send commands on WRITE_UUID_NORMAL / WRITE_UUID_HEALTH.
+
+    Research status: APK acquired, decompiled to smali. All UUIDs and
+    command IDs recovered. Byte-level payload formats are inferred from
+    smali field layouts and health data parser logic — HCI snoop needed
+    to confirm exact payload encoding.
+
+  identification:
+    service_uuids:
+      - "00000af0-0000-1000-8000-00805f9b34fb"
+
+  setup:
+    required: false
+    confidence: low
+    notes: >
+      The band needs no provisioning. It advertises service 00000AF0 and accepts
+      commands from any client that connects; the Veryfit app pairs no keys and
+      binds the band to no account.
+
+      Confidence is low throughout: the companion app itself is unconfirmed
+      (com.veryfit.multi is a plausible match, not an established one), and the
+      payload encoding is inferred from smali rather than observed on the wire.
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT, enable notifications on the normal and health
+          notify characteristics, then write 20-byte command frames.
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Wake the band by pressing its touch button so it advertises."
+            actor: user
+          - action: "Scan for service 00000AF0 and connect over GATT."
+            actor: client
+          - action: "Enable notifications on NOTIFY_UUID_NORMAL and NOTIFY_UUID_HEALTH."
+            actor: client
+          - action: >
+              Write 20-byte command frames to WRITE_UUID_NORMAL or
+              WRITE_UUID_HEALTH, command ID at byte 0, sub-command at byte 1.
+            actor: client
+            expect: "A response frame arrives on the matching notify characteristic."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. The recovered command set is believed to include a
+        reset, but which command ID carries it has not been confirmed, and
+        issuing an unverified ID to a device with a firmware-update path is a
+        good way to brick a band. Not stated rather than guessed.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The band joins no network. Any client may connect once the previous one
+        disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only; no WiFi passphrase crosses the link. No authentication of any
+        kind was found, so health data is readable by anyone in range.
+
+services:
+  - uuid: "00000af0-0000-1000-8000-00805f9b34fb"
+    name: "Veryfit Primary Service"
+    notes: >
+      Single custom service that multiplexes all device functions.
+      Four characteristics: normal channel (commands + responses) and
+      health data channel (bulk health data sync + responses).
+    characteristics:
+      - uuid: "00000af6-0000-1000-8000-00805f9b34fb"
+        name: "Normal Write"
+        notes: >
+          Write-only characteristic for sending commands to the device.
+          Commands use 20-byte fixed-length frames: byte 0 = command ID,
+          byte 1 = sub-command key, bytes 2-19 = payload.
+          Used for: get info, settings, bind/unbind, notify, app control,
+          ware update.
+        properties: ["write", "write_without_response"]
+        commands:
+          get_basic_info:
+            description: "Request device basic info (battery status, bind flag, current mode)."
+            verification: "hypothesis"
+            value: [0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_battery:
+            description: "Request battery level."
+            verification: "hypothesis"
+            value: [0x02, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_mac_address:
+            description: "Request device MAC address."
+            verification: "hypothesis"
+            value: [0x02, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_function_info:
+            description: "Request device function/capability info."
+            verification: "hypothesis"
+            value: [0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_time:
+            description: "Request current device time."
+            verification: "hypothesis"
+            value: [0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          get_real_time:
+            description: "Request real-time data (steps, calories, distance, active time, heart rate)."
+            verification: "hypothesis"
+            value: [0x02, 0xa0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_time:
+            description: "Sync time to device. Payload: year(2) month(1) day(1) hour(1) minute(1) second(1)."
+            verification: "hypothesis"
+            value: [0x03, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              year:
+                type: "uint16"
+                min: 2000
+                max: 2099
+              month:
+                type: "uint8"
+                min: 1
+                max: 12
+              day:
+                type: "uint8"
+                min: 1
+                max: 31
+              hour:
+                type: "uint8"
+                min: 0
+                max: 23
+              minute:
+                type: "uint8"
+                min: 0
+                max: 59
+              second:
+                type: "uint8"
+                min: 0
+                max: 59
+          set_alarm_clock:
+            description: "Set alarm clock. Payload format TBD."
+            verification: "hypothesis"
+            value: [0x03, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_user_info:
+            description: "Set user info (gender, age, height, weight, stride). Payload format TBD."
+            verification: "hypothesis"
+            value: [0x03, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_units:
+            description: "Set unit preferences (metric/imperial, 12/24h, language, temp unit)."
+            verification: "hypothesis"
+            value: [0x03, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_multi_target:
+            description: "Set daily targets (steps, calories, distance). Payload format TBD."
+            verification: "hypothesis"
+            value: [0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_sedentariness:
+            description: "Configure sedentary reminder."
+            verification: "hypothesis"
+            value: [0x03, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_anti_lost:
+            description: "Configure anti-lost (disconnect alert)."
+            verification: "hypothesis"
+            value: [0x03, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_hand:
+            description: "Set handedness (left/right wrist)."
+            verification: "hypothesis"
+            value: [0x03, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_heart_rate_mode:
+            description: "Configure heart rate auto-detect mode."
+            verification: "hypothesis"
+            value: [0x03, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_heart_rate_range:
+            description: "Set heart rate alert range."
+            verification: "hypothesis"
+            value: [0x03, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_find_phone:
+            description: "Enable/disable find phone function on band."
+            verification: "hypothesis"
+            value: [0x03, 0x26, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_wrist_gesture:
+            description: "Configure wrist raise-to-wake gesture."
+            verification: "hypothesis"
+            value: [0x03, 0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_do_not_disturb:
+            description: "Configure do-not-disturb mode."
+            verification: "hypothesis"
+            value: [0x03, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_music_control:
+            description: "Configure music control on band."
+            verification: "hypothesis"
+            value: [0x03, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_message_settings:
+            description: "Configure message notification settings."
+            verification: "hypothesis"
+            value: [0x03, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_one_key_restore:
+            description: "Factory reset / restore defaults."
+            verification: "hypothesis"
+            value: [0x03, 0x27, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          bind_device:
+            description: "Bind/pair with the device."
+            verification: "hypothesis"
+            value: [0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          unbind_device:
+            description: "Unbind/unpair from the device."
+            verification: "hypothesis"
+            value: [0x04, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          incoming_call:
+            description: "Send incoming call notification. Payload includes caller name/number — format TBD (multi-packet)."
+            verification: "hypothesis"
+            value: [0x05, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          incoming_call_status:
+            description: "Update call status (accept/refuse). Value byte at offset 2: 0x01=accept, 0x02=refuse."
+            verification: "hypothesis"
+            value: [0x05, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          incoming_message:
+            description: "Send incoming message notification. Payload includes app type, sender, content — format TBD (multi-packet)."
+            verification: "hypothesis"
+            value: [0x05, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          app_control_camera:
+            description: "Trigger camera shutter from band."
+            verification: "hypothesis"
+            value: [0x06, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          app_control_find_band:
+            description: "Make band vibrate (find wristband)."
+            verification: "hypothesis"
+            value: [0x06, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          restart_device:
+            description: "Restart the device."
+            verification: "hypothesis"
+            value: [0xf0, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          firmware_update:
+            description: "Initiate firmware/ware update mode."
+            verification: "hypothesis"
+            value: [0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+      - uuid: "00000af7-0000-1000-8000-00805f9b34fb"
+        name: "Normal Notify"
+        notes: >
+          Notify characteristic for receiving command responses from the
+          device. Responses are 20-byte frames with same structure as commands:
+          byte 0 = command ID, byte 1 = key, bytes 2-19 = response payload.
+
+          Responses are received after enabling notifications on this
+          characteristic via the standard CCCD (00002902).
+        properties: ["notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "command_id"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "key"
+            type: "uint8"
+          - offset: 2
+            length: 18
+            name: "payload"
+            type: "bytes"
+
+      - uuid: "00000af1-0000-1000-8000-00805f9b34fb"
+        name: "Health Write"
+        notes: >
+          Write characteristic for health data sync commands. Used for
+          requesting and controlling bulk health data transfers (step
+          history, sleep data, heart rate history, sports data).
+          Same 20-byte frame format as Normal Write.
+        properties: ["write", "write_without_response"]
+        commands:
+          health_sync_request:
+            description: "Request health data sync from device."
+            verification: "hypothesis"
+            value: [0x08, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          health_sync_success:
+            description: "Acknowledge successful health data sync batch."
+            verification: "hypothesis"
+            value: [0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          health_data_send_finished:
+            description: "Signal end of health data transmission."
+            verification: "hypothesis"
+            value: [0x08, 0xee, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+
+      - uuid: "00000af2-0000-1000-8000-00805f9b34fb"
+        name: "Health Notify"
+        notes: >
+          Notify characteristic for receiving health data from the device.
+          Health data arrives as multiple 20-byte notification packets.
+          Sub-command keys indicate data type:
+            0x07 = heart rate details today
+            0x08 = heart rate details history
+            0x03 = sports details today
+            0x04 = sleep details today
+            0x05 = sports details history
+            0x06 = sleep details history
+            0xee = data send finished
+            0xff = error
+
+          Real-time data (from GetInfoCmd KEY_REAL_TIME, 0xA0): returns
+          12 bytes of data containing total_step, total_calories,
+          total_distances, total_active_time, and heart_rate.
+          Exact field widths and byte layout TBD — HCI snoop needed.
+        properties: ["notify"]
+        format:
+          - offset: 0
+            length: 1
+            name: "command_id"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "key"
+            type: "uint8"
+          - offset: 2
+            length: 18
+            name: "payload"
+            type: "bytes"
+
+  - uuid: "00001530-1212-efde-1523-785feabcd123"
+    name: "Nordic DFU Service"
+    notes: >
+      Standard Nordic Semiconductor Device Firmware Update service.
+      Handled by the Nordic DFU library (no.nordicsemi.android.dfu).
+      Used for over-the-air firmware updates. The DFU service and
+      its characteristics follow the standard Nordic DFU protocol.
+      Reference: Nordic nRF5 SDK DFU documentation.
+    characteristics:
+      - uuid: "00001531-1212-efde-1523-785feabcd123"
+        name: "DFU Control Point"
+        notes: "Standard Nordic DFU control point characteristic."
+        properties: ["write", "notify"]
+      - uuid: "00001532-1212-efde-1523-785feabcd123"
+        name: "DFU Packet"
+        notes: "Standard Nordic DFU data packet characteristic."
+        properties: ["write_without_response"]
+      - uuid: "00001534-1212-efde-1523-785feabcd123"
+        name: "DFU Version"
+        notes: "Standard Nordic DFU version characteristic."
+        properties: ["read"]

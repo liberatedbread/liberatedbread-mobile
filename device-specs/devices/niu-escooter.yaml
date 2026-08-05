@@ -1,0 +1,192 @@
+# NIU electric scooter device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "NIU Electric Scooter"
+  manufacturer: "Niu Technologies"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  notes: >
+    CLOUD-ONLY. This spec exists to record a dependency, not to offer a control
+    surface. The scooter reports over cellular to NIU's servers; the app
+    (com.niu.manager) authenticates against NIU's account service and reads
+    everything back from those servers. There is no documented local path.
+
+    `cloud.required: true` is the point of this entry. Every documented
+    function stops working if NIU retires the service or closes the account --
+    no local fallback exists, so a consumer should present this device as
+    vendor-tethered rather than quietly offering endpoints that will one day
+    return 404.
+
+    LOCAL PATH: `local_access.status` is `replacement_hardware`, and the
+    "covers" / "not_covered" split matters more than the headline. Aftermarket
+    Bluetooth controllers exist for these scooters, but they replace the MOTOR
+    CONTROLLER and give a local BLE link for DRIVE PARAMETERS only. The vendor
+    explicitly advertises that the NIU app, dashboard, GPS and alarm keep
+    working -- which is another way of saying the cloud stack is untouched.
+    Fitting one does not free the scooter; it frees the throttle map.
+
+    The scooter also has a BLE link the app uses in proximity. That is the
+    genuinely interesting local-first target and it is NOT publicly documented:
+    no service or characteristic UUIDs, no framing, no pairing flow. The
+    decisive open question is whether it is a full control channel or only a
+    proximity/unlock handshake with everything else deferred to the cloud --
+    that answer determines whether stock-hardware local control is possible at
+    all.
+
+    VERIFICATION: `reported` -- hosts and endpoint paths come from maintained
+    third-party integrations and independent captures, but none has been
+    exercised by us. The original capture work covers DUAL-BATTERY scooters
+    only; single-battery response shapes may differ.
+
+    NEVER COMMIT: a real token, account identifier or scooter serial. A token
+    grants access to the owner's scooter including its live location, and ride
+    history is a movement record of a person, not machine telemetry.
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      Onboarding is an account binding, not a network provisioning flow: the
+      scooter already has its own cellular link, and the owner registers it to
+      a NIU account so the cloud will answer for it. Confidence is low --
+      transcribed from third-party integrations, never exercised by us.
+    methods:
+      - type: "cloud_account"
+        description: >
+          Register the scooter to a NIU account in the vendor app; the cloud
+          then issues tokens that authorise reads for that serial number.
+        verified: false
+        cloud:
+          local_alternative: >
+            None known for telemetry. The scooter's own BLE link is
+            undocumented and may be only a proximity handshake, so whether ANY
+            local path exists is an open question -- see local_access. The one
+            shipped local route is replacing the motor controller with an
+            aftermarket Bluetooth unit, which reaches drive parameters only
+            and leaves telemetry, GPS and alarm on the cloud.
+        steps:
+          - actor: "user"
+            action: "Create or sign in to a NIU account in the vendor app."
+            expect: "Account session established."
+          - actor: "user"
+            action: "Add the scooter to the account by its serial number."
+            expect: "Scooter appears in the account's scooter list."
+          - actor: "client"
+            action: >
+              Obtain a bearer token from the account host, then read the
+              scooter list to recover the serial number used by later calls.
+            expect: "Token issued and the scooter is listed."
+    factory_reset:
+      applicable: false
+      effect: >
+        No owner-accessible factory reset is documented. Unbinding is an
+        account-side operation performed through the vendor app or NIU
+        support, not a procedure on the vehicle -- which is itself part of the
+        dependency this spec records: the owner cannot unilaterally clear the
+        binding on their own hardware.
+    rejoin:
+      requires_factory_reset: false
+      notes: >
+        Not a network binding, so there is no router-replacement question. The
+        equivalent concern is transfer of ownership, which is an account
+        operation and, on current evidence, cannot be completed by the owner
+        alone.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      notes: >
+        No WiFi passphrase is involved -- the scooter uses its own cellular
+        link. The credential that matters is the account password and the
+        bearer token it yields, which grants access to the scooter including
+        its live location. Never record a real token, account identifier or
+        serial in this repository.
+
+cloud:
+  required: true
+  vendor_service: "NIU cloud"
+  hosts:
+    - "https://account-fk.niu.com"
+    - "https://app-api-fk.niu.com"
+  failure_mode: >
+    Total loss of documented function. Telemetry, position, battery state and
+    ride history are all read from NIU's servers, so a retired service or a
+    closed account leaves the app with nothing to show. The scooter still
+    rides -- nothing here affects the drivetrain -- but every connected
+    feature stops.
+  data_leaves_device:
+    - "location (live position and ride tracks -- personal data about a person, not machine telemetry)"
+    - "battery state and charge history"
+    - "odometer and lifetime totals"
+  auth:
+    type: "oauth2"
+    endpoint: "/v3/api/oauth2/token"
+    notes: >
+      On the account host. Yields a bearer token; most data calls additionally
+      need the scooter serial number (sn). Record the shape only -- never a
+      real token or serial.
+    verification: "reported"
+  notes: >
+    Hosts appear region-dependent; older captures show app-api.niu.com. Mixed
+    versioning (v3 and v5 both live) is the API's real shape, not a
+    transcription slip.
+  endpoints:
+    - path: "/v5/scooter/list"
+      method: "GET"
+      name: "scooter_list"
+      returns: "Scooters on the account, with serial numbers"
+      verification: "reported"
+    - path: "/v5/scooter/motor_data/index_info"
+      method: "GET"
+      name: "motor_data_index"
+      returns: "Main telemetry: state of charge, position, odometer"
+      verification: "reported"
+    - path: "/v3/motor_data/battery_info"
+      method: "GET"
+      name: "battery_info"
+      returns: "Battery detail; dual-battery models report per pack"
+      verification: "reported"
+    - path: "/motoinfo/overallTally"
+      method: "GET"
+      name: "overall_tally"
+      returns: "Lifetime totals"
+      verification: "reported"
+    - path: "/v5/track/list/v2"
+      method: "GET"
+      name: "track_list"
+      returns: "Ride/track history (personal movement data)"
+      verification: "reported"
+
+local_access:
+  status: "replacement_hardware"
+  summary: >
+    No local path on stock hardware today. The scooter's own BLE link is
+    undocumented, and the only shipped route to local control is swapping the
+    motor controller for an aftermarket Bluetooth one -- which frees the drive
+    parameters and nothing else.
+  covers:
+    - "motor drive parameters via the replacement controller's own BLE app: maximum speed, acceleration, per-mode speed limits, current/amperage, battery configuration"
+  not_covered:
+    - "telemetry, position and ride history -- still read from NIU's cloud"
+    - "GPS tracking and the alarm system -- the vendor advertises these as continuing to work unchanged, i.e. still cloud-tethered"
+    - "the stock scooter's own BLE link, which remains undocumented either way"
+  hardware:
+    - name: "NIU Bluetooth Controller"
+      vendor: "escootparts.com"
+      url: "https://escootparts.com/product/niu-bluetooth-controller/"
+      role: "replacement_part"
+      replaces: "stock motor controller"
+      fits: "N1S, N1, NQi Sport, NQi, UQi GT, UQi+, MQi+, M+ (several amperage variants)"
+      reversible: true
+      notes: >
+        Sold as a performance part -- higher amperage to the motor -- with
+        BLE app programming of speed and acceleration. Recorded here as
+        documentation of what exists, not as an endorsement: it is a
+        third-party commercial listing, we have not tested it, and raising
+        current limits on a road vehicle carries the usual thermal and legal
+        consequences. The stock controller can be refitted.
+      verification: "reported"
+  notes: >
+    If the stock BLE link turns out to be a full control channel, this device
+    moves to `bridge_hardware` or `native` and this whole section shrinks.
+    Establishing that is the single highest-value experiment for this target.

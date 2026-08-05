@@ -1,0 +1,247 @@
+device:
+  name: ThermoPro TempSpike / TP9xx BBQ Thermometer
+  manufacturer: ThermoPro (Adsmart)
+  model: TP9012, TP940, TP980 (BLE Mesh series)
+  category: kitchen
+  type: bbq-thermometer
+  transport: ble_mesh
+  # The schema `protocol` enum has no BLE Mesh member; 'ble' is the closest
+  # bearer. The mesh layer is not lost: `transport: ble_mesh` above and the
+  # `mesh_protocol:` block below carry it.
+  protocol: ble
+  manufacturer_status: active
+  notes: |
+    Extracted from com.thermopro.thermopro v1.21 (87MB, TempPro APKPure XAPK).
+    Decompiled: 14,930 classes. Package: cn.com.adsmart.wifibbq.
+    ThermoPro uses BLE Mesh (not simple BLE GATT) for multi-probe BBQ thermometers.
+    Adsmart is the OEM behind ThermoPro's connected devices.
+    BLE Mesh GATT Proxy: The phone connects as a GATT proxy to the mesh network.
+    Mesh operations: opcodes, TTL, IV index, sequence numbers, publish intervals,
+    segmented messages, source/destination addressing.
+    Three distinct device change-utility families identified in the code:
+    TP9012, TP940 (4-probe BBQ), TP980 (advanced with history and IEEE 754 float encoding).
+
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      This one is not a plain GATT device: it is a BLE Mesh node, so it must be
+      provisioned before it will answer anything. The phone acts as the mesh
+      provisioner, and provisioning is what assigns the node its unicast address
+      and gives it the network and application keys. Until that happens the
+      thermometer only emits unprovisioned device beacons.
+
+      The practical consequence for a replacement client: you cannot simply
+      connect and read, the way you can with the BLE sensors elsewhere in this
+      repo. You need a mesh stack, and you need the network key — which means
+      either provisioning the node yourself (removing it from the vendor app's
+      network) or extracting the keys from the app's own store.
+
+      Confidence is medium: BLE Mesh provisioning is a published standard and
+      the app's use of it is clear from the decompiled code, but the exchange
+      has not been run against a device here.
+    methods:
+      - type: ble_provisioning
+        description: >
+          Provision the thermometer as a BLE Mesh node over the PB-GATT bearer,
+          then talk to it through the GATT Proxy using the resulting network and
+          application keys.
+        verified: false
+        ble:
+          pairing_required: true
+        steps:
+          - action: >
+              Power the thermometer on. If it was previously provisioned, reset
+              it to the unprovisioned state first — it will otherwise ignore a
+              new provisioner.
+            actor: user
+          - action: >
+              Scan for unprovisioned device beacons, matching local name prefix
+              TP, TempPro, BBQ or iBBQ.
+            actor: client
+          - action: "Connect over the PB-GATT provisioning bearer."
+            actor: client
+          - action: >
+              Run the BLE Mesh provisioning exchange, assigning the node a
+              unicast address and issuing the network key.
+            actor: client
+          - action: >
+              Bind an application key to the node's models so its temperature
+              messages can be decrypted.
+            actor: client
+            expect: >
+              The node publishes temperature messages to the configured
+              destination address.
+          - action: >
+              Reconnect through the GATT Proxy service for ongoing reads;
+              provisioning itself uses a different bearer.
+            actor: client
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A reset to the unprovisioned state is required before a new provisioner
+        can take the node, and it clears the node's address and keys. BLE Mesh
+        defines this as a Node Reset message, but the button sequence that
+        triggers it locally differs across the TP9012, TP940 and TP980 families
+        and was not established from the app. Consult the model's manual rather
+        than guessing.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        Moving the thermometer to a different mesh network means re-provisioning
+        it, which requires resetting it to the unprovisioned state first — a
+        node can belong to one network at a time. A client that already holds
+        the network key rejoins the existing network without any reset.
+    credentials:
+      # No WiFi passphrase exists — the device is BLE Mesh only, despite the
+      # `cn.com.adsmart.wifibbq` package name. The secrets that do matter here
+      # are the mesh keys, recorded below.
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Mesh network key (NetKey)"
+        - "Application key (AppKey) bound to the node's models"
+        - "Assigned unicast address"
+      issued_to_client:
+        - "Nothing — the provisioner issues the keys rather than receiving them"
+      notes: >
+        No WiFi passphrase is involved; the thermometer is BLE Mesh only,
+        despite the `cn.com.adsmart.wifibbq` package name. The mesh keys are the
+        credentials that matter: without the NetKey a client cannot decrypt the
+        node's messages, which is why replacing the app means either
+        re-provisioning or recovering the keys from it.
+
+services:
+  - uuid: "1086FFF0-3343-4817-8BB2-B32206336CE8"
+    name: BLE Mesh GATT Proxy Service
+    characteristics:
+      - uuid: "1086FFF1-3343-4817-8BB2-B32206336CE8"
+        name: ReadWrite
+        properties: ["write"]
+        description: BLE Mesh GATT proxy read/write characteristic for mesh commands
+      - uuid: "1086FFF2-3343-4817-8BB2-B32206336CE8"
+        name: Notification
+        properties: ["notify"]
+        description: BLE Mesh GATT proxy notification characteristic for mesh responses
+
+mesh_protocol:
+  description: |
+    ThermoPro uses standard BLE Mesh v1.0/1.1 with the GATT Proxy bearer.
+    The phone acts as a mesh provisioner, configuring the thermometer node.
+    Mesh PDUs contain opcodes (1-3 octets), TTL, IV index, sequence numbers,
+    and segmented lower transport for messages exceeding the MTU.
+  supported_pdu_types:
+    - NETWORK_PDU
+    - PROXY_CONFIG
+    - SEGMENTED_ACCESS
+    - SEGMENTED_CONTROL
+  addressing:
+    source: unicast_address (node element address)
+    destination: unicast or group address
+
+device_families:
+  - model: TP9012
+    description: Basic 2-probe BBQ thermometer
+    probe_count: 2
+    temperature_encoding: u16le_split
+    temperature_encoding_detail: "(byteHigh * 256 + byteLow) / 10.0 °C — getProTemp() from two separate bytes"
+    command_opcodes:
+      - code: 0xB0
+        name: DEVICE_CHECK
+        description: Device discovery/check reply
+      - code: 0xB2
+        name: TEMP_AND_BATTERY_UPLOAD
+        description: Temperature and battery status upload. Bytes [2,3] = probe 1 temp, [4,5] = probe 2 temp
+      - code: 0xB3
+        name: REMOVE_ALARM
+        description: Clear probe alarm
+    data_format:
+      temp_upload:
+        - byte_offset: 0
+          size: 1
+          name: opcode
+          value: 0xB2
+        - byte_offset: 1
+          size: 1
+          name: battery_percent
+        - byte_offset: 2
+          size: 2
+          name: probe1_temp_raw
+          description: "(high * 256 + low) / 10.0 °C"
+        - byte_offset: 4
+          size: 2
+          name: probe2_temp_raw
+          description: "(high * 256 + low) / 10.0 °C"
+
+  - model: TP940
+    description: Advanced 4-probe BBQ thermometer with meat temperature settings
+    probe_count: 4
+    temperature_encoding: u16le_split
+    temperature_encoding_detail: "(byteHigh * 256 + byteLow) / 10.0 °C"
+    features:
+      - meat_temp_target_setting
+      - temp_unit_change (C/F)
+      - alarm_per_probe
+      - probe_disconnect_detection (-999.9°C sentinel)
+    protocol_notes: |
+      Multi-request flow for reading all probes. Index-based probing:
+      0→1→2→3→4 sequentially via setTemp(). Probe disconnect 
+      indicated by -999.9°C value.
+
+  - model: TP980
+    description: Pro-grade thermometer with history and IEEE 754 float encoding
+    probe_count: 4
+    temperature_encoding: ieee754_float32
+    temperature_encoding_detail: "32-bit IEEE 754 floating point (Java float) in big-endian byte order"
+    features:
+      - temperature_history_upload
+      - temp_unit_change
+      - per_probe_target_temp
+      - sequential_multi_probe_read
+    protocol_notes: |
+      Uses IEEE 754 float32 instead of integer encoding. 
+      History upload: multi-segment BLE Mesh messages with 
+      first-chunk and continuation flags. Probe reading uses 
+      setTemp(0..3) flow with response-based state machine.
+
+advertising:
+  discovery_method: service_uuid_and_name
+  local_name_prefixes:
+    - "TP"
+    - "TempPro"
+    - "BBQ"
+    - "iBBQ"
+
+mesh_parameters:
+  ttl:
+    default: 5 (USE_DEFAULT_TTL)
+    min: 0
+    max: 127
+  publish_ttl:
+    prohibited: [0, 1, 2, 3] # PROHIBITED_PUBLISH_TTL_MIN..MAX
+    default: 5
+  iv_index:
+    valid_range: [0, 0xFFFFFFFF]
+  unicast_address:
+    valid_range: [1, 0x7FFF]  # 15-bit
+  sequence_number:
+    valid_range: [0, 0xFFFFFF]  # 24-bit
+  retransmit:
+    default_interval_steps: 2
+  probe_time_units:
+    - RESOLUTION_100_MS
+    - RESOLUTION_1_S
+    - RESOLUTION_10_S
+    - RESOLUTION_10_M
+
+source:
+  apk: com.thermopro.thermopro v1.21 (TempPro_1.21_APKPure.xapk, 87MB)
+  decompiled: jadx (14,930 classes)
+  key_sdk_paths:
+    - cn/com/adsmart/wifibbq/ble/config/TPBleConfig.java
+    - cn/com/adsmart/wifibbq/ble/utils/TP9012ChangeUtils.java
+    - cn/com/adsmart/wifibbq/ble/utils/TP940ChangeUtils.java
+    - cn/com/adsmart/wifibbq/ble/utils/TP980ChangeUtils.java
+    - cn/com/adsmart/wifibbq/ble/utils/ParserUtils.java
+  date_extracted: "2026-07-28"
