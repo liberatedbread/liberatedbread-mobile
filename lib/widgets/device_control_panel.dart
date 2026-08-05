@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/hex.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/device_spec_match_provider.dart';
+import '../providers/spec_choice_provider.dart';
 import '../services/spec_codec.dart';
 import 'entity_sensor_card.dart';
 import 'raw_characteristic_widget.dart';
@@ -41,14 +42,19 @@ class DeviceControlPanel extends ConsumerWidget {
     final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
       ..sort();
 
-    // Collapse loading / error / no-match to null so the raw browser shows
-    // immediately and is replaced in place once a spec match resolves.
-    final match = ref
+    // Collapse loading / error to null so the raw browser shows immediately
+    // and is replaced in place once a spec match resolves.
+    final outcome = ref
         .watch(matchedDeviceSpecProvider(
-          SpecMatchRequest(deviceName: deviceName, serviceUuids: serviceUuids),
+          SpecMatchRequest(
+            deviceId: deviceId,
+            deviceName: deviceName,
+            serviceUuids: serviceUuids,
+          ),
         ))
         .asData
         ?.value;
+    final match = outcome?.chosen;
 
     // Entities the spec declares, paired with the discovered service that
     // actually carries them. An entity whose characteristic was not discovered
@@ -70,27 +76,115 @@ class DeviceControlPanel extends ConsumerWidget {
       readings.add((entity: entity, serviceUuid: owning.first.uuid));
     }
 
+    // Leading slots above the raw service list: the spec chooser when several
+    // specs tie (raw controls stay usable below it), then any spec-declared
+    // readings once a spec is chosen. Mutually exclusive today — no spec is
+    // chosen while a choice is pending — but built as a list so that isn't
+    // load-bearing.
+    final leading = <Widget>[
+      if (outcome != null && outcome.needsChoice)
+        _SpecChoicePrompt(deviceId: deviceId, candidates: outcome.candidates),
+      if (readings.isNotEmpty)
+        _ReadingsSection(
+          deviceId: deviceId,
+          readings: readings,
+          specYaml: match!.yaml,
+        ),
+    ];
+
     return ListView.builder(
       padding: const EdgeInsets.all(8),
-      // One leading slot for the readings section when the spec declares any.
-      itemCount: services.length + (readings.isEmpty ? 0 : 1),
+      itemCount: services.length + leading.length,
       itemBuilder: (context, index) {
-        if (readings.isNotEmpty) {
-          if (index == 0) {
-            return _ReadingsSection(
-              deviceId: deviceId,
-              readings: readings,
-              specYaml: match!.yaml,
-            );
-          }
-          index -= 1;
-        }
+        if (index < leading.length) return leading[index];
         return _ServiceCard(
           deviceId: deviceId,
-          service: services[index],
+          service: services[index - leading.length],
           matched: match,
         );
       },
+    );
+  }
+}
+
+/// Asks the user which spec a device is when ranking cannot decide.
+///
+/// White-label hardware is why this state exists at all: several brands ship
+/// the same GATT platform (identical service UUIDs), each with its own spec.
+/// Guessing silently would pin another brand's name — and possibly command
+/// set — to the device with nothing telling the user. The choice is stored
+/// per device id ([specChoicesProvider]) and honored on future connections;
+/// the raw GATT browser stays available below while the question is open.
+class _SpecChoicePrompt extends ConsumerWidget {
+  final String deviceId;
+  final List<MatchedSpec> candidates;
+
+  const _SpecChoicePrompt({required this.deviceId, required this.candidates});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.help_outline, color: scheme.secondary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Which device is this?',
+                    style:
+                        text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '${candidates.length} device types match equally well — they '
+              'share the same Bluetooth services. Pick one to get named '
+              'controls; your choice is remembered for this device.',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            for (final candidate in candidates)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      alignment: Alignment.centerLeft,
+                    ),
+                    onPressed: () => ref
+                        .read(specChoicesProvider.notifier)
+                        .choose(deviceId, specKeyFor(candidate.spec)),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(candidate.spec.deviceName),
+                        Text(
+                          candidate.spec.manufacturer,
+                          style: text.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
