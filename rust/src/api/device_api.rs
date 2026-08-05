@@ -376,14 +376,24 @@ pub fn match_device_to_spec(
     specs
         .into_iter()
         .filter_map(|spec| {
-            // An empty prefix is treated as absent, not as a wildcard:
-            // `"anything".starts_with("")` is true, so a spec carrying
+            // An empty prefix is treated as absent, not as a wildcard: an
+            // empty prefix matches every name, so a spec carrying
             // `local_name_prefix: ""` would otherwise claim every scanned
             // device.
-            let name_match = spec
-                .local_name_prefix
-                .as_ref()
-                .is_some_and(|prefix| !prefix.is_empty() && device_name.starts_with(prefix));
+            //
+            // ASCII-case-insensitive, like the UUID axis below: BLE local
+            // names for these devices are ASCII, and vendors are not
+            // consistent about casing across firmware revisions (SmartDawn
+            // units advertise DN*-style names and the vendor app itself
+            // filters them case-insensitively). `get(..len)` rather than
+            // slicing so a multi-byte device name can't panic mid-char — a
+            // None there cannot equal an ASCII prefix anyway.
+            let name_match = spec.local_name_prefix.as_ref().is_some_and(|prefix| {
+                !prefix.is_empty()
+                    && device_name
+                        .get(..prefix.len())
+                        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+            });
 
             // Return the lowercased intersection. Matches the docstring's
             // contract and gives Dart callers a predictable casing. We
@@ -789,6 +799,29 @@ services:
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
         let results = match_device_to_spec(vec![dto], "OTHER_Device".into(), vec![]);
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn match_by_name_prefix_is_ascii_case_insensitive() {
+        // Vendors are not consistent about advertised-name casing across
+        // firmware revisions (e.g. SmartDawn "DN"/"dn" units), and the UUID
+        // axis is already case-insensitive; the name axis must agree.
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        let results = match_device_to_spec(vec![dto], "test_Living_Room".into(), vec![]);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].matched_by_name_prefix);
+    }
+
+    #[test]
+    fn match_by_name_prefix_survives_multibyte_device_names() {
+        // A name shorter than the prefix, or one whose bytes at the prefix
+        // length fall mid-way through a multi-byte character, must be a
+        // non-match — not a panic from slicing off a char boundary.
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        for name in ["TE", "T\u{00E9}st_Bulb", "\u{1F4A1}\u{1F4A1}"] {
+            let results = match_device_to_spec(vec![dto.clone()], name.into(), vec![]);
+            assert!(results.is_empty(), "{name:?} must not match TEST_");
+        }
     }
 
     #[test]

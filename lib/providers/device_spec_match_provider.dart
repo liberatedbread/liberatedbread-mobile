@@ -94,8 +94,14 @@ final matchedDeviceSpecProvider =
     return null;
   }
   if (matches.isEmpty) {
-    Log.spec.info('no spec matched ${req.deviceName} '
-        '(${parsed.length} considered, ${req.serviceUuids.length} service uuid(s))');
+    // Name the inputs, not just their counts: "which UUIDs did matching
+    // actually see" is the first question when a device that should match
+    // renders as generic raw controls. (A device that never got this far —
+    // e.g. service discovery returned nothing — is logged by the BLE layer;
+    // matching only runs once there are discovered services.)
+    Log.spec.info('no spec matched ${req.deviceName}; raw controls only '
+        '(${parsed.length} spec(s) considered; discovered service uuid(s): '
+        '${req.serviceUuids.isEmpty ? 'none' : req.serviceUuids.join(', ')})');
     return null;
   }
 
@@ -123,10 +129,19 @@ final matchedDeviceSpecProvider =
     (p) => _sameSpecIdentity(p.spec, best.spec),
     orElse: () => parsed.first,
   );
-  Log.spec.info('matched ${req.deviceName} to "${winner.spec.deviceName}" '
-      '(${best.matchedByNamePrefix ? 'name prefix' : 'service uuid'}, '
-      '${best.matchedServiceUuids.length} uuid(s); '
-      '${matches.length} candidate(s))');
+  // The one place "this device is using spec X" is recorded — typed controls,
+  // readings and command encoding all follow from this match. Spell out the
+  // evidence (name prefix and/or the concrete UUIDs) so a wrong match is
+  // debuggable from the log alone.
+  final evidence = [
+    if (best.matchedByNamePrefix)
+      'name prefix "${winner.spec.localNamePrefix ?? ''}"',
+    if (best.matchedServiceUuids.isNotEmpty)
+      'service uuid(s) ${best.matchedServiceUuids.join(', ')}',
+  ].join(' + ');
+  Log.spec.info('using spec "${winner.spec.deviceName}" for '
+      '${req.deviceName}: matched by $evidence '
+      '(${matches.length} of ${parsed.length} spec(s) matched)');
   return MatchedSpec(spec: winner.spec, yaml: winner.yaml);
 });
 

@@ -53,6 +53,11 @@ device:
     extended channel is Daniao-specific.
 
   identification:
+    # Advertised local name is 6-8 chars starting with "DN" (the official
+    # app's scan filter, case-insensitive) — see the DISCOVERY note above.
+    # Declared here as well as per-variant so clients that identify by the
+    # device-level block can match before/without service discovery.
+    local_name_prefix: "DN"
     service_uuids:
       - "00000074-1972-1925-3022-077119514e44"
 
