@@ -27,10 +27,70 @@ pub struct DeviceSpec {
     pub device: DeviceInfo,
     #[serde(default)]
     pub services: Vec<Service>,
+    /// Sensor/control entities the spec declares, each binding a human-facing
+    /// name and unit to the characteristic that carries its value.
+    ///
+    /// This is the block that lets a client render "Internal Temperature 63°F"
+    /// instead of a GATT browser, so it is promoted out of `extensions` into a
+    /// typed field. Entities are advisory: a spec may declare one whose
+    /// `state_characteristic` isn't in `services`, so consumers must resolve
+    /// them rather than assume they bind.
+    #[serde(default)]
+    pub entities: Vec<Entity>,
     /// Parsed-but-ignored top-level extension blocks, preserved verbatim so no
     /// information is lost even though nothing interprets them yet.
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// A declared sensor or control surface.
+///
+/// Field set is deliberately small and every field but `name` is optional:
+/// across the spec catalogue these blocks are written by hand and vary, so a
+/// missing `unit` or an unfamiliar `platform` must not fail the whole parse.
+/// Unrecognized keys sweep into `extensions` for the same reason.
+#[derive(Debug, Clone, Deserialize)]
+pub struct Entity {
+    pub name: String,
+    #[serde(default)]
+    pub platform: Option<String>,
+    #[serde(default)]
+    pub device_class: Option<String>,
+    #[serde(default)]
+    pub unit: Option<String>,
+    #[serde(default)]
+    pub state_characteristic: Option<String>,
+    /// Maps entity roles onto the named fields of the characteristic's
+    /// `format:` block — e.g. `value: battery_percent` for a sensor, or
+    /// `is_on: power_state` for a light. Left untyped because the key set
+    /// differs per platform.
+    #[serde(default)]
+    pub state_mapping: HashMap<String, serde_yaml::Value>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl Entity {
+    /// The decoded field carrying this entity's reading.
+    ///
+    /// A characteristic's `format:` block can decode several fields from one
+    /// payload (battery percent alongside a status byte, say); `state_mapping`
+    /// says which one is the value. When a spec omits the mapping the caller
+    /// falls back to the first decoded field, which is the common single-field
+    /// case.
+    pub fn value_field(&self) -> Option<&str> {
+        self.state_mapping.get("value")?.as_str()
+    }
+
+    /// Multiplier applied to the decoded value before display.
+    ///
+    /// Devices commonly report a fixed-point integer — Ember's mug sends
+    /// centidegrees, so `5320` means 53.20 °C — and the spec carries the
+    /// conversion as `state_mapping.scale`. Keeping it in the spec is the whole
+    /// point: the scaling for a new device arrives as data, not as a patch.
+    pub fn value_scale(&self) -> Option<f64> {
+        self.state_mapping.get("scale")?.as_f64()
+    }
 }
 
 impl DeviceSpec {
@@ -38,27 +98,85 @@ impl DeviceSpec {
     /// Uses `eq_ignore_ascii_case` so neither side allocates a normalized
     /// copy — UUID strings are pure ASCII so this is correct and cheap.
     pub fn find_characteristic(&self, uuid: &str) -> Option<(&Service, &Characteristic)> {
-        self.services.iter().find_map(|svc| {
-            svc.characteristics
-                .iter()
-                .find(|c| c.uuid.eq_ignore_ascii_case(uuid))
-                .map(|c| (svc, c))
-        })
+        self.find_characteristic_where(uuid, |_| true)
+    }
+
+    /// Find a characteristic by UUID, preferring a declaration that satisfies
+    /// `prefer` and falling back to the first match.
+    ///
+    /// A UUID usually appears once, but hand-authored specs sometimes declare
+    /// the same characteristic twice with different detail:
+    /// `airthings-wave-family` lists the SIG temperature and humidity
+    /// characteristics in two places, and only the second carries a `format:`
+    /// block. Taking the first match blindly lets the stub shadow the real
+    /// declaration, and the reading then reports "no format block" — which is
+    /// indistinguishable from a genuinely undocumented characteristic.
+    fn find_characteristic_where(
+        &self,
+        uuid: &str,
+        prefer: impl Fn(&Characteristic) -> bool,
+    ) -> Option<(&Service, &Characteristic)> {
+        let mut fallback = None;
+        for service in &self.services {
+            for characteristic in &service.characteristics {
+                if !characteristic.uuid.eq_ignore_ascii_case(uuid) {
+                    continue;
+                }
+                if prefer(characteristic) {
+                    return Some((service, characteristic));
+                }
+                fallback.get_or_insert((service, characteristic));
+            }
+        }
+        fallback
+    }
+
+    /// Find a characteristic by UUID, preferring one that carries the byte
+    /// layout needed to decode a reading.
+    pub fn find_decodable_characteristic(&self, uuid: &str) -> Option<(&Service, &Characteristic)> {
+        self.find_characteristic_where(uuid, |c| c.format.is_some())
+    }
+
+    /// Find a characteristic by UUID, preferring one that declares commands.
+    /// The write-path mirror of [`Self::find_decodable_characteristic`].
+    pub fn find_writable_characteristic(&self, uuid: &str) -> Option<(&Service, &Characteristic)> {
+        self.find_characteristic_where(uuid, |c| c.commands.is_some())
+    }
+
+    /// Entities that actually bind to a characteristic in this spec.
+    ///
+    /// Specs are hand-authored and some declare an entity whose
+    /// `state_characteristic` is absent from `services` (or omit the field
+    /// entirely). Those can never produce a reading, so they are filtered here
+    /// rather than surfaced as a control that never updates.
+    pub fn resolved_entities(&self) -> Vec<(&Entity, &Characteristic)> {
+        self.entities
+            .iter()
+            .filter_map(|entity| {
+                let uuid = entity.state_characteristic.as_deref()?;
+                let (_, characteristic) = self.find_decodable_characteristic(uuid)?;
+                Some((entity, characteristic))
+            })
+            .collect()
     }
 }
 
 /// Device metadata and identification.
 ///
-/// Keeps `deny_unknown_fields` so a typo in a known device key (e.g.
-/// `manufactuer`) is still caught. The remaining fields are documented optional
-/// extensions that some specs nest under `device:` — `variants` (a device
-/// family sharing UUIDs but differing in commands, e.g. leds2rave4) and
-/// admore's bespoke `protobuf` / `state_machine` / `version_fields` blocks.
-/// They are named explicitly (rather than swept into a catch-all) precisely so
-/// `deny_unknown_fields` can keep rejecting genuine typos; each is parsed and
-/// preserved but not yet interpreted.
+/// `deny_unknown_fields` was dropped here after vendoring the full catalogue:
+/// it rejected 70 of 71 upstream specs outright, over descriptive keys the BLE
+/// path never reads (`discovery`, `setup`, `model`, `transport`, `category`,
+/// `type`, …). Losing a whole device because it documents its own setup steps
+/// is far worse than missing a typo, and the catalogue is meant to be refreshed
+/// as data — a new descriptive key upstream must not require a Rust change.
+///
+/// Unknown keys sweep into `extensions`, matching [`DeviceSpec`]. The named
+/// optional fields below are kept typed because something reads them:
+/// `variants` (a device family sharing UUIDs but differing in commands) and
+/// admore's bespoke `protobuf` / `state_machine` / `version_fields`. Typo
+/// detection still applies on the protocol-execution structs further down,
+/// where a wrong key would actually change behaviour.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DeviceInfo {
     pub name: String,
     pub manufacturer: String,
@@ -78,6 +196,11 @@ pub struct DeviceInfo {
     /// Version-field catalogue reported by the device (admore).
     #[serde(default)]
     pub version_fields: Option<serde_yaml::Value>,
+    /// Descriptive keys the catalogue carries but this core does not execute —
+    /// `discovery`, `setup`, `model`, `transport`, `category`, `type`, and
+    /// whatever upstream adds next. Preserved verbatim so nothing is lost.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
 }
 
 /// Why this device needs open-source rescue.
@@ -104,6 +227,12 @@ impl std::fmt::Display for ManufacturerStatus {
 }
 
 /// Primary communication protocol.
+///
+/// The catalogue carries transports this core does not execute (`uart`, `can`,
+/// `obd2`, …). Rejecting them would make an entire spec unloadable over a field
+/// the BLE path never reads, so unknown values are preserved verbatim in
+/// [`Protocol::Other`] rather than failing the parse. Callers that only handle
+/// BLE match on [`Protocol::Ble`] and ignore the rest.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Protocol {
@@ -111,6 +240,8 @@ pub enum Protocol {
     Wifi,
     Zigbee,
     Zwave,
+    #[serde(untagged)]
+    Other(String),
 }
 
 impl std::fmt::Display for Protocol {
@@ -120,6 +251,7 @@ impl std::fmt::Display for Protocol {
             Protocol::Wifi => write!(f, "wifi"),
             Protocol::Zigbee => write!(f, "zigbee"),
             Protocol::Zwave => write!(f, "zwave"),
+            Protocol::Other(raw) => write!(f, "{raw}"),
         }
     }
 }
@@ -152,11 +284,15 @@ pub struct Identification {
 
 /// A BLE GATT service.
 ///
-/// Keeps `deny_unknown_fields` — `uuid`/`name`/`characteristics` drive protocol
+/// Unknown keys sweep into `extensions` rather than failing the parse: the
+/// upstream catalogue attaches descriptive keys here (`description`,
+/// `verification`, `variants`, vendor envelopes) that do not change how bytes
+/// are encoded. Rejecting them cost 16 devices outright. The typed fields
+/// below are still the only ones that drive protocol execution.
+/// Previously strict — `uuid`/`name`/`characteristics` drive protocol
 /// execution, so a typo in any of them should still fail loudly. `notes` is the
 /// one documented optional extension (admore annotates services).
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Service {
     pub uuid: String,
     pub name: String,
@@ -169,13 +305,17 @@ pub struct Service {
 
 /// A BLE GATT characteristic.
 ///
-/// Keeps `deny_unknown_fields` so typos in `uuid`/`properties`/`commands`/
+/// Unknown keys sweep into `extensions` rather than failing the parse: the
+/// upstream catalogue attaches descriptive keys here (`description`,
+/// `verification`, `variants`, vendor envelopes) that do not change how bytes
+/// are encoded. Rejecting them cost 16 devices outright. The typed fields
+/// below are still the only ones that drive protocol execution.
+/// Previously strict so typos in `uuid`/`properties`/`commands`/
 /// `format` (the fields that drive reads/writes) are caught. `notes`,
 /// `encryption`, and `framing` are documented optional extensions; the latter
 /// two are parsed-and-preserved as opaque values since the mobile core does not
 /// yet implement AES or packet framing.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Characteristic {
     pub uuid: String,
     pub name: String,
@@ -209,14 +349,18 @@ pub enum CharacteristicProperty {
 
 /// A named command for a writable characteristic.
 ///
-/// Keeps `deny_unknown_fields` so a typo in `value`/`template`/`parameters`
+/// Unknown keys sweep into `extensions` rather than failing the parse: the
+/// upstream catalogue attaches descriptive keys here (`description`,
+/// `verification`, `variants`, vendor envelopes) that do not change how bytes
+/// are encoded. Rejecting them cost 16 devices outright. The typed fields
+/// below are still the only ones that drive protocol execution.
+/// Previously strict so a typo in `value`/`template`/`parameters`
 /// (which build the actual write payload) is caught. `setting_id`, `encoding`,
 /// and `payload` are documented optional extensions for higher-level command
 /// encodings (admore's protobuf `setting_id`; JSON/TLV `encoding`+`payload`);
 /// they are parsed but not yet executed — raw-byte commands still go through
 /// `value`/`template`.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Command {
     pub description: String,
     /// Fixed byte sequence for this command.
@@ -313,12 +457,13 @@ impl<'de> Deserialize<'de> for TemplateElement {
 
 /// A command parameter definition.
 ///
-/// Keeps `deny_unknown_fields` — `type`/`min`/`max` bound the encoded value, so
+/// Unknown keys sweep into `extensions`: specs annotate parameters with
+/// `description` and `default`, which document the parameter without changing
+/// how it encodes. `type`/`min`/`max` still bound the encoded value, so
 /// a typo here should fail loudly. `allowed`/`labels`/`notes` are documented
 /// optional extensions (admore declares enumerated allowed values with UI
 /// labels); they are parsed and preserved but do not yet drive validation.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Parameter {
     #[serde(rename = "type")]
     pub value_type: ValueType,
@@ -337,7 +482,6 @@ pub struct Parameter {
 
 /// Binary format field for parsing readable/notifiable characteristic values.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct FormatField {
     pub offset: usize,
     pub length: usize,
@@ -350,6 +494,20 @@ pub struct FormatField {
     /// simulator falls back to a name-based heuristic (see `mock/simulator.rs`).
     #[serde(default)]
     pub mock_default: Option<serde_yaml::Value>,
+    /// Multiplier converting the raw integer into the physical quantity the
+    /// field's `unit` names — a Bluetooth SIG temperature characteristic is
+    /// `int16` with `scale: 0.01`, so a raw 2350 is 23.5 °C.
+    ///
+    /// This is the per-field twin of an entity's `state_mapping.scale`. Both
+    /// exist upstream: `airthings-wave-family` and `xiaomi-miflora` declare it
+    /// here, `ember-mug` declares it on the entity. Ignoring this one made the
+    /// affected readings wrong by two orders of magnitude.
+    #[serde(default)]
+    pub scale: Option<f64>,
+    /// Unit symbol for the decoded field, used when the entity that surfaces
+    /// this reading does not name one itself.
+    #[serde(default)]
+    pub unit: Option<String>,
 }
 
 /// Supported value types for encoding/decoding.

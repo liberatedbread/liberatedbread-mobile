@@ -1,0 +1,178 @@
+# Lutron Caséta Smart Bridge 2 — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Lutron Caseta Smart Bridge 2"
+  manufacturer: "Lutron"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  transport: "tls-json"
+  notes: >
+    Lutron Caseta Smart Bridge 2 advertises multiple local services. LEAP on
+    port 8081 is the modern local TLS JSON/WebSocket control protocol. LAP on
+    port 8083 is deprecated. The _lutron._tcp status service exposes stable
+    bridge identity including MACADDR, firmware CODEVER, system type, and
+    device class. HomeKit HAP is separately advertised on port 4548.
+  identification:
+    mdns_service_type: "_leap._tcp.local."
+    default_port: 8081
+    identity_keys:
+      primary: "mac"
+      secondary: "hostname"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_leap._tcp.local."
+          port: 8081
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+            display:
+              source: "name"
+      - type: "mdns"
+        mdns:
+          service_type: "_lutron._tcp.local."
+          port: 22
+          txt_record_keys: ["MACADDR", "CODEVER", "SYSTYPE", "DEVCLASS"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:MACADDR"
+                key: "mac"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["mac", "hostname"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The Caseta bridge is Ethernet-only, so there is no WiFi provisioning.
+      What does need documenting is the LEAP pairing handshake, because unlike
+      most devices here the bridge issues the client a real X.509 certificate
+      and refuses anonymous connections afterwards.
+    methods:
+      - type: "wired"
+        verified: false
+        description: "Ethernet to the router; the bridge takes a DHCP lease and advertises _lutron._tcp.local."
+        steps:
+          - action: "Connect the bridge with Ethernet and apply power."
+            actor: "user"
+            timeout_seconds: 120
+      - type: "button_pairing"
+        verified: false
+        description: >
+          The client generates a key pair and CSR, then presents it while the
+          physical button on the back of the bridge is held. The bridge signs
+          the CSR and returns the client certificate plus its own CA
+          certificate, which the client pins for all later LEAP sessions.
+        steps:
+          - action: "Generate an RSA/EC key pair and a certificate signing request on the client."
+            actor: "client"
+          - action: "Press and hold the button on the back of the bridge."
+            actor: "user"
+          - action: "Submit the CSR to the bridge's pairing service and store the signed certificate, private key and bridge CA."
+            actor: "client"
+            request:
+              service: "LAP pairing (TLS-JSON on port 8083, not HTTP)"
+            expect: "Signed client certificate returned; later LEAP connections on port 8081 authenticate with it."
+            timeout_seconds: 30
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Network reset only: drops network settings and external integrations
+        (including issued client certificates). Per Lutron documentation this
+        does NOT delete previously paired devices, scenes or schedules; no
+        button procedure wipes the associated-device list.
+      procedures:
+        - name: "Rear button held 20s (network reset)"
+          hold_seconds: 20
+          indicator: "Release the button once the light ring begins to blink."
+          steps:
+            - action: "Press and hold the small black button on the back of the bridge for 20 seconds; release when the light ring begins to blink."
+              actor: "user"
+              notes: "Vendor-documented network reset; paired devices, scenes and schedules survive. A 40-second hold (LED flashes again at 40s) performs a HomeKit reset."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A router change is a cable move; issued client certificates survive.
+        Clients must rediscover the bridge by TXT MACADDR, not by IP.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Bridge CA private key"
+        - "Associated Caseta device list"
+      issued_to_client:
+        - "Client certificate and private key signed by the bridge CA"
+        - "Bridge CA certificate for pinning"
+      notes: >
+        This is the strongest local auth model of any device documented here:
+        no shared secret, no cloud, and a client credential that can be revoked
+        by resetting the bridge.
+
+leap_protocol:
+  transport: "TLS JSON/WebSocket"
+  port: 8081
+  deprecated_services:
+    lap:
+      service_type: "_lap._tcp.local."
+      port: 8083
+  homekit:
+    service_type: "_hap._tcp.local."
+    port: 4548
+  authentication: "certificate-based local pairing"
+
+evidence:
+  live_lan_probe:
+    date: "2026-07-16"
+    address: "192.168.1.190"
+    hostname: "Lutron-083e013d.local"
+    firmware: "08.25.17f000"
+    accessory_count: 13
+    mdns_services:
+      - service_type: "_leap._tcp"
+        port: 8081
+      - service_type: "_lap._tcp"
+        port: 8083
+      - service_type: "_lutron._tcp"
+        port: 22
+        SYSTYPE: "SmartBridge"
+        MACADDR: "b8:94:d9:aa:bb:cc"
+      - service_type: "_hap._tcp"
+        port: 4548
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "LEAP Service Root"
+    description: "Placeholder for the LEAP TLS JSON/WebSocket service on port 8081; control uses LEAP messages rather than plain unauthenticated REST."
+
+entities:
+  # Real LEAP has no "SetLevel": dimming is CreateRequest to
+  # /zone/{id}/commandprocessor with CommandType GoToLevel (also
+  # GoToDimmedLevel / Raise / Lower / Stop; switches use GoToSwitchedLevel).
+  - platform: "light"
+    name: "Caseta Dimmer"
+    commands:
+      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
+      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
+      set_brightness: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel, Parameter Level 0-100"
+  - platform: "switch"
+    name: "Caseta Switch"
+    commands:
+      turn_on: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel"
+      turn_off: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToSwitchedLevel"
+  - platform: "cover"
+    name: "Lutron Shade"
+    commands:
+      open_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
+      close_cover: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel"
+      set_cover_position: "LEAP CreateRequest /zone/{id}/commandprocessor CommandType=GoToLevel (tilt uses GoToTilt)"
+

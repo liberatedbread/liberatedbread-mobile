@@ -7,6 +7,19 @@ use crate::codec::types::DecodedValues;
 use crate::error::ProtocolError;
 use std::collections::HashMap;
 
+/// How a decoded field should be presented, as declared by the spec.
+///
+/// Separate from the decoded value itself because decoding stays lossless: the
+/// raw integer the device sent is still available, and the caller applies the
+/// conversion. A reading is only meaningful with both halves — raw 2350 with
+/// `scale: 0.01` and `unit: "°C"` is 23.5 °C.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldMeta {
+    pub name: String,
+    pub scale: Option<f64>,
+    pub unit: Option<String>,
+}
+
 /// A device protocol knows how to encode commands and decode responses
 /// for a specific BLE device.
 pub trait DeviceProtocol: Send + Sync {
@@ -28,4 +41,14 @@ pub trait DeviceProtocol: Send + Sync {
     /// List format field names for a characteristic, in `format` order (which
     /// is also the device's byte order). Callers must not sort.
     fn fields_for_characteristic(&self, char_uuid: &str) -> Vec<String>;
+
+    /// Presentation metadata for each format field, in the same order as
+    /// [`Self::fields_for_characteristic`].
+    ///
+    /// Defaults to empty: the built-in SIG profiles decode fixed layouts that
+    /// carry no spec-declared scaling, so only the spec-driven protocol has
+    /// anything to report here.
+    fn field_meta_for_characteristic(&self, _char_uuid: &str) -> Vec<FieldMeta> {
+        Vec::new()
+    }
 }

@@ -1,0 +1,189 @@
+# SmartThings Hub v2 — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SmartThings Hub v2"
+  manufacturer: "Samsung SmartThings"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  transport: "websocket"
+  notes: >
+    SmartThings Hub v2 advertises local SmartThings, Edge driver, and Matter
+    services via mDNS. The primary identity is the _smartthings._tcp TXT
+    id value. _smartthings-hedge._tcp on port 8766 exposes Edge driver control
+    features, and _matter._tcp advertises the hub's Matter operational node
+    endpoint — the hub is a Matter CONTROLLER only, not a bridge: attached
+    Zigbee/Z-Wave devices are not exposed to other Matter fabrics (no
+    bridge-to-third-party-fabrics shipped through firmware 0.57.x).
+    Security note: Cisco Talos disclosed 20 vulnerabilities (incl. RCE
+    chains) in SmartThings Hub firmware 0.20.17 in 2018
+    (TALOS-2018-0539 … TALOS-2018-0581).
+  identification:
+    mdns_service_type: "_smartthings._tcp.local."
+    default_port: 8081
+    identity_keys:
+      primary: "hub_id"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_smartthings._tcp.local."
+          port: 8081
+          txt_record_keys: ["id", "type", "path"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:id"
+                key: "hub_id"
+            display:
+              source: "name"
+      - type: "mdns"
+        mdns:
+          service_type: "_smartthings-hedge._tcp.local."
+          port: 8766
+          identity_mapping:
+            stable_keys:
+              - source: "txt:id"
+                key: "hub_id"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["hub_id"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The hub is Ethernet-only and its onboarding is entirely cloud-mediated:
+      the welcome code printed on the underside is redeemed against Samsung's
+      service, and the hub receives its identity and driver set from there.
+      Local Edge drivers run on the hub afterwards, but there is no documented
+      way to claim an unclaimed hub without the cloud, which is the key risk if
+      the service is retired — and there is precedent: Samsung shut down the
+      hub v1 cloud on 2021-06-30, rendering those hubs useless.
+    methods:
+      - type: "wired"
+        verified: false
+        description: "Ethernet to the router; the hub takes a DHCP lease and advertises _smartthings._tcp.local."
+        steps:
+          - action: "Connect Ethernet, insert the batteries if fitted, and apply power."
+            actor: "user"
+            expect: "Status LED settles to solid green once the hub reaches the service."
+            timeout_seconds: 300
+      - type: "cloud_account"
+        verified: false
+        description: "The welcome code on the hub is redeemed in the vendor app, which binds the hub to a Samsung account and provisions its drivers."
+        cloud:
+          provider: "Samsung SmartThings"
+          local_alternative: >
+            None known. Edge drivers execute locally once installed, but the
+            claim step and driver distribution both require the cloud.
+        steps:
+          - action: "Redeem the welcome code printed on the underside of the hub in the vendor app."
+            actor: "user"
+    factory_reset:
+      confidence: "low"
+      effect: "Unclaims the hub and clears its ZigBee/Z-Wave networks; every paired radio device must be re-joined afterwards."
+      procedures:
+        - name: "Reset button held while powering on"
+          hold_seconds: 30
+          indicator: "Status LED turns yellow and flashes."
+          steps:
+            - action: "Remove power and batteries."
+              actor: "user"
+            - action: "Hold the recessed reset button on the back while restoring power, and keep holding until the LED flashes yellow."
+              actor: "user"
+              notes: "Vendor-documented; verify before use — this drops every paired ZigBee and Z-Wave device."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Moving the hub to a different router is a cable move; the cloud claim is unaffected."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Account binding token"
+        - "ZigBee and Z-Wave network keys"
+      issued_to_client: []
+
+smartthings_local_protocol:
+  primary_service:
+    service_type: "_smartthings._tcp.local."
+    port: 8081
+  edge_driver_service:
+    service_type: "_smartthings-hedge._tcp.local."
+    port: 8766
+    transport: "WebSocket"
+    confidence: "unverified"
+    notes: >
+      Service and port are corroborated by community observation (Nov 2024),
+      but the WebSocket transport and the feat=ctrl TXT key rest solely on
+      this spec's own probe — no public source documents them.
+    txt:
+      feat: "ctrl"
+  matter_controller:
+    service_type: "_matter._tcp.local."
+    port: 49722
+    confidence: "unverified"
+    notes: >
+      Hub v2 is a CSA-certified Matter CONTROLLER (not a bridge — see device
+      notes). TXT T=6 is the Matter operational-discovery kTcpSupported
+      bitmask (TCP client + server). Port 49722 is probe-observed only:
+      Matter operational discovery uses ephemeral ports, so treat it as
+      instance-specific, not normative.
+    txt:
+      T: 6
+  local_https_api:
+    port: 9495
+    transport: "HTTPS"
+    notes: >
+      Undocumented local API used by the official SmartThings CLI
+      (edge:drivers:logcat, defaultLiveLogPort = 9495): GET /drivers and
+      GET /drivers/logs (Server-Sent Events), authenticated with Samsung
+      OAuth bearer headers; the CLI pins the hub's TLS server certificate
+      against its identity. Source:
+      SmartThingsCommunity/smartthings-cli src/commands/edge/drivers/logcat.ts.
+
+evidence:
+  live_lan_probe:
+    date: "2026-07-16"
+    address: "192.168.1.162"
+    hostname: "hubv2-0d052a8a662bc0001.local"
+    mdns_services:
+      - service_type: "_smartthings._tcp"
+        port: 8081
+        type: "hubv2"
+        id: "D052A8A662BC0001"
+      - service_type: "_smartthings-hedge._tcp"
+        port: 8766
+        feat: "ctrl"
+      - service_type: "_matter._tcp"
+        port: 49722
+        T: 6
+
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "SmartThings Local Service Root"
+    status: "unverified"
+    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge WebSocket service."
+  - method: "GET"
+    path: "/drivers"
+    name: "Edge Drivers (port 9495)"
+    description: "Undocumented local HTTPS API on port 9495 used by the official SmartThings CLI (edge:drivers:logcat). Requires Samsung OAuth bearer headers; TLS server certificate pinned to the hub identity."
+  - method: "GET"
+    path: "/drivers/logs"
+    name: "Edge Driver Logs SSE (port 9495)"
+    description: "Server-Sent Events live log stream on port 9495, same OAuth + TLS pinning as /drivers (official CLI logcat.ts)."
+
+entities:
+  - platform: "sensor"
+    name: "Hub Status"
+    state_topic: "smartthings://{hub_id}"
+  - platform: "binary_sensor"
+    name: "Matter Controller"
+    state_topic: "matter://{hub_id}"
+

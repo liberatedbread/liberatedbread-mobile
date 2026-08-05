@@ -4,7 +4,7 @@
 //! Generic protocol implementation driven entirely by a device spec YAML.
 //! Works for any device whose protocol is fully described by the spec.
 
-use super::traits::DeviceProtocol;
+use super::traits::{DeviceProtocol, FieldMeta};
 use crate::codec::types::{self, DecodedValues};
 use crate::error::ProtocolError;
 use crate::spec::types::DeviceSpec;
@@ -33,11 +33,12 @@ impl DeviceProtocol for GenericProtocol {
         command_name: &str,
         params: &HashMap<String, f64>,
     ) -> Result<Vec<u8>, ProtocolError> {
-        let (_, characteristic) = self.spec.find_characteristic(char_uuid).ok_or_else(|| {
-            ProtocolError::CharacteristicNotFound {
+        let (_, characteristic) = self
+            .spec
+            .find_writable_characteristic(char_uuid)
+            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
-            }
-        })?;
+            })?;
 
         let commands =
             characteristic
@@ -58,11 +59,12 @@ impl DeviceProtocol for GenericProtocol {
     }
 
     fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
-        let (_, characteristic) = self.spec.find_characteristic(char_uuid).ok_or_else(|| {
-            ProtocolError::CharacteristicNotFound {
+        let (_, characteristic) = self
+            .spec
+            .find_decodable_characteristic(char_uuid)
+            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
                 uuid: char_uuid.to_string(),
-            }
-        })?;
+            })?;
 
         let format = characteristic
             .format
@@ -76,7 +78,7 @@ impl DeviceProtocol for GenericProtocol {
 
     fn commands_for_characteristic(&self, char_uuid: &str) -> Vec<String> {
         self.spec
-            .find_characteristic(char_uuid)
+            .find_writable_characteristic(char_uuid)
             .and_then(|(_, c)| c.commands.as_ref())
             .map(|cmds| cmds.keys().cloned().collect())
             .unwrap_or_default()
@@ -84,9 +86,26 @@ impl DeviceProtocol for GenericProtocol {
 
     fn fields_for_characteristic(&self, char_uuid: &str) -> Vec<String> {
         self.spec
-            .find_characteristic(char_uuid)
+            .find_decodable_characteristic(char_uuid)
             .and_then(|(_, c)| c.format.as_ref())
             .map(|fields| fields.iter().map(|f| f.name.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn field_meta_for_characteristic(&self, char_uuid: &str) -> Vec<FieldMeta> {
+        self.spec
+            .find_decodable_characteristic(char_uuid)
+            .and_then(|(_, c)| c.format.as_ref())
+            .map(|fields| {
+                fields
+                    .iter()
+                    .map(|f| FieldMeta {
+                        name: f.name.clone(),
+                        scale: f.scale,
+                        unit: f.unit.clone(),
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }

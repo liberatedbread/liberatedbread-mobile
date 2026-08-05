@@ -18,9 +18,9 @@ void main() {
   });
 
   group('scan', () {
-    test('emits exactly 2 mock devices', () async {
+    test('emits exactly 3 mock devices', () async {
       final devices = await service.scan().toList();
-      expect(devices.length, 2);
+      expect(devices.length, 3);
     });
 
     test('emits devices with expected names', () async {
@@ -28,6 +28,9 @@ void main() {
       final names = devices.map((d) => d.name).toList();
       expect(names, contains('ACME_Living_Room'));
       expect(names, contains('ACME_Bedroom'));
+      // A device backed by a different vendored spec, so demo mode exercises
+      // more than one shape of catalogue entry.
+      expect(names, contains('Airthings Wave Plus'));
     });
 
     test('emitted devices are connectable', () async {

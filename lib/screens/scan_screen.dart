@@ -1,18 +1,23 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+
 import '../core/constants.dart';
+import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
+import '../providers/saved_device_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
+import '../services/saved_device_store.dart';
+import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
 import 'ha_settings_screen.dart';
 import 'spec_pack_settings_screen.dart';
-import '../core/error_text.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
   const ScanScreen({super.key});
@@ -30,7 +35,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   bool _hasScanned = false;
   String? _error;
   // Set when scanning failed because BLE permissions were denied; drives a
-  // permission-specific empty state with an open-settings recovery path.
+  // permission-specific state with an open-settings recovery path.
   bool _permissionDenied = false;
   late final BleService _bleService;
   // Owned scan subscription so a device tap (or dispose) can cancel the active
@@ -108,6 +113,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     );
   }
 
+  /// Reconnect to a device the user already paired with.
+  ///
+  /// A saved record carries no live RSSI — it's a pointer, not a sighting — so
+  /// the reconstructed device is marked connectable and lets the device screen
+  /// surface the real outcome if it's out of range.
+  Future<void> _reconnect(SavedDevice saved) => _connect(
+        IoTDevice(
+          id: saved.id,
+          name: saved.name,
+          rssi: 0,
+          isConnectable: true,
+          discoveredAt: DateTime.now(),
+        ),
+      );
+
+  Future<void> _forget(SavedDevice saved) async {
+    await ref.read(savedDevicesProvider.notifier).remove(saved.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Removed ${saved.name}')),
+    );
+  }
+
   @override
   void dispose() {
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
@@ -120,7 +148,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: scheme.surface,
       appBar: AppBar(
         title: const Text(AppConstants.appName),
         actions: [
@@ -140,14 +170,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
               MaterialPageRoute(builder: (_) => const HaSettingsScreen()),
             ),
           ),
-          if (isMockMode)
-            const Padding(
-              padding: EdgeInsets.only(right: 12),
-              child: Chip(label: Text('MOCK')),
-            ),
+          if (isMockMode) const _MockBadge(),
         ],
       ),
-      body: _buildBody(),
+      body: SafeArea(child: _buildBody()),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isScanning ? null : _startScan,
         icon: _isScanning
@@ -169,161 +195,426 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     );
   }
 
-  Widget _buildBody() {
+  /// Headline under the radar. Doubles as the scan status readout, so the
+  /// screen never needs a separate progress caption.
+  String get _headline {
+    if (_permissionDenied) return 'Bluetooth permission needed';
+    if (_error != null) return 'Scan failed';
+    if (_isScanning) return 'Searching for devices...';
+    if (_deviceManager.count > 0) {
+      final n = _deviceManager.count;
+      return '$n device${n == 1 ? '' : 's'} found';
+    }
+    if (_hasScanned) return 'No devices found';
+    return 'Scan for BLE Devices';
+  }
+
+  String get _subhead {
     if (_permissionDenied) {
-      return _EmptyState(
-        icon: Icons.bluetooth_disabled,
-        iconColor: Colors.red,
-        title: 'Bluetooth permission needed',
-        message:
-            'Grant Bluetooth (and, on Android, nearby-devices/location) access '
-            'so the app can scan for devices.',
-        primaryLabel: 'Open settings',
-        primaryIcon: Icons.settings,
-        // Fire-and-forget like the other teardown calls in this file: a
-        // failure to open the settings app must not become an unhandled
-        // async error.
-        onPrimary: () =>
-            unawaited(openAppSettings().catchError((Object _) => false)),
-        secondaryLabel: 'Retry',
-        onSecondary: _isScanning ? null : _startScan,
-      );
+      return 'Grant Bluetooth (and, on Android, nearby-devices/location) '
+          'access so the app can scan for devices.';
     }
+    if (_error != null) return _error!;
+    if (_isScanning) return 'Make sure your device is powered on and nearby.';
+    if (_deviceManager.count > 0) return 'Tap a device to connect.';
+    if (_hasScanned) {
+      return 'Move closer or check the device is powered on, then scan again.';
+    }
+    return AppConstants.appTagline;
+  }
 
-    if (_error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: Colors.red),
-              const SizedBox(height: 16),
-              Text(_error!,
-                  style: const TextStyle(color: Colors.red),
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: _isScanning ? null : _startScan,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+  Widget _buildBody() {
+    final saved = ref.watch(savedDevicesProvider);
+    final found = _deviceManager.devices;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+
+    return ListView(
+      // Bottom inset clears the extended FAB so the last row is never parked
+      // underneath it.
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 120),
+      children: [
+        const SizedBox(height: 16),
+        Center(child: RadarScanner(scanning: _isScanning)),
+        const SizedBox(height: 32),
+        Text(
+          _headline,
+          textAlign: TextAlign.center,
+          style: text.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.4,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Center(
+          child: ConstrainedBox(
+            // Constrained measure keeps guidance text at a readable line length
+            // instead of running edge to edge.
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: Text(
+              _subhead,
+              textAlign: TextAlign.center,
+              style: text.bodyMedium?.copyWith(
+                color: _error != null ? scheme.error : scheme.onSurfaceVariant,
+                height: 1.5,
               ),
-            ],
+            ),
           ),
         ),
-      );
-    }
-
-    if (_deviceManager.count == 0) {
-      // Distinguish "scanned, found nothing" from the initial "never scanned"
-      // prompt so a completed empty scan isn't a silent dead-end.
-      if (_hasScanned && !_isScanning) {
-        return _EmptyState(
-          icon: Icons.search_off,
-          title: 'No devices found',
-          message: 'Move closer or check the device is powered on, then scan '
-              'again.',
-          primaryLabel: 'Scan again',
-          onPrimary: _startScan,
-        );
-      }
-
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.bluetooth_searching, size: 64),
-            SizedBox(height: 16),
-            Text('Scan for BLE Devices', style: TextStyle(fontSize: 18)),
-            SizedBox(height: 8),
-            Text(AppConstants.appTagline,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey)),
+        if (_permissionDenied) ...[
+          const SizedBox(height: 24),
+          Center(
+            child: ElevatedButton(
+              // Fire-and-forget like the other teardown calls in this file: a
+              // failure to open the settings app must not become an unhandled
+              // async error.
+              onPressed: () =>
+                  unawaited(openAppSettings().catchError((Object _) => false)),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.settings),
+                  SizedBox(width: 8),
+                  Text('Open settings'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Center(
+            child: TextButton(
+              onPressed: _isScanning ? null : _startScan,
+              style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
+              child: const Text('Retry'),
+            ),
+          ),
+        ],
+        if (_error != null) ...[
+          const SizedBox(height: 24),
+          Center(
+            child: ElevatedButton(
+              onPressed: _isScanning ? null : _startScan,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh),
+                  SizedBox(width: 8),
+                  Text('Retry'),
+                ],
+              ),
+            ),
+          ),
+        ],
+        // A completed empty scan gets its own call to action rather than
+        // relying on the user finding the FAB again.
+        if (_hasScanned &&
+            !_isScanning &&
+            found.isEmpty &&
+            _error == null &&
+            !_permissionDenied) ...[
+          const SizedBox(height: 24),
+          Center(
+            child: ElevatedButton(
+              onPressed: _startScan,
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(0, 48),
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.refresh),
+                  SizedBox(width: 8),
+                  Text('Scan again'),
+                ],
+              ),
+            ),
+          ),
+        ],
+        if (found.isNotEmpty) ...[
+          const SizedBox(height: 36),
+          _SectionHeader(label: 'Found', count: found.length),
+          const SizedBox(height: 12),
+          for (final device in found) ...[
+            _DeviceCard(
+              title: device.displayName,
+              subtitle: device.isConnectable
+                  ? _signalLabel(device.rssi)
+                  : 'Not connectable',
+              detail: '${device.rssi} dBm',
+              rssi: device.rssi,
+              enabled: device.isConnectable,
+              onTap: device.isConnectable ? () => _connect(device) : null,
+            ),
+            const SizedBox(height: 10),
           ],
-        ),
-      );
-    }
+        ],
+        if (saved.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          _SectionHeader(label: 'History', count: saved.length),
+          const SizedBox(height: 12),
+          for (final device in saved) ...[
+            _DeviceCard(
+              title: device.name,
+              subtitle: 'Paired',
+              detail: _relativeTime(device.lastSeen),
+              icon: Icons.memory,
+              onTap: () => _reconnect(device),
+              onForget: () => _forget(device),
+            ),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ],
+    );
+  }
 
-    final devices = _deviceManager.devices;
-    return ListView.builder(
-      itemCount: devices.length,
-      itemBuilder: (context, index) {
-        final device = devices[index];
-        return ListTile(
-          leading: Icon(
-            device.isConnectable ? Icons.bluetooth : Icons.bluetooth_disabled,
-            color: device.isNearby ? Colors.blue : Colors.grey,
+  static String _signalLabel(int rssi) {
+    if (rssi >= -60) return 'Strong signal';
+    if (rssi >= -75) return 'Good signal';
+    return 'Weak signal';
+  }
+
+  static String _relativeTime(DateTime when) {
+    final diff = DateTime.now().difference(when);
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
+    if (diff.inDays < 1) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${when.year}-${when.month.toString().padLeft(2, '0')}-'
+        '${when.day.toString().padLeft(2, '0')}';
+  }
+}
+
+/// Section label with a count pill, e.g. "Found · 2".
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  final int count;
+
+  const _SectionHeader({required this.label, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Row(
+      children: [
+        Text(
+          label,
+          style: text.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.2,
           ),
-          title: Text(device.displayName),
-          subtitle: Text('RSSI: ${device.rssi} dBm'),
-          trailing:
-              device.isConnectable ? const Icon(Icons.chevron_right) : null,
-          onTap: device.isConnectable ? () => _connect(device) : null,
-        );
-      },
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            '$count',
+            style: text.labelSmall?.copyWith(
+              color: scheme.onSurfaceVariant,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
-/// Reusable centered empty/guidance state with up to two actions.
-class _EmptyState extends StatelessWidget {
-  final IconData icon;
-  final Color? iconColor;
+/// A device row — used for both live scan results and saved history entries.
+///
+/// One component for both keeps the two lists visually consistent; the only
+/// difference is the trailing detail (signal vs. last-seen) and whether a
+/// forget action is offered.
+class _DeviceCard extends StatelessWidget {
   final String title;
-  final String message;
-  final String primaryLabel;
-  final IconData primaryIcon;
-  final VoidCallback? onPrimary;
-  final String? secondaryLabel;
-  final VoidCallback? onSecondary;
+  final String subtitle;
+  final String detail;
+  final int? rssi;
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onTap;
+  final VoidCallback? onForget;
 
-  const _EmptyState({
-    required this.icon,
-    this.iconColor,
+  const _DeviceCard({
     required this.title,
-    required this.message,
-    required this.primaryLabel,
-    this.primaryIcon = Icons.refresh,
-    required this.onPrimary,
-    this.secondaryLabel,
-    this.onSecondary,
+    required this.subtitle,
+    required this.detail,
+    this.rssi,
+    this.icon = Icons.bluetooth,
+    this.enabled = true,
+    this.onTap,
+    this.onForget,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 64, color: iconColor),
-            const SizedBox(height: 16),
-            Text(title, style: const TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text(message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey)),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: onPrimary,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(primaryIcon),
-                  const SizedBox(width: 8),
-                  Text(primaryLabel),
-                ],
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    // Unconnectable devices stay visible but recede, so the list still reflects
+    // what's on air without inviting a tap that would do nothing.
+    final tint = enabled ? scheme.onSurface : scheme.onSurfaceVariant;
+
+    return Material(
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: tint, size: 22),
               ),
-            ),
-            if (secondaryLabel != null) ...[
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: onSecondary,
-                child: Text(secondaryLabel!),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: tint,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        if (rssi != null) ...[
+                          _SignalBars(rssi: rssi!, color: scheme.secondary),
+                          const SizedBox(width: 8),
+                        ],
+                        Flexible(
+                          child: Text(
+                            subtitle,
+                            style: text.bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Text(
+                          '  ·  $detail',
+                          style: text.bodySmall?.copyWith(
+                            color:
+                                scheme.onSurfaceVariant.withValues(alpha: 0.7),
+                            // Tabular figures stop the row jittering as values
+                            // update.
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
+              if (onForget != null)
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  iconSize: 18,
+                  tooltip: 'Forget $title',
+                  onPressed: onForget,
+                )
+              else if (onTap != null)
+                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
             ],
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Four-step signal meter.
+///
+/// Signal strength is conveyed by bar count as well as colour, so it still
+/// reads without colour perception.
+class _SignalBars extends StatelessWidget {
+  final int rssi;
+  final Color color;
+
+  const _SignalBars({required this.rssi, required this.color});
+
+  int get _filled {
+    if (rssi >= -60) return 4;
+    if (rssi >= -70) return 3;
+    if (rssi >= -80) return 2;
+    return 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: List.generate(4, (i) {
+        final on = i < _filled;
+        return Container(
+          width: 3,
+          height: 5.0 + (i * 3),
+          margin: const EdgeInsets.only(right: 2),
+          decoration: BoxDecoration(
+            color: on ? color : color.withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
+      }),
+    );
+  }
+}
+
+class _MockBadge extends StatelessWidget {
+  const _MockBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = Theme.of(context).appBarTheme.foregroundColor;
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: fg?.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: fg?.withValues(alpha: 0.4) ?? fg!),
+          ),
+          child: Text(
+            'MOCK',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: fg,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                ),
+          ),
         ),
       ),
     );
