@@ -11,12 +11,11 @@ import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
-import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
-import '../services/saved_device_store.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/device_list_tile.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
 import 'ha_settings_screen.dart';
@@ -116,29 +115,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     );
   }
 
-  /// Reconnect to a device the user already paired with.
-  ///
-  /// A saved record carries no live RSSI — it's a pointer, not a sighting — so
-  /// the reconstructed device is marked connectable and lets the device screen
-  /// surface the real outcome if it's out of range.
-  Future<void> _reconnect(SavedDevice saved) => _connect(
-        IoTDevice(
-          id: saved.id,
-          name: saved.name,
-          rssi: 0,
-          isConnectable: true,
-          discoveredAt: DateTime.now(),
-        ),
-      );
-
-  Future<void> _forget(SavedDevice saved) async {
-    await ref.read(savedDevicesProvider.notifier).remove(saved.id);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Removed ${saved.name}')),
-    );
-  }
-
   @override
   void dispose() {
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
@@ -232,7 +208,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   /// One row in either found-devices group.
   Widget _deviceCard(RankedDevice entry, DeviceDescription description) {
     final device = entry.device;
-    return _DeviceCard(
+    return DeviceListTile(
       title: deviceTitle(device, description),
       subtitle:
           device.isConnectable ? _signalLabel(device.rssi) : 'Not connectable',
@@ -251,7 +227,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   }
 
   Widget _buildBody() {
-    final saved = ref.watch(savedDevicesProvider);
     final registry = ref.watch(numberRegistryProvider);
     final found = _deviceManager.devices;
     // Each device gets its own matching future, keyed on its identity rather
@@ -380,7 +355,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         if (found.isNotEmpty) ...[
           if (ranked.likelySupported.isNotEmpty) ...[
             const SizedBox(height: 36),
-            _SectionHeader(
+            SectionHeader(
               label: 'Likely supported',
               count: ranked.likelySupported.length,
             ),
@@ -392,7 +367,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           ],
           if (ranked.other.isNotEmpty) ...[
             const SizedBox(height: 36),
-            _SectionHeader(
+            SectionHeader(
               // Only worth distinguishing from the group above when there IS
               // a group above; otherwise this is simply everything found.
               label: ranked.likelySupported.isEmpty ? 'Found' : 'Other devices',
@@ -405,22 +380,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             ],
           ],
         ],
-        if (saved.isNotEmpty) ...[
-          const SizedBox(height: 28),
-          _SectionHeader(label: 'History', count: saved.length),
-          const SizedBox(height: 12),
-          for (final device in saved) ...[
-            _DeviceCard(
-              title: device.name,
-              subtitle: 'Paired',
-              detail: _relativeTime(device.lastSeen),
-              icon: Icons.memory,
-              onTap: () => _reconnect(device),
-              onForget: () => _forget(device),
-            ),
-            const SizedBox(height: 10),
-          ],
-        ],
       ],
     );
   }
@@ -429,295 +388,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     if (rssi >= -60) return 'Strong signal';
     if (rssi >= -75) return 'Good signal';
     return 'Weak signal';
-  }
-
-  static String _relativeTime(DateTime when) {
-    final diff = DateTime.now().difference(when);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${when.year}-${when.month.toString().padLeft(2, '0')}-'
-        '${when.day.toString().padLeft(2, '0')}';
-  }
-}
-
-/// Section label with a count pill, e.g. "Found · 2".
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  final int count;
-
-  const _SectionHeader({required this.label, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Row(
-      children: [
-        Text(
-          label,
-          style: text.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.2,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            '$count',
-            style: text.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A device row — used for both live scan results and saved history entries.
-///
-/// One component for both keeps the two lists visually consistent; the only
-/// difference is the trailing detail (signal vs. last-seen) and whether a
-/// forget action is offered.
-class _DeviceCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final String detail;
-  final int? rssi;
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback? onTap;
-  final VoidCallback? onForget;
-
-  /// What the spec catalogue makes of this device, when it makes anything.
-  final String? badge;
-
-  /// Whether [badge] is a claim of support or merely a hint. A hint is styled
-  /// down deliberately: "Possibly Xiaomi" off the back of a shared OUI must not
-  /// look like the same kind of statement as a matched service UUID.
-  final bool badgeIsClaim;
-
-  /// What the device broadcast about itself, for one no spec matched — its
-  /// maker, the standard services it offers, its address. Observation, not
-  /// identification.
-  final String? description;
-
-  const _DeviceCard({
-    required this.title,
-    required this.subtitle,
-    required this.detail,
-    this.rssi,
-    this.icon = Icons.bluetooth,
-    this.enabled = true,
-    this.onTap,
-    this.onForget,
-    this.badge,
-    this.badgeIsClaim = false,
-    this.description,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    // Unconnectable devices stay visible but recede, so the list still reflects
-    // what's on air without inviting a tap that would do nothing.
-    final tint = enabled ? scheme.onSurface : scheme.onSurfaceVariant;
-
-    return Material(
-      color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: scheme.outlineVariant),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: tint, size: 22),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            style: text.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: tint,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        if (badge != null) ...[
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: _SupportBadge(
-                              label: badge!,
-                              isClaim: badgeIsClaim,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        if (rssi != null) ...[
-                          _SignalBars(rssi: rssi!, color: scheme.secondary),
-                          const SizedBox(width: 8),
-                        ],
-                        Flexible(
-                          child: Text(
-                            subtitle,
-                            style: text.bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Text(
-                          '  ·  $detail',
-                          style: text.bodySmall?.copyWith(
-                            color:
-                                scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                            // Tabular figures stop the row jittering as values
-                            // update.
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (description != null) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        description!,
-                        style: text.bodySmall?.copyWith(
-                          color:
-                              scheme.onSurfaceVariant.withValues(alpha: 0.75),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (onForget != null)
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  iconSize: 18,
-                  tooltip: 'Forget $title',
-                  onPressed: onForget,
-                )
-              else if (onTap != null)
-                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Pill naming what the catalogue thinks a scanned device is.
-///
-/// Two visual weights, because there are two different statements to make.
-/// A claim ("Ember Mug", "Likely Ember Mug") is filled in the accent colour; a
-/// hint ("Possibly Xiaomi", from a shared OUI and nothing else) is outlined and
-/// muted. Both carry their own wording, so the distinction survives without
-/// colour perception.
-class _SupportBadge extends StatelessWidget {
-  final String label;
-  final bool isClaim;
-
-  const _SupportBadge({required this.label, required this.isClaim});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: isClaim ? scheme.secondaryContainer : Colors.transparent,
-        borderRadius: BorderRadius.circular(999),
-        border: isClaim ? null : Border.all(color: scheme.outlineVariant),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: text.labelSmall?.copyWith(
-          color: isClaim
-              ? scheme.onSecondaryContainer
-              : scheme.onSurfaceVariant.withValues(alpha: 0.8),
-          fontWeight: isClaim ? FontWeight.w700 : FontWeight.w500,
-        ),
-      ),
-    );
-  }
-}
-
-/// Four-step signal meter.
-///
-/// Signal strength is conveyed by bar count as well as colour, so it still
-/// reads without colour perception.
-class _SignalBars extends StatelessWidget {
-  final int rssi;
-  final Color color;
-
-  const _SignalBars({required this.rssi, required this.color});
-
-  int get _filled {
-    if (rssi >= -60) return 4;
-    if (rssi >= -70) return 3;
-    if (rssi >= -80) return 2;
-    return 1;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: List.generate(4, (i) {
-        final on = i < _filled;
-        return Container(
-          width: 3,
-          height: 5.0 + (i * 3),
-          margin: const EdgeInsets.only(right: 2),
-          decoration: BoxDecoration(
-            color: on ? color : color.withValues(alpha: 0.22),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        );
-      }),
-    );
   }
 }
 

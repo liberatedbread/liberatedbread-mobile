@@ -23,6 +23,12 @@ class FakeSpecCodec implements SpecCodec {
   /// Every device [matchScannedDevice] was asked about, in call order.
   final List<ScannedDeviceDto> scanMatchCalls = [];
 
+  /// Returned by [matchNetworkDevice], as a function of the observed host.
+  final List<ScanMatch> Function(NetworkDeviceDto device)? networkMatches;
+
+  /// Every host [matchNetworkDevice] was asked about, in call order.
+  final List<NetworkDeviceDto> networkMatchCalls = [];
+
   /// Returned by [encodeCommand].
   final Uint8List encoded;
 
@@ -68,6 +74,7 @@ class FakeSpecCodec implements SpecCodec {
     this.spec,
     this.matches = const [],
     this.scanMatches,
+    this.networkMatches,
     Uint8List? encoded,
     this.decoded = const [],
     this.specByYaml,
@@ -105,6 +112,15 @@ class FakeSpecCodec implements SpecCodec {
   }) async {
     scanMatchCalls.add(device);
     return scanMatches?.call(device) ?? const [];
+  }
+
+  @override
+  Future<List<ScanMatch>> matchNetworkDevice({
+    required List<SpecIdentityDto> identities,
+    required NetworkDeviceDto device,
+  }) async {
+    networkMatchCalls.add(device);
+    return networkMatches?.call(device) ?? const [];
   }
 
   @override

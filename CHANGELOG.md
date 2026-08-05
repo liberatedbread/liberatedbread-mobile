@@ -34,6 +34,36 @@ heading.
   release; a bundled fallback (and a cache of the last fetched config) renders
   from the first frame, so a slow or absent network never blocks anything.
   Dismissal is remembered per promotion id.
+- **Wi-Fi device discovery, as a destination of its own.** Half the catalogue is
+  hardware with no Bluetooth at all — bridges, plugs, printers — and a BLE scan
+  could never see any of it. The new Wi-Fi tab asks over both mDNS/DNS-SD and
+  SSDP, because the two do not overlap: modern local-first devices announce over
+  mDNS only, while Wemo and pre-2020 Hue bridges are SSDP-only, so running one
+  would silently miss half the devices. Discovery is by the generic DNS-SD
+  service enumeration rather than a fixed list, so it finds hardware whose spec
+  nobody has written yet. A host answering on both transports is merged into one
+  row carrying what each said. Tapping one shows everything it advertised.
+
+  Matching reuses the same `MatchConfidence` core as the BLE path, so a badge
+  means the same thing on either tab: an mDNS service type or an SSDP search
+  target is a vendor-specific identifier and rates Strong, while a default port
+  is the network's equivalent of an OUI — port 80 says nothing about who is
+  listening — and only ever ranks. A spec that declares nothing about the
+  network can never match a host on it, so a BLE spec whose name prefix happens
+  to prefix an mDNS instance name stays off this tab.
+
+  Platform notes: iOS will not deliver mDNS answers for a service type absent
+  from `NSBonjourServices`, and fails silently when one is missing, so the plist
+  now declares them; Android needs `CHANGE_WIFI_MULTICAST_STATE` or the Wi-Fi
+  driver filters multicast out to save power. A denied local-network permission
+  looks exactly like an empty network from inside the app, so on Apple platforms
+  that case gets its own guidance and a settings link rather than a "no devices
+  found" dead end.
+- **Saved devices are a top-level destination, not a footer.** They were a
+  "History" section pinned below however many strangers' earbuds the last scan
+  turned up. The app now has a bottom bar — Nearby, Saved, Wi-Fi — and saved
+  devices get a pane with room for the address, the vendor the address block
+  belongs to, and an empty state that says how devices get there.
 - **The scan list leads with devices we can probably talk to.** A scan in any
   populated building returns mostly noise — earbuds, laptops, a neighbour's TV —
   and the previous list sorted purely by signal strength, so a supported device

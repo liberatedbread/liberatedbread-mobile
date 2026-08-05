@@ -438,6 +438,11 @@ pub struct Identification {
     /// mDNS/Bonjour service type for WiFi discovery (e.g. `_http._tcp`).
     #[serde(default)]
     pub mdns_service_type: Option<String>,
+    /// SSDP/UPnP search targets the device answers to, e.g.
+    /// `urn:Belkin:device:controllee:1`. The only way to find hardware with no
+    /// meaningful mDNS presence — Wemo, and pre-2020 Hue bridges.
+    #[serde(default)]
+    pub ssdp_search_targets: Option<Vec<String>>,
     /// WiFi SSID prefix when the device is in AP mode.
     #[serde(default)]
     pub ssid_prefix: Option<String>,

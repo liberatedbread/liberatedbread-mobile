@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
 import 'core/theme.dart';
-import 'screens/scan_screen.dart';
+import 'screens/home_shell.dart';
 
 class LiberatedBreadApp extends StatelessWidget {
   const LiberatedBreadApp({super.key});
@@ -13,7 +13,7 @@ class LiberatedBreadApp extends StatelessWidget {
       title: 'Liberated Bread',
       theme: LiberatedBreadTheme.light,
       darkTheme: LiberatedBreadTheme.dark,
-      home: const ScanScreen(),
+      home: const HomeShell(),
     );
   }
 }

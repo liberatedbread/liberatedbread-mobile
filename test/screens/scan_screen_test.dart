@@ -55,6 +55,9 @@ final _catalogueSpec = DeviceSpecDto(
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: const [],
+  defaultPort: null,
   entities: const <EntityDto>[],
   services: const [],
 );
@@ -68,6 +71,7 @@ ScanMatch _scanMatch(MatchConfidence confidence) => ScanMatch(
       matchedServiceUuids: const [],
       matchedCompanyIds: Uint16List(0),
       matchedMacPrefix: null,
+      matchedServiceTypes: const [],
     );
 
 void main() {
@@ -185,45 +189,6 @@ void main() {
       expect(find.text('Found'), findsOneWidget);
       expect(find.text('Other devices'), findsNothing);
     });
-  });
-
-  testWidgets('History lists a previously paired device', (tester) async {
-    // Seed a saved record the way a successful connect would have.
-    SharedPreferences.setMockInitialValues({
-      'saved_devices_v1':
-          '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
-    });
-    _prefs = await SharedPreferences.getInstance();
-
-    await tester.pumpWidget(_wrap(FakeBleService()));
-    await tester.pumpAndSettle();
-
-    expect(find.text('History'), findsOneWidget);
-    expect(find.text('Probe One'), findsOneWidget);
-  });
-
-  testWidgets('forgetting a saved device removes it from History',
-      (tester) async {
-    SharedPreferences.setMockInitialValues({
-      'saved_devices_v1':
-          '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
-    });
-    _prefs = await SharedPreferences.getInstance();
-
-    await tester.pumpWidget(_wrap(FakeBleService()));
-    await tester.pumpAndSettle();
-
-    // Scroll to the end of the list first — with the docked ad bar the History
-    // row can otherwise land at the viewport edge, under the FAB, where the
-    // tap silently misses. The list's own bottom padding parks the final rows
-    // clear of the FAB once fully scrolled.
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Forget Probe One'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Probe One'), findsNothing);
-    expect(find.text('History'), findsNothing);
   });
 
   testWidgets('FAB is disabled while scanning is in-flight', (tester) async {

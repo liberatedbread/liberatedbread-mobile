@@ -46,12 +46,14 @@ native library isn't bundled (e.g. test builds that skip cargokit);
 `LiberatedBreadApp` is a `StatelessWidget` that returns a `MaterialApp` with:
 - Material Design 3 theming (Liberated Bread orange/blush, light + dark —
   see [BRANDING.md](BRANDING.md))
-- Home screen: `ScanScreen()`
+- Home screen: `HomeShell()`
 
 ### Navigation Flow
 
 ```
-ScanScreen → (tap device) → DeviceScreen
+HomeShell ┬ Nearby → ScanScreen  → (tap device) → DeviceScreen
+          ├ Saved  → SavedDevicesScreen → (tap device) → DeviceScreen
+          └ Wi-Fi  → WifiScanScreen → (tap device) → details sheet
 ```
 
 Characteristics render inline on `DeviceScreen` — there is no separate
@@ -107,13 +109,19 @@ mock implementations conform to this interface:
 `MockBleService` simulates BLE without hardware. Used when
 `LIBERATED_BREAD_MOCK=true` is set.
 
-Two hardcoded mock devices:
-- **ACME_Living_Room** (RSSI: -45)
-- **ACME_Bedroom** (RSSI: -62)
+Four hardcoded mock devices, each advertising something different so demo mode
+exercises every rung of the scan-time confidence ladder without hardware:
+- **ACME_Living_Room** (-45) — advertises its service UUID (strong)
+- **ACME_Bedroom** (-62) — recognisable by name alone
+- **Airthings Wave Plus** (-58) — recognisable by company ID alone
+- an unnamed device on a Xiaomi OUI (-78) — identifiable only by its address
+  block, so it must be offered as a possibility rather than a claim
 
-Each has:
+The first two have:
 - Control Service (0x0000fff0) with Command (write) and Status (read+notify)
 - Battery Service (0x0000180f) with Battery Level (read+notify)
+
+The other two derive their GATT tree from their vendored spec.
 
 The mock service simulates connection delays and RSSI jitter. Byte-level
 logic (defaults, write-through state) delegates to Rust's `mock_api` via
@@ -124,12 +132,18 @@ table produces the same bytes when it isn't.
 
 Simple in-memory registry for discovered devices. Provides sorted access
 (by RSSI descending) and lookup by ID. Used by `ScanScreen` to maintain the
-device list across scan cycles.
+device list across scan cycles; the screen then re-ranks that list by what the
+catalogue recognises (see `rankScannedDevices`).
 
 ### The rest of `lib/services/`, briefly
 
 - `spec_codec.dart` — abstract codec interface; re-exports the FRB DTOs so
   widgets and tests never import generated bindings directly.
+- `number_registry.dart` — binary search over the vendored IEEE address-block
+  and Bluetooth SIG tables; names the maker of hardware in no catalogue.
+- `network_scan_service.dart` / `real_network_scan_service.dart` /
+  `mock_network_scan_service.dart` — local-network discovery over mDNS and
+  SSDP, in the same abstract/real/mock shape as the BLE service.
 - `real_spec_codec.dart` — production `SpecCodec`; a thin pass-through to the
   Rust FFI.
 - `spec_pack_service.dart` — downloads and caches remote spec packs
@@ -163,12 +177,33 @@ Represents a discovered BLE device:
 | `rssi` | `int` | Signal strength in dBm |
 | `isConnectable` | `bool` | Whether the device accepts connections |
 | `discoveredAt` | `DateTime` | When the device was first seen |
+| `serviceUuids` | `List<String>` | Service UUIDs in the *advertisement* — not the discovered GATT tree |
+| `companyIds` | `List<int>` | Bluetooth SIG company IDs from the manufacturer data |
 
 Computed properties:
 - `isNearby` — `rssi > -70`
 - `displayName` — Falls back to `"Unknown ($id)"` if name is empty
+- `macAddress` — the id when it is a hardware address, else null. Apple
+  platforms substitute a per-host CoreBluetooth UUID, which carries no OUI and
+  must never be read as one.
+- `hasSameIdentity(other)` — whether two sightings say the same thing about
+  *what* the device is. Excludes rssi, so spec matching runs once per device
+  rather than once per advertisement.
 
 Equality and `hashCode` are based on `id`.
+
+### `NetworkDevice` — `lib/models/network_device.dart`
+
+The Wi-Fi counterpart: host, name, hostname, port, mDNS service types, SSDP
+search targets, TXT records, and which transports found it. Deliberately not
+the same class as `IoTDevice` — a network device has no RSSI and no connectable
+flag, and its address is a DHCP lease rather than a hardware identity, so
+conflating them would mean a pile of fields null for one half of the app.
+
+`advertisedMac` digs a MAC out of the TXT record when there is one, including
+the EUI-64 form a Hue bridge publishes as `bridgeid` (the address with `FFFE`
+spliced into the middle — truncating to the first twelve digits, the obvious
+wrong move, yields an address that resolves to nothing).
 
 ### Hex display helpers — `lib/core/hex.dart`
 
@@ -247,9 +282,17 @@ registers, and updates the persisted Home Assistant configuration.
 
 ## 5. Screens and Widgets
 
+### HomeShell — `lib/screens/home_shell.dart`
+
+The app's three top-level destinations, behind a bottom navigation bar:
+**Nearby** (BLE scan), **Saved** (paired devices), **Wi-Fi** (local network
+scan). An `IndexedStack` rather than a swapped child, because each tab owns a
+scan in progress and a list of results — rebuilding those every time somebody
+glances at another tab would throw away a scan they are in the middle of.
+
 ### ScanScreen — `lib/screens/scan_screen.dart`
 
-The home screen. Shows a list of discovered BLE devices.
+The Nearby tab. Shows a list of discovered BLE devices.
 
 **State**: `_deviceManager`, `_isScanning`, `_error`
 
@@ -259,6 +302,17 @@ The home screen. Shows a list of discovered BLE devices.
 3. Each device row shows name, RSSI, "Nearby" badge
 4. When in mock mode, an "MOCK" chip appears in the AppBar
 5. Tap a device → navigate to `DeviceScreen`
+
+**Naming the unknown**: most of what a scan returns is in no catalogue.
+`NumberRegistry` (`lib/services/number_registry.dart`) reads the vendored IEEE
+address-block and Bluetooth SIG tables so a device with no name at all can still
+be titled by its maker, and one that advertises capabilities can have them named
+("Battery Service, Environmental Sensing") with vendor 128-bit UUIDs counted
+rather than printed. The tables are held as sorted strings and binary-searched
+in place — 50,000 entries parsed into a map would cost several megabytes of Dart
+heap to answer a question asked a few dozen times per scan. Address lookups try
+the longest block first; see `vendor/protocol-specs/registries/SOURCES.md` for
+why, and for why a vendor name from an OUI is frequently the *chip* vendor.
 
 **Ranking**: a scan in a populated building is mostly other people's earbuds,
 so the list does not sort on signal strength alone. Each device's advertisement
@@ -282,6 +336,50 @@ Matching is keyed on device *identity* (`ScanIdentity`), not device id, so the
 hundreds of advertisements one device emits during a scan resolve to a single
 FFI call; only `SpecIdentityDto` — a few strings per spec — crosses the
 boundary, not the parsed catalogue.
+
+### SavedDevicesScreen — `lib/screens/saved_devices_screen.dart`
+
+The Saved tab: devices the user has already paired with, newest first, each
+with reconnect and forget. Previously a "History" section pinned to the bottom
+of the scan screen, below however many strangers' earbuds the last scan turned
+up — a device you have already set up is the one you come back to. A saved
+record keeps only an id, a name and a last-seen stamp, so the id is run through
+the IEEE registry for a vendor name the same way a scan result is.
+
+### WifiScanScreen — `lib/screens/wifi_scan_screen.dart`
+
+The Wi-Fi tab. Half the catalogue is hardware with no Bluetooth at all, which a
+BLE scan can never see.
+
+`RealNetworkScanService` asks over **both** mDNS/DNS-SD and SSDP, because they
+do not overlap: modern local-first devices announce over mDNS only, while Wemo
+and pre-2020 Hue bridges are SSDP-only. mDNS discovery goes through the generic
+`_services._dns-sd._udp.local` enumeration rather than a fixed list, so it finds
+hardware whose spec nobody has written yet. The two halves run concurrently and
+fail independently — a network with IGMP snooping, or an iOS multicast
+entitlement problem, should still return whatever the other found. A host
+answering on both transports is merged by `NetworkScanCoalescer` into one row.
+
+Matching goes through `match_network_device` in the Rust api, which shares
+`MatchAxes` and therefore `MatchConfidence` with the BLE matcher — a badge means
+the same thing on either tab. An mDNS service type or SSDP search target rates
+Strong (vendor-specific identifiers the device volunteered); a `default_port` is
+the network's OUI equivalent and only ever ranks, since port 80 says nothing
+about who is listening. A spec declaring nothing about the network can never
+match a host on it, so a BLE spec whose `local_name_prefix` happens to prefix an
+mDNS instance name stays off this tab.
+
+Two platform gotchas, both of which fail *silently*:
+
+* iOS will not deliver an mDNS answer for a service type absent from
+  `NSBonjourServices` in `Info.plist`.
+* Android filters multicast frames out to save power unless the app can take a
+  multicast lock, which needs `CHANGE_WIFI_MULTICAST_STATE`.
+
+Both are pinned by `test/platform/`. A denied local-network permission also
+looks exactly like an empty network from inside the app, so on Apple platforms
+that case raises `LocalNetworkDeniedException` and gets its own guidance with a
+settings link rather than a "no devices found" dead end.
 
 ### DeviceScreen — `lib/screens/device_screen.dart`
 
