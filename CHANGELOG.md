@@ -34,6 +34,29 @@ heading.
   release; a bundled fallback (and a cache of the last fetched config) renders
   from the first frame, so a slow or absent network never blocks anything.
   Dismissal is remembered per promotion id.
+- **The scan list leads with devices we can probably talk to.** A scan in any
+  populated building returns mostly noise — earbuds, laptops, a neighbour's TV —
+  and the previous list sorted purely by signal strength, so a supported device
+  across the room sat below every anonymous radio on the desk. Advertised
+  service UUIDs, manufacturer-data company IDs and the MAC OUI are now read at
+  scan time alongside the local name, matched against the spec catalogue, and
+  the results split into a **Likely supported** section above the rest, each row
+  badged with what the catalogue thinks it is.
+
+  The four signals are weighted rather than pooled, because they are not equally
+  telling (`MatchConfidence` in `rust/src/api/device_api.rs` is the single source
+  of that judgement, shared by the scan and post-connect matchers). A vendor
+  service UUID is near proof; a name prefix or company ID is good evidence; a MAC
+  OUI is a vendor, not a product, so an OUI-only match stays out of the promoted
+  section and reads "Possibly Xiaomi" rather than naming a device. Apple
+  platforms report a per-host CoreBluetooth UUID instead of an address, so the
+  OUI signal is simply absent there and is never confused for one.
+
+  Matching is keyed on a device's identity rather than its id, so the hundreds of
+  advertisements a device emits during one scan cost a single match; only the
+  identifying fields of each spec cross the FFI boundary, not the parsed
+  catalogue. Demo mode's mock devices now advertise a different signal each, so
+  every rung of the ladder is visible without hardware.
 - **Linux desktop target (x86-64)** — build and iterate without an emulator:
   `./scripts/run-linux.sh --mock`, committed `linux/` scaffold, a
   `verify_linux_bundle.sh` that checks the Rust library is bundled *and*

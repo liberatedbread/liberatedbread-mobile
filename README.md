@@ -394,6 +394,12 @@ device:
     local_name_prefix: "ACME_"
     service_uuids:
       - "0000fff0-0000-1000-8000-00805f9b34fb"
+    # Optional, and both are used to rank scan results before connecting.
+    # A MAC OUI identifies a vendor rather than a product, so it only ever
+    # promotes a device up the list — it never claims one is supported.
+    manufacturer_data:
+      company_id: 961
+    mac_prefixes: ["C4:7C:8D"]
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"

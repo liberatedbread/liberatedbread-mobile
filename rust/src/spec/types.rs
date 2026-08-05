@@ -424,6 +424,17 @@ impl std::fmt::Display for Protocol {
 pub struct Identification {
     pub local_name_prefix: Option<String>,
     pub service_uuids: Option<Vec<String>>,
+    /// BLE manufacturer-specific advertisement data (AD type 0xFF).
+    #[serde(default)]
+    pub manufacturer_data: Option<ManufacturerData>,
+    /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
+    ///
+    /// The weakest signal the catalogue carries: an OUI belongs to a vendor,
+    /// not a product, so it is only ever a ranking hint. See
+    /// [`MatchConfidence`](crate::api::device_api::MatchConfidence) for how the
+    /// matcher weighs it.
+    #[serde(default)]
+    pub mac_prefixes: Option<Vec<String>>,
     /// mDNS/Bonjour service type for WiFi discovery (e.g. `_http._tcp`).
     #[serde(default)]
     pub mdns_service_type: Option<String>,
@@ -435,6 +446,52 @@ pub struct Identification {
     pub default_port: Option<u16>,
     /// Other discovery hints (e.g. admore's `local_name_dfu`,
     /// `local_name_armband*`), parsed and preserved but not yet interpreted.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl Identification {
+    /// Every company ID this device family advertises: the primary one plus
+    /// any `additional_company_ids`, deduplicated in declaration order.
+    pub fn company_ids(&self) -> Vec<u16> {
+        let Some(data) = self.manufacturer_data.as_ref() else {
+            return Vec::new();
+        };
+        let mut ids = Vec::new();
+        for id in data
+            .company_id
+            .into_iter()
+            .chain(data.additional_company_ids.iter().flatten().copied())
+        {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+}
+
+/// The identifying part of a spec's BLE manufacturer-specific advertisement
+/// data.
+///
+/// Unknown keys sweep into `extensions` rather than failing the parse: the
+/// catalogue attaches `company_id_hex`, `description`, `format` and
+/// `discovery_patterns` here, none of which change who a device is. The
+/// payload-level matching rules (offsets, byte patterns) live under the spec's
+/// `discovery` block, which this core does not execute.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManufacturerData {
+    /// Bluetooth SIG company identifier from the advertisement header.
+    ///
+    /// Note this identifies an advertisement shape rather than a vendor —
+    /// squatting on an unassigned ID is common — so it is a weaker signal than
+    /// a service UUID.
+    #[serde(default)]
+    pub company_id: Option<u16>,
+    /// Further IDs the same family advertises (older firmware, rebadges),
+    /// treated as equivalent to `company_id`.
+    #[serde(default)]
+    pub additional_company_ids: Option<Vec<u16>>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
