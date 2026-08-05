@@ -9,6 +9,7 @@ import '../providers/device_spec_match_provider.dart';
 import '../providers/spec_choice_provider.dart';
 import '../services/spec_codec.dart';
 import 'entity_sensor_card.dart';
+import 'led_image_widget.dart';
 import 'raw_characteristic_widget.dart';
 import 'typed_characteristic_widget.dart';
 
@@ -78,15 +79,22 @@ class DeviceControlPanel extends ConsumerWidget {
 
     // Leading slots above the raw service list: the spec chooser when several
     // specs tie (raw controls stay usable below it), a banner when the active
-    // spec is a saved user choice (with the way to change it), then any
-    // spec-declared readings once a spec is chosen. Chooser and banner are
-    // mutually exclusive today — no spec is chosen while a choice is pending
-    // — but built as a list so that isn't load-bearing.
+    // spec is a saved user choice (with the way to change it), the LED image
+    // editor for specs declaring a pixel surface, then any spec-declared
+    // readings once a spec is chosen. Chooser and banner are mutually
+    // exclusive today — no spec is chosen while a choice is pending — but
+    // built as a list so that isn't load-bearing.
     final leading = <Widget>[
       if (outcome != null && outcome.needsChoice)
         _SpecChoicePrompt(deviceId: deviceId, candidates: outcome.candidates),
       if (outcome != null && outcome.source == SpecChoiceSource.saved)
         _SavedChoiceBanner(deviceId: deviceId, chosen: outcome.chosen!),
+      if (match != null && match.spec.imageUpload != null)
+        LedImageWidget(
+          deviceId: deviceId,
+          imageUpload: match.spec.imageUpload!,
+          specYaml: match.yaml,
+        ),
       if (readings.isNotEmpty)
         _ReadingsSection(
           deviceId: deviceId,

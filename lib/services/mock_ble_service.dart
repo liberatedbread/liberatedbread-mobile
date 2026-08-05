@@ -340,6 +340,14 @@ class MockBleService implements BleService {
   }
 
   @override
+  Future<int> mtu(String deviceId) async {
+    // Demo mode pretends to be a modern link (the fbp Android default request
+    // is 512) so bulk features like image upload exercise their chunking at a
+    // realistic size instead of the 23-byte floor.
+    return 512;
+  }
+
+  @override
   Stream<List<int>> subscribeCharacteristic(
     String deviceId,
     String serviceUuid,

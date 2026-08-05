@@ -635,6 +635,10 @@ class RealBleService implements BleService {
     return controller.stream;
   }
 
+  @override
+  Future<int> mtu(String deviceId) async =>
+      BluetoothDevice.fromId(deviceId).mtuNow;
+
   /// Enable/disable notifications, tolerating the Linux backend's spurious
   /// confirmation timeout (see [isSpuriousLinuxNotifyTimeout]: the
   /// subscription is live by the time it fires).
