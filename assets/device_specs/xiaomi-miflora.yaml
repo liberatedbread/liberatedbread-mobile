@@ -68,6 +68,12 @@ device:
     local_name_prefix: "Flower"
     service_uuids:
       - "0000fe95-0000-1000-8000-00805f9b34fb"
+    # C4:7C:8D is an IEEE block that has been subdivided into fifteen 28-bit
+    # MA-M assignments belonging to unrelated companies; the one this device
+    # comes from is C4:7C:8D:6x, HHCC Plant Technology (hence the HHCCJCY01
+    # model number). A consumer matching on whole octets therefore also matches
+    # fourteen other vendors -- acceptable for a ranking hint, and another
+    # reason this must never be read as identifying a product.
     mac_prefixes:
       - "C4:7C:8D"
 

@@ -2,8 +2,8 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Vendor device specs from a liberatedbread-protocol-specs checkout into
-# assets/device_specs/.
+# Vendor device specs and number registries from a liberatedbread-protocol-specs
+# checkout into assets/device_specs/ and assets/registries/.
 #
 # The specs are authored in the protocol-specs repo and vendored here so the app
 # ships a working catalogue offline. Adding or updating a device is then a
@@ -13,12 +13,16 @@
 # Usage:
 #   ./scripts/sync_device_specs.sh [path-to-protocol-specs-checkout]
 #
-# Defaults to ../liberatedbread-protocol-specs.
+# Defaults to vendor/protocol-specs, the git subtree in this repository, so a
+# plain run reproduces exactly what is committed. Pass a path to sync from a
+# working checkout instead -- that is how a spec change is tried out here before
+# it lands upstream.
 
 set -euo pipefail
 
-SRC="${1:-$(dirname "$0")/../../liberatedbread-protocol-specs}"
+SRC="${1:-$(dirname "$0")/../vendor/protocol-specs}"
 DEST="$(dirname "$0")/../assets/device_specs"
+REGISTRY_DEST="$(dirname "$0")/../assets/registries"
 
 if [[ ! -d "$SRC/device-specs/devices" ]]; then
   echo "error: no device-specs/devices in '$SRC'" >&2
@@ -66,6 +70,24 @@ with open(dest, "w") as handle:
 
 print(f"manifest: {len(entries)} devices")
 PY
+
+# The number registries (IEEE address blocks, Bluetooth SIG assigned numbers)
+# name the maker of hardware that is in no catalogue at all, which is most of
+# what a scan actually returns. Absent on an older checkout, so this is a
+# warning rather than an error -- the app degrades to unnamed devices.
+registry_count=0
+if [[ -d "$SRC/registries" ]]; then
+  mkdir -p "$REGISTRY_DEST"
+  find "$REGISTRY_DEST" -maxdepth 1 -name '*.tsv' -delete
+  for registry in "$SRC"/registries/*.tsv; do
+    [[ -e "$registry" ]] || continue
+    cp "$registry" "$REGISTRY_DEST/"
+    registry_count=$((registry_count + 1))
+  done
+  echo "vendored $registry_count registry file(s) into $REGISTRY_DEST"
+else
+  echo "warning: no registries/ in '$SRC'; device vendor names will be unavailable" >&2
+fi
 
 echo "vendored $count spec file(s) into $DEST"
 echo "now run: (cd rust && cargo test)   # vendored_assets parses every spec"

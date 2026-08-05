@@ -10,6 +10,7 @@ import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
+import '../providers/device_description_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
@@ -229,16 +230,21 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   }
 
   /// One row in either found-devices group.
-  Widget _deviceCard(RankedDevice entry) {
+  Widget _deviceCard(RankedDevice entry, DeviceDescription description) {
     final device = entry.device;
     return _DeviceCard(
-      title: device.displayName,
+      title: deviceTitle(device, description),
       subtitle:
           device.isConnectable ? _signalLabel(device.rssi) : 'Not connectable',
       detail: '${device.rssi} dBm',
       rssi: device.rssi,
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
+      // Only worth saying for a device the catalogue could not place. Once a
+      // spec has matched, the badge already names the product, and "Ember
+      // Technologies · Battery Service" underneath it is noise.
+      description:
+          entry.guess == null ? deviceSubtitle(device, description) : null,
       enabled: device.isConnectable,
       onTap: device.isConnectable ? () => _connect(device) : null,
     );
@@ -246,6 +252,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   Widget _buildBody() {
     final saved = ref.watch(savedDevicesProvider);
+    final registry = ref.watch(numberRegistryProvider);
     final found = _deviceManager.devices;
     // Each device gets its own matching future, keyed on its identity rather
     // than its id — an rssi tick reuses the cached result instead of asking
@@ -379,7 +386,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             ),
             const SizedBox(height: 12),
             for (final entry in ranked.likelySupported) ...[
-              _deviceCard(entry),
+              _deviceCard(entry, describeWith(registry, entry.device)),
               const SizedBox(height: 10),
             ],
           ],
@@ -393,7 +400,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             ),
             const SizedBox(height: 12),
             for (final entry in ranked.other) ...[
-              _deviceCard(entry),
+              _deviceCard(entry, describeWith(registry, entry.device)),
               const SizedBox(height: 10),
             ],
           ],
@@ -498,6 +505,11 @@ class _DeviceCard extends StatelessWidget {
   /// look like the same kind of statement as a matched service UUID.
   final bool badgeIsClaim;
 
+  /// What the device broadcast about itself, for one no spec matched — its
+  /// maker, the standard services it offers, its address. Observation, not
+  /// identification.
+  final String? description;
+
   const _DeviceCard({
     required this.title,
     required this.subtitle,
@@ -509,6 +521,7 @@ class _DeviceCard extends StatelessWidget {
     this.onForget,
     this.badge,
     this.badgeIsClaim = false,
+    this.description,
   });
 
   @override
@@ -599,6 +612,18 @@ class _DeviceCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (description != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        description!,
+                        style: text.bodySmall?.copyWith(
+                          color:
+                              scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
               ),
