@@ -10,9 +10,15 @@ device:
   transport: "websocket"
   notes: >
     SmartThings Hub v2 advertises local SmartThings, Edge driver, and Matter
-    bridge services via mDNS. The primary identity is the _smartthings._tcp TXT
+    services via mDNS. The primary identity is the _smartthings._tcp TXT
     id value. _smartthings-hedge._tcp on port 8766 exposes Edge driver control
-    features, and _matter._tcp advertises the Matter bridge endpoint.
+    features, and _matter._tcp advertises the hub's Matter operational node
+    endpoint — the hub is a Matter CONTROLLER only, not a bridge: attached
+    Zigbee/Z-Wave devices are not exposed to other Matter fabrics (no
+    bridge-to-third-party-fabrics shipped through firmware 0.57.x).
+    Security note: Cisco Talos disclosed 20 vulnerabilities (incl. RCE
+    chains) in SmartThings Hub firmware 0.20.17 in 2018
+    (TALOS-2018-0539 … TALOS-2018-0581).
   identification:
     mdns_service_type: "_smartthings._tcp.local."
     default_port: 8081
@@ -57,7 +63,8 @@ device:
       service, and the hub receives its identity and driver set from there.
       Local Edge drivers run on the hub afterwards, but there is no documented
       way to claim an unclaimed hub without the cloud, which is the key risk if
-      the service is retired.
+      the service is retired — and there is precedent: Samsung shut down the
+      hub v1 cloud on 2021-06-30, rendering those hubs useless.
     methods:
       - type: "wired"
         verified: false
@@ -110,13 +117,35 @@ smartthings_local_protocol:
     service_type: "_smartthings-hedge._tcp.local."
     port: 8766
     transport: "WebSocket"
+    confidence: "unverified"
+    notes: >
+      Service and port are corroborated by community observation (Nov 2024),
+      but the WebSocket transport and the feat=ctrl TXT key rest solely on
+      this spec's own probe — no public source documents them.
     txt:
       feat: "ctrl"
-  matter_bridge:
+  matter_controller:
     service_type: "_matter._tcp.local."
     port: 49722
+    confidence: "unverified"
+    notes: >
+      Hub v2 is a CSA-certified Matter CONTROLLER (not a bridge — see device
+      notes). TXT T=6 is the Matter operational-discovery kTcpSupported
+      bitmask (TCP client + server). Port 49722 is probe-observed only:
+      Matter operational discovery uses ephemeral ports, so treat it as
+      instance-specific, not normative.
     txt:
       T: 6
+  local_https_api:
+    port: 9495
+    transport: "HTTPS"
+    notes: >
+      Undocumented local API used by the official SmartThings CLI
+      (edge:drivers:logcat, defaultLiveLogPort = 9495): GET /drivers and
+      GET /drivers/logs (Server-Sent Events), authenticated with Samsung
+      OAuth bearer headers; the CLI pins the hub's TLS server certificate
+      against its identity. Source:
+      SmartThingsCommunity/smartthings-cli src/commands/edge/drivers/logcat.ts.
 
 evidence:
   live_lan_probe:
@@ -139,13 +168,22 @@ http_endpoints:
   - method: "GET"
     path: "/"
     name: "SmartThings Local Service Root"
-    description: "Primary _smartthings._tcp service endpoint on port 8081. Edge control is advertised separately on the hedge WebSocket service."
+    status: "unverified"
+    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge WebSocket service."
+  - method: "GET"
+    path: "/drivers"
+    name: "Edge Drivers (port 9495)"
+    description: "Undocumented local HTTPS API on port 9495 used by the official SmartThings CLI (edge:drivers:logcat). Requires Samsung OAuth bearer headers; TLS server certificate pinned to the hub identity."
+  - method: "GET"
+    path: "/drivers/logs"
+    name: "Edge Driver Logs SSE (port 9495)"
+    description: "Server-Sent Events live log stream on port 9495, same OAuth + TLS pinning as /drivers (official CLI logcat.ts)."
 
 entities:
   - platform: "sensor"
     name: "Hub Status"
     state_topic: "smartthings://{hub_id}"
   - platform: "binary_sensor"
-    name: "Matter Bridge"
+    name: "Matter Controller"
     state_topic: "matter://{hub_id}"
 

@@ -17,10 +17,20 @@ device:
   protocol: "ble"
   notes: >
     BLE motorcycle LED controller from XKGlow. Single custom GATT service
-    with 8 characteristics. Supports RGB color control, mono brightness,
+    with 7 characteristics (the 8th UUID in the app's attribute table is
+    the service itself). Supports RGB color control, mono brightness,
     LED animation sequences, and multi-zone configuration. The controller
     auto-discovers zone count and type (color vs mono) from device config
     on connect.
+
+    FCC ID 2AIKCXK-CHROME (grantee XKGLOW INC, 2016); internal photos show
+    a potted PCB silkscreened "RGB Controller V1.0 XKGlow".
+
+    NO FIRMWARE UPDATES: the XKchrome (3rd gen) hardware has no
+    firmware-update capability at all — the vendor's own XKchrome-vs-XKmax
+    comparison attributes firmware updates only to the 5th-gen XKmax line,
+    and the APK contains no OTA code or firmware URLs. Firmware revision is
+    only exposed read-only via CONTROLLER_CONFIG byte 2.
 
     All UUIDs are in the vendor base 458A7133-xxxx-4E37-A4A4-5D8492586977
     with the xxxx suffix encoding the characteristic function.
@@ -130,33 +140,40 @@ services:
     characteristics:
       - uuid: "458a7133-0002-4e37-a4a4-5d8492586977"
         name: "Controller Name"
-        properties: ["read", "notify"]
+        properties: ["read", "notify", "write"]
         notes: >
           Human-readable controller name. UTF-8 string. Read triggers the
-          initialization chain: on receive, app reads ZONE_1_NAME.
+          initialization chain: on receive, app reads ZONE_1_NAME. Also
+          writable — EditDeviceInfo renames the controller through the
+          app's write chain.
 
       - uuid: "458a7133-0006-4e37-a4a4-5d8492586977"
         name: "Zone 1 Name"
-        properties: ["read", "notify"]
+        properties: ["read", "notify", "write"]
         notes: >
           Human-readable name for zone 1. UTF-8 string. On receive, app
-          reads ZONE_2_NAME (if multi-zone) or SETTING.
+          reads ZONE_2_NAME (if multi-zone) or SETTING. Also writable —
+          EditDeviceInfo renames zones (after a zone-1 rename, firmware
+          revisions with (fwRev & 0x0F) == 8 trigger a chained settings
+          write).
 
       - uuid: "458a7133-0007-4e37-a4a4-5d8492586977"
         name: "Zone 2 Name"
-        properties: ["read", "notify"]
+        properties: ["read", "notify", "write"]
         notes: >
           Human-readable name for zone 2. UTF-8 string. On receive, app
-          reads SETTING.
+          reads SETTING. Also writable — EditDeviceInfo renames zones.
 
       - uuid: "458a7133-0003-4e37-a4a4-5d8492586977"
         name: "Settings"
-        properties: ["read", "notify"]
+        properties: ["read", "notify", "write"]
         notes: >
           Controller settings. 2+ bytes.
           Byte 0: brake enabled (0=disabled, non-zero=enabled).
           Byte 1: auto-off enabled (0=disabled, non-zero=enabled).
-          On receive, app reads CONTROLLER_CONFIG.
+          On receive, app reads CONTROLLER_CONFIG. Also writable —
+          EditDeviceInfo writes settings as 7-byte frames containing a
+          0x2C byte.
         format:
           - offset: 0
             length: 1
@@ -176,6 +193,10 @@ services:
           Byte 1: total number of zones.
           Byte 2: firmware revision.
           On receive, app finalizes device setup and marks it ready.
+          Byte 2 gates app behavior: (fwRev & 0x0F) == 8 → chained settings
+          write after a zone-1 rename; (fwRev & 0x0F) == 9 → ramp-mode
+          writes to the Time characteristic (0005); fwRev ∈ {0x10, 0x11,
+          0x18} → smart-sensor pattern support.
         format:
           - offset: 0
             length: 1
@@ -199,7 +220,7 @@ services:
         commands:
           set_rgb_color:
             description: "Set solid RGB color for a zone."
-            verification: "confirmed"
+            verification: "reported"
             value: [0x00, 0x00, 0x04, 0xFF, 0x00, 0x00]
             template: [0x00, "{zone}", 0x04, "{red}", "{green}", "{blue}"]
             parameters:
@@ -223,7 +244,7 @@ services:
 
           set_mono_brightness:
             description: "Set mono (single-channel) brightness for a zone. Writes the same value to all three color positions."
-            verification: "confirmed"
+            verification: "reported"
             template: [0x00, "{zone}", 0x04, "{brightness}", "{brightness}", "{brightness}"]
             parameters:
               zone:
@@ -237,7 +258,7 @@ services:
 
           stop_animation:
             description: "Stop animation on a zone."
-            verification: "confirmed"
+            verification: "reported"
             template: [0x00, "{zone}", 0x05, 0x00]
             parameters:
               zone:
@@ -247,7 +268,7 @@ services:
 
           set_default_brightness:
             description: "Set default brightness configuration (10-byte system command). Observed in setBrightnessDefault: writes [0x00, 0x03, 0x06, 0x06, 0x81, 0x9E, 0x06, 0x00, 0xFF, 0x00]."
-            verification: "confirmed"
+            verification: "reported"
             value: [0x00, 0x03, 0x06, 0x06, 0x81, 0x9E, 0x06, 0x00, 0xFF, 0x00]
 
           write_animation:
@@ -259,7 +280,7 @@ services:
               
               The data stream begins with a 3-byte prefix: [zone, 0x05, 0xFF].
               The remaining bytes are the animation LED data.
-            verification: "confirmed"
+            verification: "reported"
             template: ["{header}", "{chunk_data}"]
             parameters:
               header:
@@ -271,11 +292,16 @@ services:
 
       - uuid: "458a7133-0005-4e37-a4a4-5d8492586977"
         name: "Time Characteristic"
-        properties: ["read", "write"]
+        properties: ["write"]
         notes: >
-          Time characteristic. Written to and read from by the app.
-          Exact format not fully decoded; likely sets the controller's
-          internal clock for scheduled operation.
+          TIME_CHARACTERISTIC in the app. Its only observed use is 4-byte
+          ramp-mode control: after a settings write, when
+          (firmware_revision & 0x0F) == 9 the app writes
+          [0x54, 0x03, 0x00, 0x00] (ramp on) or [0x00, 0x00, 0x00, 0x00]
+          (ramp off). A clock-sync use may exist elsewhere but nothing in
+          the smali supports the earlier "internal clock" guess, and a read
+          property is unverifiable from app code (0005 is not in the
+          chained read sequence).
 
 entities:
   - platform: "light"

@@ -15,9 +15,12 @@ device:
   protocol: "wifi"
   notes: >
     WiFi-connected window AC units controlled via the Frigidaire app
-    (Electrolux platform). Covers FHWW series (8K-15K BTU) and Gallery
-    GHWQ series. Cloud-connected via Electrolux OCP servers. Gallery models include
-    an ionizer (Clean Air) feature.
+    (Electrolux platform). Covers FHWW series (8K-24K BTU; the range extends
+    to the 24,000 BTU FHWW245WE2) and Gallery GHWQ series. Cloud-connected
+    via Electrolux OCP servers. The ionizer (Clean Air) feature is
+    model-specific, not Gallery-wide: the official GHWQ083WC1 spec sheet
+    states "Clean Air Ionizer: No", while older Gallery Cool Connect models
+    (e.g. FGRC104WA1) do have one.
 
     DISCOVERY/AUTHENTICATION: this is WiFi cloud control, not a steady-state
     local LAN protocol. APK static analysis of Frigidaire
@@ -34,7 +37,11 @@ device:
     Discovery for users happens through the Frigidaire/Electrolux app account
     after app-based pairing. The replacement control path must authenticate to
     the Electrolux cloud/OCP account, enumerate appliances assigned to that
-    account, then send commands through the cloud API or websocket.
+    account, then send commands through the cloud API or websocket. An official
+    path now exists alongside the reverse-engineered OCP one: the Electrolux
+    Developer API (developer.electrolux.one) plus the official Apache-2.0
+    Python SDK (electrolux-oss/electrolux-group-developer-sdk), reported to
+    work with NA-region Frigidaire 2.0 app credentials.
 
     Protocol details still need network captures to confirm exact request and
     payload formats, but local device discovery is closed as cloud-only for
@@ -44,7 +51,7 @@ device:
     discovery: "Electrolux/Frigidaire app and cloud account enumeration"
     local_discovery: false
     provisioning_local_only:
-      softap_ssid_prefixes: ["AJ", "@E", "IOT", "Air_Conditioner", "Dehumidifier"]
+      softap_ssid_prefixes: ["AJ", "@E", "IOT", "Air_Conditioner", "Dehumidifier", "ELUX", "AC", "DEHUM"]
       protocols: ["AllJoyn onboarding", "OCP provisioning"]
       setup_endpoint: "192.168.6.1:3002"
       legacy_cleartext_exception: "192.168.0.1"
@@ -63,6 +70,8 @@ device:
       - "https://frigidaire.app.electrolux.one/"
       - "wss://ws.eu.ocp-dev.electrolux.one"
       - "wss://ws.eu.ocp-staging.electrolux.one"
+      - "https://api.ocp.electrolux.one (production; regional bases api.us.ocp.electrolux.one for NA, api.eu.ocp.electrolux.one for EU)"
+      - "wss://ws.ocp.electrolux.one (production; regional wss://ws.us.ocp.electrolux.one, wss://ws.eu.ocp.electrolux.one)"
       - "/appliance/api/v2/appliances?includeMetadata=true"
       - "/appliance/api/v2/appliances/{applianceId}/command"
       - "/appliance/api/v3/appliances/info"
@@ -76,7 +85,14 @@ device:
           auth_method: "oauth2"
           device_list_endpoint:
             method: "GET"
-            url: "https://api.electrolux.com/ocp/v1/appliances"
+            url: "https://api.ocp.electrolux.one/appliance/api/v2/appliances?includeMetadata=true"
+            notes: >
+              The earlier api.electrolux.com/ocp/v1/appliances URL does not
+              resolve (NXDOMAIN) and no OCP client references it. Working path
+              on the OCP cloud; NA accounts use the regional base
+              https://api.us.ocp.electrolux.one. The official Electrolux
+              Developer API exposes the same enumeration at
+              https://api.developer.electrolux.one/api/v1/appliances.
             response_mapping:
               stable_keys:
                 - source: "json://applianceId"
@@ -120,21 +136,28 @@ device:
             actor: "client"
             notes: "Open gap: the highest-value capture target for this device, since it is the only moment local credentials are in play."
     factory_reset:
-      confidence: "low"
-      effect: "Expected to clear WiFi credentials and the account binding, returning the unit to pairing mode. Not verified here."
+      confidence: "high"
+      effect: "Clears WiFi credentials and the account binding, returning the unit to pairing mode. Vendor-documented in an official Frigidaire support article (the router-change procedure)."
       procedures:
         - name: "Control panel button sequence"
           steps:
-            - action: "Hold the WiFi/Connect button on the unit until the WiFi indicator blinks to re-enter pairing mode."
+            - action: "Remove the appliance from the Frigidaire 2.0 app."
               actor: "user"
-              notes: "Vendor-documented and model-specific; verify against the manual before relying on it."
+            - action: "Press and hold the Wi-Fi/Connect button for 10 seconds (the unit may beep)."
+              actor: "user"
+            - action: "Unplug the appliance for 30 seconds, then plug it back in."
+              actor: "user"
+              notes: "Wait at least 60 seconds after plugging back in before attempting the connection process again."
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
       notes: >
         Changing routers means re-running app onboarding. If the vendor cloud
         is retired, that path disappears and the unit cannot be re-bound at
-        all — the practical definition of a bricked smart appliance.
+        all — the practical definition of a bricked smart appliance. This is
+        not hypothetical for this device family: Frigidaire deactivated the
+        1.0 Smart App outright and required owners to re-onboard their
+        appliances to the Frigidaire 2.0 app.
     credentials:
       wifi_passphrase_protection: "unknown"
       stored_on_device:
@@ -157,10 +180,10 @@ http_endpoints:
     response_body:
       content_type: "application/json"
 
-  - method: "POST"
+  - method: "PUT"
     path: "/appliance/api/v2/appliances/{applianceId}/command"
     name: "Appliance Command"
-    description: "Cloud command path observed in APK strings; exact payload requires traffic capture."
+    description: "Cloud command path observed in APK strings. Method is PUT (two independent RE clients and the official SDK agree); payload is a single-property JSON map, exact property set requires traffic capture."
     request_body:
       content_type: "application/json"
 

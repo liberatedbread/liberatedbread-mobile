@@ -28,8 +28,29 @@ device:
 
     Error values: 0x7ffe, 0x7fff, 0x8000 indicate probe disconnected/fault.
 
-    Connection requires a handshake: BG-BT1X uses fixed code fea1b2c3e40000;
-    BBQ-4BW uses challenge-response with verify-code calculation.
+    Newer firmware advertises different local names: a real 2025-era IBT-2X-B
+    advertises "Inkbird@IBT-2X-B" (ble_monitor issue #1443), which none of the
+    classic prefixes match — "Inkbird@" is included in the prefix lists.
+
+    Connection requires a handshake: BG-BT1X uses fixed code fea1b2c3e40000
+    (an alternate fixed frame fea1b2c3e4f5f5 is written by the config
+    activity — BBQ1xBleConfigActivity.java:67); BBQ-4BW uses challenge-response
+    whose verify-code algorithm is fully recovered: deterministic sqrt/mod/pow
+    math on the 6-byte challenge (no timestamp, no CRC) producing the 12-hex
+    response after fc — device/bbq4bw/utils/BBQ4tBwHelper.java:109-132.
+
+    CAVEAT — two incompatible BLE protocol families ship under the same model
+    names: IBT-2X / IBT-4XS also exist on the older 0xfff0 "iBBQ/EasyBBQ"
+    binary protocol (chars fff1-fff5, fixed-credentials login, s16le temps in
+    0.1 °C — uucidl ibbq-thermometer-protocol gist, gleeds/cloudbbq; covered
+    by the sibling spec ibbq-meat-thermo, app com.inkbird.ibbtgo). Discovery
+    must key on the advertised service UUID (ff00 vs fff0), not the name.
+
+    The ASCII-hex 14-char framing documented here is specific to the BBQ line.
+    The INT-12-BW / INT-14-BW variant uses binary <LEN><TYPE>[PAYLOAD] framing
+    on ff02 with temps in 0.1 °C and a different auth (01 fb challenge →
+    response = LE16 ms + LE32 unix time + two-stage CRC-8) — recovered by
+    paul43210/inkbird-bw-ble (17 captured test vectors in auth/python/auth.py).
 
     No BLE pairing/bonding required; all commands work over unencrypted
     BLE GATT.
@@ -40,7 +61,7 @@ device:
     documented in notes and field annotations.
 
   identification:
-    local_name_prefixes: ["BG-BT1X", "IBBQ-4BW", "BBQ-4BW", "IBT-4XS", "IBT-2X", "IBT-24S", "IBT-26S"]
+    local_name_prefixes: ["BG-BT1X", "IBBQ-4BW", "BBQ-4BW", "IBT-4XS", "IBT-2X", "IBT-24S", "IBT-26S", "Inkbird@"]
     service_uuids:
       - "0000ff00-0000-1000-8000-00805f9b34fb"
 
@@ -55,6 +76,7 @@ device:
               - "IBBQ-4BW"
               - "BBQ-4BW"
               - "IBT-"
+              - "Inkbird@"
           service_uuids:
             - "0000ff00-0000-1000-8000-00805f9b34fb"
     identity:
@@ -170,6 +192,15 @@ services:
               bytes: [-4, -3]  # last 2 bytes before padding: bytes 8-9 for 4-probe, 12-13 for 6-probe
               type: "int16"
               signed: true
+              # AUDIT FLAG (2026-08): the [-4,-3] selector only lands on the
+              # stated positions if a 2-byte padding trailer exists, but
+              # model_variants.ff01_bytes (10 for 4-probe, 14 for 6-probe)
+              # leaves no room for padding — which would make [-2,-1]
+              # correct. The decompiled app parser slices per-probe 4-hex-char
+              # groups and never bounds the frame length or reads ambient, so
+              # the evidence cannot decide. Resolve with a real ff01 capture
+              # from a 4-probe unit: 10 bytes → use [-2,-1]; 12 bytes →
+              # ff01_bytes is wrong. Until then this selector is UNVERIFIED.
               description: "Device ambient temperature in device unit. Position varies by probe count: bytes (N*2, N*2+1) where N=probe_count."
         notes: >
           For 1-probe devices (BG-BT1X), only bytes 0-1 are valid.
@@ -191,12 +222,15 @@ services:
             - name: "handshake_bgbt1x"
               hex: "fea1b2c3e40000"
               description: "Fixed handshake for BG-BT1X (IBT-2X)."
+            - name: "handshake_bgbt1x_alt"
+              hex: "fea1b2c3e4f5f5"
+              description: "Alternate fixed BG-BT1X handshake frame written by the config activity (BBQ1xBleConfigActivity.java:67)."
             - name: "verify_request"
               hex: "fb000000000000"
               description: "Request challenge for BBQ-4BW verify."
             - name: "verify_response"
               hex_pattern: "fcXXXXXXXXXXXX"
-              description: "Calculated verify response (12 hex chars after fc)."
+              description: "Calculated verify response (12 hex chars after fc). Algorithm recovered: deterministic sqrt/mod/pow math on the 6-byte challenge, no timestamp/CRC (BBQ4tBwHelper.java:109-132)."
             - name: "get_target_temp"
               hex_pattern: "02XX0000000000"
               description: "Query target/alarm temps. XX = 2^(probeNum-1) as hex (01 for probe 1, 02 for probe 2, 04 for probe 3, 08 for probe 4)."
@@ -385,7 +419,8 @@ ble:
 
       BBQ-4BW (4-probe): Connect → discover services → enable notify on ff01, ff03, ff04, ff05, ff06 →
       write fb000000000000 to ff02 → receive 12-char challenge on ff03 →
-      calculate verify response → write fcXXXXXXXXXXXX to ff02 →
+      calculate verify response (recovered algorithm: BBQ4tBwHelper.java:109-132) →
+      write fcXXXXXXXXXXXX to ff02 →
       read ff04 (status) → read ff01 (temps) → read 2a19 (battery) →
       query all settings (target temp per probe, unit, display time, compensation,
       sound, firmware, alarm, wifi, light, probe color).
@@ -394,7 +429,7 @@ advertising:
   format: "ble_legacy"
   local_name:
     match: "prefix"
-    values: ["BG-BT1X", "IBBQ-4BW", "BBQ-4BW", "IBT-"]
+    values: ["BG-BT1X", "IBBQ-4BW", "BBQ-4BW", "IBT-", "Inkbird@"]
   service_uuids:
     - "0000ff00-0000-1000-8000-00805f9b34fb"
 

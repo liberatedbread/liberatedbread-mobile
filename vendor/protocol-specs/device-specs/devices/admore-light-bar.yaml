@@ -7,6 +7,8 @@
 # Protocol: Protobuf messages sent over Nordic UART Service (NUS) BLE profile.
 # Setting IDs and value ranges extracted from lb_config.xml (Flutter asset)
 # and libapp.so string analysis. App version analyzed: 2.1.0 (code 44).
+# Current app is 3.0.5 (June 2026) — the protobuf schema may have changed
+# since 2.1.0; re-extraction from 3.0.5 is the top follow-up.
 
 device:
   name: "AdMore Light Bar Pro"
@@ -53,10 +55,13 @@ device:
       - type: "ble_direct"
         verified: false
         description: >
-          No provisioning step: the device advertises as soon as it is powered
-          on and accepts a connection from any central. There is no account, no
-          network credential exchange and no pairing PIN, so a replacement
-          client only has to scan, connect and write.
+          No provisioning step on the BLE link itself: the device advertises as
+          soon as it is powered on and accepts a connection from any central.
+          No network credential exchange and no pairing PIN happens on the wire,
+          so a replacement client only has to scan, connect and write. Note the
+          official AdMore Connect app does require creating an account (vendor
+          Quick Start Guide step 3b, app-help page and privacy policy) — that
+          account lives in the app's cloud flow, not on the device link.
         ble:
           advertised_name: "AdMore Light Bar"
           pairing_required: false

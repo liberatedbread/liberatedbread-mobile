@@ -40,6 +40,17 @@ device:
     status bitmask. Sourced from 0xMH/fichero-printer — reverse-engineered
     from the Fichero APK v1.1.5 via jadx decompilation.
 
+    ECOSYSTEM: the Fichero Printer app (com.lj.fichero) is a Karsten
+    International white label of the LuckPrinter SDK app; sibling rebrands
+    include Pocket Printer (com.printer.lidloffice, Lidl) and "Luck Jingle".
+    The L13 sibling (sold by Lidl as Silvercrest, same OEM) was independently
+    reverse-engineered by atctwo and confirms the command family on real
+    hardware: YiChip YC3121-D MCU, FCC ID 2A6FW-L13, and a USB-C port that
+    doubles as a USB printer device. An AiYin OTA firmware-update protocol
+    (10 FF E0 AA AA to enter update mode, then 1B 10-framed 256-byte chunks)
+    is documented in 0xMH's PROTOCOL.md but untested; no public firmware
+    images exist.
+
   identification:
     local_name_prefix: "FICHERO"
     service_uuids:
@@ -67,7 +78,7 @@ device:
       bonding required. The 0x18F0 service is the primary BLE UART service.
     methods:
       - type: "ble_direct"
-        verified: true
+        verified: false
         description: >
           Scan for "FICHERO" or "D11s_" BLE advertisement, connect, and
           follow the documented print sequence.
@@ -156,6 +167,10 @@ services:
       - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
         name: "Notify"
         properties: ["notify"]
+      - uuid: "0000ff03-0000-1000-8000-00805f9b34fb"
+        name: "Unknown"
+        properties: ["notify"]
+        notes: "Also enumerated on the printer and the L13 sibling; function unknown."
 
   - uuid: "e7810a71-73ae-499d-8c15-faa9aef0c3f2"
     name: "Fichero UART Service (Alternate 2)"
@@ -166,13 +181,23 @@ services:
 
   - uuid: "49535343-fe7d-4ae5-8fa9-9fafd205e455"
     name: "Fichero UART Service (Alternate 3)"
+    notes: >
+      Microchip Transparent UART style service. The notify characteristic is
+      49535343-1e4d-4bd9-ba61-23c647249616 per both 0xMH's PROTOCOL.md and
+      atctwo's independent L13 hardware enumeration (an earlier revision of
+      this spec listed a ...4c8a-...-3b7e characteristic that neither source
+      has).
     characteristics:
       - uuid: "49535343-8841-43f4-a8d4-ecbe34729bb3"
         name: "Write"
         properties: ["write"]
-      - uuid: "49535343-4c8a-39b3-2f49-511cff073b7e"
+      - uuid: "49535343-1e4d-4bd9-ba61-23c647249616"
         name: "Notify"
         properties: ["notify"]
+      - uuid: "49535343-aca3-481c-91ec-d85e28a60318"
+        name: "Unknown"
+        properties: ["write", "notify"]
+        notes: "Present in both sources' enumerations; function unknown."
 
 entities:
   - platform: "cover"

@@ -41,6 +41,14 @@ device:
     Home Assistant, ouimeaux lineage, and APK decompilation). Per-device command
     mappings MEDIUM; verified against public libraries but not validated via
     live capture for every appliance class.
+
+    Post-shutdown status: Belkin ended Wemo support on 2026-01-31 (app, remote
+    access, voice integrations and firmware updates all dead). Only the
+    Thread-based WLS0503, WSC010 and WSP100 plus the WDC010 doorbell remain
+    supported; any HomeKit-configured Wemo (WLS0403, WDS060, WSP080 among
+    them) keeps working through HomeKit. Local SSDP/SOAP discovery,
+    provisioning and control are unaffected, and pywemo remains actively
+    maintained.
   identification:
     ssdp:
       multicast_group: "239.255.255.250"
@@ -55,7 +63,7 @@ device:
         - "urn:Belkin:device:controllee:1"
         - "urn:Belkin:device:socket:1"
         - "urn:Belkin:device:insight:1"
-        - "urn:Belkin:device:Lightswitch:1"
+        - "urn:Belkin:device:lightswitch:1"
         - "urn:Belkin:device:dimmer:1"
         - "urn:Belkin:device:bridge:1"
         - "urn:Belkin:device:Maker:1"
@@ -106,7 +114,7 @@ device:
             - "urn:Belkin:device:controllee:1"
             - "urn:Belkin:device:socket:1"
             - "urn:Belkin:device:insight:1"
-            - "urn:Belkin:device:Lightswitch:1"
+            - "urn:Belkin:device:lightswitch:1"
             - "urn:Belkin:device:dimmer:1"
             - "urn:Belkin:device:bridge:1"
             - "urn:Belkin:device:Maker:1"
@@ -214,6 +222,13 @@ device:
               literal double quotes. Send one datagram per search target and
               collect unicast replies on the same socket.
             mx: 2
+            mx_notes: >
+              pywemo sends MX 1, and the identification.ssdp.headers block
+              above shows that value. This request block shows 2 because the
+              repo's own verification scaffolding (scripts/wemo_discover.py)
+              uses 2 and scripts/test_wemo_scaffolding.py parity-pins this
+              field to it. Both are legal SSDP — MX is only the device's
+              upper bound on how long it may delay its reply.
             socket_options:
               IP_MULTICAST_TTL: 2
             example: |
@@ -250,13 +265,19 @@ device:
               'Belkin International Inc.' on every device seen so far.
             manufacturer_exact: "Belkin International Inc."
           timing:
-            response_wait_seconds: 3
+            response_wait_seconds: 5
             response_wait_notes: >
-              Wait per search target, not in total. MX is the device's own
-              upper bound on how long it may delay its reply, so the listen
-              window must be at least MX.
+              Matches pywemo's DISCOVER_TIMEOUT, which bounds the whole scan.
+              MX is the device's own upper bound on how long it may delay its
+              reply, so the listen window must be at least MX.
             http_fetch_timeout_seconds: 5
-            port_probe_timeout_seconds: 2
+            port_probe_timeout_seconds: 10
+            timeout_source: >
+              Port probing matches pywemo's REQUESTS_TIMEOUT (10 s), which
+              pywemo also uses for the HTTP fetch. The fetch timeout here
+              stays at 5 s because the repo's verification scaffolding
+              (scripts/wemo_discover.py) uses 5 and
+              scripts/test_wemo_scaffolding.py parity-pins this field.
     identity:
       stable_keys: ["udn", "serial", "mac"]
       display: "friendlyName"
@@ -492,14 +513,15 @@ device:
             markedly higher success rate when it is repeated; the reason is not
             understood, but it is cheap and harmless.
           status_poll_interval_seconds: 1
-          status_poll_timeout_seconds: 25
+          status_poll_timeout_seconds: 20
           status_poll_minimum_seconds: 20
           status_3_extra_wait_seconds: 3
           reboot_after_reset_seconds: 90
           notes: >
             Devices routinely take 10-15 seconds to join, so a poll timeout
-            below 20 seconds produces false failures. Status 3 usually flips to
-            1 within a few more seconds — wait rather than retrying.
+            below 20 seconds produces false failures; pywemo's setup timeout
+            defaults to 20 s and it enforces a 20 s floor. Status 3 usually
+            flips to 1 within a few more seconds — wait rather than retrying.
         troubleshooting:
           - symptom: "ConnectHomeNetwork accepted but NetworkStatus never reaches 1."
             causes:
@@ -757,7 +779,12 @@ device:
       notes: >
         No token or certificate is issued to the client: post-setup control is
         unauthenticated SOAP to anyone on the LAN. Treat network segmentation,
-        not device auth, as the security control for Wemo hardware.
+        not device auth, as the security control for Wemo hardware. Published
+        advisories on these exact surfaces underline that: CVE-2023-27217
+        (unauthenticated stack overflow in basicevent#ChangeFriendlyName on
+        the F7C063 Mini, unpatched — Belkin declined as EOL), CVE-2023-33768
+        (WSP080 firmware-signature verification flaw enabling DoS via crafted
+        firmware) and CVE-2018-6692 (Insight RCE via libUPnPHndlr.so).
 
   variants:
     - model: "F7C063"
@@ -781,7 +808,7 @@ device:
           control_url: "/upnp/control/metainfo1"
           actions: ["GetMetaInfo", "GetExtMetaInfo"]
         deviceinfo:
-          control_url: "/upnp/control/deviceinf1"
+          control_url: "/upnp/control/deviceinfo1"
           actions: ["GetDeviceInformation"]
 
     - model: "WSP080"
@@ -829,7 +856,7 @@ device:
     - model: "F7C030/F7C027/F7C076"
       name: "Wemo Light Switch Gen1/Gen2/3-Way"
       identification:
-        device_type: "urn:Belkin:device:Lightswitch:1"
+        device_type: "urn:Belkin:device:lightswitch:1"
         udn_prefixes: ["uuid:Lightswitch-1_0", "uuid:Lightswitch-2_0", "uuid:Lightswitch-3_0", "uuid:Lightswitch"]
         friendly_name_pattern: "Light Switch"
         apk_widgets: ["wemo_lightswitch", "wemo_lightswitch_2gen", "wemo_lightswitch3way"]
@@ -1104,6 +1131,14 @@ discovery_catalog:
         - "wemo_humidifier"
         - "wemo_humidifierb"
 
+helpful_urls:
+  - title: "open-wemo"
+    url: "https://github.com/blackbxdev/open-wemo"
+    description: "Post-shutdown open-source app/bridge (created ~2026-03) keeping the F7C063, WSP070 and WSP080 usable after the Belkin app shutdown."
+  - title: "Wemo Insight teardown and OpenWrt port"
+    url: "https://svenschwermer.de/wemo"
+    description: "Full F7C029 Insight hardware/firmware teardown (RT5350F SoC, u-boot env independently confirming the 10.22.22.1 setup network, cloud endpoints) with a mainline OpenWrt port and package feed."
+
 soap_common:
   transport: "HTTP POST"
   content_type: "text/xml; charset=\"utf-8\""
@@ -1210,6 +1245,15 @@ soap_common:
         Present on the setup AP. Always resolve the controlURL from the
         serviceList in setup.xml; the path spelling differs across firmware
         generations.
+    smartsetup:
+      service_type: "urn:Belkin:service:smartsetup:1"
+      control_url: "/upnp/control/smartsetup1"
+      availability: >
+        Undocumented service seen in real-hardware captures (pywemo VCR
+        cassettes) alongside WiFiSetup:1 on the light switch, Maker, outdoor
+        plug and humidifier. Its action surface is not yet mapped; it is
+        suspected to be the newer-generation provisioning surface. Resolve the
+        controlURL from setup.xml like any other service.
 
 payload_formats:
   BinaryState:
@@ -1390,11 +1434,11 @@ http_endpoints:
           description: "Current UTC time formatted as %Y-%m-%dT%H:%M:%S."
 
   - method: "POST"
-    path: "/upnp/control/deviceinf1"
+    path: "/upnp/control/deviceinfo1"
     name: "GetDeviceInformation"
     description: >
       Extended device information. Required SOAPACTION header:
-      "urn:Belkin:service:deviceinf:1#GetDeviceInformation". Not present on
+      "urn:Belkin:service:deviceinfo:1#GetDeviceInformation". Not present on
       every device or firmware; treat a SOAP fault as "not supported" rather
       than as an error.
 

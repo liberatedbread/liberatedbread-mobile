@@ -8,8 +8,13 @@ device:
   manufacturer_status: "unsupported"
   protocol: "ble"
   notes: >
-    OEM full-color LED matrix panels driven by the SPOTLED app (com.led.spotled,
-    iOS id 1564039607), claiming 140k+ users. Not brand-specific: the same app and
+    OEM full-color LED matrix panels driven by the SPOTLED app (Android package
+    com.led.spotled; iOS bundleId com.sunday.led, App Store id 1564039607),
+    claiming 140k+ users. The app is unmaintained: v1.9.4 (2023-10-12) is the
+    last release on both platforms and current Android will not install it from
+    the Play Store — the vendor portal led.spotled.xyz serves the APK directly
+    (GitHub-hosted v1.7.7 and Aliyun OSS v1.9.4, both archived in the research
+    store). Not brand-specific: the same app and
     protocol drive LED hats, name badges, backpack and hydration-pack skins, chest
     panels and long flexible banner signs (32x256 arrays are commonly sold), each
     rebranded by a different reseller. The Lunchbox / LEDs 2 RAVE 4 Dream Skin 2.0
@@ -64,10 +69,11 @@ device:
     connection rather than assuming the 23-byte default.
 
     RESPONSES (notify on 0xFF21): type 2 SendingData (serial, error code, command
-    type), type 255 ContinueSending (serial, command type, continue_from offset),
-    PauseSending (read error), DisplayInfo (width, height, color_depth 16=mono /
-    255=RGB, frame_limit, brightness, font_info), Version (device_type,
-    device_revision, software_revision), BufferSize (buffer_size).
+    type), type 4 SendingDataFinish ack, type 255 ContinueSending (serial,
+    command type, continue_from offset), type 254 PauseSending (read error),
+    type 19 DisplayInfo (width, height, color_depth 16=mono / 255=RGB,
+    frame_limit, brightness, font_info), type 17 Version (device_type,
+    device_revision, software_revision), type 21 BufferSize (buffer_size).
 
     TEXT: two paths. Rendering client-side into an Animation record (type 11) of
     frames is faster and more capable. Sending Character records (type 3, capped
@@ -75,13 +81,25 @@ device:
     Custom glyphs must be uploaded as FontCharacter records (type 13) before the
     text referencing them.
 
+    FIRMWARE: a vendor OTA mechanism exists in the app (deviceUpgrade /
+    UpgradeDialog, HardwareVersion; firmware filename pattern
+    db_update_GDF-C2302_xxxx_V1.0_210425a.bin — GDF-C2302 is the hardware model,
+    210425a a 2021-04-25 build), but firmware binaries are not bundled in the
+    APK and no public download exists — retrieving one would need an
+    app-traffic capture of the upgrade flow. The app also carries a cloud
+    account layer; the BLE protocol itself is fully local and unaffected.
+
     CONFIDENCE: service/characteristic UUIDs, framing, command IDs, record types,
     effect values, checksum rule and the flow-control algorithm are HIGH — sourced
     from github.com/iwalton3/python-spotled, a clean-room library built from BLE
-    sniffing and in production use. FLAGGED as LOWER confidence: the CCCD handle
-    0x0F is observed on specific units rather than guaranteed, and colour Frame
-    records (depth 24) are implemented upstream but were never tested against RGB
-    hardware by the original author.
+    sniffing and in production use, and corroborated by two newer independent
+    reimplementations: dpeckett/spotled-cli (Rust, 2026-05) and
+    nexzoic/esp32-spotled (ESP32-S3 hosting a local web UI, 2026-07, actively
+    developed) — with further ports (adammw/spotled-web, ordigital/spotled-gui)
+    the protocol is quadruply implemented. FLAGGED as LOWER confidence: the CCCD
+    handle 0x0F is observed on specific units rather than guaranteed, and colour
+    Frame records (depth 24) are implemented upstream but were never tested
+    against RGB hardware by the original author.
 
   identification:
     service_uuids:

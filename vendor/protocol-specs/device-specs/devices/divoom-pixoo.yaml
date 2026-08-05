@@ -9,12 +9,16 @@ device:
     \ Cloud-mediated device discovery: the device registers itself with Divoom's servers;\
     \ the app fetches the device IP from the cloud API, then communicates locally\
     \ via HTTP on port 9000.\nPIXEL ENCODING: Multiple encoding types identified by\
-    \ a leading type byte (see pixel_encodings section). 16x16 uses raw/LZO/ZSTD.\
-    \ 64x64 and 128x128 use NDK compression (PixelEncode64/PixelEncode128) — exact\
-    \ algorithm not in decompiled Java. Live capture needed to document.\nCOMMUNICATION:\
+    \ a leading type byte (see pixel_encodings section). 16x16 uses raw or AES-128-CBC\
+    \ (hardcoded key — obfuscation, not compression). 64x64 uses per-frame LZO (type\
+    \ 25), NDK PixelEncode64 (type 26) or ZSTD (type 37); 128x128 uses NDK\
+    \ PixelEncode128 — the NDK algorithm lives in libtimebox.so, not the decompiled\
+    \ Java.\nCOMMUNICATION:\
     \ Three channels in priority order:\n  1. Local HTTP (same LAN) → POST http://<ip>:9000/divoom_api\n\
     \  2. MQTT (same LAN, fallback) → topics not fully analyzed\n  3. Remote (cloud\
-    \ relay) → POST to Divoom cloud, device polls\n\nDEVICE TYPES: Pixoo64 (64x64),\
+    \ relay) → POST to Divoom cloud, device polls\n\nThe device also exposes Divoom's\
+    \ official documented third-party local API at POST http://<ip>:80/post (no\
+    \ LocalToken; docs at docin.divoom-gz.com) — see http_endpoints.\n\nDEVICE TYPES: Pixoo64 (64x64),\
     \ Pixoo16 (16x16), Pixoo Max, Pixoo VJ, LCD 5-panel WiFi, and photo frame variants.\
     \ Pixel matrix dimensions and supported encoding formats vary by model.\nEVIDENCE\
     \ MAP:\n  HttpCommand.java — all API command paths and cloud server URLs\n  OkHttpUtils.java:264-271\
@@ -115,7 +119,8 @@ device:
   - model: pixoo16_wifi
     identification:
       local_name_prefix: Pixoo16-WiFi,Pixoo16WiFi
-    notes: 16x16 pixel matrix. Device type >= 200 in cloud API.
+    notes: 16x16 pixel matrix. Device type >= 200 in cloud API. Current firmware
+      200033 (2026-07, via unauthenticated Device/GetUpdateFileV3).
     pixel_width: 16
     pixel_height: 16
     bytes_per_frame: 768
@@ -123,19 +128,22 @@ device:
     identification:
       local_name_prefix: Pixoo64,Di-Da
     notes: 64x64 pixel matrix. Most common Pixoo WiFi model. Device type < 92.
+      Current firmware 90224 (2026-07, via unauthenticated Device/GetUpdateFileV3).
     pixel_width: 64
     pixel_height: 64
     bytes_per_frame: 12288
   - model: pixoo64_wifi_v2
     identification:
       local_name_prefix: Pixoo64
-    notes: 64x64 v2. Device type == 92 in cloud API.
+    notes: 64x64 v2. Device type == 92 in cloud API. Current firmware 92079
+      (2026-07).
     pixel_width: 64
     pixel_height: 64
   - model: pixoo64_wifi_5g
     identification:
       local_name_prefix: Pixoo64
-    notes: 64x64 with 5GHz WiFi. Device type >= 96 in cloud API.
+    notes: 64x64 with 5GHz WiFi. Device type >= 96 in cloud API. Current
+      firmware 96022 (2026-07).
     pixel_width: 64
     pixel_height: 64
 pixel_encodings:
@@ -171,17 +179,21 @@ pixel_encodings:
     value: 2
   - offset: 1
     length: 1
-    name: speed_hi
+    name: frame_count
   - offset: 2
     length: 1
-    name: speed_lo
+    name: speed_hi
   - offset: 3
     length: 1
-    name: frame_count
+    name: speed_lo
   - offset: 4
     length: -1
     name: frames
     description: frame_count × 363 bytes raw RGB
+  notes: 'Header order corrected 2026-07 (count first, then speed): W2/c.java:80-82,
+    app v3.8.22.
+
+    '
 - type_byte: 3
   name: Pic16
   description: 16x16 static picture, raw RGB data
@@ -206,39 +218,48 @@ pixel_encodings:
     value: 4
   - offset: 1
     length: 1
-    name: speed_hi
+    name: frame_count
   - offset: 2
     length: 1
-    name: speed_lo
+    name: speed_hi
   - offset: 3
     length: 1
-    name: frame_count
+    name: speed_lo
   - offset: 4
     length: -1
     name: frames
+  notes: 'Header order corrected 2026-07 (count first, then speed): W2/c.java:80-82,
+    app v3.8.22.
+
+    '
 - type_byte: 8
-  name: Pic16ZSTD
-  description: 16x16 static picture, ZSTD compressed
+  name: Pic16AES
+  description: 16x16 static picture, AES-128-CBC encrypted (hardcoded key/IV
+    compiled into the app — obfuscation, not compression; output is padded to
+    a 16-byte multiple). Corrected 2026-07 from "ZSTD" — W2/c.java:864-882
+    and W2/a.java, app v3.8.22.
   dimensions:
   - 16
   - 16
   bytes_per_frame: 768
-  compression: zstd
+  compression: aes-128-cbc
 - type_byte: 9
-  name: Ani16ZSTD
-  description: 16x16 animation, ZSTD compressed frames
+  name: Ani16AES
+  description: 16x16 animation, AES-128-CBC encrypted frames (same hardcoded-key
+    mechanism as type 8). Corrected 2026-07 from "ZSTD" — W2/c.java:301-320,
+    app v3.8.22.
   dimensions:
   - 16
   - 16
   bytes_per_frame: 768
-  compression: zstd
+  compression: aes-128-cbc
 - type_byte: 12
   name: Scroll
   description: Scrolling text/image
   dimensions:
   - 16
   - 16
-  compression: lzo
+  compression: aes-128-cbc
   header:
   - offset: 0
     length: 1
@@ -246,29 +267,59 @@ pixel_encodings:
     value: 12
   - offset: 1
     length: 1
-    name: speed_hi
-  - offset: 2
-    length: 1
-    name: speed_lo
-  - offset: 3
-    length: 1
     name: scroll_mode
     description: 0=left, 1=right, or ScrollModeEnum value
+  - offset: 2
+    length: 1
+    name: speed_hi
+  - offset: 3
+    length: 1
+    name: speed_lo
   - offset: 4
     length: -1
-    name: compressed_data
-    description: LZO-compressed scroll data
+    name: encrypted_data
+    description: AES-128-CBC encrypted scroll bitmap (hardcoded key)
+  notes: 'Corrected 2026-07: header order is [12, scroll_mode, speed_hi,
+    speed_lo] and the payload is AES-128-CBC, not LZO — W2/c.java:989-1003,
+    app v3.8.22.
+
+    '
 - type_byte: 25
-  name: Pixoo64
-  description: 64x64 single-frame picture, NDK-encoded (PixelEncode64)
+  name: Pixoo64LZO
+  description: 64x64 picture/animation, per-frame LZO compressed
   dimensions:
   - 64
   - 64
   bytes_per_frame: 12288
-  compression: ndk_proprietary
-  confidence: medium
-  notes: 'Processed by native NDK function PixelEncode64. Source data is 12,288 bytes
-    RGB (64×64×3). Algorithm not in decompiled Java.
+  compression: lzo
+  confidence: high
+  header:
+  - offset: 0
+    length: 1
+    name: type
+    value: 25
+  - offset: 1
+    length: 1
+    name: frame_count
+  - offset: 2
+    length: 1
+    name: speed_hi
+  - offset: 3
+    length: 1
+    name: speed_lo
+  - offset: 4
+    length: 1
+    name: row_cnt
+  - offset: 5
+    length: 1
+    name: col_cnt
+  - offset: 6
+    length: -1
+    name: frames
+    description: 'Each frame: 4-byte LE length prefix + LZO-compressed data'
+  notes: 'Corrected 2026-07: types 25/37 were swapped — type 25 is per-frame
+    LZO (W2/c.java:491-515, app v3.8.22); the NDK PixelEncode64 encoding
+    previously described here belongs to type 26.
 
     '
 - type_byte: 26
@@ -301,13 +352,14 @@ pixel_encodings:
     length: 1
     name: col_cnt
 - type_byte: 37
-  name: Pixoo64LZO
-  description: 64x64 picture/animation, LZO compressed
+  name: Pixoo64ZSTD
+  description: 64x64 picture/animation, ZSTD compressed (single blob)
   dimensions:
   - 64
   - 64
   bytes_per_frame: 12288
-  compression: lzo
+  compression: zstd
+  confidence: high
   header:
   - offset: 0
     length: 1
@@ -330,8 +382,13 @@ pixel_encodings:
     name: col_cnt
   - offset: 6
     length: -1
-    name: frames
-    description: 'Each frame: 4-byte LE length prefix + LZO-compressed data'
+    name: data
+    description: 4-byte LE length + single ZSTD-compressed blob + optional
+      trailing text block
+  notes: 'Corrected 2026-07: types 25/37 were swapped — type 37 is ZSTD
+    (W2/c.java:383-426, app v3.8.22; 45 if circular), not LZO.
+
+    '
 - type_byte: 42
   name: TempUpload
   description: Temporary upload encoding (ZSTD compressed, 16x16)
@@ -400,3 +457,12 @@ http_endpoints:
   method: POST
   description: Primary local API endpoint for device commands
   name: divoom_api
+- path: /post
+  method: POST
+  description: 'Official documented local API (Divoom third-party docs,
+    docin.divoom-gz.com): plain JSON commands, no LocalToken required.
+    Covers Channel/OnOffScreen, brightness, tools, Draw/SendHttpGif
+    animation upload, Draw/CommandList (fw >= 90102) and Device/PlayTFGif
+    (fw >= 90096). A 2026-05 documentation update adds a DeviceToken
+    field, so newer firmware may start gating this endpoint.'
+  name: post_api
