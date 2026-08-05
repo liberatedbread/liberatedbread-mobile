@@ -14,8 +14,7 @@ use crate::protocol::profiles;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField,
-    Identification, Parameter, Service,
+    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -37,8 +36,9 @@ pub struct DeviceSpecDto {
     pub company_ids: Vec<u16>,
     /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
     /// Empty when the spec declares none. See [`MatchConfidence`] for why these
-    /// only ever rank a device rather than identify one.
-    pub mac_prefixes: Vec<String>,
+    /// only ever rank a device rather than identify one, and
+    /// [`MacPrefixConfidence`] for how much any one of them is worth.
+    pub mac_prefixes: Vec<MacPrefixDto>,
     /// mDNS/DNS-SD service type this device announces itself under, e.g.
     /// `_hue._tcp`. The network counterpart of a vendor service UUID.
     pub mdns_service_type: Option<String>,
@@ -321,6 +321,31 @@ pub enum MatchConfidence {
     Strong,
 }
 
+/// One MAC prefix a spec declares, and how much of the block is really this
+/// device's.
+///
+/// Two prefixes of the same length are not worth the same thing. `C4:7C:8D` is
+/// an IEEE Registration Authority block that fifteen unrelated companies hold
+/// 28-bit slices of, while `00:17:88` is Philips Lighting's own. Both are three
+/// octets; only one of them tells you anything. Carrying the spec author's
+/// verdict alongside the prefix is what lets the matcher rank them differently
+/// instead of treating every OUI as equally weak — or, worse, equally strong.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacPrefixDto {
+    /// The prefix as the spec wrote it, e.g. `C4:7C:8D`.
+    pub prefix: String,
+    pub confidence: MacPrefixConfidence,
+}
+
+impl From<&MacPrefix> for MacPrefixDto {
+    fn from(prefix: &MacPrefix) -> Self {
+        Self {
+            prefix: prefix.prefix().to_string(),
+            confidence: prefix.confidence(),
+        }
+    }
+}
+
 /// What a scanner saw about one device, before connecting to it.
 #[derive(Debug, Clone)]
 pub struct ScannedDeviceDto {
@@ -374,7 +399,7 @@ pub struct SpecIdentityDto {
     pub local_name_prefix: Option<String>,
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
-    pub mac_prefixes: Vec<String>,
+    pub mac_prefixes: Vec<MacPrefixDto>,
     /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
     pub mdns_service_type: Option<String>,
     /// SSDP search targets, for the Wi-Fi scan path.
@@ -398,8 +423,9 @@ pub struct ScanMatch {
     pub matched_service_uuids: Vec<String>,
     pub matched_company_ids: Vec<u16>,
     /// The spec MAC prefix that the device's address starts with, as the spec
-    /// wrote it. `None` when the address did not match (or was not available).
-    pub matched_mac_prefix: Option<String>,
+    /// wrote it, with the spec's verdict on how much that block is worth.
+    /// `None` when the address did not match (or was not available).
+    pub matched_mac_prefix: Option<MacPrefixDto>,
     /// mDNS service types and SSDP search targets that matched, on the Wi-Fi
     /// path. Always empty for a BLE match.
     pub matched_service_types: Vec<String>,
@@ -472,7 +498,8 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .unwrap_or_default(),
             company_ids: ident.map(Identification::company_ids).unwrap_or_default(),
             mac_prefixes: ident
-                .and_then(|i| i.mac_prefixes.clone())
+                .and_then(|i| i.mac_prefixes.as_ref())
+                .map(|prefixes| prefixes.iter().map(MacPrefixDto::from).collect())
                 .unwrap_or_default(),
             mdns_service_type: ident.and_then(|i| i.mdns_service_type.clone()),
             ssdp_search_targets: ident
@@ -842,8 +869,9 @@ struct MatchAxes {
     service_types: Vec<String>,
     /// Likely tier.
     company_ids: Vec<u16>,
-    /// Possible tier: identifies a vendor, not a product.
-    mac_prefix: Option<String>,
+    /// Identifies a vendor, not a product — except where the spec says
+    /// otherwise. Worth what its [`MacPrefixConfidence`] says it is.
+    mac_prefix: Option<MacPrefixDto>,
     /// Possible tier, network side: port 80 says nothing about who is on it.
     port: Option<u16>,
 }
@@ -858,15 +886,32 @@ impl MatchAxes {
             && self.port.is_none()
     }
 
+    /// How much the matched OUI is worth, or `Low` when none matched. `Low` is
+    /// also what an unannotated prefix is worth, so the two are deliberately
+    /// indistinguishable here: neither one may promote a match on its own.
+    fn mac_prefix_confidence(&self) -> MacPrefixConfidence {
+        self.mac_prefix
+            .as_ref()
+            .map(|p| p.confidence)
+            .unwrap_or_default()
+    }
+
     /// How many distinct axes agreed. Used to promote a pile of weak signals:
     /// a name prefix on its own is ordinary, a name prefix on a device whose
     /// OUI also belongs to that vendor is not.
+    ///
+    /// A low-confidence OUI does not count. It is the one axis that can match
+    /// by coincidence rather than by design — a block IEEE subdivided among
+    /// fifteen companies, or a radio module vendor's block carried by every
+    /// product that ever used the chip — so letting it be half of an
+    /// "everything agrees" verdict is exactly how a scanner ends up confidently
+    /// naming the wrong product.
     fn agreeing(&self) -> usize {
         usize::from(self.by_name_prefix)
             + usize::from(!self.service_uuids.is_empty())
             + usize::from(!self.service_types.is_empty())
             + usize::from(!self.company_ids.is_empty())
-            + usize::from(self.mac_prefix.is_some())
+            + usize::from(self.mac_prefix_confidence() >= MacPrefixConfidence::Medium)
             + usize::from(self.port.is_some())
     }
 
@@ -874,7 +919,13 @@ impl MatchAxes {
         if !self.service_uuids.is_empty() || !self.service_types.is_empty() || self.agreeing() >= 2
         {
             MatchConfidence::Strong
-        } else if self.by_name_prefix || !self.company_ids.is_empty() {
+        } else if self.by_name_prefix
+            || !self.company_ids.is_empty()
+            // A block a spec author checked and found to be this device family's
+            // and effectively nothing else's is evidence in its own right —
+            // the same standing as a local name, which users can rename anyway.
+            || self.mac_prefix_confidence() >= MacPrefixConfidence::High
+        {
             MatchConfidence::Likely
         } else {
             MatchConfidence::Possible
@@ -960,13 +1011,21 @@ fn match_axes(identity: &SpecIdentityDto, device: &ScannedDeviceDto) -> MatchAxe
         .as_deref()
         .and_then(normalize_mac)
         .and_then(|address| {
+            // Best-first rather than first-declared: a spec listing both a
+            // vetted block and a shared one should be judged on the vetted one
+            // when the address is in it, regardless of declaration order.
             identity
                 .mac_prefixes
                 .iter()
-                .find(|prefix| {
-                    normalize_mac_prefix(prefix)
+                .filter(|entry| {
+                    normalize_mac_prefix(&entry.prefix)
                         .is_some_and(|normalized| address.starts_with(&normalized))
                 })
+                // `min_by_key` on the reversed key rather than `max_by_key`:
+                // both pick the best, but only this one keeps the first of
+                // several equally-good prefixes, so declaration order still
+                // breaks ties deterministically.
+                .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
                 .cloned()
         });
 
@@ -1805,6 +1864,17 @@ services:
         SpecIdentityDto::from(&load_device_spec(SCAN_YAML.into()).unwrap())
     }
 
+    /// The scan identity with its one OUI re-rated. Lets a test say which tier
+    /// of block it is exercising without restating the whole spec.
+    fn scan_identity_with_oui(confidence: MacPrefixConfidence) -> SpecIdentityDto {
+        let mut identity = scan_identity();
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "C4:7C:8D".into(),
+            confidence,
+        }];
+        identity
+    }
+
     /// A device that matches on no axis at all; tests opt into one field at a
     /// time from here.
     fn anonymous_device() -> ScannedDeviceDto {
@@ -1820,7 +1890,52 @@ services:
     fn identification_axes_reach_the_dto() {
         let dto = load_device_spec(SCAN_YAML.into()).unwrap();
         assert_eq!(dto.company_ids, vec![961, 89]);
-        assert_eq!(dto.mac_prefixes, vec!["C4:7C:8D".to_string()]);
+        assert_eq!(
+            dto.mac_prefixes,
+            vec![MacPrefixDto {
+                prefix: "C4:7C:8D".to_string(),
+                // A bare string says nothing about the block, and a block
+                // nobody has checked has to be assumed to be a shared one.
+                confidence: MacPrefixConfidence::Low,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_detailed_mac_prefix_entry_carries_its_verdict() {
+        // The other half of the schema's `oneOf`: a map with the spec author's
+        // finding on it, plus the free-text `notes` that finding lives in.
+        let yaml = SCAN_YAML.replace(
+            "      - \"C4:7C:8D\"",
+            concat!(
+                "      - prefix: \"C4:7C:8D\"\n",
+                "        confidence: \"high\"\n",
+                "        notes: \"Unknown keys here must not break the parse.\"\n",
+            ),
+        );
+        let dto = load_device_spec(yaml).unwrap();
+        assert_eq!(
+            dto.mac_prefixes,
+            vec![MacPrefixDto {
+                prefix: "C4:7C:8D".to_string(),
+                confidence: MacPrefixConfidence::High,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_detailed_mac_prefix_entry_defaults_to_low() {
+        // Writing the map form without a verdict is not a claim of confidence.
+        let yaml = SCAN_YAML.replace(
+            "      - \"C4:7C:8D\"",
+            "      - prefix: \"C4:7C:8D\"\n        notes: \"Nobody has checked this block.\"\n",
+        );
+        let dto = load_device_spec(yaml).unwrap();
+        assert_eq!(
+            dto.mac_prefixes[0].confidence,
+            MacPrefixConfidence::Low,
+            "an unstated verdict is the pessimistic one"
+        );
     }
 
     #[test]
@@ -1886,18 +2001,103 @@ services:
         let matches = match_scanned_device(vec![scan_identity()], device);
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].confidence, MatchConfidence::Possible);
-        assert_eq!(matches[0].matched_mac_prefix.as_deref(), Some("C4:7C:8D"));
+        let matched = matches[0].matched_mac_prefix.as_ref().unwrap();
+        assert_eq!(matched.prefix, "C4:7C:8D");
+        assert_eq!(matched.confidence, MacPrefixConfidence::Low);
     }
 
     #[test]
-    fn two_weak_axes_agreeing_are_strong() {
+    fn a_medium_confidence_oui_alone_is_still_only_possible() {
+        // "Something Philips made" is not "a Philips bridge". A block being
+        // genuinely the manufacturer's does not make it this product's.
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:11:22:33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(
+            vec![scan_identity_with_oui(MacPrefixConfidence::Medium)],
+            device,
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+    }
+
+    #[test]
+    fn a_high_confidence_oui_alone_is_likely() {
+        // A block a spec author checked and found to be this family's and
+        // nothing else's is evidence in its own right — the same standing as a
+        // local name, which users can rename anyway.
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:11:22:33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(
+            vec![scan_identity_with_oui(MacPrefixConfidence::High)],
+            device,
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+    }
+
+    #[test]
+    fn a_low_confidence_oui_does_not_promote_a_name_prefix() {
+        // The regression this whole flag exists for. C4:7C:8D is an IEEE
+        // Registration Authority block subdivided among fifteen companies, so
+        // a device sitting in it agreeing with a name prefix is one signal
+        // plus a coincidence, not two signals agreeing.
         let device = ScannedDeviceDto {
             name: "TEST_Kitchen".into(),
             mac_address: Some("C4-7C-8D-11-22-33".into()),
             ..anonymous_device()
         };
         let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+        assert!(
+            matches[0].matched_mac_prefix.is_some(),
+            "the prefix still matched and is still reported — it just does not vote"
+        );
+    }
+
+    #[test]
+    fn two_weak_axes_agreeing_are_strong() {
+        // A block that really is the vendor's, on a device also carrying the
+        // vendor's name prefix: two independent signals, so this is the pile
+        // of weak evidence that the promotion rule exists for.
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            mac_address: Some("C4-7C-8D-11-22-33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(
+            vec![scan_identity_with_oui(MacPrefixConfidence::Medium)],
+            device,
+        );
         assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn the_best_matching_prefix_wins() {
+        // A spec may list a shared block and a vetted one. Which entry the
+        // address lands in decides the verdict, not which was written first.
+        let mut identity = scan_identity();
+        identity.mac_prefixes = vec![
+            MacPrefixDto {
+                prefix: "C4:7C:8D".into(),
+                confidence: MacPrefixConfidence::Low,
+            },
+            MacPrefixDto {
+                prefix: "C4:7C:8D:6".into(),
+                confidence: MacPrefixConfidence::High,
+            },
+        ];
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:6a:22:33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![identity], device);
+        assert_eq!(
+            matches[0].matched_mac_prefix.as_ref().unwrap().prefix,
+            "C4:7C:8D:6"
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
     }
 
     #[test]
@@ -1914,9 +2114,14 @@ services:
     #[test]
     fn a_one_octet_mac_prefix_is_ignored() {
         // A single octet matches a sixteenth of all hardware, so a spec that
-        // somehow carries one must match nothing rather than everything.
+        // somehow carries one must match nothing rather than everything. Rated
+        // `high` on purpose: a confidence flag is the spec author's opinion of
+        // a block, and no opinion makes one octet a block.
         let mut identity = scan_identity();
-        identity.mac_prefixes = vec!["C4".into()];
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "C4".into(),
+            confidence: MacPrefixConfidence::High,
+        }];
         let device = ScannedDeviceDto {
             mac_address: Some("c4:7c:8d:11:22:33".into()),
             ..anonymous_device()
