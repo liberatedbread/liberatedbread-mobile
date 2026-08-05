@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `docs/protocols/standards-and-references.md` — the published standards this
+  registry does or should cite instead of re-deriving them: Bluetooth SIG
+  Assigned Numbers, the GATT Specification Supplement, the Base-UUID shorthand
+  rule, the Nordic bluetooth-numbers-database, BTHome v2 for passive beacons, the
+  CRC RevEng catalogue for reproducible checksums, and the automotive/interchange
+  standards already cited by the OBD and `bus` specs
+- `docs/contributing/spec-evolution.md` — a standing, evidence-backed list of
+  proposed schema improvements (reproducible checksum descriptor, SIG-standard
+  markers, `format` endianness and bit-fields, symmetric BLE command responses,
+  first-class advertisement payloads, a normalized capability vocabulary, and
+  SemVer for the schema), each with a compatibility note, informed by a
+  comparison with the Buttplug BLE device-abstraction library
 - Optional top-level `helpful_urls` and `helpful_videos` fields in device specs,
   with HTTP(S)-only reference entries and generated index/API exposure for
   website "Further reading / Watch" sections

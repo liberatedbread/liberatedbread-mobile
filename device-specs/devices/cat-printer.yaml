@@ -11,7 +11,10 @@ device:
     Cat-shaped (and other shaped) mini thermal printers sold under many
     names: GB01, GB02, GB03, GT01, YT01, MX05, MX06, MX08, MX09, MX10,
     MX11, PD01, SC03h, MXTP. All share the same BLE UART protocol. $15-20.
-    No cloud dependency — fully local BLE.
+    No cloud dependency — fully local BLE. The stock vendor app is iPrint
+    (com.frogtosea.iprint); its device filter hardcodes GB04 and GT02 in
+    addition to the list above — neither is in NaitLee's model registry
+    nor verified against hardware.
 
     PROTOCOL: uses a custom BLE UART service (0xAE30) with TX/RX
     characteristics (0xAE01/0xAE02). Command frames have a fixed header:
@@ -48,10 +51,21 @@ device:
     bit-reversed (MSB↔LSB) before transmission. The reverse_bits function
     is applied client-side.
 
+    RLE ROWS (0xBF): the "new kind" compression the is_new_kind flag
+    alludes to is per-row RLE — each byte packs a 7-bit run count and a
+    1-bit color, runs longer than 0x7F are split — sent as command 0xBF,
+    falling back to uncompressed draw_bitmap (0xA2) when the RLE row
+    exceeds 48 bytes (implemented in rbaron/catprinter; NaitLee only
+    stubs it). Undocumented commands 0xBB (iPrint pre-print frame) and
+    0xBC (thermy) have also been observed; purpose unknown.
+
     CONFIDENCE: HIGH for all UUIDs, frame format, CRC8 algorithm, command
     IDs, model flags, printing sequence, and flow control — sourced from
     github.com/NaitLee/Cat-Printer, a production-quality Python tool with
-    cross-platform support (Linux, macOS, Windows, Android, Web).
+    cross-platform support (Linux, macOS, Windows, Android, Web). The
+    0xAE3A secondary service, 0xBF RLE rows and the 0xBB/0xBC sightings
+    come from independent corroborating sources: lisp3r's GT01 captures,
+    rbaron/catprinter, mazoqui/thermy and the vendor iPrint APK.
 
   identification:
     local_name_prefix: "GB"
@@ -81,7 +95,7 @@ device:
       0xAE30. No pairing or bonding required.
     methods:
       - type: "ble_direct"
-        verified: true
+        verified: false
         description: >
           Scan for GB*/GT*/YT*/MX* BLE advertisement with service UUID 0xAE30,
           connect, and follow the printing sequence.
@@ -200,6 +214,20 @@ services:
         notes: >
           Notification channel for flow-control signals (pause/resume) and
           responses. Subscribe to notifications before sending commands.
+
+  - uuid: "0000ae3a-0000-1000-8000-00805f9b34fb"
+    name: "Secondary Service (GT01)"
+    notes: >
+      Second BLE service observed on a GT01 (lisp3r's service dump).
+      Purpose unknown — possibly config or OTA. Not used by the main
+      printing protocol.
+    characteristics:
+      - uuid: "0000ae3b-0000-1000-8000-00805f9b34fb"
+        name: "AE3B"
+        properties: ["write_without_response"]
+      - uuid: "0000ae3c-0000-1000-8000-00805f9b34fb"
+        name: "AE3C"
+        properties: ["notify"]
 
 entities:
   - platform: "cover"

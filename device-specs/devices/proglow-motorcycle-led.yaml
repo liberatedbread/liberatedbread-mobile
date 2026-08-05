@@ -9,10 +9,18 @@ device:
   protocol: "ble"
   notes: >
     Motorcycle ground-effect LED controller from com.ttcble.proglow static
-    analysis. Normal command sends are unencoded GATT writes to characteristic
-    0x1001. Packets start with header 0x3C; state/response parsing expects 0x4D.
-    No CRC/checksum was found in the normal command builder.
+    analysis (APK v4.7). Normal command sends are unencoded GATT writes to
+    characteristic 0x1001. Packets start with header 0x3C; state/response
+    parsing expects 0x4D — asynchronous 0x4D state packets arrive as
+    notifications on 0x1002. No CRC/checksum was found in the normal command
+    builder. FCC ID 2A55N-PG-BTBOX-1: STM32F103 MCU plus a Shengrun
+    HY-40R201P BLE module (TI CC2541F256); Shengrun's public TTCBLEManager
+    iOS SDK documents the same 0x1000/0x1001 GATT skeleton. The APK bundles an
+    optional libhy_api.so traffic-obfuscation layer but the app disables it,
+    so command/state traffic is plaintext. Firmware revision is read via DIS
+    0x2A26 (observed "V3.3"); no public firmware downloads exist.
   identification:
+    local_name_prefix: "Multi_LED"
     service_uuids:
       - "00001000-0000-1000-8000-00805f9b34fb"
 
@@ -20,28 +28,41 @@ device:
     methods:
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "00001000-0000-1000-8000-00805f9b34fb"
+          local_name:
+            match: "exact"
+            value: "Multi_LED"
+        notes: >
+          The app scans unfiltered and matches the advertised name exactly
+          ("Multi_LED"), then parses manufacturer-specific data: byte 6 =
+          firmware version, byte 7 = device type, byte 8 = paired flag
+          (1 = bound). Whether the device also advertises the 0x1000 service
+          UUID is unproven, so name matching is the documented mechanism.
     identity:
       stable_keys: ["address"]
-      display: "service_uuid"
+      display: "local_name"
     static_ip_required: false
 
   setup:
     required: false
     confidence: "medium"
     notes: >
-      No provisioning, but the controller expects a six-byte password command
-      before it accepts lighting commands. That is an in-session unlock with a
-      shared default value, not a per-device pairing secret.
+      No network provisioning, but the controller expects a six-byte password
+      command before it accepts lighting commands. The password is a RANDOM
+      6-byte per-device secret the app generates at first pairing
+      (Data.randomPassword(6)) and stores in its private DeviceDB — not a
+      shared default. A wrong password gets a 4D 09 01 reply and the app
+      disconnects ("password error"). The vendor limits pairing to one device
+      at a time.
     methods:
       - type: "ble_direct"
         verified: false
         description: >
-          No provisioning step: the device advertises as soon as it is powered
-          on and accepts a connection from any central. There is no account, no
-          network credential exchange and no pairing PIN, so a replacement
-          client only has to scan, connect and write.
+          The device advertises as soon as it is powered on and accepts a BLE
+          connection without OS-level pairing or a PIN, but lighting commands
+          are gated behind the per-device six-byte password (0x09) command —
+          a replacement client must know or recover that password, and the
+          device pairs to only one controller at a time (see factory_reset
+          for moving it to a new phone).
         ble:
           pairing_required: false
         steps:
@@ -52,33 +73,44 @@ device:
           - action: "Connect and run the documented initialization sequence, if the spec defines one."
             actor: "client"
     factory_reset:
-      confidence: "low"
+      confidence: "medium"
       effect: >
-        No credential state to clear. Power-cycling drops the current
-        connection, which is the actual remedy for the common failure mode:
-        the device already being connected to another central.
+        Clears the controller's pairing state (the per-device password and
+        the bound-phone flag advertised in manufacturer data byte 8) so it
+        can be paired to a new phone.
       procedures:
+        - name: "Blue-wire pairing reset (official)"
+          steps:
+            - action: "Disconnect the blue battery-monitor wire from the battery."
+              actor: "user"
+            - action: "Touch the blue battery-monitor wire on/off to the positive battery terminal 15 times."
+              actor: "user"
+              expect: "LED accessories start flashing and color-cycling; the controller is ready to be paired to a new phone."
         - name: "Power cycle"
           steps:
             - action: "Remove power (or battery) for a few seconds and reapply."
               actor: "user"
               expect: "Device advertises again and accepts a new connection."
+              notes: "Only drops the BLE link — the remedy for the 'already connected to another phone' failure mode, not a pairing reset."
     rejoin:
-      in_place_supported: true
-      requires_factory_reset: false
+      in_place_supported: false
+      requires_factory_reset: true
       notes: >
-        Nothing binds this device to a network or an owner, so switching
-        controllers is just connecting from the new one. If the old client is
-        an Android or iOS phone, remove the device from the OS Bluetooth list
-        as well — a cached bond can keep the phone reconnecting automatically
-        and holding the single available link.
+        The device holds pairing state: the per-device random password acts
+        as a binding secret, advertisement manufacturer-data byte 8 carries a
+        paired flag (and the app tracks isBindOther), and the vendor documents
+        the blue-wire 15-touch reset as MANDATORY to pair a new phone.
+        Power-cycling alone only drops the current link.
     credentials:
       wifi_passphrase_protection: "not_applicable"
-      stored_on_device: []
+      stored_on_device:
+        - "Per-device 6-byte BLE password (random, set at first pairing)"
+        - "Paired/bound-phone state (advertised in mfr data byte 8)"
       issued_to_client: []
       notes: >
-        Anything within radio range can connect and issue commands. Physical
-        proximity is the only access control.
+        The password is generated by the app and kept in its private database;
+        without it the device answers 4D 09 01 and the connection is dropped.
+        Pairing is limited to one controller at a time.
 services:
   - uuid: "00001000-0000-1000-8000-00805f9b34fb"
     name: "ProGLOW BLE Service"
@@ -95,7 +127,7 @@ services:
               password:
                 type: "bytes"
           sync_time:
-            description: "Sync device time and protection settings"
+            description: "Sync device time and protection settings (12 bytes in the current app; 2023 V3.3-era on-wire captures show a 14-byte frame with 3 extra trailing bytes)"
             template: [0x3C, 0x00, "{second}", "{minute}", "{hour}", "{day}", "{month}", "{year_low}", "{year_high}", "{battery_protection}", "{brake_signal}", "{brake_override}"]
             parameters:
               second:
@@ -224,14 +256,20 @@ services:
               rgb_triples_padded:
                 type: "bytes"
       - uuid: "00001002-0000-1000-8000-00805f9b34fb"
-        name: "Characteristic 2"
+        name: "State Notify"
         properties: ["read", "notify"]
+        notes: >
+          Asynchronous 0x4D state packets arrive as notifications here:
+          BleService.enableNotification targets CHARACTERS[1] (=0x1002) and the
+          on-wire capture shows the CCC write 0x1002/0x2902 = [01 00] followed
+          by streaming 0x4D… packets.
       - uuid: "00001003-0000-1000-8000-00805f9b34fb"
         name: "Characteristic 3"
         properties: ["read", "notify"]
       - uuid: "00001004-0000-1000-8000-00805f9b34fb"
         name: "Read"
         properties: ["read", "notify"]
+        notes: "Register-read response channel only (readReg writes a register index to 0x1005, then reads 0x1004); not the async state channel."
         format:
           - offset: 0
             length: 1
@@ -245,7 +283,7 @@ entities:
   - platform: "light"
     name: "ProGLOW LEDs"
     features: ["brightness", "color", "effect"]
-    state_characteristic: "00001004-0000-1000-8000-00805f9b34fb"
+    state_characteristic: "00001002-0000-1000-8000-00805f9b34fb"
     commands:
       turn_on: "set_power"
       turn_off: "set_power"

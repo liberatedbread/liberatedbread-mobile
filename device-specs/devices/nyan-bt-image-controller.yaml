@@ -5,23 +5,38 @@
 device:
   name: "NYAN BT Image Controller"
   manufacturer: "NYAN GEAR / LOY SPACE / popled.cn"
-  manufacturer_status: "abandoned"
+  manufacturer_status: "active"
   protocol: "ble"
   notes: >
     BLE-only variant of the LOY SPACE protocol (identical to AUTOBABA LED Backpack).
-    White-label reskin of the LOY SPACE platform with BLE-only mode (no Wi-Fi).
+    Vendor-confirmed white-label reskin of the LOY SPACE platform with BLE-only
+    mode (no Wi-Fi): NYAN's own product page tells users to download the LOY
+    space app for the same backpack.
     BLE device name starts with "YS" or "TL".
-    Packet format: [0xAA, 0x55, addr_hi, addr_lo, len_hi, len_lo, sno_hi, sno_lo, flags, type, ...payload].
-    JSON-based commands, 24-bit BMP image upload.
-    Default resolution: 32x16. Supports same resolution table as AUTOBABA.
-    Backend: store-cdn.popled.cn (shared API key and auth).
-    BLE transport identical to AUTOBABA: JSON commands framed with a 0xAA55 magic
-    header (bytes AA 55) + 2 reserved + LE uint16 payload length, chunked ~180 B/write,
-    no checksum on JSON commands. NYAN adds rt_draw (real-time pixel draw), game and
-    pwd (password) commands on top of the shared command set.
-    CONFIDENCE: HIGH — service/char UUIDs and command JSON verified in the uni-app
-    app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2, NotifyId 0000FFF1;
-    rt_draw/game/pwd/dev_info/del_all/value_fix tokens present).
+    Wire frame (hardware-verified by samrodrigues/loy-space-protocol and
+    icedac/open-loyspace): BLE writes carry an outer u16-LE total-length prefix,
+    then the inner frame [0xAA, 0x55, 0xFF, 0xFF, len (u16-LE), sno (u16-LE),
+    flags (0xC1), subflag, ...payload, checksum (u16-LE)]. Every frame ends with
+    a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF,
+    little-endian); the device silently rejects bad checksums. Notifications
+    omit the outer prefix.
+    Commands are JSON objects app-side, serialized to binary TLV opcodes on the
+    wire — the JSON text itself never crosses the link.
+    Image/program upload is GIF89a streamed in 960-byte chunks (a 24-bit BMP
+    encoder exists app-side as a conversion artifact, but BMP is not the wire
+    format).
+    Resolution: vendor documents 64x64 (backpack) and 16x16 (leg bag).
+    Chunked at ~180 bytes per BLE write.
+    Backend: store-cdn.popled.cn.
+    rt_draw (real-time pixel draw), game and pwd (password) are shared LOY SPACE
+    platform opcodes (indices 32/31/42 in the platform app's 45-entry dispatch
+    table), not NYAN-specific additions.
+    Vendor ecosystem active: NYAN GEAR app updated 2025-12-04, vendor store
+    selling, backend CDN live.
+    CONFIDENCE: HIGH — service/char UUIDs, name prefixes and command JSON verified
+    in the uni-app app-service.js bundle (serviceId 0000FFF0, WriteId 0000FFF2,
+    NotifyId 0000FFF1; rt_draw/game/pwd/dev_info/del_all/value_fix tokens present);
+    wire framing cross-checked against two independent hardware-verified RE repos.
   identification:
     local_name_prefix: "YS"
     service_uuids:
@@ -94,38 +109,45 @@ device:
         Anything within radio range can connect and issue commands. Physical
         proximity is the only access control.
 # Custom consumer-side handler: JSON command serialization into the popled 0xAA55
-# framed transport (shared with the AUTOBABA LED Backpack). Declarative.
+# framed binary-TLV transport (shared with the AUTOBABA LED Backpack). Declarative.
 protocol_handler: "popled_json"
 
-# Full-color image / animation upload (device-reported resolution may differ).
+# Full-color image / animation upload (GIF89a on the wire, in 960-byte chunks).
+# Vendor-documented resolutions: 64x64 (backpack), 16x16 (leg bag).
 features:
   - type: "image_upload"
     format: "gif"
-    max_width: 32
-    max_height: 16
+    max_width: 64
+    max_height: 64
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "LOY SPACE BLE Service"
     characteristics:
       - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
-        name: "Notify / Write"
-        properties: ["read", "write", "notify"]
-        framing:
-          length_prefix: true
-          max_chunk_size: 180
-        notes: "NotifyId in app-service.js. 0xAA55 + 2 reserved + LE uint16 length; no checksum on JSON commands."
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          NotifyId in app-service.js. NOTIFY-only — writes go to FFF2
+          (write-without-response); enable the CCCD before writing or frames
+          are not ACKed. Notifications carry the 0xAA55 inner frame without the
+          outer u16-LE length prefix used on writes. Hardware-verified by
+          samrodrigues/loy-space-protocol.
 
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Write"
-        properties: ["write"]
+        properties: ["write_without_response"]
         framing:
           length_prefix: true
           max_chunk_size: 180
         notes: >
-          WriteId in app-service.js. JSON commands wrapped as
-          {"cmd": <command>, "sno": <sequence>} and framed with the 0xAA55 header.
-          checksum OMITTED (none on JSON commands).
+          WriteId in app-service.js. Write-without-response is mandatory
+          (regular writes hang). App-side commands are JSON objects wrapped as
+          {"cmd": <command>, "sno": <sequence>}, but the wire payload is binary
+          TLV opcodes — the app serializes JSON to TLV before send. Each write
+          carries an outer u16-LE total-length prefix and every frame ends with
+          a 2-byte additive checksum (sum of the preceding bytes & 0xFFFF, LE);
+          the device silently rejects bad checksums.
         commands:
           power_toggle:
             description: 'Toggle screen power. JSON: {"cmd":{"power":{"type":0}},"sno":N}'
@@ -158,25 +180,25 @@ services:
               key: "cmd.rotate"
               value_type: "int"
           play_program:
-            description: 'Play a program by index. JSON: {"cmd":{"pgm_play":{"model":0,"index":N}},"sno":N}'
+            description: 'Play programs. JSON: {"cmd":{"pgm_play":{"model":0,"ids_pro":[1..60]}},"sno":N} — ids_pro is the full 60-slot program-id array; an "index" key is not corroborated.'
             encoding: "json"
             payload:
-              key: "cmd.pgm_play.index"
-              value_type: "int"
+              key: "cmd.pgm_play.ids_pro"
+              value_type: "object"
           rt_draw:
-            description: 'Real-time pixel draw (NYAN). JSON: {"cmd":{"rt_draw":{...}},"sno":N}'
+            description: 'Real-time pixel draw (shared LOY SPACE platform opcode, dispatch idx 32). JSON: {"cmd":{"rt_draw":{...}},"sno":N}'
             encoding: "json"
             payload:
               key: "cmd.rt_draw"
               value_type: "object"
           set_password:
-            description: 'Set / send device password (NYAN). JSON: {"cmd":{"pwd":"..."},"sno":N}'
+            description: 'Set / send device password (shared LOY SPACE platform opcode, dispatch idx 42). The simple string form {"cmd":{"pwd":"..."},"sno":N} is not corroborated — the platform builds typed pwd payloads with an appended hash.'
             encoding: "json"
             payload:
               key: "cmd.pwd"
               value_type: "string"
           game_command:
-            description: 'Game-mode command (NYAN). JSON: {"cmd":{"game":{...}},"sno":N}'
+            description: 'Game-mode command (shared LOY SPACE platform opcode, dispatch idx 31). JSON: {"cmd":{"game":{...}},"sno":N}'
             encoding: "json"
             payload:
               key: "cmd.game"

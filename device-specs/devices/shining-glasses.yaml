@@ -5,20 +5,25 @@
 device:
   name: "Shining Glasses"
   manufacturer: "Shenzhen Shining Bright Technology"
-  manufacturer_status: "abandoned"
+  manufacturer_status: "active"
   protocol: "ble"
   notes: >
     Bluetooth-controlled LED glasses. Uses identical protocol to Shining Mask
     (same UUIDs, AES encryption, ASCII-based 16-byte command format, DATS/DATCP handshake).
-    AES-128-ECB encryption via native libAES.so with a fixed default key
-    (aes.keyExpansionDefault() is a JNI native method; the 16-byte key lives in the
-    .so binary, NOT in Java — likely the same key as Magic Display, same cdbwsoft codebase).
-    Manufacturer advertising data filter: {0x54, 0x52, 0x00, 0x41} ("TR" + 0x0041).
-    Supports display modes: 5x36, 12x48, 16x64 (configurable per product variant).
-    Default grid: 128 columns x 16 rows.
+    AES-128-ECB encryption via native libAES.so with a fixed default key —
+    the 16-byte key 32672f7974ad43451d9c6c894a0e8764 was recovered verbatim
+    from the vendor APK's libAES.so (arm64 .data, file offset 0x3008) and
+    matches the published family key (same cdbwsoft codebase as Magic Display).
+    Discovery: the vendor app matches manufacturer advertising data
+    {0x54, 0x52, 0x00, 0x41} ("TR" + 0x0041), not the service UUID.
+    Fixed 36x12 grid (SL-012 manual: 432 lamp beads; hardware captures show
+    1,368-byte frames = 72-byte mask + 36x12x3 RGB). FCC ID 2AOLNSL-004
+    (grantee 2AOLN, model SL-004 "Funky Glasses").
     No pairing required.
-    CONFIDENCE: command/UUID mapping HIGH (jadx of com.icwork.shiningglass);
-    AES key UNRECOVERABLE from the Java APK (native lib not captured).
+    Vendor is active: app v1.2.7 updated Dec 2025; design-patent judgment won
+    Oct 2025. CONFIDENCE: command/UUID mapping and AES key HIGH (public
+    decompile of com.icwork.shiningglass v1.2.7,
+    Jhan-vasquez-dev/shining-glasses, incl. HCI captures).
     Evidence: com/icwork/shiningglass/base/App.java:21 (keyExpansionDefault);
     model/data/DiyAgreement.java (command framing, REOK ack parsing).
   identification:
@@ -29,8 +34,16 @@ device:
     methods:
       - type: "ble_scan"
         ble:
-          service_uuids:
-            - "0000fff0-0000-1000-8000-00805f9b34fb"
+          manufacturer_data:
+            company_id: 21076
+            match: "prefix"
+            pattern: "54520041"
+            description: >
+              Vendor app discovery (BleConfig.matchProduct, ConnectActivity):
+              the manufacturer-data (AD type 0xFF) payload must start with
+              0x54 0x52 0x00 0x41 ("TR" + 0x0041; company_id 21076 = 0x5254 is
+              the "TR" prefix little-endian). The app does not filter on the
+              0000fff0 service UUID.
     identity:
       stable_keys: ["address"]
       display: "service_uuid"
@@ -92,15 +105,14 @@ device:
 protocol_handler: "cdbwsoft_ecb"
 
 services:
-  - uuid: "d44bc439-abfd-45a2-b575-925416129600"
-    name: "QPP Command Service (encrypted)"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Shining Glasses Service"
     notes: >
-      Quintic Private Profile (QPP): the service UUID intentionally equals its
-      first
-      characteristic UUID (d44bc439-...-925416129600). This is the Quintic/NXP
-      QN-series
-      convention, NOT a copy-paste error. Same UUID family as Magic Display
-      (cdbwsoft).
+      Single primary service holding the four d44bc439 command/transfer
+      characteristics (hardware handle table in Jhan-vasquez-dev/shining-glasses
+      PROTOCOL.md; the cdbwsoft BleManager binds 0000fff0 as the runtime
+      service). There is NO separate d44bc439-...-9600 service and no FFF1
+      characteristic on this device.
     characteristics:
       - uuid: "d44bc439-abfd-45a2-b575-925416129600"
         name: "Command"
@@ -108,11 +120,13 @@ services:
         encryption:
           algorithm: "aes-128-ecb"
           key_derivation: "static"
+          static_key: "32672f7974ad43451d9c6c894a0e8764"
         notes: >
-          AES-128-ECB, fixed static key. static_key OMITTED: the key is in the
-          native libAES.so (aes.keyExpansionDefault, JNI) and is not present in the
-          decompiled Java APK; likely identical to Magic Display's key (same
-          cdbwsoft codebase). Confidence: HIGH structure, key UNRECOVERABLE.
+          AES-128-ECB, fixed static key. Key recovered verbatim from the vendor
+          APK's libAES.so (arm64 .data at file offset 0x3008, immediately
+          followed by the AES S-box); identical to the family key published by
+          Jhan-vasquez-dev/shining-glasses, the Staars gist and
+          tayred06/shining-mask-controller. Confidence: HIGH.
         commands:
           set_brightness:
             description: "Set brightness (AES encrypted). Plaintext: [0x06, 'L','I',0x47,0x48,'T', brightness]"
@@ -131,16 +145,16 @@ services:
                 min: 0
                 max: 255
           select_animation:
-            description: "Select built-in animation by index"
-            template: [0x05, 0x41, 0x35, 0x49, 0x34, "{index}"]
+            description: "Select built-in animation by index. Plaintext: [0x05, 'ANIM', index]"
+            template: [0x05, 0x41, 0x4E, 0x49, 0x4D, "{index}"]
             parameters:
               index:
                 type: "uint8"
                 min: 0
                 max: 255
           select_image:
-            description: "Select built-in image by index"
-            template: [0x05, 0x49, 0x34, 0x41, 0x47, "{index}"]
+            description: "Select built-in image by index. Plaintext: [0x05, 'IMAG', index]"
+            template: [0x05, 0x49, 0x4D, 0x41, 0x47, "{index}"]
             parameters:
               index:
                 type: "uint8"
@@ -167,14 +181,14 @@ services:
                 min: 0
                 max: 255
           enter_diy_mode:
-            description: "Enter DIY drawing mode (single frame)"
-            value: [0x06, 0x53, 0x34, 0x56, 0x45, 0x57, 0x01]
+            description: "Enter DIY drawing mode (single frame). Plaintext: [0x06, 'SMVEW', 0x01]"
+            value: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, 0x01]
           exit_diy_mode:
-            description: "Exit DIY mode without saving"
-            value: [0x06, 0x53, 0x34, 0x56, 0x45, 0x57, 0x00]
+            description: "Exit DIY mode without saving. Plaintext: [0x06, 'SMVEW', 0x00]"
+            value: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, 0x00]
           exit_diy_save:
-            description: "Exit DIY mode and save"
-            value: [0x06, 0x53, 0x34, 0x56, 0x45, 0x57, 0x02]
+            description: "Exit DIY mode and save. Plaintext: [0x06, 'SMVEW', 0x02]"
+            value: [0x06, 0x53, 0x4D, 0x56, 0x45, 0x57, 0x02]
           play_diy:
             description: "Play DIY animation"
             value: [0x04, 0x50, 0x4C, 0x41, 0x59]
@@ -194,18 +208,16 @@ services:
         name: "Audio/DIY Realtime"
         properties: ["write"]
 
-  # Texas Instruments profile advertised by TI-based hardware variants; this is the
-  # 0000fff0 UUID listed under identification.service_uuids (matches Magic Display).
-  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
-    name: "TI Service"
-    characteristics:
-      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
-        name: "TI Command"
-        properties: ["write", "notify"]
-        encryption:
-          algorithm: "aes-128-ecb"
-          key_derivation: "static"
-        notes: "TI-variant command characteristic; same AES-128-ECB native key (key OMITTED, in libAES.so)."
+  # OTA firmware update path (Panchip). There is no FFF1 characteristic on
+  # this device — that entry was carried over from the magic-display spec.
+  - uuid: "0000fd00-0000-1000-8000-00805f9b34fb"
+    name: "Panchip OTA Service"
+    notes: >
+      OTA service with characteristics fd01/fd02 (per
+      Jhan-vasquez-dev/shining-glasses). The vendor APK bundles two firmware
+      images (TR1906R04-1-10_OTA.bin, TR1906R04-10_OTA.bin) — Panchip OTA
+      containers with a 16-byte FileInfo header; payload format not yet
+      decoded.
 
 entities:
   - platform: "light"

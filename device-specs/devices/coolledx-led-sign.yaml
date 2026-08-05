@@ -49,6 +49,18 @@ device:
     specified here; see the coolledx-driver render module.
     Source: github.com/UpDryTwist/coolledx-driver (original RE credited to CrimsonClyde).
 
+    NEW INFO (2026-07 verification — additions only, no discrepancies found):
+    the CoolLED1248 Android app is actively developed (updated 2026-07-02;
+    developer "yfxiong"), with an iOS twin on the App Store (id 1435796557).
+    The advanced-protocol generations support OTA firmware updates through
+    the app (limited on CoolLEDM, comprehensive on CoolLEDU/UX) — signed
+    blobs flow through the app, so sniffing an update is the way to obtain
+    one. Panel hardware per CrimsonClyde's teardown: HC89F0541 8051 MCU,
+    SM16206S LED drivers, 37 kBaud UART between the BT module and the MCU.
+    The same RE documents an overflow bug: declaring more animation frames
+    than are sent makes the sign display raw flash contents (max ~159
+    frames, roughly 30 kB) — a potential firmware-extraction primitive.
+
   identification:
     # EXACT, not a "CoolLED" prefix. A prefix match would also admit CoolLEDM /
     # CoolLEDU / CoolLEDMX / CoolLEDUX, which speak the advanced protocol: the

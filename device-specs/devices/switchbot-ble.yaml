@@ -14,6 +14,13 @@ device:
     github.com/OpenWonderLabs/SwitchBotAPI-BLE — this spec is a clean-room encoding
     of that documentation plus community implementations (Danielhiversen/pySwitchbot).
 
+    SOURCES: the official SwitchBotAPI-BLE repo is stale (last commit 2024-10;
+    it documents only 11 device types — no Lock Pro/Lock Ultra, Blind Tilt,
+    Roller Shade, Meter Pro or Hub 2/3). pySwitchbot is the living
+    specification (~50 models), including AES-CTR command encryption whose key
+    is bootstrapped once via a SwitchBot cloud account, after which commands
+    work fully locally.
+
     COMMUNICATION: all devices share the same service UUID and frame format.
     REQ frame (client→device) written to TX char: [0x57 magic][header byte]
     [payload...]. Header bits 7:6 = version (0), bits 5:4 = encryption mode
@@ -24,7 +31,8 @@ device:
     encryption, 0x0B mesh failure, 0x0C network failure.
 
     DISCOVERY: service data UUID 0xFD3D in SCAN_RSP (firmware ≥v6.4), 0x000D
-    (older). Company ID 0x0969 (new) / 0x0059 (old) in manufacturer data.
+    (older). Company ID 0x0969 (new) / 0x0059 (old) in manufacturer data;
+    pySwitchbot's parser additionally accepts 0x02E5 (741).
     Device type in service data byte 0 bits 6:0 — see variants below.
     Advertised names vary per product: "WoHand" (Bot), "WoSensorTH" (Meter),
     "WoCurtain" (Curtain), etc.
@@ -50,7 +58,7 @@ device:
             - "0000fd3d-0000-1000-8000-00805f9b34fb"
           manufacturer_data:
             company_id: 2409
-            description: "SwitchBot company ID 0x0969 (new firmware v6.4+); older: 0x0059 (89)"
+            description: "SwitchBot company ID 0x0969 (new firmware v6.4+); older: 0x0059 (89); pySwitchbot also parses 0x02E5 (741)"
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -66,7 +74,7 @@ device:
       unencrypted commands.
     methods:
       - type: "ble_direct"
-        verified: true
+        verified: false
         description: >
           Scan for the service UUID (0xFD3D service data or 0x0969 manufacturer
           data), connect, optionally send password to enable encrypted commands.
@@ -117,8 +125,12 @@ device:
       notes: "Device type 0x7B ('{') in service data. Curtain 3 variant."
     - model: "Motion Sensor"
       identification:
-        local_name_prefix: "WoMotion"
-      notes: "Device type 0x73 ('s') in service data. PIR motion sensor."
+        local_name_prefix: "WoPresence"
+      notes: >
+        Device type 0x73 ('s') in service data. PIR motion sensor. Advertises
+        as "WoPresence" (pySwitchbot constant; real-world captures agree) —
+        "WoMotion" was only a synthetic enum label in node-switchbot, not the
+        advertised name.
     - model: "Contact Sensor"
       identification:
         local_name_prefix: "WoContact"
@@ -145,8 +157,8 @@ device:
       notes: "Device type 0x65 ('e') in service data."
     - model: "Meter Plus"
       identification:
-        local_name_prefix: "WoSensorTH"
-      notes: "Device type 0x69 ('i') in service data. Enhanced temp/humidity with display."
+        local_name_prefix: "WoMeterPlus"
+      notes: "Device type 0x69 ('i') in service data. Enhanced temp/humidity with display. Advertises as \"WoMeterPlus\" (pySwitchbot name map); \"WoSensorTH\" is the plain Meter."
 
 services:
   - uuid: "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
@@ -165,19 +177,19 @@ services:
           bot_press:
             description: "Bot: press and release the arm."
             value: [0x57, 0x01, 0x00]
-            verification: "confirmed"
+            verification: "reported"
           bot_turn_on:
             description: "Bot: press for 'on' in switch mode."
             value: [0x57, 0x01, 0x01]
-            verification: "confirmed"
+            verification: "reported"
           bot_turn_off:
             description: "Bot: press for 'off' in switch mode."
             value: [0x57, 0x01, 0x02]
-            verification: "confirmed"
+            verification: "reported"
           get_basic_info:
             description: "Get device basic info: battery%, firmware version, mode."
             value: [0x57, 0x02]
-            verification: "confirmed"
+            verification: "reported"
           set_bot_mode:
             description: >
               Set Bot mode. Payload: [strength (always 100=0x64)][mode].
@@ -187,20 +199,20 @@ services:
             template: [0x57, 0x03, 0x64, "{mode}"]
             parameters:
               mode: { type: "uint8", min: 0, max: 255 }
-            verification: "confirmed"
+            verification: "reported"
           set_long_press_duration:
             description: "Set long press duration in seconds. Frame: 0x57 0x0F 0x08 [seconds]."
             template: [0x57, 0x0F, 0x08, "{seconds}"]
             parameters:
               seconds: { type: "uint8", min: 1, max: 255 }
-            verification: "confirmed"
+            verification: "reported"
           meter_read_sensor:
             description: >
               Meter/MeterTH: read current temperature and humidity via extended
               command 0x31. Send: 0x57 0x0F 0x31. Response payload:
               [fractional_temp_byte][integer_temp_byte][humidity_byte].
             value: [0x57, 0x0F, 0x31]
-            verification: "confirmed"
+            verification: "reported"
           meter_set_temperature_mode:
             description: >
               Set Meter temperature display: 0x01=Celsius, 0x02=Fahrenheit.
@@ -208,11 +220,11 @@ services:
             template: [0x57, 0x0F, 0x30, "{mode}"]
             parameters:
               mode: { type: "uint8", min: 1, max: 2 }
-            verification: "confirmed"
+            verification: "reported"
           meter_read_hardware_version:
             description: "Read Meter hardware version via 0x57 0x0F 0x14."
             value: [0x57, 0x0F, 0x14]
-            verification: "confirmed"
+            verification: "reported"
 
       - uuid: "cba20003-224d-11e6-9fb8-0002a5d5c51b"
         name: "RX (Device → Client)"
@@ -245,7 +257,12 @@ services:
       - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
         name: "Battery Level"
         properties: ["read"]
-        notes: "Standard BLE battery level characteristic."
+        notes: >
+          UNVERIFIED — likely absent on most devices. The standard Battery
+          Service appears in neither the official BLE API docs nor the two
+          reference implementations (pySwitchbot, node-switchbot); all three
+          take battery from service-data byte 2 / the GetBasicInfo response.
+          Do not rely on this characteristic; treat it as a fallback to probe.
 
 entities:
   - platform: "switch"
