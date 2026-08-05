@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/iot_device.dart';
+import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/saved_device_store.dart';
@@ -24,21 +25,32 @@ class SavedDevicesScreen extends ConsumerWidget {
   /// A saved record carries no live RSSI — it's a pointer, not a sighting — so
   /// the reconstructed device is marked connectable and lets the device screen
   /// surface the real outcome if it's out of range.
-  Future<void> _reconnect(BuildContext context, SavedDevice saved) =>
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DeviceScreen(
-            device: IoTDevice(
-              id: saved.id,
-              name: saved.name,
-              rssi: 0,
-              isConnectable: true,
-              discoveredAt: DateTime.now(),
-            ),
+  ///
+  /// Stops the scan first, for the same reason [ScanScreen] does before it
+  /// connects: connecting while a scan is running is flaky on both platforms.
+  /// It matters more here, not less — the shell holds the scan tab in an
+  /// [IndexedStack], so a scan the user started and then walked away from is
+  /// still running natively while they tap a saved device on another tab.
+  /// Errors are swallowed because a scan that was never started, or has already
+  /// stopped, must not block a reconnect.
+  Future<void> _reconnect(
+      BuildContext context, WidgetRef ref, SavedDevice saved) async {
+    final navigator = Navigator.of(context);
+    await ref.read(bleServiceProvider).stopScan().catchError((Object _) {});
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => DeviceScreen(
+          device: IoTDevice(
+            id: saved.id,
+            name: saved.name,
+            rssi: 0,
+            isConnectable: true,
+            discoveredAt: DateTime.now(),
           ),
         ),
-      );
+      ),
+    );
+  }
 
   Future<void> _forget(
       BuildContext context, WidgetRef ref, SavedDevice saved) async {
@@ -78,7 +90,7 @@ class SavedDevicesScreen extends ConsumerWidget {
                       // a paired device you cannot place by name is exactly as
                       // confusing here as it is in the scan list.
                       description: _savedDescription(registry, device),
-                      onTap: () => _reconnect(context, device),
+                      onTap: () => _reconnect(context, ref, device),
                       onForget: () => _forget(context, ref, device),
                     ),
                     const SizedBox(height: 10),
