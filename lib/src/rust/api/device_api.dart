@@ -6,7 +6,8 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `image_upload_dto`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
@@ -45,6 +46,30 @@ Future<Uint8List> encodeCommand(
         charUuid: charUuid,
         commandName: commandName,
         params: params);
+
+/// Encode one RGB888 frame into the ordered BLE writes that display it,
+/// dispatched on the spec's `protocol_handler`.
+///
+/// `rgb` is row-major, length `width * height * 3`. `frame_index` sequences
+/// consecutive frames of an animation (wire serials derive from it), and
+/// `max_payload_per_write` is the usable bytes per BLE write (negotiated ATT
+/// MTU - 3; pass 20 when the MTU is unknown). Errors are typed and
+/// user-presentable: an unknown or missing handler says so instead of
+/// producing bytes that were never going to work.
+Future<ImageWritePlanDto> encodeImageFrame(
+        {required String specYaml,
+        required int width,
+        required int height,
+        required List<int> rgb,
+        required int frameIndex,
+        required int maxPayloadPerWrite}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeImageFrame(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        frameIndex: frameIndex,
+        maxPayloadPerWrite: maxPayloadPerWrite);
 
 /// Decode raw bytes from a BLE read/notify into named values.
 ///
@@ -241,6 +266,12 @@ class DeviceSpecDto {
   /// units instead of a raw GATT browser.
   final List<EntityDto> entities;
 
+  /// The spec's `image_upload` feature, when it declares one — pixel
+  /// displays (LED matrices, curtain lights, badges, printers) that accept
+  /// a raster image and possibly animations. Drives the app's generic LED
+  /// image widget; `None` for devices without a pixel surface.
+  final ImageUploadDto? imageUpload;
+
   const DeviceSpecDto({
     required this.deviceName,
     required this.manufacturer,
@@ -251,6 +282,7 @@ class DeviceSpecDto {
     required this.serviceUuids,
     required this.services,
     required this.entities,
+    this.imageUpload,
   });
 
   @override
@@ -263,7 +295,8 @@ class DeviceSpecDto {
       localNamePrefix.hashCode ^
       serviceUuids.hashCode ^
       services.hashCode ^
-      entities.hashCode;
+      entities.hashCode ^
+      imageUpload.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -278,7 +311,8 @@ class DeviceSpecDto {
           localNamePrefix == other.localNamePrefix &&
           serviceUuids == other.serviceUuids &&
           services == other.services &&
-          entities == other.entities;
+          entities == other.entities &&
+          imageUpload == other.imageUpload;
 }
 
 /// A spec-declared reading: what to call it, what unit it is in, and which
@@ -381,6 +415,112 @@ class FormatFieldDto {
           fieldType == other.fieldType &&
           offset == other.offset &&
           length == other.length;
+}
+
+/// A spec's declared image/animation capability, plus whether this crate can
+/// actually encode uploads for it.
+///
+/// The split matters: the capability is *declarative* (any spec may carry
+/// it), while encoding needs a named `protocol_handler` implemented in
+/// `crate::protocol`. The UI renders the full editor when [`Self::encodable`]
+/// and an honest "not wired up yet" state otherwise, so new specs light up by
+/// data alone once their handler lands.
+class ImageUploadDto {
+  /// The spec's `protocol_handler` name, e.g. `daniao_ddp`.
+  final String? handler;
+
+  /// True when [`Self::handler`] names a handler this crate implements —
+  /// i.e. `encode_image_frame` will succeed rather than error.
+  final bool encodable;
+
+  /// Wire pixel format the device expects (e.g. `rgb888`, `gif`).
+  final String? format;
+  final int? maxWidth;
+  final int? maxHeight;
+
+  /// True when max_width/max_height are platform bounds and the panel's
+  /// real resolution is reported by the device at runtime (so the editor
+  /// should let the user set the canvas size).
+  final bool resolutionDeviceReported;
+
+  /// Whether multi-frame sequences (animations) are supported.
+  final bool animation;
+  final int? maxFrames;
+
+  /// Fastest supported frame flip in milliseconds, when the spec knows it.
+  final int? minFrameIntervalMs;
+  final int? defaultFrameIntervalMs;
+
+  const ImageUploadDto({
+    this.handler,
+    required this.encodable,
+    this.format,
+    this.maxWidth,
+    this.maxHeight,
+    required this.resolutionDeviceReported,
+    required this.animation,
+    this.maxFrames,
+    this.minFrameIntervalMs,
+    this.defaultFrameIntervalMs,
+  });
+
+  @override
+  int get hashCode =>
+      handler.hashCode ^
+      encodable.hashCode ^
+      format.hashCode ^
+      maxWidth.hashCode ^
+      maxHeight.hashCode ^
+      resolutionDeviceReported.hashCode ^
+      animation.hashCode ^
+      maxFrames.hashCode ^
+      minFrameIntervalMs.hashCode ^
+      defaultFrameIntervalMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ImageUploadDto &&
+          runtimeType == other.runtimeType &&
+          handler == other.handler &&
+          encodable == other.encodable &&
+          format == other.format &&
+          maxWidth == other.maxWidth &&
+          maxHeight == other.maxHeight &&
+          resolutionDeviceReported == other.resolutionDeviceReported &&
+          animation == other.animation &&
+          maxFrames == other.maxFrames &&
+          minFrameIntervalMs == other.minFrameIntervalMs &&
+          defaultFrameIntervalMs == other.defaultFrameIntervalMs;
+}
+
+/// The BLE writes that push one image frame to a device, in send order.
+class ImageWritePlanDto {
+  final String serviceUuid;
+  final String characteristicUuid;
+
+  /// Ordered write payloads. The caller sends them back-to-back on the
+  /// characteristic; ordering is part of the protocol (fragment reassembly).
+  final List<Uint8List> writes;
+
+  const ImageWritePlanDto({
+    required this.serviceUuid,
+    required this.characteristicUuid,
+    required this.writes,
+  });
+
+  @override
+  int get hashCode =>
+      serviceUuid.hashCode ^ characteristicUuid.hashCode ^ writes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ImageWritePlanDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          characteristicUuid == other.characteristicUuid &&
+          writes == other.writes;
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
