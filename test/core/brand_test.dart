@@ -10,8 +10,6 @@ import 'package:liberated_bread_mobile/core/theme.dart';
 
 /// `#RRGGBB`, matching how the palette is written in brand.json.
 String _hex(Color color) {
-  // ignore: deprecated_member_use — .value is the stable 32-bit ARGB accessor
-  // across the Flutter versions this project supports.
   final rgb = color.toARGB32() & 0xFFFFFF;
   return '#${rgb.toRadixString(16).toUpperCase().padLeft(6, '0')}';
 }

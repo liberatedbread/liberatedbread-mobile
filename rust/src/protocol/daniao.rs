@@ -29,6 +29,7 @@
 //! numbers derive from it, so streaming N frames produces distinct serials
 //! without shared state across the FFI boundary.
 
+use super::EncodedFrame;
 use crate::error::ProtocolError;
 
 /// `protocol_handler` name this module implements (see the device spec's
@@ -52,7 +53,7 @@ const MAX_FRAGMENTS: usize = u8::MAX as usize;
 /// The BLE 4.0 minimum ATT payload (MTU 23 - 3). The vendor app requests MTU
 /// 512 and falls back to this; anything smaller is not a plausible link and
 /// almost certainly a caller bug.
-pub const MIN_PAYLOAD_PER_WRITE: usize = 20;
+const MIN_PAYLOAD_PER_WRITE: usize = 20;
 
 /// Encode one RGB frame into the ordered BLE writes that push it to the
 /// display, targeting [`DDP_WRITE_UUID`].
@@ -64,14 +65,17 @@ pub const MIN_PAYLOAD_PER_WRITE: usize = 20;
 ///
 /// Frames larger than one DDP packet can carry (`u16` psize, and at most 255
 /// fragments per packet) are split into multiple packets at increasing
-/// buffer offsets; only the last packet carries PUSH.
+/// buffer offsets; only the last packet carries PUSH. The returned
+/// [`EncodedFrame::packets`] is how many sequence numbers were consumed —
+/// callers MUST advance `frame_index` by it (not by 1) so the next frame's
+/// serials don't collide with this one's.
 pub fn encode_display_frame(
     rgb: &[u8],
     width: u32,
     height: u32,
     frame_index: u32,
     max_payload_per_write: usize,
-) -> Result<Vec<Vec<u8>>, ProtocolError> {
+) -> Result<EncodedFrame, ProtocolError> {
     let expected = (width as usize)
         .checked_mul(height as usize)
         .and_then(|px| px.checked_mul(3))
@@ -111,8 +115,10 @@ pub fn encode_display_frame(
     for (i, chunk) in packets.iter().enumerate() {
         let offset = i * max_packet_pixels;
         let last = i == packets.len() - 1;
-        // One sequence number per DDP packet, derived from the frame index so
-        // consecutive streamed frames keep distinct, increasing serials.
+        // One sequence number per DDP packet. Derived from the frame index,
+        // which the caller advances by the returned packet count — that
+        // contract is what keeps serials distinct across frames when one
+        // frame spans several packets.
         let sn = (frame_index as usize + i) as u8;
 
         let mut packet = Vec::with_capacity(DDP_HEADER_LEN + chunk.len());
@@ -126,7 +132,10 @@ pub fn encode_display_frame(
 
         fragment_packet(&packet, sn, frag_capacity, &mut writes);
     }
-    Ok(writes)
+    Ok(EncodedFrame {
+        writes,
+        packets: packets.len() as u32,
+    })
 }
 
 /// Split one logical packet into BLE writes carrying the 4-byte fragment
@@ -170,9 +179,10 @@ mod tests {
 
     #[test]
     fn single_pixel_single_write_golden_bytes() {
-        let writes = encode_display_frame(&[0xFF, 0x00, 0x7F], 1, 1, 0, 20).unwrap();
+        let frame = encode_display_frame(&[0xFF, 0x00, 0x7F], 1, 1, 0, 20).unwrap();
+        assert_eq!(frame.packets, 1);
         assert_eq!(
-            writes,
+            frame.writes,
             vec![vec![
                 0x00, 0x01, 0x00, 0x00, // fragment: serial 0, 1 total, 0 remaining
                 0x01, 0x00, 0x01, 0x01, // DDP: PUSH, sn 0, DISPLAY, target 1
@@ -187,7 +197,9 @@ mod tests {
     fn packet_larger_than_one_write_fragments_with_countdown() {
         // 2x2 frame = 12 pixel bytes + 10 header = 22 > 16 usable -> 2 writes.
         let rgb: Vec<u8> = (0..12).collect();
-        let writes = encode_display_frame(&rgb, 2, 2, 5, 20).unwrap();
+        let frame = encode_display_frame(&rgb, 2, 2, 5, 20).unwrap();
+        assert_eq!(frame.packets, 1, "one logical packet, two fragments");
+        let writes = frame.writes;
         assert_eq!(writes.len(), 2);
         // Both fragments carry the same serial (the frame index), the total,
         // and a remaining-count that walks 1 -> 0.
@@ -210,9 +222,10 @@ mod tests {
         // bytes. 40x34 RGB = 4080 bytes -> two DDP packets.
         let (w, h) = (40u32, 34u32);
         let rgb = vec![0xAB; (w * h * 3) as usize];
-        let writes = encode_display_frame(&rgb, w, h, 7, 20).unwrap();
+        let frame = encode_display_frame(&rgb, w, h, 7, 20).unwrap();
+        assert_eq!(frame.packets, 2, "callers must advance frame_index by 2");
 
-        let packets = reassemble(&writes);
+        let packets = reassemble(&frame.writes);
         assert_eq!(packets.len(), 2);
 
         // First packet: no PUSH, offset 0, full capacity.
@@ -239,19 +252,19 @@ mod tests {
         let rgb = vec![0x11; 16 * 16 * 3];
         let small = encode_display_frame(&rgb, 16, 16, 0, 20).unwrap();
         let large = encode_display_frame(&rgb, 16, 16, 0, 509).unwrap();
-        assert!(large.len() < small.len());
+        assert!(large.writes.len() < small.writes.len());
         // 768 + 10 = 778 bytes at 505 usable payload -> 2 writes.
-        assert_eq!(large.len(), 2);
-        assert_eq!(reassemble(&small), reassemble(&large));
+        assert_eq!(large.writes.len(), 2);
+        assert_eq!(reassemble(&small.writes), reassemble(&large.writes));
     }
 
     #[test]
     fn frame_index_drives_serials_and_wraps() {
         let rgb = [0u8; 3];
         let w255 = encode_display_frame(&rgb, 1, 1, 255, 20).unwrap();
-        assert_eq!(w255[0][0], 255);
+        assert_eq!(w255.writes[0][0], 255);
         let w256 = encode_display_frame(&rgb, 1, 1, 256, 20).unwrap();
-        assert_eq!(w256[0][0], 0, "serial wraps at u8");
+        assert_eq!(w256.writes[0][0], 0, "serial wraps at u8");
     }
 
     #[test]

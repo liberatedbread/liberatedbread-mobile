@@ -503,15 +503,25 @@ class ImageWritePlanDto {
   /// characteristic; ordering is part of the protocol (fragment reassembly).
   final List<Uint8List> writes;
 
+  /// The frame index to pass for the NEXT frame. A frame spanning P wire
+  /// packets consumes P sequence numbers, so advancing by 1 would make the
+  /// next frame's serials collide with this one's and corrupt fragment
+  /// reassembly on the device — always continue from this value.
+  final int nextFrameIndex;
+
   const ImageWritePlanDto({
     required this.serviceUuid,
     required this.characteristicUuid,
     required this.writes,
+    required this.nextFrameIndex,
   });
 
   @override
   int get hashCode =>
-      serviceUuid.hashCode ^ characteristicUuid.hashCode ^ writes.hashCode;
+      serviceUuid.hashCode ^
+      characteristicUuid.hashCode ^
+      writes.hashCode ^
+      nextFrameIndex.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -520,7 +530,8 @@ class ImageWritePlanDto {
           runtimeType == other.runtimeType &&
           serviceUuid == other.serviceUuid &&
           characteristicUuid == other.characteristicUuid &&
-          writes == other.writes;
+          writes == other.writes &&
+          nextFrameIndex == other.nextFrameIndex;
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever

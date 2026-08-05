@@ -120,23 +120,33 @@ MatchEvidence matchEvidenceOf(MatchResult match) =>
 /// Whether a name-only match is contradicted by the device's own GATT
 /// database and must be dropped.
 ///
-/// True when the spec *declares* service UUIDs, the connected device's
-/// discovered services are known (non-empty), and none of the spec's UUIDs
-/// are among them. At that point the name prefix is a coincidence: the device
-/// demonstrably does not carry the spec's GATT service, so its typed controls
-/// could not work anyway. This is what keeps a short prefix like "DN" from
-/// claiming random devices whose names merely start with those letters.
+/// The comparison is against the spec's declared GATT **services** — NOT its
+/// `identification.service_uuids`. Identification UUIDs are advertisement
+/// data, and for several bundled specs (Govee H5075, Mi Flora) they are
+/// service-data UUIDs that never appear in a GATT table, so keying on them
+/// would reject those devices' perfectly good name matches. The GATT services
+/// block is the honest test: if the spec describes services and the connected
+/// device (whose discovery is non-empty) carries none of them, the name
+/// prefix is a coincidence — the spec's typed controls could not work anyway.
+/// This is what keeps a short prefix like "DN" from claiming random devices
+/// whose names merely start with those letters.
 ///
-/// A spec that declares no UUIDs keeps its name match (the name is its only
-/// identification axis), as does any match when the discovered list is empty
-/// (no evidence either way).
+/// A spec that declares no GATT services keeps its name match (the name is
+/// its only usable axis here), as does any match when the discovered list is
+/// empty (no evidence either way).
 bool isContradictedNameOnlyMatch(
   MatchResult match, {
-  required bool deviceHasServiceUuids,
-}) =>
-    deviceHasServiceUuids &&
-    match.matchedServiceUuids.isEmpty &&
-    match.spec.serviceUuids.isNotEmpty;
+  required List<String> discoveredUuids,
+}) {
+  if (match.matchedServiceUuids.isNotEmpty) return false;
+  if (discoveredUuids.isEmpty) return false;
+  final specGattUuids = {
+    for (final service in match.spec.services) normalizeUuid(service.uuid),
+  };
+  if (specGattUuids.isEmpty) return false;
+  return !discoveredUuids
+      .any((uuid) => specGattUuids.contains(normalizeUuid(uuid)));
+}
 
 /// Filter and rank raw matcher output: contradicted name-only matches are
 /// dropped, then candidates sort by [MatchEvidence] tier and, within a tier,
@@ -144,13 +154,11 @@ bool isContradictedNameOnlyMatch(
 /// without providers or the FFI codec.
 List<MatchResult> rankSpecMatches(
   List<MatchResult> matches, {
-  required bool deviceHasServiceUuids,
+  required List<String> discoveredUuids,
 }) {
   final kept = matches
-      .where((m) => !isContradictedNameOnlyMatch(
-            m,
-            deviceHasServiceUuids: deviceHasServiceUuids,
-          ))
+      .where((m) =>
+          !isContradictedNameOnlyMatch(m, discoveredUuids: discoveredUuids))
       .toList()
     ..sort((a, b) {
       final tier = matchEvidenceOf(a).index.compareTo(matchEvidenceOf(b).index);
@@ -210,8 +218,13 @@ final parsedDeviceSpecsProvider =
 final matchedDeviceSpecProvider =
     FutureProvider.family<SpecMatchOutcome, SpecMatchRequest>((ref, req) async {
   final codec = ref.watch(specCodecProvider);
-  // Watched (not read) so saving a choice recomputes this match in place.
-  final choices = ref.watch(specChoicesProvider);
+  // Watched (not read) so saving a choice recomputes this match in place —
+  // but select()ed down to THIS device's entry, so answering the chooser for
+  // one device doesn't invalidate every other device's cached match (each
+  // recompute re-marshals the whole parsed catalogue over FFI, and the
+  // transient AsyncLoading would blank other panels' typed controls).
+  final savedKey =
+      ref.watch(specChoicesProvider.select((m) => m[req.deviceId]));
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
   if (parsed.isEmpty) {
     Log.spec.info('no parseable specs; ${req.deviceName} gets raw controls '
@@ -232,10 +245,7 @@ final matchedDeviceSpecProvider =
     return const SpecMatchOutcome.none();
   }
 
-  final ranked = rankSpecMatches(
-    matches,
-    deviceHasServiceUuids: req.serviceUuids.isNotEmpty,
-  );
+  final ranked = rankSpecMatches(matches, discoveredUuids: req.serviceUuids);
   if (ranked.isEmpty) {
     // Name the inputs, not just their counts: "which UUIDs did matching
     // actually see" is the first question when a device that should match
@@ -282,15 +292,9 @@ final matchedDeviceSpecProvider =
   // all: the user asserted what the device is, and heuristics must not
   // overrule that on the next connect. A stale key (spec renamed/removed, or
   // the device no longer matches it) falls through to the normal flow.
-  final savedKey = choices[req.deviceId];
   if (savedKey != null) {
-    MatchResult? savedMatch;
-    for (final m in ranked) {
-      if (specKeyFor(m.spec) == savedKey) {
-        savedMatch = m;
-        break;
-      }
-    }
+    final savedMatch =
+        ranked.where((m) => specKeyFor(m.spec) == savedKey).firstOrNull;
     if (savedMatch != null) {
       final saved = resolve(savedMatch);
       Log.spec.info('using spec "${saved.spec.deviceName}" for '
