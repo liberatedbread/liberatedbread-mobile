@@ -15,6 +15,14 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [matchDeviceToSpec].
   final List<MatchResult> matches;
 
+  /// Returned by [matchScannedDevice]. Either a fixed list, or a function of
+  /// the observed device so one fake can answer differently per device — which
+  /// is what a scan-list ordering test needs.
+  final List<ScanMatch> Function(ScannedDeviceDto device)? scanMatches;
+
+  /// Every device [matchScannedDevice] was asked about, in call order.
+  final List<ScannedDeviceDto> scanMatchCalls = [];
+
   /// Returned by [encodeCommand].
   final Uint8List encoded;
 
@@ -59,6 +67,7 @@ class FakeSpecCodec implements SpecCodec {
   FakeSpecCodec({
     this.spec,
     this.matches = const [],
+    this.scanMatches,
     Uint8List? encoded,
     this.decoded = const [],
     this.specByYaml,
@@ -88,6 +97,15 @@ class FakeSpecCodec implements SpecCodec {
     required List<String> advertisedServiceUuids,
   }) async =>
       matches;
+
+  @override
+  Future<List<ScanMatch>> matchScannedDevice({
+    required List<SpecIdentityDto> identities,
+    required ScannedDeviceDto device,
+  }) async {
+    scanMatchCalls.add(device);
+    return scanMatches?.call(device) ?? const [];
+  }
 
   @override
   Future<Uint8List> encodeCommand({

@@ -1,12 +1,17 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/screens/ha_settings_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
@@ -14,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_ha_api_client.dart';
+import '../fakes/fake_spec_codec.dart';
 import '../fakes/in_memory_settings_store.dart';
 
 /// Resolved in [setUp] so the scan screen can read saved devices synchronously
@@ -38,6 +44,31 @@ IoTDevice _device(String id,
     discoveredAt: DateTime(2026),
   );
 }
+
+/// The one spec in the catalogue for the ranking tests below.
+final _catalogueSpec = DeviceSpecDto(
+  deviceName: 'Example Smart Bulb',
+  manufacturer: 'Acme',
+  manufacturerStatus: 'abandoned',
+  protocol: 'ble',
+  localNamePrefix: 'ACME_',
+  serviceUuids: const [],
+  companyIds: Uint16List(0),
+  macPrefixes: const [],
+  entities: const <EntityDto>[],
+  services: const [],
+);
+
+ScanMatch _scanMatch(MatchConfidence confidence) => ScanMatch(
+      specIndex: 0,
+      deviceName: 'Example Smart Bulb',
+      manufacturer: 'Acme',
+      confidence: confidence,
+      matchedByNamePrefix: false,
+      matchedServiceUuids: const [],
+      matchedCompanyIds: Uint16List(0),
+      matchedMacPrefix: null,
+    );
 
 void main() {
   setUp(() async {
@@ -69,6 +100,91 @@ void main() {
     // sits below the fold until scrolled to.
     await tester.scrollUntilVisible(find.text('ACME_B'), 80);
     expect(find.text('ACME_B'), findsOneWidget);
+  });
+
+  group('ranking recognised devices', () {
+    /// Wires the scan screen with a spec catalogue, so the scan-time matcher
+    /// actually runs. [matchFor] answers per device name.
+    Widget wrapWithCatalogue(
+      FakeBleService fake, {
+      required List<ScanMatch> Function(String deviceName) matchFor,
+    }) =>
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+            deviceSpecsProvider.overrideWith((ref) => {'bulb.yaml': 'yaml'}),
+            specCodecProvider.overrideWithValue(FakeSpecCodec(
+              spec: _catalogueSpec,
+              scanMatches: (device) => matchFor(device.name),
+            )),
+          ],
+          child: const MaterialApp(home: ScanScreen()),
+        );
+
+    testWidgets('recognised devices get their own section, above the rest',
+        (tester) async {
+      final fake = FakeBleService(devicesToEmit: [
+        // The unknown device has the far better signal, so ordering can only
+        // come from what the catalogue knows.
+        _device('01', name: 'Anonymous Thing', rssi: -30),
+        _device('02', name: 'ACME_Bulb', rssi: -92),
+      ]);
+      await tester.pumpWidget(wrapWithCatalogue(fake, matchFor: (name) {
+        return name == 'ACME_Bulb'
+            ? [_scanMatch(MatchConfidence.strong)]
+            : const [];
+      }));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Likely supported'), findsOneWidget);
+      expect(find.text('Other devices'), findsOneWidget);
+      // The matched device carries the product name from the spec.
+      expect(find.text('Example Smart Bulb'), findsOneWidget);
+
+      final likelyHeader = tester.getTopLeft(find.text('Likely supported')).dy;
+      final otherHeader = tester.getTopLeft(find.text('Other devices')).dy;
+      final matched = tester.getTopLeft(find.text('ACME_Bulb')).dy;
+      expect(likelyHeader, lessThan(matched));
+      expect(matched, lessThan(otherHeader));
+
+      // The louder unknown device is still listed, just below the fold.
+      await tester.scrollUntilVisible(find.text('Anonymous Thing'), 200);
+      expect(find.text('Anonymous Thing'), findsOneWidget);
+    });
+
+    testWidgets('an OUI-only match is a hint, not a supported-device claim',
+        (tester) async {
+      final fake =
+          FakeBleService(devicesToEmit: [_device('01', name: 'Mystery')]);
+      await tester.pumpWidget(wrapWithCatalogue(
+        fake,
+        matchFor: (_) => [_scanMatch(MatchConfidence.possible)],
+      ));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Likely supported'), findsNothing);
+      expect(find.text('Possibly Acme'), findsOneWidget);
+      // Never the product name off a shared OUI.
+      expect(find.text('Example Smart Bulb'), findsNothing);
+    });
+
+    testWidgets('an unrecognised list keeps the plain Found header',
+        (tester) async {
+      final fake = FakeBleService(devicesToEmit: [_device('01')]);
+      await tester
+          .pumpWidget(wrapWithCatalogue(fake, matchFor: (_) => const []));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Found'), findsOneWidget);
+      expect(find.text('Other devices'), findsNothing);
+    });
   });
 
   testWidgets('History lists a previously paired device', (tester) async {

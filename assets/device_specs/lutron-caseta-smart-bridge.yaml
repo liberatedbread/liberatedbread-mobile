@@ -15,6 +15,11 @@ device:
     bridge identity including MACADDR, firmware CODEVER, system type, and
     device class. HomeKit HAP is separately advertised on port 4548.
   identification:
+    # Observed on the bridge captured below, via the MACADDR TXT record on
+    # _lutron._tcp. One unit, so treat it as a hint rather than a complete list
+    # of the OUIs Lutron ships.
+    mac_prefixes:
+      - "B8:94:D9"
     mdns_service_type: "_leap._tcp.local."
     default_port: 8081
     identity_keys:

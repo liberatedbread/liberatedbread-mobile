@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,15 +17,23 @@ import '../fakes/fake_spec_codec.dart';
 const _svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _charUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
-const _spec = DeviceSpecDto(
+/// Shared empty company-ID list. Uint16List has no const form, so each spec
+/// DTO would otherwise allocate its own.
+final _noCompanyIds = Uint16List(0);
+
+// `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, and a typed
+// list cannot be a constant. Same reason for every other spec DTO below.
+final _spec = DeviceSpecDto(
   deviceName: 'Bulb',
   manufacturer: 'Acme',
   manufacturerStatus: 'abandoned',
   protocol: 'ble',
   localNamePrefix: 'ACME_',
-  serviceUuids: [_svcUuid],
-  entities: <EntityDto>[],
-  services: [
+  serviceUuids: const [_svcUuid],
+  companyIds: _noCompanyIds,
+  macPrefixes: const [],
+  entities: const <EntityDto>[],
+  services: const [
     ServiceDto(uuid: _svcUuid, name: 'Control Service', characteristics: [
       CharacteristicDto(
         uuid: _charUuid,
@@ -197,11 +206,12 @@ void main() {
   test('returns the best match with its source yaml', () async {
     final codec = FakeSpecCodec(
       spec: _spec,
-      matches: const [
+      matches: [
         MatchResult(
           spec: _spec,
           matchedByNamePrefix: true,
-          matchedServiceUuids: [_svcUuid],
+          matchedServiceUuids: const [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -222,22 +232,26 @@ void main() {
       manufacturer: 'X',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
-      serviceUuids: [_svcUuid],
-      entities: <EntityDto>[],
-      services: [],
+      serviceUuids: const [_svcUuid],
+      companyIds: _noCompanyIds,
+      macPrefixes: const [],
+      entities: const <EntityDto>[],
+      services: const [],
     );
     final codec = FakeSpecCodec(
       spec: _spec,
-      matches: const [
+      matches: [
         MatchResult(
           spec: other,
           matchedByNamePrefix: false,
-          matchedServiceUuids: [_svcUuid, _charUuid],
+          matchedServiceUuids: const [_svcUuid, _charUuid],
+          confidence: MatchConfidence.strong,
         ),
         MatchResult(
           spec: _spec,
           matchedByNamePrefix: true,
-          matchedServiceUuids: [_svcUuid],
+          matchedServiceUuids: const [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -473,25 +487,29 @@ void main() {
       () async {
     const svcA = '0000aaa0-0000-1000-8000-00805f9b34fb';
     const svcB = '0000bbb0-0000-1000-8000-00805f9b34fb';
-    const specA = DeviceSpecDto(
+    final specA = DeviceSpecDto(
       deviceName: 'Alpha',
       manufacturer: 'A',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
       localNamePrefix: 'ALPHA_',
-      serviceUuids: [svcA],
-      entities: <EntityDto>[],
-      services: [],
+      serviceUuids: const [svcA],
+      companyIds: _noCompanyIds,
+      macPrefixes: const [],
+      entities: const <EntityDto>[],
+      services: const [],
     );
-    const specB = DeviceSpecDto(
+    final specB = DeviceSpecDto(
       deviceName: 'Beta',
       manufacturer: 'B',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
       localNamePrefix: 'BETA_',
-      serviceUuids: [svcB],
-      entities: <EntityDto>[],
-      services: [],
+      serviceUuids: const [svcB],
+      companyIds: _noCompanyIds,
+      macPrefixes: const [],
+      entities: const <EntityDto>[],
+      services: const [],
     );
     // A separate, non-const instance with the same content as specB, simulating
     // the FFI round-trip. The generated `DeviceSpecDto ==` compares lists by
@@ -504,17 +522,20 @@ void main() {
       protocol: 'ble',
       localNamePrefix: 'BETA_',
       serviceUuids: List<String>.of(const [svcB]),
-      entities: <EntityDto>[],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      entities: const <EntityDto>[],
       services: const [],
     );
 
     final codec = FakeSpecCodec(
-      specByYaml: const {'yaml-a': specA, 'yaml-b': specB},
+      specByYaml: {'yaml-a': specA, 'yaml-b': specB},
       matches: [
         MatchResult(
           spec: specBRoundTrip,
           matchedByNamePrefix: true,
           matchedServiceUuids: const [svcB],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );

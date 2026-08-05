@@ -161,8 +161,8 @@ bool useWriteWithoutResponse({
 /// every event, so forwarding each batch verbatim would re-emit every known
 /// device on every advertisement — constantly refreshing `discoveredAt` and
 /// flooding the consumer. [next] returns an [IoTDevice] only when the device
-/// is new to this scan or its rssi/name/connectable changed (so rssi updates
-/// still flow to the DeviceManager), preserving the first-seen `discoveredAt`
+/// is new to this scan or something about it changed (so rssi updates still
+/// flow to the DeviceManager), preserving the first-seen `discoveredAt`
 /// for known ids; it returns null for an unchanged entry.
 ///
 /// Extracted as a pure class so the coalescing rules can be unit-tested
@@ -178,21 +178,25 @@ class ScanResultCoalescer {
     required String name,
     required int rssi,
     required bool isConnectable,
+    List<String> serviceUuids = const [],
+    List<int> companyIds = const [],
   }) {
     final prev = _emitted[id];
-    if (prev != null &&
-        prev.rssi == rssi &&
-        prev.name == name &&
-        prev.isConnectable == isConnectable) {
-      return null;
-    }
     final device = IoTDevice(
       id: id,
       name: name,
       rssi: rssi,
       isConnectable: isConnectable,
       discoveredAt: prev?.discoveredAt ?? DateTime.now(),
+      serviceUuids: serviceUuids,
+      companyIds: companyIds,
     );
+    if (prev != null &&
+        prev.rssi == rssi &&
+        prev.isConnectable == isConnectable &&
+        prev.hasSameIdentity(device)) {
+      return null;
+    }
     _emitted[id] = device;
     return device;
   }
@@ -317,11 +321,23 @@ class RealBleService implements BleService {
           (results) {
             if (identical(results, replayed)) return;
             for (final result in results) {
+              final advertisement = result.advertisementData;
               final device = coalescer.next(
                 id: result.device.remoteId.str,
                 name: result.device.platformName,
                 rssi: result.rssi,
-                isConnectable: result.advertisementData.connectable,
+                isConnectable: advertisement.connectable,
+                // str128 rather than str: fbp's `str` abbreviates a
+                // SIG-base UUID to its 16-bit form, which would never match a
+                // spec's full-length service_uuids.
+                serviceUuids: [
+                  for (final uuid in advertisement.serviceUuids)
+                    uuid.str128.toLowerCase(),
+                ],
+                // manufacturerData is keyed by company ID. A device may carry
+                // several records; the payloads are not read here, only who
+                // they claim to be from.
+                companyIds: advertisement.manufacturerData.keys.toList(),
               );
               if (device != null) controller.add(device);
             }

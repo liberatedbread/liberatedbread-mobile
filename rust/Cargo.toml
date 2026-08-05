@@ -20,6 +20,14 @@ publish = false
 crate-type = ["lib", "staticlib", "cdylib"]
 name = "liberated_bread_core"
 
+# `#[frb(...)]` expands to code gated on `cfg(frb_expand)`, a cfg set only by
+# flutter_rust_bridge_codegen's own `cargo expand` pass and therefore unknown to
+# a normal build. Declare it so rustc's check-cfg lint stops reporting every
+# frb-attributed item as an unexpected cfg — which `cargo clippy -D warnings`
+# in CI turns into a build failure.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
 [dependencies]
 flutter_rust_bridge = "=2.9.0"
 serde = { version = "1", features = ["derive"] }

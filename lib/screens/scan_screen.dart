@@ -11,6 +11,7 @@ import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/saved_device_provider.dart';
+import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
 import '../services/saved_device_store.dart';
@@ -227,9 +228,35 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     return AppConstants.appTagline;
   }
 
+  /// One row in either found-devices group.
+  Widget _deviceCard(RankedDevice entry) {
+    final device = entry.device;
+    return _DeviceCard(
+      title: device.displayName,
+      subtitle:
+          device.isConnectable ? _signalLabel(device.rssi) : 'Not connectable',
+      detail: '${device.rssi} dBm',
+      rssi: device.rssi,
+      badge: entry.guess?.label,
+      badgeIsClaim: entry.isLikelySupported,
+      enabled: device.isConnectable,
+      onTap: device.isConnectable ? () => _connect(device) : null,
+    );
+  }
+
   Widget _buildBody() {
     final saved = ref.watch(savedDevicesProvider);
     final found = _deviceManager.devices;
+    // Each device gets its own matching future, keyed on its identity rather
+    // than its id — an rssi tick reuses the cached result instead of asking
+    // again. A guess that has not resolved yet reads as "no guess", so a row
+    // appears immediately and gains its badge a frame later rather than the
+    // whole list waiting on the catalogue.
+    final ranked = rankScannedDevices(
+      found,
+      (device) =>
+          ref.watch(scanGuessProvider(ScanIdentity.of(device))).valueOrNull,
+    );
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -344,21 +371,31 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           ),
         ],
         if (found.isNotEmpty) ...[
-          const SizedBox(height: 36),
-          _SectionHeader(label: 'Found', count: found.length),
-          const SizedBox(height: 12),
-          for (final device in found) ...[
-            _DeviceCard(
-              title: device.displayName,
-              subtitle: device.isConnectable
-                  ? _signalLabel(device.rssi)
-                  : 'Not connectable',
-              detail: '${device.rssi} dBm',
-              rssi: device.rssi,
-              enabled: device.isConnectable,
-              onTap: device.isConnectable ? () => _connect(device) : null,
+          if (ranked.likelySupported.isNotEmpty) ...[
+            const SizedBox(height: 36),
+            _SectionHeader(
+              label: 'Likely supported',
+              count: ranked.likelySupported.length,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
+            for (final entry in ranked.likelySupported) ...[
+              _deviceCard(entry),
+              const SizedBox(height: 10),
+            ],
+          ],
+          if (ranked.other.isNotEmpty) ...[
+            const SizedBox(height: 36),
+            _SectionHeader(
+              // Only worth distinguishing from the group above when there IS
+              // a group above; otherwise this is simply everything found.
+              label: ranked.likelySupported.isEmpty ? 'Found' : 'Other devices',
+              count: ranked.other.length,
+            ),
+            const SizedBox(height: 12),
+            for (final entry in ranked.other) ...[
+              _deviceCard(entry),
+              const SizedBox(height: 10),
+            ],
           ],
         ],
         if (saved.isNotEmpty) ...[
@@ -453,6 +490,14 @@ class _DeviceCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onForget;
 
+  /// What the spec catalogue makes of this device, when it makes anything.
+  final String? badge;
+
+  /// Whether [badge] is a claim of support or merely a hint. A hint is styled
+  /// down deliberately: "Possibly Xiaomi" off the back of a shared OUI must not
+  /// look like the same kind of statement as a matched service UUID.
+  final bool badgeIsClaim;
+
   const _DeviceCard({
     required this.title,
     required this.subtitle,
@@ -462,6 +507,8 @@ class _DeviceCard extends StatelessWidget {
     this.enabled = true,
     this.onTap,
     this.onForget,
+    this.badge,
+    this.badgeIsClaim = false,
   });
 
   @override
@@ -500,14 +547,29 @@ class _DeviceCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: tint,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            title,
+                            style: text.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: tint,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (badge != null) ...[
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: _SupportBadge(
+                              label: badge!,
+                              isClaim: badgeIsClaim,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Row(
@@ -551,6 +613,45 @@ class _DeviceCard extends StatelessWidget {
                 Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pill naming what the catalogue thinks a scanned device is.
+///
+/// Two visual weights, because there are two different statements to make.
+/// A claim ("Ember Mug", "Likely Ember Mug") is filled in the accent colour; a
+/// hint ("Possibly Xiaomi", from a shared OUI and nothing else) is outlined and
+/// muted. Both carry their own wording, so the distinction survives without
+/// colour perception.
+class _SupportBadge extends StatelessWidget {
+  final String label;
+  final bool isClaim;
+
+  const _SupportBadge({required this.label, required this.isClaim});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isClaim ? scheme.secondaryContainer : Colors.transparent,
+        borderRadius: BorderRadius.circular(999),
+        border: isClaim ? null : Border.all(color: scheme.outlineVariant),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: text.labelSmall?.copyWith(
+          color: isClaim
+              ? scheme.onSecondaryContainer
+              : scheme.onSurfaceVariant.withValues(alpha: 0.8),
+          fontWeight: isClaim ? FontWeight.w700 : FontWeight.w500,
         ),
       ),
     );
