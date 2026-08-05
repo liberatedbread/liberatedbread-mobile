@@ -1,7 +1,11 @@
 # Triumph Tiger 900 — Device Specification
 # Status: In Progress — the service interval reset message and most of the surrounding
 #         diagnostic surface were recovered by static analysis of TigerTool V3.51
-#         (freeware, SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79)
+#         (freeware, SHA-256 3c7270ef1bf0ab1f70920dc60baf48883907079fbeecc620e77eb08cd07b3d79
+#         — UNREPRODUCIBLE: the original is a login-gated tiger800.co.uk forum
+#         attachment; the login-free moto17 repack's contents match the protocol
+#         strings described here but its hashes differ, inner TigerTool.exe
+#         43b372a5..., so treat the cited hash as unverified)
 #         and independently confirmed by decompiling TuneECU 23
 #         (SHA-256 f724294669a3bc008d81dbb590a8c0bfa1b4ac4a223d524e040c85bc885408eb).
 #         Two unrelated codebases build the same command with the same scaling.
@@ -25,8 +29,12 @@ device:
     question this spec exists to close.
 
     The reminder has two independent components. The service-due DISTANCE is reset over
-    the diagnostic connector. The service-due DATE, on calendar-equipped models, is reset
-    from the bike's own instrument menu and is explicitly not touched by TigerTool. Both
+    the diagnostic connector. The service-due DATE, on calendar-equipped models, can also
+    be reset from the bike's own instrument menu — and current TigerTool writes it too
+    (the V3.51 changelog lists "Fixed service date reset bug", and the exe carries the
+    5C/DC command pair plus "Service Date Reset - Success/Timeout/Failed" strings,
+    matching reset_service_date below). An earlier note here that the date is explicitly
+    not touched by TigerTool was stale. Both
     the odometer and the service values are stored in the instrument cluster in kilometres,
     which is why the owning ECU still has to be established.
 
@@ -57,9 +65,11 @@ device:
       identification:
         connector: "iso-19689"
       notes: >
-        Treat as a separate target. TigerTool does not connect to Gen 2 bikes because
-        Triumph relocated ECU data, and HealTech's Maintenance Mate did not initially
-        support MY2024 — so the 2020–2023 findings must not be assumed to carry over.
+        Treat as a separate target. Gen 2 swaps the connector for a red 6-pin
+        Euro 5 (ISO 19689) diagnostic connector. TigerTool does not connect to
+        MY2024 bikes and HealTech's Maintenance Mate MM-T03 fails on them as
+        well (an MM-T04 successor was promised); TuneECU is reported to work —
+        so the 2020–2023 findings must not be assumed to carry over.
 
   setup:
     required: false
@@ -117,8 +127,13 @@ obd:
 
   connector:
     standard: "sae-j1962"
-    location: "under the pillion seat"
+    location: "under the rider's (front) seat, in the toolkit tray — the pillion seat comes off only as a prerequisite (handbook pp. 16/157/160)"
     model_years: "2020–2023 (MY2024+ Gen 2 bikes use the 6-pin ISO 19689 connector and are NOT covered by these findings)"
+    notes: >
+      Second CAN tap on 2020–2023 bikes: the white 4-pin JWPF Bluetooth-module
+      connector also exposes the CAN bus (HEX ezCAN's recommended hookup). On
+      Euro 5 models the Bluetooth module is integrated into the instrument
+      cluster and only the red 6-pin connector remains.
     pins:
       - pin: 6
         signal: "CAN-H"
@@ -152,7 +167,10 @@ obd:
       and flow
       control are OFF — frames are raw and short, first byte is an opcode, and
       there is no
-      ISO-TP layer at all on this stack.
+      ISO-TP layer at all on this stack. TigerTool additionally sets an
+      undocumented listen filter, AT CRA569 (11-bit 0x569), alongside the
+      documented 0x600/0x602/0x704 filters — an extra broadcast/listen channel
+      whose payload is not decoded here.
 
   adapter_requirements:
     - "Raw frame transmit (ATCAF0) and arbitrary headers/filters (ATSH/ATCRA) are mandatory — this is not legislated OBD-II."

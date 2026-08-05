@@ -66,8 +66,8 @@ device:
           network. The AP name is derived from the gateway serial.
         softap:
           ssid_prefix: "Envoy_"
-          open_network: false
-          passphrase_source: "Derived from the gateway serial number; printed in the installation documentation."
+          open_network: true
+          passphrase_source: "None — the setup AP is an open network (official install manual, p. 26); authentication happens afterwards at the gateway's web UI, not at the WPA layer."
           gateway_ip: "172.30.1.1"
         steps:
           - action: "Press the AP Mode button on the gateway to start the setup AP."
@@ -75,7 +75,7 @@ device:
             timeout_seconds: 60
           - action: "Join the Envoy_* network and open the gateway's configuration page."
             actor: "user"
-            notes: "Address and passphrase derivation are vendor-documented; confirm against the unit before relying on them."
+            notes: "The AP has no Wi-Fi passphrase; the gateway IP is vendor-documented. Authentication happens at the web UI on 172.30.1.1, not when joining the network."
           - action: "Select the home network and apply."
             actor: "user"
     factory_reset:
@@ -104,7 +104,13 @@ device:
         Older firmware used HTTP digest auth with an installer password derived
         from the serial number; current firmware requires a cloud-issued token
         that expires, which makes even 'local' telemetry cloud-dependent for
-        renewal. Cache the token and record its expiry.
+        renewal. Cache the token and record its expiry. The pre-JWT scheme was
+        the subject of CVE-2020-25752, CVE-2020-25753 and CVE-2020-25754: the
+        serial is readable unauthenticated at /info (also /info.xml) and
+        default or derived credentials follow from it — the reason Enphase
+        moved to JWT in firmware 7. Gateway firmware is distributed OTA-only
+        from a CloudFront CDN gated by signed cookies; no freely downloadable
+        images exist.
 
 evidence:
   live_lan_probe:
@@ -137,9 +143,9 @@ http_endpoints:
   - method: "GET"
     path: "/info"
     name: "Envoy Info"
-    description: "Envoy gateway information, including identifiers and firmware details where available."
+    description: "Unauthenticated gateway information (firmware, serial, part number). Returns XML with an envoy_info root element, not JSON; historically also reachable as /info.xml. pyenphase parses it with an XML parser."
     response_body:
-      content_type: "application/json"
+      content_type: "application/xml"
 
 entities:
   - platform: "sensor"
@@ -148,12 +154,19 @@ entities:
     unit: "W"
     state_topic: "/production.json"
     state_mapping:
-      value: "production.wattsNow"
+      value: "production[i].wNow"
+    notes: >
+      /production.json returns a production ARRAY of per-type entries
+      (inverters, eim); the power field is wNow on each entry. wattsNow
+      exists only in the /api/v1/production response, not here.
   - platform: "sensor"
     name: "Lifetime Energy"
     device_class: "energy"
     unit: "Wh"
     state_topic: "/production.json"
     state_mapping:
-      value: "production.whLifetime"
+      value: "production[i].whLifetime"
+    notes: >
+      whLifetime lives on the /production.json array entries (present on the
+      eim entry of metered units), not at a top-level production object.
 

@@ -1,7 +1,7 @@
 device:
   name: ISO 14229 UDS (Unified Diagnostic Services) Reference
   manufacturer: ISO
-  model: UDS services and NRC codes (all standard)
+  model: UDS services and NRC codes (ISO 14229-1:2013 baseline + 2020-edition additions)
   category: automotive
   type: reference-diagnostic-protocol
   transport: obd2
@@ -14,9 +14,17 @@ device:
   manufacturer_status: active
   notes: |
     ISO 14229 UDS is the application layer that sits above ISO-TP on CAN,
-    KWP2000 on K-line, or DoIP on Ethernet. Every manufacturer-specific
+    UDS-on-K-line (ISO 14229-6 — KWP2000, ISO 14230, is the sibling/legacy
+    K-line protocol), or DoIP on Ethernet. Every manufacturer-specific
     function in this repo — service reset, adaptations, coding, bleeding —
     is either UDS or a vendor dialect shaped by it.
+
+    COVERAGE: the base service/NRC set is ISO 14229-1:2013 (every value
+    cross-checked against the standard text and python-udsoncan); the
+    2020-edition additions — service 0x29 Authentication and NRCs 0x34,
+    0x38-0x3A, 0x50-0x5D and 0x94 — are included and marked. ISO
+    14229-1:2020/Amd 1:2022 is listed as Withdrawn in the ISO catalog
+    (June 2026); the 2020 base 3rd edition remains current.
 
     This is a REFERENCE spec, not a device. Vehicle specs reference these
     service IDs and NRC codes rather than re-inventing them.
@@ -71,6 +79,16 @@ uds_services:
       - "02": Disable RX, enable TX
       - "03": Disable RX and TX
     note: "Used for flashing to stop normal bus traffic from colliding with programming messages."
+
+  - sid: "29"
+    name: Authentication
+    response: "69"
+    description: >
+      Authentication service added in ISO 14229-1:2020, addressing
+      SecurityAccess (0x27) limitations for connected vehicles. Two variants:
+      APCE (Authentication with PKI Certificate Exchange) and ACR
+      (Authentication with Challenge-Response).
+    note: "2020 edition only — absent from 2013. Cross-checked against udsoncan services/Authentication.py (_sid = 0x29)."
 
   - sid: "3E"
     name: TesterPresent
@@ -258,6 +276,9 @@ negative_response_codes:
   - nrc: "33"
     name: Security access denied
     meaning: The security level has not been unlocked for this function
+  - nrc: "34"
+    name: Authentication required
+    meaning: The request requires Authentication (service 0x29) — 2020 edition
   - nrc: "35"
     name: Invalid key
     meaning: The key sent in SecurityAccess was wrong
@@ -267,6 +288,57 @@ negative_response_codes:
   - nrc: "37"
     name: Required time delay not expired
     meaning: "Delay between security access attempts not yet elapsed"
+  - nrc: "38"
+    name: Secure data transmission required
+    meaning: The message must use SecuredDataTransmission (0x84) — 2020 edition
+  - nrc: "39"
+    name: Secure data transmission not allowed
+    meaning: Secured transmission is not permitted for this request — 2020 edition
+  - nrc: "3A"
+    name: Secure data verification failed
+    meaning: The secured message failed verification — 2020 edition
+  - nrc: "50"
+    name: Certificate verification failed — invalid time period
+    meaning: PKI certificate not yet valid or expired — 2020 edition
+  - nrc: "51"
+    name: Certificate verification failed — invalid signature
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "52"
+    name: Certificate verification failed — invalid chain of trust
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "53"
+    name: Certificate verification failed — invalid type
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "54"
+    name: Certificate verification failed — invalid format
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "55"
+    name: Certificate verification failed — invalid content
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "56"
+    name: Certificate verification failed — invalid scope
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "57"
+    name: Certificate verification failed — invalid certificate
+    meaning: Certificate revoked or otherwise invalid — 2020 edition
+  - nrc: "58"
+    name: Ownership verification failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "59"
+    name: Challenge calculation failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5A"
+    name: Setting access rights failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5B"
+    name: Session key creation/derivation failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5C"
+    name: Configuration data usage failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5D"
+    name: De-authentication failed
+    meaning: Authentication (0x29) failure — 2020 edition
   - nrc: "70"
     name: Upload/download not accepted
     meaning: ECU rejected the transfer request
@@ -289,6 +361,67 @@ negative_response_codes:
     name: Service not supported in active session
     meaning: The service exists on the ECU, but the current session is too low
 
+  # Condition NRCs. 0x81-0x93 exist since the 2013 edition (0x8E is reserved);
+  # 0x94 was added in the 2020 edition.
+  - nrc: "81"
+    name: RPM too high
+    meaning: Condition for the request not met — engine RPM above the limit
+  - nrc: "82"
+    name: RPM too low
+    meaning: Condition for the request not met — engine RPM below the limit
+  - nrc: "83"
+    name: Engine is running
+    meaning: Request requires the engine to be off
+  - nrc: "84"
+    name: Engine is not running
+    meaning: Request requires the engine to be running
+  - nrc: "85"
+    name: Engine run time too low
+    meaning: Engine has not been running long enough for this request
+  - nrc: "86"
+    name: Temperature too high
+    meaning: Condition for the request not met — temperature above the limit
+  - nrc: "87"
+    name: Temperature too low
+    meaning: Condition for the request not met — temperature below the limit
+  - nrc: "88"
+    name: Vehicle speed too high
+    meaning: Request requires a lower vehicle speed (often stationary)
+  - nrc: "89"
+    name: Vehicle speed too low
+    meaning: Request requires a higher vehicle speed
+  - nrc: "8A"
+    name: Throttle/pedal too high
+    meaning: Request requires the throttle/pedal below the limit
+  - nrc: "8B"
+    name: Throttle/pedal too low
+    meaning: Request requires the throttle/pedal above the limit
+  - nrc: "8C"
+    name: Transmission range not in neutral
+    meaning: Request requires neutral
+  - nrc: "8D"
+    name: Transmission range not in gear
+    meaning: Request requires a gear engaged
+  - nrc: "8F"
+    name: Brake switch not closed
+    meaning: Request requires the brake pedal pressed (0x8E is reserved)
+  - nrc: "90"
+    name: Shifter lever not in park
+    meaning: Request requires park position
+  - nrc: "91"
+    name: Torque converter clutch locked
+    meaning: Request requires the torque converter clutch unlocked
+  - nrc: "92"
+    name: Voltage too high
+    meaning: Supply voltage above the limit for this request
+  - nrc: "93"
+    name: Voltage too low
+    meaning: Supply voltage below the limit for this request
+  - nrc: "94"
+    name: Resource temporarily not available
+    meaning: A resource needed for the request is busy — retry later. 2020 edition
+
 source:
-  standard: ISO 14229-1:2020
+  standard: ISO 14229-1:2020 (3rd edition, current — Amd 1:2022 is Withdrawn per the ISO catalog, June 2026)
+  cross_check: python-udsoncan (pylessard/python-udsoncan) ResponseCode.py and services/*.py
   date_spec: "2026-07-28"

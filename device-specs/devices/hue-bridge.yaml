@@ -14,12 +14,49 @@ device:
     whitelist username created by POST /api while the physical link button is
     pressed. Discovery should prefer the Hue-specific mDNS service and fall
     back to UPnP/SSDP device description XML.
+
+    HTTPS / CLIP V2: current firmware also serves HTTPS on port 443 (the
+    _hue._tcp mDNS SRV record advertises 443; proper CA-issued certificates
+    since fw 1971060010). CLIP API v2 runs there: resources under
+    /clip/v2/resource/* with header "hue-application-key: <username>" (the
+    same POST /api pairing issues the key; generateclientkey:true adds an
+    entertainment clientkey), plus a server-sent event stream at
+    /eventstream/clip/v2 (HTTPS-only). Signify has announced plain-HTTP
+    retirement on the gen-2 bridge in a future firmware update — new clients
+    should target HTTPS + CLIP v2.
+
+    N-UPNP DISCOVERY: https://discovery.meethue.com/ (no auth) returns
+    internalipaddress, id, and port (443) of registered bridges — a third
+    documented discovery method alongside mDNS and SSDP.
+
+    HUE BRIDGE PRO (BSB003, Sept 2025): HTTPS-only (no port 80 at all) and
+    no UPnP/SSDP — mDNS is the only local discovery; new MAC prefix C42996.
+    This spec's SSDP method and HTTP/80 assumptions are BSB002-only.
+
+    SECURITY: CVE-2020-6007 (Check Point, 2020) — heap overflow on long
+    Zigbee ZCL string during commissioning, RCE on bridge fw ≤ 1935144020,
+    patched in 1935144040. Pwn2Own Cork 2025: CVE-2026-3555 — Zigbee→bridge
+    heap-overflow RCE in the ipbridge "Download Blob" FSM (Synacktiv); the
+    patched family CVE-2026-3555…3562 also covers signature-verification
+    bypass and HomeKit hk_hap auth bypass (TCP 8080). Keep bridges on
+    current firmware.
+
+    FIRMWARE: public no-auth update API — GET
+    https://firmware.meethue.com/v1/checkupdate?deviceTypeId=BSB002&version=<swversion>
+    returns binaryUrl, fileSize, md5, and release notes (latest as of
+    2026-07-31: 1978074000, "1.78_SR2"). Binaries are signed/encrypted .fw2
+    containers; an md5-verified BSB002 1978074000 image is archived in the
+    verification research dir (research/hue-bridge/firmware/).
   identification:
     mdns_service_type: "_hue._tcp.local."
     ssdp_search_targets:
       - "upnp:rootdevice"
       - "urn:schemas-upnp-org:device:Basic:1"
     default_port: 80
+    # Port note: the v1 HTTP API below still answers on 80 (2026-07 live
+    # probe), but Signify has announced HTTP retirement on the gen-2 bridge,
+    # and mDNS advertises 443 on current firmware — prefer the advertised
+    # port and HTTPS/CLIP v2 for new clients.
     identity_keys:
       primary: "bridgeid"
       secondary: "mac"
@@ -27,18 +64,24 @@ device:
       display: "name"
 
   discovery:
+    # Third method (no schema fit): N-UPnP cloud discovery at
+    # https://discovery.meethue.com/ — unauthenticated, returns
+    # internalipaddress / id / port of registered bridges. See device.notes.
     methods:
       - type: "mdns"
         mdns:
           service_type: "_hue._tcp.local."
-          port: 80
-          txt_record_keys: ["bridgeid", "apiversion", "modelid", "mac"]
+          # Current firmware advertises port 443 (HTTPS primary); 2019-era
+          # firmware advertised 80. Clients should use the advertised port.
+          port: 443
+          # Real TXT records contain ONLY bridgeid + modelid (2019 avahi
+          # dump; 2024 hyperion-ng capture). No apiversion, no mac —
+          # apiversion is available from GET /api/config instead.
+          txt_record_keys: ["bridgeid", "modelid"]
           identity_mapping:
             stable_keys:
               - source: "txt:bridgeid"
                 key: "bridgeid"
-              - source: "txt:mac"
-                key: "mac"
             display:
               source: "name"
       - type: "ssdp"
@@ -149,7 +192,8 @@ device:
       notes: >
         The username is transmitted in the URL on unencrypted HTTP and never
         expires on its own. Treat it as a long-lived LAN secret and delete
-        unused whitelist entries.
+        unused whitelist entries. CLIP v2 sends the same credential in the
+        hue-application-key header over HTTPS, keeping it out of URLs.
 
 evidence:
   live_lan_probe:
@@ -213,6 +257,18 @@ http_endpoints:
     description: "Enumerate bridge scenes."
     response_body:
       content_type: "application/json"
+  - method: "GET"
+    path: "/clip/v2/resource"
+    name: "CLIP v2 Resources"
+    description: "CLIP API v2 resource tree (devices, lights, rooms, scenes, …) over HTTPS/443. Requires header 'hue-application-key: <username>'; the same POST /api pairing issues the key (generateclientkey:true adds an entertainment clientkey)."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/eventstream/clip/v2"
+    name: "CLIP v2 Event Stream"
+    description: "Server-sent event stream for CLIP v2 state changes. HTTPS-only, same hue-application-key header."
+    response_body:
+      content_type: "text/event-stream"
 
 entities:
   - platform: "light"

@@ -16,6 +16,13 @@ device:
     multizone light strip; common units expose eight zones using HSBK color.
     The current schema does not have a native UDP endpoint type, so protocol
     details are captured in protocol_handler and lifx_lan_protocol.
+
+    MATTER CAVEAT: LIFX's Matter firmware rollout (Sept 2025) is eligible on
+    LCM3-edition hardware (firmware v3.x) only — the original LIFX Z (firmware
+    v2.x) is excluded — and updating to Matter DECOMMISSIONS the HomeKit/HAP
+    integration. Units that take the Matter update stop advertising
+    _hap._tcp.local., which kills the mDNS discovery signal this spec relies
+    on; discover those units by UDP broadcast GetService instead.
   identification:
     mdns_service_type: "_hap._tcp.local."
     default_port: 56700
@@ -116,6 +123,24 @@ lifx_lan_protocol:
     set_color: 102
     state: 107
     set_power: 117
+  message_type_notes: >
+    set_power 117 is light-level power (LightSetPower); the device-level
+    SetPower message is 21. set_color 102 sets ALL zones at once — per-zone
+    control needs the multizone family below. Full machine-readable message
+    definitions (pkt_type, sizes, fields) are published officially in the
+    LIFX/public-protocol repo (protocol.yml) — the codegen source for a
+    lifx_lan_udp handler.
+  multizone_messages:
+    set_color_zones: 501
+    get_color_zones: 502
+    state_zone: 503
+    state_multi_zone: 506
+    multizone_get_effect: 507
+    multizone_set_effect: 508
+    multizone_state_effect: 509
+    extended_set_color_zones: 510
+    extended_get_color_zones: 511
+    extended_state_multi_zone: 512
 
 evidence:
   live_lan_probe:

@@ -17,15 +17,21 @@ device:
     manufacturer-specific functions are unknown.
 
     All Mode 01 PIDs return data starting at byte 2 (bytes 0-1 are the mode/PID echo).
-    Formula: value = (A * 256 + B) unless noted. PIDs beyond 0x4E are manufacturer-
-    discretionary and are noted as such. Bit-encoded PIDs list their bit layout.
+    Formula: value = (A * 256 + B) unless noted. Standard J1979 PIDs extend through
+    ~0xC8 per J1979-DA (EGT 78/79, DPF temperature 7C, NOx sensors, CARB-mandated
+    odometer A6 from MY2019, …); this table covers the legislated core through 0x5C.
+    Bit-encoded PIDs list their bit layout.
+
+    J1979 family restructure: J1979_201702 was superseded by J1979-2_202104
+    (OBDonUDS) and J1979-3 (ZEVonUDS); a consolidated J1979_202505 was published
+    2025-05-23.
 
     MODES:
     - Mode 01: Request current powertrain diagnostic data
     - Mode 02: Request freeze frame data (same PIDs as 01)
     - Mode 03: Request emission-related DTCs
     - Mode 04: Clear/reset emission-related diagnostic information
-    - Mode 05: Request oxygen sensor monitoring test results
+    - Mode 05: Request oxygen sensor monitoring test results (non-CAN only — on ISO 15765-4 vehicles O2 monitoring is Mode 06)
     - Mode 06: Request on-board monitoring test results for specific monitored systems
     - Mode 07: Request emission-related DTCs detected during current/last driving cycle
     - Mode 08: Request control of on-board system, test, or component
@@ -156,44 +162,55 @@ modes:
         description: "Bit 0-3 = Bank 1 sensors 1-4; Bit 4-7 = Bank 2 sensors 1-4"
       - pid: "14"
         name: Oxygen Sensor 1 — Voltage & Short term fuel trim
-        bytes: 4
-        formula: "(A/200, (B-128)*100/128 if B!=0xFF else N/A, C/200, (D-128)*100/128 if D!=0xFF else N/A)"
+        bytes: 2
+        formula: "(A/200, (B-128)*100/128 if B!=0xFF else N/A)"
         unit: "V, %"
       - pid: "15"
         name: Oxygen Sensor 2 — Voltage & Short term fuel trim
-        bytes: 4
-        formula: "(A/200, (B-128)*100/128 if B!=0xFF else N/A, C/200, (D-128)*100/128 if D!=0xFF else N/A)"
+        bytes: 2
+        formula: "(A/200, (B-128)*100/128 if B!=0xFF else N/A)"
       - pid: "16"
         name: Oxygen Sensor 3 — Voltage & Short term fuel trim
-        bytes: 4
+        bytes: 2
       - pid: "17"
         name: Oxygen Sensor 4 — Voltage & Short term fuel trim
-        bytes: 4
+        bytes: 2
       - pid: "18"
         name: Oxygen Sensor 5 — Voltage & Short term fuel trim
-        bytes: 4
+        bytes: 2
       - pid: "19"
         name: Oxygen Sensor 6 — Voltage & Short term fuel trim
-        bytes: 4
+        bytes: 2
       - pid: "1A"
         name: Oxygen Sensor 7 — Voltage & Short term fuel trim
-        bytes: 4
+        bytes: 2
       - pid: "1B"
         name: Oxygen Sensor 8 — Voltage & Short term fuel trim
-        bytes: 4
+        bytes: 2
       - pid: "1C"
         name: OBD standards this vehicle conforms to
         bytes: 1
-        formula: bitmask
+        formula: enumerated
+        description: Enumerated byte 1-35 (not a bitmask); reserved values omitted.
         values:
           "1": OBD-II (CARB)
           "2": OBD (EPA)
-          "4": OBD and OBD-II
-          "8": OBD-I
-          "16": Not OBD compliant
-          "32": EOBD (Europe)
-          "64": EOBD and OBD-II
-          "128": EOBD and OBD
+          "3": OBD and OBD-II
+          "4": OBD-I
+          "5": Not OBD compliant
+          "6": EOBD (Europe)
+          "7": EOBD and OBD-II
+          "8": EOBD and OBD
+          "9": EOBD, OBD and OBD-II
+          "10": JOBD (Japan)
+          "11": JOBD and OBD-II
+          "12": JOBD and EOBD
+          "13": JOBD, EOBD and OBD-II
+          "17": EMD (Engine Manufacturer Diagnostics)
+          "21": WWH-OBD (World Wide Harmonized OBD)
+          "28": OBDBr-1 (Brazil)
+          "29": OBDBr-2 (Brazil)
+          "35": OBDBr-3 (Brazil)
       - pid: "1D"
         name: Oxygen sensors present (4 banks)
         bytes: 1
@@ -294,7 +311,7 @@ modes:
       - pid: "34"
         name: Oxygen Sensor 1 — Lambda & Current
         bytes: 4
-        formula: "(A*256+B)*2/65535, (C*256+D)*8/65535 - 128"
+        formula: "(A*256+B)*2/65535, (C*256+D)/256 - 128"
       - pid: "35"
         name: Oxygen Sensor 2 — Lambda & Current
         bytes: 4
@@ -409,31 +426,29 @@ modes:
         bytes: 2
         formula: "A * 256 + B"
         unit: "minutes"
-      # PIDs 4F-FF are manufacturer-discretionary
+      # Standard J1979 PIDs continue beyond this table through ~0xC8 (J1979-DA:
+      # EGT 78/79, DPF temperature 7C, NOx sensors, WWH-OBD data 90-94,
+      # transmission gear A4, DEF sensor 9B, CARB-mandated odometer A6 MY2019+).
       - pid: "4F"
         name: Maximum value for Fuel–Air equivalence ratio, oxygen sensor voltage, oxygen sensor current, and intake manifold absolute pressure
         bytes: 4
-        note: manufacturer_discretionary
       - pid: "50"
         name: Maximum value for air flow rate from mass air flow sensor
         bytes: 4
-        note: manufacturer_discretionary
       - pid: "51"
         name: Fuel Type
         bytes: 1
-        note: manufacturer_discretionary
+        formula: enumerated
       - pid: "52"
         name: Ethanol fuel %
         bytes: 1
         formula: "A * 100 / 255"
         unit: "%"
-        note: manufacturer_discretionary
       - pid: "5C"
         name: Engine oil temperature
         bytes: 1
         formula: "A - 40"
         unit: "°C"
-        note: manufacturer_discretionary
 
   - number: "03"
     name: Request Emission-Related DTCs
@@ -444,10 +459,10 @@ modes:
         value: "43"
       - byte: 1
         name: dtc_count
-        description: Number of DTCs (divide by 2 for count)
+        description: Number of DTCs
       - byte: 2
         name: dtc_data
-        description: "Each DTC = 2 bytes. Byte 1 bit 7-6 = first char (0=P, 1=C, 2=B, 3=U), bit 5-4 = second char (0-3), bits 3-0 = third char MSB. Byte 2 = third char LSB + fourth char."
+        description: "Each DTC = 2 bytes encoding a 5-character code. Byte 1 bits 7-6 = first char (0=P, 1=C, 2=B, 3=U), bits 5-4 = second char (0-3); the remaining 12 bits are chars 3-5 as 3 hex digits (byte 1 low nibble = char 3, byte 2 = chars 4-5)."
         repeat: true
 
   - number: "04"

@@ -10,7 +10,12 @@ device:
   notes: >
     Xiaomi Mi Scale v1 and v2 body composition scales. v1 is weight-only;
     v2 adds impedance measurement for body composition (body fat, muscle,
-    water, bone mass, visceral fat, BMR). Price $20-30.
+    water, bone mass, visceral fat, BMR). Price $20-30. Body composition is
+    computed client-side from the impedance reading; the metric math in Mi
+    Fit's JNI originates from Holtek (the scale's MCU OEM), and openScale's
+    MiScaleLib is the reverse-engineered port. A newer Xiaomi Body
+    Composition Scale S400 (MJTZC01YM) exists and is handled by openScale's
+    separate MiScaleS400Handler.
 
     PROTOCOL: uses BLE standard Weight Scale service (0x181D) plus a
     custom Mi vendor service (0x1530) for v2 configuration. Weight readings
@@ -23,8 +28,11 @@ device:
     Bit7=WeightRemoved. Valid only when Bit5=1 AND Bit7=0.
     Weight division: /100 for lbs/jin, /200 for kg.
 
-    v2 LIVE FRAME (13-byte): extends 10-byte format. Control byte 1 bits:
-    Bit0=LBS, Bit1=hasImpedance. Control byte 2 bits: Bit5=Stabilized,
+    v2 LIVE FRAME (13-byte): [ctrl0] [ctrl1] [year_lo] [year_hi] [month]
+    [day] [hour] [min] [sec] [imp_lo] [imp_hi] [weight_lo] [weight_hi].
+    This does NOT extend the 10-byte layout — two control bytes come first
+    and weight sits at bytes 11-12, not bytes 1-2. Control byte 0:
+    Bit0=LBS. Control byte 1: Bit1=hasImpedance, Bit5=Stabilized,
     Bit6=isCatty, Bit7=WeightRemoved. Impedance at bytes 9-10 (uint16 LE)
     when hasImpedance=1.
 
@@ -33,12 +41,19 @@ device:
     Data arrives as 10-byte records ending with `03` stop byte. Finish with
     `03` ack and `04 FF FF <id_hi> <id_lo>` acknowledge.
 
-    V2 ONLY: set scale unit via vendor characteristic 0x1542 under
-    service 0x1530 with `06 04 00 <unit>` (0=kg, 1=jin, 2=lbs).
+    UNIT CONFIG: set scale unit via vendor characteristic 0x1542 under
+    service 0x1530 with `06 04 00 <unit>` (0=kg/SI, 1=lbs/imperial,
+    2=jin/catty). Documented on v2; the openScale wiki's v1 GATT dump also
+    lists 0x1530 with 0x1531/0x1532/0x1542/0x1543, so the vendor service is
+    NOT v2-only.
 
     DISCOVERY: advertised names: "MIBCS", "MIBFS", "MI SCALE2",
-    "MI_SCALE_*". Service UUID 0x181D is present on both v1 and v2.
-    Service 0x1530 is v2-only.
+    "MI_SCALE_*". Service UUID 0x181D is present on v1 only — v2 (MIBCS)
+    exposes 0x181B with 0x2A9C Body Composition Measurement (indicate), not
+    0x181D/0x2A9D, so a 0x181D scan filter misses v2. openScale discovers
+    by advertised name, which is the robust path. v2 also broadcasts
+    weight/impedance in its advertisements (Service Data, AD type 0x16),
+    enabling passive connectionless reading.
 
     CONFIDENCE: HIGH for all UUIDs, weight frame format, control bits,
     history protocol, and v2 impedance frames — sourced from
@@ -48,13 +63,27 @@ device:
   identification:
     service_uuids:
       - "0000181d-0000-1000-8000-00805f9b34fb"
+    local_name_prefix: "MI"
+    discovery_notes: >
+      Service UUID 0x181D is present on v1 only; v2 (MIBCS) exposes 0x181B
+      instead, so filtering on 0x181D misses v2 scales. Discover by
+      advertised name — MIBCS, MIBFS, MI_SCALE — as openScale does.
 
   discovery:
     methods:
       - type: "ble_scan"
         ble:
+          local_name:
+            match: "prefix"
+            value: "MI"
           service_uuids:
             - "0000181d-0000-1000-8000-00805f9b34fb"
+          notes: >
+            Name-based discovery is primary (MIBCS / MIBFS / MI_SCALE
+            prefixes): 0x181D appears only on v1, while v2 advertises 0x181B
+            and also broadcasts weight/impedance in advertisement Service
+            Data (AD type 0x16), which can be read passively without
+            connecting.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -69,7 +98,7 @@ device:
       requesting data.
     methods:
       - type: "ble_direct"
-        verified: true
+        verified: false
         description: >
           Scan for 0x181D service, connect, subscribe for weight
           notifications. No pairing required for basic reading.
@@ -114,7 +143,9 @@ device:
         local_name_prefix: "MI_SCALE"
       notes: >
         Weight only, no impedance. Service 0x181D. 10-byte frames.
-        History on 0x2A2F under 0x181D. No vendor service.
+        History on 0x2A2F under 0x181D. The openScale wiki's v1 GATT dump
+        also lists vendor service 0x1530 (0x1531/0x1532/0x1542/0x1543), so
+        the vendor service is not v2-only.
     - model: "Mi Body Composition Scale v2"
       identification:
         local_name_prefix: "MIBCS"
@@ -140,9 +171,10 @@ services:
   - uuid: "0000181d-0000-1000-8000-00805f9b34fb"
     name: "Weight Scale Service"
     notes: >
-      Standard BLE Weight Scale service. Primary for v1; alternate for v2.
-      Carries weight measurement (0x2A9D), weight scale feature (0x2A9E),
-      current time (0x2A2B), and Mi history (0x2A2F).
+      Standard BLE Weight Scale service. Present on v1; the independent v2
+      (MIBCS) GATT dump shows NO 0x181D — v2 exposes 0x181B with 0x2A9C
+      instead. Carries weight measurement (0x2A9D), weight scale feature
+      (0x2A9E), current time (0x2A2B), and Mi history (0x2A2F).
     characteristics:
       - uuid: "00002a9d-0000-1000-8000-00805f9b34fb"
         name: "Weight Measurement"
@@ -170,25 +202,47 @@ services:
           `[year_lo, year_hi, month, day, hour, min, sec, 0x00, 0x00, 0x01]`
 
   - uuid: "00001530-0000-3512-2118-0009af100700"
-    name: "Mi Vendor Service (v2 only)"
+    name: "Mi Vendor Service"
     notes: >
-      v2-only. Provides unit configuration via 0x1542.
+      Present on v2 and — per the openScale wiki's v1 GATT dump — on v1 as
+      well, so it is not v2-only. Provides unit configuration via 0x1542,
+      a BLE DFU firmware-update channel via 0x1531/0x1532 (OTAs are
+      delivered device-bound via the Zepp Life app; no public firmware
+      files), and a low-battery characteristic 0x1543.
     characteristics:
       - uuid: "00001542-0000-3512-2118-0009af100700"
         name: "Mi Config"
         properties: ["write"]
         notes: >
-          Set scale unit: `06 04 00 <unit>` where 0=kg, 1=jin, 2=lbs.
+          Set scale unit: `06 04 00 <unit>` where 0=kg/SI,
+          1=lbs/imperial, 2=jin/catty.
+      - uuid: "00001531-0000-3512-2118-0009af100700"
+        name: "DFU Control Point"
+        properties: ["write", "notify"]
+        notes: >
+          BLE DFU control point for firmware updates, together with the
+          0x1532 DFU Packet characteristic.
+      - uuid: "00001532-0000-3512-2118-0009af100700"
+        name: "DFU Packet"
+        properties: ["write_without_response"]
+        notes: "DFU data channel; firmware image is streamed here."
+      - uuid: "00001543-0000-3512-2118-0009af100700"
+        name: "Low Battery"
+        properties: ["read", "write", "notify"]
+        notes: "Low-battery indication (uint8; always 0x01 in the ble-in-xiaomi v2 GATT dump)."
 
   - uuid: "0000181b-0000-1000-8000-00805f9b34fb"
     name: "Body Composition Service (v2 only)"
     notes: >
-      v2 primary service. Carries history, current time, and weight
-      measurement for v2 scales.
+      v2 primary service. Carries history, current time, and the body
+      composition measurement for v2 scales.
     characteristics:
-      - uuid: "00002a9d-0000-1000-8000-00805f9b34fb"
-        name: "Weight Measurement"
-        properties: ["notify"]
+      - uuid: "00002a9c-0000-1000-8000-00805f9b34fb"
+        name: "Body Composition Measurement"
+        properties: ["indicate"]
+        notes: >
+          Standard Body Composition Measurement — the v2 GATT dump shows
+          0x2A9C with indicate, not the 0x2A9D Weight Measurement.
 
 entities:
   - platform: "sensor"
@@ -202,5 +256,5 @@ entities:
     state_characteristic: "00001542-0000-3512-2118-0009af100700"
     state_mapping:
       "0": "kg"
-      "1": "jin"
-      "2": "lbs"
+      "1": "lbs"
+      "2": "jin"

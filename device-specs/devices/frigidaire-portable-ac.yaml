@@ -34,13 +34,17 @@ device:
     Discovery for users happens through the Frigidaire/Electrolux app account
     after app-based pairing. The replacement control path must authenticate to
     the Electrolux cloud/OCP account, enumerate appliances assigned to that
-    account, then send commands through the cloud API or websocket.
+    account, then send commands through the cloud API or websocket. An official
+    path now exists alongside the reverse-engineered OCP one: the Electrolux
+    Developer API (developer.electrolux.one) plus the official Apache-2.0
+    Python SDK (electrolux-oss/electrolux-group-developer-sdk), reported to
+    work with NA-region Frigidaire 2.0 app credentials.
 
     Protocol details still need network captures to confirm exact request and
     payload formats, but local device discovery is closed as cloud-only for
     post-pairing control based on the inspected APK.
   identification:
-    ssid_prefix: "Dehumidifier"
+    ssid_prefix: "Air_Conditioner"
     discovery: "Electrolux/Frigidaire app and cloud account enumeration"
     local_discovery: false
     provisioning_local_only:
@@ -76,7 +80,14 @@ device:
           auth_method: "oauth2"
           device_list_endpoint:
             method: "GET"
-            url: "https://api.electrolux.com/ocp/v1/appliances"
+            url: "https://api.ocp.electrolux.one/appliance/api/v2/appliances?includeMetadata=true"
+            notes: >
+              The earlier api.electrolux.com/ocp/v1/appliances URL does not
+              resolve (NXDOMAIN) and no OCP client references it. Working path
+              on the OCP cloud; NA accounts use the regional base
+              https://api.us.ocp.electrolux.one. The official Electrolux
+              Developer API exposes the same enumeration at
+              https://api.developer.electrolux.one/api/v1/appliances.
             response_mapping:
               stable_keys:
                 - source: "json://applianceId"
@@ -120,14 +131,18 @@ device:
             actor: "client"
             notes: "Open gap: the highest-value capture target for this device, since it is the only moment local credentials are in play."
     factory_reset:
-      confidence: "low"
-      effect: "Expected to clear WiFi credentials and the account binding, returning the unit to pairing mode. Not verified here."
+      confidence: "high"
+      effect: "Clears WiFi credentials and the account binding, returning the unit to pairing mode. Vendor-documented in an official Frigidaire support article (the router-change procedure)."
       procedures:
         - name: "Control panel button sequence"
           steps:
-            - action: "Hold the WiFi/Connect button on the unit until the WiFi indicator blinks to re-enter pairing mode."
+            - action: "Remove the appliance from the Frigidaire 2.0 app."
               actor: "user"
-              notes: "Vendor-documented and model-specific; verify against the manual before relying on it."
+            - action: "Press and hold the Wi-Fi/Connect button for 10 seconds (the unit may beep)."
+              actor: "user"
+            - action: "Unplug the appliance for 30 seconds, then plug it back in."
+              actor: "user"
+              notes: "Wait at least 60 seconds after plugging back in before attempting the connection process again."
     rejoin:
       in_place_supported: false
       requires_factory_reset: true
@@ -157,10 +172,10 @@ http_endpoints:
     response_body:
       content_type: "application/json"
 
-  - method: "POST"
+  - method: "PUT"
     path: "/appliance/api/v2/appliances/{applianceId}/command"
     name: "Appliance Command"
-    description: "Cloud command path observed in APK strings; exact payload requires traffic capture."
+    description: "Cloud command path observed in APK strings. Method is PUT (two independent RE clients and the official SDK agree); payload is a single-property JSON map, exact property set requires traffic capture."
     request_body:
       content_type: "application/json"
 

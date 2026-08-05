@@ -12,9 +12,11 @@ device:
     intensity (lux), and soil conductivity/fertility (µS/cm). Coin cell
     (CR2032) powered, ~1 year battery life. $12-17.
 
-    PROTOCOL: this device does NOT expose standard GATT service UUIDs in its
-    advertisement. The miflora library (github.com/basnijholt/miflora)
-    discovers ATT handles at runtime. The known handles are:
+    PROTOCOL: the device broadcasts Xiaomi MiBeacon service data (16-bit
+    service UUID 0xFE95, product ID 0x0098), so discovery CAN filter on
+    fe95. In connect mode the miflora library
+    (github.com/basnijholt/miflora) reads fixed ATT handles. The known
+    handles are:
       0x03 — Device Name (read)
       0x33 — Mode Change (write): send 0xA01F to enable real-time sensor mode
       0x35 — Sensor Data (read): 16 bytes, LE-encoded
@@ -22,6 +24,20 @@ device:
       0x3C — History Read (read): 16-byte entries
       0x3E — History Control (write): 0xA00000 init, 0xA20000 success, 0xA30000 failed
       0x41 — Device Time (read): 4-byte LE uint32 seconds
+
+    PASSIVE BROADCAST PATH: roughly once a minute the device emits
+    unencrypted MiBeacon frames carrying temperature, moisture, conductivity
+    and illuminance (and battery on firmware older than 3.2.1) — readable
+    without ever connecting, which is the path ESPHome xiaomi_hhccjcy01,
+    Home Assistant xiaomi_ble and ble_monitor use. Firmware older than ~2.7
+    only broadcasts its MAC and needs an app-driven firmware update first.
+
+    HARDWARE/FAMILY: Dialog DA14580 BLE SoC with an unpopulated SWD header
+    on the PCB; MAC OUI C4:7C:8D. Family: HHCCJCY01 (this device, CR2032),
+    HHCCJCY09 Flower Care Max (Li-Po, advertises "Grow care garden"),
+    HHCCJCY10 (Tuya variant, advertises "TY" with 0xFD50 Tuya service data —
+    a different protocol), HHCCPOT002 (RoPot); the black Flower Care has no
+    Bluetooth at all.
 
     SENSOR DATA (handle 0x35, 16 bytes, little-endian):
       bytes 0-1: temperature in 0.1°C (int16 LE)
@@ -35,8 +51,8 @@ device:
     read to switch the sensor into real-time mode. Older firmware reads
     handle 0x35 directly.
 
-    HISTORY: up to ~1800 hourly measurements stored on device. History entries
-    (16 bytes each): bytes 0-3=device_time(seconds LE), bytes 4-6=temp(LE,
+    HISTORY: hourly measurements are stored on device. History entries
+    (16 bytes each): bytes 0-3=device_time(seconds LE), bytes 4-5=temp(LE,
     ones-complement for negative), bytes 7-9=light(LE), byte 11=moisture,
     bytes 12-13=conductivity(LE).
 
@@ -50,6 +66,8 @@ device:
 
   identification:
     local_name_prefix: "Flower"
+    service_uuids:
+      - "0000fe95-0000-1000-8000-00805f9b34fb"
 
   discovery:
     methods:
@@ -58,6 +76,14 @@ device:
           local_name:
             match: "prefix"
             value: "Flower"
+          service_uuids:
+            - "0000fe95-0000-1000-8000-00805f9b34fb"
+          notes: >
+            Two usable signals: the "Flower care"/"Flower mate" local name
+            (the RoPot advertises as "ropot", so a Flower-prefix filter
+            misses it) and the 0xFE95 MiBeacon service data. MiBeacon
+            product ID 0x0098 identifies the plant monitor; the MAC OUI is
+            C4:7C:8D.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -72,7 +98,7 @@ device:
       bonding (unverified).
     methods:
       - type: "ble_direct"
-        verified: true
+        verified: false
         description: >
           Scan for "Flower care" / "Flower mate" advertisement, connect via
           MAC address, write 0xA01F to handle 0x33 (fw≥2.6.6), read handle
@@ -109,31 +135,43 @@ device:
   variants:
     - model: "Ropot (no light sensor)"
       identification:
-        local_name_prefix: "Flower"
+        local_name_prefix: "ropot"
       notes: >
-        24-byte sensor data on handle 0x35. Parsing differs: no light field.
-        temp is still bytes 0-1 (LE int16), moisture at byte 7, conductivity
-        at bytes 8-9.
+        Advertises under the name "ropot" — a "Flower" prefix filter misses
+        it — while its GATT device name (handle 0x03) reads "Flower care".
+        Sensor data on handle 0x35 is 24 bytes per the miflora library, but
+        WatchFlower observed a 10-byte real-time frame on HHCCPOT002
+        fw 1.1.5; both layouts exist in the wild. Parsing differs from
+        HHCCJCY01: no light field. temp is still bytes 0-1 (LE int16),
+        moisture at byte 7, conductivity at bytes 8-9.
 
 services:
-  - uuid: "00000000-0000-1000-8000-00805f9b34fb"
-    name: "Xiaomi Mi Flora Proprietary Service (handle-discovered)"
+  - uuid: "00001204-0000-1000-8000-00805f9b34fb"
+    name: "Xiaomi Mi Flora Proprietary Service"
     notes: >
-      This device does not advertise a standard service UUID. Handles are
-      discovered at runtime via GATT primary service discovery. The
-      characteristic UUIDs below are placeholders keyed to the known
-      ATT handle numbers. A consumer MUST discover handles dynamically
-      rather than assuming fixed UUIDs. The handle numbers are:
-      0x03=name, 0x33=mode_change, 0x35=sensor_data, 0x38=fw_battery,
-      0x3C=history_read, 0x3E=history_control, 0x41=device_time.
+      The service and characteristic UUIDs are fixed and documented by
+      three independent RE sources (WatchFlower flowercare-ble-api.md,
+      vrachieru/xiaomi-flower-care-api, ChrisScheffler/miflora wiki):
+      service 0x1204 carries 0x1A00 (handle 0x33, mode change),
+      0x1A01 (0x35, sensor data) and 0x1A02 (0x38, firmware+battery);
+      0x1A10 (0x3E, history control), 0x1A11 (0x3C, history read) and
+      0x1A12 (0x41, device time) — WatchFlower places the history
+      characteristics in a separate service 0x1206, vrachieru in 0x1204.
+      The miflora library still works by ATT handle, and the handle
+      numbers are: 0x03=name, 0x33=mode_change, 0x35=sensor_data,
+      0x38=fw_battery, 0x3C=history_read, 0x3E=history_control,
+      0x41=device_time.
     characteristics:
-      - uuid: "00000035-0000-1000-8000-00805f9b34fb"
+      - uuid: "00001a01-0000-1000-8000-00805f9b34fb"
         name: "Sensor Data"
-        properties: ["read"]
+        properties: ["read", "notify"]
         notes: >
           ATT handle 0x35. Returns 16 (or 24 for Ropot) bytes of sensor data,
           little-endian encoded. Must first write 0xA01F to handle 0x33
           (mode change) on firmware ≥2.6.6 to enable real-time mode.
+          Notifications are available: writing 0x0100 to handle 0x36 (this
+          characteristic's CCCD) subscribes to sensor value notifications
+          (Warsaw Hackerspace wiki).
         format:
           - offset: 0
             length: 2
@@ -160,30 +198,40 @@ services:
             unit: "µS/cm"
             endianness: "little"
 
-      - uuid: "00000033-0000-1000-8000-00805f9b34fb"
+      - uuid: "00001a00-0000-1000-8000-00805f9b34fb"
         name: "Mode Change"
         properties: ["write"]
         notes: >
           ATT handle 0x33. Write 0xA01F to enable real-time sensor mode
           (required for firmware ≥2.6.6). Write 0xFDFF to blink the top LED
-          once. Older firmware does not need the mode-change write.
+          once. Write 0xB0FF to switch handle 0x35 into serial-number read
+          mode (ChrisScheffler wiki). Older firmware does not need the
+          mode-change write.
         commands:
           enable_realtime:
             description: "Enable real-time sensor read mode (fw ≥2.6.6)."
             value: [0xA0, 0x1F]
-            verification: "confirmed"
+            verification: "reported"
           blink_led:
             description: "Blink device LED once."
             value: [0xFD, 0xFF]
-            verification: "confirmed"
+            verification: "reported"
+          serial_number_read:
+            description: "Switch handle 0x35 into serial-number read mode; read 0x35 afterwards for the serial."
+            value: [0xB0, 0xFF]
+            verification: "reported"
 
-      - uuid: "00000038-0000-1000-8000-00805f9b34fb"
+      - uuid: "00001a02-0000-1000-8000-00805f9b34fb"
         name: "Firmware Version + Battery"
         properties: ["read"]
         notes: >
           ATT handle 0x38. Returns variable-length data.
           byte[0] = battery percentage (0-100).
           bytes[2:] = firmware version string (ASCII).
+          This is the ONLY battery source: no standard Battery Service
+          0x180F/0x2A19 is present — two independent GATT enumerations
+          (WatchFlower, vrachieru) list only 0x1800, 0xFE95 and 0x1204
+          (+0x1206).
         format:
           - offset: 0
             length: 1
@@ -195,9 +243,9 @@ services:
             name: "firmware_version"
             type: "string"
 
-      - uuid: "0000003e-0000-1000-8000-00805f9b34fb"
+      - uuid: "00001a10-0000-1000-8000-00805f9b34fb"
         name: "History Control"
-        properties: ["write"]
+        properties: ["write", "notify"]
         notes: >
           ATT handle 0x3E. Write 0xA00000 to init history read, 0xA20000 to
           clear history (CONFIRMED), 0xA1+2byte_addr to request a specific
@@ -206,15 +254,15 @@ services:
           history_read_init:
             description: "Initialize history read session."
             value: [0xA0, 0x00, 0x00]
-            verification: "confirmed"
+            verification: "reported"
           history_clear:
             description: "Clear all stored history data on device. IRREVERSIBLE."
             value: [0xA2, 0x00, 0x00]
             advanced: true
             advanced_reason: "Permanently deletes all historical data from device storage with no recovery."
-            verification: "confirmed"
+            verification: "reported"
 
-      - uuid: "0000003c-0000-1000-8000-00805f9b34fb"
+      - uuid: "00001a11-0000-1000-8000-00805f9b34fb"
         name: "History Read"
         properties: ["read"]
         notes: >
@@ -229,7 +277,7 @@ services:
             type: "uint16"
             endianness: "little"
 
-      - uuid: "00000041-0000-1000-8000-00805f9b34fb"
+      - uuid: "00001a12-0000-1000-8000-00805f9b34fb"
         name: "Device Time"
         properties: ["read"]
         notes: >
@@ -242,41 +290,38 @@ services:
             unit: "seconds"
             endianness: "little"
 
-  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
-    name: "Battery Service"
-    notes: "Standard BLE battery service (if exposed via GATT). May not be present on all firmware versions; use handle 0x38 instead."
-    characteristics:
-      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
-        name: "Battery Level"
-        properties: ["read"]
-
 entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
     unit: "°C"
-    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
-    state_field: "sensor_data.temperature"
+    state_characteristic: "00001a01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "temperature"
   - platform: "sensor"
     name: "Soil Moisture"
     device_class: "humidity"
     unit: "%"
-    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
-    state_field: "sensor_data.moisture"
+    state_characteristic: "00001a01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "moisture"
   - platform: "sensor"
     name: "Light Intensity"
     device_class: "illuminance"
     unit: "lux"
-    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
-    state_field: "sensor_data.light"
+    state_characteristic: "00001a01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "light"
   - platform: "sensor"
     name: "Soil Conductivity"
     unit: "µS/cm"
-    state_characteristic: "00000035-0000-1000-8000-00805f9b34fb"
-    state_field: "sensor_data.conductivity"
+    state_characteristic: "00001a01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "conductivity"
   - platform: "sensor"
     name: "Battery"
     device_class: "battery"
     unit: "%"
-    state_characteristic: "00000038-0000-1000-8000-00805f9b34fb"
-    state_field: "firmware_battery.battery"
+    state_characteristic: "00001a02-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "battery"

@@ -10,18 +10,24 @@ device:
   notes: >
     The most closed mainstream e-bike system, and the one that most often stops
     an independent repair. Fault detail, component pairing and firmware updates
-    are gated behind Bosch dealer tooling and the eBike Flow app, so a workshop
-    without dealer access can see THAT a bike has faulted without being able to
-    say why, and cannot re-pair a replaced motor, battery or display.
+    are gated behind Bosch dealer tooling and the eBike Connect app, so a
+    workshop without dealer access can see THAT a bike has faulted without
+    being able to say why, and cannot re-pair a replaced motor, battery or
+    display. (The eBike Flow app is for the smart system / BES3 only; Gen4/BES2
+    pairs through eBike Connect.)
 
     THIS SPEC IS A STARTING KIT, NOT A PROTOCOL. What is documented below is how
     to get onto the bus -- bitrate, breakout pinout, tooling. The public message
     catalogue is a SINGLE frame. There is no decoded field mapping for speed,
     assist level, battery state or error codes yet; building one is the work.
 
-    NO RADIO, NO SOCKET: unlike every other vehicle target here, there is
-    nothing to scan. Reaching the bus needs a CAN interface and physical access
-    to the harness. Budget for hardware, not an afternoon with a phone.
+    NO RADIO ON THE BUS, NO SOCKET: unlike every other vehicle target here,
+    there is nothing to scan for at the system level. Reaching the bus needs
+    a CAN interface and physical access to the harness. Budget for hardware,
+    not an afternoon with a phone. One caveat on the wording: a Kiox (BUI350)
+    display DOES advertise BLE -- it pairs with the eBike Connect app and
+    with BLE heart-rate straps -- but that link belongs to the display and
+    is not a path onto the bus.
 
     VERIFICATION: link parameters and wiring are `reported` and reproducible.
     The single frame below is `hypothesis` -- reported by one source and not
@@ -32,6 +38,13 @@ device:
     fault on a stand), diff single-variable changes to isolate candidate IDs,
     and identify which node emits which ID by capturing with components
     disconnected one at a time. Only then consider transmitting.
+
+    SINCE THIS SPEC WAS WRITTEN (2026-05): Bosch published an official, free
+    "Live Data Interface" BLE GATT specification (V1.0, 2026-05-01) -- 13
+    read-only live data points (speed, SoC, rider power, cadence, odometer,
+    lock/light/charger state) with permissive terms. It covers the smart
+    system (BES3) only and does not unlock Gen4/BES2, but it is Bosch's
+    first open protocol and a policy U-turn worth recording.
 
   setup:
     required: false

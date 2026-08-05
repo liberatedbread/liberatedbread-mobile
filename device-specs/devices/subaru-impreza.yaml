@@ -6,10 +6,14 @@
 #         (iso9141/K-line and iso15765/CAN) sharing identical command
 #         semantics.
 #
-#         RomRaider commit: cloned 2026-07-28 (HEAD of main)
-#         SubaruDefs: 700+ ROM definition files, cloned 2026-07-28
-#         FreeSSM: also cloned but source is Visual Basic .NET (not
-#         yet decompiled — RomRaider is the primary reference)
+#         RomRaider commit: cloned 2026-07-28 (HEAD of master; verified
+#         current against upstream 2026-07-31)
+#         SubaruDefs: 671 ROM definition XML files, cloned 2026-07-28.
+#         The repo is frozen (HEAD 2012-08-20) — current defs are
+#         distributed via romraider.com forum attachments.
+#         FreeSSM: independent C++/Qt open-source implementation
+#         (github.com/Comer352L/FreeSSM), used as a cross-check. No
+#         FreeSSM copy was available in the research store.
 #
 #         Confidence: VERY HIGH for the protocol layer. Every byte of
 #         the SSM command set is traceable to RomRaider's source.
@@ -41,8 +45,14 @@ device:
       Dest addresses: 0x10=engine, 0x18=transmission, 0x30=ABS.
 
     CAN (2008+) — 500 kbps, 11-bit IDs:
-      Request:  CAN ID = 0x7E0 + (dest_addr - 0x10) → [ID_hi, ID_lo, COMMAND, payload...]
-      Response: CAN ID = 0x7E8 + (dest_addr - 0x10) → [ID_hi, ID_lo, RESPONSE, payload...]
+      Request/response IDs are per-ECU and listed in the `ecus` block below
+      (engine 0x7E0/0x7E8, transmission 0x7E1/0x7E9, ABS 0x7E3/0x7EB) — the
+      standard ISO 15765-4 diagnostic pairs, response = request + 8. Do NOT
+      compute them from the K-line dest address: those addresses (0x10, 0x18,
+      0x30) are not contiguous, so an earlier "0x7E0 + (dest - 0x10)" formula
+      here was wrong — it mapped the transmission onto 0x7E8 (the engine's
+      response ID) and the ABS onto 0x800. Payload after the ID is
+      [COMMAND, payload...] on request, [RESPONSE, payload...] on reply.
       No SSM header, no checksum — handled by CAN CRC.
 
     The protocol is identical: same commands, same parameter addresses.
@@ -57,7 +67,7 @@ device:
     - logger/ecu/comms/query/SSMEcuInit.java
 
     DTCs are NOT a separate protocol command. They are regular SSM parameters
-    stored at memory addresses defined in the ECU definition XML. Each DTC is
+    stored at memory addresses defined in the logger definition XML. Each DTC is
     a single bit at a (memaddr, bit) location — read that address, check the
     bit, and if set the DTC is active. Clearing a DTC means writing 0x00 to
     its memory address. RomRaider defines DTCs via <dtcode> elements with
@@ -95,7 +105,7 @@ device:
       must be DISCONNECTED for normal reads. Join them for flash writes.
     methods:
       - type: "wired"
-        verified: true
+        verified: false
         description: >
           Plug an adapter into the OBD-II connector and talk SSM over it. There
           is nothing to provision — the link is physical, so access is granted
@@ -141,22 +151,22 @@ obd:
     pins:
       - pin: 16
         signal: "battery +12V"
-        verification: "confirmed"
+        verification: "reported"
       - pin: 4
         signal: "chassis ground"
-        verification: "confirmed"
+        verification: "reported"
       - pin: 5
         signal: "signal ground"
-        verification: "confirmed"
+        verification: "reported"
       - pin: 7
         signal: "K-line (2002–2007, ISO 9141-2)"
-        verification: "confirmed"
+        verification: "reported"
       - pin: 6
         signal: "CAN-H (2008+, ISO 15765-4)"
-        verification: "confirmed"
+        verification: "reported"
       - pin: 14
         signal: "CAN-L (2008+, ISO 15765-4)"
-        verification: "confirmed"
+        verification: "reported"
 
   transport:
     standard: "iso15765-4"
@@ -164,7 +174,7 @@ obd:
     addressing: "11bit"
     request_id: "0x7E0"
     response_id: "0x7E8"
-    verification: "confirmed"
+    verification: "reported"
     notes: >
       CAN SSM framing (from RomRaider SSMProtocol.java for iso15765):
       - Request:  [0x7E, 0x00 + offset, COMMAND, payload...]
@@ -204,7 +214,7 @@ obd:
       response_can: "0xEA"
       description: "Initialize SSM session with ECU. Returns ECU ID + supported-parameter bitmask."
       writes: false
-      verification: "confirmed"
+      verification: "reported"
       notes: >
         K-line: 0x80 0x10 0xF0 0x01 0xBF 0x40 <cs>
         CAN:    0x7E 0x00 0xAA
@@ -222,7 +232,7 @@ obd:
       response: "0xE8"
       description: "Read parameter values at specific addresses. The workhorse — most tools poll 4–12 addresses per request."
       writes: false
-      verification: "confirmed"
+      verification: "reported"
       notes: >
         K-line: 0x80 0x10 0xF0 <len> 0xA8 0x00 <addr1_3bytes> <addr2_3bytes>... <cs>
                 0xA8 0x01 for continuous fast-poll (padding byte = 0x01).
@@ -237,7 +247,7 @@ obd:
       response: "0xE0"
       description: "Bulk memory read — K-line only. NOT SUPPORTED on CAN."
       writes: false
-      verification: "confirmed"
+      verification: "reported"
       notes: >
         K-line: 0x80 0x10 0xF0 <len> 0xA0 0x00 <addr_3bytes> <num_bytes_minus_1> <cs>
         CAN: throws UnsupportedProtocolException. RomRaider only uses read-address on CAN.
@@ -247,7 +257,7 @@ obd:
       response: "0xF8"
       description: "Write a single byte value to a 3-byte address."
       writes: true
-      verification: "confirmed"
+      verification: "reported"
       notes: >
         K-line: 0x80 0x10 0xF0 <len> 0xB8 <addr_3bytes> <value> <cs>
         CAN:    0x7E 0x00 0xB8 <addr_3bytes> <value>
@@ -261,7 +271,7 @@ obd:
       response: "0xF0"
       description: "Bulk memory write — K-line only. NOT SUPPORTED on CAN."
       writes: true
-      verification: "confirmed"
+      verification: "reported"
 
     - name: "ECU_RESET"
       command: "WRITE_ADDRESS"
@@ -269,7 +279,7 @@ obd:
       value: "0x40"
       description: "Soft-reset the ECU. Equivalent to pulling battery for 30 minutes."
       writes: true
-      verification: "confirmed"
+      verification: "reported"
       notes: >
         Send WRITE_ADDRESS to 0x000060 with value 0x40.
         K-line: 0x80 0x10 0xF0 0x05 0xB8 0x00 0x00 0x60 0x40 <cs>
@@ -290,13 +300,13 @@ obd:
       requires: ["single_frame", "custom_headers"]
       ssm_command: "ECU_INIT"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
     - name: "ssm_read_ecu_id"
       description: "Extract ECU ID (CAL ID / ROM revision) from init response. 5 hex bytes at offset 3."
       command_class: "basic"
       ssm_command: "ECU_INIT"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
       notes: "The CAL ID is the first 5 data bytes after the 3-byte unknown prefix — e.g. 'A2WC522N'."
     - name: "ssm_read_params"
       description: "Read one or more live-data parameters by address."
@@ -304,14 +314,14 @@ obd:
       requires: ["single_frame", "multiframe_rx"]
       ssm_command: "READ_ADDRESS"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
       notes: "Send 3-byte addresses concatenated. Each ROM definition file maps parameter names to addresses and byte widths."
     - name: "ssm_read_dtc"
       description: "Read a single DTC bit at a (memaddr, bit) location. DTCs are regular SSM parameters."
       command_class: "basic"
       ssm_command: "READ_ADDRESS"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
       notes: "Read the DTC's memaddr via READ_ADDRESS, then check the bit. If 1, the DTC is active."
     - name: "ssm_clear_dtc"
       advanced: true
@@ -319,7 +329,7 @@ obd:
       command_class: "advanced"
       ssm_command: "WRITE_ADDRESS"
       writes: true
-      verification: "confirmed"
+      verification: "reported"
       notes: "Some ECUs also reset AF Learning when clearing DTCs. Check your ROM revision."
     - name: "ssm_ecu_reset"
       advanced: true
@@ -327,43 +337,45 @@ obd:
       command_class: "advanced"
       ssm_command: "ECU_RESET"
       writes: true
-      verification: "confirmed"
+      verification: "reported"
     - name: "obd2_mode01"
       description: "Standard OBD-II Mode 01 PID read. Available on CAN models (2008+) alongside SSM."
       command_class: "basic"
       requires: ["single_frame"]
       service: "01"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
     - name: "obd2_mode03"
       description: "Standard OBD-II Mode 03 DTC read."
       command_class: "basic"
       service: "03"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
     - name: "obd2_mode04"
       description: "Standard OBD-II Mode 04 clear DTCs."
       command_class: "basic"
       service: "04"
       writes: true
-      verification: "confirmed"
+      verification: "reported"
     - name: "obd2_mode09"
       description: "Standard OBD-II Mode 09 vehicle info (VIN, CAL ID)."
       command_class: "basic"
       requires: ["multiframe_rx"]
       service: "09"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
     - name: "ssm_check_support"
       description: "Check if a parameter is supported by checking its bit in the init-response bitmask."
       command_class: "basic"
       writes: false
-      verification: "confirmed"
+      verification: "reported"
       notes: >
         Each parameter in the logger XML has ecubyteindex and ecubit.
-        After ECU init, check byte[ecubyteindex] & (1 << (7 - ecubit)).
-        If non-zero, the parameter is supported. This is how RomRaider
-        dynamically adapts to any ROM revision.
+        After ECU init, check byte[ecubyteindex] & (1 << ecubit) — NO bit
+        inversion (RomRaider LoggerDefinitionHandler.isSupportedParameter:
+        (bytes[i] & 1 << ecuBit) > 0). If non-zero, the parameter is
+        supported. This is how RomRaider dynamically adapts to any ROM
+        revision.
 
   # ====================================================================
   # Live Data Parameter Map (subset — ROM-specific)
@@ -391,128 +403,113 @@ obd:
     - did: "0x000007"
       name: "Engine Load (Relative)"
       type: "uint8"
-      formula: "x"
-      unit: "raw"
+      formula: "x * 100 / 255"
+      unit: "%"
       source: "P1, ecubyteindex=8, ecubit=7"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000008"
       name: "Coolant Temperature"
       type: "uint8"
       formula: "x - 40"
       unit: "°C"
       source: "P2, ecubyteindex=8, ecubit=6"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000009"
       name: "A/F Correction #1 (short-term fuel trim)"
       type: "uint8"
       formula: "(x - 128) * 0.78125"
       unit: "%"
       source: "P3, ecubyteindex=8, ecubit=5"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x00000A"
       name: "A/F Learning #1 (long-term fuel trim, range A)"
       type: "uint8"
       formula: "(x - 128) * 0.78125"
       unit: "%"
       source: "P4, ecubyteindex=8, ecubit=4"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x00000D"
       name: "Manifold Absolute Pressure"
       type: "uint8"
-      formula: "x * 0.01933677"
+      formula: "x * 37 / 255"
       unit: "psi"
       source: "P7, ecubyteindex=8, ecubit=1"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x00000E"
       name: "Engine Speed"
       type: "uint16"
       formula: "x * 0.25"
       unit: "rpm"
       source: "P8, length=2, ecubyteindex=8, ecubit=0"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000010"
       name: "Vehicle Speed"
       type: "uint8"
       formula: "x * 0.621371"
       unit: "mph"
       source: "P9, ecubyteindex=9, ecubit=7"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000011"
       name: "Ignition Total Timing"
       type: "uint8"
       formula: "(x - 128) * 0.5"
       unit: "° BTDC"
       source: "P10, ecubyteindex=9, ecubit=6"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000012"
       name: "Intake Air Temperature"
       type: "uint8"
       formula: "x - 40"
       unit: "°C"
       source: "P11, ecubyteindex=9, ecubit=5"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000013"
       name: "Mass Airflow"
       type: "uint16"
-      formula: "x * 0.039275"
+      formula: "x / 100"
       unit: "g/s"
       source: "P12, length=2, ecubyteindex=9, ecubit=4"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000015"
       name: "Throttle Opening Angle"
       type: "uint8"
       formula: "x * 0.39215686"
       unit: "%"
       source: "P13, ecubyteindex=9, ecubit=3"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x000016"
       name: "Front O2 Sensor #1"
       type: "uint16"
-      formula: "x * 0.0048876"
-      unit: "lambda"
+      formula: "x / 200"
+      unit: "V"
       source: "P14, length=2, ecubyteindex=9, ecubit=2"
-      verification: "confirmed"
+      verification: "reported"
     - did: "0x00001A"
       name: "Front O2 Sensor #2"
       type: "uint16"
-      formula: "x * 0.0048876"
-      unit: "lambda"
+      formula: "x / 200"
+      unit: "V"
       source: "P16, ecubyteindex=9, ecubit=0"
-      verification: "confirmed"
-    - did: "0x00001B"
+      verification: "reported"
+    - did: "0x00001C"
       name: "Battery Voltage"
       type: "uint8"
       formula: "x * 0.08"
       unit: "V"
       source: "P17, ecubyteindex=10, ecubit=7"
-      verification: "confirmed"
+      verification: "reported"
 
     # NOTE: Target Boost is an extended RomRaider logparam (E21), not a standard
     # SSM parameter. Extended params have no fixed read address -- the address is
     # defined per-ROM in the ECU definition file -- so it cannot be listed here
     # with a `did`. It lives under `extended_parameters` below instead.
-
-    # ---- DTCs (selected) ----
-    # DTCs are defined in ECU XML with memaddr + bit. Each is read as a
-    # regular SSM parameter and the bit is checked.
-    - did: "0x00001C"
-      name: "AF Learning #1 (Range B)"
-      type: "uint8"
-      formula: "(x - 128) * 0.78125"
-      unit: "%"
-      verification: "reported"
-    - did: "0x00001D"
-      name: "AF Learning #1 (Range C)"
-      type: "uint8"
-      formula: "(x - 128) * 0.78125"
-      unit: "%"
-      verification: "reported"
-    - did: "0x00001E"
-      name: "AF Learning #1 (Range D)"
-      type: "uint8"
-      formula: "(x - 128) * 0.78125"
-      unit: "%"
-      verification: "reported"
+    #
+    # AF Learning #1 Ranges B/C/D were previously listed here at
+    # 0x00001C/0x00001D/0x00001E -- REMOVED: in the SubaruDefs logger.xml those
+    # addresses are P17 Battery Voltage, P18 MAF Sensor Voltage and P19
+    # Throttle Sensor Voltage. Ranges B-D exist only as per-ROM extended
+    # parameters in newer forum-distributed defs, not at fixed standard
+    # addresses; resolve them from the matching ECU definition instead.
 
   # ====================================================================
   # Extended (ROM-specific) logging parameters
@@ -552,7 +549,7 @@ obd:
         - "learned parameters / ECU reset (write-address 0x000060)"
         - "tuning tables (write-address, ROM-specific addresses)"
         - "actuator tests (write-address, ROM-specific)"
-      verification: "confirmed"
+      verification: "reported"
     - name: "Transmission ECU (TCU)"
       address: "0x18"
       tester: "0xF0"
@@ -591,7 +588,7 @@ obd:
         pins: 1
         location: "under dash near OBD-II port, taped together"
         function: "test mode / flash mode enable"
-        verification: "confirmed"
+        verification: "reported"
       - color: "white"
         pins: 2
         location: "under dash near green connectors (2002–2005 only)"

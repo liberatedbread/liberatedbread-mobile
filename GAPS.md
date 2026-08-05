@@ -1,12 +1,13 @@
 # GAPS.md
 
-Last updated: 2026-07-28T19:30Z
+Last updated: 2026-07-30
 
-## Remaining Gaps: 1
+## Remaining Gaps: 2
 
 | Target | Status |
 |--------|--------|
 | **ifreqtech-speaker-mic** | No companion APK exists — BT Classic hardware bridge (HFP + likely SPP). Requires HCI snoop on physical device. RE blocked until hardware in hand. |
+| **led-space** | Target researched (`targets/led-space.md`) but no spec written yet. |
 
 ## Resolved: 26 of 27 original targets
 
@@ -37,6 +38,8 @@ Last updated: 2026-07-28T19:30Z
 
 ## Uncertain: m6-fitness-band
 
-`com.veryfit.multi` (Veryfit 2.0, 7.5MB) downloaded. May or may not be the correct companion app. No YAML written pending confirmation.
+`com.veryfit.multi` (Veryfit 2.0, 7.5MB) downloaded. May or may not be the correct
+companion app. A spec (`m6-fitness-band.yaml`) has since been written from it, but
+the app-to-device match is unconfirmed, so treat the spec as provisional.
 
-## Validation: 59/59 passing, 58 YAMLs × 3 repos
+## Validation: 71/71 passing (70 device specs + 1 example)

@@ -179,12 +179,18 @@ def build_manifest(
         raw = spec.raw
         updated_at = git_last_modified(spec.path, generated_at)
 
+        device = raw.get("device", {})
         device_entries.append({
             "id": spec.id,
-            "name": raw.get("device", {}).get("name", spec.id),
-            "manufacturer": raw.get("device", {}).get("manufacturer", ""),
-            "protocol": raw.get("device", {}).get("protocol", ""),
-            "status": raw.get("device", {}).get("manufacturer_status", ""),
+            "name": device.get("name", spec.id),
+            "manufacturer": device.get("manufacturer", ""),
+            "protocol": device.get("protocol", ""),
+            "status": device.get("manufacturer_status", ""),
+            # Whether the protocol was published or had to be recovered. The
+            # schema default applies when a spec is silent, so an unstated
+            # openness is reported as "undocumented" rather than as empty —
+            # that is the honest reading of a registry built on teardowns.
+            "openness": device.get("openness", {}).get("status", "undocumented"),
             **(
                 {"helpful_urls": raw["helpful_urls"]}
                 if "helpful_urls" in raw

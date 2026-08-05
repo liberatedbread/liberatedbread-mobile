@@ -20,6 +20,10 @@ device:
     - "Smart Lock 3.0"
     - "Smart Lock 4.0"
     - "Smart Lock Pro"
+    - "Smart Lock Ultra"
+    - "Smart Lock (5th gen)"
+    - "Smart Lock Pro (5th gen)"
+    - "Smart Lock Go"
   notes: >
     The Nuki Smart Lock is a retrofit electronic door lock that mounts over
     an existing Euro-profile cylinder. It communicates primarily via BLE
@@ -38,7 +42,16 @@ device:
     Message frame format confirmed via BleResponse.java disassembly.
     Lock state enum and error codes fully enumerated.
     Pairing/auth flow understood at protocol level from public docs.
-    CRC-16 implementation confirmed (XModem/CCITT, poly 0x1021, reflected).
+    CRC-16 implementation confirmed (CRC-16/CCITT-FALSE, poly 0x1021,
+    init 0xFFFF, MSB-first, non-reflected — NOT XModem).
+
+    Security: NCC Group's July 2022 advisory disclosed 11 CVEs in Nuki
+    products, including CVE-2022-32507 (broken access controls in the BLE
+    protocol) and CVE-2022-32505 (DoS via unauthenticated BLE packets),
+    fixed in Smart Lock 3.0 FW >=3.3.5 and 2.0 FW >=2.12.4. Official MQTT
+    and Matter-over-Thread APIs are now documented alongside BLE/Web
+    (4th-gen Pro/Ultra/5th-gen support Matter; Ultra/Pro have built-in
+    WiFi, no bridge needed).
 
   setup:
     required: true
@@ -48,8 +61,9 @@ device:
       provisioned before it will do anything: every command after pairing
       carries an authorization ID that only the pairing exchange can issue.
       Pairing is public-key based (CMD 3 PublicKeyRequest, CMD 4/5
-      challenge-response) and gated by a 6-digit security PIN the owner sets on
-      first setup.
+      challenge-response) and gated by a security PIN the owner sets on
+      first setup — 4 digits on Smart Lock 1.0-4.0, widened to 6 digits
+      with Smart Lock Ultra (6-digit on Ultra/5th-gen/Go/Pro).
 
       The lock is put into pairing mode physically, by holding its button. That
       is deliberate: it means possession of the door, not proximity to it, is
@@ -80,7 +94,7 @@ device:
               Complete challenge-response authentication (CMD 4:
               ChallengeResponse, CMD 5: AuthorizationAuthenticatorRequest).
             actor: client
-          - action: "Enter the 6-digit security PIN when the client asks for it."
+          - action: "Enter the security PIN (4-digit on SL 1.0-4.0, 6-digit on Ultra/5th-gen/Go/Pro) when the client asks for it."
             actor: user
           - action: "Verify the PIN (CMD 32: VerifySecurityPinRequest)."
             actor: client
@@ -113,7 +127,7 @@ device:
       wifi_passphrase_protection: not_applicable
       stored_on_device:
         - "Client public keys and their authorization IDs"
-        - "6-digit security PIN"
+        - "Security PIN (4-digit on SL 1.0-4.0; 6-digit on Ultra/5th-gen/Go/Pro)"
       issued_to_client:
         - "Authorization ID, issued on successful pairing"
         - "Lock public key, from the key exchange"
@@ -137,13 +151,21 @@ ble:
     phy_preference: "le_1m"
     mtu_negotiation: true
     preferred_mtu: 185
-    bonding_required: true
+    # No BLE bonding: security is application-layer NaCl (Curve25519 DH +
+    # XSalsa20-Poly1305); neither pyNukiBT nor NukiBleEsp32 bonds.
+    bonding_required: false
 
 services:
   # --- Keyturner (Smart Lock) ---
+  # GATT roles corrected against the official Nuki BLE API V2.3.0 (2025-01-08):
+  # A92EE000 is the Initialization Service (advertises the uninitialized
+  # state, has NO characteristics of its own), A92EE100 is the Pairing
+  # Service, A92EE200 is the Keyturner (command) Service with A92EE201 =
+  # General Data IO (unencrypted) and A92EE202 = User-Specific Data IO
+  # (encrypted). The nested list below keeps the repo's flat layout.
   - uuid: "A92EE000-5501-11E4-916C-0800200C9A66"
-    name: "Keyturner Service"
-    description: "Primary GATT service for Nuki Smart Lock (Keyturner)"
+    name: "Keyturner Initialization Service"
+    description: "Advertises the uninitialized state; has no characteristics of its own (official BLE API V2.3.0). The entries below are the separate keyturner services/characteristics, kept here for reference."
     device: "smart_lock"
     characteristics:
       - uuid: "A92EE101-5501-11E4-916C-0800200C9A66"
@@ -156,32 +178,32 @@ services:
       - uuid: "A92EE100-5501-11E4-916C-0800200C9A66"
         name: "Keyturner Pairing Service"
         type: "pairing"
-        description: "Pairing/security service for initial device bonding"
+        description: "Pairing service for initial authorization (SL 1-4; Smart Lock Ultra uses A92EE300 instead)"
         properties: ["write", "read", "notify"]
       - uuid: "A92EEF00-5501-11E4-916C-0800200C9A66"
         name: "Keyturner Pairing Data"
         type: "pairing_data"
-        description: "Pairing data characteristic"
+        description: "Pairing data characteristic (present in the app's BleConstants; not listed in the official BLE API V2.3.0)"
         properties: ["write", "read", "notify"]
       - uuid: "A92EE200-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Firmware Service"
-        type: "firmware"
-        description: "Firmware update service"
+        name: "Keyturner Service (command service)"
+        type: "data"
+        description: "Keyturner command service per official BLE API V2.3.0 (NOT a firmware service); carries the data IO characteristics below"
         properties: ["write", "notify"]
       - uuid: "A92EE201-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Firmware Data"
-        type: "firmware_data"
-        description: "Firmware transfer data"
+        name: "Keyturner General Data IO"
+        type: "data"
+        description: "General Data IO characteristic — unencrypted command channel (official BLE API V2.3.0)"
         properties: ["write", "notify"]
       - uuid: "A92EE202-5501-11E4-916C-0800200C9A66"
-        name: "Keyturner Firmware Status"
-        type: "firmware_status"
-        description: "Firmware transfer status"
-        properties: ["notify", "read"]
+        name: "Keyturner User-Specific Data IO"
+        type: "data"
+        description: "User-Specific Data IO characteristic — encrypted command channel (official BLE API V2.3.0); used by pyNukiBT/NukiBleEsp32"
+        properties: ["write", "notify"]
       - uuid: "A92EE203-5501-11E4-916C-0800200C9A66"
         name: "Keyturner Firmware Verify"
         type: "firmware_verify"
-        description: "Firmware verification"
+        description: "Present in the app's BleConstants; not listed in the official BLE API V2.3.0 — role unverified"
         properties: ["write", "read"]
 
   # --- Keypad (paired with Keyturner) ---
@@ -312,12 +334,12 @@ protocol:
   framing:
     byte_order: "little_endian"
     crc:
-      algorithm: "CRC-16-CCITT"
+      algorithm: "CRC-16/CCITT-FALSE"
       polynomial: "0x1021"
       initial: "0xFFFF"
-      reflected: true
+      reflected: false
       xor_out: "0x0000"
-      notes: "XModem variant. Used on scan response data and message authentication."
+      notes: "MSB-first, non-reflected (NOT the XModem variant — XModem would also imply init 0x0000). Matches the official doc's 'CRC-CCITT, normal (0x1021), initial remainder 0xFFFF' and pyNukiBT's Crc(width=16, poly=0x1021, initvalue=0xffff, reflect_input=False, reflect_output=False). Used on scan response data and message authentication."
 
   message_format:
     description: >
@@ -336,7 +358,7 @@ protocol:
       4. Security PIN verification (CMD 32: VerifySecurityPinRequest)
       5. On success, the device returns an authorization ID used for subsequent commands
     nuki_specific:
-      security_pin: "6-digit numeric PIN set during initial setup"
+      security_pin: "Numeric PIN set during initial setup: 4 digits (uint16) on Smart Lock 1.0-4.0, 6 digits (uint32) on Ultra/5th-gen/Go/Pro"
       authorization_id: "Integer ID assigned after successful pairing, used to authenticate all commands"
 
   commands:
@@ -383,26 +405,20 @@ protocol:
           type: "uint8"
           description: "Operational state of the lock"
         - name: "lockState"
-          type: "uint16"
-          description: "LockState enum value (0=uncalibrated, 1=locked, 3=unlocked, etc.)"
+          type: "uint8"
+          description: "LockState enum value (0=uncalibrated, 1=locked, 3=unlocked, etc.) — single byte per official BLE API V2.3.0"
         - name: "trigger"
           type: "uint8"
-          description: "Source of the last state change (app=0, manual=1, button=2, auto=3, etc.)"
+          description: "Source of the last state change (0=system, 1=manual, 2=button, 3=automatic, 6=auto lock)"
         - name: "currentTime"
           type: "datetime"
           description: "Device current time (year, month, day, hour, min, sec)"
-        - name: "criticalBattery"
-          type: "bool"
-          description: "Battery critically low"
-        - name: "batteryPercent"
-          type: "uint16"
-          description: "Battery charge percentage (0-100)"
-        - name: "batteryCharging"
-          type: "bool"
-          description: "Battery is currently charging"
+        - name: "battery"
+          type: "uint8"
+          description: "Battery flags byte: bit0 = critical, bit1 = charging, bits 2-7 = charge level in steps of 2%"
         - name: "doorSensorState"
           type: "uint8"
-          description: "Door state (0/1=deactivated, 2=closed, 3=opened, 4=unknown, 5=calibrating)"
+          description: "Door state (0=unavailable, 1=deactivated, 2=closed, 3=opened, 4=unknown, 5=calibrating, 0x10=uncalibrated, 0xF0=tampered)"
         - name: "nightModeActive"
           type: "bool"
           description: "Night mode is currently active"
@@ -411,33 +427,32 @@ protocol:
       id: 13
       name: "LockActionRequest / DoorLockActionRequest"
       direction: "client_to_device"
-      description: "Perform a lock/unlock/unlatch/lock-n-go action"
+      description: "Perform a lock/unlock/unlatch/lock-n-go action. Wire format: lockAction u8 + authId u32 + flags u8 + optional 20-byte name suffix + 32-byte nonce (no trigger field — trigger only appears in Keyturner States)."
       fields:
         - name: "lockAction"
           type: "uint8"
           values:
-            0: "UNLOCK"
-            1: "LOCK"
-            2: "UNLATCH"
-            3: "LOCK_N_GO"
-            4: "LOCK_N_GO_WITH_UNLATCH"
-        - name: "trigger"
-          type: "uint8"
-          values:
-            0: "APP"
-            1: "MANUAL"
-            2: "BUTTON"
-            3: "AUTO"
-            4: "KEYPAD"
-            5: "TIME_CONTROL"
-            6: "WEARABLE"
-            7: "FOB"
-        - name: "flags"
-          type: "uint8"
-          description: "Option flags (bitfield)"
+            1: "UNLOCK"
+            2: "LOCK"
+            3: "UNLATCH"
+            4: "LOCK_N_GO"
+            5: "LOCK_N_GO_WITH_UNLATCH"
+            6: "FULL_LOCK"
+            129: "FOB_ACTION_1 (0x81)"
+            130: "FOB_ACTION_2 (0x82)"
+            131: "FOB_ACTION_3 (0x83)"
         - name: "authId"
           type: "uint32"
           description: "Authorization ID (assigned during pairing)"
+        - name: "flags"
+          type: "uint8"
+          description: "Option flags (bit0 = auto-unlock, bit1 = force)"
+        - name: "name_suffix"
+          type: "bytes"
+          description: "Optional 20-byte name suffix"
+        - name: "nonce"
+          type: "bytes"
+          description: "32-byte nonce"
 
     status:
       id: 14
@@ -461,7 +476,7 @@ protocol:
       id: 25
       name: "SetSecurityPinRequest"
       direction: "client_to_device"
-      description: "Set or change the security PIN (6 digits)"
+      description: "Set or change the security PIN (4 digits on SL 1.0-4.0, 6 digits on Ultra/5th-gen/Go/Pro)"
 
     request_calibration:
       id: 26
@@ -519,10 +534,10 @@ protocol:
 
     # --- Error reporting ---
     error_report:
-      id: 7
+      id: 18
       name: "ErrorReportResponse / KeyturnerErrorReportResponse"
       direction: "device_to_client"
-      description: "Error response with code and optional message"
+      description: "Error response with code and optional message (0x0012 per official BLE API V2.3.0 — 0x0007 is Authorization-ID, not Error Report)"
 
   error_codes:
     generic:
@@ -584,19 +599,25 @@ protocol:
     255: "UNDEFINED — State unknown"
 
   lock_actions:
-    0: "UNLOCK — Unlock the door"
-    1: "LOCK — Lock the door"
-    2: "UNLATCH — Unlatch (pull back the latch)"
-    3: "LOCK_N_GO — Lock and unlatch (single cycle)"
-    4: "LOCK_N_GO_WITH_UNLATCH — Lock-n-Go with unlatch at end"
+    1: "UNLOCK — Unlock the door"
+    2: "LOCK — Lock the door"
+    3: "UNLATCH — Unlatch (pull back the latch)"
+    4: "LOCK_N_GO — Lock and unlatch (single cycle)"
+    5: "LOCK_N_GO_WITH_UNLATCH — Lock-n-Go with unlatch at end"
+    6: "FULL_LOCK — Full lock"
+    129: "FOB_ACTION_1 (0x81) — Fob action 1"
+    130: "FOB_ACTION_2 (0x82) — Fob action 2"
+    131: "FOB_ACTION_3 (0x83) — Fob action 3"
 
   door_sensor_states:
-    0: "DEACTIVATED"
-    1: "DEACTIVATED (alt)"
+    0: "UNAVAILABLE"
+    1: "DEACTIVATED"
     2: "DOOR_CLOSED"
     3: "DOOR_OPENED"
     4: "DOOR_UNKNOWN"
     5: "CALIBRATING"
+    16: "UNCALIBRATED (0x10, SL 3.0 and later)"
+    240: "TAMPERED (0xF0, SL 3.0 and later)"
 
 additional_devices:
   opener:

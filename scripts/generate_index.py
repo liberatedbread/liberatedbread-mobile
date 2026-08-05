@@ -12,6 +12,7 @@ Enumerates every VALID device spec (validated against schema.json, reusing
       "protocol":            <device.protocol>,
       "manufacturer":        <device.manufacturer>,
       "manufacturer_status": <device.manufacturer_status>,
+      "openness":            <device.openness.status, present only if set>,
       "helpful_urls":        <top-level helpful_urls, present only if set>,
       "helpful_videos":      <top-level helpful_videos, present only if set>,
       "protocol_handler":    <top-level protocol_handler, present only if set>,
@@ -75,6 +76,12 @@ def build_entry(path, doc: dict, version: str) -> dict:
     handler = doc.get("protocol_handler")
     if handler is not None:
         entry["protocol_handler"] = handler
+    # Only emitted when the spec states it. An absent key means the schema
+    # default, `undocumented` — the same convention protocol_handler uses, and
+    # it keeps the common case from carrying a field that says nothing.
+    openness = device.get("openness")
+    if openness is not None:
+        entry["openness"] = openness.get("status")
     helpful_urls = doc.get("helpful_urls")
     if helpful_urls is not None:
         entry["helpful_urls"] = helpful_urls

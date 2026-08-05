@@ -48,13 +48,27 @@ device:
       Not a prefix match — substring anywhere in advertised name.
       Auto-reconnect on device.ID match.
 
-    BATTERY SAVER: <20% triggers heat clamp to max 20 (7.4V only,
-      12V exempt). >=40% deactivates saver.
+    BATTERY SAVER: level <=20% triggers heat clamp to max 20 (7.4V only,
+      12V exempt). IL set_BatteryLevel: `ldc.i4.s 20; bgt.s end` — the
+      equality case clamps too. >=40% deactivates saver.
+
+    SHARED OEM MODULE: the Snooz white-noise machine ships the identical
+      custom service 729f0608-… with the same chars 90759319-… (write)
+      and 80c37f00-… (read/notify) — live-hardware cross-confirmation of
+      this UUID family (HA core snooz integration; pysnooz 0.8.6 writes
+      [command_id, …data] frames). Frame semantics are per-product
+      firmware (Snooz: 2-byte commands; Thermogauge: raw 1-byte level) —
+      do NOT port Snooz command tables to Gerbing hardware.
 
     CONFIDENCE: HIGH for all UUIDs and data formats — every value
     backed by ldstr→stfld IL pairs (UUIDs) or IL bytecode ops (formats).
-    Remaining unknowns: actual temp units (inferred °F), notify support
-    vs poll-only, firmware heat clamping above 100.
+    Characteristic *usage* is provable statically (heat chars written +
+    read back; temp/battery read); the advertised property bits are
+    per-product firmware — the Snooz GATT dump shows the same UUIDs with
+    different bits (90759319 write-only, 80c37f00 read+notify), so the
+    properties below list proven usage and notify needs a Thermogauge
+    GATT dump. Remaining unknowns: actual temp units (inferred °F),
+    notify support vs poll-only, firmware heat clamping above 100.
 
   identification:
     local_name_contains:
@@ -127,7 +141,7 @@ device:
 
   variants:
     - model: "coreheat7"
-      notes: "7.4V battery. Subject to battery-saver heat clamp below 20%."
+      notes: "7.4V battery. Subject to battery-saver heat clamp at 20% or below."
     - model: "coreheat12"
       identification:
         local_name_contains:
@@ -157,16 +171,21 @@ services:
     characteristics:
       - uuid: "ab06bd91-cc16-11e4-8830-0800200c9a66"
         name: "Temperature Channel 1"
-        properties: ["read", "notify"]
+        properties: ["read"]
         notes: >
           1 unsigned byte. Display: ceil((raw/2+85)/5)*5, inferred °F.
           Valid control range: 60 <= raw < 142 (~115-155°F).
+          Read usage proven statically; the app also registers
+          ValueUpdated, so notify is likely — but property bits are
+          per-product firmware (see device notes) and need a Thermogauge
+          GATT dump to confirm.
 
       - uuid: "ab06bd92-cc16-11e4-8830-0800200c9a66"
         name: "Temperature Channel 2"
-        properties: ["read", "notify"]
+        properties: ["read"]
         notes: >
           Same format as Channel 1. Only active on dual-input devices.
+          Same property-bits caveat as Channel 1.
 
   - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
     name: "Battery Service"
@@ -174,9 +193,11 @@ services:
     characteristics:
       - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
         name: "Battery Level"
-        properties: ["read", "notify"]
+        properties: ["read"]
         notes: >
           Standard SIG Battery Level. 1 unsigned byte, 0-100%.
+          Read usage proven statically; notify unconfirmed (property
+          bits are per-product firmware — see device notes).
 
   - uuid: "729f0608-496a-47fe-a124-3a62aaa3fbc0"
     name: "Heat Control Service"
@@ -187,17 +208,22 @@ services:
     characteristics:
       - uuid: "90759319-1668-44da-9ef3-492d593bd1e5"
         name: "Heat Channel 1"
-        properties: ["read", "write", "notify"]
+        properties: ["read", "write"]
         notes: >
           1 byte: (byte)heat_level where heat_level is a float 0-100.
           Write: new byte[1] { (byte)value }. Same byte format for read.
           Labels: <=25=LO, <=50=MED, <=75=HI, >75=EXTRM.
+          Write + read-back usage proven statically; notify unconfirmed —
+          on the sibling Snooz device this exact UUID is write-only
+          (property bits are per-product firmware, see device notes).
 
       - uuid: "80c37f00-cc16-11e4-8830-0800200c9a66"
         name: "Heat Channel 2"
-        properties: ["read", "write", "notify"]
+        properties: ["read", "write"]
         notes: >
           Same format as Channel 1. Only active on dual-output devices.
+          Same property-bits caveat as Channel 1 (on Snooz this UUID is
+          read+notify — per-product firmware).
 
 payload_formats:
   DeviceType:
