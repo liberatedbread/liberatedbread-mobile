@@ -22,7 +22,12 @@ final _spec = DeviceSpecDto(
   localNamePrefix: 'ACME_',
   serviceUuids: const [_svcUuid],
   companyIds: Uint16List.fromList(const [961]),
-  macPrefixes: const ['C4:7C:8D'],
+  macPrefixes: const [
+    MacPrefixDto(
+      prefix: 'C4:7C:8D',
+      confidence: MacPrefixConfidence.medium,
+    ),
+  ],
   mdnsServiceType: null,
   ssdpSearchTargets: const [],
   defaultPort: null,
@@ -86,7 +91,13 @@ void main() {
       expect(identities.single.localNamePrefix, 'ACME_');
       expect(identities.single.serviceUuids, const [_svcUuid]);
       expect(identities.single.companyIds, const [961]);
-      expect(identities.single.macPrefixes, const ['C4:7C:8D']);
+      expect(identities.single.macPrefixes, hasLength(1));
+      expect(identities.single.macPrefixes.single.prefix, 'C4:7C:8D');
+      expect(
+        identities.single.macPrefixes.single.confidence,
+        MacPrefixConfidence.medium,
+        reason: 'the prefix must not lose its verdict on the way to matching',
+      );
     });
   });
 
