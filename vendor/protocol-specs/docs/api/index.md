@@ -76,6 +76,7 @@ Each device entry:
 | `manufacturer` | string | Original manufacturer |
 | `protocol` | string | Primary protocol (`ble`, `wifi`, `zigbee`, `zwave`, `obd2`, `uart`, `can`) |
 | `status` | string | Manufacturer support status (`active`, `abandoned`, `shutdown`, `unsupported`) |
+| `openness` | string | Whether the protocol was published or recovered (`open_by_design`, `documented_api`, `undocumented`, `hostile`); defaults to `undocumented` when the spec is silent |
 | `helpful_urls` | array | Optional top-level human references from the source spec; omitted when absent |
 | `helpful_videos` | array | Optional top-level video references from the source spec; omitted when absent |
 | `updated_at` | string | UTC ISO 8601 timestamp of the spec's last git commit |

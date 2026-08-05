@@ -14,7 +14,7 @@ device:
   manufacturer_status: "active"
   protocol: "obd2"
   notes: >
-    BMW motorcycles (C-, F-, G-, K- and R-series) expose service interval reset, fault
+    BMW motorcycles (C-, F-, G-, K-, R- and S-series) expose service interval reset, fault
     codes, live data, adaptations and ECU coding over the diagnostic connector. All of it
     is dealer- or paid-tool-gated; MotoScan is the tool that covers it.
 
@@ -103,6 +103,9 @@ obd:
 
   connector:
     standard: "sae-j1962"
+    model_years: >
+      ~2017+ (EU4) bikes. Pre-2017 models use BMW's round 10-pin diagnostic
+      plug and need a 10-pin to OBD adapter cable.
     verification: "reported"
 
   transport:
@@ -178,8 +181,10 @@ obd:
       verification: "reported"
     - name: "DWA (alarm system)"
       verification: "reported"
-    - name: "ILAF (adaptive headlight)"
-      verification: "reported"
+  # NOTE: no ILAF (adaptive headlight) ECU is listed — the only ILAF string in
+  # the app is a microcontroller status text ("Resets wegen illegalem
+  # Adresszugriff (HW Bit ILAF)"), a CPU illegal-address-fetch bit misread as a
+  # module in an earlier revision of this spec.
 
   requests:
     # ---- Service interval reset: UDS WriteDataByIdentifier on the 0xE1xx family ----

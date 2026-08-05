@@ -75,7 +75,7 @@ Temperature-controlled vaporizer (PAX 3, Era, Era Pro). Uses AES-128 OFB encrypt
 
 - [Reverse Engineering Bluetooth Vapes -- Part 1](https://blraaz.me/reverse-engineering/2021/08/29/bluetooth-reverse-engineering.html)
 - [Part 2: Electric Boogaloo](https://blraaz.me/reverse-engineering/2021/10/04/pax-protocol-electric-boogaloo.html)
-- [tristanseifert/kush-kontroller.app](https://github.com/tristanseifert/kush-kontroller.app) (ISC license)
+- [tristanseifert/pax-controller-test](https://github.com/tristanseifert/pax-controller-test) (ISC license)
 
 ## Contributors
 

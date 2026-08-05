@@ -47,7 +47,7 @@ device:
           length: 4
           name: "serial_number"
           type: "uint32"
-          description: "Device serial number (big-endian)"
+          description: "Device serial number (little-endian — all three official Airthings readers decode LE, e.g. wave-reader struct '<HLH')"
         - offset: 4
           length: 2
           name: "flags"
@@ -176,7 +176,10 @@ variants:
     notes: >
       Compact temp/humidity/mold risk monitor. No radon.
       Smallest form factor. Same common GATT profile with ASR/ASRACP.
-    sensors: ["temperature", "humidity"]
+      The BLE packet on the combined data characteristic (b42e3b98, struct
+      "<2B5HLL") also carries pressure and VOC, beyond the temp/humidity the
+      marketing description suggests.
+    sensors: ["temperature", "humidity", "pressure", "voc"]
 
   - model: "Wave Mist"
     notes: >
@@ -374,15 +377,29 @@ services:
     name: "Wave Mini Air Sensor Service"
     variants: ["Wave Mini"]
     characteristics:
-      # ASR/ASRACP UUIDs for Mini not explicitly extracted but follow same pattern
-      - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
-        name: "Temperature"
+      - uuid: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+        name: "Combined Sensor Data"
         properties: ["read", "notify"]
-        notes: "Standard BLE temperature characteristic. Most Airthings devices also expose individual sensor characteristics."
+        notes: >
+          Packed multi-sensor current readings, struct "<2B5HLL": unused,
+          temperature, pressure, humidity, VOC, unused x3 — the packet carries
+          pressure and VOC in addition to temperature/humidity. Confirmed by
+          Airthings/wavemini-reader (CURR_VAL_UUID) and Airthings/airthings-ble
+          (CHAR_UUID_WAVEMINI_DATA).
 
-      - uuid: "00002a6f-0000-1000-8000-00805f9b34fb"
-        name: "Humidity"
-        properties: ["read", "notify"]
+      - uuid: "b42e3ef4-ade7-11e4-89d3-123b93f75cba"
+        name: "ASRACP (Air Sensor Read Access Control Point)"
+        properties: ["write", "indicate"]
+        notes: >
+          Access control point. Confirmed by Airthings/airthings-ble
+          (COMMAND_UUID_WAVE_MINI) and ESPHome
+          (ACCESS_CONTROL_POINT_CHARACTERISTIC_UUID).
+
+      # The Mini also exposes the standard temperature (2A6E) and humidity
+      # (2A6F) characteristics. They are declared ONCE, with their full byte
+      # layout, under the Environmental Sensing Service (0x181A) below —
+      # duplicate bare stubs used to live here and shadowed the real
+      # declarations for consumers resolving first match.
 
   # === View Plus Service ===
   # NOTE: b42e77de-… was previously nested here as a *characteristic*, but it is
@@ -484,7 +501,7 @@ services:
       - uuid: "00002a6e-0000-1000-8000-00805f9b34fb"
         name: "Temperature Characteristic"
         properties: ["read", "notify"]
-        notes: "Standard BLE temperature. Available on most models as individual characteristic."
+        notes: "Standard BLE temperature. Available on most models (including Wave Mini) as individual characteristic. Sole declaration of this UUID."
         format:
           - offset: 0
             length: 2
@@ -496,7 +513,7 @@ services:
       - uuid: "00002a6f-0000-1000-8000-00805f9b34fb"
         name: "Humidity Characteristic"
         properties: ["read", "notify"]
-        notes: "Standard BLE humidity."
+        notes: "Standard BLE humidity. Available on most models (including Wave Mini). Sole declaration of this UUID."
         format:
           - offset: 0
             length: 2
@@ -508,14 +525,19 @@ services:
       - uuid: "00002a6d-0000-1000-8000-00805f9b34fb"
         name: "Pressure Characteristic"
         properties: ["read", "notify"]
-        notes: "Standard BLE pressure. Available on Wave Plus."
+        notes: >
+          Standard BLE pressure (SIG: uint32, 0.1 Pa resolution). Available
+          on Wave Plus. The scale below yields hPa (= mbar) directly:
+          0.1 Pa = 0.001 hPa. This matches the vendor app, which decodes
+          this characteristic as uint32 LE / 1000
+          (DeviceDataTypes.pressureInSIFromCurrentCharacteristic).
         format:
           - offset: 0
             length: 4
             name: "pressure"
             type: "uint32"
-            scale: 0.1
-            unit: "Pa"
+            scale: 0.001
+            unit: "hPa"
 
       - uuid: "00002a7b-0000-1000-8000-00805f9b34fb"
         name: "Dew Point Characteristic"
@@ -672,7 +694,6 @@ entities:
     unit: "hPa"
     state_characteristic: "00002a6d-0000-1000-8000-00805f9b34fb"
     variants: ["Wave Plus"]
-    transform: "value / 100.0"
 
   - platform: "sensor"
     name: "Battery"

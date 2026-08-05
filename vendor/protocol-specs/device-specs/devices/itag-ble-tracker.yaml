@@ -15,12 +15,16 @@ device:
     PROTOCOL: three standard BLE services:
     - Immediate Alert service (0x1802): characteristic 0x2A06 for
       triggering buzzer/LED. Write 0x00=off, 0x01=mild alert, 0x02=high
-      alert (buzzer + LED).
+      alert (buzzer + LED). Some units also expose NOTIFY on 0x2A06
+      (thejeshgn nRF Connect dump).
     - Battery service (0x180F): characteristic 0x2A19 for reading battery
-      percentage.
+      percentage. Not universal — many tags do not provide this service
+      (ESPHome, Gadgetbridge).
     - Button service (0xFFE0): characteristic 0xFFE1 for button-press
       notifications. Nearly every iTag manufacturer uses this quasi-standard
       characteristic for button events.
+    Some units additionally expose the standard Link Loss service (0x1803)
+    — a candidate extra identification signal (itracing2).
 
     BUTTON NOTIFICATIONS: subscribe to 0xFFE1 notifications. Device sends
     data on each button press. The CCCD descriptor (0x2902) may not exist
@@ -29,10 +33,18 @@ device:
 
     BONDING: community reports that some models drain batteries rapidly
     if NOT bonded. Bonding is recommended but not strictly required for
-    operation.
+    operation — and it can CRASH some models: Gadgetbridge warns "some
+    models might crash when you try to do so" and uses BONDING_STYLE_ASK
+    because some iTag devices do not support bonding.
 
     DISCOVERY: advertised name patterns vary ("iTAG", "itag", "ITAG",
     etc.). Service UUIDs 0x1802, 0x180F, and 0xFFE0 are present.
+
+    HARDWARE VARIES across units: Beken BK3431 or Lenze ST17H25/ST17H26
+    (Telink TLSR8266-compatible) SoCs, with multiple PCB revisions in the
+    wild. Gadgetbridge warns that many different chipsets and software
+    versions ship under the iTag name — per-unit behaviour/stability is
+    not guaranteed.
 
     CONFIDENCE: HIGH for alert service, button service, battery service
     UUIDs and characteristics — sourced from thejeshgn.com RE blog,
@@ -58,8 +70,9 @@ device:
     required: false
     confidence: "medium"
     notes: >
-      Bonding recommended to prevent battery drain (community reports).
-      Basic alert and button functions work without bonding.
+      Bonding recommended to prevent battery drain (community reports) —
+      but bonding can crash some models (Gadgetbridge), so offer it as an
+      opt-in. Basic alert and button functions work without bonding.
     methods:
       - type: "ble_direct"
         # The services used here are SIG-standard (0x1802 Immediate Alert,
@@ -119,11 +132,19 @@ services:
     characteristics:
       - uuid: "00002a06-0000-1000-8000-00805f9b34fb"
         name: "Alert Level"
-        properties: ["write", "write_without_response"]
+        properties: ["write", "write_without_response", "notify"]
         notes: >
           Write alert level: 0x00=off, 0x01=mild alert, 0x02=high alert
           (activates buzzer + LED). Write-without-response is commonly
-          supported.
+          supported. NOTIFY is also exposed on at least some units
+          (thejeshgn nRF Connect dump).
+
+  - uuid: "00001803-0000-1000-8000-00805f9b34fb"
+    name: "Link Loss Service"
+    notes: >
+      Standard BLE Link Loss service. Present on some units only
+      (itracing2 BluetoothLEService.java) — candidate additional
+      identification signal.
 
   - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
     name: "Button Service"
@@ -141,6 +162,9 @@ services:
 
   - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
     name: "Battery Service"
+    notes: >
+      Not universal — many tags do not provide this service (ESPHome:
+      "many tags will not provide this service"; Gadgetbridge agrees).
     characteristics:
       - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
         name: "Battery Level"

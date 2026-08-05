@@ -10,11 +10,13 @@ device:
   notes: >
     36-48 V mid-drive conversion kit sharing a controller architecture and
     configuration protocol with the BBS01 and BBSHD. No radio and no official
-    app: Bafang Go / BESST targets the newer CAN-bus M-series (M500/M510/M600),
-    not this family. Everything that talks to a BBS02 does so over 1200-baud
-    UART on the display harness -- via a USB programming cable, or via an
-    aftermarket BLE bridge display (EggRider V2, app com.eggbikes.EggRider,
-    whose own BLE UUIDs are undocumented).
+    end-user app: the consumer Bafang Go app targets the newer CAN-bus M-series
+    (M500/M510/M600), not this family. The dealer tool BESST does also program
+    UART BBS/BBSHD controllers, but it is login-gated to dealers, so the
+    conclusion for owners stands. Everything that talks to a BBS02 does so over
+    1200-baud UART on the display harness -- via a USB programming cable, or
+    via an aftermarket BLE bridge display (EggRider V2, app
+    com.eggbikes.EggRider, whose own BLE UUIDs are undocumented).
 
     This is a request/response CONFIGURATION protocol, not a telemetry stream.
     Reads return parameter blocks; writes replace a whole block. Contrast the
@@ -34,13 +36,14 @@ device:
     (OpenBafangTool and two bafang-python forks), but nothing here has been read
     back from a physical unit by us.
 
-    KNOWN AMBIGUITY: sources give write length bytes 0x24 (basic) and 0x11
-    (pedal) where the corresponding read responses carry 0x18 (24) and 0x0B
-    (11). 0x24 and 0x11 are exactly 24 and 11 written as if decimal were hex,
-    which looks like a documentation slip propagated between forks -- but it
-    could be a real write-side convention. The write messages below therefore
-    omit a literal length byte rather than assert a wrong one. Capture a
-    vendor-tool write before filling it in.
+    WRITE LENGTH BYTES (former KNOWN AMBIGUITY, resolved): sources gave write
+    length bytes 0x24 (basic) and 0x11 (pedal) where the corresponding read
+    responses carry 0x18 (24) and 0x0B (11). 0x24 and 0x11 are exactly 24 and
+    11 written as if decimal were hex -- documentation slips in the
+    bafang-python README. Actively maintained code known to work on real
+    hardware (OpenBafangTool) sends the true data length, and bafang-python's
+    own protocol.py emits a real length byte too. The write messages below
+    therefore carry 0x18 (basic), 0x0B (pedal) and 0x06 (throttle).
 
   setup:
     required: false
@@ -139,7 +142,7 @@ bus:
           length: 1
           name: "voltage_setting"
           type: "uint8"
-          encoding: "0x00=24V, 0x01=36V, 0x02=48V, 0x03=60V"
+          encoding: "0x00=24V, 0x01=36V, 0x02=48V, 0x03=60V, 0x04=24-48V, 0x05+=24-60V"
           verification: "reported"
         - offset: 15
           length: 1
@@ -209,7 +212,14 @@ bus:
           length: 1
           name: "speedmeter_model"
           type: "bitfield"
-          encoding: "bits 1-2: 00 external, 01 internal, 10 motor phase"
+          encoding: "bits 7-6 (top two bits): 00 external, 01 internal, 10 motor phase"
+          notes: >
+            Bit position is the TOP two bits of byte 23 per both working
+            implementations (OpenBafangTool: (data[23] & 0b11000000) >> 6;
+            bafang-python protocol.py: MSB-first 2-bit field). The enum values
+            were never in doubt; an earlier "bits 1-2" phrasing came from
+            bafang-python's README and is only correct under MSB-first bit
+            numbering.
           verification: "reported"
 
     - name: "read_pedal_assist_parameters"
@@ -355,13 +365,34 @@ bus:
       writes: false
       verification: "reported"
 
+    - name: "read_power_spec_code"
+      description: "Power specification code string, e.g. 'MAX_DS48V250W' (OpenBafangTool docs)."
+      direction: "to_device"
+      request: "14 12"
+      writes: false
+      verification: "reported"
+
+    - name: "read_system_code"
+      description: "System code string, e.g. 'MAX01_V2.2_DSW' (OpenBafangTool docs)."
+      direction: "to_device"
+      request: "14 13"
+      writes: false
+      verification: "reported"
+
+    - name: "read_model_date"
+      description: "Model/date string, e.g. '20160808' — an upstream documentation example, not a captured real unit value."
+      direction: "to_device"
+      request: "14 16"
+      writes: false
+      verification: "reported"
+
     - name: "write_basic_parameters"
       description: >
         Write the 24-byte basic block. Payload layout is identical to
-        read_basic_parameters. The length byte is deliberately not asserted
-        here -- see the KNOWN AMBIGUITY note in device.notes.
+        read_basic_parameters. Length byte 0x18 = 24, the true data length --
+        see the WRITE LENGTH BYTES note in device.notes.
       direction: "to_device"
-      request: "16 52"
+      request: "16 52 18"
       writes: true
       advanced: true
       advanced_reason: >
@@ -376,9 +407,10 @@ bus:
     - name: "write_pedal_assist_parameters"
       description: >
         Write the 11-byte pedal assist block. Payload layout is identical to
-        read_pedal_assist_parameters.
+        read_pedal_assist_parameters. Length byte 0x0B = 11, the true data
+        length.
       direction: "to_device"
-      request: "16 53"
+      request: "16 53 0B"
       writes: true
       advanced: true
       advanced_reason: >
@@ -391,9 +423,9 @@ bus:
     - name: "write_throttle_parameters"
       description: >
         Write the 6-byte throttle block. Payload layout is identical to
-        read_throttle_parameters.
+        read_throttle_parameters. Length byte 0x06 = 6, the true data length.
       direction: "to_device"
-      request: "16 54"
+      request: "16 54 06"
       writes: true
       advanced: true
       advanced_reason: >

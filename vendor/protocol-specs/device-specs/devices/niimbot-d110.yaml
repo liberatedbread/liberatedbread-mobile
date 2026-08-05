@@ -4,7 +4,7 @@
 
 device:
   name: "NIIMBOT D110 / B21 Thermal Label Printer"
-  manufacturer: "NIIMBOT (Wuhan Jincheng Intelligent Technology Co., Ltd.)"
+  manufacturer: "NIIMBOT (Wuhan Jingchen Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)"
   manufacturer_status: "unsupported"
   protocol: "ble"
   notes: >
@@ -36,28 +36,47 @@ device:
     - 0x85 PrintBitmapRow (send row with black/white pixel data)
     - 0x83 PrintBitmapRowIndexed (row with < 7 black pixels, uses pixel
       indexes)
-    - 0xDC Heartbeat / 0xDD-0xDF responses
+    - 0xDC Heartbeat / 0xDD, 0xDE, 0xDF and 0xD9 responses (0xD9 =
+      Advanced2, the normal response on protocol-v3+ printers)
     - 0x40 GetDeviceInfo — multiple response IDs for different info
       (serial, hardware, firmware, etc.)
     - 0x28 PrinterReset / 0x38 response
     - 0xF5 StartFirmwareUpgrade (uses CRC32 variant of packet format)
 
-    D110 SPECIFIC: uses 1-byte PrintStart variant. SetPageSize typically
-    2 bytes (row count only, column count fixed to printhead width 384px).
-    Printhead 384px wide (48 bytes/row for 1-bit data).
+    D110 SPECIFIC: uses 1-byte PrintStart variant. SetPageSize uses the
+    4-byte [rows(u16), cols(u16)] BIG-endian variant (the 2-byte
+    row-count-only variant is the old D11, not the D110). Printhead is
+    96px wide (12mm @203dpi, 12 bytes/row for 1-bit data) — NOT 384px;
+    384px/48mm is the B21 printhead.
 
     BITMAP ROW ENCODING: PrintBitmapRow (0x85) sends row data with a
     black-pixel-count segment. For rows with fewer than 7 black pixels,
-    PrintBitmapRowIndexed (0x83) sends pixel x-coordinates as uint16 LE
-    values instead of a full bitmap.
+    PrintBitmapRowIndexed (0x83) sends pixel x-coordinates as uint16
+    BIG-endian values (Utils.u16ToBytes; wiki example x=320 = 01 40)
+    instead of a full bitmap.
 
     HEARTBEAT: send 0xDC with data [0x01] or [0x04] (protocol version
     dependent). Response includes lid closed status, charge level, paper
     inserted, RFID status, and (on newer models) ribbon state.
 
-    DISCOVERY: advertised names include "D110", "B21", "NIIMBOT". Service
+    DISCOVERY: advertised names are model-prefixed ("D110-*", "B21-*",
+    "D11-*"); every known implementation matches model names, and none
+    matches a "NIIMBOT" prefix — do not scan for "NIIMBOT". Service
     UUID is manufacturer-specific; the niimbluelib handles service/char
     discovery dynamically.
+
+    FIRMWARE / ECOSYSTEM (verified 2026-07-31): the community archive
+    fw.niim.blue hosts original, unmodified official firmware (D110 up to
+    v13.15, B21 up to v1.31); D110 images are raw (base 0x01010000) and
+    newer files carry a 0x18-signature header with length + CRC32 fields.
+    D110 MCU is a YiCHiP YC3121-d (D110_M: YC3122-L, refuses downgrades).
+    The vendor cloud API is live without auth:
+    POST print.niimbot.com/api/firmware/machineCascadeDetail returns
+    per-model characteristics. Newer "v4" models (D110_M, B21_PRO, D11_H)
+    use a different print task — 9-byte PrintStart, 13-byte SetPageSize,
+    no PageStart — so the uniform-protocol assumption is aging. Consumable
+    lock-in: paper/ribbon RFID tags (RfidInfo 0x1A/0x1C, WriteRFID 0x70,
+    AntiFake 0x0B) plus a region lock are documented on the wiki.
 
     CONFIDENCE: HIGH for packet format, checksum algorithm, command IDs,
     PrintStart/SetPageSize variants, bitmap row encoding, and heartbeat
@@ -66,7 +85,7 @@ device:
     D11, and other NIIMBOT models.
 
   identification:
-    local_name_prefix: "NIIMBOT"
+    local_name_prefix: "D110"
 
   discovery:
     methods:
@@ -74,7 +93,7 @@ device:
         ble:
           local_name:
             match: "prefix"
-            value: "NIIMBOT"
+            value: "D110"
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -93,7 +112,7 @@ device:
         # this field claims. False, matching the block's medium confidence.
         verified: false
         description: >
-          Scan for NIIMBOT advertisement, connect, send connect handshake,
+          Scan for model-prefixed advertisement, connect, send connect handshake,
           then start print sequence.
         ble:
           pairing_required: false
@@ -103,14 +122,14 @@ device:
             request:
               protocol: "ble_gatt"
           - action: >
-              Scan for "NIIMBOT"/"D110"/"B21" name and connect.
+              Scan for a model-prefixed name ("D110-*", "B21-*") and connect.
             actor: "client"
           - action: >
               Send Connect packet (0xC1) and receive response (0xC2).
             actor: "client"
           - action: >
-              Begin print sequence: PrintStart → SetPageSize → SetDensity →
-              PageStart → print rows → PageEnd → PrintEnd.
+              Begin print sequence: SetDensity → SetLabelType → PrintStart →
+              PageStart → SetPageSize → print rows → PageEnd → PrintEnd.
             actor: "client"
     factory_reset:
       confidence: "medium"
@@ -137,72 +156,73 @@ device:
       identification:
         local_name_prefix: "D110"
       notes: >
-        384px printhead. 1-byte PrintStart. 2-byte SetPageSize (row count
-        only).
+        96px printhead (12mm @203dpi, 12 bytes/row). 1-byte PrintStart.
+        4-byte SetPageSize [rows(u16), cols(u16)] big-endian.
     - model: "B21"
       identification:
         local_name_prefix: "B21"
       notes: >
-        Larger print width. May use extended PrintStart/SetPageSize variants.
+        Larger print width (384px/48mm printhead). May use extended
+        PrintStart/SetPageSize variants.
     - model: "D11"
       identification:
         local_name_prefix: "D11"
-      notes: "Similar to D110. 1-byte PrintStart."
+      notes: "Similar to D110. 1-byte PrintStart; old D11 uses the 2-byte SetPageSize."
 
   features:
     - type: "image_upload"
-      max_width: 384
+      max_width: 96
       max_height: 65535
       format: "1bit-bitmap"
 
 services:
-  - uuid: "00000000-0000-0000-0000-000000000000"
+  - uuid: "e7810a71-73ae-499d-8c15-faa9aef0c3f2"
     name: "NIIMBOT Print Service"
     notes: >
-      The service UUID varies by model. The niimbluelib discovers the
-      service and characteristics dynamically. The packet-based binary
-      protocol is consistent across all NIIMBOT models.
+      Most models expose service e7810a71-73ae-499d-8c15-faa9aef0c3f2 with a
+      single characteristic carrying both directions (niimbluelib still
+      discovers service/char dynamically). The packet-based binary protocol is
+      consistent across all pre-v4 NIIMBOT models, and the same protocol also
+      runs over Bluetooth Classic SPP/RFCOMM channel 1 and USB serial
+      (115200 baud); the printer exposes two BT addresses (BLE + classic).
 
       PACKET FORMAT: `[0x03?] 0x55 0x55 <cmd> <len> <data...> <xor_checksum> 0xAA 0xAA`
       The 0x03 prefix is used only on the Connect packet (0xC1).
       Checksum = XOR of cmd through last data byte.
 
-      PRINT SEQUENCE:
+      PRINT SEQUENCE (D110 task, per niimbluelib / wiki print-tasks):
       1. Connect (0xC1) — handshake
-      2. PrintStart (0x01) — announce total pages
-      3. SetPageSize (0x13) — row count, column count, copies
-      4. SetDensity (0x21) — print density level
-      5. SetLabelType (0x23) — label/gap/continuous
-      6. PageStart (0x03) — begin page
+      2. SetDensity (0x21) — print density level
+      3. SetLabelType (0x23) — label/gap/continuous
+      4. PrintStart (0x01) — announce total pages
+      5. PageStart (0x03) — begin page
+      6. SetPageSize (0x13) — [rows(u16), cols(u16)] big-endian
       7. PrintBitmapRow (0x85) / PrintBitmapRowIndexed (0x83) / PrintEmptyRow (0x84)
       8. PageEnd (0xE3) — end page
-      9. Repeat 6-8 for multiple copies
+      9. Repeat 5-8 for multiple copies
       10. PrintEnd (0xF3) — finish job
 
       D110 MODEL: PrintStart uses 1-byte variant `55 55 01 01 01 <cs> aa aa`.
-      SetPageSize uses 2-byte variant `55 55 13 02 <row_lo> <row_hi> <cs> aa aa`.
-      Column count is implicit (384px for D110).
+      SetPageSize uses the 4-byte big-endian variant
+      `55 55 13 04 <row_hi> <row_lo> <col_hi> <col_lo> <cs> aa aa`
+      (the 2-byte row-count-only variant is the old D11). D110 printhead is
+      96px (12mm @203dpi) — 384px is the B21.
     characteristics:
-      - uuid: "00000000-0000-0000-0000-000000000001"
-        name: "Write"
-        properties: ["write", "write_without_response"]
-        notes: "Write channel for command packets and bitmap row data. Placeholder UUID — model-specific, discovered dynamically."
-
-      - uuid: "00000000-0000-0000-0000-000000000002"
-        name: "Notify"
-        properties: ["notify"]
-        notes: "Notification channel for responses and heartbeat data. Placeholder UUID — model-specific, discovered dynamically."
+      - uuid: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+        name: "Print Data"
+        properties: ["notify", "write_without_response"]
+        notes: "Single characteristic for command writes AND responses/heartbeat notifications on most models (niimbluelib selects the char requiring NOTIFY + WRITE_NO_RESPONSE)."
 
 entities:
   - platform: "cover"
     name: "Print Feed"
-    state_characteristic: "00000000-0000-0000-0000-000000000002"
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
   - platform: "sensor"
     name: "Battery Level"
-    state_characteristic: "00000000-0000-0000-0000-000000000002"
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
   - platform: "binary_sensor"
     name: "Lid"
-    state_characteristic: "00000000-0000-0000-0000-000000000002"
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
   - platform: "binary_sensor"
     name: "Paper"
-    state_characteristic: "00000000-0000-0000-0000-000000000002"
+    state_characteristic: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"

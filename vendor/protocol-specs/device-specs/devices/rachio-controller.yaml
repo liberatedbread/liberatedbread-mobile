@@ -14,6 +14,14 @@ device:
     IP changes and should be used for identity. Port 80 is open on the device,
     but this spec currently documents local discovery rather than a complete
     unauthenticated control protocol.
+    Silicon lineage: Gen 1 = Electric Imp platform (BlinkUp optical
+    provisioning; cloud end-of-life 2024), Gen 2 = AzureWave CU288 / Marvell
+    (FCC ID TLZ-CU288), Gen 3 = Rachio's own FCC ID 2AOTB-ZULWC, dual-band
+    Wi-Fi plus a 900 MHz radio for the Wireless Flow Meter. Native HomeKit
+    exists only on Rachio 3. In-the-wild firmware build:
+    iro3-firmware-hk-5-632 ("hk" = HomeKit). Rachio's 2025 Smart Lighting
+    Controller uses Matter/Thread — the vendor is migrating new products away
+    from HomeKit.
   identification:
     mdns_service_type: "_hap._tcp.local."
     default_port: 80
@@ -42,43 +50,66 @@ device:
     required: true
     confidence: "low"
     notes: >
-      Onboarding has not been captured in this project. What is confirmed from
-      the LAN probe is the post-setup state: the controller advertises a
-      HomeKit HAP service, which implies a HAP setup code on the device label
-      and a HAP pairing flow that would let a local client control it without
-      the Rachio cloud. That path is unimplemented here.
+      Gen 2 onboarding is documented from the decompiled vendor app
+      (com.rachio.iro v2.8, UCLA ECE209AS): SoftAP provisioning with a
+      Curve25519 secure session (see below). What is confirmed from the LAN
+      probe is the post-setup state: the controller advertises a HomeKit HAP
+      service, and HAP pairing gives cloud-free local control. The HomeKit
+      setup code is NOT printed on the device — it is generated and displayed
+      in the Rachio app (Controller Settings → HomeKit; reportedly iOS-only),
+      so HAP pairing depends on the vendor app at least once.
     methods:
       - type: "softap_http"
         verified: false
         description: >
-          The controller is reported to host its own access point during
-          onboarding, with the vendor app transferring home network
-          credentials. Neither the SSID pattern nor the credential exchange has
-          been verified here.
+          Gen 2 flow (decompiled com.rachio.iro v2.8): the phone joins the
+          unit's setup AP (SSID prefix "Rachio"; device AP at 192.168.10.1),
+          then GET /rachio/iroinfo (device info incl. salt), POST
+          /prov/secure-session (Curve25519 ECDH; session key derived from the
+          shared secret + device salt + serial number — the serial acts as
+          PIN), GET /prov/net-info?session_id=N (scan results, AES-CTR
+          encrypted), POST /prov/network?session_id=N (home SSID/passphrase,
+          AES-CTR encrypted) and POST /sys/time (epoch sync). The Gen 3
+          credential exchange is still uncaptured anywhere public.
         steps:
-          - action: "Capture the vendor app's onboarding exchange against the controller's setup AP."
+          - action: 'Join the controller''s setup AP (SSID prefix "Rachio"); the device is at 192.168.10.1.'
             actor: "client"
-            notes: "Open gap."
+          - action: "GET /rachio/iroinfo for device info and salt."
+            actor: "client"
+          - action: "POST /prov/secure-session to establish the Curve25519 ECDH session (serial number as PIN)."
+            actor: "client"
+          - action: "GET /prov/net-info?session_id=N for scan results (AES-CTR, session-scoped)."
+            actor: "client"
+          - action: "POST /prov/network?session_id=N with the home Wi-Fi credentials (AES-CTR encrypted)."
+            actor: "client"
+          - action: "POST /sys/time to sync the epoch."
+            actor: "client"
+            notes: "Gen 2 verified from the decompiled app; the Gen 3 exchange is not captured anywhere public."
       - type: "button_pairing"
         verified: false
         description: >
-          HomeKit pairing using the 8-digit setup code printed on the device,
-          which would provide cloud-free local control if implemented.
+          HomeKit pairing using the 8-digit setup code generated and displayed
+          in the Rachio app (Controller Settings → HomeKit; reportedly
+          iOS-only), which provides cloud-free local control once paired.
         steps:
-          - action: "Perform a HAP pair-setup against the advertised _hap._tcp service using the printed setup code."
+          - action: "Perform a HAP pair-setup against the advertised _hap._tcp service using the app-displayed setup code."
             actor: "client"
             notes: "Not implemented in this project; the most promising route to local control."
     factory_reset:
-      confidence: "low"
-      effect: "Expected to clear WiFi credentials, HomeKit pairings and schedules. Not verified here."
+      confidence: "medium"
+      effect: "Clears WiFi credentials, HomeKit pairings and schedules (vendor-documented procedure)."
       procedures:
-        - name: "Front button held"
+        - name: "Stop Button held (Rachio 3)"
           hold_seconds: 10
-          indicator: "LED ring changes pattern."
+          indicator: "Light bar fills yellow left-to-right during the hold, then flashes blue all across."
           steps:
-            - action: "Press and hold the button on the front of the controller until the LED ring changes."
+            - action: "Press and hold the Stop Button (top of the circular button pad) until the light bar flashes blue all across."
               actor: "user"
-              notes: "Vendor-documented hold times vary by generation; verify against the unit."
+        - name: "Unplug + hold Up-Arrow and Select (Gen 1 / Gen 2)"
+          steps:
+            - action: "Unplug the controller, hold Up-Arrow + Select, and re-power while holding."
+              actor: "user"
+              notes: "Vendor-documented procedure for Gen 1/Gen 2 units."
     rejoin:
       in_place_supported: false
       requires_factory_reset: true

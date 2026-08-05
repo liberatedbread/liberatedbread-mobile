@@ -20,7 +20,8 @@ device:              # identity, discovery, and one-time setup
   name: ...
   manufacturer: ...
   manufacturer_status: ...   # abandoned | shutdown | unsupported | active
-  protocol: ...              # ble | wifi | zigbee | zwave
+  openness: ...              # was this protocol published, or did we recover it?
+  protocol: ...              # ble | wifi | zigbee | zwave | obd2 | uart | can
   identification: ...        # how to recognise it while scanning
   discovery: ...             # how to FIND one that is already on the network
   setup: ...                 # how to GET one onto the network
@@ -35,7 +36,12 @@ helpful_videos: ...  # optional human video references: teardown/setup/capture w
 ```
 
 A spec must have `device` plus at least one transport block such as `services`,
-`http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`. Everything else is optional, and the schema is deliberately
+`http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`. The one exception is a
+**reference spec** — a `device.type` beginning `reference-` (SAE J1979 PIDs, ISO
+14229 UDS services, ISO 15765-2 framing) documents a published standard that
+other specs cite instead of restating, so it carries protocol tables rather than
+an access surface of its own and is exempt from the transport requirement.
+Everything else is optional, and the schema is deliberately
 permissive — unknown keys are allowed so device-specific detail can travel
 alongside the standard fields. Consumers parse the subset they understand.
 
@@ -79,6 +85,49 @@ A BLE device with an encrypted command channel has an `initialization` block
 and a `setup` block saying `required: false`. Those are not in tension: there
 is nothing to provision, but every connection still needs a handshake.
 
+### `openness` — did we have to recover this?
+
+`manufacturer_status` says what the vendor is doing. `openness` says something
+different and easy to conflate with it: whether the protocol was ever
+published. A vendor can be very much in business and completely open, and a
+vendor can be long gone having never documented a byte.
+
+| Status | Means | Read this spec as |
+|---|---|---|
+| `open_by_design` | Published by the people who build it; third-party clients are the point | A summary of upstream — go read upstream |
+| `documented_api` | Official interface exists, product otherwise closed | Part citation, part reconstruction |
+| `undocumented` | Nothing published; worked out by observation | Our best reconstruction, and it can be wrong |
+| `hostile` | Vendor actively fights third-party clients | Documented anyway; expect deliberate breakage |
+
+Omitting the block means `undocumented`, which is the default because it is
+what nearly every spec here is. State it explicitly when it is anything else.
+
+```yaml
+openness:
+  status: "open_by_design"
+  reverse_engineered: false
+  source_code: "https://github.com/wled/WLED"
+  license: "EUPL-1.2"
+  upstream_docs:
+    - url: "https://kno.wled.ge/interfaces/json-api/"
+      covers: "Endpoint paths and the state/info objects."
+```
+
+`reverse_engineered` is tracked separately from `status` because the two come
+apart in practice: a vendor with a documented API usually leaves the
+interesting half undocumented, so a `documented_api` spec is commonly both
+cited and reconstructed. On an `open_by_design` spec it should be `false` —
+that is the whole point of the field. It marks the spec as interoperability
+work rather than liberation, and it keeps the registry from taking credit for
+prising open a door that was never locked.
+
+`license` is worth stating separately from the rest. An open protocol lets you
+talk to the device; an open licence on its firmware lets you replace what is
+running on it. The second is the larger freedom, and it is the one that means
+a device can outlive anybody's interest in supporting it.
+
+[`wled-controller`](../devices/wled-controller.md) is the worked example.
+
 ## The `setup` block
 
 ```yaml
@@ -101,12 +150,16 @@ Two separate claims, and reading them wrong wastes time:
 | Field | Question | Values |
 |---|---|---|
 | `setup.confidence` | How well is this flow understood? | `high` — replayed against hardware, or there is a working open implementation. `medium` — from public source or vendor docs. `low` — inferred; go and capture it. |
-| `methods[].verified` | Has *this project* run this exact flow against hardware? | Currently `false` everywhere. |
+| `methods[].verified` | Has *this project* run this exact flow against hardware? | `false` on nearly every spec; set `true` only when the flow was actually replayed on the device. |
 
 `verified: false` is not a warning label — it is the honest default, and it
 tells you what to go and confirm. A `low`-confidence block naming its gaps is
 far more useful than an absent one; "the onboarding exchange has not been
-captured" is information, silence is not.
+captured" is information, silence is not. Reserve `verified: true` for a flow
+run against real hardware here: a fact recovered from an APK or a community
+repository is `false` no matter how sure the source seems, the same way
+`verification: reported` — not `confirmed` — is the label for a byte sequence
+that was read out of someone else's code rather than off the wire.
 
 ### Methods
 
