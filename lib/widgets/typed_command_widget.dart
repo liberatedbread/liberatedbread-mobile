@@ -298,7 +298,7 @@ class _CommandControlState extends ConsumerState<_CommandControl> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: DropdownButtonFormField<int>(
-        value: selected,
+        initialValue: selected,
         isExpanded: true,
         decoration: InputDecoration(
           labelText: humanizeName(p.name),
