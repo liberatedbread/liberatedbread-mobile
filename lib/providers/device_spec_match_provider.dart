@@ -343,7 +343,7 @@ final matchedDeviceSpecProvider =
 bool _sameSpecIdentity(DeviceSpecDto a, DeviceSpecDto b) =>
     a.deviceName == b.deviceName &&
     a.manufacturer == b.manufacturer &&
-    a.localNamePrefix == b.localNamePrefix &&
+    listEquals(a.localNamePrefixes, b.localNamePrefixes) &&
     listEquals(a.serviceUuids, b.serviceUuids);
 
 /// Find the [ServiceDto] in [spec] for a discovered service UUID, or null.

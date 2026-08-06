@@ -8,21 +8,31 @@
 import '../core/error_text.dart';
 import '../models/network_device.dart';
 
-/// Raised on the [NetworkScanService.scan] stream when the OS refused local
-/// network access.
+/// Raised on the [NetworkScanService.scan] stream when an Apple platform's
+/// scan heard nothing at all.
 ///
-/// iOS 14+ gates multicast and local-network traffic behind a permission that
-/// the system prompts for on first use; a denial there is silent — sockets
-/// simply receive nothing — so this is raised when a scan finds literally
-/// nothing on a platform where that gate exists. It is a distinct type so the
-/// UI can point at the right settings page rather than showing an empty state
-/// that looks like "you have no devices".
+/// iOS 14+ gates multicast and local-network traffic behind a permission the
+/// system prompts for on first use, and a denial is invisible from inside the
+/// app: the sockets bind, the queries go out, and the replies are filtered
+/// away. So the observable fact is silence — not one mDNS record, not one SSDP
+/// datagram — which on a real Wi-Fi network is close to impossible unless
+/// something is dropping it.
+///
+/// Close to, not entirely: a genuinely empty network produces the same silence,
+/// which is why the message leads with what was observed and offers the likely
+/// cause rather than asserting a denial. The alternative — staying quiet — puts
+/// a user whose permission really is off in front of an empty list with nothing
+/// to act on, and that is the worse of the two failures.
+///
+/// A separate type from [NetworkUnavailableException] so the UI can offer the
+/// settings path only where that gate exists.
 class LocalNetworkDeniedException implements UserFacingException {
   @override
   final String message;
   const LocalNetworkDeniedException(
-      [this.message = 'Local network access is needed to find Wi-Fi devices. '
-          'Allow it for Liberated Bread in Settings, then scan again.']);
+      [this.message = 'Nothing answered on this network. If Local Network '
+          'access is off for Liberated Bread, the replies are blocked before '
+          'they reach it — check Settings, then scan again.']);
 
   @override
   String toString() => message;

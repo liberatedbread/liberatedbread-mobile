@@ -33,7 +33,7 @@ void main() {
     }
     final spec = await codec.loadDeviceSpec(yaml);
     expect(spec.deviceName, 'Example Smart Bulb');
-    expect(spec.localNamePrefix, 'ACME_');
+    expect(spec.localNamePrefixes, const ['ACME_']);
 
     final control =
         spec.services.firstWhere((s) => s.name == 'Control Service');

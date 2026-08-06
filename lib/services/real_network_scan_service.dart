@@ -7,6 +7,7 @@ import 'package:multicast_dns/multicast_dns.dart';
 
 import '../core/log.dart';
 import '../models/network_device.dart';
+import 'multicast_lock.dart';
 import 'network_scan_service.dart';
 
 /// The DNS-SD meta-query that enumerates every service type on the link.
@@ -83,6 +84,52 @@ String instanceNameOf(String instance) {
   return name.endsWith('.') ? name.substring(0, name.length - 1) : name;
 }
 
+/// What one discovery transport managed to do in a scan window.
+///
+/// Three states rather than a bool because "the socket opened" and "anything
+/// came back" are different facts, and only the second one tells a quiet
+/// network apart from a blocked one.
+enum TransportOutcome {
+  /// Never got off the ground: the client or socket failed to start.
+  failed,
+
+  /// Started, and nothing at all arrived — not a device, not a stray packet.
+  silent,
+
+  /// Started and heard something, whether or not it became a device. A reply
+  /// we could not parse still proves traffic reaches us.
+  heard,
+}
+
+/// Decide what a finished scan means, or null when it means nothing is wrong.
+///
+/// Pure, so the rule can be tested without sockets, a network, or a platform.
+///
+/// The distinction that matters is between a network with nothing on it and a
+/// network whose replies are dropped before they reach us. On iOS and macOS a
+/// denied local-network permission is invisible from in here: the sockets bind,
+/// the queries go out, and the answers are filtered silently. So silence on
+/// those platforms earns a message that names that possibility and points at
+/// Settings. Silence anywhere else is just an empty network and gets the
+/// ordinary empty state — Android's multicast filtering is handled by holding a
+/// multicast lock, not by guessing after the fact.
+///
+/// Deliberately not keyed off how many devices were found: a network can carry
+/// plenty of mDNS traffic and no device we have a spec for, and calling that a
+/// permission problem would be a confident lie in the other direction.
+Object? scanFailureFor({
+  required List<TransportOutcome> outcomes,
+  required bool isApplePlatform,
+}) {
+  if (outcomes.every((o) => o == TransportOutcome.failed)) {
+    // Neither transport started: a real, platform-independent failure — no
+    // interface, no multicast route, no network.
+    return const NetworkUnavailableException();
+  }
+  if (outcomes.any((o) => o == TransportOutcome.heard)) return null;
+  return isApplePlatform ? const LocalNetworkDeniedException() : null;
+}
+
 /// Coalesces sightings so a device answering on several service types, or on
 /// both mDNS and SSDP, is one row rather than four.
 ///
@@ -109,9 +156,22 @@ class NetworkScanCoalescer {
 /// announces itself over mDNS and nothing else; Wemo and older Hue bridges are
 /// SSDP-only. Running one would silently miss half the catalogue.
 class RealNetworkScanService implements NetworkScanService {
+  /// Held for the duration of a scan so Android's Wi-Fi driver stops filtering
+  /// the multicast replies both transports depend on. Injectable so a test can
+  /// assert the scan takes it and gives it back.
+  final MulticastLock multicastLock;
+
+  RealNetworkScanService({MulticastLock? multicastLock})
+      : multicastLock = multicastLock ?? MulticastLock();
+
   MDnsClient? _mdns;
   RawDatagramSocket? _ssdpSocket;
   bool _stopped = false;
+
+  /// Set when a per-service-type resolution hears anything. Those run detached
+  /// from [_runMdns]'s own loop, so their traffic would otherwise not count
+  /// toward "did multicast reach us at all".
+  bool _mdnsHeardDuringResolve = false;
 
   @override
   Stream<NetworkDevice> scan({
@@ -120,6 +180,7 @@ class RealNetworkScanService implements NetworkScanService {
     final controller = StreamController<NetworkDevice>();
     final coalescer = NetworkScanCoalescer();
     _stopped = false;
+    _mdnsHeardDuringResolve = false;
 
     Future<void> closeIfOpen() async {
       if (!controller.isClosed) await controller.close();
@@ -133,31 +194,29 @@ class RealNetworkScanService implements NetworkScanService {
 
     () async {
       try {
+        // Before either transport starts, and released in the finally below:
+        // without it Android delivers neither mDNS nor SSDP replies, so taking
+        // it after the queries go out would be too late for the answers.
+        await multicastLock.acquire();
         // Both halves run concurrently and are allowed to fail independently:
         // a platform that blocks one (iOS multicast entitlements, a network
         // with IGMP snooping) should still return what the other found.
-        final results = await Future.wait([
+        final outcomes = await Future.wait([
           _runMdns(emit, timeout).catchError((Object e) {
             Log.ble.warning('mDNS discovery failed', error: e);
-            return false;
+            return TransportOutcome.failed;
           }),
           _runSsdp(emit, timeout).catchError((Object e) {
             Log.ble.warning('SSDP discovery failed', error: e);
-            return false;
+            return TransportOutcome.failed;
           }),
         ]);
 
-        if (!results.contains(true) && coalescer.deviceCount == 0) {
-          // Neither transport got off the ground. On iOS that is what a denied
-          // local-network permission looks like from in here — the sockets
-          // just never receive anything — so say the thing that gives the user
-          // somewhere to go.
-          controller.addError(
-            Platform.isIOS || Platform.isMacOS
-                ? const LocalNetworkDeniedException()
-                : const NetworkUnavailableException(),
-          );
-        }
+        final failure = scanFailureFor(
+          outcomes: outcomes,
+          isApplePlatform: Platform.isIOS || Platform.isMacOS,
+        );
+        if (failure != null) controller.addError(failure);
         Log.ble.info('network scan finished: '
             '${coalescer.deviceCount} device(s)');
       } catch (e, st) {
@@ -175,20 +234,26 @@ class RealNetworkScanService implements NetworkScanService {
     return controller.stream;
   }
 
-  /// Enumerate service types, then resolve each instance. Returns whether the
-  /// client started at all.
-  Future<bool> _runMdns(
+  /// Enumerate service types, then resolve each instance.
+  ///
+  /// Reports [TransportOutcome.heard] as soon as one record arrives, from
+  /// either the enumeration or any resolution — the question the caller is
+  /// asking is whether multicast reaches this app at all, and one record
+  /// answers it. Records that resolve to nothing usable still count.
+  Future<TransportOutcome> _runMdns(
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
     final client = MDnsClient();
     await client.start();
     _mdns = client;
+    var heard = false;
     try {
       await for (final PtrResourceRecord type in client
           .lookup<PtrResourceRecord>(
               ResourceRecordQuery.serverPointer(_serviceEnumerationQuery))
           .timeout(timeout, onTimeout: (sink) => sink.close())) {
+        heard = true;
         if (_stopped) break;
         // Fire the per-type resolution off rather than awaiting it: a slow or
         // unanswered service type must not hold up every other one.
@@ -199,7 +264,9 @@ class RealNetworkScanService implements NetworkScanService {
       }
       // Give the fired-off resolutions their share of the window.
       await Future<void>.delayed(timeout ~/ 2);
-      return true;
+      return heard || _mdnsHeardDuringResolve
+          ? TransportOutcome.heard
+          : TransportOutcome.silent;
     } finally {
       client.stop();
       _mdns = null;
@@ -216,6 +283,7 @@ class RealNetworkScanService implements NetworkScanService {
         .lookup<PtrResourceRecord>(
             ResourceRecordQuery.serverPointer(serviceType))
         .timeout(timeout, onTimeout: (sink) => sink.close())) {
+      _mdnsHeardDuringResolve = true;
       if (_stopped) return;
       final txt = <String, String>{};
       await for (final TxtResourceRecord record in client
@@ -249,9 +317,12 @@ class RealNetworkScanService implements NetworkScanService {
     }
   }
 
-  /// Multicast an M-SEARCH and collect the unicast replies. Returns whether the
-  /// socket bound at all.
-  Future<bool> _runSsdp(
+  /// Multicast an M-SEARCH and collect the unicast replies.
+  ///
+  /// Any datagram counts as [TransportOutcome.heard], including one whose
+  /// headers we cannot use: the caller is asking whether replies reach this app
+  /// at all, and an unparseable reply still answers that yes.
+  Future<TransportOutcome> _runSsdp(
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
@@ -259,6 +330,7 @@ class RealNetworkScanService implements NetworkScanService {
         reuseAddress: true);
     _ssdpSocket = socket;
     socket.broadcastEnabled = true;
+    var heard = false;
     try {
       // MX is the maximum random delay a device waits before replying; it
       // spreads responses out to avoid a storm, so the listen window has to be
@@ -287,6 +359,7 @@ class RealNetworkScanService implements NetworkScanService {
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
         if (datagram == null) continue;
+        heard = true;
         final headers = parseSsdpHeaders(String.fromCharCodes(datagram.data));
         final location = parseSsdpLocation(headers['location']);
         // Prefer the LOCATION host: a device behind a proxy or on a second
@@ -303,7 +376,7 @@ class RealNetworkScanService implements NetworkScanService {
           discoveredAt: DateTime.now(),
         ));
       }
-      return true;
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
       socket.close();
       _ssdpSocket = null;
@@ -316,6 +389,10 @@ class RealNetworkScanService implements NetworkScanService {
     _mdns = null;
     _ssdpSocket?.close();
     _ssdpSocket = null;
+    // Every path out of a scan runs this — normal finish, cancel, error, and
+    // stopScan() — which is what keeps the lock from outliving the scan that
+    // took it. Holding it costs battery for the whole device, not just this app.
+    await multicastLock.release();
   }
 
   @override
