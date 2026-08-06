@@ -167,12 +167,14 @@ jobs:
       #     conflict that drops a permission produces an APK that installs fine
       #     and fails every BLE scan at runtime.
       #
-      # Debug builds all four ABIs, so all four are required here; the release
-      # step below pins the (different) release set. The same script runs
-      # locally against a local build — the scripts/test.sh pattern.
+      # Flutter dropped Android x86 engine builds (3.27 deprecated, removed
+      # after), so debug now produces the same three engine ABIs as release;
+      # requiring x86 here failed against a toolchain that can no longer
+      # emit it. The same script runs locally against a local build — the
+      # scripts/test.sh pattern.
       - name: Verify debug APK contents
         run: ./scripts/verify_apk.sh build/app/outputs/flutter-apk/app-debug.apk
-          --require-abis arm64-v8a,armeabi-v7a,x86,x86_64
+          --require-abis arm64-v8a,armeabi-v7a,x86_64
       # Uploaded before the release build so a release-only failure still leaves
       # the debug APK downloadable for triage.
       # Best-effort upload: continue-on-error (deliberate, survives artifact-quota hits) would neutralize if-no-files-found: error anyway, so warn.
