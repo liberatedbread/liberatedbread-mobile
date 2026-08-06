@@ -161,6 +161,39 @@ void main() {
             'silently, on a real phone.',
       );
     });
+
+    test('MainActivity actually takes the multicast lock', () {
+      // The permission only grants the right to take the lock. Declaring it and
+      // never calling createMulticastLock is the same outcome as not declaring
+      // it -- an empty Wi-Fi scan with nothing in any log -- and the manifest
+      // assertion above passes either way, which is exactly how this shipped.
+      final activity = readRepoFile(
+        'android/app/src/main/kotlin/ca/pigscanfly/liberatedbread/MainActivity.kt',
+        consequence: 'It hosts the Flutter engine; without it the Android app '
+            'has no entry point.',
+      );
+      expect(
+        activity,
+        contains('createMulticastLock'),
+        reason: 'MainActivity must create the multicast lock that '
+            'CHANGE_WIFI_MULTICAST_STATE authorises, or Android drops every '
+            'mDNS and SSDP reply before the app sees it.',
+      );
+      expect(
+        activity,
+        contains('ca.pigscanfly.liberatedbread/multicast'),
+        reason: 'The method-channel name must match MulticastLock.channel in '
+            'lib/services/multicast_lock.dart. A mismatch is silent: the Dart '
+            'side logs a MissingPluginException and the scan runs unlocked.',
+      );
+      expect(
+        activity,
+        contains('onDestroy'),
+        reason: 'The lock stops the Wi-Fi chip filtering multicast for the '
+            'whole device, so a scan torn down without its release reaching '
+            'the platform must not leave it held for the process lifetime.',
+      );
+    });
   });
 
   group('AndroidManifest covers the whole minSdk range', () {
