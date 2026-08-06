@@ -154,7 +154,7 @@ void main() {
     // intentionally empty library manifest, so nothing merges them in for us:
     // if this app's manifest omits them, BluetoothAdapter throws
     // SecurityException on scan and connect for every device below Android 12,
-    // which the declared minSdk of 21 promises to support.
+    // which the declared minSdk of 24 promises to support.
     for (final legacy in const [
       'android.permission.BLUETOOTH',
       'android.permission.BLUETOOTH_ADMIN',
@@ -166,12 +166,12 @@ void main() {
         expect(
           declared,
           hasLength(1),
-          reason: '$legacy must be declared. minSdk is 21 '
+          reason: '$legacy must be declared. minSdk is 24 '
               '(android/app/build.gradle), but BLUETOOTH_SCAN/'
               'BLUETOOTH_CONNECT only apply from API 31, and '
               'flutter_blue_plus_android deliberately declares no permissions '
               'of its own. Without $legacy, BLE scanning and connecting fail '
-              'with SecurityException on Android 5.0 through 11.',
+              'with SecurityException on Android 7.0 through 11.',
         );
         expect(
           declared.single['android:maxSdkVersion'],
@@ -187,7 +187,10 @@ void main() {
       // If minSdk ever rises above 30, the legacy permissions become dead
       // weight and this whole group should be deleted rather than updated.
       final gradle = repoFile('android/app/build.gradle').readAsStringSync();
-      final match = RegExp(r'minSdk\s*=\s*(\d+)').firstMatch(gradle);
+      // Both DSL spellings: the Flutter migrator flipped `minSdk` to
+      // `minSdkVersion` when it applied the newDsl opt-out.
+      final match =
+          RegExp(r'minSdk(?:Version)?\s*=\s*(\d+)').firstMatch(gradle);
       expect(match, isNotNull,
           reason: 'Could not read minSdk from android/app/build.gradle.');
       final minSdk = int.parse(match!.group(1)!);
