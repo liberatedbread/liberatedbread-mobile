@@ -85,13 +85,17 @@ addresses and points you there.
 |------|---------|-------|
 | Flutter | 3.24+ | Stable channel |
 | Rust | stable (1.82+) | Via rustup |
-| Android SDK | API 34 | With NDK 23.1.7779620 (what Flutter 3.24.5 builds with) |
+| Android SDK | API 34 | With the NDK matching CI's Flutter (`flutter.ndkVersion`) |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
 | GTK 3 + CMake/Ninja/clang | — | Linux desktop builds only — see below |
+| Android emulator | API 34 `google_apis` x86-64 | Needs KVM on Linux; `./scripts/setup.sh` creates the AVD |
 
-For the **Linux desktop** target (`./scripts/run-linux.sh`), install the native
-toolchain once:
+The exact versions live in `.github/workflows/ci.yml` and are read from there by
+`scripts/ci-versions.sh` — the table is a summary, that command is the answer.
+
+For the **Linux desktop** target (`./scripts/run-linux.sh`), `./scripts/setup.sh`
+installs the native toolchain for you on apt-based distros; to do it by hand:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y \
@@ -106,7 +110,9 @@ storage); the rest is Flutter's standard Linux desktop toolchain.
 
 ## Quick Setup
 
-The setup script installs everything (Flutter, Rust, Android SDK, FRB codegen):
+The setup script installs everything: Flutter, Rust, FRB codegen, the Linux
+desktop toolchain, and the Android SDK/NDK plus an emulator AVD
+(`liberated_bread_test`) matching the one CI boots.
 
 ```bash
 ./scripts/setup.sh
@@ -115,6 +121,19 @@ The setup script installs everything (Flutter, Rust, Android SDK, FRB codegen):
 This works on **Linux** and **macOS** (both Intel and Apple Silicon). See
 [docs/BUILD_AND_TEST.md](docs/BUILD_AND_TEST.md) for manual setup and
 platform-specific details.
+
+Versions aren't pinned in the setup script: `scripts/ci-versions.sh` reads them
+out of `.github/workflows/ci.yml`, so a local environment follows CI. Print
+what yours will use with:
+
+```bash
+./scripts/ci-versions.sh
+```
+
+Claude Code web sessions provision themselves the same way through
+`.claude/hooks/session-start.sh` (Flutter + Rust always; Linux desktop deps and
+the Android SDK/emulator when the machine can use them — see
+[Claude Code on the web](docs/BUILD_AND_TEST.md#claude-code-on-the-web)).
 
 After setup, add Flutter to your PATH:
 
@@ -316,6 +335,7 @@ enough. `scripts/test.sh` handles all of this automatically.
 ├── test/                       # Dart unit + widget tests
 ├── scripts/
 │   ├── setup.sh                # Full dev environment setup
+│   ├── ci-versions.sh          # Toolchain versions, read out of ci.yml
 │   ├── run.sh                  # Build and run with optional mock mode
 │   ├── run-android.sh          # Boot the Android emulator + run
 │   ├── run-ios.sh              # Boot the iOS Simulator + run (macOS)
