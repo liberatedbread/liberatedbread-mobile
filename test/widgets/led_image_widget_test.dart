@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -234,6 +235,67 @@ void main() {
     // Frame indexes increase monotonically — the wire serials depend on it.
     final indexes = [for (final c in codec.encodeImageCalls) c.frameIndex];
     expect(indexes, List.generate(indexes.length, (i) => i));
+  });
+
+  testWidgets(
+      'a stream stopped mid-frame and restarted cannot interleave writes '
+      'with the in-flight frame', (tester) async {
+    // Stopping a stream only stops the loop — the frame being written keeps
+    // going. This pins the send queue: a restart's first frame must not even
+    // ENCODE until the old frame's writes finish, and the recorded write
+    // order must stay whole-frame sequences, never spliced fragments.
+    final gate = Completer<void>();
+    final ble = FakeBleService(writeGate: gate.future);
+    final codec = FakeSpecCodec(
+      imagePlan: ImageWritePlanDto(
+        serviceUuid: 's',
+        characteristicUuid: 'c',
+        writes: [
+          Uint8List.fromList([1]),
+          Uint8List.fromList([2]),
+        ],
+        nextFrameIndex: 1,
+      ),
+    );
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: _encodableSpec,
+        specYaml: 'yaml',
+      ),
+      ble: ble,
+      codec: codec,
+    ));
+
+    await _scrollAndTap(tester, find.text('Animation'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.text('Stream to device'));
+    await tester.pump();
+    await tester.pump(); // flush microtasks: encode #1 runs, write #1 parks
+    expect(codec.encodeImageCalls, hasLength(1));
+
+    await _scrollAndTap(tester, find.text('Stop streaming'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.text('Stream to device'));
+    await tester.pump();
+    await tester.pump();
+    // The restarted stream's first send is queued behind the in-flight
+    // frame — no second encode while the gate holds the old writes.
+    expect(codec.encodeImageCalls, hasLength(1),
+        reason: 'queued send must wait for the in-flight frame');
+
+    gate.complete();
+    await tester.pump(const Duration(milliseconds: 250));
+    await _scrollAndTap(tester, find.text('Stop streaming'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    expect(codec.encodeImageCalls.length, greaterThanOrEqualTo(2));
+    expect(ble.writes.length, greaterThanOrEqualTo(4));
+    for (var i = 0; i < ble.writes.length; i++) {
+      expect(ble.writes[i].value, [i.isEven ? 1 : 2],
+          reason: 'write $i out of frame order — fragments interleaved');
+    }
   });
 
   testWidgets('spec without animation renders no mode toggle', (tester) async {
