@@ -30,8 +30,10 @@ android {
 
     defaultConfig {
         applicationId = "ca.pigscanfly.liberatedbread"
-        // flutter_blue_plus requires API 21+.
-        minSdk = 21
+        // Flutter's own floor (>=21 on every supported release) satisfies
+        // flutter_blue_plus's API 21+ requirement; the migrator rewrote the
+        // explicit pin to track it.
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
