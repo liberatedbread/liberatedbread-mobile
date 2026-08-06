@@ -24,6 +24,34 @@ concurrency:
   group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: true
 
+# THIS FILE IS THE TOOLCHAIN SOURCE OF TRUTH FOR DEV ENVIRONMENTS.
+#
+# scripts/ci-versions.sh parses the values below out of this workflow, and
+# scripts/setup.sh plus the Claude Code session hook (.claude/hooks/
+# session-start.sh) provision from what it reads — so bumping a version here
+# moves every developer environment with it, and nothing needs re-pinning.
+#
+# What is parsed, and the shape the parser expects:
+#   FLUTTER_VERSION / FLUTTER_NDK_VERSION  the `env:` keys below
+#   java-version:                          setup-java's input
+#   platforms;android-<api>                any sdkmanager package reference
+#   build-tools;<version>                  any sdkmanager package reference
+#   flutter_rust_bridge_codegen@<version>  the `cargo install` line
+#   targets:                               dtolnay/rust-toolchain inputs
+#   api-level: [..], target:, arch:,       the reactivecircus/
+#   profile:                               android-emulator-runner step
+#   apt-get install ... (with `\` conts)   the linux-desktop dep step
+#
+# RUN `./scripts/ci-versions.sh` AFTER CHANGING ANY OF THOSE and check the
+# printed values still match this file. The parser falls back to a stale
+# hard-coded default (and warns) when a lookup misses, so a rename here fails
+# quietly in dev environments rather than loudly in CI. Two things it cannot
+# read, because no version appears in this file, and which therefore have to be
+# updated by hand in the setup scripts if they ever matter:
+#   * the Android command-line tools build number (android-actions/setup-android
+#     resolves "latest" itself) — pinned in .claude/hooks/session-start.sh
+#   * the Rust toolchain version (dtolnay/rust-toolchain@stable) — a minimum is
+#     pinned in scripts/setup.sh
 env:
   FLUTTER_VERSION: '3.44.8'
   # The NDK cargokit actually builds against, shared by every job that compiles
