@@ -87,14 +87,26 @@ void main() {
         child: MaterialApp(home: DeviceScreen(device: device)),
       ),
     );
-    await tester.pumpAndSettle();
+    // Bounded: this screen settles once the connect has failed (nothing is
+    // animating on the error state), but an unbounded pumpAndSettle would stall
+    // the job for ten minutes if that ever stopped being true. See the note in
+    // mock_flow_test.dart — the first argument is the pump interval, not this.
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 30),
+    );
 
     expect(find.textContaining('mock connect failure'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     expect(fake.connectCalls, 1);
 
     await tester.tap(find.text('Retry'));
-    await tester.pumpAndSettle();
+    await tester.pumpAndSettle(
+      const Duration(milliseconds: 100),
+      EnginePhase.sendSemanticsUpdate,
+      const Duration(seconds: 30),
+    );
     expect(fake.connectCalls, 2);
   });
 }
