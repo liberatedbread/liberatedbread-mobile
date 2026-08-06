@@ -36,9 +36,12 @@ drives the NDK itself during `flutter build`.
 | Tool | Version |
 |------|---------|
 | Android SDK | API 34 |
-| Android NDK | 23.1.7779620 (Flutter 3.24.5's `flutter.ndkVersion`) |
+| Android NDK | CI's `FLUTTER_NDK_VERSION` — the pinned Flutter's `flutter.ndkVersion` |
 | Android SDK Build-Tools | 34.0.0 |
 | Java (for Gradle) | 17+ |
+
+Run `./scripts/ci-versions.sh` for the values CI is on right now; `./scripts/setup.sh`
+installs exactly those.
 
 ### macOS Only (iOS Builds)
 
@@ -87,16 +90,67 @@ times:
 ```
 
 What it does:
-1. Installs Flutter SDK 3.24.5 to `~/.flutter-sdk`
+1. Installs the Flutter SDK to `~/.flutter-sdk`
 2. Installs Rust via rustup (if not already installed)
 3. Adds Android cross-compilation targets (aarch64, armv7, x86_64, i686)
 4. Adds iOS targets on macOS (aarch64-apple-ios, aarch64-apple-ios-sim,
    x86_64-apple-ios)
-5. Installs `flutter_rust_bridge_codegen` v2.9.0
-6. Sets up Android SDK components (API 34, NDK 23.1.7779620)
-7. Creates Android emulator AVD (`liberated_bread_test`)
-8. Runs `pod install` on macOS
-9. Runs `flutter pub get` and generates FRB bindings
+5. Installs `flutter_rust_bridge_codegen`
+6. Installs the Linux desktop toolchain via apt (GTK 3, clang/cmake/ninja,
+   `libsecret`, Xvfb) — Linux only, skipped on non-apt distros with the list
+   printed so you can install the equivalents
+7. Sets up Android SDK components (platform, build-tools, NDK)
+8. Installs the emulator and system image and creates the
+   `liberated_bread_test` AVD — same image and device profile CI boots
+9. Runs `pod install` on macOS
+10. Runs `flutter pub get` and generates FRB bindings
+
+### Where the versions come from
+
+None of the above are pinned in the setup script.
+`scripts/ci-versions.sh` reads them out of `.github/workflows/ci.yml` — the
+Flutter version, NDK, Android API and build-tools, the FRB codegen pin, the
+rustup target lists, the apt package list, and the emulator's API level,
+system image target/arch and device profile. Bumping CI moves every dev
+environment with it. To see what your environment will use:
+
+```bash
+./scripts/ci-versions.sh
+```
+
+Each value has a fallback used only if the workflow can't be parsed, and a
+miss is reported on stderr. If you restructure how CI declares one of these,
+re-run the command above and confirm the values still match the workflow.
+
+Two things are *not* readable from CI, because no version appears there, and
+so remain pinned by hand: the Android command-line tools build number (CI uses
+`android-actions/setup-android`, which resolves "latest" itself) and the Rust
+toolchain (`dtolnay/rust-toolchain@stable`).
+
+### Claude Code on the web
+
+`.claude/hooks/session-start.sh` provisions a Claude Code web session from the
+same CI-derived values, in three tiers:
+
+| Tier | What | When |
+|------|------|------|
+| Host | Flutter SDK, `flutter pub get`, host Rust library | always |
+| Linux desktop | the apt packages from CI's `linux-desktop` job | wherever apt is usable |
+| Android | SDK platform, build-tools, NDK, cross targets, emulator, `liberated_bread_test` AVD, `android/local.properties` | when `/dev/kvm` exists and there is disk for it |
+
+The optional tiers skip themselves — with a logged reason — instead of failing
+the session, and both can be forced or suppressed:
+
+```bash
+LB_SETUP_LINUX_DESKTOP=1|0   # default: auto (on wherever apt is usable)
+LB_SETUP_ANDROID=1|0         # default: auto (on when KVM and disk allow)
+```
+
+The KVM condition matters: without `/dev/kvm` an x86-64 AVD falls back to
+software emulation and is too slow to test with, so a container without it
+skips a multi-gigabyte download that would not be usable anyway. Use the Linux
+desktop target there instead (`./scripts/run-linux.sh --mock`), which is the
+emulator-free path CI's `linux-desktop` job covers.
 
 After setup, add Flutter to your PATH:
 
@@ -161,10 +215,13 @@ cargo install --locked flutter_rust_bridge_codegen@2.9.0
 
 ### 4. Android SDK
 
-Install Android Studio or the command-line tools. Then:
+Install Android Studio or the command-line tools. Then — substituting the
+versions `./scripts/ci-versions.sh` prints, since the NDK moves with the
+Flutter pin:
 
 ```bash
-sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" "ndk;23.1.7779620"
+sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" \
+  "ndk;$(./scripts/ci-versions.sh | sed -n 's/^CI_NDK_VERSION=//p')"
 ```
 
 Set `ANDROID_HOME`:
@@ -172,6 +229,19 @@ Set `ANDROID_HOME`:
 ```bash
 export ANDROID_HOME="$HOME/Android/Sdk"
 ```
+
+For the emulator, add the emulator package and the system image CI boots, then
+create the AVD `scripts/run-android.sh` looks for:
+
+```bash
+sdkmanager "emulator" "system-images;android-34;google_apis;x86_64"
+avdmanager create avd -n liberated_bread_test \
+  -k "system-images;android-34;google_apis;x86_64" -d pixel_6
+```
+
+Emulation needs KVM on Linux (`sudo apt-get install -y qemu-kvm && sudo usermod -aG kvm "$USER"`,
+then log out and back in). Check with `ls -l /dev/kvm`; without it the x86-64
+image runs under software emulation and is too slow to be useful.
 
 ### 5. Project Dependencies
 

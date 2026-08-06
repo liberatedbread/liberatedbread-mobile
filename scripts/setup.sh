@@ -3,20 +3,37 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Liberated Bread Mobile — developer environment setup
-# Installs Flutter SDK, Rust toolchain, Android SDK components, and FRB codegen.
+# Installs the Flutter SDK, Rust toolchain, FRB codegen, the Linux desktop
+# build dependencies, and the Android SDK/NDK plus an emulator AVD matching the
+# one CI boots. Versions come from .github/workflows/ci.yml (see
+# scripts/ci-versions.sh), not from pins in this file.
 # Idempotent — safe to run multiple times.
 
 set -euo pipefail
 
-FLUTTER_VERSION="3.44.8"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Versions are not pinned here — scripts/ci-versions.sh reads them out of
+# .github/workflows/ci.yml so a local environment tracks CI automatically.
+# That covers the Flutter SDK, the NDK cargokit builds against (which must
+# match `flutter.ndkVersion`, since android/app/build.gradle sets
+# `ndkVersion = flutter.ndkVersion`), the Android platform/build-tools, the
+# rustup cross targets, the FRB codegen pin, the Linux desktop apt packages
+# and the emulator system image + device profile.
+# shellcheck source=ci-versions.sh
+source "$SCRIPT_DIR/ci-versions.sh"
+
+FLUTTER_VERSION="$CI_FLUTTER_VERSION"
 FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
-# Must match `flutter.ndkVersion` for FLUTTER_VERSION above: android/app/
-# build.gradle sets `ndkVersion = flutter.ndkVersion`, and cargokit compiles the
-# Rust crate with whatever that resolves to. Installing a different NDK here
-# leaves it unused on disk while cargokit downloads this one mid-build.
-NDK_VERSION="28.2.13676358"
-ANDROID_API="34"
-FRB_VERSION="2.9.0"
+NDK_VERSION="$CI_NDK_VERSION"
+ANDROID_API="$CI_ANDROID_API"
+BUILD_TOOLS_VERSION="$CI_BUILD_TOOLS_VERSION"
+FRB_VERSION="$CI_FRB_VERSION"
+AVD_NAME="${AVD_NAME:-liberated_bread_test}"
+
+# Not derived from CI: the Rust toolchain there is whatever dtolnay/
+# rust-toolchain@stable resolves to on the day, which names no version. This is
+# the floor the crate needs to compile.
 RUST_MIN_VERSION="1.82.0"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -76,7 +93,6 @@ rustc_version() {
   rustc --version 2>/dev/null | awk '{print $2}'
 }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OS="$(uname -s)"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/liberated-bread-setup"
@@ -232,22 +248,66 @@ install_rust() {
     fi
   fi
 
-  log "Adding Android cross-compilation targets..."
-  rustup target add \
-    aarch64-linux-android \
-    armv7-linux-androideabi \
-    x86_64-linux-android \
-    i686-linux-android
+  log "Adding Android cross-compilation targets: ${CI_RUST_ANDROID_TARGETS}"
+  # shellcheck disable=SC2086  # the target list is intentionally word-split
+  rustup target add $CI_RUST_ANDROID_TARGETS
 
   if [[ "$OS" == "Darwin" ]]; then
     # Same target set CI installs: device, Apple-Silicon simulator, and
     # Intel-Mac simulator.
-    log "Adding iOS cross-compilation targets..."
-    rustup target add \
-      aarch64-apple-ios \
-      aarch64-apple-ios-sim \
-      x86_64-apple-ios
+    log "Adding iOS cross-compilation targets: ${CI_RUST_IOS_TARGETS}"
+    # shellcheck disable=SC2086
+    rustup target add $CI_RUST_IOS_TARGETS
   fi
+}
+
+# ── Linux desktop toolchain ──────────────────────────────────────────────────
+
+# The same packages CI's linux-desktop job installs (clang/cmake/ninja/
+# pkg-config, GTK 3 and friends, libsecret for flutter_secure_storage_linux,
+# and xvfb for headless runs), read from the workflow. Only apt-based distros
+# are handled automatically; elsewhere we print the list and move on.
+setup_linux_desktop() {
+  if [[ "$OS" != "Linux" ]]; then
+    return
+  fi
+
+  if ! command_exists apt-get; then
+    warn "Non-apt distro: install the Linux desktop equivalents of:"
+    warn "  ${CI_LINUX_DESKTOP_PACKAGES}"
+    return
+  fi
+
+  local sudo_cmd=""
+  if [[ "$(id -u)" -ne 0 ]]; then
+    if command_exists sudo; then
+      sudo_cmd="sudo"
+    else
+      warn "Not root and no sudo; install these yourself for Linux desktop builds:"
+      warn "  ${CI_LINUX_DESKTOP_PACKAGES}"
+      return
+    fi
+  fi
+
+  # Skip the apt round trip when everything is already there — this script is
+  # meant to be re-run.
+  local missing=()
+  local pkg
+  for pkg in $CI_LINUX_DESKTOP_PACKAGES; do
+    if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q '^install ok installed$'; then
+      missing+=("$pkg")
+    fi
+  done
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    log "Linux desktop toolchain already installed."
+    return
+  fi
+
+  log "Installing Linux desktop build deps: ${missing[*]}"
+  $sudo_cmd apt-get update
+  DEBIAN_FRONTEND=noninteractive $sudo_cmd apt-get install -y --no-install-recommends \
+    "${missing[@]}" \
+    || warn "Some Linux desktop packages failed to install; 'flutter build linux' may not work."
 }
 
 # ── flutter_rust_bridge codegen ──────────────────────────────────────────────
@@ -290,14 +350,14 @@ setup_android_sdk() {
     return
   fi
 
-  log "Installing Android SDK components..."
+  log "Installing Android SDK components (API ${ANDROID_API}, build-tools ${BUILD_TOOLS_VERSION}, NDK ${NDK_VERSION})..."
   yes | "$sdkmanager" --licenses 2>/dev/null || true
 
   # Don't hide stderr on the installs below: when they fail, the reason
   # (network, licenses, disk) must reach the user alongside the warning.
   "$sdkmanager" \
     "platform-tools" \
-    "build-tools;${ANDROID_API}.0.0" \
+    "build-tools;${BUILD_TOOLS_VERSION}" \
     "platforms;android-${ANDROID_API}" \
     "ndk;${NDK_VERSION}" \
     || warn "Some SDK components may have failed to install."
@@ -308,23 +368,46 @@ setup_android_sdk() {
     avdmanager="avdmanager"
   elif [[ -n "${ANDROID_HOME:-}" ]] && [[ -x "${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager" ]]; then
     avdmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/avdmanager"
+  elif [[ -x "$HOME/Android/Sdk/cmdline-tools/latest/bin/avdmanager" ]]; then
+    avdmanager="$HOME/Android/Sdk/cmdline-tools/latest/bin/avdmanager"
   fi
 
   if [[ -n "$avdmanager" ]]; then
-    if "$avdmanager" list avd 2>/dev/null | grep -q "liberated_bread_test"; then
-      log "AVD liberated_bread_test already exists."
+    if "$avdmanager" list avd 2>/dev/null | grep -q "Name: ${AVD_NAME}$"; then
+      log "AVD ${AVD_NAME} already exists."
     else
-      log "Installing system image for emulator..."
-      "$sdkmanager" "system-images;android-${ANDROID_API};google_apis;x86_64" || true
+      # The emulator binary itself is a separate SDK package; without it
+      # scripts/run-android.sh has nothing to launch.
+      log "Installing emulator and ${CI_EMULATOR_SYSTEM_IMAGE}..."
+      "$sdkmanager" "emulator" "$CI_EMULATOR_SYSTEM_IMAGE" || true
 
-      log "Creating AVD liberated_bread_test..."
-      echo "no" | "$avdmanager" create avd \
-        -n liberated_bread_test \
-        -k "system-images;android-${ANDROID_API};google_apis;x86_64" \
-        --force || warn "Failed to create AVD. You may need to create it manually."
+      # Same image and device profile as CI's android-integration job, so a
+      # test that passes locally is testing the configuration CI gates on.
+      log "Creating AVD ${AVD_NAME} (${CI_EMULATOR_PROFILE}, API ${CI_EMULATOR_API})..."
+      # -d is best-effort: device profile ids come and go between SDK
+      # releases, and a generic AVD still boots and runs the tests.
+      if ! echo "no" | "$avdmanager" create avd \
+            -n "$AVD_NAME" \
+            -k "$CI_EMULATOR_SYSTEM_IMAGE" \
+            -d "$CI_EMULATOR_PROFILE" \
+            --force; then
+        warn "Could not create the AVD with device profile ${CI_EMULATOR_PROFILE}; retrying without it."
+        echo "no" | "$avdmanager" create avd \
+          -n "$AVD_NAME" \
+          -k "$CI_EMULATOR_SYSTEM_IMAGE" \
+          --force || warn "Failed to create AVD. You may need to create it manually."
+      fi
     fi
   else
     warn "avdmanager not found. Skipping emulator AVD creation."
+  fi
+
+  if [[ "$OS" == "Linux" ]] && [[ ! -e /dev/kvm ]]; then
+    warn "/dev/kvm is missing — the x86_64 emulator will fall back to software"
+    warn "emulation and is effectively unusable. On a physical Linux machine:"
+    warn "  sudo apt-get install -y qemu-kvm && sudo usermod -aG kvm \"\$USER\""
+    warn "Inside a container without KVM, use the Linux desktop target instead:"
+    warn "  ./scripts/run-linux.sh --mock"
   fi
 }
 
@@ -392,6 +475,7 @@ main() {
   install_flutter
   install_rust
   install_frb_codegen
+  setup_linux_desktop
   setup_android_sdk
   setup_macos
   setup_project
@@ -403,6 +487,8 @@ main() {
   log "  1. Ensure Flutter is on your PATH:  export PATH=\"${FLUTTER_HOME}/bin:\$PATH\""
   log "  2. Run the app:  ./scripts/run.sh"
   log "  3. Run in mock mode:  ./scripts/run.sh --mock"
+  log "  4. Android emulator (AVD ${AVD_NAME}):  ./scripts/run-android.sh --mock"
+  log "  5. Linux desktop, no emulator needed:  ./scripts/run-linux.sh --mock"
 }
 
 main "$@"
