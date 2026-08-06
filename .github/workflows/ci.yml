@@ -379,6 +379,14 @@ jobs:
         with:
           workspaces: rust
       - run: flutter pub get
+      # Newer Flutter enables Swift Package Manager by default, and
+      # SPM-capable plugins (flutter_blue_plus_darwin ships a Package.swift)
+      # then bypass CocoaPods entirely — vanishing from Podfile.lock and
+      # breaking the pod-presence assertions below while still being linked.
+      # Pin plugin resolution to CocoaPods so the "every plugin is a pod"
+      # invariant those checks encode stays true.
+      - name: Use CocoaPods for plugin resolution (disable SPM)
+        run: flutter config --no-enable-swift-package-manager
       - name: Build iOS (simulator, no codesign)
         run: flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true
 

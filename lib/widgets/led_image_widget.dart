@@ -284,7 +284,24 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     return writePayloadForMtu(mtu);
   }
 
+  /// Tail of the frame-send queue. Every send chains onto it, so two sends
+  /// can never interleave their ordered fragment writes on the
+  /// characteristic. This matters beyond the epoch guard: stopping a stream
+  /// only stops the LOOP — its in-flight frame keeps writing fragments, and
+  /// the UI immediately re-enables Stream/Send, so an eager next send would
+  /// otherwise splice into the old frame's fragment sequence.
+  Future<void> _sendTail = Future<void>.value();
+
+  Future<void> _enqueueSend(int index, int payloadPerWrite) {
+    final send = _sendTail.then((_) => _sendFrame(index, payloadPerWrite));
+    // Callers observe failures through `send`; the tail itself must swallow
+    // them or every later send would rethrow a stale error.
+    _sendTail = send.then((_) {}, onError: (_) {});
+    return send;
+  }
+
   Future<void> _sendFrame(int index, int payloadPerWrite) async {
+    final ble = ref.read(bleServiceProvider);
     final plan = await ref.read(specCodecProvider).encodeImageFrame(
           specYaml: widget.specYaml,
           width: _width,
@@ -297,7 +314,6 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // wire packets consumes that many sequence numbers, and re-using them on
     // the next frame corrupts fragment reassembly on the device.
     _frameSequence = plan.nextFrameIndex;
-    final ble = ref.read(bleServiceProvider);
     for (final write in plan.writes) {
       await ble.writeCharacteristic(
         widget.deviceId,
@@ -314,7 +330,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       _error = null;
     });
     try {
-      await _sendFrame(_current, await _resolvePayloadPerWrite());
+      await _enqueueSend(_current, await _resolvePayloadPerWrite());
     } catch (e) {
       if (mounted) {
         setState(() => _error = friendlyErrorText(
@@ -360,7 +376,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     while (mounted && _streaming && epoch == _streamEpoch) {
       final started = DateTime.now();
       try {
-        await _sendFrame(_current, payloadPerWrite);
+        await _enqueueSend(_current, payloadPerWrite);
       } catch (e) {
         if (!mounted || epoch != _streamEpoch) return;
         setState(() {

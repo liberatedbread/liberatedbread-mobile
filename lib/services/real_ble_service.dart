@@ -512,12 +512,15 @@ class RealBleService implements BleService {
             '${service.characteristics.length} characteristic(s) '
             '[${service.characteristics.map((c) => c.uuid).join(', ')}]');
       }
-      // Cache only a non-empty result. An empty one is far more likely the
-      // not-yet-resolved race than a genuinely empty GATT database, and
-      // caching it would pin every later read/write/subscribe on this
-      // connection to "characteristic not found".
-      _servicesCache[deviceId] = services;
     }
+    // Cached in BOTH cases — but an empty result only reaches this line
+    // after the full retry ladder exhausted, so it is a settled verdict for
+    // this connection, not the not-yet-resolved race (the ladder absorbed
+    // that). Without caching it, every later read/write/subscribe against a
+    // genuinely service-less device would silently re-run the ~6s ladder
+    // before failing. The cache still clears on disconnect, so a reconnect
+    // gets a fresh discovery.
+    _servicesCache[deviceId] = services;
     return services;
   }
 
