@@ -349,7 +349,22 @@ jobs:
           # is slow — and it CANNOT extend the load phase, whose 12-minute limit
           # is hardcoded in package:test_core's synthetic load suite. Keeping
           # loading inside that limit is the warm-up build step's job.
-          script: flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
+          # Logcat runs in the background for the whole test session and is
+          # uploaded on every outcome below: when the harness hangs waiting
+          # for the app's VM service (as an engine-level failure at startup
+          # does), the step log shows nothing at all — the device log is the
+          # only place the actual failure is visible.
+          script: |
+            adb logcat -c || true
+            adb logcat -v time > emulator-logcat.txt 2>&1 &
+            flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
+      - name: Upload emulator logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-logcat-api${{ matrix.api-level }}
+          path: emulator-logcat.txt
+          if-no-files-found: warn
 
   ios-build:
     name: iOS build + bundle verification + simulator integration tests
