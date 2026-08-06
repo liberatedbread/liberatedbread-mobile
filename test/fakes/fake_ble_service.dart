@@ -40,6 +40,10 @@ class FakeBleService implements BleService {
   /// Returned by [mtu]; the BLE minimum unless a test raises it.
   final int mtuToReturn;
 
+  /// When set, every [writeCharacteristic] call awaits this before recording,
+  /// letting a test hold writes in flight to exercise send serialization.
+  final Future<void>? writeGate;
+
   final List<String> connectedIds = [];
   final List<String> disconnectedIds = [];
   final List<({String deviceId, String charUuid, List<int> value})> writes = [];
@@ -64,6 +68,7 @@ class FakeBleService implements BleService {
     this.connectGate,
     this.discoverGate,
     this.mtuToReturn = 23,
+    this.writeGate,
   });
 
   @override
@@ -133,6 +138,7 @@ class FakeBleService implements BleService {
     String charUuid,
     List<int> value,
   ) async {
+    if (writeGate != null) await writeGate;
     writes.add((deviceId: deviceId, charUuid: charUuid, value: value));
   }
 
