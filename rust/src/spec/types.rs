@@ -423,6 +423,12 @@ impl std::fmt::Display for Protocol {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Identification {
     pub local_name_prefix: Option<String>,
+    /// Further names the same family advertises under, for hardware sold as
+    /// several rebadged models. Alternatives, not a conjunction: a match on any
+    /// one of them means what a `local_name_prefix` match means. Read both
+    /// through [`Identification::local_name_prefixes`].
+    #[serde(default)]
+    pub local_name_prefixes: Option<Vec<String>>,
     pub service_uuids: Option<Vec<String>>,
     /// BLE manufacturer-specific advertisement data (AD type 0xFF).
     #[serde(default)]
@@ -456,6 +462,26 @@ pub struct Identification {
 }
 
 impl Identification {
+    /// Every local name prefix this device family advertises under: the
+    /// singular key plus the plural one, deduplicated in declaration order.
+    ///
+    /// Empty strings are dropped rather than passed on. `"anything"
+    /// .starts_with("")` is true, so one would turn the spec into a claim on
+    /// every device the scanner sees.
+    pub fn local_name_prefixes(&self) -> Vec<String> {
+        let mut prefixes: Vec<String> = Vec::new();
+        for prefix in self
+            .local_name_prefix
+            .iter()
+            .chain(self.local_name_prefixes.iter().flatten())
+        {
+            if !prefix.is_empty() && !prefixes.contains(prefix) {
+                prefixes.push(prefix.clone());
+            }
+        }
+        prefixes
+    }
+
     /// Every company ID this device family advertises: the primary one plus
     /// any `additional_company_ids`, deduplicated in declaration order.
     pub fn company_ids(&self) -> Vec<u16> {

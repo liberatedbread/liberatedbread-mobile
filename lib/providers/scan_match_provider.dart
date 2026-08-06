@@ -101,7 +101,7 @@ final specIdentitiesProvider =
       SpecIdentityDto(
         deviceName: p.spec.deviceName,
         manufacturer: p.spec.manufacturer,
-        localNamePrefix: p.spec.localNamePrefix,
+        localNamePrefixes: p.spec.localNamePrefixes,
         serviceUuids: p.spec.serviceUuids,
         companyIds: p.spec.companyIds,
         macPrefixes: p.spec.macPrefixes,

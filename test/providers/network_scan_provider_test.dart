@@ -18,7 +18,7 @@ final _spec = DeviceSpecDto(
   manufacturer: 'Signify',
   manufacturerStatus: 'active',
   protocol: 'wifi',
-  localNamePrefix: null,
+  localNamePrefixes: const [],
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],

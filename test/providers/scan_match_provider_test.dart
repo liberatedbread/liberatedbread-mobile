@@ -19,7 +19,7 @@ final _spec = DeviceSpecDto(
   manufacturer: 'Acme',
   manufacturerStatus: 'abandoned',
   protocol: 'ble',
-  localNamePrefix: 'ACME_',
+  localNamePrefixes: const ['ACME_'],
   serviceUuids: const [_svcUuid],
   companyIds: Uint16List.fromList(const [961]),
   macPrefixes: const [
@@ -88,7 +88,7 @@ void main() {
 
       expect(identities, hasLength(1));
       expect(identities.single.deviceName, 'Example Smart Bulb');
-      expect(identities.single.localNamePrefix, 'ACME_');
+      expect(identities.single.localNamePrefixes, const ['ACME_']);
       expect(identities.single.serviceUuids, const [_svcUuid]);
       expect(identities.single.companyIds, const [961]);
       expect(identities.single.macPrefixes, hasLength(1));

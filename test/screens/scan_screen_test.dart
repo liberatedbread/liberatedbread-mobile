@@ -51,7 +51,7 @@ final _catalogueSpec = DeviceSpecDto(
   manufacturer: 'Acme',
   manufacturerStatus: 'abandoned',
   protocol: 'ble',
-  localNamePrefix: 'ACME_',
+  localNamePrefixes: const ['ACME_'],
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],

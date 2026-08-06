@@ -7,6 +7,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
+import 'package:liberated_bread_mobile/services/network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
 
 NetworkDevice _device({
@@ -213,6 +214,72 @@ void main() {
       // 16 hex digits without FFFE in the middle is some other identifier.
       expect(
         _device(txt: const {'bridgeid': '0017881234567890'}).advertisedMac,
+        isNull,
+      );
+    });
+  });
+
+  group('scanFailureFor', () {
+    // The rule that decides what an empty scan means. It used to be
+    // unreachable: both transports reported "did the socket open", which is
+    // true even when the OS is dropping every reply, so the denial branch
+    // could not fire on the one platform that has a denial to report.
+    test('a transport that heard something means nothing is wrong', () {
+      for (final other in TransportOutcome.values) {
+        expect(
+          scanFailureFor(
+            outcomes: [TransportOutcome.heard, other],
+            isApplePlatform: true,
+          ),
+          isNull,
+          reason: 'traffic reached us, so nothing is filtering it',
+        );
+      }
+    });
+
+    test('neither transport starting is unavailable, on every platform', () {
+      for (final apple in [true, false]) {
+        expect(
+          scanFailureFor(
+            outcomes: const [TransportOutcome.failed, TransportOutcome.failed],
+            isApplePlatform: apple,
+          ),
+          isA<NetworkUnavailableException>(),
+          reason: 'no interface and no multicast route is not a permission '
+              'question, it is a missing network',
+        );
+      }
+    });
+
+    test('total silence on Apple offers the local-network permission', () {
+      expect(
+        scanFailureFor(
+          outcomes: const [TransportOutcome.silent, TransportOutcome.silent],
+          isApplePlatform: true,
+        ),
+        isA<LocalNetworkDeniedException>(),
+      );
+      // One started and heard nothing while the other never started at all:
+      // still silence, still the same advice.
+      expect(
+        scanFailureFor(
+          outcomes: const [TransportOutcome.silent, TransportOutcome.failed],
+          isApplePlatform: true,
+        ),
+        isA<LocalNetworkDeniedException>(),
+      );
+    });
+
+    test('total silence elsewhere is just an empty network', () {
+      // Android reaches this state legitimately -- it takes a multicast lock
+      // rather than inferring a permission problem after the fact -- and a
+      // desktop on a quiet LAN reaches it honestly. Neither should be told to
+      // go change a setting that does not exist.
+      expect(
+        scanFailureFor(
+          outcomes: const [TransportOutcome.silent, TransportOutcome.silent],
+          isApplePlatform: false,
+        ),
         isNull,
       );
     });

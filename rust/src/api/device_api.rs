@@ -28,7 +28,11 @@ pub struct DeviceSpecDto {
     pub manufacturer_status: String,
     pub protocol: String,
     pub notes: Option<String>,
-    pub local_name_prefix: Option<String>,
+    /// Every BLE local name prefix this device family advertises under, in
+    /// spec order. Plural because a family sold as several rebadged models has
+    /// several -- the Inkbird thermometer ships under eight names with no
+    /// shared prefix. Empty when the spec declares none.
+    pub local_name_prefixes: Vec<String>,
     pub service_uuids: Vec<String>,
     /// Bluetooth SIG company IDs this device family advertises in its
     /// manufacturer-specific data, primary first. Empty when the spec declares
@@ -396,7 +400,7 @@ pub struct NetworkDeviceDto {
 pub struct SpecIdentityDto {
     pub device_name: String,
     pub manufacturer: String,
-    pub local_name_prefix: Option<String>,
+    pub local_name_prefixes: Vec<String>,
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
     pub mac_prefixes: Vec<MacPrefixDto>,
@@ -471,7 +475,7 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
         Self {
             device_name: spec.device_name.clone(),
             manufacturer: spec.manufacturer.clone(),
-            local_name_prefix: spec.local_name_prefix.clone(),
+            local_name_prefixes: spec.local_name_prefixes.clone(),
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
             mac_prefixes: spec.mac_prefixes.clone(),
@@ -492,7 +496,9 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             manufacturer_status: spec.device.manufacturer_status.to_string(),
             protocol: spec.device.protocol.to_string(),
             notes: spec.device.notes.clone(),
-            local_name_prefix: ident.and_then(|i| i.local_name_prefix.clone()),
+            local_name_prefixes: ident
+                .map(Identification::local_name_prefixes)
+                .unwrap_or_default(),
             service_uuids: ident
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
@@ -965,6 +971,9 @@ fn normalize_mac_prefix(raw: &str) -> Option<String> {
 /// matching rules live — both public matchers go through it, so the post-connect
 /// path and the scan path can never disagree about what "matched" means.
 fn match_axes(identity: &SpecIdentityDto, device: &ScannedDeviceDto) -> MatchAxes {
+    // Any prefix matching is a match: the list holds the names one family ships
+    // under, not names a device must carry all of.
+    //
     // An empty prefix is treated as absent, not as a wildcard: an empty prefix
     // matches every name, so a spec carrying `local_name_prefix: ""` would
     // otherwise claim every scanned device.
@@ -975,7 +984,7 @@ fn match_axes(identity: &SpecIdentityDto, device: &ScannedDeviceDto) -> MatchAxe
     // the vendor app itself filters them case-insensitively). `get(..len)`
     // rather than slicing so a multi-byte device name can't panic mid-char — a
     // None there cannot equal an ASCII prefix anyway.
-    let by_name_prefix = identity.local_name_prefix.as_ref().is_some_and(|prefix| {
+    let by_name_prefix = identity.local_name_prefixes.iter().any(|prefix| {
         !prefix.is_empty()
             && device
                 .name
@@ -1088,16 +1097,25 @@ fn match_network_axes(identity: &SpecIdentityDto, device: &NetworkDeviceDto) -> 
         }
     }
 
-    // The spec's local_name_prefix does double duty here: on the network side a
+    // The spec's local name prefixes do double duty here: on the network side a
     // device's instance name or hostname is what carries the vendor's branding
     // (`Lutron-083e013d.local`), the same way a BLE local name does.
-    let by_name_prefix = identity.local_name_prefix.as_ref().is_some_and(|prefix| {
+    //
+    // Case-insensitive for the same reason as the BLE path, and one more: DNS
+    // names are case-insensitive by definition, so a responder is free to
+    // answer `LUTRON-083e013d.local` and mean the same host.
+    let starts_with_prefix = |value: &str, prefix: &str| {
+        value
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+    };
+    let by_name_prefix = identity.local_name_prefixes.iter().any(|prefix| {
         !prefix.is_empty()
-            && (device.name.starts_with(prefix)
+            && (starts_with_prefix(&device.name, prefix)
                 || device
                     .hostname
                     .as_deref()
-                    .is_some_and(|h| h.starts_with(prefix)))
+                    .is_some_and(|h| starts_with_prefix(h, prefix)))
     });
 
     let port = identity
@@ -1813,7 +1831,7 @@ services: []
         // `"x".starts_with("")` is true, so an empty prefix would otherwise
         // claim every scanned device; it must behave like an absent prefix.
         let mut dto = load_device_spec(TEST_YAML.into()).unwrap();
-        dto.local_name_prefix = Some(String::new());
+        dto.local_name_prefixes = vec![String::new()];
         dto.service_uuids.clear(); // no UUID axis either
         let results = match_device_to_spec(vec![dto], "AnyDeviceAtAll".into(), vec![]);
         assert!(
@@ -1898,6 +1916,54 @@ services:
                 // nobody has checked has to be assumed to be a shared one.
                 confidence: MacPrefixConfidence::Low,
             }]
+        );
+    }
+
+    #[test]
+    fn every_declared_local_name_prefix_matches() {
+        // The Inkbird case: one family, eight rebadged names, no shared prefix.
+        // Each is an alternative, so a device carrying any one of them is a
+        // match, and the singular and plural keys are read together.
+        let yaml = SCAN_YAML.replace(
+            "    local_name_prefix: \"TEST_\"",
+            concat!(
+                "    local_name_prefix: \"TEST_\"\n",
+                "    local_name_prefixes: [\"IBT-\", \"IBBQ-\", \"TEST_\"]",
+            ),
+        );
+        let identity = SpecIdentityDto::from(&load_device_spec(yaml).unwrap());
+        assert_eq!(
+            identity.local_name_prefixes,
+            vec!["TEST_", "IBT-", "IBBQ-"],
+            "singular first, then the plural entries, with the repeat dropped"
+        );
+
+        for name in ["TEST_Kitchen", "IBT-4XS", "IBBQ-4BW"] {
+            let matches = match_scanned_device(
+                vec![identity.clone()],
+                ScannedDeviceDto {
+                    name: name.into(),
+                    ..anonymous_device()
+                },
+            );
+            assert_eq!(
+                matches.len(),
+                1,
+                "{name} should have matched on one of the declared prefixes"
+            );
+            assert!(matches[0].matched_by_name_prefix, "{name}");
+        }
+
+        assert!(
+            match_scanned_device(
+                vec![identity],
+                ScannedDeviceDto {
+                    name: "SomethingElse".into(),
+                    ..anonymous_device()
+                }
+            )
+            .is_empty(),
+            "a name matching none of them is still not a match"
         );
     }
 
@@ -2135,7 +2201,7 @@ services:
         let mut weak = scan_identity();
         weak.device_name = "Weak".into();
         weak.service_uuids.clear();
-        weak.local_name_prefix = None;
+        weak.local_name_prefixes = vec![];
         weak.company_ids = vec![];
 
         let device = ScannedDeviceDto {
@@ -2298,7 +2364,7 @@ http_endpoints:
         weak.device_name = "Weak".into();
         weak.mdns_service_type = None;
         weak.ssdp_search_targets = vec![];
-        weak.local_name_prefix = None;
+        weak.local_name_prefixes = vec![];
 
         let device = NetworkDeviceDto {
             hostname: Some("TestBridge-1.local".into()),
