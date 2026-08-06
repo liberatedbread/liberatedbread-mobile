@@ -30,10 +30,13 @@ android {
 
     defaultConfig {
         applicationId = "ca.pigscanfly.liberatedbread"
-        // Flutter's own floor (>=21 on every supported release) satisfies
-        // flutter_blue_plus's API 21+ requirement; the migrator rewrote the
-        // explicit pin to track it.
-        minSdkVersion = flutter.minSdkVersion
+        // Flutter 3.44's own floor (24) — above flutter_blue_plus's API 21+
+        // requirement. Kept as a literal rather than flutter.minSdkVersion:
+        // test/platform/android_manifest_test.dart reads this value to check
+        // it stays at or below the API 30 ceiling of the legacy
+        // BLUETOOTH/BLUETOOTH_ADMIN permission declarations, and a symbolic
+        // reference would blind that guard.
+        minSdkVersion = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
