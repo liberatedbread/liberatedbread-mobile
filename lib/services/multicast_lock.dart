@@ -45,7 +45,7 @@ class MulticastLock {
     try {
       await channel.invokeMethod<void>(method);
     } catch (e) {
-      Log.ble.warning('multicast lock $method failed', error: e);
+      Log.net.warning('multicast lock $method failed', error: e);
     }
   }
 }

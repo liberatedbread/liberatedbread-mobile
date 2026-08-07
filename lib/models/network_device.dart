@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import '../core/hex.dart';
 import 'package:flutter/foundation.dart';
 
 /// How a network device was found.
@@ -75,13 +76,7 @@ class NetworkDevice {
   String get displayName {
     if (name.isNotEmpty) return name;
     final host = hostname;
-    if (host != null && host.isNotEmpty) {
-      return host.endsWith('.local.')
-          ? host.substring(0, host.length - 7)
-          : host.endsWith('.local')
-              ? host.substring(0, host.length - 6)
-              : host;
-    }
+    if (host != null && host.isNotEmpty) return stripLocalSuffix(host);
     return this.host;
   }
 
@@ -99,8 +94,8 @@ class NetworkDevice {
     ]) {
       final value = txt[key];
       if (value == null) continue;
-      final hex = value.replaceAll(RegExp('[:-]'), '').toUpperCase();
-      if (!RegExp(r'^[0-9A-F]+$').hasMatch(hex)) continue;
+      final hex = normalizeMacHex(value);
+      if (hex == null) continue;
       if (hex.length == 12) return _colonize(hex);
       // A Hue bridge publishes `bridgeid` as an EUI-64: the 48-bit address with
       // FFFE spliced into the middle. Dropping those four digits recovers the
@@ -153,3 +148,11 @@ class NetworkDevice {
       listEquals(other.ssdpTargets, ssdpTargets) &&
       mapEquals(other.txt, txt);
 }
+
+final RegExp _localSuffix = RegExp(r'\.local\.?$');
+
+/// Drop a DNS name's `.local`/`.local.` suffix for display. One rule shared by
+/// [NetworkDevice.displayName] and the Wi-Fi screen's service-type labels — the
+/// Rust matcher keeps its own `normalize_service_type` as the comparison-side
+/// counterpart.
+String stripLocalSuffix(String name) => name.replaceAll(_localSuffix, '');

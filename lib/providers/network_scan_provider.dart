@@ -65,9 +65,11 @@ class NetworkIdentity {
 }
 
 /// What the catalogue makes of one device on the network, or null when nothing
-/// matched.
-final networkGuessProvider =
-    FutureProvider.family<ScanGuess?, NetworkIdentity>((ref, identity) async {
+/// matched. The Wi-Fi twin of `scanGuessProvider`, sharing its reduction via
+/// [ScanGuess.fromMatches] and its `autoDispose` reasoning — hosts come and go
+/// with DHCP, and dead identities must not accumulate for the app's lifetime.
+final networkGuessProvider = FutureProvider.autoDispose
+    .family<ScanGuess?, NetworkIdentity>((ref, identity) async {
   final codec = ref.watch(specCodecProvider);
   final identities = await ref.watch(specIdentitiesProvider.future);
   if (identities.isEmpty) return null;
@@ -91,59 +93,24 @@ final networkGuessProvider =
         error: e);
     return null;
   }
-  if (matches.isEmpty) return null;
-
-  final best = matches.first;
-  return ScanGuess(
-    deviceName: best.deviceName,
-    manufacturer: best.manufacturer,
-    confidence: best.confidence,
-    otherMatches:
-        matches.skip(1).where((m) => m.confidence == best.confidence).length,
-  );
+  return ScanGuess.fromMatches(matches);
 });
 
 /// A network device paired with what the catalogue makes of it.
-@immutable
-class RankedNetworkDevice {
-  final NetworkDevice device;
-  final ScanGuess? guess;
+typedef RankedNetworkDevice = Ranked<NetworkDevice>;
 
-  const RankedNetworkDevice({required this.device, this.guess});
-
-  bool get isLikelySupported =>
-      guess != null && guess!.confidence != MatchConfidence.possible;
-}
-
-/// Split network devices into the ones the catalogue recognises and the rest.
-///
-/// The same shape as `rankScannedDevices`, and the same reasoning, with one
-/// difference: there is no signal strength to break ties on, so the fallback is
-/// the device's display name. That keeps the list stable as a scan progresses,
-/// which matters more here — mDNS and SSDP answer at wildly different speeds,
-/// and rows must not shuffle under a finger.
+/// Split network devices, breaking ties by display name: there is no signal
+/// strength here, and a stable order matters more — mDNS and SSDP answer at
+/// wildly different speeds, and rows must not shuffle under a finger.
 ({List<RankedNetworkDevice> likelySupported, List<RankedNetworkDevice> other})
     rankNetworkDevices(
   List<NetworkDevice> devices,
   ScanGuess? Function(NetworkDevice device) guessFor,
-) {
-  final ranked = [
-    for (final device in devices)
-      RankedNetworkDevice(device: device, guess: guessFor(device)),
-  ];
-
-  int byConfidenceThenName(RankedNetworkDevice a, RankedNetworkDevice b) {
-    final aRank = a.guess?.confidence.index ?? -1;
-    final bRank = b.guess?.confidence.index ?? -1;
-    if (aRank != bRank) return bRank.compareTo(aRank);
-    return a.device.displayName
-        .toLowerCase()
-        .compareTo(b.device.displayName.toLowerCase());
-  }
-
-  final likelySupported = ranked.where((r) => r.isLikelySupported).toList()
-    ..sort(byConfidenceThenName);
-  final other = ranked.where((r) => !r.isLikelySupported).toList()
-    ..sort(byConfidenceThenName);
-  return (likelySupported: likelySupported, other: other);
-}
+) =>
+        rankDevices(
+          devices,
+          guessFor,
+          (a, b) => a.device.displayName
+              .toLowerCase()
+              .compareTo(b.device.displayName.toLowerCase()),
+        );

@@ -11,6 +11,7 @@ import '../models/network_device.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/network_scan_provider.dart';
 import '../services/network_scan_service.dart';
+import '../services/number_registry.dart';
 import '../widgets/device_list_tile.dart';
 
 /// Discovery of devices on the local network, alongside the BLE scan.
@@ -179,41 +180,21 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
             if (_permissionDenied) ...[
               const SizedBox(height: 24),
               Center(
-                child: ElevatedButton(
+                child: ActionPillButton(
                   onPressed: () => unawaited(
                       openAppSettings().catchError((Object _) => false)),
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.settings),
-                      SizedBox(width: 8),
-                      Text('Open settings'),
-                    ],
-                  ),
+                  icon: Icons.settings,
+                  label: 'Open settings',
                 ),
               ),
             ],
             if (_hasScanned && !_isScanning && _found.isEmpty) ...[
               const SizedBox(height: 24),
               Center(
-                child: ElevatedButton(
+                child: ActionPillButton(
                   onPressed: _startScan,
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.refresh),
-                      SizedBox(width: 8),
-                      Text('Scan again'),
-                    ],
-                  ),
+                  icon: Icons.refresh,
+                  label: 'Scan again',
                 ),
               ),
             ],
@@ -267,13 +248,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     );
   }
 
-  Widget _tile(RankedNetworkDevice entry, AsyncValue<dynamic> registry) {
+  Widget _tile(RankedNetworkDevice entry, AsyncValue<NumberRegistry> registry) {
     final device = entry.device;
     // A network device rarely publishes a MAC, but when it does (Hue's
     // bridgeid, Lutron's MACADDR TXT record) it is the one thing here the IEEE
     // registry can name — and unlike the IP, it does not move.
     final vendor = registry.maybeWhen(
-      data: (r) => r.vendorForMac(device.advertisedMac) as String?,
+      data: (r) => r.vendorForMac(device.advertisedMac),
       orElse: () => null,
     );
     return DeviceListTile(

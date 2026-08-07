@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'package:flutter/foundation.dart' show listEquals;
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -182,6 +183,17 @@ class ScanResultCoalescer {
     List<int> companyIds = const [],
   }) {
     final prev = _emitted[id];
+    // Reject before constructing: this runs for every device in every
+    // advertisement batch, and the common case is "nothing changed". The field
+    // list mirrors IoTDevice.hasSameIdentity plus the two mutable fields.
+    if (prev != null &&
+        prev.rssi == rssi &&
+        prev.isConnectable == isConnectable &&
+        prev.name == name &&
+        listEquals(prev.serviceUuids, serviceUuids) &&
+        listEquals(prev.companyIds, companyIds)) {
+      return null;
+    }
     final device = IoTDevice(
       id: id,
       name: name,
@@ -191,12 +203,6 @@ class ScanResultCoalescer {
       serviceUuids: serviceUuids,
       companyIds: companyIds,
     );
-    if (prev != null &&
-        prev.rssi == rssi &&
-        prev.isConnectable == isConnectable &&
-        prev.hasSameIdentity(device)) {
-      return null;
-    }
     _emitted[id] = device;
     return device;
   }

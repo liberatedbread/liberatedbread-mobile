@@ -287,3 +287,38 @@ class _SignalBars extends StatelessWidget {
     );
   }
 }
+
+/// The pill-shaped action button both scan screens use for retry / scan again /
+/// open settings. One widget so the sizing and icon-gap chrome cannot drift
+/// between the tabs — this was previously pasted five times.
+class ActionPillButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  const ActionPillButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        minimumSize: const Size(0, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      ),
+    );
+  }
+}
