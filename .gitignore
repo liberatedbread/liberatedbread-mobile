@@ -41,6 +41,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# Gradle's own output tree. Not covered by the root-anchored /build/ rule, and
+# a local `flutter build apk` leaves reports here.
+/android/build/
 
 # Coverage
 coverage/
