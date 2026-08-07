@@ -17,7 +17,7 @@
     <!-- Local-network device discovery (mDNS + SSDP). ACCESS_WIFI_STATE reads
          the interface state; CHANGE_WIFI_MULTICAST_STATE is what allows a
          multicast lock, and without one the Wi-Fi driver filters multicast
-         frames out to save power -- so an mDNS scan simply returns nothing. -->
+         frames out to save power, so an mDNS scan simply returns nothing. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
