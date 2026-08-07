@@ -49,6 +49,11 @@ const DATATYPE_DISPLAY: u8 = 0x01;
 const TARGET_APP: u8 = 0x01;
 const MAX_PSIZE: usize = u16::MAX as usize;
 const MAX_FRAGMENTS: usize = u8::MAX as usize;
+/// A packet's serial is a u8 derived from `frame_index + i`, so one frame can
+/// consume at most 256 distinct serials. A 257th packet would repeat the
+/// first packet's serial mid-frame and corrupt reassembly on the device
+/// rather than fail cleanly, so oversized frames are rejected up front.
+const MAX_PACKETS_PER_FRAME: usize = 256;
 
 /// The BLE 4.0 minimum ATT payload (MTU 23 - 3). The vendor app requests MTU
 /// 512 and falls back to this; anything smaller is not a plausible link and
@@ -111,6 +116,16 @@ pub fn encode_display_frame(
     let max_packet_pixels = MAX_PSIZE.min(frag_capacity * MAX_FRAGMENTS - DDP_HEADER_LEN);
 
     let packets: Vec<&[u8]> = rgb.chunks(max_packet_pixels).collect();
+    if packets.len() > MAX_PACKETS_PER_FRAME {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "{width}x{height} at {max_payload_per_write} bytes per write \
+                 needs {} DDP packets; the u8 packet serial allows at most \
+                 {MAX_PACKETS_PER_FRAME} per frame",
+                packets.len()
+            ),
+        });
+    }
     let mut writes = Vec::new();
     for (i, chunk) in packets.iter().enumerate() {
         let offset = i * max_packet_pixels;
@@ -288,5 +303,15 @@ mod tests {
     #[test]
     fn overflowing_dimensions_are_rejected() {
         assert!(encode_display_frame(&[], u32::MAX, u32::MAX, 0, 20).is_err());
+    }
+
+    #[test]
+    fn frames_needing_more_serials_than_u8_holds_are_rejected() {
+        // 600x600 RGB888 at the 20-byte floor is 1_080_000 bytes, splitting
+        // into ceil(1_080_000 / 4070) = 266 DDP packets — past the 256
+        // distinct u8 serials one frame may consume.
+        let rgb = vec![0u8; 600 * 600 * 3];
+        let err = encode_display_frame(&rgb, 600, 600, 0, 20).unwrap_err();
+        assert!(err.to_string().contains("DDP packets"), "got: {err}");
     }
 }
