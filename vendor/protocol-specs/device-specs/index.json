@@ -487,6 +487,7 @@
     "protocol": "ble",
     "manufacturer": "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)",
     "manufacturer_status": "active",
+    "protocol_handler": "daniao_ddp",
     "helpful_urls": [
       {
         "title": "SmartDawn store — smart lights collection",
