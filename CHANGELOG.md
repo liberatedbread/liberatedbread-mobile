@@ -211,7 +211,11 @@ heading.
   hook provision from those values (each has a fallback, and a parse miss
   warns). `scripts/setup.sh` also gained the Linux desktop toolchain install
   and now creates the `liberated_bread_test` AVD from CI's exact system image
-  and device profile.
+  and device profile. Both paths now compare the *installed* Flutter against
+  the pin rather than accepting any SDK that exists — the session hook
+  replaces a stale one, and `setup.sh` says so without touching an SDK it
+  didn't install — so a `FLUTTER_VERSION` bump actually reaches dev
+  environments instead of surfacing later as a Dart SDK constraint failure.
 - **Claude Code web sessions can build and run Android and Linux desktop.**
   `.claude/hooks/session-start.sh` grew two auto-detected tiers on top of the
   host toolchain: the Linux desktop dependencies (wherever apt is usable) and
