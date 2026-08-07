@@ -117,6 +117,25 @@ install_flutter() {
       ensure_safe_directory "$flutter_root"
     fi
     log "Flutter already installed: $(flutter --version 2>/dev/null | head -1)"
+
+    # An existing SDK is not necessarily the one CI is on, and a stale one
+    # fails `flutter pub get` on pubspec's Dart SDK constraint rather than
+    # anything obvious. Say so — but don't touch an SDK this script didn't
+    # install; it may be managed by Android Studio, brew, or the distro.
+    local installed
+    installed="$(flutter --version --machine 2>/dev/null \
+      | grep -o '"frameworkVersion": *"[^"]*"' \
+      | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+    if [[ -n "$installed" ]] && [[ "$installed" != "$FLUTTER_VERSION" ]]; then
+      warn "Flutter ${installed} is on your PATH, but CI pins ${FLUTTER_VERSION}."
+      if [[ "$flutter_root" == "$FLUTTER_HOME" ]]; then
+        warn "To move this checkout to the pinned version:"
+        warn "  rm -rf \"${FLUTTER_HOME}\" && ./scripts/setup.sh"
+      else
+        warn "That SDK lives in ${flutter_root:-an unknown location} and is left alone."
+        warn "Use the pinned one instead with:  FLUTTER_HOME=\"$HOME/.flutter-sdk\" ./scripts/setup.sh"
+      fi
+    fi
     return
   fi
 
