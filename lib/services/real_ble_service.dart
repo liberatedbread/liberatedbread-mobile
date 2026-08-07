@@ -664,6 +664,10 @@ class RealBleService implements BleService {
   Future<int> mtu(String deviceId) async =>
       BluetoothDevice.fromId(deviceId).mtuNow;
 
+  @override
+  Future<int> readRssi(String deviceId) =>
+      BluetoothDevice.fromId(deviceId).readRssi();
+
   /// Enable/disable notifications, tolerating the Linux backend's spurious
   /// confirmation timeout (see [isSpuriousLinuxNotifyTimeout]: the
   /// subscription is live by the time it fires).
