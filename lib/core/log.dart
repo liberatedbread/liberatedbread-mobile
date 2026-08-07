@@ -188,6 +188,9 @@ class Log {
   /// Spec-pack download, validation, install and cache.
   static const Logger packs = Logger._('packs');
 
+  /// Ad-banner config fetch and cache.
+  static const Logger ads = Logger._('ads');
+
   /// App startup and process-wide concerns.
   static const Logger app = Logger._('app');
 
@@ -195,7 +198,7 @@ class Log {
   static const Logger ui = Logger._('ui');
 
   /// Every category, for tests and for documenting the filterable set.
-  static const List<Logger> categories = [ble, spec, ha, packs, app, ui];
+  static const List<Logger> categories = [ble, spec, ha, packs, ads, app, ui];
 
   /// Release builds never emit below this, whatever [minLevel] says. Verbose
   /// logging shipping to users is a privacy and performance problem, so the

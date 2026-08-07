@@ -14,6 +14,7 @@ import '../providers/saved_device_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
 import '../services/saved_device_store.dart';
+import '../widgets/ad_banner_bar.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
 import 'ha_settings_screen.dart';
@@ -174,6 +175,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         ],
       ),
       body: SafeArea(child: _buildBody()),
+      // House-ad bar. Renders zero-height until the provider has a banner, and
+      // the provider never blocks: bundled/cached content first, network later.
+      bottomNavigationBar: const AdBannerBar(),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isScanning ? null : _startScan,
         icon: _isScanning

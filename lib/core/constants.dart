@@ -19,4 +19,14 @@ class AppConstants {
   /// manifest (see [SpecPackService]); user-overridable in spec-pack settings.
   static const String defaultSpecPackUrl =
       'https://raw.githubusercontent.com/PigsCanFlyLabs/opengreeniot-device-specs/main/pack.json';
+
+  /// Remote config for the bottom ad banner (see [AdBannerService]). Fetched
+  /// in the background on launch so the promotion can change without an
+  /// app-store release; the bundled [AdBanner.fallback] covers offline and
+  /// first-launch.
+  static const String adBannerConfigUrl =
+      'https://liberatedbread.com/app/banner.json';
+
+  /// The affiliate shop page the bundled fallback banner points at.
+  static const String shopUrl = 'https://liberatedbread.com/shop/';
 }

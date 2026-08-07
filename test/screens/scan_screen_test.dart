@@ -63,9 +63,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('ACME_A'), findsOneWidget);
-    expect(find.text('ACME_B'), findsOneWidget);
     expect(find.text('Found'), findsOneWidget);
     expect(find.text('2 devices found'), findsOneWidget);
+    // The docked ad bar costs the list a row of viewport; the second device
+    // sits below the fold until scrolled to.
+    await tester.scrollUntilVisible(find.text('ACME_B'), 80);
+    expect(find.text('ACME_B'), findsOneWidget);
   });
 
   testWidgets('History lists a previously paired device', (tester) async {
@@ -94,6 +97,12 @@ void main() {
     await tester.pumpWidget(_wrap(FakeBleService()));
     await tester.pumpAndSettle();
 
+    // Scroll to the end of the list first — with the docked ad bar the History
+    // row can otherwise land at the viewport edge, under the FAB, where the
+    // tap silently misses. The list's own bottom padding parks the final rows
+    // clear of the FAB once fully scrolled.
+    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Forget Probe One'));
     await tester.pumpAndSettle();
 
@@ -194,6 +203,7 @@ void main() {
           of: openSettingsButton, matching: find.byIcon(Icons.refresh)),
       findsNothing,
     );
+    await tester.scrollUntilVisible(find.text('Retry'), 80);
     expect(find.text('Retry'), findsOneWidget);
   });
 
@@ -224,6 +234,13 @@ void main() {
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.chevron_right), findsNothing);
+    // Scoped to the list: the docked ad bar legitimately carries a chevron of
+    // its own.
+    expect(
+      find.descendant(
+          of: find.byType(ListView),
+          matching: find.byIcon(Icons.chevron_right)),
+      findsNothing,
+    );
   });
 }
