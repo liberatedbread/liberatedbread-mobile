@@ -12,6 +12,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
+import 'spec/types.dart';
 
 abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RustLibApiImplPlatform({
@@ -46,6 +47,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageUploadDto dco_decode_box_autoadd_image_upload_dto(dynamic raw);
 
   @protected
+  MacPrefixDto dco_decode_box_autoadd_mac_prefix_dto(dynamic raw);
+
+  @protected
+  NetworkDeviceDto dco_decode_box_autoadd_network_device_dto(dynamic raw);
+
+  @protected
+  ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
+
+  @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_32(dynamic raw);
 
   @protected
@@ -74,6 +87,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FormatFieldDto dco_decode_format_field_dto(dynamic raw);
+
+  @protected
+  int dco_decode_i_32(dynamic raw);
 
   @protected
   PlatformInt64 dco_decode_i_64(dynamic raw);
@@ -112,6 +128,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<MacPrefixDto> dco_decode_list_mac_prefix_dto(dynamic raw);
+
+  @protected
   List<MatchResult> dco_decode_list_match_result(dynamic raw);
 
   @protected
@@ -119,6 +138,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Int64List dco_decode_list_prim_i_64_strict(dynamic raw);
+
+  @protected
+  Uint16List dco_decode_list_prim_u_16_strict(dynamic raw);
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -137,10 +159,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<(String, double)> dco_decode_list_record_string_f_64(dynamic raw);
 
   @protected
+  List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
+
+  @protected
   List<ServiceDto> dco_decode_list_service_dto(dynamic raw);
 
   @protected
+  List<SpecIdentityDto> dco_decode_list_spec_identity_dto(dynamic raw);
+
+  @protected
+  MacPrefixConfidence dco_decode_mac_prefix_confidence(dynamic raw);
+
+  @protected
+  MacPrefixDto dco_decode_mac_prefix_dto(dynamic raw);
+
+  @protected
+  MatchConfidence dco_decode_match_confidence(dynamic raw);
+
+  @protected
   MatchResult dco_decode_match_result(dynamic raw);
+
+  @protected
+  NetworkDeviceDto dco_decode_network_device_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -156,6 +196,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ImageUploadDto? dco_decode_opt_box_autoadd_image_upload_dto(dynamic raw);
+
+  @protected
+  MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw);
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
@@ -179,7 +225,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, double) dco_decode_record_string_f_64(dynamic raw);
 
   @protected
+  ScanMatch dco_decode_scan_match(dynamic raw);
+
+  @protected
+  ScannedDeviceDto dco_decode_scanned_device_dto(dynamic raw);
+
+  @protected
   ServiceDto dco_decode_service_dto(dynamic raw);
+
+  @protected
+  SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw);
+
+  @protected
+  int dco_decode_u_16(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -217,6 +275,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  MacPrefixDto sse_decode_box_autoadd_mac_prefix_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkDeviceDto sse_decode_box_autoadd_network_device_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
   @protected
@@ -245,6 +318,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FormatFieldDto sse_decode_format_field_dto(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
@@ -290,6 +366,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<MacPrefixDto> sse_decode_list_mac_prefix_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer);
 
   @protected
@@ -298,6 +378,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Int64List sse_decode_list_prim_i_64_strict(SseDeserializer deserializer);
+
+  @protected
+  Uint16List sse_decode_list_prim_u_16_strict(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -318,10 +401,30 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer);
+
+  @protected
   List<ServiceDto> sse_decode_list_service_dto(SseDeserializer deserializer);
 
   @protected
+  List<SpecIdentityDto> sse_decode_list_spec_identity_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  MacPrefixConfidence sse_decode_mac_prefix_confidence(
+      SseDeserializer deserializer);
+
+  @protected
+  MacPrefixDto sse_decode_mac_prefix_dto(SseDeserializer deserializer);
+
+  @protected
+  MatchConfidence sse_decode_match_confidence(SseDeserializer deserializer);
+
+  @protected
   MatchResult sse_decode_match_result(SseDeserializer deserializer);
+
+  @protected
+  NetworkDeviceDto sse_decode_network_device_dto(SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -338,6 +441,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   ImageUploadDto? sse_decode_opt_box_autoadd_image_upload_dto(
       SseDeserializer deserializer);
+
+  @protected
+  MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
@@ -362,7 +472,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
 
   @protected
+  ScanMatch sse_decode_scan_match(SseDeserializer deserializer);
+
+  @protected
+  ScannedDeviceDto sse_decode_scanned_device_dto(SseDeserializer deserializer);
+
+  @protected
   ServiceDto sse_decode_service_dto(SseDeserializer deserializer);
+
+  @protected
+  SpecIdentityDto sse_decode_spec_identity_dto(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -372,9 +494,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
-
-  @protected
-  int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -403,6 +522,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_image_upload_dto(
       ImageUploadDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_mac_prefix_dto(
+      MacPrefixDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_network_device_dto(
+      NetworkDeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_scanned_device_dto(
+      ScannedDeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
@@ -438,6 +572,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_format_field_dto(
       FormatFieldDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
@@ -486,6 +623,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<Uint8List> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_mac_prefix_dto(
+      List<MacPrefixDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_match_result(
       List<MatchResult> self, SseSerializer serializer);
 
@@ -496,6 +637,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_prim_i_64_strict(
       Int64List self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_16_strict(
+      Uint16List self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
@@ -517,11 +662,34 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<(String, double)> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_scan_match(
+      List<ScanMatch> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_service_dto(
       List<ServiceDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_spec_identity_dto(
+      List<SpecIdentityDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mac_prefix_confidence(
+      MacPrefixConfidence self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_mac_prefix_dto(MacPrefixDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_match_confidence(
+      MatchConfidence self, SseSerializer serializer);
+
+  @protected
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_device_dto(
+      NetworkDeviceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -539,6 +707,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_image_upload_dto(
       ImageUploadDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_mac_prefix_dto(
+      MacPrefixDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
@@ -566,7 +741,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       (String, double) self, SseSerializer serializer);
 
   @protected
+  void sse_encode_scan_match(ScanMatch self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_scanned_device_dto(
+      ScannedDeviceDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_service_dto(ServiceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_spec_identity_dto(
+      SpecIdentityDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
@@ -576,9 +765,6 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
-
-  @protected
-  void sse_encode_i_32(int self, SseSerializer serializer);
 }
 
 // Section: wire_class

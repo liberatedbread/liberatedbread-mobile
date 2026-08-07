@@ -239,15 +239,21 @@ void main() {
 const _tieSvcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _tieCharUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
-const _brandA = DeviceSpecDto(
+final _brandA = DeviceSpecDto(
   deviceName: 'Brand A Lights',
   manufacturer: 'Vendor A',
   manufacturerStatus: 'active',
   protocol: 'ble',
+  localNamePrefixes: [],
+  companyIds: Uint16List(0),
+  macPrefixes: [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: [],
+  defaultPort: null,
   serviceUuids: [_tieSvcUuid],
   entities: <EntityDto>[],
   services: [
-    ServiceDto(uuid: _tieSvcUuid, name: 'A Control', characteristics: [
+    const ServiceDto(uuid: _tieSvcUuid, name: 'A Control', characteristics: [
       CharacteristicDto(
         uuid: _tieCharUuid,
         name: 'Command',
@@ -270,15 +276,21 @@ const _brandA = DeviceSpecDto(
   ],
 );
 
-const _brandB = DeviceSpecDto(
+final _brandB = DeviceSpecDto(
   deviceName: 'Brand B Lights',
   manufacturer: 'Vendor B',
   manufacturerStatus: 'active',
   protocol: 'ble',
+  localNamePrefixes: [],
+  companyIds: Uint16List(0),
+  macPrefixes: [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: [],
+  defaultPort: null,
   serviceUuids: [_tieSvcUuid],
   entities: <EntityDto>[],
   services: [
-    ServiceDto(uuid: _tieSvcUuid, name: 'B Control', characteristics: []),
+    const ServiceDto(uuid: _tieSvcUuid, name: 'B Control', characteristics: []),
   ],
 );
 
@@ -297,17 +309,19 @@ const _tieServices = [
 ];
 
 FakeSpecCodec _tieCodec() => FakeSpecCodec(
-      specByYaml: const {'yaml-a': _brandA, 'yaml-b': _brandB},
-      matches: const [
+      specByYaml: {'yaml-a': _brandA, 'yaml-b': _brandB},
+      matches: [
         MatchResult(
           spec: _brandA,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_tieSvcUuid],
+          confidence: MatchConfidence.strong,
         ),
         MatchResult(
           spec: _brandB,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_tieSvcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
       encoded: Uint8List.fromList([1, 1]),
