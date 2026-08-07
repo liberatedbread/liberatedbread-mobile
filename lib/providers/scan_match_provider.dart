@@ -31,6 +31,25 @@ class ScanGuess {
     required this.otherMatches,
   });
 
+  /// Reduce a matcher result to a guess, or null when nothing matched.
+  ///
+  /// The one place the "best match plus how contested it was" policy lives —
+  /// both the BLE and Wi-Fi guess providers go through it, so `namesAProduct`
+  /// can never mean different things on different tabs. Rust returns matches
+  /// best-first; `otherMatches` counts only ties at the best confidence,
+  /// because a Strong match is not made ambiguous by a trailing Possible one.
+  static ScanGuess? fromMatches(List<ScanMatch> matches) {
+    if (matches.isEmpty) return null;
+    final best = matches.first;
+    return ScanGuess(
+      deviceName: best.deviceName,
+      manufacturer: best.manufacturer,
+      confidence: best.confidence,
+      otherMatches:
+          matches.skip(1).where((m) => m.confidence == best.confidence).length,
+    );
+  }
+
   /// Whether this guess is specific enough to put a product name in front of a
   /// user. A [MatchConfidence.possible] match is one shared OUI: it says the
   /// device is worth a look, not which device it is. Saying "Mi Flora" on the
@@ -117,8 +136,12 @@ final specIdentitiesProvider =
 ///
 /// Keyed on [ScanIdentity], not on the device id, so a device that keeps
 /// advertising unchanged is matched once no matter how much its rssi moves.
-final scanGuessProvider =
-    FutureProvider.family<ScanGuess?, ScanIdentity>((ref, identity) async {
+/// `autoDispose` because the family key is the device's identity, and BLE
+/// privacy mode mints a fresh rotating address every few minutes: without it,
+/// every identity ever seen stays cached for the life of the app. Visible rows
+/// keep their entry alive by watching it.
+final scanGuessProvider = FutureProvider.autoDispose
+    .family<ScanGuess?, ScanIdentity>((ref, identity) async {
   final codec = ref.watch(specCodecProvider);
   final identities = await ref.watch(specIdentitiesProvider.future);
   if (identities.isEmpty) return null;
@@ -140,28 +163,18 @@ final scanGuessProvider =
     Log.spec.warning('scan matching failed for "${identity.name}"', error: e);
     return null;
   }
-  if (matches.isEmpty) return null;
-
-  // Rust returns these best-first.
-  final best = matches.first;
-  return ScanGuess(
-    deviceName: best.deviceName,
-    manufacturer: best.manufacturer,
-    confidence: best.confidence,
-    otherMatches:
-        matches.skip(1).where((m) => m.confidence == best.confidence).length,
-  );
+  return ScanGuess.fromMatches(matches);
 });
 
-/// A scanned device paired with what the catalogue makes of it.
+/// A device paired with what the catalogue makes of it.
 @immutable
-class RankedDevice {
-  final IoTDevice device;
+class Ranked<T> {
+  final T device;
 
   /// `null` while matching is still in flight, or when nothing matched.
   final ScanGuess? guess;
 
-  const RankedDevice({required this.device, this.guess});
+  const Ranked({required this.device, this.guess});
 
   /// Whether this belongs above the fold. A [MatchConfidence.possible] match
   /// does not: a shared OUI is not grounds for telling someone their device is
@@ -170,33 +183,50 @@ class RankedDevice {
       guess != null && guess!.confidence != MatchConfidence.possible;
 }
 
-/// Split scanned devices into the ones the catalogue recognises and the rest.
+/// A scanned BLE device paired with its guess.
+typedef RankedDevice = Ranked<IoTDevice>;
+
+/// Split devices into the ones the catalogue recognises and the rest.
 ///
 /// A pure function of the devices and their guesses so the ordering rules can
 /// be tested without a widget tree or a native library. Ordering within each
-/// group is by confidence, then by signal strength — a recognised device across
-/// the room still outranks an anonymous one on the desk, because knowing what
-/// something is matters more here than how close it is.
+/// group is by confidence, then by the caller's tie-break — the one thing that
+/// legitimately differs between the BLE and Wi-Fi tabs. Everything else (the
+/// partition, and "possible never counts as supported") exists once, here.
+({List<Ranked<T>> likelySupported, List<Ranked<T>> other}) rankDevices<T>(
+  List<T> devices,
+  ScanGuess? Function(T device) guessFor,
+  int Function(Ranked<T> a, Ranked<T> b) tieBreak,
+) {
+  final ranked = [
+    for (final device in devices)
+      Ranked(device: device, guess: guessFor(device)),
+  ];
+
+  int byConfidenceThenTieBreak(Ranked<T> a, Ranked<T> b) {
+    final aRank = a.guess?.confidence.index ?? -1;
+    final bRank = b.guess?.confidence.index ?? -1;
+    if (aRank != bRank) return bRank.compareTo(aRank);
+    return tieBreak(a, b);
+  }
+
+  final likelySupported = ranked.where((r) => r.isLikelySupported).toList()
+    ..sort(byConfidenceThenTieBreak);
+  final other = ranked.where((r) => !r.isLikelySupported).toList()
+    ..sort(byConfidenceThenTieBreak);
+  return (likelySupported: likelySupported, other: other);
+}
+
+/// Split scanned BLE devices, breaking ties by signal strength — a recognised
+/// device across the room still outranks an anonymous one on the desk, because
+/// knowing what something is matters more here than how close it is.
 ({List<RankedDevice> likelySupported, List<RankedDevice> other})
     rankScannedDevices(
   List<IoTDevice> devices,
   ScanGuess? Function(IoTDevice device) guessFor,
-) {
-  final ranked = [
-    for (final device in devices)
-      RankedDevice(device: device, guess: guessFor(device)),
-  ];
-
-  int byConfidenceThenSignal(RankedDevice a, RankedDevice b) {
-    final aRank = a.guess?.confidence.index ?? -1;
-    final bRank = b.guess?.confidence.index ?? -1;
-    if (aRank != bRank) return bRank.compareTo(aRank);
-    return b.device.rssi.compareTo(a.device.rssi);
-  }
-
-  final likelySupported = ranked.where((r) => r.isLikelySupported).toList()
-    ..sort(byConfidenceThenSignal);
-  final other = ranked.where((r) => !r.isLikelySupported).toList()
-    ..sort(byConfidenceThenSignal);
-  return (likelySupported: likelySupported, other: other);
-}
+) =>
+        rankDevices(
+          devices,
+          guessFor,
+          (a, b) => b.device.rssi.compareTo(a.device.rssi),
+        );

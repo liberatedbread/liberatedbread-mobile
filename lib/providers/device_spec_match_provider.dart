@@ -196,17 +196,20 @@ final parsedDeviceSpecsProvider =
   final codec = ref.watch(specCodecProvider);
   final specYamls = await ref.watch(deviceSpecsProvider.future);
 
-  final parsed = <({DeviceSpecDto spec, String yaml})>[];
-  for (final entry in specYamls.entries) {
+  // Parsed concurrently: each parse is an independent FFI round trip, and the
+  // catalogue is ~70 of them on the startup path. Future.wait preserves the
+  // manifest order, so the resulting list is byte-for-byte what the sequential
+  // loop produced.
+  final parsed = await Future.wait(specYamls.entries.map((entry) async {
     try {
-      parsed.add(
-          (spec: await codec.loadDeviceSpec(entry.value), yaml: entry.value));
+      return (spec: await codec.loadDeviceSpec(entry.value), yaml: entry.value);
     } catch (e) {
       // Skip this spec, but say so - a silent drop looks like a matching bug.
       Log.spec.warning('failed to parse spec ${entry.key}', error: e);
+      return null;
     }
-  }
-  return parsed;
+  }));
+  return parsed.nonNulls.toList();
 });
 
 /// Resolves the device spec(s) matching a connected device. Matching uses the
@@ -286,7 +289,7 @@ final matchedDeviceSpecProvider =
         // them, and MatchResult does not say which one hit, so name them all
         // rather than pick one and imply it was the one that matched.
         if (match.matchedByNamePrefix)
-          'name prefix ${match.spec.localNamePrefixes.map((p) => '"\$p"').join(' or ')}',
+          'name prefix ${match.spec.localNamePrefixes.map((p) => '"$p"').join(' or ')}',
         if (match.matchedServiceUuids.isNotEmpty)
           'service uuid(s) ${match.matchedServiceUuids.join(', ')}',
       ].join(' + ');
