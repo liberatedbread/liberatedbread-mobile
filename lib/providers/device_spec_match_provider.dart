@@ -282,8 +282,11 @@ final matchedDeviceSpecProvider =
   }
 
   String evidenceOf(MatchResult match) => [
+        // Plural: a family sold under several rebadged names declares each of
+        // them, and MatchResult does not say which one hit, so name them all
+        // rather than pick one and imply it was the one that matched.
         if (match.matchedByNamePrefix)
-          'name prefix "${match.spec.localNamePrefix ?? ''}"',
+          'name prefix ${match.spec.localNamePrefixes.map((p) => '"\$p"').join(' or ')}',
         if (match.matchedServiceUuids.isNotEmpty)
           'service uuid(s) ${match.matchedServiceUuids.join(', ')}',
       ].join(' + ');
