@@ -125,7 +125,32 @@ apt_install() {
 
 # ── 1. host toolchain (always) ───────────────────────────────────────────────
 
-if [ ! -x "$FLUTTER_HOME/bin/flutter" ]; then
+# What is on disk, or empty if there is nothing usable there. A stamp file
+# written at install time answers instantly; if it is missing (SDK installed by
+# an older revision of this hook, or by hand) fall back to asking the tool,
+# which costs a few seconds but only once. Existence alone is NOT enough to
+# accept the SDK: when CI bumps FLUTTER_VERSION, a session that keeps a stale
+# SDK fails `flutter pub get` on the Dart SDK constraint instead of following
+# the bump, which is the whole point of reading the version from ci.yml.
+FLUTTER_STAMP="$FLUTTER_HOME/.liberated-bread-version"
+
+installed_flutter_version() {
+  [ -x "$FLUTTER_HOME/bin/flutter" ] || return 0
+  if [ -r "$FLUTTER_STAMP" ]; then
+    cat "$FLUTTER_STAMP"
+    return 0
+  fi
+  "$FLUTTER_HOME/bin/flutter" --version --machine 2>/dev/null \
+    | grep -o '"frameworkVersion": *"[^"]*"' \
+    | sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+INSTALLED_FLUTTER="$(installed_flutter_version || true)"
+
+if [ "$INSTALLED_FLUTTER" != "$CI_FLUTTER_VERSION" ]; then
+  if [ -n "$INSTALLED_FLUTTER" ]; then
+    log "Flutter ${INSTALLED_FLUTTER} at $FLUTTER_HOME is not ci.yml's ${CI_FLUTTER_VERSION}; replacing it."
+  fi
   log "Installing Flutter ${CI_FLUTTER_VERSION} (from ci.yml)..."
   archive="flutter_linux_${CI_FLUTTER_VERSION}-stable.tar.xz"
   url="https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/${archive}"
@@ -139,8 +164,9 @@ if [ ! -x "$FLUTTER_HOME/bin/flutter" ]; then
   mv "$DOWNLOAD_TMP/flutter" "$FLUTTER_HOME"
   rm -rf "$DOWNLOAD_TMP"
   DOWNLOAD_TMP=""
+  printf '%s\n' "$CI_FLUTTER_VERSION" > "$FLUTTER_STAMP"
 else
-  log "Flutter already installed at $FLUTTER_HOME"
+  log "Flutter ${CI_FLUTTER_VERSION} already installed at $FLUTTER_HOME"
 fi
 
 export PATH="$FLUTTER_HOME/bin:$HOME/.cargo/bin:$PATH"
