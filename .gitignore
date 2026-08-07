@@ -44,6 +44,9 @@ app.*.map.json
 # Gradle's own output tree. Not covered by the root-anchored /build/ rule, and
 # a local `flutter build apk` leaves reports here.
 /android/build/
+# Kotlin Gradle plugin 2.x scratch dir — compiler-daemon session markers, left
+# behind by any local Android build now that there is Kotlin source to compile.
+/android/.kotlin/
 
 # Coverage
 coverage/
