@@ -26,6 +26,14 @@ heading.
 
 ### Added
 
+- **Bottom ad banner on the scan screen** — a small dismissible house-ad bar
+  pointing at the new liberatedbread.com/shop/ affiliate page (dead devices
+  cheap, WeMos boards, liberation gear). Content comes from
+  `https://liberatedbread.com/app/banner.json` fetched in the background, so
+  the promotion can change — or be switched off — without an app-store
+  release; a bundled fallback (and a cache of the last fetched config) renders
+  from the first frame, so a slow or absent network never blocks anything.
+  Dismissal is remembered per promotion id.
 - **Linux desktop target (x86-64)** — build and iterate without an emulator:
   `./scripts/run-linux.sh --mock`, committed `linux/` scaffold, a
   `verify_linux_bundle.sh` that checks the Rust library is bundled *and*
