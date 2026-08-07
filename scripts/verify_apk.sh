@@ -25,7 +25,7 @@
 # same way CI does (the scripts/test.sh pattern):
 #
 #   ./scripts/verify_apk.sh build/app/outputs/flutter-apk/app-debug.apk \
-#     --require-abis arm64-v8a,armeabi-v7a,x86,x86_64
+#     --require-abis arm64-v8a,armeabi-v7a,x86_64
 #
 # Usage:
 #   ./scripts/verify_apk.sh <path-to-apk> [options]
@@ -35,7 +35,9 @@
 #                          Beyond these, EVERY ABI the build actually produced
 #                          is verified — the flag only pins the floor, because
 #                          debug and release builds legitimately ship different
-#                          ABI sets (release drops x86).
+#                          ABI sets. NOTE: Flutter 3.44 no longer builds
+#                          32-bit x86 for Android in either mode, so neither
+#                          set names it.
 #   --min-so-bytes N       Size floor for libliberated_bread_core.so
 #                          (default: 65536).
 #
