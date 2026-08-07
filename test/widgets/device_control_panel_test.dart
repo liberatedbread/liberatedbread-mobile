@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -8,32 +9,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
+import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/spec_choice_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/device_control_panel.dart';
 import 'package:liberated_bread_mobile/widgets/typed_characteristic_widget.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_spec_codec.dart';
 
-Widget _wrap(
+Future<Widget> _wrap(
   Widget child, {
   required FakeBleService ble,
   required FakeSpecCodec codec,
   Map<String, String>? specs,
-}) =>
-    ProviderScope(
-      overrides: [
-        bleServiceProvider.overrideWithValue(ble),
-        specCodecProvider.overrideWithValue(codec),
-        if (specs != null) deviceSpecsProvider.overrideWith((ref) => specs),
-      ],
-      child: MaterialApp(home: Scaffold(body: child)),
-    );
+  Map<String, Object> initialPrefs = const {},
+}) async {
+  SharedPreferences.setMockInitialValues(initialPrefs);
+  final prefs = await SharedPreferences.getInstance();
+  return ProviderScope(
+    overrides: [
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      bleServiceProvider.overrideWithValue(ble),
+      specCodecProvider.overrideWithValue(codec),
+      if (specs != null) deviceSpecsProvider.overrideWith((ref) => specs),
+    ],
+    child: MaterialApp(home: Scaffold(body: child)),
+  );
+}
 
 void main() {
   testWidgets('empty services renders the empty message', (tester) async {
-    await tester.pumpWidget(_wrap(
+    await tester.pumpWidget(await _wrap(
       const DeviceControlPanel(deviceId: '01', deviceName: 'Dev', services: []),
       ble: FakeBleService(),
       codec: FakeSpecCodec(),
@@ -54,7 +63,7 @@ void main() {
         characteristics: [],
       ),
     ];
-    await tester.pumpWidget(_wrap(
+    await tester.pumpWidget(await _wrap(
       const DeviceControlPanel(
           deviceId: '01', deviceName: 'Dev', services: services),
       ble: FakeBleService(),
@@ -117,7 +126,7 @@ void main() {
       ),
     ];
 
-    await tester.pumpWidget(_wrap(
+    await tester.pumpWidget(await _wrap(
       const DeviceControlPanel(
           deviceId: '01', deviceName: 'ACME_Living_Room', services: services),
       ble: FakeBleService(),
@@ -141,4 +150,155 @@ void main() {
     expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
     expect(find.text('Power on'), findsWidgets);
   });
+
+  testWidgets(
+      'equally-matched specs show the chooser; picking one persists and '
+      'renders its typed controls', (tester) async {
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: 'AA:BB', deviceName: 'Mystery', services: _tieServices),
+      ble: FakeBleService(),
+      codec: _tieCodec(),
+      specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
+    ));
+    await tester.pumpAndSettle();
+
+    // The tie renders a chooser with both brands; raw controls stay below
+    // (the service card shows a generic name, not either brand's).
+    expect(find.text('Which device is this?'), findsOneWidget);
+    expect(find.text('Brand A Lights'), findsOneWidget);
+    expect(find.text('Brand B Lights'), findsOneWidget);
+    expect(find.byType(TypedCharacteristicWidget), findsNothing);
+
+    await tester.tap(find.text('Brand A Lights'));
+    await tester.pumpAndSettle();
+
+    // Chooser gone, chosen spec's names and typed controls in place.
+    expect(find.text('Which device is this?'), findsNothing);
+    expect(find.text('A Control'), findsOneWidget);
+    expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
+
+    // And the choice was persisted for the next connection.
+    final store = SpecChoiceStore(await SharedPreferences.getInstance());
+    expect(store.load(), {'AA:BB': 'Brand A Lights|Vendor A'});
+  });
+
+  testWidgets(
+      'a saved choice shows the banner; Change reopens the chooser and a '
+      'new pick replaces the stored choice', (tester) async {
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: 'AA:BB', deviceName: 'Mystery', services: _tieServices),
+      ble: FakeBleService(),
+      codec: _tieCodec(),
+      specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
+      initialPrefs: {
+        'spec_choices_v1': jsonEncode({'AA:BB': 'Brand A Lights|Vendor A'}),
+      },
+    ));
+    await tester.pumpAndSettle();
+
+    // The saved pick is honored — no chooser — and the banner names it with
+    // a way out.
+    expect(find.text('Which device is this?'), findsNothing);
+    expect(find.text('Brand A Lights'), findsOneWidget);
+    expect(find.text('Device type you picked'), findsOneWidget);
+    expect(find.text('A Control'), findsOneWidget);
+
+    await tester.tap(find.text('Change'));
+    await tester.pumpAndSettle();
+
+    // Cleared: the tie is live again, chooser back, banner gone.
+    expect(find.text('Which device is this?'), findsOneWidget);
+    expect(find.text('Device type you picked'), findsNothing);
+
+    await tester.tap(find.text('Brand B Lights'));
+    await tester.pumpAndSettle();
+
+    // The new pick renders and replaced the stored choice.
+    expect(find.text('B Control'), findsOneWidget);
+    expect(find.text('Device type you picked'), findsOneWidget);
+    final store = SpecChoiceStore(await SharedPreferences.getInstance());
+    expect(store.load(), {'AA:BB': 'Brand B Lights|Vendor B'});
+  });
 }
+
+// ── Shared fixture: two white-label brands on one GATT platform service ──────
+// The tie the chooser exists for: identical matched evidence, distinct specs.
+
+const _tieSvcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
+const _tieCharUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
+
+const _brandA = DeviceSpecDto(
+  deviceName: 'Brand A Lights',
+  manufacturer: 'Vendor A',
+  manufacturerStatus: 'active',
+  protocol: 'ble',
+  serviceUuids: [_tieSvcUuid],
+  entities: <EntityDto>[],
+  services: [
+    ServiceDto(uuid: _tieSvcUuid, name: 'A Control', characteristics: [
+      CharacteristicDto(
+        uuid: _tieCharUuid,
+        name: 'Command',
+        canRead: false,
+        canWrite: true,
+        canNotify: false,
+        commands: [
+          CommandDto(
+            name: 'power_on',
+            description: 'On',
+            parameters: [],
+            isFixed: true,
+            isEncodable: true,
+            unsupportedEncoding: null,
+          ),
+        ],
+        formatFields: [],
+      ),
+    ]),
+  ],
+);
+
+const _brandB = DeviceSpecDto(
+  deviceName: 'Brand B Lights',
+  manufacturer: 'Vendor B',
+  manufacturerStatus: 'active',
+  protocol: 'ble',
+  serviceUuids: [_tieSvcUuid],
+  entities: <EntityDto>[],
+  services: [
+    ServiceDto(uuid: _tieSvcUuid, name: 'B Control', characteristics: []),
+  ],
+);
+
+const _tieServices = [
+  BleDiscoveredService(
+    uuid: _tieSvcUuid,
+    characteristics: [
+      BleDiscoveredCharacteristic(
+        uuid: _tieCharUuid,
+        canRead: false,
+        canWrite: true,
+        canNotify: false,
+      ),
+    ],
+  ),
+];
+
+FakeSpecCodec _tieCodec() => FakeSpecCodec(
+      specByYaml: const {'yaml-a': _brandA, 'yaml-b': _brandB},
+      matches: const [
+        MatchResult(
+          spec: _brandA,
+          matchedByNamePrefix: false,
+          matchedServiceUuids: [_tieSvcUuid],
+        ),
+        MatchResult(
+          spec: _brandB,
+          matchedByNamePrefix: false,
+          matchedServiceUuids: [_tieSvcUuid],
+        ),
+      ],
+      encoded: Uint8List.fromList([1, 1]),
+    );

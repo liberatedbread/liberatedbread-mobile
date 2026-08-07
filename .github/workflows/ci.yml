@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FLUTTER_VERSION: '3.24.5'
+  FLUTTER_VERSION: '3.44.8'
   # The NDK cargokit actually builds against, shared by every job that compiles
   # the Rust crate for Android. android/app/build.gradle sets
   # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
@@ -33,7 +33,7 @@ env:
   # 3.24.5 hardcodes 23.1.7779620 (packages/flutter_tools/gradle/src/main/
   # groovy/flutter.groovy). Installing any other version just means cargokit
   # downloads this one itself, mid-build. Keep in sync with FLUTTER_VERSION.
-  FLUTTER_NDK_VERSION: '23.1.7779620'
+  FLUTTER_NDK_VERSION: '28.2.13676358'
 
 jobs:
   flutter:
@@ -167,12 +167,14 @@ jobs:
       #     conflict that drops a permission produces an APK that installs fine
       #     and fails every BLE scan at runtime.
       #
-      # Debug builds all four ABIs, so all four are required here; the release
-      # step below pins the (different) release set. The same script runs
-      # locally against a local build — the scripts/test.sh pattern.
+      # Flutter dropped Android x86 engine builds (3.27 deprecated, removed
+      # after), so debug now produces the same three engine ABIs as release;
+      # requiring x86 here failed against a toolchain that can no longer
+      # emit it. The same script runs locally against a local build — the
+      # scripts/test.sh pattern.
       - name: Verify debug APK contents
         run: ./scripts/verify_apk.sh build/app/outputs/flutter-apk/app-debug.apk
-          --require-abis arm64-v8a,armeabi-v7a,x86,x86_64
+          --require-abis arm64-v8a,armeabi-v7a,x86_64
       # Uploaded before the release build so a release-only failure still leaves
       # the debug APK downloadable for triage.
       # Best-effort upload: continue-on-error (deliberate, survives artifact-quota hits) would neutralize if-no-files-found: error anyway, so warn.
@@ -347,7 +349,22 @@ jobs:
           # is slow — and it CANNOT extend the load phase, whose 12-minute limit
           # is hardcoded in package:test_core's synthetic load suite. Keeping
           # loading inside that limit is the warm-up build step's job.
-          script: flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
+          # Logcat runs in the background for the whole test session and is
+          # uploaded on every outcome below: when the harness hangs waiting
+          # for the app's VM service (as an engine-level failure at startup
+          # does), the step log shows nothing at all — the device log is the
+          # only place the actual failure is visible.
+          script: |
+            adb logcat -c || true
+            adb logcat -v time > emulator-logcat.txt 2>&1 &
+            flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
+      - name: Upload emulator logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-logcat-api${{ matrix.api-level }}
+          path: emulator-logcat.txt
+          if-no-files-found: warn
 
   ios-build:
     name: iOS build + bundle verification + simulator integration tests
@@ -379,6 +396,14 @@ jobs:
         with:
           workspaces: rust
       - run: flutter pub get
+      # Newer Flutter enables Swift Package Manager by default, and
+      # SPM-capable plugins (flutter_blue_plus_darwin ships a Package.swift)
+      # then bypass CocoaPods entirely — vanishing from Podfile.lock and
+      # breaking the pod-presence assertions below while still being linked.
+      # Pin plugin resolution to CocoaPods so the "every plugin is a pod"
+      # invariant those checks encode stays true.
+      - name: Use CocoaPods for plugin resolution (disable SPM)
+        run: flutter config --no-enable-swift-package-manager
       - name: Build iOS (simulator, no codesign)
         run: flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true
 

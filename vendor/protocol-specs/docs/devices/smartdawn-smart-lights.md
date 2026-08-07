@@ -122,6 +122,27 @@ Inbound highlights: `M_DEVICE_INFO_NOTIFY` (mt=2103, hardware/ports/fwVer/
 effects/width/height), `M_POWER_STATUS_NOTIFY` (2105), `M_PLAY_INFO_NOTIFY`
 (2610).
 
+### Image / animation frames (pixel push)
+
+The platform's display surface is a raster buffer: the app's draw,
+photo-to-light and music modes stream **standard DDP packets** with datatype
+`DISPLAY` (0x01) to the DDP Write characteristic. Each packet carries pixel
+bytes at a byte `offset` into the display buffer with `psize` length (header
+layout in the table above); a frame larger than one packet is sent as
+multiple packets at increasing offsets. Following the DDP convention the
+platform derives from, the PUSH flag (0x01) on the final packet latches the
+assembled buffer onto the LEDs — an inference from the header semantics, not
+yet confirmed by capture. Animations are streamed: repeat the frame push at
+the desired rate. Per-model resolution (width × height) comes from the
+manufacturer-data record and `M_DEVICE_INFO_NOTIFY` (mt=2103).
+
+Machine-readable capability: the YAML spec declares
+`features: [image_upload]` (rgb888, device-reported resolution, animation via
+streaming) and `protocol_handler: "daniao_ddp"` for clients that implement
+the fragment framing + DDP packet encoder. Stored multi-frame effects also
+exist via the BIN-channel install flow (mt 29xx) but are not yet mapped well
+enough to encode.
+
 ### Wi-Fi path (platform feature)
 
 Same DDP framing over UDP port 4048; devices announce presence to app UDP

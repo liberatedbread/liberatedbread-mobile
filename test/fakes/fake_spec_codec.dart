@@ -28,10 +28,24 @@ class FakeSpecCodec implements SpecCodec {
   final Object? loadError;
   final Object? encodeError;
   final Object? decodeError;
+  final Object? encodeImageError;
+
+  /// Returned by [encodeImageFrame]; defaults to a single write echoing the
+  /// pixels, targeting service 'srv' / characteristic 'chr'.
+  final ImageWritePlanDto? imagePlan;
 
   final List<
           ({String charUuid, String commandName, Map<String, double> params})>
       encodeCalls = [];
+
+  final List<
+      ({
+        int width,
+        int height,
+        List<int> rgb,
+        int frameIndex,
+        int maxPayloadPerWrite,
+      })> encodeImageCalls = [];
 
   FakeSpecCodec({
     this.spec,
@@ -42,6 +56,8 @@ class FakeSpecCodec implements SpecCodec {
     this.loadError,
     this.encodeError,
     this.decodeError,
+    this.encodeImageError,
+    this.imagePlan,
   }) : encoded = encoded ?? Uint8List(0);
 
   @override
@@ -95,4 +111,31 @@ class FakeSpecCodec implements SpecCodec {
     List<String> serviceUuids,
   ) async =>
       const [];
+
+  @override
+  Future<ImageWritePlanDto> encodeImageFrame({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required int frameIndex,
+    required int maxPayloadPerWrite,
+  }) async {
+    encodeImageCalls.add((
+      width: width,
+      height: height,
+      rgb: List.of(rgb),
+      frameIndex: frameIndex,
+      maxPayloadPerWrite: maxPayloadPerWrite,
+    ));
+    if (encodeImageError != null) throw encodeImageError!;
+    return imagePlan ??
+        ImageWritePlanDto(
+          serviceUuid: 'srv',
+          characteristicUuid: 'chr',
+          writes: [Uint8List.fromList(rgb)],
+          // One packet consumed, like a real single-packet frame.
+          nextFrameIndex: frameIndex + 1,
+        );
+  }
 }

@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
@@ -92,6 +94,124 @@ void main() {
           reason: '$state nullability should match "is it `on`"',
         );
       }
+    });
+  });
+
+  group('nextEmptyDiscoveryRetryDelay (BlueZ ServicesResolved race)', () {
+    test('first retry is quick, so the common fast-resolve case barely waits',
+        () {
+      final delay = nextEmptyDiscoveryRetryDelay(0);
+      expect(delay, isNotNull);
+      expect(delay!, lessThanOrEqualTo(const Duration(milliseconds: 500)));
+    });
+
+    test('delays never shrink across the schedule', () {
+      var attempt = 0;
+      var previous = Duration.zero;
+      while (true) {
+        final delay = nextEmptyDiscoveryRetryDelay(attempt);
+        if (delay == null) break;
+        expect(delay, greaterThanOrEqualTo(previous),
+            reason: 'attempt $attempt must not back off less than the last');
+        previous = delay;
+        attempt++;
+      }
+      expect(attempt, greaterThan(0), reason: 'there must be retries at all');
+    });
+
+    test('the schedule ends: a genuinely empty device is accepted as final',
+        () {
+      // Walk past the schedule and require null from then on — the discovery
+      // loop treats null as "stop retrying", so a schedule that never ends
+      // would pin the Discovering screen open forever.
+      var attempt = 0;
+      while (nextEmptyDiscoveryRetryDelay(attempt) != null) {
+        attempt++;
+        expect(attempt, lessThan(100), reason: 'schedule must terminate');
+      }
+      expect(nextEmptyDiscoveryRetryDelay(attempt + 1), isNull);
+    });
+
+    test(
+        'total wait is a few seconds: enough for BlueZ, short enough for a '
+        'human watching the Discovering screen', () {
+      var total = Duration.zero;
+      for (var attempt = 0;; attempt++) {
+        final delay = nextEmptyDiscoveryRetryDelay(attempt);
+        if (delay == null) break;
+        total += delay;
+      }
+      // ServicesResolved normally lands well under 2s after connect; the
+      // budget covers slow peripherals with margin.
+      expect(total, greaterThanOrEqualTo(const Duration(seconds: 2)));
+      expect(total, lessThanOrEqualTo(const Duration(seconds: 10)));
+    });
+  });
+
+  group('isSpuriousLinuxNotifyTimeout (Linux CCCD confirmation quirk)', () {
+    FlutterBluePlusException fbpError(String function, FbpErrorCode code) =>
+        FlutterBluePlusException(
+          ErrorPlatform.fbp,
+          function,
+          code.index,
+          'Timed out after 3s',
+        );
+
+    test('setNotifyValue timeout on Linux is tolerated', () {
+      expect(
+        isSpuriousLinuxNotifyTimeout(
+          fbpError('setNotifyValue', FbpErrorCode.timeout),
+          isLinux: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('the identical timeout on other platforms still fails the subscribe',
+        () {
+      // On Android/iOS the CCCD confirmation event is real, so a timeout
+      // means the peripheral truly never acked — that must surface.
+      expect(
+        isSpuriousLinuxNotifyTimeout(
+          fbpError('setNotifyValue', FbpErrorCode.timeout),
+          isLinux: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a timeout from a different fbp call is not swallowed', () {
+      expect(
+        isSpuriousLinuxNotifyTimeout(
+          fbpError('discoverServices', FbpErrorCode.timeout),
+          isLinux: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a non-timeout setNotifyValue failure is not swallowed', () {
+      expect(
+        isSpuriousLinuxNotifyTimeout(
+          fbpError('setNotifyValue', FbpErrorCode.deviceIsDisconnected),
+          isLinux: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('non-fbp errors are never swallowed', () {
+      expect(
+        isSpuriousLinuxNotifyTimeout(
+          TimeoutException('setNotifyValue', const Duration(seconds: 3)),
+          isLinux: true,
+        ),
+        isFalse,
+      );
+      expect(
+        isSpuriousLinuxNotifyTimeout(StateError('boom'), isLinux: true),
+        isFalse,
+      );
     });
   });
 
