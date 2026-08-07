@@ -10,6 +10,7 @@ import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
+import 'package:liberated_bread_mobile/screens/find_device_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
 import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
@@ -189,6 +190,34 @@ void main() {
     // BEFORE connect resolved (a no-op against a not-yet-connected peripheral)
     // and then returned without disconnecting the now-live link, leaking it.
     expect(fake.events, ['connect:01', 'disconnect:01']);
+  });
+
+  testWidgets('Find device opens the find screen for the connected device',
+      (tester) async {
+    final fake = FakeBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+      ],
+      rssiValues: const [-58],
+    );
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Find device'), findsOneWidget);
+    await tester.tap(find.text('Find device'));
+    // Explicit pumps: once pushed, the find screen polls RSSI on a periodic
+    // timer, so this stays on deterministic durations.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(FindDeviceScreen), findsOneWidget);
+    // The find screen reads RSSI over the connection this screen owns.
+    expect(fake.rssiReadCount, greaterThanOrEqualTo(1));
+
+    // Unmount everything so the find screen's poll timer is cancelled
+    // before the test ends.
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('an unexpected disconnect flips to the reconnect state',

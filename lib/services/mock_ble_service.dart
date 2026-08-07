@@ -389,6 +389,20 @@ class MockBleService implements BleService {
   }
 
   @override
+  Future<int> readRssi(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!(_connected[deviceId] ?? false)) {
+      throw StateError('Not connected to $deviceId');
+    }
+    // A slow approach/retreat cycle (~16 s period, ±9 dBm) plus per-read
+    // jitter, so the Find Device view demonstrably reacts in demo mode
+    // instead of pinning to one value.
+    final base = _defFor(deviceId).rssi;
+    final phase = DateTime.now().millisecondsSinceEpoch / 16000 * 2 * pi;
+    return (base + sin(phase) * 9).round() + _random.nextInt(5) - 2;
+  }
+
+  @override
   Stream<List<int>> subscribeCharacteristic(
     String deviceId,
     String serviceUuid,
