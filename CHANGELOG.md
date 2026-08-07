@@ -203,6 +203,25 @@ heading.
 
 ### Changed
 
+- **Dev environment setup now follows CI instead of re-pinning it.**
+  `scripts/ci-versions.sh` reads the Flutter/NDK/Android API/build-tools/FRB
+  pins, the rustup target lists, the Linux desktop apt packages and the
+  emulator's API level, system image and device profile out of
+  `.github/workflows/ci.yml`; `scripts/setup.sh` and the Claude Code session
+  hook provision from those values (each has a fallback, and a parse miss
+  warns). `scripts/setup.sh` also gained the Linux desktop toolchain install
+  and now creates the `liberated_bread_test` AVD from CI's exact system image
+  and device profile. Both paths now compare the *installed* Flutter against
+  the pin rather than accepting any SDK that exists — the session hook
+  replaces a stale one, and `setup.sh` says so without touching an SDK it
+  didn't install — so a `FLUTTER_VERSION` bump actually reaches dev
+  environments instead of surfacing later as a Dart SDK constraint failure.
+- **Claude Code web sessions can build and run Android and Linux desktop.**
+  `.claude/hooks/session-start.sh` grew two auto-detected tiers on top of the
+  host toolchain: the Linux desktop dependencies (wherever apt is usable) and
+  the Android SDK/NDK, emulator and AVD (when `/dev/kvm` and disk allow).
+  Both skip with a logged reason rather than failing the session, and can be
+  forced or suppressed with `LB_SETUP_LINUX_DESKTOP` / `LB_SETUP_ANDROID`.
 - Spec parsing is now tolerant of real-world protocol-docs specs: `DeviceSpec`,
   `Identification`, and `ParameterSet` dropped `deny_unknown_fields` in favor
   of a flattened `extensions` catch-all, so WiFi specs and vendor extension
