@@ -40,7 +40,7 @@ static SPEC_CACHE: LazyLock<Mutex<HashMap<String, Arc<DeviceSpec>>>> =
 /// miss is one re-parse.
 const SPEC_CACHE_MAX_ENTRIES: usize = 32;
 
-fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolError> {
+pub(crate) fn parse_or_cached(yaml: &str) -> Result<Arc<DeviceSpec>, ProtocolError> {
     let mut cache = SPEC_CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(spec) = cache.get(yaml) {
         return Ok(spec.clone());

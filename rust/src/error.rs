@@ -57,6 +57,12 @@ pub enum ProtocolError {
     #[error("field offset+length overflows usize: offset={offset}, length={length}")]
     FieldOffsetOverflow { offset: usize, length: usize },
 
+    #[error("image upload is not supported for this device: {reason}")]
+    ImageUploadUnsupported { reason: String },
+
+    #[error("invalid image frame: {reason}")]
+    ImageDimensionsInvalid { reason: String },
+
     #[error("failed to parse device spec: {0}")]
     SpecParse(#[from] SpecError),
 }

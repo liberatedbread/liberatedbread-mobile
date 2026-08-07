@@ -32,6 +32,57 @@ pub struct DeviceSpecDto {
     /// in spec order. This is what lets the app render named readings with
     /// units instead of a raw GATT browser.
     pub entities: Vec<EntityDto>,
+    /// The spec's `image_upload` feature, when it declares one — pixel
+    /// displays (LED matrices, curtain lights, badges, printers) that accept
+    /// a raster image and possibly animations. Drives the app's generic LED
+    /// image widget; `None` for devices without a pixel surface.
+    pub image_upload: Option<ImageUploadDto>,
+}
+
+/// A spec's declared image/animation capability, plus whether this crate can
+/// actually encode uploads for it.
+///
+/// The split matters: the capability is *declarative* (any spec may carry
+/// it), while encoding needs a named `protocol_handler` implemented in
+/// `crate::protocol`. The UI renders the full editor when [`Self::encodable`]
+/// and an honest "not wired up yet" state otherwise, so new specs light up by
+/// data alone once their handler lands.
+#[derive(Debug, Clone)]
+pub struct ImageUploadDto {
+    /// The spec's `protocol_handler` name, e.g. `daniao_ddp`.
+    pub handler: Option<String>,
+    /// True when [`Self::handler`] names a handler this crate implements —
+    /// i.e. `encode_image_frame` will succeed rather than error.
+    pub encodable: bool,
+    /// Wire pixel format the device expects (e.g. `rgb888`, `gif`).
+    pub format: Option<String>,
+    pub max_width: Option<u32>,
+    pub max_height: Option<u32>,
+    /// True when max_width/max_height are platform bounds and the panel's
+    /// real resolution is reported by the device at runtime (so the editor
+    /// should let the user set the canvas size).
+    pub resolution_device_reported: bool,
+    /// Whether multi-frame sequences (animations) are supported.
+    pub animation: bool,
+    pub max_frames: Option<u32>,
+    /// Fastest supported frame flip in milliseconds, when the spec knows it.
+    pub min_frame_interval_ms: Option<u32>,
+    pub default_frame_interval_ms: Option<u32>,
+}
+
+/// The BLE writes that push one image frame to a device, in send order.
+#[derive(Debug, Clone)]
+pub struct ImageWritePlanDto {
+    pub service_uuid: String,
+    pub characteristic_uuid: String,
+    /// Ordered write payloads. The caller sends them back-to-back on the
+    /// characteristic; ordering is part of the protocol (fragment reassembly).
+    pub writes: Vec<Vec<u8>>,
+    /// The frame index to pass for the NEXT frame. A frame spanning P wire
+    /// packets consumes P sequence numbers, so advancing by 1 would make the
+    /// next frame's serials collide with this one's and corrupt fragment
+    /// reassembly on the device — always continue from this value.
+    pub next_frame_index: u32,
 }
 
 /// A spec-declared reading: what to call it, what unit it is in, and which
@@ -159,10 +210,42 @@ pub struct MatchResult {
 // All conversions go through `From` for symmetry. The tuple impls
 // (`From<(&str, ...)>`) carry a HashMap key into the DTO.
 
+/// Build the image-upload DTO from a spec's `features` + `protocol_handler`.
+///
+/// Only the first `image_upload` feature is used — the schema models one
+/// pixel surface per device. `encodable` is the registry check: it is what
+/// keeps the app generic, asking "can this spec's uploads be encoded" instead
+/// of matching device names.
+fn image_upload_dto(spec: &DeviceSpec) -> Option<ImageUploadDto> {
+    let feature = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")?;
+    let handler = spec.protocol_handler.clone();
+    // Same registry encode_image_frame dispatches on, so a handler can never
+    // be advertised as encodable without an encoder (or vice versa).
+    let encodable = handler
+        .as_deref()
+        .is_some_and(|name| crate::protocol::image_upload_handler(name).is_some());
+    Some(ImageUploadDto {
+        handler,
+        encodable,
+        format: feature.format.clone(),
+        max_width: feature.max_width,
+        max_height: feature.max_height,
+        resolution_device_reported: feature.resolution_source.as_deref() == Some("device_reported"),
+        animation: feature.animation.unwrap_or(false),
+        max_frames: feature.max_frames,
+        min_frame_interval_ms: feature.min_frame_interval_ms,
+        default_frame_interval_ms: feature.default_frame_interval_ms,
+    })
+}
+
 impl From<&DeviceSpec> for DeviceSpecDto {
     fn from(spec: &DeviceSpec) -> Self {
         let ident = spec.device.identification.as_ref();
         Self {
+            image_upload: image_upload_dto(spec),
             device_name: spec.device.name.clone(),
             manufacturer: spec.device.manufacturer.clone(),
             manufacturer_status: spec.device.manufacturer_status.to_string(),
@@ -376,14 +459,24 @@ pub fn match_device_to_spec(
     specs
         .into_iter()
         .filter_map(|spec| {
-            // An empty prefix is treated as absent, not as a wildcard:
-            // `"anything".starts_with("")` is true, so a spec carrying
+            // An empty prefix is treated as absent, not as a wildcard: an
+            // empty prefix matches every name, so a spec carrying
             // `local_name_prefix: ""` would otherwise claim every scanned
             // device.
-            let name_match = spec
-                .local_name_prefix
-                .as_ref()
-                .is_some_and(|prefix| !prefix.is_empty() && device_name.starts_with(prefix));
+            //
+            // ASCII-case-insensitive, like the UUID axis below: BLE local
+            // names for these devices are ASCII, and vendors are not
+            // consistent about casing across firmware revisions (SmartDawn
+            // units advertise DN*-style names and the vendor app itself
+            // filters them case-insensitively). `get(..len)` rather than
+            // slicing so a multi-byte device name can't panic mid-char — a
+            // None there cannot equal an ASCII prefix anyway.
+            let name_match = spec.local_name_prefix.as_ref().is_some_and(|prefix| {
+                !prefix.is_empty()
+                    && device_name
+                        .get(..prefix.len())
+                        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+            });
 
             // Return the lowercased intersection. Matches the docstring's
             // contract and gives Dart callers a predictable casing. We
@@ -427,6 +520,54 @@ pub fn encode_command(
 ) -> anyhow::Result<Vec<u8>> {
     let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
+}
+
+/// Encode one RGB888 frame into the ordered BLE writes that display it,
+/// dispatched on the spec's `protocol_handler`.
+///
+/// `rgb` is row-major, length `width * height * 3`. `frame_index` sequences
+/// consecutive frames of an animation (wire serials derive from it), and
+/// `max_payload_per_write` is the usable bytes per BLE write (negotiated ATT
+/// MTU - 3; pass 20 when the MTU is unknown). Errors are typed and
+/// user-presentable: an unknown or missing handler says so instead of
+/// producing bytes that were never going to work.
+pub fn encode_image_frame(
+    spec_yaml: String,
+    width: u32,
+    height: u32,
+    rgb: Vec<u8>,
+    frame_index: u32,
+    max_payload_per_write: u32,
+) -> anyhow::Result<ImageWritePlanDto> {
+    // Streaming calls this once per frame with the same YAML, so parse
+    // through the same bounded cache encode_command/decode_value use — a
+    // cache hit instead of a full re-parse per frame.
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let Some(handler_name) = spec.protocol_handler.as_deref() else {
+        return Err(crate::error::ProtocolError::ImageUploadUnsupported {
+            reason: "the device spec declares no protocol_handler".to_string(),
+        }
+        .into());
+    };
+    let Some(handler) = crate::protocol::image_upload_handler(handler_name) else {
+        return Err(crate::error::ProtocolError::ImageUploadUnsupported {
+            reason: format!("protocol handler '{handler_name}' has no encoder in this build"),
+        }
+        .into());
+    };
+    let frame = (handler.encode)(
+        &rgb,
+        width,
+        height,
+        frame_index,
+        max_payload_per_write as usize,
+    )?;
+    Ok(ImageWritePlanDto {
+        service_uuid: handler.service_uuid.to_string(),
+        characteristic_uuid: handler.characteristic_uuid.to_string(),
+        next_frame_index: frame_index.wrapping_add(frame.packets),
+        writes: frame.writes,
+    })
 }
 
 /// Decode raw bytes from a BLE read/notify into named values.
@@ -789,6 +930,123 @@ services:
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
         let results = match_device_to_spec(vec![dto], "OTHER_Device".into(), vec![]);
         assert!(results.is_empty());
+    }
+
+    const IMAGE_SPEC_YAML: &str = r#"
+device:
+  name: "Pixel Curtain"
+  manufacturer: "Daniao"
+  manufacturer_status: "active"
+  protocol: "ble"
+
+protocol_handler: "daniao_ddp"
+
+features:
+  - type: "image_upload"
+    format: "rgb888"
+    max_width: 255
+    max_height: 255
+    resolution_source: "device_reported"
+    animation: true
+    default_frame_interval_ms: 200
+
+services: []
+"#;
+
+    #[test]
+    fn image_upload_feature_parses_into_dto() {
+        let dto = load_device_spec(IMAGE_SPEC_YAML.into()).unwrap();
+        let img = dto.image_upload.expect("image_upload feature must surface");
+        assert_eq!(img.handler.as_deref(), Some("daniao_ddp"));
+        assert!(img.encodable, "daniao_ddp is implemented");
+        assert_eq!(img.format.as_deref(), Some("rgb888"));
+        assert_eq!(img.max_width, Some(255));
+        assert!(img.resolution_device_reported);
+        assert!(img.animation);
+        assert_eq!(img.default_frame_interval_ms, Some(200));
+        assert_eq!(img.min_frame_interval_ms, None);
+    }
+
+    #[test]
+    fn spec_without_image_feature_has_no_image_upload() {
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        assert!(dto.image_upload.is_none());
+    }
+
+    #[test]
+    fn unimplemented_handler_is_declared_not_encodable() {
+        let yaml = IMAGE_SPEC_YAML.replace("daniao_ddp", "popled_json");
+        let dto = load_device_spec(yaml).unwrap();
+        let img = dto.image_upload.unwrap();
+        assert_eq!(img.handler.as_deref(), Some("popled_json"));
+        assert!(!img.encodable);
+    }
+
+    #[test]
+    fn encode_image_frame_routes_to_daniao() {
+        let plan = encode_image_frame(IMAGE_SPEC_YAML.into(), 1, 1, vec![0x10, 0x20, 0x30], 0, 20)
+            .unwrap();
+        assert_eq!(plan.service_uuid, "00000074-1972-1925-3022-077119514e44");
+        assert_eq!(
+            plan.characteristic_uuid,
+            "01020074-1972-1925-3022-077119514e44"
+        );
+        assert_eq!(plan.writes.len(), 1);
+        assert!(plan.writes[0].ends_with(&[0x10, 0x20, 0x30]));
+        assert_eq!(plan.next_frame_index, 1, "one packet consumed one serial");
+    }
+
+    #[test]
+    fn encode_image_frame_advances_index_by_packets_consumed() {
+        // 40x34 RGB at the 20-byte payload floor splits into two DDP packets
+        // (serials 5 and 6), so the next frame must start at 7 — advancing by
+        // one would make its first packet collide with this frame's second.
+        let plan = encode_image_frame(
+            IMAGE_SPEC_YAML.into(),
+            40,
+            34,
+            vec![0xAB; 40 * 34 * 3],
+            5,
+            20,
+        )
+        .unwrap();
+        assert_eq!(plan.next_frame_index, 7);
+    }
+
+    #[test]
+    fn encode_image_frame_unknown_handler_errors_helpfully() {
+        let yaml = IMAGE_SPEC_YAML.replace("daniao_ddp", "someday_handler");
+        let err = encode_image_frame(yaml, 1, 1, vec![0; 3], 0, 20).unwrap_err();
+        assert!(err.to_string().contains("someday_handler"), "{err}");
+    }
+
+    #[test]
+    fn encode_image_frame_without_handler_errors_helpfully() {
+        let err = encode_image_frame(TEST_YAML.into(), 1, 1, vec![0; 3], 0, 20).unwrap_err();
+        assert!(err.to_string().contains("no protocol_handler"), "{err}");
+    }
+
+    #[test]
+    fn match_by_name_prefix_is_ascii_case_insensitive() {
+        // Vendors are not consistent about advertised-name casing across
+        // firmware revisions (e.g. SmartDawn "DN"/"dn" units), and the UUID
+        // axis is already case-insensitive; the name axis must agree.
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        let results = match_device_to_spec(vec![dto], "test_Living_Room".into(), vec![]);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].matched_by_name_prefix);
+    }
+
+    #[test]
+    fn match_by_name_prefix_survives_multibyte_device_names() {
+        // A name shorter than the prefix, or one whose bytes at the prefix
+        // length fall mid-way through a multi-byte character, must be a
+        // non-match — not a panic from slicing off a char boundary.
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        for name in ["TE", "T\u{00E9}st_Bulb", "\u{1F4A1}\u{1F4A1}"] {
+            let results = match_device_to_spec(vec![dto.clone()], name.into(), vec![]);
+            assert!(results.is_empty(), "{name:?} must not match TEST_");
+        }
     }
 
     #[test]

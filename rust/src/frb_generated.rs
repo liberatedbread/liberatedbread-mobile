@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 531639321;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 540483652;
 
 // Section: executor
 
@@ -126,6 +126,53 @@ fn wire__crate__api__device_api__encode_command_impl(
                             api_char_uuid,
                             api_command_name,
                             api_params,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__encode_image_frame_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "encode_image_frame",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            let api_width = <u32>::sse_decode(&mut deserializer);
+            let api_height = <u32>::sse_decode(&mut deserializer);
+            let api_rgb = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_frame_index = <u32>::sse_decode(&mut deserializer);
+            let api_max_payload_per_write = <u32>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::encode_image_frame(
+                            api_spec_yaml,
+                            api_width,
+                            api_height,
+                            api_rgb,
+                            api_frame_index,
+                            api_max_payload_per_write,
                         )?;
                         Ok(output_ok)
                     })(),
@@ -476,6 +523,8 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
         let mut var_services = <Vec<crate::api::device_api::ServiceDto>>::sse_decode(deserializer);
         let mut var_entities = <Vec<crate::api::device_api::EntityDto>>::sse_decode(deserializer);
+        let mut var_imageUpload =
+            <Option<crate::api::device_api::ImageUploadDto>>::sse_decode(deserializer);
         return crate::api::device_api::DeviceSpecDto {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
@@ -486,6 +535,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             service_uuids: var_serviceUuids,
             services: var_services,
             entities: var_entities,
+            image_upload: var_imageUpload,
         };
     }
 }
@@ -543,6 +593,50 @@ impl SseDecode for i64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         deserializer.cursor.read_i64::<NativeEndian>().unwrap()
+    }
+}
+
+impl SseDecode for crate::api::device_api::ImageUploadDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_handler = <Option<String>>::sse_decode(deserializer);
+        let mut var_encodable = <bool>::sse_decode(deserializer);
+        let mut var_format = <Option<String>>::sse_decode(deserializer);
+        let mut var_maxWidth = <Option<u32>>::sse_decode(deserializer);
+        let mut var_maxHeight = <Option<u32>>::sse_decode(deserializer);
+        let mut var_resolutionDeviceReported = <bool>::sse_decode(deserializer);
+        let mut var_animation = <bool>::sse_decode(deserializer);
+        let mut var_maxFrames = <Option<u32>>::sse_decode(deserializer);
+        let mut var_minFrameIntervalMs = <Option<u32>>::sse_decode(deserializer);
+        let mut var_defaultFrameIntervalMs = <Option<u32>>::sse_decode(deserializer);
+        return crate::api::device_api::ImageUploadDto {
+            handler: var_handler,
+            encodable: var_encodable,
+            format: var_format,
+            max_width: var_maxWidth,
+            max_height: var_maxHeight,
+            resolution_device_reported: var_resolutionDeviceReported,
+            animation: var_animation,
+            max_frames: var_maxFrames,
+            min_frame_interval_ms: var_minFrameIntervalMs,
+            default_frame_interval_ms: var_defaultFrameIntervalMs,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::ImageWritePlanDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_serviceUuid = <String>::sse_decode(deserializer);
+        let mut var_characteristicUuid = <String>::sse_decode(deserializer);
+        let mut var_writes = <Vec<Vec<u8>>>::sse_decode(deserializer);
+        let mut var_nextFrameIndex = <u32>::sse_decode(deserializer);
+        return crate::api::device_api::ImageWritePlanDto {
+            service_uuid: var_serviceUuid,
+            characteristic_uuid: var_characteristicUuid,
+            writes: var_writes,
+            next_frame_index: var_nextFrameIndex,
+        };
     }
 }
 
@@ -637,6 +731,18 @@ impl SseDecode for Vec<crate::api::device_api::FormatFieldDto> {
             ans_.push(<crate::api::device_api::FormatFieldDto>::sse_decode(
                 deserializer,
             ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<Vec<u8>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<Vec<u8>>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -804,6 +910,30 @@ impl SseDecode for Option<i64> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::ImageUploadDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::ImageUploadDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u32>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<Vec<String>> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -940,27 +1070,30 @@ fn pde_ffi_dispatcher_primary_impl(
     match func_id {
         1 => wire__crate__api__device_api__decode_value_impl(port, ptr, rust_vec_len, data_len),
         2 => wire__crate__api__device_api__encode_command_impl(port, ptr, rust_vec_len, data_len),
-        3 => wire__crate__api__device_api__identify_standard_profiles_impl(
+        3 => {
+            wire__crate__api__device_api__encode_image_frame_impl(port, ptr, rust_vec_len, data_len)
+        }
+        4 => wire__crate__api__device_api__identify_standard_profiles_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        4 => wire__crate__api__device_api__load_device_spec_impl(port, ptr, rust_vec_len, data_len),
-        5 => wire__crate__api__device_api__match_device_to_spec_impl(
+        5 => wire__crate__api__device_api__load_device_spec_impl(port, ptr, rust_vec_len, data_len),
+        6 => wire__crate__api__device_api__match_device_to_spec_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        6 => wire__crate__api__mock_api__mock_read_characteristic_impl(
+        7 => wire__crate__api__mock_api__mock_read_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        7 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
-        8 => wire__crate__api__mock_api__mock_write_characteristic_impl(
+        8 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
+        9 => wire__crate__api__mock_api__mock_write_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
@@ -1076,6 +1209,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.service_uuids.into_into_dart().into_dart(),
             self.services.into_into_dart().into_dart(),
             self.entities.into_into_dart().into_dart(),
+            self.image_upload.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1139,6 +1273,58 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::FormatFieldDto>
     for crate::api::device_api::FormatFieldDto
 {
     fn into_into_dart(self) -> crate::api::device_api::FormatFieldDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageUploadDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.handler.into_into_dart().into_dart(),
+            self.encodable.into_into_dart().into_dart(),
+            self.format.into_into_dart().into_dart(),
+            self.max_width.into_into_dart().into_dart(),
+            self.max_height.into_into_dart().into_dart(),
+            self.resolution_device_reported.into_into_dart().into_dart(),
+            self.animation.into_into_dart().into_dart(),
+            self.max_frames.into_into_dart().into_dart(),
+            self.min_frame_interval_ms.into_into_dart().into_dart(),
+            self.default_frame_interval_ms.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::ImageUploadDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ImageUploadDto>
+    for crate::api::device_api::ImageUploadDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::ImageUploadDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageWritePlanDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.service_uuid.into_into_dart().into_dart(),
+            self.characteristic_uuid.into_into_dart().into_dart(),
+            self.writes.into_into_dart().into_dart(),
+            self.next_frame_index.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::ImageWritePlanDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ImageWritePlanDto>
+    for crate::api::device_api::ImageWritePlanDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::ImageWritePlanDto {
         self
     }
 }
@@ -1338,6 +1524,7 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<crate::api::device_api::ServiceDto>>::sse_encode(self.services, serializer);
         <Vec<crate::api::device_api::EntityDto>>::sse_encode(self.entities, serializer);
+        <Option<crate::api::device_api::ImageUploadDto>>::sse_encode(self.image_upload, serializer);
     }
 }
 
@@ -1377,6 +1564,32 @@ impl SseEncode for i64 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         serializer.cursor.write_i64::<NativeEndian>(self).unwrap();
+    }
+}
+
+impl SseEncode for crate::api::device_api::ImageUploadDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.handler, serializer);
+        <bool>::sse_encode(self.encodable, serializer);
+        <Option<String>>::sse_encode(self.format, serializer);
+        <Option<u32>>::sse_encode(self.max_width, serializer);
+        <Option<u32>>::sse_encode(self.max_height, serializer);
+        <bool>::sse_encode(self.resolution_device_reported, serializer);
+        <bool>::sse_encode(self.animation, serializer);
+        <Option<u32>>::sse_encode(self.max_frames, serializer);
+        <Option<u32>>::sse_encode(self.min_frame_interval_ms, serializer);
+        <Option<u32>>::sse_encode(self.default_frame_interval_ms, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::ImageWritePlanDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.service_uuid, serializer);
+        <String>::sse_encode(self.characteristic_uuid, serializer);
+        <Vec<Vec<u8>>>::sse_encode(self.writes, serializer);
+        <u32>::sse_encode(self.next_frame_index, serializer);
     }
 }
 
@@ -1446,6 +1659,16 @@ impl SseEncode for Vec<crate::api::device_api::FormatFieldDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::FormatFieldDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<Vec<u8>> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <Vec<u8>>::sse_encode(item, serializer);
         }
     }
 }
@@ -1575,6 +1798,26 @@ impl SseEncode for Option<i64> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <i64>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::ImageUploadDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::ImageUploadDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u32>::sse_encode(value, serializer);
         }
     }
 }
