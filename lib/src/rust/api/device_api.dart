@@ -4,35 +4,27 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import '../frb_generated.dart';
+import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `entity_dto`, `image_upload_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `confidence`, `image_upload_dto`, `is_empty`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
     RustLib.instance.api.crateApiDeviceApiLoadDeviceSpec(yaml: yaml);
 
-/// Encode a setpoint the user picked into the write that applies it.
+/// Find every spec matching a device we are already talking to, with the
+/// reasons it matched.
 ///
-/// `value` is in DECODED units — degrees, percent, whatever the entity's
-/// `unit` says — because that is what the user chose. Converting to the raw
-/// wire value happens here rather than in the UI so the rule lives in one
-/// place: the spec's linear transform is inverted
-/// (`raw = round((value - value_offset) / scale)`), which is exactly why the
-/// schema keeps that transform linear.
-///
-/// Both `set_value` shapes are handled: a command carrying the value in its
-/// single un-defaulted parameter, and a direct write of the encoded value to
-/// a characteristic the entity explicitly nominates.
-Future<EntityWriteDto> encodeEntityValue(
-        {required String specYaml,
-        required String entityName,
-        required double value}) =>
-    RustLib.instance.api.crateApiDeviceApiEncodeEntityValue(
-        specYaml: specYaml, entityName: entityName, value: value);
-
-/// Find every spec matching a scanned device, with the reasons it matched.
+/// This is the post-connect path: `advertised_service_uuids` is expected to
+/// carry the GATT services actually discovered on the device, which is a far
+/// richer list than anything an advertisement fits in. For ranking devices
+/// during a scan, use [`match_scanned_device`] instead — it takes the weaker
+/// pre-connect signals too, and does not need the whole catalogue pushed across
+/// the FFI boundary.
 ///
 /// Returns `vec![]` when nothing matches. A spec matches when:
 /// - its `local_name_prefix` is a prefix of `device_name`, **or**
@@ -47,6 +39,35 @@ Future<List<MatchResult>> matchDeviceToSpec(
         specs: specs,
         deviceName: deviceName,
         advertisedServiceUuids: advertisedServiceUuids);
+
+/// Rank the catalogue against a single device found on the local network, best
+/// match first.
+///
+/// The Wi-Fi counterpart of [`match_scanned_device`], sharing its confidence
+/// rule so a "Likely supported" badge means the same thing on both tabs.
+/// Returns `vec![]` when nothing matches.
+Future<List<ScanMatch>> matchNetworkDevice(
+        {required List<SpecIdentityDto> identities,
+        required NetworkDeviceDto device}) =>
+    RustLib.instance.api.crateApiDeviceApiMatchNetworkDevice(
+        identities: identities, device: device);
+
+/// Rank the catalogue against a single device seen during a scan, best match
+/// first.
+///
+/// Takes identities rather than whole specs because this runs per newly-seen
+/// device during a scan: sending 70-odd fully parsed specs across the FFI
+/// boundary each time would cost far more than the matching itself.
+///
+/// Returns `vec![]` when nothing matches. Read `confidence` before doing
+/// anything with a result — a [`MatchConfidence::Possible`] match is one shared
+/// OUI and says only that the device is worth a human's attention, not that the
+/// spec describes it.
+Future<List<ScanMatch>> matchScannedDevice(
+        {required List<SpecIdentityDto> identities,
+        required ScannedDeviceDto device}) =>
+    RustLib.instance.api.crateApiDeviceApiMatchScannedDevice(
+        identities: identities, device: device);
 
 /// Encode a named command into bytes for a BLE write.
 ///
@@ -225,25 +246,9 @@ class DecodedValueDto {
   /// is what turns a SIG temperature's 2350 into 23.5.
   final double? scale;
 
-  /// Additive term completing the spec's linear transform,
-  /// `value = raw * scale + value_offset`. Gerbing's thermometer is
-  /// `raw * 0.5 + 85` °F, and dropping the offset makes every reading wrong
-  /// by 85 degrees.
-  final double? valueOffset;
-
   /// Unit symbol from the spec's `format:` block, used when the entity
   /// surfacing this reading does not name one.
   final String? unit;
-
-  /// Human name for this value when the field declares a `values:` code
-  /// table, already resolved for the value decoded — Ember's liquid state
-  /// 5 arrives as "heating".
-  final String? valueLabel;
-
-  /// The spec's `unit_source` (`fixed` | `device_setting`). The Inkbird
-  /// iBBQ sends whichever unit the device is currently set to, so a UI must
-  /// not present [`Self::unit`] as fact when this reads `device_setting`.
-  final String? unitSource;
 
   const DecodedValueDto({
     required this.name,
@@ -254,10 +259,7 @@ class DecodedValueDto {
     this.uintValue,
     this.stringValue,
     this.scale,
-    this.valueOffset,
     this.unit,
-    this.valueLabel,
-    this.unitSource,
   });
 
   @override
@@ -270,10 +272,7 @@ class DecodedValueDto {
       uintValue.hashCode ^
       stringValue.hashCode ^
       scale.hashCode ^
-      valueOffset.hashCode ^
-      unit.hashCode ^
-      valueLabel.hashCode ^
-      unitSource.hashCode;
+      unit.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -288,10 +287,7 @@ class DecodedValueDto {
           uintValue == other.uintValue &&
           stringValue == other.stringValue &&
           scale == other.scale &&
-          valueOffset == other.valueOffset &&
-          unit == other.unit &&
-          valueLabel == other.valueLabel &&
-          unitSource == other.unitSource;
+          unit == other.unit;
 }
 
 /// A parsed device specification, ready for use by the Flutter app.
@@ -301,8 +297,34 @@ class DeviceSpecDto {
   final String manufacturerStatus;
   final String protocol;
   final String? notes;
-  final String? localNamePrefix;
+
+  /// Every BLE local name prefix this device family advertises under, in
+  /// spec order. Plural because a family sold as several rebadged models has
+  /// several -- the Inkbird thermometer ships under eight names with no
+  /// shared prefix. Empty when the spec declares none.
+  final List<String> localNamePrefixes;
   final List<String> serviceUuids;
+
+  /// Bluetooth SIG company IDs this device family advertises in its
+  /// manufacturer-specific data, primary first. Empty when the spec declares
+  /// none.
+  final Uint16List companyIds;
+
+  /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
+  /// Empty when the spec declares none. See [`MatchConfidence`] for why these
+  /// only ever rank a device rather than identify one, and
+  /// [`MacPrefixConfidence`] for how much any one of them is worth.
+  final List<MacPrefixDto> macPrefixes;
+
+  /// mDNS/DNS-SD service type this device announces itself under, e.g.
+  /// `_hue._tcp`. The network counterpart of a vendor service UUID.
+  final String? mdnsServiceType;
+
+  /// SSDP/UPnP search targets this device answers to.
+  final List<String> ssdpSearchTargets;
+
+  /// Default TCP port for the device's local API.
+  final int? defaultPort;
   final List<ServiceDto> services;
 
   /// Declared sensor/control surfaces that resolve to a real characteristic,
@@ -322,8 +344,13 @@ class DeviceSpecDto {
     required this.manufacturerStatus,
     required this.protocol,
     this.notes,
-    this.localNamePrefix,
+    required this.localNamePrefixes,
     required this.serviceUuids,
+    required this.companyIds,
+    required this.macPrefixes,
+    this.mdnsServiceType,
+    required this.ssdpSearchTargets,
+    this.defaultPort,
     required this.services,
     required this.entities,
     this.imageUpload,
@@ -336,8 +363,13 @@ class DeviceSpecDto {
       manufacturerStatus.hashCode ^
       protocol.hashCode ^
       notes.hashCode ^
-      localNamePrefix.hashCode ^
+      localNamePrefixes.hashCode ^
       serviceUuids.hashCode ^
+      companyIds.hashCode ^
+      macPrefixes.hashCode ^
+      mdnsServiceType.hashCode ^
+      ssdpSearchTargets.hashCode ^
+      defaultPort.hashCode ^
       services.hashCode ^
       entities.hashCode ^
       imageUpload.hashCode;
@@ -352,77 +384,20 @@ class DeviceSpecDto {
           manufacturerStatus == other.manufacturerStatus &&
           protocol == other.protocol &&
           notes == other.notes &&
-          localNamePrefix == other.localNamePrefix &&
+          localNamePrefixes == other.localNamePrefixes &&
           serviceUuids == other.serviceUuids &&
+          companyIds == other.companyIds &&
+          macPrefixes == other.macPrefixes &&
+          mdnsServiceType == other.mdnsServiceType &&
+          ssdpSearchTargets == other.ssdpSearchTargets &&
+          defaultPort == other.defaultPort &&
           services == other.services &&
           entities == other.entities &&
           imageUpload == other.imageUpload;
 }
 
-/// One resolved control action: which command a role sends and what the UI
-/// supplies.
-class EntityActionDto {
-  /// `turn_on` | `turn_off` | `press` | `set_brightness` | `set_color` |
-  /// `set_value`.
-  final String role;
-
-  /// GATT service/characteristic the encoded command is written to.
-  final String serviceUuid;
-  final String characteristicUuid;
-
-  /// The command this action sends. `None` for a `set_value` action that
-  /// writes the encoded value directly to the characteristic — send those
-  /// through [`encode_entity_value`], which handles both shapes.
-  final String? commandName;
-
-  /// Template parameters the UI owns for this role (e.g. `brightness`;
-  /// `red`/`green`/`blue`). Extra card state sent alongside is harmless —
-  /// the encoder only reads what the template references.
-  final List<String> userParams;
-
-  /// Declared bounds of the role's primary numeric parameter, so a
-  /// brightness slider matches the device's real range (elk-bledom tops out
-  /// at 100, not 255). `f64` for the same reason as [`ParameterDto`]'s
-  /// bounds: sliders consume doubles.
-  final double? min;
-  final double? max;
-
-  const EntityActionDto({
-    required this.role,
-    required this.serviceUuid,
-    required this.characteristicUuid,
-    this.commandName,
-    required this.userParams,
-    this.min,
-    this.max,
-  });
-
-  @override
-  int get hashCode =>
-      role.hashCode ^
-      serviceUuid.hashCode ^
-      characteristicUuid.hashCode ^
-      commandName.hashCode ^
-      userParams.hashCode ^
-      min.hashCode ^
-      max.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is EntityActionDto &&
-          runtimeType == other.runtimeType &&
-          role == other.role &&
-          serviceUuid == other.serviceUuid &&
-          characteristicUuid == other.characteristicUuid &&
-          commandName == other.commandName &&
-          userParams == other.userParams &&
-          min == other.min &&
-          max == other.max;
-}
-
-/// A spec-declared sensor or control surface: what to call it, which
-/// characteristic carries its state, and which commands drive it.
+/// A spec-declared reading: what to call it, what unit it is in, and which
+/// characteristic carries it.
 class EntityDto {
   final String name;
 
@@ -435,12 +410,9 @@ class EntityDto {
   /// e.g. "F", "%". Rendered next to the value.
   final String? unit;
 
-  /// UUID of the characteristic carrying this value. When present it is
-  /// guaranteed to resolve to a characteristic in this spec. `None` for
-  /// command-only entities (govee's plug declares on/off commands and no
-  /// state at all) — an entity crosses the FFI when *either* its state
-  /// resolves or at least one action does; with neither it is dropped.
-  final String? stateCharacteristic;
+  /// UUID of the characteristic carrying this value. Guaranteed to resolve
+  /// to a characteristic in this spec — unresolvable entities are dropped.
+  final String stateCharacteristic;
 
   /// Whether the bound characteristic supports notifications, i.e. whether
   /// this reading can stream rather than being polled by read.
@@ -458,63 +430,16 @@ class EntityDto {
   /// centidegrees. `None` means the decoded value is already in `unit`.
   final double? valueScale;
 
-  /// The decoded value that means "on" for a switch/binary_sensor, from
-  /// `state_mapping.on_value` (ember's charging base reads 1 when docked).
-  final PlatformInt64? onValue;
-
-  /// True when `state_mapping.on_when: nonzero` — any nonzero reading is
-  /// "on".
-  final bool onWhenNonzero;
-
-  /// Decoded field carrying a light's power state (`state_mapping.is_on`).
-  final String? isOnField;
-
-  /// Decoded field carrying a light's brightness
-  /// (`state_mapping.brightness`).
-  final String? brightnessField;
-
-  /// Decoded fields carrying a light's color channels
-  /// (`state_mapping.color_rgb`). Either all three are present or none.
-  final String? colorRedField;
-  final String? colorGreenField;
-  final String? colorBlueField;
-
-  /// Sendable control actions resolved from the spec (`turn_on`,
-  /// `set_brightness`, ...), in role order. Empty for sensors. Every entry
-  /// is ready to send: encode the named command with the listed user
-  /// parameters and the spec's declared defaults fill the rest.
-  final List<EntityActionDto> actions;
-
-  /// Bounds and granularity of a `number`/`climate` setpoint control, in
-  /// DECODED units (what the user sees and picks), not raw bytes. Taken
-  /// from the entity's own `min`/`max`/`step` — or the `climate` spelling
-  /// `min_temp`/`max_temp`/`temp_step` — falling back to what the bound
-  /// parameter or field can physically hold.
-  final double? setpointMin;
-  final double? setpointMax;
-  final double? setpointStep;
-
   const EntityDto({
     required this.name,
     this.platform,
     this.deviceClass,
     this.unit,
-    this.stateCharacteristic,
+    required this.stateCharacteristic,
     required this.canNotify,
     required this.hasFormat,
     this.valueField,
     this.valueScale,
-    this.onValue,
-    required this.onWhenNonzero,
-    this.isOnField,
-    this.brightnessField,
-    this.colorRedField,
-    this.colorGreenField,
-    this.colorBlueField,
-    required this.actions,
-    this.setpointMin,
-    this.setpointMax,
-    this.setpointStep,
   });
 
   @override
@@ -527,18 +452,7 @@ class EntityDto {
       canNotify.hashCode ^
       hasFormat.hashCode ^
       valueField.hashCode ^
-      valueScale.hashCode ^
-      onValue.hashCode ^
-      onWhenNonzero.hashCode ^
-      isOnField.hashCode ^
-      brightnessField.hashCode ^
-      colorRedField.hashCode ^
-      colorGreenField.hashCode ^
-      colorBlueField.hashCode ^
-      actions.hashCode ^
-      setpointMin.hashCode ^
-      setpointMax.hashCode ^
-      setpointStep.hashCode;
+      valueScale.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -553,45 +467,7 @@ class EntityDto {
           canNotify == other.canNotify &&
           hasFormat == other.hasFormat &&
           valueField == other.valueField &&
-          valueScale == other.valueScale &&
-          onValue == other.onValue &&
-          onWhenNonzero == other.onWhenNonzero &&
-          isOnField == other.isOnField &&
-          brightnessField == other.brightnessField &&
-          colorRedField == other.colorRedField &&
-          colorGreenField == other.colorGreenField &&
-          colorBlueField == other.colorBlueField &&
-          actions == other.actions &&
-          setpointMin == other.setpointMin &&
-          setpointMax == other.setpointMax &&
-          setpointStep == other.setpointStep;
-}
-
-/// The bytes that set a `number`/`climate` entity to a value, and where to
-/// write them.
-class EntityWriteDto {
-  final String serviceUuid;
-  final String characteristicUuid;
-  final Uint8List bytes;
-
-  const EntityWriteDto({
-    required this.serviceUuid,
-    required this.characteristicUuid,
-    required this.bytes,
-  });
-
-  @override
-  int get hashCode =>
-      serviceUuid.hashCode ^ characteristicUuid.hashCode ^ bytes.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is EntityWriteDto &&
-          runtimeType == other.runtimeType &&
-          serviceUuid == other.serviceUuid &&
-          characteristicUuid == other.characteristicUuid &&
-          bytes == other.bytes;
+          valueScale == other.valueScale;
 }
 
 class FormatFieldDto {
@@ -739,6 +615,62 @@ class ImageWritePlanDto {
           nextFrameIndex == other.nextFrameIndex;
 }
 
+/// One MAC prefix a spec declares, and how much of the block is really this
+/// device's.
+///
+/// Two prefixes of the same length are not worth the same thing. `C4:7C:8D` is
+/// an IEEE Registration Authority block that fifteen unrelated companies hold
+/// 28-bit slices of, while `00:17:88` is Philips Lighting's own. Both are three
+/// octets; only one of them tells you anything. Carrying the spec author's
+/// verdict alongside the prefix is what lets the matcher rank them differently
+/// instead of treating every OUI as equally weak — or, worse, equally strong.
+class MacPrefixDto {
+  /// The prefix as the spec wrote it, e.g. `C4:7C:8D`.
+  final String prefix;
+  final MacPrefixConfidence confidence;
+
+  const MacPrefixDto({
+    required this.prefix,
+    required this.confidence,
+  });
+
+  @override
+  int get hashCode => prefix.hashCode ^ confidence.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MacPrefixDto &&
+          runtimeType == other.runtimeType &&
+          prefix == other.prefix &&
+          confidence == other.confidence;
+}
+
+/// How much weight a match carries.
+///
+/// The four things a scanner can see about a BLE device before it connects are
+/// not equally telling, and collapsing them into one boolean is what makes a
+/// device list either miss real devices or confidently mislabel them. Ordered
+/// weakest to strongest so callers can compare and sort directly.
+enum MatchConfidence {
+  /// Only the MAC OUI matched. An OUI is assigned to a vendor, not a product
+  /// — `C4:7C:8D` is every Xiaomi radio ever built, not just the plant
+  /// monitor — so this is a hint worth ranking on and nothing more. Never
+  /// bind a spec's characteristics to a device on this alone.
+  possible,
+
+  /// The local name prefix matched, or a manufacturer-data company ID did.
+  /// Both are good evidence and neither is proof: users rename devices, and
+  /// vendors routinely squat on company IDs they were never assigned.
+  likely,
+
+  /// An advertised service UUID matched, or two or more of the weaker signals
+  /// agreed. A vendor-allocated 128-bit UUID in an advertisement is about as
+  /// close to proof as pre-connect scanning gets.
+  strong,
+  ;
+}
+
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
 /// match suits them — sort by `matched_service_uuids.len()`, prefer name-prefix
 /// matches, etc.
@@ -750,17 +682,22 @@ class MatchResult {
   /// spec's identification. Empty when no UUIDs matched.
   final List<String> matchedServiceUuids;
 
+  /// How much this match is worth. See [`MatchConfidence`].
+  final MatchConfidence confidence;
+
   const MatchResult({
     required this.spec,
     required this.matchedByNamePrefix,
     required this.matchedServiceUuids,
+    required this.confidence,
   });
 
   @override
   int get hashCode =>
       spec.hashCode ^
       matchedByNamePrefix.hashCode ^
-      matchedServiceUuids.hashCode;
+      matchedServiceUuids.hashCode ^
+      confidence.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -769,7 +706,58 @@ class MatchResult {
           runtimeType == other.runtimeType &&
           spec == other.spec &&
           matchedByNamePrefix == other.matchedByNamePrefix &&
-          matchedServiceUuids == other.matchedServiceUuids;
+          matchedServiceUuids == other.matchedServiceUuids &&
+          confidence == other.confidence;
+}
+
+/// What a scanner saw about one device on the local network.
+///
+/// The Wi-Fi counterpart of [`ScannedDeviceDto`]. Separate because the signals
+/// genuinely differ: there is no RSSI, no manufacturer data, and the address is
+/// a DHCP lease rather than a hardware identity.
+class NetworkDeviceDto {
+  /// Service instance name (mDNS) or friendly name (SSDP). Empty when the
+  /// device advertised none.
+  final String name;
+
+  /// Hostname the device claims, e.g. `Lutron-083e013d.local`.
+  final String? hostname;
+
+  /// mDNS/DNS-SD service types it advertises.
+  final List<String> serviceTypes;
+
+  /// SSDP search targets it answered to.
+  final List<String> ssdpTargets;
+
+  /// Port the advertised service listens on.
+  final int? port;
+
+  const NetworkDeviceDto({
+    required this.name,
+    this.hostname,
+    required this.serviceTypes,
+    required this.ssdpTargets,
+    this.port,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      hostname.hashCode ^
+      serviceTypes.hashCode ^
+      ssdpTargets.hashCode ^
+      port.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkDeviceDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          hostname == other.hostname &&
+          serviceTypes == other.serviceTypes &&
+          ssdpTargets == other.ssdpTargets &&
+          port == other.port;
 }
 
 class ParameterDto {
@@ -883,6 +871,115 @@ class ProfileInfoDto {
           characteristics == other.characteristics;
 }
 
+/// One spec that a scanned device might be, and why we think so.
+class ScanMatch {
+  /// Position of the matched identity in the list that was passed in, so the
+  /// caller can recover the full spec it built the identity from.
+  final int specIndex;
+  final String deviceName;
+  final String manufacturer;
+  final MatchConfidence confidence;
+  final bool matchedByNamePrefix;
+
+  /// Matched advertised service UUIDs, lowercased.
+  final List<String> matchedServiceUuids;
+  final Uint16List matchedCompanyIds;
+
+  /// The spec MAC prefix that the device's address starts with, as the spec
+  /// wrote it, with the spec's verdict on how much that block is worth.
+  /// `None` when the address did not match (or was not available).
+  final MacPrefixDto? matchedMacPrefix;
+
+  /// mDNS service types and SSDP search targets that matched, on the Wi-Fi
+  /// path. Always empty for a BLE match.
+  final List<String> matchedServiceTypes;
+
+  const ScanMatch({
+    required this.specIndex,
+    required this.deviceName,
+    required this.manufacturer,
+    required this.confidence,
+    required this.matchedByNamePrefix,
+    required this.matchedServiceUuids,
+    required this.matchedCompanyIds,
+    this.matchedMacPrefix,
+    required this.matchedServiceTypes,
+  });
+
+  @override
+  int get hashCode =>
+      specIndex.hashCode ^
+      deviceName.hashCode ^
+      manufacturer.hashCode ^
+      confidence.hashCode ^
+      matchedByNamePrefix.hashCode ^
+      matchedServiceUuids.hashCode ^
+      matchedCompanyIds.hashCode ^
+      matchedMacPrefix.hashCode ^
+      matchedServiceTypes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ScanMatch &&
+          runtimeType == other.runtimeType &&
+          specIndex == other.specIndex &&
+          deviceName == other.deviceName &&
+          manufacturer == other.manufacturer &&
+          confidence == other.confidence &&
+          matchedByNamePrefix == other.matchedByNamePrefix &&
+          matchedServiceUuids == other.matchedServiceUuids &&
+          matchedCompanyIds == other.matchedCompanyIds &&
+          matchedMacPrefix == other.matchedMacPrefix &&
+          matchedServiceTypes == other.matchedServiceTypes;
+}
+
+/// What a scanner saw about one device, before connecting to it.
+class ScannedDeviceDto {
+  /// Advertised local name. Empty when the device advertises none.
+  final String name;
+
+  /// Service UUIDs carried in the advertisement — NOT the GATT services
+  /// discovered after connecting, which is a much richer list.
+  final List<String> serviceUuids;
+
+  /// Company IDs from the manufacturer-specific data (AD type 0xFF). A
+  /// device may advertise several records.
+  final Uint16List companyIds;
+
+  /// The hardware address, when the platform reports one.
+  ///
+  /// `None` on Apple platforms: CoreBluetooth substitutes a per-host UUID for
+  /// the address, so there is no OUI to read. Also useless — though not
+  /// absent — for a peripheral in BLE privacy mode, which advertises a
+  /// rotating random address that matches no OUI.
+  final String? macAddress;
+
+  const ScannedDeviceDto({
+    required this.name,
+    required this.serviceUuids,
+    required this.companyIds,
+    this.macAddress,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      serviceUuids.hashCode ^
+      companyIds.hashCode ^
+      macAddress.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ScannedDeviceDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          serviceUuids == other.serviceUuids &&
+          companyIds == other.companyIds &&
+          macAddress == other.macAddress;
+}
+
 class ServiceDto {
   final String uuid;
   final String name;
@@ -905,4 +1002,68 @@ class ServiceDto {
           uuid == other.uuid &&
           name == other.name &&
           characteristics == other.characteristics;
+}
+
+/// The identifying fields of a spec, without the services, characteristics and
+/// entities that make a [`DeviceSpecDto`] large.
+///
+/// Exists so the scan path can ask about the whole catalogue on every newly
+/// seen device without pushing the full catalogue across the FFI boundary each
+/// time. Dart builds these once from its parsed specs and reuses them.
+class SpecIdentityDto {
+  final String deviceName;
+  final String manufacturer;
+  final List<String> localNamePrefixes;
+  final List<String> serviceUuids;
+  final Uint16List companyIds;
+  final List<MacPrefixDto> macPrefixes;
+
+  /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
+  final String? mdnsServiceType;
+
+  /// SSDP search targets, for the Wi-Fi scan path.
+  final List<String> ssdpSearchTargets;
+
+  /// Default TCP port. The weakest network signal by far -- port 80 says
+  /// nothing -- so it only ever ranks, never identifies.
+  final int? defaultPort;
+
+  const SpecIdentityDto({
+    required this.deviceName,
+    required this.manufacturer,
+    required this.localNamePrefixes,
+    required this.serviceUuids,
+    required this.companyIds,
+    required this.macPrefixes,
+    this.mdnsServiceType,
+    required this.ssdpSearchTargets,
+    this.defaultPort,
+  });
+
+  @override
+  int get hashCode =>
+      deviceName.hashCode ^
+      manufacturer.hashCode ^
+      localNamePrefixes.hashCode ^
+      serviceUuids.hashCode ^
+      companyIds.hashCode ^
+      macPrefixes.hashCode ^
+      mdnsServiceType.hashCode ^
+      ssdpSearchTargets.hashCode ^
+      defaultPort.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SpecIdentityDto &&
+          runtimeType == other.runtimeType &&
+          deviceName == other.deviceName &&
+          manufacturer == other.manufacturer &&
+          localNamePrefixes == other.localNamePrefixes &&
+          serviceUuids == other.serviceUuids &&
+          companyIds == other.companyIds &&
+          macPrefixes == other.macPrefixes &&
+          mdnsServiceType == other.mdnsServiceType &&
+          ssdpSearchTargets == other.ssdpSearchTargets &&
+          defaultPort == other.defaultPort;
 }
