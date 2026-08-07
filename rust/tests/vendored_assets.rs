@@ -21,11 +21,17 @@ use liberated_bread_core::spec::parser::parse_device_spec;
 /// Two of them, because that is how upstream is laid out and the app bundles it
 /// verbatim: `devices/` is the real catalogue and `examples/` holds the bulb
 /// that mock mode and the widget tests depend on. `pubspec.yaml` lists both.
-fn assets_dirs() -> Vec<PathBuf> {
-    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+/// The repo root: one level above this crate. Every path in this file hangs
+/// off it, so derive it once.
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("rust crate should have a parent repo dir")
-        .to_path_buf();
+        .to_path_buf()
+}
+
+fn assets_dirs() -> Vec<PathBuf> {
+    let repo = repo_root();
     ["devices", "examples"]
         .iter()
         .map(|d| repo.join("vendor/protocol-specs/device-specs").join(d))
@@ -122,10 +128,7 @@ fn manifest_and_spec_files_agree() {
     // directly, both sides of this comparison come from upstream — so they now
     // drift only when upstream itself is inconsistent, which is exactly the case
     // a consumer cannot see.
-    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("rust crate should have a parent repo dir")
-        .join("vendor/protocol-specs/device-specs/index.json");
+    let manifest_path = repo_root().join("vendor/protocol-specs/device-specs/index.json");
     let raw = fs::read_to_string(&manifest_path).expect("index.json should exist");
 
     // Pull `"path": "<repo-relative path>"` out without taking a JSON
@@ -174,10 +177,8 @@ fn manifest_and_spec_files_agree() {
 /// other, as happened with `entities:`) fails loudly.
 #[test]
 fn shipped_example_bulb_matches_test_fixture_semantically() {
-    let asset_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("rust crate should have a parent repo dir")
-        .join("vendor/protocol-specs/device-specs/examples/example-bulb.yaml");
+    let asset_path =
+        repo_root().join("vendor/protocol-specs/device-specs/examples/example-bulb.yaml");
     let asset = fs::read_to_string(&asset_path)
         .unwrap_or_else(|e| panic!("reading {}: {e}", asset_path.display()));
     let fixture = include_str!("specs/example-bulb.yaml");
@@ -205,10 +206,7 @@ fn shipped_example_bulb_matches_test_fixture_semantically() {
 /// reads. What is left to guard here is a regression back to a hardcoded list.
 #[test]
 fn dart_loader_does_not_hardcode_spec_filenames() {
-    let dart_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("rust crate should have a parent repo dir")
-        .join("lib/providers/device_spec_provider.dart");
+    let dart_path = repo_root().join("lib/providers/device_spec_provider.dart");
     let dart_src = fs::read_to_string(&dart_path)
         .unwrap_or_else(|e| panic!("reading {}: {e}", dart_path.display()));
 

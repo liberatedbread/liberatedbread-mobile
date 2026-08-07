@@ -63,20 +63,29 @@ class DeviceDescription {
   /// under an Ember company ID is an Ember mug, not a TI product.
   String? get maker => companies.isNotEmpty ? companies.first : addressVendor;
 
+  /// The services half of [summary] on its own: named standard services, else
+  /// a count of proprietary ones, else null. Exists so a caller that already
+  /// shows [maker] elsewhere (the title) can use this directly instead of
+  /// un-joining the summary string.
+  String? get servicesLine {
+    if (standardServices.isNotEmpty) return standardServices.take(2).join(', ');
+    if (vendorServiceCount > 0) {
+      return vendorServiceCount == 1
+          ? '1 custom service'
+          : '$vendorServiceCount custom services';
+    }
+    return null;
+  }
+
   /// One line for a device row, or null when there is genuinely nothing to say.
   ///
   /// Reads as observation rather than identification throughout — every phrase
   /// here is something the device broadcast, not a conclusion about what it is.
   String? get summary {
-    final parts = <String>[];
-    if (maker != null) parts.add(maker!);
-    if (standardServices.isNotEmpty) {
-      parts.add(standardServices.take(2).join(', '));
-    } else if (vendorServiceCount > 0) {
-      parts.add(vendorServiceCount == 1
-          ? '1 custom service'
-          : '$vendorServiceCount custom services');
-    }
+    final parts = [
+      if (maker != null) maker!,
+      if (servicesLine != null) servicesLine!
+    ];
     return parts.isEmpty ? null : parts.join(' · ');
   }
 }
@@ -127,23 +136,12 @@ String deviceTitle(IoTDevice device, DeviceDescription description) {
 /// devices from the same maker would otherwise be indistinguishable in the
 /// list. Returns null when there is genuinely nothing to add.
 String? deviceSubtitle(IoTDevice device, DeviceDescription description) {
-  final summary = description.summary;
   if (device.name.isEmpty) {
     // The maker (if any) is already the title; don't repeat it.
-    final rest = description.summary == null
-        ? null
-        : _withoutLeading(description.summary!, description.maker);
-    return [device.id, if (rest != null && rest.isNotEmpty) rest].join(' · ');
+    final services = description.servicesLine;
+    return [device.id, if (services != null) services].join(' · ');
   }
-  return summary;
-}
-
-String? _withoutLeading(String summary, String? maker) {
-  if (maker == null) return summary;
-  const separator = ' · ';
-  return summary.startsWith('$maker$separator')
-      ? summary.substring(maker.length + separator.length)
-      : (summary == maker ? '' : summary);
+  return description.summary;
 }
 
 /// What the registries make of one scanned device.
@@ -154,8 +152,9 @@ String? _withoutLeading(String summary, String? maker) {
 DeviceDescription describeWith(
   AsyncValue<NumberRegistry> registry,
   IoTDevice device,
-) =>
-    registry.maybeWhen(
-      data: (r) => describeDevice(device, r),
-      orElse: () => DeviceDescription.none,
-    );
+) {
+  final loaded = registry.valueOrNull;
+  return loaded == null
+      ? DeviceDescription.none
+      : describeDevice(device, loaded);
+}

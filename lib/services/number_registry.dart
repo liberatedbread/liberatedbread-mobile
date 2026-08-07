@@ -7,6 +7,7 @@
 // for hardware that is in no catalogue at all — which is most of what a scan
 // actually returns. See vendor/protocol-specs/registries/SOURCES.md.
 
+import '../core/hex.dart';
 import '../core/log.dart';
 
 /// One sorted, fixed-width-keyed registry table.
@@ -158,15 +159,23 @@ class NumberRegistry {
       }
     }
 
-    final blocks = <RegistryTable>[];
-    for (final entry in addressBlockAssets) {
-      final loaded = await table(entry.asset, entry.keyWidth);
-      if (!loaded.isEmpty) blocks.add(loaded);
-    }
+    // All five tables in flight together — they are independent asset loads
+    // totalling ~1.7MB on the startup path, and nothing below needs one
+    // before another.
+    final tables = await Future.wait([
+      for (final entry in addressBlockAssets)
+        table(entry.asset, entry.keyWidth),
+      table(companyIdsAsset, 5),
+      table(serviceUuidsAsset, 4),
+    ]);
+    final blocks = [
+      for (final loaded in tables.take(addressBlockAssets.length))
+        if (!loaded.isEmpty) loaded,
+    ];
     final registry = NumberRegistry(
       addressBlocks: blocks,
-      companyIds: await table(companyIdsAsset, 5),
-      serviceUuids: await table(serviceUuidsAsset, 4),
+      companyIds: tables[addressBlockAssets.length],
+      serviceUuids: tables[addressBlockAssets.length + 1],
     );
     Log.spec.info('registries: ${blocks.fold(0, (n, t) => n + t.length)} '
         'address block(s), ${registry.companyIds.length} company id(s), '
@@ -182,8 +191,8 @@ class NumberRegistry {
   /// Label a device with this; never claim it identifies one.
   String? vendorForMac(String? macAddress) {
     if (macAddress == null) return null;
-    final hex = macAddress.replaceAll(RegExp('[:-]'), '').toUpperCase();
-    if (hex.length != 12 || !RegExp(r'^[0-9A-F]+$').hasMatch(hex)) return null;
+    final hex = normalizeMacHex(macAddress);
+    if (hex == null || hex.length != 12) return null;
     for (final table in addressBlocks) {
       final hit = table[hex.substring(0, table.keyWidth)];
       if (hit != null) return hit;

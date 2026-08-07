@@ -7,6 +7,7 @@ import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/saved_device_provider.dart';
+import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'device_screen.dart';
@@ -64,14 +65,13 @@ class SavedDevicesScreen extends ConsumerWidget {
     final saved = ref.watch(savedDevicesProvider);
     final registry = ref.watch(numberRegistryProvider);
     final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
 
     return Scaffold(
       backgroundColor: scheme.surface,
       appBar: AppBar(title: const Text('Saved devices')),
       body: SafeArea(
         child: saved.isEmpty
-            ? _EmptyState(scheme: scheme, text: text)
+            ? const _EmptyState()
             : ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                 children: [
@@ -101,27 +101,23 @@ class SavedDevicesScreen extends ConsumerWidget {
     );
   }
 
-  String? _savedDescription(AsyncValue<dynamic> registry, SavedDevice device) {
-    final vendor = registry.maybeWhen(
-      data: (r) => r.vendorForMac(_macOf(device.id)) as String?,
-      orElse: () => null,
-    );
+  /// A saved id is a MAC on Android/Linux and a CoreBluetooth UUID on Apple
+  /// platforms; [NumberRegistry.vendorForMac] validates and returns null for
+  /// the latter, so the id goes straight through.
+  String _savedDescription(
+      AsyncValue<NumberRegistry> registry, SavedDevice device) {
+    final vendor = registry.valueOrNull?.vendorForMac(device.id);
     return [device.id, if (vendor != null) vendor].join(' · ');
   }
-
-  /// A saved id is a MAC on Android/Linux and a CoreBluetooth UUID on Apple
-  /// platforms; only the former can be looked up.
-  static String? _macOf(String id) => id.split(':').length == 6 ? id : null;
 }
 
 class _EmptyState extends StatelessWidget {
-  final ColorScheme scheme;
-  final TextTheme text;
-
-  const _EmptyState({required this.scheme, required this.text});
+  const _EmptyState();
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 320),

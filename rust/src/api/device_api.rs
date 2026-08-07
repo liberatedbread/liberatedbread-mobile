@@ -947,50 +947,66 @@ impl MatchAxes {
 /// rather than 12. Without it, every iOS device would be compared against the
 /// OUI list as though its address meant something.
 fn normalize_mac(raw: &str) -> Option<String> {
-    let hex: String = raw
-        .chars()
-        .filter(|c| *c != ':' && *c != '-')
-        .map(|c| c.to_ascii_lowercase())
-        .collect();
-    (hex.len() == 12 && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex)
+    strip_hex(raw).filter(|hex| hex.len() == 12)
 }
 
 /// Reduce a spec's MAC prefix to bare lowercase hex digits, or `None` when it
 /// is not a usable 3-to-5-octet OUI. Deliberately stricter than "any hex":
 /// a one-octet prefix would match a sixteenth of all hardware.
 fn normalize_mac_prefix(raw: &str) -> Option<String> {
+    strip_hex(raw).filter(|hex| (6..=10).contains(&hex.len()))
+}
+
+/// Drop `:`/`-` separators and lowercase, or `None` when what remains is not
+/// pure hex. The shared step of both MAC normalizers; the length rule is what
+/// distinguishes an address from a prefix, so it stays at each call site.
+fn strip_hex(raw: &str) -> Option<String> {
     let hex: String = raw
         .chars()
         .filter(|c| *c != ':' && *c != '-')
         .map(|c| c.to_ascii_lowercase())
         .collect();
-    ((6..=10).contains(&hex.len()) && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex)
+    hex.chars().all(|c| c.is_ascii_hexdigit()).then_some(hex)
+}
+
+/// Whether `value` starts with `prefix`, ASCII-case-insensitively.
+///
+/// The one prefix test both matchers use. Case-insensitive because BLE local
+/// names and DNS names are ASCII and vendors are not consistent about casing
+/// across firmware revisions (SmartDawn units advertise DN*-style names and the
+/// vendor app itself filters them case-insensitively) — and DNS names are
+/// case-insensitive by definition anyway. `get(..len)` rather than slicing so a
+/// multi-byte value can't panic mid-char; a `None` there cannot equal an ASCII
+/// prefix.
+///
+/// An empty prefix is treated as absent, not as a wildcard: an empty prefix
+/// matches every name, so a spec carrying `local_name_prefix: ""` would
+/// otherwise claim every scanned device.
+fn name_has_prefix(value: &str, prefix: &str) -> bool {
+    !prefix.is_empty()
+        && value
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
 /// Compare one spec identity against one observation. The single place the
 /// matching rules live — both public matchers go through it, so the post-connect
 /// path and the scan path can never disagree about what "matched" means.
-fn match_axes(identity: &SpecIdentityDto, device: &ScannedDeviceDto) -> MatchAxes {
+/// `device_mac` is the device's address already through [`normalize_mac`],
+/// computed once by the caller: this runs per identity, and re-normalizing the
+/// same address ~70 times per scanned device is the kind of waste a scan tick
+/// notices.
+fn match_axes(
+    identity: &SpecIdentityDto,
+    device: &ScannedDeviceDto,
+    device_mac: Option<&str>,
+) -> MatchAxes {
     // Any prefix matching is a match: the list holds the names one family ships
     // under, not names a device must carry all of.
-    //
-    // An empty prefix is treated as absent, not as a wildcard: an empty prefix
-    // matches every name, so a spec carrying `local_name_prefix: ""` would
-    // otherwise claim every scanned device.
-    //
-    // ASCII-case-insensitive, like the UUID axis below: BLE local names for
-    // these devices are ASCII, and vendors are not consistent about casing
-    // across firmware revisions (SmartDawn units advertise DN*-style names and
-    // the vendor app itself filters them case-insensitively). `get(..len)`
-    // rather than slicing so a multi-byte device name can't panic mid-char — a
-    // None there cannot equal an ASCII prefix anyway.
-    let by_name_prefix = identity.local_name_prefixes.iter().any(|prefix| {
-        !prefix.is_empty()
-            && device
-                .name
-                .get(..prefix.len())
-                .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
-    });
+    let by_name_prefix = identity
+        .local_name_prefixes
+        .iter()
+        .any(|prefix| name_has_prefix(&device.name, prefix));
 
     // Return the lowercased intersection. Matches the docstring's contract and
     // gives Dart callers a predictable casing. We only allocate the lowercased
@@ -1015,28 +1031,24 @@ fn match_axes(identity: &SpecIdentityDto, device: &ScannedDeviceDto) -> MatchAxe
         .filter(|id| device.company_ids.contains(id))
         .collect();
 
-    let mac_prefix = device
-        .mac_address
-        .as_deref()
-        .and_then(normalize_mac)
-        .and_then(|address| {
-            // Best-first rather than first-declared: a spec listing both a
-            // vetted block and a shared one should be judged on the vetted one
-            // when the address is in it, regardless of declaration order.
-            identity
-                .mac_prefixes
-                .iter()
-                .filter(|entry| {
-                    normalize_mac_prefix(&entry.prefix)
-                        .is_some_and(|normalized| address.starts_with(&normalized))
-                })
-                // `min_by_key` on the reversed key rather than `max_by_key`:
-                // both pick the best, but only this one keeps the first of
-                // several equally-good prefixes, so declaration order still
-                // breaks ties deterministically.
-                .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
-                .cloned()
-        });
+    let mac_prefix = device_mac.and_then(|address| {
+        // Best-first rather than first-declared: a spec listing both a
+        // vetted block and a shared one should be judged on the vetted one
+        // when the address is in it, regardless of declaration order.
+        identity
+            .mac_prefixes
+            .iter()
+            .filter(|entry| {
+                normalize_mac_prefix(&entry.prefix)
+                    .is_some_and(|normalized| address.starts_with(&normalized))
+            })
+            // `min_by_key` on the reversed key rather than `max_by_key`:
+            // both pick the best, but only this one keeps the first of
+            // several equally-good prefixes, so declaration order still
+            // breaks ties deterministically.
+            .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
+            .cloned()
+    });
 
     MatchAxes {
         by_name_prefix,
@@ -1054,7 +1066,14 @@ fn match_axes(identity: &SpecIdentityDto, device: &ScannedDeviceDto) -> MatchAxe
 /// vendor-specific identifier the device volunteered, which is the network
 /// equivalent of a vendor service UUID, while a default port is the equivalent
 /// of an OUI -- port 80 tells you nothing about who is listening on it.
-fn match_network_axes(identity: &SpecIdentityDto, device: &NetworkDeviceDto) -> MatchAxes {
+/// `device_types` is `device.service_types` already through
+/// [`normalize_service_type`], computed once by the caller for the same reason
+/// [`match_axes`] takes the MAC pre-normalized: this runs per identity.
+fn match_network_axes(
+    identity: &SpecIdentityDto,
+    device: &NetworkDeviceDto,
+    device_types: &[String],
+) -> MatchAxes {
     // A spec that declares nothing about the network cannot match a host on it.
     // Without this, any BLE spec whose local_name_prefix happened to prefix an
     // mDNS instance name would surface on the Wi-Fi tab -- the network analogue
@@ -1079,11 +1098,7 @@ fn match_network_axes(identity: &SpecIdentityDto, device: &NetworkDeviceDto) -> 
         // interchangeably, and so do devices. Compare on the trimmed stem so a
         // trailing-dot difference is not a missed device.
         let wanted = normalize_service_type(declared);
-        if device
-            .service_types
-            .iter()
-            .any(|t| normalize_service_type(t) == wanted)
-        {
+        if device_types.contains(&wanted) {
             service_types.push(declared.clone());
         }
     }
@@ -1100,22 +1115,12 @@ fn match_network_axes(identity: &SpecIdentityDto, device: &NetworkDeviceDto) -> 
     // The spec's local name prefixes do double duty here: on the network side a
     // device's instance name or hostname is what carries the vendor's branding
     // (`Lutron-083e013d.local`), the same way a BLE local name does.
-    //
-    // Case-insensitive for the same reason as the BLE path, and one more: DNS
-    // names are case-insensitive by definition, so a responder is free to
-    // answer `LUTRON-083e013d.local` and mean the same host.
-    let starts_with_prefix = |value: &str, prefix: &str| {
-        value
-            .get(..prefix.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
-    };
     let by_name_prefix = identity.local_name_prefixes.iter().any(|prefix| {
-        !prefix.is_empty()
-            && (starts_with_prefix(&device.name, prefix)
-                || device
-                    .hostname
-                    .as_deref()
-                    .is_some_and(|h| starts_with_prefix(h, prefix)))
+        name_has_prefix(&device.name, prefix)
+            || device
+                .hostname
+                .as_deref()
+                .is_some_and(|h| name_has_prefix(h, prefix))
     });
 
     let port = identity
@@ -1171,7 +1176,7 @@ pub fn match_device_to_spec(
     specs
         .into_iter()
         .filter_map(|spec| {
-            let axes = match_axes(&SpecIdentityDto::from(&spec), &device);
+            let axes = match_axes(&SpecIdentityDto::from(&spec), &device, None);
             (!axes.is_empty()).then(|| MatchResult {
                 spec,
                 matched_by_name_prefix: axes.by_name_prefix,
@@ -1192,33 +1197,52 @@ pub fn match_network_device(
     identities: Vec<SpecIdentityDto>,
     device: NetworkDeviceDto,
 ) -> Vec<ScanMatch> {
+    // Normalized once here, not per identity — see match_network_axes.
+    let device_types: Vec<String> = device
+        .service_types
+        .iter()
+        .map(|t| normalize_service_type(t))
+        .collect();
+    rank_matches(&identities, |identity| {
+        match_network_axes(identity, &device, &device_types)
+    })
+}
+
+/// The shared tail of both scan matchers: run the axes function over the
+/// catalogue, keep what matched, and sort best-first — confidence, then how
+/// many volunteered identifiers (service UUIDs on BLE, service types on the
+/// network; each path only ever populates its own) agreed, then spec order so
+/// the result is stable for a given catalogue rather than depending on sort
+/// implementation details.
+fn rank_matches(
+    identities: &[SpecIdentityDto],
+    axes_for: impl Fn(&SpecIdentityDto) -> MatchAxes,
+) -> Vec<ScanMatch> {
     let mut matches: Vec<ScanMatch> = identities
         .iter()
         .enumerate()
         .filter_map(|(index, identity)| {
-            let axes = match_network_axes(identity, &device);
+            let axes = axes_for(identity);
             (!axes.is_empty()).then(|| ScanMatch {
                 spec_index: index as u32,
                 device_name: identity.device_name.clone(),
                 manufacturer: identity.manufacturer.clone(),
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,
-                matched_service_uuids: Vec::new(),
-                matched_company_ids: Vec::new(),
-                matched_mac_prefix: None,
+                matched_service_uuids: axes.service_uuids,
+                matched_company_ids: axes.company_ids,
+                matched_mac_prefix: axes.mac_prefix,
                 matched_service_types: axes.service_types,
             })
         })
         .collect();
 
     matches.sort_by(|a, b| {
+        let volunteered =
+            |m: &ScanMatch| m.matched_service_uuids.len() + m.matched_service_types.len();
         b.confidence
             .cmp(&a.confidence)
-            .then(
-                b.matched_service_types
-                    .len()
-                    .cmp(&a.matched_service_types.len()),
-            )
+            .then(volunteered(b).cmp(&volunteered(a)))
             .then(a.spec_index.cmp(&b.spec_index))
     });
     matches
@@ -1239,39 +1263,11 @@ pub fn match_scanned_device(
     identities: Vec<SpecIdentityDto>,
     device: ScannedDeviceDto,
 ) -> Vec<ScanMatch> {
-    let mut matches: Vec<ScanMatch> = identities
-        .iter()
-        .enumerate()
-        .filter_map(|(index, identity)| {
-            let axes = match_axes(identity, &device);
-            (!axes.is_empty()).then(|| ScanMatch {
-                spec_index: index as u32,
-                device_name: identity.device_name.clone(),
-                manufacturer: identity.manufacturer.clone(),
-                confidence: axes.confidence(),
-                matched_by_name_prefix: axes.by_name_prefix,
-                matched_service_uuids: axes.service_uuids,
-                matched_company_ids: axes.company_ids,
-                matched_mac_prefix: axes.mac_prefix,
-                matched_service_types: axes.service_types,
-            })
-        })
-        .collect();
-
-    // Best first: confidence, then how many service UUIDs agreed, then spec
-    // order so the result is stable for a given catalogue rather than depending
-    // on sort implementation details.
-    matches.sort_by(|a, b| {
-        b.confidence
-            .cmp(&a.confidence)
-            .then(
-                b.matched_service_uuids
-                    .len()
-                    .cmp(&a.matched_service_uuids.len()),
-            )
-            .then(a.spec_index.cmp(&b.spec_index))
-    });
-    matches
+    // Normalized once here, not per identity — see match_axes.
+    let device_mac = device.mac_address.as_deref().and_then(normalize_mac);
+    rank_matches(&identities, |identity| {
+        match_axes(identity, &device, device_mac.as_deref())
+    })
 }
 
 /// Encode a named command into bytes for a BLE write.

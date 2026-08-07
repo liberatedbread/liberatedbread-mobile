@@ -11,6 +11,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'permission_usage_scan.dart';
+import 'package:liberated_bread_mobile/services/multicast_lock.dart';
+
 import 'platform_config_reader.dart';
 
 const String _manifestPath = 'android/app/src/main/AndroidManifest.xml';
@@ -181,17 +183,21 @@ void main() {
       );
       expect(
         activity,
-        contains('ca.pigscanfly.liberatedbread/multicast'),
-        reason: 'The method-channel name must match MulticastLock.channel in '
-            'lib/services/multicast_lock.dart. A mismatch is silent: the Dart '
+        contains(MulticastLock.channel.name),
+        reason: 'The method-channel name in MainActivity must match '
+            'MulticastLock.channel — asserted against the Dart constant '
+            'itself, not a third copy of the string, so the two sides cannot '
+            'drift together past this test. A mismatch is silent: the Dart '
             'side logs a MissingPluginException and the scan runs unlocked.',
       );
       expect(
         activity,
-        contains('onDestroy'),
+        contains(RegExp(r'override fun onDestroy\(\)')),
         reason: 'The lock stops the Wi-Fi chip filtering multicast for the '
             'whole device, so a scan torn down without its release reaching '
-            'the platform must not leave it held for the process lifetime.',
+            'the platform must not leave it held for the process lifetime. '
+            '(A smoke check: it proves the override exists, not that it '
+            'releases — the release call is one line away and reviewed.)',
       );
     });
   });

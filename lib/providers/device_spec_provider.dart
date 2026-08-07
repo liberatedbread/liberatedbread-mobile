@@ -46,18 +46,27 @@ String specAssetPath(String indexPath) => '$specsRoot/$indexPath';
 final deviceSpecsProvider = FutureProvider<Map<String, String>>((ref) async {
   final specs = <String, String>{};
 
-  for (final path in await _bundledSpecPaths()) {
+  // All ~70 loads in flight together: these are independent asset-channel
+  // round trips on the startup path, and awaiting each before starting the
+  // next made the catalogue load O(specs) in latency instead of O(1).
+  final paths = await _bundledSpecPaths();
+  final loads = await Future.wait(paths.map((path) async {
     try {
-      specs[path] = await rootBundle.loadString(path);
+      return (path: path, yaml: await rootBundle.loadString(path));
     } on FlutterError {
       // Listed in the manifest but not bundled: skip rather than fail the whole
       // catalogue. The sync script keeps the two in step; this guards a
       // hand-edited manifest.
       debugPrint('Spec listed in manifest but not bundled: $path');
+      return null;
     } catch (e, st) {
       Log.spec.warning('failed to load bundled spec $path',
           error: e, stackTrace: st);
+      return null;
     }
+  }));
+  for (final loaded in loads) {
+    if (loaded != null) specs[loaded.path] = loaded.yaml;
   }
 
   // Remote (cached) packs. Namespaced keys guarantee no collision with the
@@ -94,7 +103,8 @@ Future<List<String>> _bundledSpecPaths() async {
     }
     return paths.isEmpty ? fallback : paths;
   } catch (e) {
-    debugPrint('Failed to read spec index ($e); using bundled fallback.');
+    Log.spec
+        .warning('failed to read spec index; using bundled fallback', error: e);
     return fallback;
   }
 }

@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:multicast_dns/multicast_dns.dart';
 
+import '../core/error_text.dart';
 import '../core/log.dart';
 import '../models/network_device.dart';
 import 'multicast_lock.dart';
@@ -117,7 +118,7 @@ enum TransportOutcome {
 /// Deliberately not keyed off how many devices were found: a network can carry
 /// plenty of mDNS traffic and no device we have a spec for, and calling that a
 /// permission problem would be a confident lie in the other direction.
-Object? scanFailureFor({
+UserFacingException? scanFailureFor({
   required List<TransportOutcome> outcomes,
   required bool isApplePlatform,
 }) {
@@ -168,11 +169,6 @@ class RealNetworkScanService implements NetworkScanService {
   RawDatagramSocket? _ssdpSocket;
   bool _stopped = false;
 
-  /// Set when a per-service-type resolution hears anything. Those run detached
-  /// from [_runMdns]'s own loop, so their traffic would otherwise not count
-  /// toward "did multicast reach us at all".
-  bool _mdnsHeardDuringResolve = false;
-
   @override
   Stream<NetworkDevice> scan({
     Duration timeout = const Duration(seconds: 8),
@@ -180,11 +176,6 @@ class RealNetworkScanService implements NetworkScanService {
     final controller = StreamController<NetworkDevice>();
     final coalescer = NetworkScanCoalescer();
     _stopped = false;
-    _mdnsHeardDuringResolve = false;
-
-    Future<void> closeIfOpen() async {
-      if (!controller.isClosed) await controller.close();
-    }
 
     void emit(NetworkDevice device) {
       if (controller.isClosed) return;
@@ -203,11 +194,11 @@ class RealNetworkScanService implements NetworkScanService {
         // with IGMP snooping) should still return what the other found.
         final outcomes = await Future.wait([
           _runMdns(emit, timeout).catchError((Object e) {
-            Log.ble.warning('mDNS discovery failed', error: e);
+            Log.net.warning('mDNS discovery failed', error: e);
             return TransportOutcome.failed;
           }),
           _runSsdp(emit, timeout).catchError((Object e) {
-            Log.ble.warning('SSDP discovery failed', error: e);
+            Log.net.warning('SSDP discovery failed', error: e);
             return TransportOutcome.failed;
           }),
         ]);
@@ -217,13 +208,13 @@ class RealNetworkScanService implements NetworkScanService {
           isApplePlatform: Platform.isIOS || Platform.isMacOS,
         );
         if (failure != null) controller.addError(failure);
-        Log.ble.info('network scan finished: '
+        Log.net.info('network scan finished: '
             '${coalescer.deviceCount} device(s)');
       } catch (e, st) {
         if (!controller.isClosed) controller.addError(e, st);
       } finally {
         await _teardown();
-        await closeIfOpen();
+        if (!controller.isClosed) await controller.close();
       }
     }();
 
@@ -259,14 +250,15 @@ class RealNetworkScanService implements NetworkScanService {
         // unanswered service type must not hold up every other one.
         unawaited(_resolveServiceType(client, type.domainName, emit, timeout)
             .catchError((Object e) {
-          Log.ble.debug('mDNS resolve failed for ${type.domainName}: $e');
+          Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
         }));
       }
       // Give the fired-off resolutions their share of the window.
       await Future<void>.delayed(timeout ~/ 2);
-      return heard || _mdnsHeardDuringResolve
-          ? TransportOutcome.heard
-          : TransportOutcome.silent;
+      // No separate "heard during resolve" state: a resolution only ever
+      // starts after the enumeration loop has already received a record, so
+      // `heard` is necessarily true by then.
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
       client.stop();
       _mdns = null;
@@ -283,20 +275,35 @@ class RealNetworkScanService implements NetworkScanService {
         .lookup<PtrResourceRecord>(
             ResourceRecordQuery.serverPointer(serviceType))
         .timeout(timeout, onTimeout: (sink) => sink.close())) {
-      _mdnsHeardDuringResolve = true;
       if (_stopped) return;
+      // TXT and SRV are independent queries; run them together. A device that
+      // publishes no TXT record leaves that stream open until its timeout, and
+      // awaiting it before even asking for SRV used to spend the whole
+      // resolution window on the absent half. Emission still waits for both,
+      // so a device is emitted once, with everything it said.
       final txt = <String, String>{};
-      await for (final TxtResourceRecord record in client
-          .lookup<TxtResourceRecord>(
-              ResourceRecordQuery.text(instance.domainName))
-          .timeout(timeout, onTimeout: (sink) => sink.close())) {
-        txt.addAll(parseTxtRecord(record.text.split(RegExp(r'[\r\n]+'))));
-      }
+      final srvRecords = <SrvResourceRecord>[];
+      await Future.wait([
+        () async {
+          await for (final TxtResourceRecord record in client
+              .lookup<TxtResourceRecord>(
+                  ResourceRecordQuery.text(instance.domainName))
+              .timeout(timeout, onTimeout: (sink) => sink.close())) {
+            txt.addAll(parseTxtRecord(record.text.split(RegExp(r'[\r\n]+'))));
+          }
+        }(),
+        () async {
+          await for (final SrvResourceRecord srv in client
+              .lookup<SrvResourceRecord>(
+                  ResourceRecordQuery.service(instance.domainName))
+              .timeout(timeout, onTimeout: (sink) => sink.close())) {
+            if (_stopped) return;
+            srvRecords.add(srv);
+          }
+        }(),
+      ]);
 
-      await for (final SrvResourceRecord srv in client
-          .lookup<SrvResourceRecord>(
-              ResourceRecordQuery.service(instance.domainName))
-          .timeout(timeout, onTimeout: (sink) => sink.close())) {
+      for (final srv in srvRecords) {
         if (_stopped) return;
         await for (final IPAddressResourceRecord address in client
             .lookup<IPAddressResourceRecord>(

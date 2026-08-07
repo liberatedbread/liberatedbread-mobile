@@ -283,24 +283,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         if (_permissionDenied) ...[
           const SizedBox(height: 24),
           Center(
-            child: ElevatedButton(
+            child: ActionPillButton(
               // Fire-and-forget like the other teardown calls in this file: a
               // failure to open the settings app must not become an unhandled
               // async error.
               onPressed: () =>
                   unawaited(openAppSettings().catchError((Object _) => false)),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.settings),
-                  SizedBox(width: 8),
-                  Text('Open settings'),
-                ],
-              ),
+              icon: Icons.settings,
+              label: 'Open settings',
             ),
           ),
           const SizedBox(height: 4),
@@ -315,20 +305,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         if (_error != null) ...[
           const SizedBox(height: 24),
           Center(
-            child: ElevatedButton(
+            child: ActionPillButton(
               onPressed: _isScanning ? null : _startScan,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.refresh),
-                  SizedBox(width: 8),
-                  Text('Retry'),
-                ],
-              ),
+              icon: Icons.refresh,
+              label: 'Retry',
             ),
           ),
         ],
@@ -341,20 +321,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             !_permissionDenied) ...[
           const SizedBox(height: 24),
           Center(
-            child: ElevatedButton(
+            child: ActionPillButton(
               onPressed: _startScan,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.refresh),
-                  SizedBox(width: 8),
-                  Text('Scan again'),
-                ],
-              ),
+              icon: Icons.refresh,
+              label: 'Scan again',
             ),
           ),
         ],
