@@ -742,8 +742,8 @@ every pull request. Seven jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `analyze` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/` |
-| `unit-tests` | ubuntu-latest | builds the host Rust lib, `flutter test --coverage`, upload coverage to Codecov |
+| `analyze` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, `scripts/ci-ios-tests-selftest.sh`. Dart only — no Rust toolchain, nothing compiled |
+| `unit-tests` | ubuntu-latest | builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | debug **and** release APK, each checked with `scripts/verify_apk.sh`; uploads the debug APK artifact |
 | `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator via `scripts/ci-emulator-tests.sh` — twice if the first attempt hits its per-attempt timeout (see below) |
@@ -755,12 +755,24 @@ change that does not compile or does not lint never reaches a platform build.
 
 `unit-tests` deliberately is **not** part of that gate. It used to be — it was
 the second half of a single `flutter` job — and every native job sat behind its
-60-second test run for no benefit. Splitting it out puts a minute back on every
-green run and lets the unit suite report separately from the lint. The cost is
-real and is the reason to know about it: a pull request whose *only* failure is
-a unit test now also spends the macOS job's (10x-billed) minutes before that
-shows up. Adding `unit-tests` back to the native jobs' `needs:` reverses the
-trade.
+test run, its host Rust build and its codegen check for no benefit.
+
+The split is drawn at *what the native builds actually need before it is worth
+starting them*, which is why `analyze` compiles nothing at all: `dart format`
+and `flutter analyze` are static, and the generated bindings they read are
+committed. The FRB drift check in particular is in `unit-tests` and not in the
+gate, and that placement was earned the hard way — left in the gate it
+dominated it (~90s to `cargo install` the codegen plus ~80s of `generate`
+against a cold `rust/target`), measuring 242s and 257s on two runs, *slower
+than the single job the split replaced*. Caching helps and is still done, but a
+gate whose speed depends on a warm cache is slow exactly when a contributor is
+least able to explain why. Off the critical path it can take as long as it
+likes, and it still runs on every pull request.
+
+The remaining cost is real and worth knowing: a pull request whose *only*
+failure is a unit test now also spends the macOS job's (10x-billed) minutes
+before that shows up. Adding `unit-tests` back to the native jobs' `needs:`
+reverses the trade.
 
 Every long step carries its own `timeout-minutes` as well as the job's, so a
 hung build fails in minutes rather than burning the whole job budget — which
@@ -772,6 +784,7 @@ matters most on `ios-build`, where the budget is billed at 10x.
 |-------|--------------------|--------|
 | Flutter SDK + `~/.pub-cache` | `subosito/flutter-action` (`cache: true`) | every job |
 | `.dart_tool` | an explicit `actions/cache` step | the `analyze` and `unit-tests` jobs |
+| `~/.cargo/bin/flutter_rust_bridge_codegen` | an `actions/cache` keyed on `FRB_VERSION` | the `unit-tests` job — one file, one key, so a cancelled run cannot leave a half-saved snapshot the way `rust-cache`'s `cache-bin` did |
 | `rust/target/` + `~/.cargo` | `Swatinem/rust-cache` | every job that compiles Rust |
 | Gradle user home | `gradle/actions/setup-gradle` | both Android jobs |
 
