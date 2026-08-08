@@ -102,7 +102,8 @@ class EntitySensorCard extends StatelessWidget {
     );
   }
 
-  Widget _buildValue(EntityLiveValue value, ColorScheme scheme, TextTheme text) {
+  Widget _buildValue(
+      EntityLiveValue value, ColorScheme scheme, TextTheme text) {
     switch (value.status) {
       case EntityValueStatus.unavailable:
         // An entity whose characteristic has no `format:` block can't be
@@ -161,7 +162,8 @@ class EntitySensorCard extends StatelessWidget {
               const SizedBox(width: 4),
               Text(
                 value.unit!,
-                style: text.titleSmall?.copyWith(color: scheme.onSurfaceVariant),
+                style:
+                    text.titleSmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ],
           ],
