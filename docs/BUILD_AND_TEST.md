@@ -756,20 +756,39 @@ spending runner time on the slower platform builds (fail fast on lint/test).
 that a `main` run wrote — the first run after a change to the Android build
 does not benefit, later ones do.
 
-**Known gap, deliberately left open.** cargokit passes `--target-dir` pointing
-into the Gradle build directory (`build/liberated_bread_core/build`), so the
-cross-compiled Rust artifacts live *outside* `rust/target/` and
-`Swatinem/rust-cache` never sees them — every Android job recompiles the crate
-for each ABI. Before adding a cache for it, weigh what it actually buys:
-the artifacts are ~380 MB per ABI (~1.3 GB for a three-ABI debug build), while
-the compile they replace is 11–26s per ABI measured from CI logs. A cache that
-large also competes for the repo's 10 GB budget with the 2 GB Flutter SDK cache
-that every job depends on, so a naive `actions/cache` here can make the whole
-matrix slower by evicting something more valuable. If it is ever worth doing,
-`Swatinem/rust-cache`'s `workspaces: <root> -> <target>` form is the mechanism
-to use, because it prunes to dependency artifacts before saving — but note its
-`$target` is resolved *relative to the workspace root*, and this path is not
-under `rust/`.
+**The one thing not cached, and why it stays that way.** cargokit does not
+build into `rust/target`, so `Swatinem/rust-cache` never sees its output. It
+passes `--target-dir` explicitly: on Android that is the Gradle build directory
+(`plugin.gradle`), and on iOS it is Xcode's `TARGET_TEMP_DIR`
+(`cargokit/build_pod.sh`). Every job therefore recompiles the Rust crate for
+its cross-target from scratch.
+
+That sounds worth fixing and is not. Measured directly — a from-scratch build
+of the whole 87-crate dependency graph into an empty target dir:
+
+| | |
+|---|---|
+| compile time saved | **13.6s** |
+| cache that would buy it | **366 MB** |
+
+Restoring 366 MB costs several seconds before decompression even at a generous
+100 MB/s, has to be re-uploaded whenever the lockfile moves, and competes with
+the 2 GB Flutter SDK cache every job depends on inside the repo's 10 GB budget.
+The dependencies are light (serde, indexmap, serde_yaml, thiserror, anyhow,
+flutter_rust_bridge), which is why the number is so small. It is a losing trade
+on Android and still a losing one on the 10x-billed macOS runner, where 13.6s
+is worth about two billed minutes and the cache round-trip would eat most of
+it. Revisit only if the dependency graph grows heavy enough to move that 13.6s
+substantially.
+
+The other iOS candidates were checked and rejected for the same
+measure-first reason: `pod install` runs in **1.6s** (the plugin pods are local
+path pods, so there is nothing to download), and caching Xcode's DerivedData
+is defeated before it starts — a fresh `git checkout` gives every source a new
+mtime, and `pod install` regenerates `ios/Pods/`, so Xcode treats both as dirty
+and recompiles regardless of what was restored. Cargo is the exception that
+makes `rust-cache` work at all: it fingerprints against a restored
+`~/.cargo/registry`, whose mtimes are stable.
 
 ### The Android emulator flake, and what is done about it
 
