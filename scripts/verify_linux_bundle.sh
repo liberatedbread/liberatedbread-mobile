@@ -277,6 +277,7 @@ if [[ -f "$EXE" ]]; then
     warn "$READELF not found — skipping the RUNPATH check."
   else
     runpath="$("$READELF" -d "$EXE" 2>/dev/null | grep -E 'RUNPATH|RPATH' || true)"
+    # shellcheck disable=SC2016  # $ORIGIN below is a literal dynamic-linker token, not a shell variable
     if [[ -z "$runpath" ]]; then
       fail "$BINARY_NAME declares no RUNPATH/RPATH — it cannot find lib/$RUST_LIB at runtime. CMAKE_INSTALL_RPATH in linux/CMakeLists.txt should be \$ORIGIN/lib."
     elif printf '%s' "$runpath" | grep -q '\$ORIGIN/lib'; then

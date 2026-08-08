@@ -447,6 +447,16 @@ Two callouts worth knowing about:
 Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/mock_flow_test.dart` — scan → connect → discover
 - `integration_test/error_flow_test.dart` — error state + retry
+- `integration_test/native_core_test.dart` — loads the **bundled** Rust core on
+  the device and calls through it. The three bundle verifiers
+  (`verify_apk.sh`, `verify_ios_app.sh`, `verify_linux_bundle.sh`) assert the
+  native artifact is *present and exports the right symbols*, which is a static
+  check on a file; nothing ever `dlopen`ed it on a device. `lib/main.dart`
+  catches a failed `RustLib.init()` and carries on against the Dart mock by
+  design, so a framework with a wrong install name, an `.so` for the wrong ABI,
+  or bindings that no longer match the crate would all have shipped green. Here
+  they are a hard failure. Runs last in the aggregate: `RustLib` is
+  process-wide, and initializing it earlier changes what the suites above test.
 - `integration_test/e2e_walkthrough_test.dart` — scripted screenshot
   walkthrough, tagged `e2e` (see below)
 - `integration_test/ci_all_test.dart` — aggregate entrypoint importing the
@@ -524,16 +534,15 @@ Bad state: Cannot add new events after calling close
 That's flutter_tools closing the observatory socket when the first app exits
 and still receiving data on it — a tooling bug, not an app bug. The same file
 passes on its own in ~23 seconds. CI therefore loops over the files one at a
-time; mirror that locally (skipping `ci_all_test.dart` — it exists for the
-device jobs, and here it would only re-run the suites this loop already runs
-individually):
+time, and that loop is a script you can run yourself — it skips
+`ci_all_test.dart` (the device jobs' aggregate, which here would only re-run
+the suites the loop already runs individually) and any `e2e`-tagged file, and
+it collects failures so one run reports every broken suite:
 
 ```bash
-for t in integration_test/*_test.dart; do
-  [ "$(basename "$t")" = ci_all_test.dart ] && continue
-  xvfb-run -a flutter test "$t" -d linux --exclude-tags=e2e \
-    --dart-define=LIBERATED_BREAD_MOCK=true
-done
+./scripts/ci-linux-tests.sh
+# or one file, to iterate:
+LB_LINUX_TEST_FILES=integration_test/mock_flow_test.dart ./scripts/ci-linux-tests.sh
 ```
 
 Two more things worth knowing:
@@ -729,26 +738,40 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and
-every pull request. Six jobs:
+every pull request. Seven jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
+| `analyze` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/` |
+| `unit-tests` | ubuntu-latest | builds the host Rust lib, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
-| `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
-| `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator — twice if the first attempt hits its per-attempt timeout (see below) |
-| `ios-build` | macos-latest | starts a simulator booting in the background, builds the **test entrypoint** for the simulator (`--target=integration_test/ci_all_test.dart`) so the build inside `flutter test`'s 12-minute loading window is incremental rather than a near-repeat, verifies the bundle, then runs that entrypoint on the (by now booted) simulator |
-| `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
+| `android-build` | ubuntu-latest | debug **and** release APK, each checked with `scripts/verify_apk.sh`; uploads the debug APK artifact |
+| `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator via `scripts/ci-emulator-tests.sh` — twice if the first attempt hits its per-attempt timeout (see below) |
+| `ios-build` | macos-latest | starts a simulator booting in the background, builds the **test entrypoint** for the simulator (`--target=integration_test/ci_all_test.dart`) so the build inside `flutter test`'s 12-minute loading window is incremental rather than a near-repeat, verifies the pods and the bundle, then runs that entrypoint on the simulator via `scripts/ci-ios-tests.sh` |
+| `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs `scripts/ci-linux-tests.sh` headlessly under Xvfb in mock mode |
 
-The quick checks run first; the native build jobs wait for them to pass before
-spending runner time on the slower platform builds (fail fast on lint/test).
+`analyze` and `rust` are the gate: the four native jobs wait on those two, so a
+change that does not compile or does not lint never reaches a platform build.
+
+`unit-tests` deliberately is **not** part of that gate. It used to be — it was
+the second half of a single `flutter` job — and every native job sat behind its
+60-second test run for no benefit. Splitting it out puts a minute back on every
+green run and lets the unit suite report separately from the lint. The cost is
+real and is the reason to know about it: a pull request whose *only* failure is
+a unit test now also spends the macOS job's (10x-billed) minutes before that
+shows up. Adding `unit-tests` back to the native jobs' `needs:` reverses the
+trade.
+
+Every long step carries its own `timeout-minutes` as well as the job's, so a
+hung build fails in minutes rather than burning the whole job budget — which
+matters most on `ios-build`, where the budget is billed at 10x.
 
 ### What CI caches
 
 | Cache | Where it comes from | Covers |
 |-------|--------------------|--------|
 | Flutter SDK + `~/.pub-cache` | `subosito/flutter-action` (`cache: true`) | every job |
-| `.dart_tool` | an explicit `actions/cache` step | the `flutter` job |
+| `.dart_tool` | an explicit `actions/cache` step | the `analyze` and `unit-tests` jobs |
 | `rust/target/` + `~/.cargo` | `Swatinem/rust-cache` | every job that compiles Rust |
 | Gradle user home | `gradle/actions/setup-gradle` | both Android jobs |
 
@@ -837,6 +860,49 @@ and the logic lives in a bash file that can be run against stub `flutter`/`adb`
 binaries on a laptop instead of only in a 40-minute CI job. Set
 `LB_EMULATOR_ATTEMPTS=1` to reproduce a failure without waiting out the retry.
 
+### The iOS simulator job, and why it has the same shape
+
+`ios-build` had neither of the two things the emulator job needed, on the most
+expensive runner in the matrix. The iOS failures that matter — dyld unable to
+resolve the embedded `liberated_bread_core.framework`, a wedged CoreSimulator,
+an install that never returns — *hang* exactly the way the Android settling
+race did: `flutter test` waits on a VM service that never appears and prints
+nothing at all until the job's 60-minute budget runs out, at 10x.
+
+So **`scripts/ci-ios-tests.sh`** now owns the simulator lifecycle:
+
+* **Per-attempt bound plus one retry**, on an *erased* device. The bound is
+  again the load-bearing part — a hang leaves no failure to retry. macOS ships
+  no `timeout`, so the script uses one when the runner image has it and falls
+  back to a `sleep`-based watchdog that returns the same exit code (124) when
+  it does not. That is why `IOS_SIMULATOR_ATTEMPT_TIMEOUT` is whole seconds
+  with no unit suffix: BSD `sleep` takes no suffix, and the two paths have to
+  agree or the bound silently disappears on one of them.
+* **The simulator's own log and any crash report**, uploaded as the
+  `ios-simulator-diagnostics` artifact on every run, pass or fail. When the
+  step log is empty this is the only evidence there is. It is predicate
+  filtered to `Runner`, `SpringBoard`, `launchd_sim` and `CoreSimulatorBridge`
+  — an unfiltered stream is tens of MB a minute and buries the four processes
+  that can explain a launch failure.
+
+On a Mac the whole thing runs as one command:
+
+```bash
+./scripts/ci-ios-tests.sh          # pick a simulator, boot it, run the suite
+LB_IOS_ATTEMPTS=1 ./scripts/ci-ios-tests.sh   # reproduce a failure, no retry
+```
+
+### Shell is linted too
+
+The CI logic in this repo deliberately lives in `scripts/` rather than in
+`run:` blocks, so it can be run on a laptop. That moves a growing pile of shell
+out from under every other check in the project — Dart has
+`flutter analyze --fatal-infos`, Rust has `clippy -D warnings`, the shell had
+nothing. `scripts/ci-shellcheck.sh` closes that, in the `analyze` job and in
+`scripts/test.sh`. Its first run found `scripts/run-ios.sh` piping simctl's
+JSON into `python3 - <<'PY'`, where the heredoc overrides the pipe — so
+`pick_simulator` had never once worked.
+
 There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
 manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its
 own: a step sources `scripts/ci-versions.sh` and feeds the Flutter version and
@@ -846,9 +912,9 @@ read happens after checkout, building an old ref uses that ref's pins.
 
 ### Running CI locally
 
-`scripts/test.sh` mirrors the `flutter` and `rust` jobs, including the FRB
-binding drift check (skipped with a warning when the pinned codegen isn't
-installed):
+`scripts/test.sh` mirrors the `analyze`, `unit-tests` and `rust` jobs,
+including the FRB binding drift check and the shellcheck pass (each skipped
+with a warning when the tool it needs isn't installed):
 
 ```bash
 ./scripts/test.sh
