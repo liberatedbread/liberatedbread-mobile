@@ -21,7 +21,15 @@ The BLE and device-spec engine behind Liberated Bread Mobile, built from
   s.source           = { :path => '.' }
   s.source_files = 'Classes/**/*'
   s.dependency 'Flutter'
-  s.platform = :ios, '11.0'
+  # Keep in step with IPHONEOS_DEPLOYMENT_TARGET in
+  # ios/Runner.xcodeproj/project.pbxproj — test/platform/
+  # deployment_targets_test.dart fails when they diverge. A pod floor BELOW the
+  # app's is not harmless: CocoaPods builds the pod against its own declared
+  # platform, so the lower number silently opts this target out of the
+  # availability checking the rest of the app gets, and an API newer than 11.0
+  # used in a future Classes/ file would compile here and crash on a device the
+  # app still claims to support.
+  s.platform = :ios, '13.0'
 
   # Flutter.framework does not contain a i386 slice.
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386' }
