@@ -206,10 +206,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+      # The installed platform is now API 36 — what the app compiles against
+      # (`compileSdk = flutter.compileSdkVersion`, 36 in Flutter 3.44.8) and now
+      # also what rust_builder does. The list said 34, which nothing compiled
+      # against — so CI installed a platform no module used and then let Gradle
+      # download the ones it did. (Version named in prose, not as a
+      # `platforms;android-NN` token: the parser greps those file-wide.)
+      #
+      # build-tools stays at 34.0.0 on purpose: that is AGP 8.6's default, so
+      # naming a newer one here would add a download rather than replace one.
       - uses: android-actions/setup-android@v3
         with:
           packages: >-
-            platform-tools platforms;android-34 build-tools;34.0.0
+            platform-tools platforms;android-36 build-tools;34.0.0
             ndk;${{ env.FLUTTER_NDK_VERSION }}
       - uses: gradle/actions/setup-gradle@v4
       - name: Write android/local.properties
@@ -344,7 +353,7 @@ jobs:
       - name: Install Android SDK packages for the Rust build
         run: |
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-34" "build-tools;34.0.0" \
+            "platforms;android-36" "build-tools;34.0.0" \
             "ndk;$FLUTTER_NDK_VERSION" \
             > /dev/null
       # Gradle's dependency cache and wrapper distribution, which this job was

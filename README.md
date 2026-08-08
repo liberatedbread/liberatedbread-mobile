@@ -83,13 +83,18 @@ addresses and points you there.
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Flutter | 3.24+ | Stable channel |
+| Flutter | 3.44+ | Stable channel |
 | Rust | stable (1.82+) | Via rustup |
-| Android SDK | API 34 | With the NDK matching CI's Flutter (`flutter.ndkVersion`) |
+| Android SDK | API 36 | The pinned Flutter's `flutter.compileSdkVersion`; NDK matches its `flutter.ndkVersion` |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
 | GTK 3 + CMake/Ninja/clang | — | Linux desktop builds only — see below |
 | Android emulator | API 34 `google_apis` x86-64 | Needs KVM on Linux; `./scripts/setup.sh` creates the AVD |
+
+What the built app runs on, as opposed to what builds it: Android 7.0
+(API 24), iOS 13, macOS 10.15. Those are the floors the pinned Flutter
+supports, and `test/platform/deployment_targets_test.dart` fails if the files
+declaring them ever disagree.
 
 The exact versions live in `.github/workflows/ci.yml` and are read from there by
 `scripts/ci-versions.sh` — the table is a summary, that command is the answer.
