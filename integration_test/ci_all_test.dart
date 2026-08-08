@@ -32,6 +32,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'error_flow_test.dart' as error_flow;
 import 'mock_flow_test.dart' as mock_flow;
+import 'native_core_test.dart' as native_core;
 
 void main() {
   // MUST come before the group() calls, and is not redundant with the
@@ -57,4 +58,10 @@ void main() {
 
   group('error_flow_test.dart', error_flow.main);
   group('mock_flow_test.dart', mock_flow.main);
+  // Last, and not only because the alphabet puts it there. It calls
+  // RustLib.init(), which is process-wide: once the bridge is up
+  // MockBleService stops using its Dart fallback table and starts calling the
+  // real codec, so running this suite earlier would quietly change what the
+  // two above are testing. See the header of native_core_test.dart.
+  group('native_core_test.dart', native_core.main);
 }

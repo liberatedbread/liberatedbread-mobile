@@ -152,6 +152,18 @@ env:
   # real build lands back inside package:test_core's 12-minute load window.
   ANDROID_WARMUP_TARGET_PLATFORM: 'android-x64'
 
+  # ── iOS simulator ──────────────────────────────────────────────────────────
+  # Per-attempt bound for the simulator test run, in WHOLE SECONDS with no unit
+  # suffix. Android's equivalent is spelled `12m` because GNU `timeout` parses
+  # that; macOS ships no `timeout` at all, so scripts/ci-ios-tests.sh falls back
+  # to a `sleep`-based watchdog when the runner image has no coreutils — and
+  # BSD `sleep` does not take suffixes. A plain integer is the only spelling
+  # both paths accept, and the script rejects anything else rather than
+  # bounding the run on one machine and not on another.
+  #
+  # 720s x 2 attempts has to fit inside that step's timeout-minutes, below.
+  IOS_SIMULATOR_ATTEMPT_TIMEOUT: '720'
+
   # ── Everything else the setup scripts provision ────────────────────────────
   JAVA_VERSION: '17'
   FRB_VERSION: '2.9.0'
@@ -172,10 +184,34 @@ env:
   LINUX_DESKTOP_PACKAGES: 'clang cmake libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config xvfb'
 
 jobs:
-  flutter:
-    name: Flutter (test + analyze + format)
+  # The `flutter` job used to be one 1m45s serial chain — format, analyze,
+  # codegen drift, then `flutter test --coverage` — and every native job waited
+  # on all of it. It is now two jobs, because the two halves are wanted at
+  # different times:
+  #
+  #   analyze     is the GATE. It answers "is this code even coherent?" in ~45s
+  #               and is what the four native jobs wait for, so they now start
+  #               a minute earlier than they did. On the critical path that
+  #               minute is a straight minute off every green run.
+  #   unit-tests  runs CONCURRENTLY with the native jobs rather than in front
+  #               of them. A failure still fails the run; it just no longer
+  #               holds a 3-minute Linux build behind a 60-second test suite.
+  #
+  # THE TRADE, stated plainly: a pull request whose unit tests fail now also
+  # spends the macOS job's minutes before anyone notices, where previously the
+  # gate stopped it. That is the cost of the minute, it is a deliberate choice,
+  # and it is one line to undo — add `unit-tests` back to the native jobs'
+  # `needs:`. It is priced at "unit tests rarely fail alone": a change broken
+  # enough to fail them usually fails `analyze` too, and `analyze` still gates.
+  #
+  # ⚠ RENAMING THESE JOBS CHANGES THEIR CHECK NAMES. If branch protection
+  # requires "Flutter (test + analyze + format)" by name, that check no longer
+  # exists — the required set has to be updated to the two names below or merges
+  # will block on a check that can never report.
+  analyze:
+    name: Flutter (format + analyze + codegen + shell)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
@@ -198,13 +234,21 @@ jobs:
       - run: flutter pub get
       - run: dart format --set-exit-if-changed .
       - run: flutter analyze --fatal-infos
+      # The shell in scripts/ is where this project's CI logic deliberately
+      # lives, and it was the only language here with no linter. See the header
+      # of scripts/ci-shellcheck.sh for the already-shipped bug that found.
+      # shellcheck is preinstalled on ubuntu-latest.
+      - name: Lint shell scripts
+        run: ./scripts/ci-shellcheck.sh
       - name: Build host Rust library for FRB
         run: cd rust && cargo build
-      - name: Export LD_LIBRARY_PATH for tests
-        run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
       - name: Check FRB bindings are up to date
         run: |
-          cargo install --locked "flutter_rust_bridge_codegen@$FRB_VERSION"
+          # Network-facing: a crates.io blip here fails a pull request for
+          # reasons that have nothing to do with it. Swatinem/rust-cache
+          # restores ~/.cargo/bin, so on a warm cache this is a no-op and the
+          # retry never fires.
+          ./scripts/ci-retry.sh cargo install --locked "flutter_rust_bridge_codegen@$FRB_VERSION"
           flutter_rust_bridge_codegen generate
           # `git diff --exit-code` catches edits to tracked generated files but
           # is blind to brand-new (untracked) ones, so also fail on ANY pending
@@ -217,6 +261,41 @@ jobs:
             echo "$drift"
             exit 1
           fi
+
+  unit-tests:
+    name: Flutter (unit + widget tests, coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      # Not incidental to a "pure Dart" job: test/helpers/host_rust_lib.dart
+      # opens rust/target/debug/libliberated_bread_core.so by path, and the
+      # suites that exercise the real spec codec (real_spec_codec_test.dart and
+      # friends) SKIP THEMSELVES when it is absent. Dropping the Rust build from
+      # this job would not turn it red — it would quietly stop running those
+      # tests while still reporting green, and cut coverage with it.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+      - run: flutter pub get
+      - name: Build host Rust library for FRB
+        run: cd rust && cargo build
+      - name: Export LD_LIBRARY_PATH for tests
+        run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
       - run: flutter test --coverage
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -253,7 +332,7 @@ jobs:
     timeout-minutes: 60
     # Gate on the cheap rust job too — a clippy/test failure in the crate must
     # not let the expensive native builds burn runner minutes.
-    needs: [flutter, rust]
+    needs: [analyze, rust]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v4
@@ -302,6 +381,7 @@ jobs:
         run: flutter doctor -v
       - run: flutter pub get
       - name: Build debug APK
+        timeout-minutes: 25
         run: flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true --verbose
       # A zero exit from `flutter build apk` says nothing about what is INSIDE
       # the APK, and that is where the bugs are. scripts/verify_apk.sh opens the
@@ -372,6 +452,7 @@ jobs:
       # (its manifest is protobuf, so aapt2 cannot read it) — the release APK
       # already covers the R8 and native-packaging risk that motivates it.
       - name: Build release APK (real BLE path, no mock define)
+        timeout-minutes: 25
         run: flutter build apk --release --verbose
       # Identical assertions against the release artifact, so an R8 or
       # packaging regression that only bites release cannot slip through.
@@ -391,7 +472,7 @@ jobs:
     # that a cold cache cannot trip it, tight enough that a genuinely hung
     # emulator stops costing an hour.
     timeout-minutes: 60
-    needs: [flutter, rust]
+    needs: [analyze, rust]
     # The one place a pinned value is repeated instead of interpolated:
     # GitHub does not expose the `env` context to `strategy:`, so
     # ANDROID_EMULATOR_API cannot be referenced here. The matrix stays (rather
@@ -433,9 +514,14 @@ jobs:
       # there for why cmake is on the list (Flutter's own Gradle plugin wires a
       # CMakeLists into :app) and why this is about explicit inputs rather than
       # saved seconds.
+      #
+      # Through scripts/ci-retry.sh: sdkmanager downloads a multi-hundred-MB NDK
+      # from dl.google.com, and a reset mid-transfer fails the job with a
+      # checksum error that looks like a broken pin.
       - name: Install Android SDK packages for the Rust build
+        timeout-minutes: 15
         run: |
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+          yes | ./scripts/ci-retry.sh "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
             "platforms;android-$ANDROID_API" \
             "build-tools;$ANDROID_BUILD_TOOLS" \
             "cmake;$ANDROID_CMAKE" \
@@ -476,6 +562,7 @@ jobs:
       # loads. The two arm builds were pure waste, plus the arm engine
       # artifacts and packaging on top.
       - name: Warm up Gradle, cargokit and Rust build caches
+        timeout-minutes: 25
         run: |
           flutter build apk --debug --target-platform "$ANDROID_WARMUP_TARGET_PLATFORM" \
             --dart-define=LIBERATED_BREAD_MOCK=true
@@ -574,7 +661,7 @@ jobs:
     # entrypoint below), so even a fully cold-cache run fits comfortably. The
     # test step carries its own tighter timeout below.
     timeout-minutes: 60
-    needs: [flutter, rust]
+    needs: [analyze, rust]
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
@@ -613,23 +700,13 @@ jobs:
       # cycles from a 3-core runner during the part of the job that is actually
       # CPU-bound. Overlap enough to hide the boot, not more.
       #
-      # The first available iPhone in the runner image is used rather than a
-      # pinned model so an Xcode image bump that retires a device name cannot
-      # break the job.
+      # Device selection lives in scripts/ci-ios-tests.sh with the rest of the
+      # simulator lifecycle, so the retry below can erase and re-boot the SAME
+      # device it picked. It writes the UDID to $GITHUB_OUTPUT.
       - name: Start booting an iOS simulator (async)
         id: sim
-        run: |
-          set -euo pipefail
-          # `simctl list devices available` prints "    iPhone 15 (UDID) (Shutdown)".
-          udid="$(xcrun simctl list devices available | awk -F'[()]' '/^ +iPhone/ { print $2; exit }')"
-          if [ -z "$udid" ]; then
-            echo "::error::No iPhone simulator available on this runner image."
-            xcrun simctl list devices available
-            exit 1
-          fi
-          echo "Booting simulator $udid in the background"
-          xcrun simctl boot "$udid" || true   # non-zero if already booted
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+        timeout-minutes: 5
+        run: ./scripts/ci-ios-tests.sh --boot
       # --target is the point of this step, not an afterthought.
       #
       # This build exists to move the app build OUTSIDE `flutter test`'s loading
@@ -651,54 +728,46 @@ jobs:
       #
       # --no-pub because the `flutter pub get` step above already ran; without
       # it every invocation re-resolves the whole dependency set.
+      #
+      # --verbose is NOT decoration, and it is not free either (it makes this
+      # the longest block in the log). It is here to answer an open question
+      # with a measurement, the way the cargokit cache question was settled.
+      #
+      # THE QUESTION. Comparing two warm runs of this job:
+      #   before (run 31240131392): this step took 120s, building lib/main.dart,
+      #                             with the simulator boot serial afterwards.
+      #   after  (run 31274291678): 321s, building the test entrypoint, with the
+      #                             boot started asynchronously just above.
+      # In the second, 168 of those 321 seconds elapse BEFORE flutter prints
+      # "Building … for simulator (ios)" — before the Xcode project migrations,
+      # before pod install (4.3s), before the Xcode build (129.2s). A different
+      # Dart entrypoint cannot cost 168 seconds of pre-build silence, so the
+      # suspect is the other change: `simctl boot` saturating a 3-core arm64
+      # runner and holding CoreSimulator while flutter_tools is querying Xcode.
+      #
+      # If that is what it is, moving the boot back to serial is a net win even
+      # at the ~70s a serial boot costs. If it is not — if the time is going to
+      # artifact staging or a slow `xcodebuild -showBuildSettings` — then moving
+      # the boot makes the job strictly worse. --verbose timestamps every step
+      # flutter takes, so the next run of this file says which, instead of this
+      # comment guessing.
+      #
+      # Remove the flag once that is settled and written down here.
       - name: Build iOS (simulator, no codesign) — the test entrypoint
+        timeout-minutes: 25
         run: |
           flutter build ios --debug --no-codesign --simulator --no-pub \
             --target=integration_test/ci_all_test.dart \
-            --dart-define=LIBERATED_BREAD_MOCK=true
+            --dart-define=LIBERATED_BREAD_MOCK=true \
+            --verbose
 
       # ── verify the artifact, not just the exit code ─────────────────────────
-      # `flutter build ios` running pod install itself means a *failed* pod
-      # install fails the build — but a SKIPPED one does not, and a skipped one
-      # leaves the plugin pods unlinked while the Runner target still compiles.
-      # Podfile.lock is the artifact that proves resolution actually happened,
-      # and the pod list proves the plugins the app depends on were part of it.
-      # Pod names come from .flutter-plugins-dependencies (they are the
-      # federated iOS implementations, not the pub package names).
+      # Why a lockfile check is not redundant with a green build, which pods are
+      # asserted and which deliberately are not: scripts/verify_ios_pods.sh.
+      # It moved out of this file for the reason all the other CI shell did —
+      # a check nobody can run outside a macOS job is a check nobody maintains.
       - name: Verify CocoaPods resolution happened
-        run: |
-          if [ ! -f ios/Podfile.lock ]; then
-            echo "::error file=ios/Podfile::ios/Podfile.lock is absent after the build — CocoaPods never resolved, so no plugin pod is linked into the app."
-            exit 1
-          fi
-          missing=0
-          # The three pods whose absence is silently fatal at runtime. Not
-          # asserting integration_test: it is a dev-dependency plugin, newer
-          # Flutter versions exclude those from release pod installs, and the
-          # simulator test step below is a far better check for it anyway.
-          for pod in liberated_bread_core flutter_blue_plus_darwin permission_handler_apple; do
-            if grep -qE "^ +- ${pod} \(" ios/Podfile.lock; then
-              echo "  ok  pod ${pod}"
-            else
-              echo "::error file=ios/Podfile::Pod '${pod}' is missing from ios/Podfile.lock — its platform channels would be unavailable at runtime."
-              missing=1
-            fi
-          done
-          # Informational, not asserted. This is the exact knob behind the iOS
-          # BLE outage: permission_handler_apple compiles each permission
-          # strategy out unless the Podfile's post_install hook defines the
-          # matching PERMISSION_* macro, and PermissionHandlerEnums.h defaults
-          # them all to 0. lib/services/real_ble_service.dart deliberately no
-          # longer depends on PERMISSION_BLUETOOTH (CoreBluetooth raises its own
-          # prompt), so asserting a value here would encode a requirement the
-          # code does not have. Printing the resolved macros instead makes any
-          # future flip visible in the log next to the code that would need it.
-          xcconfig="ios/Pods/Target Support Files/permission_handler_apple/permission_handler_apple.debug.xcconfig"
-          if [ -f "$xcconfig" ]; then
-            echo "permission_handler_apple compile-time macros:"
-            grep -E 'GCC_PREPROCESSOR_DEFINITIONS' "$xcconfig" | sed 's/^/  /' || true
-          fi
-          exit $missing
+        run: ./scripts/verify_ios_pods.sh ios
       # Regression this catches: plist changes are invisible to a compiler. The
       # BLE usage strings are what let CoreBluetooth raise the system prompt at
       # all (real_ble_service.dart relies on that instead of permission_handler
@@ -716,55 +785,50 @@ jobs:
         run: ./scripts/verify_ios_app.sh build/ios/iphonesimulator/Runner.app
 
       # ── integration tests on a simulator ────────────────────────────────────
-      # Regression this catches: until now NO integration test had ever run on
-      # iOS. android-integration was the only place the flow tests executed on a
-      # device, so an iOS-only break in plugin registration, platform channels
-      # or FFI initialisation had zero automated coverage.
+      # Regression this catches: before this job existed, NO integration test
+      # had ever run on iOS. android-integration was the only place the flow
+      # tests executed on a device, so an iOS-only break in plugin registration,
+      # platform channels or FFI initialisation had zero automated coverage.
       #
-      # One simulator only — macOS minutes bill at 10x. The boot itself was
-      # started right after checkout; this is only the wait, and by now it is
-      # normally already terminal.
-      - name: Wait for the simulator to finish booting
-        run: xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
-      # ci_all_test.dart, NOT the integration_test directory: on a device every
-      # file passed to `flutter test` is its own Dart entrypoint and pays a full
-      # kernel-compile → Xcode build → install → launch cycle, ~2 minutes each
-      # on this runner with every cache warm. The aggregate bundles the
-      # mock-safe suites into one cycle. The linux-desktop job still runs the
-      # files individually, so per-process isolation keeps coverage there, and
-      # test/platform/integration_aggregate_test.dart fails the cheap job if a
-      # suite is missing from the aggregate — or if an e2e one is added to it.
+      # One simulator only — macOS minutes bill at 10x.
       #
-      # --exclude-tags=e2e is defence in depth, and does real work despite what
-      # an earlier version of this comment claimed. It is true that a FILE-level
-      # @Tags in an imported library is invisible to it (which is why e2e files
-      # are kept out by omission), but a group- or test-level `tags:` inside an
-      # imported suite IS registered at runtime and IS filtered by this flag.
-      # Dropping it left that case running on a device.
+      # Everything that used to be inlined here — the boot wait, the test
+      # invocation and the reasoning behind the aggregate entrypoint — is in
+      # scripts/ci-ios-tests.sh, along with the two things this step never had
+      # and the Android job has had for weeks:
       #
-      # -d is required, not optional: macos runners also expose the macOS
-      # desktop device, and `flutter test` refuses to run with more than one
-      # device connected.
+      #   * a per-attempt wall-clock bound plus ONE retry on an erased device.
+      #     The iOS launch failures that matter (dyld cannot resolve the
+      #     embedded framework, a wedged CoreSimulator, an install that never
+      #     returns) HANG rather than failing, printing nothing at all, so
+      #     without a bound the only outcome is the whole 10x job timing out.
+      #   * the simulator's own log and any crash report, uploaded below. When
+      #     the harness is waiting on a VM service that never appears, the step
+      #     log is empty and the device log is the only evidence there is —
+      #     which is exactly how the Android settling race was diagnosed.
       #
-      # No separate warm-up step is needed here, unlike android-integration:
-      # `flutter test` builds the app during the *loading* phase, which
-      # package:test_core caps at a hardcoded 12 minutes that no flag can
-      # raise — but the "Build iOS (simulator, no codesign)" step above
-      # already populated the Xcode and cargo caches in this same job, so the
-      # rebuild inside that window is incremental. That is a third reason these
-      # are one job.
-      #
-      # --timeout raises the per-test body limit only, mirroring the Android
-      # job; the step timeout is the outer bound on a genuinely hung test.
+      # Sized so two attempts (2 x IOS_SIMULATOR_ATTEMPT_TIMEOUT = 24m) plus the
+      # boot wait fit inside the step timeout, and the step timeout inside the
+      # job's.
       - name: Run integration tests on the simulator (mock mode)
-        timeout-minutes: 30
-        run: |
-          flutter test integration_test/ci_all_test.dart \
-            --no-pub \
-            --exclude-tags=e2e \
-            -d "${{ steps.sim.outputs.udid }}" \
-            --timeout 1200s \
-            --dart-define=LIBERATED_BREAD_MOCK=true
+        timeout-minutes: 28
+        env:
+          LB_IOS_UDID: ${{ steps.sim.outputs.udid }}
+        run: ./scripts/ci-ios-tests.sh --run
+      # if: always() — the whole point is the failing run. On a retry there is
+      # one log per attempt: ios-simulator-log.txt is the attempt that decided
+      # the step, ios-simulator-log-attemptN.txt each earlier one.
+      - name: Upload simulator log and crash reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-diagnostics
+          path: |
+            ios-simulator-log.txt
+            ios-simulator-log-attempt*.txt
+            ios-crash-reports/
+          if-no-files-found: warn
+          retention-days: 7
 
       # ── root cause of the iOS BLE outage ───────────────────────────────────
       # This project was scaffolded on Linux, where flutter_tools skips
@@ -813,7 +877,7 @@ jobs:
     timeout-minutes: 45
     # Same gating as the other native jobs: a lint/test failure in Dart or Rust
     # must not burn runner minutes on a native build.
-    needs: [flutter, rust]
+    needs: [analyze, rust]
     steps:
       - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
@@ -837,11 +901,18 @@ jobs:
       #
       # Unquoted on purpose: word splitting is what turns the single
       # space-separated value into one argument per package.
+      #
+      # Both commands go through scripts/ci-retry.sh: they are the only steps in
+      # this job that talk to a third-party server, and an archive mirror
+      # returning 503 for one second is not a reason to redden a pull request.
+      # A retry that fires is announced, so a mirror that is actually broken
+      # shows up in the log instead of hiding behind an eventual success.
       - name: Install Linux desktop build dependencies
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
+          ./scripts/ci-retry.sh sudo apt-get update
           # shellcheck disable=SC2086
-          sudo apt-get install -y --no-install-recommends ${LINUX_DESKTOP_PACKAGES:?LINUX_DESKTOP_PACKAGES is empty — the env key was renamed or removed, and installing nothing here surfaces later as an unrelated CMake/GTK error inside flutter build linux}
+          ./scripts/ci-retry.sh sudo apt-get install -y --no-install-recommends ${LINUX_DESKTOP_PACKAGES:?LINUX_DESKTOP_PACKAGES is empty — the env key was renamed or removed, and installing nothing here surfaces later as an unrelated CMake/GTK error inside flutter build linux}
       - run: flutter pub get
 
       # ── release build ───────────────────────────────────────────────────────
@@ -857,6 +928,7 @@ jobs:
       # flutter_blue_plus_linux (BlueZ/D-Bus) call sites compile coverage — the
       # ONLY place in CI where the real BLE path is compiled for Linux.
       - name: Build Linux desktop (release, x86-64)
+        timeout-minutes: 20
         run: flutter build linux --release --target-platform=linux-x64 --verbose
 
       # A zero exit from `flutter build linux` says nothing about what landed in
@@ -911,6 +983,7 @@ jobs:
       # kernel is compiled for a different configuration and has to be rebuilt
       # inside that 12-minute load window.
       - name: Build Linux desktop (debug, x86-64) and warm the test build cache
+        timeout-minutes: 20
         run: |
           flutter build linux --debug --target-platform=linux-x64 \
             --dart-define=LIBERATED_BREAD_MOCK=true
@@ -920,85 +993,26 @@ jobs:
       # ── headless integration tests ──────────────────────────────────────────
       # Regression this catches: this is the FIRST integration coverage in this
       # repo that needs no emulator and no simulator. android-integration boots
-      # a 60-minute AVD and ios-build pays 10x macOS minutes; this runs the same
-      # flow tests on a plain ubuntu runner in minutes, so a break in widget
+      # an AVD and ios-build pays 10x macOS minutes; this runs the same flow
+      # tests on a plain ubuntu runner in about a minute, so a break in widget
       # wiring, provider setup or FFI initialisation is caught by the cheapest
       # job in the matrix instead of the two most expensive ones.
       #
-      # xvfb-run supplies the virtual X display the GTK runner needs; -a picks a
-      # free display number. Mock mode is required, not a shortcut: BLE on Linux
-      # goes through BlueZ over D-Bus and a hosted runner has no Bluetooth
-      # adapter, so RealBleService would find nothing.
+      # Mock mode is required, not a shortcut: BLE on Linux goes through BlueZ
+      # over D-Bus and a hosted runner has no Bluetooth adapter, so
+      # RealBleService would find nothing.
       #
-      # ONE FILE PER `flutter test` INVOCATION, deliberately. Passing the whole
-      # integration_test/ directory at once — the way the Android and iOS jobs
-      # do — does NOT work on the Linux desktop device. The first file passes,
-      # then the tool reuses its VM-service connection for the next one and dies
-      # immediately with:
+      # The loop itself — one `flutter test` invocation per file, which files
+      # are skipped and why, and the flutter_tools VM-service bug that forces
+      # the whole arrangement — is scripts/ci-linux-tests.sh. It moved out of
+      # this file because it is a shell program with skip rules and error
+      # collection, and one that only ran inside a CI job could only be debugged
+      # inside a CI job. It now runs on any machine ./scripts/setup.sh has
+      # provisioned, which is how the current version was verified before this
+      # was ever pushed.
       #
-      #   Bad state: Cannot add new events after calling close
-      #     dart:async/broadcast_stream_controller.dart 243:24
-      #     dart:io-patch/socket_patch.dart 2455:41  _Socket._onData
-      #
-      # That is flutter_tools closing the observatory socket when the first app
-      # exits and then still receiving data on it — a tooling bug, not an app
-      # bug. Verified locally: `flutter test integration_test -d linux` reports
-      # "+1 -1", while the very same file passes on its own in ~23s. Running
-      # each file in its own invocation gives each a fresh connection.
-      #
-      # A file whose tests are ALL excluded by --exclude-tags=e2e (today:
-      # e2e_walkthrough_test.dart, which needs scripts/e2e_shot_server.py and a
-      # macOS host) must be skipped, not failed. Two layers, because the first
-      # attempt at this got burned: the primary check reads the @Tags(['e2e'])
-      # annotation from the file itself, which is the exact mechanism the
-      # exclusion acts on — deterministic, no dependency on runner output. The
-      # output-grep stays only as a fallback for a file that mixes tagged and
-      # untagged tests in a way the annotation scan can't see, and it matches
-      # BOTH strings flutter test emits for the nothing-to-run case: the plain
-      # runner prints "No tests ran." while the -d linux device runner prints
-      # "No tests match the requested tag selectors" — the first CI run of this
-      # step misclassified the excluded file as a failure over exactly that
-      # wording difference. Any other non-zero exit is a real failure and is
-      # collected so one run reports every broken file instead of stopping at
-      # the first.
-      #
-      # --timeout raises the per-test body limit only, exactly as in the Android
-      # and iOS jobs; the step timeout is the outer bound on a hung test.
+      # The step timeout is the outer bound on a hung test; the per-test body
+      # limit lives in the script, as it does for the Android and iOS jobs.
       - name: Run integration tests headlessly (Xvfb, mock mode)
         timeout-minutes: 20
-        run: |
-          set -uo pipefail
-          status=0
-          for t in integration_test/*_test.dart; do
-            echo "::group::$t"
-            # ci_all_test.dart is the device jobs' aggregate of the very files
-            # this loop iterates — running it here would execute every suite
-            # twice, and in one process, when this loop's whole point is a
-            # fresh invocation per file (both for the VM-service bug above and
-            # for the process isolation the aggregate gives up).
-            if [ "$(basename "$t")" = "ci_all_test.dart" ]; then
-              echo "SKIP  $t (device-job aggregate — its imports each run individually here)"
-              echo "::endgroup::"
-              continue
-            fi
-            if tr '\n' ' ' < "$t" | grep -qE "@Tags[[:space:]]*\([[:space:]]*(const[[:space:]]*)?(<[^>]*>[[:space:]]*)?\[[^]]*['\"]e2e['\"]"; then
-              echo "SKIP  $t (file-level @Tags(['e2e']) — excluded by --exclude-tags=e2e)"
-              echo "::endgroup::"
-              continue
-            fi
-            log="$(mktemp)"
-            if xvfb-run -a flutter test "$t" \
-                 -d linux \
-                 --exclude-tags=e2e \
-                 --timeout 1200s \
-                 --dart-define=LIBERATED_BREAD_MOCK=true 2>&1 | tee "$log"; then
-              echo "PASS  $t"
-            elif grep -qE 'No tests ran\.|No tests match the requested tag selectors' "$log"; then
-              echo "SKIP  $t (every test in it is excluded by --exclude-tags=e2e)"
-            else
-              echo "::error file=$t::Integration test failed on the Linux desktop."
-              status=1
-            fi
-            echo "::endgroup::"
-          done
-          exit $status
+        run: ./scripts/ci-linux-tests.sh

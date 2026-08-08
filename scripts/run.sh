@@ -86,6 +86,7 @@ ensure_device() {
 
   log "Launching emulator liberated_bread_test..."
   "$emulator" -avd liberated_bread_test -no-snapshot-load &
+  # shellcheck disable=SC2034  # kept for the reader: names the backgrounded emulator above
   local emu_pid=$!
 
   # Wait for the emulator to boot

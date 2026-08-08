@@ -79,6 +79,19 @@ dart format --set-exit-if-changed .
 log "flutter analyze --fatal-infos"
 flutter analyze --fatal-infos
 
+# CI's `analyze` job lints scripts/ too. Skipped with a warning rather than
+# fatal when shellcheck is absent, for the same reason the FRB check below is:
+# a missing dev tool should not look like a failing test suite. CI still runs
+# it, and CI has shellcheck preinstalled.
+if command -v shellcheck &>/dev/null; then
+  log "shellcheck (scripts/)"
+  ./scripts/ci-shellcheck.sh
+else
+  warn "SKIPPING shellcheck: not installed."
+  warn "  Install it with: sudo apt-get install -y shellcheck (or brew install shellcheck)."
+  warn "  CI still runs this check."
+fi
+
 log "cargo build (host Rust lib for FRB)"
 (cd rust && cargo build)
 
