@@ -567,7 +567,17 @@ jobs:
           # logcats: a flake that leaves no trace is a flake nobody fixes, and
           # this one took a logcat diff against a passing run to explain.
           script: |
-            set -uo pipefail
+            # `set -u`, NOT `set -uo pipefail`. This runs under /usr/bin/sh,
+            # which android-emulator-runner execs directly — on the Ubuntu
+            # runner that is dash, where `-o pipefail` is not a valid option and
+            # the shell exits 2 on line 1, before the emulator is even used.
+            # (`run:` blocks elsewhere in this file default to bash and may use
+            # it; this input is the exception.) Nothing here pipes anything, so
+            # pipefail bought nothing even where it parsed.
+            set -u
+            # Fail with a name rather than `timeout: invalid time interval ''`
+            # if the env key is ever renamed out from under this script.
+            : "${ANDROID_EMULATOR_ATTEMPT_TIMEOUT:?must be set in ci.yml's env block}"
             adb logcat -c || true
             adb logcat -v time > emulator-logcat.txt 2>&1 &
 
