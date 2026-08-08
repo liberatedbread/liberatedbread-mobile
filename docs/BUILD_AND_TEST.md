@@ -892,6 +892,25 @@ On a Mac the whole thing runs as one command:
 LB_IOS_ATTEMPTS=1 ./scripts/ci-ios-tests.sh   # reproduce a failure, no retry
 ```
 
+And the retry loop itself is tested **without** a Mac, which matters more than
+it sounds: a simulator that will not boot cannot be produced on demand even on
+real hardware, so left alone that logic would only ever be exercised by the
+failure it exists to survive — at 10x, once, mid-incident.
+`scripts/ci-ios-tests-selftest.sh` drives it through all seven outcomes against
+stub `xcrun`/`flutter` binaries in about twenty seconds, and runs in the
+`analyze` job and in `scripts/test.sh`:
+
+```bash
+./scripts/ci-ios-tests-selftest.sh
+```
+
+That harness exists because the first version of the script waited for the
+initial boot *outside* the retry loop, with an unbounded `simctl bootstatus -b`
+— so the one failure the retry most wanted to survive would have hung until the
+step timeout killed everything, with no erase, no retry and no log. A reviewer
+caught that by reading it. The self-test is there to catch the next one by
+running it.
+
 ### Shell is linted too
 
 The CI logic in this repo deliberately lives in `scripts/` rather than in
