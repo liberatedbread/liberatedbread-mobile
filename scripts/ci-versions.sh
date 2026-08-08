@@ -51,7 +51,7 @@
 #   CI_RUST_ANDROID_TARGETS   space-separated rustup targets for Android
 #   CI_RUST_IOS_TARGETS       space-separated rustup targets for iOS
 #   CI_EMULATOR_API           API level of the AVD CI boots
-#   CI_EMULATOR_TARGET        system image target (e.g. google_apis)
+#   CI_EMULATOR_TARGET        system image target (e.g. aosp_atd)
 #   CI_EMULATOR_ARCH          system image arch (e.g. x86_64)
 #   CI_EMULATOR_PROFILE       device profile (e.g. pixel_6)
 #   CI_EMULATOR_SYSTEM_IMAGE  full sdkmanager package built from the three above
@@ -160,7 +160,7 @@ ci_versions_load() {
   # AVD to run the API the app compiles against — so it has its own keys rather
   # than defaulting to CI_ANDROID_API.
   _ci_set CI_EMULATOR_API '34' "$(_ci_env ANDROID_EMULATOR_API || true)"
-  _ci_set CI_EMULATOR_TARGET 'google_apis' "$(_ci_env ANDROID_EMULATOR_TARGET || true)"
+  _ci_set CI_EMULATOR_TARGET 'aosp_atd' "$(_ci_env ANDROID_EMULATOR_TARGET || true)"
   _ci_set CI_EMULATOR_ARCH 'x86_64' "$(_ci_env ANDROID_EMULATOR_ARCH || true)"
   _ci_set CI_EMULATOR_PROFILE 'pixel_6' "$(_ci_env ANDROID_EMULATOR_PROFILE || true)"
   CI_EMULATOR_SYSTEM_IMAGE="system-images;android-${CI_EMULATOR_API};${CI_EMULATOR_TARGET};${CI_EMULATOR_ARCH}"
