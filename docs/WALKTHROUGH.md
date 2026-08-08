@@ -54,12 +54,16 @@ native library isn't bundled (e.g. test builds that skip cargokit);
 HomeShell ┬ Nearby → ScanScreen  → (tap device) → DeviceScreen
           ├ Saved  → SavedDevicesScreen → (tap device) → DeviceScreen
           └ Wi-Fi  → WifiScanScreen → (tap device) → details sheet
+
+DeviceScreen → (Find device) → FindDeviceScreen
 ```
 
 Characteristics render inline on `DeviceScreen` — there is no separate
-per-characteristic screen. The scan screen's AppBar also pushes two settings
-screens: `SpecPackSettingsScreen` (puzzle-piece icon) and `HaSettingsScreen`
-(gear icon).
+per-characteristic screen. Its connected header pushes `FindDeviceScreen`,
+which measures the connection the device screen owns rather than opening its
+own. The scan screen's AppBar also pushes two settings screens:
+`SpecPackSettingsScreen` (puzzle-piece icon) and `HaSettingsScreen` (gear
+icon).
 
 All navigation uses standard `Navigator.push` with `MaterialPageRoute`.
 
@@ -84,6 +88,8 @@ mock implementations conform to this interface:
 | `readCharacteristic(...)` | `Future<List<int>>` | Read a characteristic value |
 | `writeCharacteristic(...)` | `Future<void>` | Write a characteristic value |
 | `subscribeCharacteristic(...)` | `Stream<List<int>>` | Subscribe to notifications |
+| `mtu(deviceId)` | `Future<int>` | Negotiated ATT MTU, for sizing bulk writes |
+| `readRssi(deviceId)` | `Future<int>` | Signal strength of a live connection |
 
 `BleConnectionState` enum: `disconnected`, `connecting`, `connected`,
 `disconnecting`.
@@ -424,6 +430,21 @@ connection status, forwarding toggle, and disconnect.
 Install and manage downloadable spec packs: an editable, validated manifest
 URL, install/refresh with loading and success/error states, and the list of
 installed packs with per-pack remove and clear-all.
+
+### FindDeviceScreen — `lib/screens/find_device_screen.dart`
+
+A hot/cold locator for a device that is already connected, pushed from the
+device screen's connected header. Polls `BleService.readRssi` once a second
+and renders a proximity gauge (distance guessed from the log-distance
+path-loss model in `lib/core/find_device.dart`), a closer/farther trend, and
+the raw dBm readings behind the guess. Three consecutive failed reads flip it
+to a signal-lost state rather than leaving a stale number on screen.
+
+When the device can announce itself it also offers one-tap alert buttons,
+detected by `detectAlertActions` from either a matched spec's fixed
+beep/blink commands or the standard Immediate Alert service (0x1802). An
+alert raised here is written back to its off level when the screen is left,
+so a key finder can't be left buzzing.
 
 ### DeviceControlPanel — `lib/widgets/device_control_panel.dart`
 

@@ -5,8 +5,49 @@
 String bytesToHex(List<int> bytes) =>
     bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
 
-/// Lowercase a BLE UUID for case-insensitive comparison.
-String normalizeUuid(String uuid) => uuid.toLowerCase();
+/// The Bluetooth SIG base UUID suffix. A 128-bit UUID ending in this is an
+/// alias for a 16-/32-bit assigned number, and the two forms name the same
+/// attribute.
+const _btBaseUuidSuffix = '-0000-1000-8000-00805f9b34fb';
+
+/// Canonicalize a BLE UUID for comparison: lowercased, and SIG-base UUIDs
+/// folded to their short form with leading zeros stripped.
+///
+///   `0000180F-0000-1000-8000-00805F9B34FB` → `180f`
+///   `180f`                                 → `180f`
+///   `6e400001-b5a3-f393-e0a9-e50e24dcca9d` → unchanged (not SIG-base)
+///
+/// Folding — not just lowercasing — is required because the two sides of
+/// every UUID comparison in this app speak different dialects. Device specs
+/// always write the full 128-bit form, while flutter_blue_plus reports the
+/// *shortest* representation (`Guid.toString()` returns `str`, which slices
+/// SIG-base UUIDs down to 4 hex digits), so a plain lowercase comparison of
+/// `0000180f-...` against `180f` fails on every real peripheral exposing a
+/// standard service. This mirrors `normalize_uuid` in
+/// `rust/src/protocol/profiles/mod.rs`, so the Dart and Rust sides agree on
+/// when two UUIDs are the same attribute.
+String normalizeUuid(String uuid) {
+  final lower = uuid.toLowerCase();
+  if (lower.endsWith(_btBaseUuidSuffix)) {
+    final prefix = lower.substring(0, lower.length - _btBaseUuidSuffix.length);
+    return _stripLeadingZeros(prefix);
+  }
+  // A bare short form may still carry leading zeros ("0180f"); fold those too
+  // so both spellings of the same assigned number compare equal.
+  if (lower.length <= 8 && !lower.contains('-')) {
+    return _stripLeadingZeros(lower);
+  }
+  return lower;
+}
+
+/// Drop leading zeros, keeping at least one digit ("0000" → "0").
+String _stripLeadingZeros(String value) {
+  var i = 0;
+  while (i < value.length - 1 && value.codeUnitAt(i) == 0x30) {
+    i++;
+  }
+  return value.substring(i);
+}
 
 final RegExp _macSeparators = RegExp('[:-]');
 final RegExp _upperHex = RegExp(r'^[0-9A-F]+$');

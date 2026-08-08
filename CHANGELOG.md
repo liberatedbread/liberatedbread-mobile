@@ -192,9 +192,11 @@ heading.
   alongside), and a getting-closer/farther trend. When the device can make
   itself noticeable, one-tap alert buttons appear — from the standard BLE
   Immediate Alert service (0x1802, key finders/fitness bands) or from
-  spec-declared beep/blink commands (`find_me`, `blink_led`); the
-  spec-driven detection is transport-agnostic, so Wi-Fi device specs gain
-  the same buttons once a Wi-Fi transport exists.
+  spec-declared beep/blink commands (`find_me`, `blink_led`). Detection
+  reads the matched spec, but the endpoints it resolves against are GATT, so
+  this is BLE-only today: Wi-Fi specs would need their `http_endpoints` /
+  `mqtt_topics` to cross the FFI (they currently don't) before the same
+  buttons could light up for them.
 - **Linux desktop target (x86-64)** — build and iterate without an emulator:
   `./scripts/run-linux.sh --mock`, committed `linux/` scaffold, a
   `verify_linux_bundle.sh` that checks the Rust library is bundled *and*

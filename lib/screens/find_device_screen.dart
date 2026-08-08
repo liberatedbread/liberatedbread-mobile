@@ -58,6 +58,11 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
   /// shows a busy state. Null when nothing is in flight.
   String? _busyActionKey;
 
+  /// The alert this screen raised that is (probably) still sounding, kept so
+  /// leaving the screen can silence it. Null when nothing was raised, when
+  /// it has been stopped, or when the action has no stop payload.
+  FindAlertAction? _ringing;
+
   @override
   void initState() {
     super.initState();
@@ -69,6 +74,14 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
     _pollTimer?.cancel();
     _consecutiveFailures = 0;
     _signalLost = false;
+    // Clear the in-flight latch too: a read left outstanding when polling
+    // stopped would otherwise make every tick after Retry return at the
+    // guard below, leaving a screen that looks live and never updates.
+    _readInFlight = false;
+    // Samples from before the gap describe a different place, possibly
+    // minutes ago. Blending them in would show the pre-loss distance as if
+    // live and can point the trend arrow backwards while the user walks.
+    _tracker.reset();
     _poll();
     _pollTimer = Timer.periodic(_pollInterval, (_) => _poll());
   }
@@ -78,7 +91,13 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
     if (_readInFlight || _signalLost) return;
     _readInFlight = true;
     try {
-      final rssi = await _bleService.readRssi(widget.deviceId);
+      // Bounded independently of the transport: flutter_blue_plus takes a
+      // process-wide BLE mutex whose *wait* is untimed, so a wedged platform
+      // call elsewhere in the app could otherwise hold this latch forever
+      // and silently freeze the readout on its last value.
+      final rssi = await _bleService
+          .readRssi(widget.deviceId)
+          .timeout(_pollInterval * 2);
       if (!mounted) return;
       setState(() {
         _consecutiveFailures = 0;
@@ -87,11 +106,14 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
     } catch (e) {
       if (!mounted) return;
       _consecutiveFailures += 1;
+      // Logged on every failure, not just the third: an intermittent
+      // fail/succeed pattern never reaches the threshold, and without these
+      // lines it leaves no trace at all.
+      Log.ble.warning(
+          'find-device: RSSI read $_consecutiveFailures/'
+          '$_maxConsecutiveFailures failed on ${widget.deviceId}',
+          error: e);
       if (_consecutiveFailures >= _maxConsecutiveFailures) {
-        Log.ble.warning(
-            'find-device: $_consecutiveFailures consecutive RSSI read '
-            'failures on ${widget.deviceId}; declaring the signal lost',
-            error: e);
         setState(() {
           _signalLost = true;
           _pollTimer?.cancel();
@@ -104,6 +126,13 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
   }
 
   Future<void> _sendAction(FindAlertAction action, {bool stop = false}) async {
+    // setState only schedules a rebuild, while onTap fires synchronously
+    // during pointer dispatch — so two taps in one frame both see the stale
+    // enabled state. Without this guard the second overwrites the first's
+    // busy key and the first's completion re-enables every button while the
+    // second write is still outstanding. Stop is exempt: silencing a device
+    // that is already sounding must never queue behind another write.
+    if (_busyActionKey != null && !stop) return;
     final key = _actionKey(action, stop: stop);
     setState(() => _busyActionKey = key);
     try {
@@ -127,6 +156,9 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
         action.charUuid,
         bytes,
       );
+      // Remember that this device is (probably) now making noise, so leaving
+      // the screen can turn it off again.
+      _ringing = stop ? null : (action.stopBytes == null ? null : action);
       if (!mounted) return;
       _showSnack(stop ? 'Stopped ${action.label}' : 'Sent ${action.label}');
     } catch (e) {
@@ -141,9 +173,14 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
     }
   }
 
+  /// Identity of one button. Includes the service UUID because
+  /// [detectAlertActions] deliberately keys actions by the
+  /// service+characteristic pair — a characteristic UUID alone can name two
+  /// different endpoints, and collapsing them here would light up both
+  /// buttons' busy state for one write.
   String _actionKey(FindAlertAction action, {required bool stop}) =>
-      '${action.charUuid}:${action.commandName ?? action.label}'
-      '${stop ? ':stop' : ''}';
+      '${action.serviceUuid}/${action.charUuid}:'
+      '${action.commandName ?? action.label}${stop ? ':stop' : ''}';
 
   void _showSnack(String msg) {
     ScaffoldMessenger.maybeOf(context)?.showSnackBar(
@@ -155,6 +192,25 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
   void dispose() {
     _pollTimer?.cancel();
     _pollTimer = null;
+    // An Immediate Alert level latches until it is written back to 0 — so a
+    // key finder raised from this screen keeps buzzing after the user walks
+    // away from it, and the only stop control is the one they just left.
+    // Fire-and-forget (dispose can't await) and best-effort: if the link is
+    // already gone, the device stopped anyway.
+    final ringing = _ringing;
+    _ringing = null;
+    if (ringing?.stopBytes != null) {
+      unawaited(
+        _bleService
+            .writeCharacteristic(
+              widget.deviceId,
+              ringing!.serviceUuid,
+              ringing.charUuid,
+              ringing.stopBytes!,
+            )
+            .catchError((Object _) {}),
+      );
+    }
     super.dispose();
   }
 
@@ -168,15 +224,21 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
     final serviceUuids = [
       for (final s in widget.services) normalizeUuid(s.uuid)
     ]..sort();
-    final outcome = ref
-        .watch(matchedDeviceSpecProvider(
-          SpecMatchRequest(
-            deviceId: widget.deviceId,
-            deviceName: widget.deviceName,
-            serviceUuids: serviceUuids,
-          ),
-        ))
-        .valueOrNull;
+    final matchAsync = ref.watch(matchedDeviceSpecProvider(
+      SpecMatchRequest(
+        deviceId: widget.deviceId,
+        deviceName: widget.deviceName,
+        serviceUuids: serviceUuids,
+      ),
+    ));
+    // hasValue||hasError, not `valueOrNull != null`: a match that FAILED
+    // (spec assets unreadable, pack load error) also has a null value, and
+    // keying visibility off that alone made the whole section — including
+    // the honest "no alert commands" note — silently vanish. hasValue also
+    // survives the AsyncLoading of a recompute, so the section doesn't
+    // flicker when a spec choice is saved.
+    final matchSettled = matchAsync.hasValue || matchAsync.hasError;
+    final outcome = matchAsync.valueOrNull;
     final match = outcome?.chosen;
     final actions = detectAlertActions(
       spec: match?.spec,
@@ -216,20 +278,24 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            if (!_signalLost) Center(child: _TrendLine(trend: _tracker.trend)),
             if (_signalLost) ...[
               const SizedBox(height: 8),
               _SignalLostCard(onRetry: () => setState(_startPolling)),
-            ],
+            ] else
+              Center(child: _TrendLine(trend: _tracker.trend)),
             const SizedBox(height: 24),
-            _SignalDetailsCard(tracker: _tracker),
+            // signalLost is passed, not just read above: the card must stop
+            // labelling the frozen last reading "Live signal" the moment the
+            // gauge says the signal is gone, or it sends the user hunting a
+            // number that is minutes old.
+            _SignalDetailsCard(tracker: _tracker, signalLost: _signalLost),
             const SizedBox(height: 24),
             // Actions render as soon as they're knowable: Immediate Alert
             // needs only the discovered services (available now), while
-            // spec commands appear once the match resolves. Before the match
-            // lands with zero sync actions there is nothing honest to say,
-            // so the section waits rather than flashing the empty note.
-            if (outcome != null || actions.isNotEmpty)
+            // spec commands appear once matching settles. Before it settles
+            // with zero sync actions there is nothing honest to say, so the
+            // section waits rather than flashing the empty note.
+            if (matchSettled || actions.isNotEmpty)
               _AlertActionsSection(
                 actions: actions,
                 busyActionKey: _busyActionKey,
@@ -291,12 +357,25 @@ class _ProximityGauge extends StatelessWidget {
       caption = proximityLabel(distance);
     }
 
+    // The ring is a fixed 232pt circle, but the readout inside it scales with
+    // the platform font size — at 2x it overflowed the box and the distance
+    // and proximity label, the whole point of the screen, rendered behind
+    // overflow stripes. Growing the box with the text keeps the ring circular
+    // and the readout intact.
+    final scale = MediaQuery.textScalerOf(context).scale(16) / 16;
+    final size = 232.0 * (scale > 1 ? scale : 1);
+    // Respect the platform reduce-motion setting, as RadarScanner does: a
+    // gauge that re-eases every second is exactly the motion that setting is
+    // asking us to stop.
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
     return SizedBox(
-      width: 232,
-      height: 232,
+      width: size,
+      height: size,
       child: TweenAnimationBuilder<double>(
         tween: Tween(end: fraction),
-        duration: const Duration(milliseconds: 350),
+        duration:
+            reduceMotion ? Duration.zero : const Duration(milliseconds: 350),
         curve: Curves.easeOut,
         builder: (context, animated, child) => CustomPaint(
           painter: _GaugePainter(
@@ -307,24 +386,30 @@ class _ProximityGauge extends StatelessWidget {
           child: child,
         ),
         child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                headline,
-                style: text.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+          child: Padding(
+            // Keep the text off the ring itself at every scale.
+            padding: EdgeInsets.symmetric(horizontal: size * 0.16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  headline,
+                  textAlign: TextAlign.center,
+                  style: text.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                caption,
-                style:
-                    text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  caption,
+                  textAlign: TextAlign.center,
+                  style:
+                      text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -402,18 +487,29 @@ class _TrendLine extends StatelessWidget {
           'Signal steady',
           scheme.onSurfaceVariant
         ),
+      // "Steady" is a verdict; before there are samples to compare, the
+      // honest line is that we're still collecting them.
+      RssiTrend.unknown => (
+          Icons.more_horiz,
+          'Reading signal...',
+          scheme.onSurfaceVariant
+        ),
     };
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 18, color: color),
         const SizedBox(width: 6),
-        Text(
-          label,
-          style: Theme.of(context)
-              .textTheme
-              .bodyMedium
-              ?.copyWith(color: color, fontWeight: FontWeight.w600),
+        // Flexible so the label wraps instead of overflowing the row at
+        // large text scales — at 2x it ran ~70px past a 360dp screen.
+        Flexible(
+          child: Text(
+            label,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: color, fontWeight: FontWeight.w600),
+          ),
         ),
       ],
     );
@@ -426,7 +522,12 @@ class _TrendLine extends StatelessWidget {
 class _SignalDetailsCard extends StatelessWidget {
   final RssiTracker tracker;
 
-  const _SignalDetailsCard({required this.tracker});
+  /// When true the readings are frozen at whatever the last successful poll
+  /// saw, so the live rows report "—" and the section says the readings are
+  /// stale rather than presenting them as current.
+  final bool signalLost;
+
+  const _SignalDetailsCard({required this.tracker, required this.signalLost});
 
   @override
   Widget build(BuildContext context) {
@@ -437,14 +538,17 @@ class _SignalDetailsCard extends StatelessWidget {
     final distance = tracker.estimatedDistanceMeters;
 
     final rows = <(String, String)>[
-      ('Live signal', dbm(tracker.latest)),
-      ('Smoothed', dbm(tracker.smoothed)),
+      // The two rows that claim to be current go blank once the signal is
+      // lost; the session's extremes and sample count stay, since they are
+      // history and never claimed otherwise.
+      ('Live signal', signalLost ? '—' : dbm(tracker.latest)),
+      ('Smoothed', signalLost ? '—' : dbm(tracker.smoothed)),
       ('Strongest', dbm(tracker.strongest)),
       ('Weakest', dbm(tracker.weakest)),
       ('Samples', tracker.hasSamples ? '${tracker.sampleCount}' : '—'),
       (
         'Distance guess',
-        distance == null ? '—' : formatApproxDistance(distance)
+        signalLost || distance == null ? '—' : formatApproxDistance(distance)
       ),
     ];
 
@@ -587,7 +691,11 @@ class _AlertActionsSection extends StatelessWidget {
                 ),
                 if (action.stopBytes != null)
                   OutlinedButton(
-                    onPressed: busyActionKey != null
+                    // Never disabled by another send in flight. A ring write
+                    // that is slow to ack leaves the device already
+                    // sounding, and greying out the only control that
+                    // silences it is the worst possible moment to do so.
+                    onPressed: busyActionKey == actionKeyOf(action, stop: true)
                         ? null
                         : () => onSend(action, stop: true),
                     style: OutlinedButton.styleFrom(

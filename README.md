@@ -52,6 +52,8 @@ decoding characteristic values, and implementing standard Bluetooth profiles.
 - Spec-driven typed device controls (buttons, sliders, decoded values —
   generated straight from the YAML)
 - Downloadable remote spec packs — new device support without an app update
+- Find Device view — hot/cold locator with live signal strength, a rough
+  distance guess, and one-tap beep/flash buttons on devices that support them
 - Home Assistant companion mode (forward BLE sensor readings to HA)
 - Secure on-device credential storage (HA tokens live in the platform
   keychain/keystore, never in plain preferences)
@@ -325,7 +327,7 @@ enough. `scripts/test.sh` handles all of this automatically.
 │   ├── core/                   # Constants, theme, hex/uuid + HA helpers
 │   ├── models/                 # IoTDevice, BleDiscoveredService, HA models
 │   ├── providers/              # Riverpod providers (BLE, specs, spec packs, HA)
-│   ├── screens/                # Scan, Device, HA settings, spec-pack settings
+│   ├── screens/                # Scan, Device, Find device, HA + spec-pack settings
 │   ├── services/               # BleService (real/mock), HA client, spec packs
 │   ├── widgets/                # Control panel, raw + typed characteristic widgets
 │   └── src/rust/               # Generated FRB bindings (committed, don't edit)

@@ -1,7 +1,10 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/find_device.dart';
+import 'package:liberated_bread_mobile/core/value_format.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
@@ -30,7 +33,13 @@ DeviceSpecDto _spec({
       manufacturer: 'Test Co',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
+      localNamePrefixes: const [],
       serviceUuids: [serviceUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
       entities: const [],
       services: [
         ServiceDto(
@@ -107,6 +116,16 @@ void main() {
       expect(formatApproxDistance(20.0), '20+ m');
       expect(formatApproxDistance(437.0), '20+ m');
     });
+
+    test('boundaries land in the band they round into', () {
+      // 9.96 would print as a decimal "≈ 10.0 m" above the decimal cutoff...
+      expect(formatApproxDistance(9.96), '≈ 10 m');
+      // ...and 19.7 would print "≈ 20 m", a precise-looking number
+      // indistinguishable from the cap that exists to say "no resolution".
+      expect(formatApproxDistance(19.7), '20+ m');
+      expect(formatApproxDistance(9.94), '≈ 9.9 m');
+      expect(formatApproxDistance(19.4), '≈ 19 m');
+    });
   });
 
   group('proximityLabel', () {
@@ -167,12 +186,38 @@ void main() {
       expect(tracker.sampleCount, RssiTracker.historyCapacity + 10);
     });
 
-    test('trend is steady until enough samples arrive', () {
-      final tracker = RssiTracker()
+    test('trend is unknown — not steady — until enough samples arrive', () {
+      final tracker = RssiTracker();
+      expect(tracker.trend, RssiTrend.unknown);
+      tracker
         ..add(-60)
         ..add(-50)
         ..add(-40);
-      expect(tracker.trend, RssiTrend.steady);
+      // "Steady" is a verdict about a signal that isn't moving; asserting it
+      // from three samples would be a fabricated hot/cold reading.
+      expect(tracker.trend, RssiTrend.unknown);
+    });
+
+    test('reset clears every accumulated reading', () {
+      final tracker = RssiTracker()
+        ..add(-60)
+        ..add(-90)
+        ..add(-70);
+      tracker.reset();
+      expect(tracker.hasSamples, isFalse);
+      expect(tracker.sampleCount, 0);
+      expect(tracker.latest, isNull);
+      expect(tracker.smoothed, isNull);
+      expect(tracker.strongest, isNull);
+      expect(tracker.weakest, isNull);
+      expect(tracker.history, isEmpty);
+      expect(tracker.estimatedDistanceMeters, isNull);
+      expect(tracker.trend, RssiTrend.unknown);
+
+      // A sample after reset starts the average fresh rather than blending
+      // with the pre-reset value.
+      tracker.add(-50);
+      expect(tracker.smoothed, -50.0);
     });
 
     test('rising signal reads as closer, falling as farther', () {
@@ -232,19 +277,39 @@ void main() {
     });
 
     test('rejects settings/status queries that merely name an alert', () {
-      // The Inkbird BBQ spec's get_* commands are fixed and encodable but
-      // only read configuration back — pressing them makes no noise.
+      // These only read configuration back — pressing them makes no noise.
       expect(classifyAlertCommand('get_sound_switch'), isNull);
       expect(classifyAlertCommand('get_alarm_mode'), isNull);
       expect(classifyAlertCommand('alarm_status'), isNull);
       expect(classifyAlertCommand('read_tone'), isNull);
     });
+
+    test('an explicit locator outranks a query word in the same name', () {
+      // The find tokens are checked first: these are locators that happen to
+      // spell a query verb, not queries.
+      expect(classifyAlertCommand('request_find'), FindAlertKind.alert);
+      expect(classifyAlertCommand('find_status'), FindAlertKind.alert);
+      expect(classifyAlertCommand('alert_request'), FindAlertKind.alert);
+    });
+
+    test('rejects commands that configure an alert instead of raising one', () {
+      // airthings' set_ring_color is an LED ring colour; admore's
+      // set_flash_count/set_strobe_duration are brake-light settings. All
+      // write persistent state rather than making the device noticeable.
+      expect(classifyAlertCommand('set_ring_color'), isNull);
+      expect(classifyAlertCommand('set_flash_count'), isNull);
+      expect(classifyAlertCommand('set_strobe_duration'), isNull);
+      expect(classifyAlertCommand('set_alarm'), isNull);
+      expect(classifyAlertCommand('alarm_enable'), isNull);
+    });
   });
 
-  group('humanLabelForCommand', () {
-    test('sentence-cases and fixes initialisms', () {
-      expect(humanLabelForCommand('find_me'), 'Find me');
-      expect(humanLabelForCommand('blink_led'), 'Blink LED');
+  group('action labels', () {
+    test('come from the shared humanizeName, initialisms included', () {
+      // Same helper the device screen's typed controls use, so a command
+      // cannot read "Blink LED" here and "Blink led" one screen over.
+      expect(humanizeName('find_me'), 'Find me');
+      expect(humanizeName('blink_led'), 'Blink LED');
     });
   });
 
@@ -413,6 +478,49 @@ void main() {
         services: [_discovered(_svc, _chr)],
       );
       expect(actions, hasLength(1));
+    });
+
+    test('matches a spec 128-bit UUID against a short-form discovery', () {
+      // flutter_blue_plus reports SIG-base UUIDs in their SHORT form
+      // ("1802"/"2a06"), while specs always write the 128-bit spelling. This
+      // is what real hardware looks like, and comparing the two literally is
+      // what made the feature dead on device.
+      final actions = detectAlertActions(services: [
+        _discovered('1802', '2a06'),
+      ]);
+      expect(actions, hasLength(1));
+      expect(actions.single.bytes, [0x02]);
+    });
+
+    test('matches a spec command on a short-form discovered characteristic',
+        () {
+      const sigSvc = '00001204-0000-1000-8000-00805f9b34fb';
+      const sigChr = '00001a00-0000-1000-8000-00805f9b34fb';
+      final actions = detectAlertActions(
+        spec: _spec(
+          serviceUuid: sigSvc,
+          charUuid: sigChr,
+          commands: [_command('blink_led')],
+        ),
+        specYaml: 'yaml',
+        // What discovery actually hands us for those UUIDs.
+        services: [_discovered('1204', '1a00')],
+      );
+      expect(actions, hasLength(1));
+      expect(actions.single.commandName, 'blink_led');
+      expect(actions.single.label, 'Blink LED');
+    });
+  });
+
+  group('isPlausibleRssi', () {
+    test('accepts real readings and rejects the no-value sentinels', () {
+      expect(isPlausibleRssi(-59), isTrue);
+      expect(isPlausibleRssi(-100), isTrue);
+      // BlueZ reports 0 on a success when the RSSI property is absent, and
+      // the SIG's "unavailable" sentinel is 127. Neither is a signal.
+      expect(isPlausibleRssi(0), isFalse);
+      expect(isPlausibleRssi(127), isFalse);
+      expect(isPlausibleRssi(-200), isFalse);
     });
   });
 }
