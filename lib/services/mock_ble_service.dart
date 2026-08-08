@@ -179,13 +179,18 @@ class MockBleService implements BleService {
           'vendor/protocol-specs/device-specs/devices/airthings-wave-family.yaml',
       companyIds: [820],
     ),
-    // Nameless, silent, and identifiable only by the vendor half of its
-    // address. Present because this is the case the scan list used to bury: an
-    // unhelpfully anonymous device that is nonetheless worth a second look.
-    // Xiaomi's OUI covers far more than the plant monitor, so the app must
-    // offer it as a possibility rather than a claim.
+    // Nameless, silent, and identifiable only by its address. Present because
+    // this is the case the scan list used to bury: an unhelpfully anonymous
+    // device that is nonetheless worth a second look.
+    //
+    // The last nibble is load-bearing. C4:7C:8D is an IEEE Registration
+    // Authority block subdivided among fifteen unrelated companies, and only
+    // C4:7C:8D:6 is HHCC Plant Technology's — the OEM behind the HHCCJCY01
+    // model number. An address ending anywhere else in the block resolves to
+    // someone else entirely (…:1 is LYNX Innovation), which titled the demo
+    // row with one company while badging it with another.
     _MockDeviceDef(
-      id: 'C4:7C:8D:11:22:04',
+      id: 'C4:7C:8D:61:22:04',
       name: '',
       rssi: -78,
       specAsset:

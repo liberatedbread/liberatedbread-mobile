@@ -99,7 +99,15 @@ Future<List<String>> _bundledSpecPaths() async {
       // and reading one of those must not empty the catalogue.
       final path = entry['path'] ?? entry['file'];
       if (path is! String || path.isEmpty) continue;
-      paths.add(specAssetPath(path));
+      // A bare filename is the whole reason `file` is accepted, and it is
+      // exactly what specAssetPath cannot take: it prepends the repo root, so
+      // `example-bulb.yaml` became `vendor/protocol-specs/example-bulb.yaml`,
+      // which is not a bundled asset. Every load then failed its own
+      // FlutterError guard, `paths` was non-empty so the fallback never fired,
+      // and the catalogue came back empty — every device dropped to raw GATT
+      // controls. Give a bare name the directory the old manifests implied.
+      paths.add(specAssetPath(
+          path.contains('/') ? path : 'device-specs/devices/$path'));
     }
     return paths.isEmpty ? fallback : paths;
   } catch (e) {
