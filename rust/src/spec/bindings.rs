@@ -15,7 +15,10 @@
 //! ambiguous, so the strip gets brightness and color controls but no power
 //! toggle until the spec pins that byte down.
 
-use super::types::{Characteristic, Command, DeviceSpec, Entity, Service, TemplateElement};
+use super::types::{
+    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service, TemplateElement,
+    ValueType,
+};
 use crate::codec::types::unsupported_encoding_kind;
 
 /// One resolved control action: the command to send for a role, and which
@@ -23,11 +26,14 @@ use crate::codec::types::unsupported_encoding_kind;
 #[derive(Debug)]
 pub struct ResolvedAction<'a> {
     /// Canonical role name: `turn_on` | `turn_off` | `press` |
-    /// `set_brightness` | `set_color`.
+    /// `set_brightness` | `set_color` | `set_value`.
     pub role: &'static str,
     pub service: &'a Service,
     pub characteristic: &'a Characteristic,
-    pub command_name: &'a str,
+    /// The command this role sends, or `None` for a `set_value` action that
+    /// writes the encoded value straight to [`Self::characteristic`] — see
+    /// [`resolve_set_value`] for when that is allowed.
+    pub command_name: Option<&'a str>,
     /// Template parameters the UI owns, in template order — the subset of the
     /// role's vocabulary this command actually references. Empty for fixed
     /// commands. Everything else in the template is spec-defaulted.
@@ -126,6 +132,12 @@ pub fn resolve_entity_actions<'a>(
     spec: &'a DeviceSpec,
     entity: &'a Entity,
 ) -> Vec<ResolvedAction<'a>> {
+    // `number` and `climate` resolve a single setpoint action, which is
+    // structural rather than vocabulary-based — see `resolve_set_value`.
+    if matches!(entity.platform.as_deref(), Some("number") | Some("climate")) {
+        return resolve_set_value(spec, entity).into_iter().collect();
+    }
+
     let roles: &[&RoleSpec] = match entity.platform.as_deref() {
         Some("switch") => &[&TURN_ON, &TURN_OFF, &PRESS],
         Some("light") => &[&TURN_ON, &TURN_OFF, &SET_BRIGHTNESS, &SET_COLOR],
@@ -136,6 +148,275 @@ pub fn resolve_entity_actions<'a>(
         .iter()
         .filter_map(|role| resolve_role(spec, entity, role))
         .collect()
+}
+
+/// Command names a setpoint entity's `commands:` map may bind, and the
+/// conventional names tried when it binds nothing.
+const SET_VALUE_ALIASES: &[&str] = &["set_value", "set_temperature", "set_target"];
+const SET_VALUE_FALLBACKS: &[&str] = &[
+    "set_value",
+    "set_target_temp",
+    "set_temperature",
+    "set_level",
+];
+
+/// Resolve the one action a `number`/`climate` entity supports: writing a
+/// value the user chose.
+///
+/// Two shapes qualify, in order:
+///
+/// 1. **A command taking exactly one value.** The entity binds a command (or
+///    one of the conventional names resolves) whose template references
+///    exactly one parameter the spec does not default. That parameter carries
+///    the setpoint; everything else is protocol filler the encoder fills in.
+///    A command needing *two* un-defaulted parameters does not qualify —
+///    Ember splits its centi-°C target across `temp_low`/`temp_high` and
+///    which byte is which is stated only in prose, so guessing would write a
+///    wildly wrong temperature.
+///
+/// 2. **A direct write.** No command qualifies, but the entity explicitly
+///    declares a `command_characteristic` that is writable and carries a
+///    `format:` of exactly one field. The explicit declaration is the gate:
+///    it is the spec author saying "this entity's writes go here", and with a
+///    single field the byte layout is unambiguous. Gerbing's heat channels
+///    are this shape — one `uint8` percentage, written and read through the
+///    same characteristic.
+fn resolve_set_value<'a>(spec: &'a DeviceSpec, entity: &'a Entity) -> Option<ResolvedAction<'a>> {
+    // An explicit binding that names a real command settles it, exactly as in
+    // `resolve_role`: falling past it could send a different command than the
+    // author bound.
+    for alias in SET_VALUE_ALIASES {
+        let Some(bound) = entity.command_for_role(alias) else {
+            continue;
+        };
+        if let Some((service, characteristic, name, command)) =
+            find_command(spec, entity, |n| n == bound)
+        {
+            return qualify_set_value(service, characteristic, name, command);
+        }
+    }
+
+    for fallback in SET_VALUE_FALLBACKS {
+        if let Some((service, characteristic, name, command)) =
+            find_command(spec, entity, |n| n == *fallback)
+        {
+            if let Some(action) = qualify_set_value(service, characteristic, name, command) {
+                return Some(action);
+            }
+        }
+    }
+
+    resolve_direct_write(spec, entity)
+}
+
+/// Qualify a command for the `set_value` role: it must reference exactly one
+/// un-defaulted parameter, which then receives the setpoint.
+fn qualify_set_value<'a>(
+    service: &'a Service,
+    characteristic: &'a Characteristic,
+    name: &'a str,
+    command: &'a Command,
+) -> Option<ResolvedAction<'a>> {
+    if unsupported_encoding_kind(command).is_some() {
+        return None;
+    }
+    // A fixed byte sequence cannot carry a value the user picked.
+    let template = command.template.as_ref()?;
+
+    let mut value_param: Option<&str> = None;
+    for element in template {
+        let TemplateElement::Param(param_name) = element else {
+            continue;
+        };
+        let declared = command
+            .parameters
+            .as_ref()
+            .and_then(|set| set.params.get(param_name.as_str()));
+        if declared.is_some_and(|p| p.default.is_some()) {
+            continue;
+        }
+        match value_param {
+            // A second un-defaulted parameter makes the mapping ambiguous.
+            Some(first) if first != param_name => return None,
+            Some(_) => {}
+            None => value_param = Some(param_name),
+        }
+    }
+    let value_param = value_param?;
+
+    let declared = command
+        .parameters
+        .as_ref()
+        .and_then(|set| set.params.get(value_param));
+    Some(ResolvedAction {
+        role: SET_VALUE_ROLE,
+        service,
+        characteristic,
+        command_name: Some(name),
+        user_params: vec![value_param],
+        min: declared.and_then(|p| p.min),
+        max: declared.and_then(|p| p.max),
+    })
+}
+
+/// Resolve the direct-write shape described in [`resolve_set_value`].
+fn resolve_direct_write<'a>(
+    spec: &'a DeviceSpec,
+    entity: &'a Entity,
+) -> Option<ResolvedAction<'a>> {
+    let uuid = entity.command_characteristic.as_deref()?;
+    let (service, characteristic) =
+        spec.find_characteristic_where(uuid, |c| c.format.as_ref().is_some_and(|f| f.len() == 1))?;
+    let writable = characteristic
+        .properties
+        .contains(&CharacteristicProperty::Write)
+        || characteristic
+            .properties
+            .contains(&CharacteristicProperty::WriteWithoutResponse);
+    if !writable {
+        return None;
+    }
+    let field = characteristic.format.as_ref()?;
+    // Exactly one field: with two, which one the value belongs to is a guess.
+    let [field] = field.as_slice() else {
+        return None;
+    };
+    // The value has to be expressible as an integer of known width.
+    let (type_min, type_max) = field.field_type.integer_range()?;
+
+    Some(ResolvedAction {
+        role: SET_VALUE_ROLE,
+        service,
+        characteristic,
+        command_name: None,
+        user_params: Vec::new(),
+        min: Some(type_min),
+        max: Some(type_max),
+    })
+}
+
+const SET_VALUE_ROLE: &str = "set_value";
+
+/// The linear map between raw wire values and the decoded values a user sees:
+/// `value = raw * scale + value_offset`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ValueTransform {
+    pub scale: f64,
+    pub value_offset: f64,
+}
+
+impl ValueTransform {
+    pub const IDENTITY: Self = Self {
+        scale: 1.0,
+        value_offset: 0.0,
+    };
+
+    /// Raw → decoded.
+    pub fn decode(&self, raw: f64) -> f64 {
+        raw * self.scale + self.value_offset
+    }
+
+    /// Decoded → raw, rounded to the nearest whole wire value. `None` when
+    /// `scale` is zero: that map is not invertible, and quietly substituting
+    /// 1.0 would write a number the user never asked for.
+    pub fn encode(&self, value: f64) -> Option<f64> {
+        if self.scale == 0.0 {
+            return None;
+        }
+        Some(((value - self.value_offset) / self.scale).round())
+    }
+}
+
+/// Resolve the raw↔decoded transform for a setpoint action.
+///
+/// Most specific wins, because each source describes a narrower thing than
+/// the last:
+/// 1. the command parameter's own number semantics — it describes this exact
+///    write;
+/// 2. the entity's `state_mapping.scale` — the entity layer's statement about
+///    its own value (Ember declares `scale: 0.01` here);
+/// 3. the bound state field's `scale`/`value_offset` — how the device encodes
+///    the quantity generally (Gerbing's `raw * 0.5 + 85`);
+/// 4. identity.
+pub fn setpoint_transform(
+    spec: &DeviceSpec,
+    entity: &Entity,
+    action: &ResolvedAction<'_>,
+) -> ValueTransform {
+    if let (Some(command_name), Some(param_name)) =
+        (action.command_name, action.user_params.first())
+    {
+        let param = action
+            .characteristic
+            .commands
+            .as_ref()
+            .and_then(|cmds| cmds.get(command_name))
+            .and_then(|cmd| cmd.parameters.as_ref())
+            .and_then(|set| set.params.get(*param_name));
+        if let Some(param) = param.filter(|p| p.has_number_semantics()) {
+            return ValueTransform {
+                scale: param.scale.unwrap_or(1.0),
+                value_offset: param.value_offset.unwrap_or(0.0),
+            };
+        }
+    }
+
+    if let Some(scale) = entity.value_scale() {
+        return ValueTransform {
+            scale,
+            value_offset: 0.0,
+        };
+    }
+
+    // The field the value is written to — for a direct write that is the
+    // action's own single field, otherwise the entity's state field.
+    let field = if action.command_name.is_none() {
+        action
+            .characteristic
+            .format
+            .as_ref()
+            .and_then(|fields| fields.first())
+    } else {
+        entity
+            .state_characteristic
+            .as_deref()
+            .and_then(|uuid| spec.find_decodable_characteristic(uuid))
+            .and_then(|(_, c)| c.format.as_ref())
+            .and_then(|fields| {
+                let wanted = entity.value_field();
+                match wanted {
+                    Some(name) => fields.iter().find(|f| f.name == name),
+                    None => fields.first(),
+                }
+            })
+    };
+
+    field.map_or(ValueTransform::IDENTITY, |f| ValueTransform {
+        scale: f.scale.unwrap_or(1.0),
+        value_offset: f.value_offset.unwrap_or(0.0),
+    })
+}
+
+/// The wire type a setpoint action's value is encoded as: the bound
+/// parameter's declared type, or the single format field's for a direct
+/// write.
+pub fn setpoint_value_type(action: &ResolvedAction<'_>) -> Option<ValueType> {
+    match (action.command_name, action.user_params.first()) {
+        (Some(command_name), Some(param_name)) => action
+            .characteristic
+            .commands
+            .as_ref()
+            .and_then(|cmds| cmds.get(command_name))
+            .and_then(|cmd| cmd.parameters.as_ref())
+            .and_then(|set| set.params.get(*param_name))
+            .map(|p| p.value_type.clone()),
+        _ => action
+            .characteristic
+            .format
+            .as_ref()
+            .and_then(|fields| fields.first())
+            .map(|f| f.field_type.clone()),
+    }
 }
 
 fn resolve_role<'a>(
@@ -231,7 +512,7 @@ fn qualify<'a>(
             role: role.role,
             service,
             characteristic,
-            command_name: name,
+            command_name: Some(name),
             user_params: Vec::new(),
             min: None,
             max: None,
@@ -301,7 +582,7 @@ fn qualify<'a>(
         role: role.role,
         service,
         characteristic,
-        command_name: name,
+        command_name: Some(name),
         user_params,
         min,
         max,
@@ -391,7 +672,7 @@ entities:
         );
 
         let brightness = &actions[2];
-        assert_eq!(brightness.command_name, "set_brightness");
+        assert_eq!(brightness.command_name, Some("set_brightness"));
         assert_eq!(brightness.user_params, vec!["brightness"]);
         assert_eq!((brightness.min, brightness.max), (Some(0), Some(100)));
 
@@ -430,8 +711,8 @@ entities:
         );
         let actions = actions_for(&spec);
         assert_eq!(roles(&actions), vec!["turn_on", "turn_off", "press"]);
-        assert_eq!(actions[0].command_name, "bot_turn_on");
-        assert_eq!(actions[2].command_name, "bot_press");
+        assert_eq!(actions[0].command_name, Some("bot_turn_on"));
+        assert_eq!(actions[2].command_name, Some("bot_press"));
     }
 
     /// elk-bledom's shape: brightness/color commands are fully defaulted
@@ -684,6 +965,300 @@ entities:
             actions[0].user_params,
             vec!["red", "green", "blue", "brightness"]
         );
+    }
+
+    // ── set_value (number / climate setpoints) ─────────────────────────────
+
+    /// Gerbing's shape: no commands anywhere, but the entity nominates a
+    /// writable characteristic whose format is a single field.
+    #[test]
+    fn direct_write_resolves_when_the_entity_nominates_a_writable_field() {
+        let spec = spec_with(
+            r#"
+  - name: Heat Level 1
+    platform: number
+    unit: "%"
+    min: 0
+    max: 100
+    step: 1
+    state_characteristic: "90759319-1668-44da-9ef3-492d593bd1e5"
+    command_characteristic: "90759319-1668-44da-9ef3-492d593bd1e5"
+"#,
+            r#"
+  - uuid: "0313fb4e-198b-4f64-a883-52b218c10ccc"
+    name: Heat Service
+    characteristics:
+      - uuid: "90759319-1668-44da-9ef3-492d593bd1e5"
+        name: Heat Channel 1
+        properties: [read, write]
+        format:
+          - offset: 0
+            length: 1
+            name: heat_percent
+            type: uint8
+            unit: "%"
+"#,
+        );
+        let actions = actions_for(&spec);
+        assert_eq!(roles(&actions), vec!["set_value"]);
+        let action = &actions[0];
+        assert_eq!(
+            action.command_name, None,
+            "a direct write has no command to name"
+        );
+        assert_eq!(
+            action.characteristic.uuid,
+            "90759319-1668-44da-9ef3-492d593bd1e5"
+        );
+        // Identity transform: the raw byte already is the percentage.
+        let transform = setpoint_transform(&spec, &spec.entities[0], action);
+        assert_eq!(transform, ValueTransform::IDENTITY);
+    }
+
+    /// A nominated characteristic that is read-only must not resolve: the
+    /// entity would render a control that cannot possibly land.
+    #[test]
+    fn direct_write_requires_a_writable_characteristic() {
+        let spec = spec_with(
+            r#"
+  - name: Heat Level
+    platform: number
+    command_characteristic: "90759319-1668-44da-9ef3-492d593bd1e5"
+"#,
+            r#"
+  - uuid: "0313fb4e-198b-4f64-a883-52b218c10ccc"
+    name: Heat Service
+    characteristics:
+      - uuid: "90759319-1668-44da-9ef3-492d593bd1e5"
+        name: Heat Channel 1
+        properties: [read]
+        format:
+          - offset: 0
+            length: 1
+            name: heat_percent
+            type: uint8
+"#,
+        );
+        assert!(actions_for(&spec).is_empty());
+    }
+
+    /// Two format fields make the byte layout ambiguous — which one the
+    /// setpoint belongs to would be a guess.
+    #[test]
+    fn direct_write_requires_a_single_format_field() {
+        let spec = spec_with(
+            r#"
+  - name: Heat Level
+    platform: number
+    command_characteristic: "90759319-1668-44da-9ef3-492d593bd1e5"
+"#,
+            r#"
+  - uuid: "0313fb4e-198b-4f64-a883-52b218c10ccc"
+    name: Heat Service
+    characteristics:
+      - uuid: "90759319-1668-44da-9ef3-492d593bd1e5"
+        name: Heat Channel 1
+        properties: [read, write]
+        format:
+          - offset: 0
+            length: 1
+            name: channel
+            type: uint8
+          - offset: 1
+            length: 1
+            name: heat_percent
+            type: uint8
+"#,
+        );
+        assert!(actions_for(&spec).is_empty());
+    }
+
+    /// Without an explicit `command_characteristic` nothing resolves: writing
+    /// to a characteristic the author never nominated is not ours to infer.
+    #[test]
+    fn direct_write_requires_an_explicit_command_characteristic() {
+        let spec = spec_with(
+            r#"
+  - name: Heat Level
+    platform: number
+    state_characteristic: "90759319-1668-44da-9ef3-492d593bd1e5"
+"#,
+            r#"
+  - uuid: "0313fb4e-198b-4f64-a883-52b218c10ccc"
+    name: Heat Service
+    characteristics:
+      - uuid: "90759319-1668-44da-9ef3-492d593bd1e5"
+        name: Heat Channel 1
+        properties: [read, write]
+        format:
+          - offset: 0
+            length: 1
+            name: heat_percent
+            type: uint8
+"#,
+        );
+        assert!(actions_for(&spec).is_empty());
+    }
+
+    /// A command whose template has exactly one un-defaulted parameter is
+    /// unambiguous: that parameter takes the setpoint.
+    #[test]
+    fn command_with_one_undefaulted_param_resolves_as_setpoint() {
+        let spec = spec_with(
+            r#"
+  - name: Target Temperature
+    platform: number
+    unit: C
+    state_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+    commands:
+      set_value: set_target
+"#,
+            r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Write
+        properties: [write]
+        commands:
+          set_target:
+            description: Set target temperature
+            template: [170, "{seq}", "{target}", 85]
+            parameters:
+              seq: {type: uint8, default: 0}
+              target:
+                type: uint8
+                min: 0
+                max: 60
+                scale: 0.5
+                value_offset: 10
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: Status
+        properties: [read, notify]
+        format:
+          - offset: 0
+            length: 1
+            name: target_raw
+            type: uint8
+"#,
+        );
+        let actions = actions_for(&spec);
+        assert_eq!(roles(&actions), vec!["set_value"]);
+        let action = &actions[0];
+        assert_eq!(action.command_name, Some("set_target"));
+        assert_eq!(action.user_params, vec!["target"]);
+
+        // The parameter's own semantics win over the state field's.
+        let transform = setpoint_transform(&spec, &spec.entities[0], action);
+        assert_eq!(transform.scale, 0.5);
+        assert_eq!(transform.value_offset, 10.0);
+        // 25 °C -> raw 30, and back again.
+        assert_eq!(transform.encode(25.0), Some(30.0));
+        assert_eq!(transform.decode(30.0), 25.0);
+    }
+
+    /// Ember's shape: the target is split across two un-defaulted byte
+    /// parameters and only prose says which is which, so it must not resolve.
+    #[test]
+    fn command_needing_two_undefaulted_params_does_not_resolve() {
+        let spec = spec_with(
+            r#"
+  - name: Target Temperature
+    platform: number
+    unit: C
+    min: 49
+    max: 63
+    state_characteristic: "fc540003-236c-4c94-8fa9-944a3e5353fa"
+    state_mapping:
+      value: target_temp_raw
+      scale: 0.01
+    commands:
+      set_value: set_target_temp
+"#,
+            r#"
+  - uuid: "fc543622-236c-4c94-8fa9-944a3e5353fa"
+    name: Ember
+    characteristics:
+      - uuid: "fc540003-236c-4c94-8fa9-944a3e5353fa"
+        name: Target Temperature
+        properties: [read, write]
+        commands:
+          set_target_temp:
+            description: Set target temperature
+            template: ["{temp_low}", "{temp_high}"]
+            parameters:
+              temp_low: {type: uint8, min: 0, max: 255}
+              temp_high: {type: uint8, min: 0, max: 255}
+        format:
+          - offset: 0
+            length: 2
+            name: target_temp_raw
+            type: uint16
+            scale: 0.01
+"#,
+        );
+        assert!(
+            actions_for(&spec).is_empty(),
+            "a two-byte split stated only in prose must not be guessed at"
+        );
+    }
+
+    /// With no parameter-level semantics, the entity's own `state_mapping`
+    /// scale describes the value — it is the entity layer's statement about
+    /// what its number means.
+    #[test]
+    fn entity_scale_supplies_the_transform_when_the_parameter_is_bare() {
+        let spec = spec_with(
+            r#"
+  - name: Target Temperature
+    platform: number
+    unit: C
+    state_characteristic: "0000fff2-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: target_raw
+      scale: 0.01
+    commands:
+      set_value: set_target
+"#,
+            r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Write
+        properties: [write]
+        commands:
+          set_target:
+            description: Set target
+            template: ["{target}"]
+            parameters:
+              target: {type: uint16, min: 0, max: 10000}
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: Status
+        properties: [read]
+        format:
+          - offset: 0
+            length: 2
+            name: target_raw
+            type: uint16
+            scale: 0.01
+"#,
+        );
+        let actions = actions_for(&spec);
+        let transform = setpoint_transform(&spec, &spec.entities[0], &actions[0]);
+        assert_eq!(transform.scale, 0.01);
+        assert_eq!(transform.encode(55.0), Some(5500.0));
+    }
+
+    /// A `scale: 0` cannot be inverted, so encoding refuses rather than
+    /// substituting 1.0 and writing a number nobody chose.
+    #[test]
+    fn zero_scale_is_not_invertible() {
+        let transform = ValueTransform {
+            scale: 0.0,
+            value_offset: 5.0,
+        };
+        assert_eq!(transform.encode(10.0), None);
     }
 
     /// Sensors and unknown platforms resolve nothing — their rendering is

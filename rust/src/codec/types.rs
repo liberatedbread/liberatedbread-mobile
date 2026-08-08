@@ -388,6 +388,19 @@ pub(crate) fn coerce_param(
     }
 }
 
+/// Encode one numeric value as the little-endian bytes of `ty`.
+///
+/// The direct-write counterpart of [`encode_command`]: a `number` entity
+/// whose spec nominates a writable characteristic with a single-field format
+/// has no command to place its bytes, so the value *is* the payload. Range
+/// and integrality are checked exactly as a template parameter's would be, so
+/// an out-of-range setpoint fails here rather than on the wire.
+pub fn encode_scalar(value: f64, ty: &ValueType, name: &str) -> Result<Vec<u8>, ProtocolError> {
+    let mut bytes = Vec::new();
+    append_typed(&mut bytes, coerce_param(value, ty, name)?);
+    Ok(bytes)
+}
+
 fn append_typed(bytes: &mut Vec<u8>, val: TypedParam) {
     match val {
         TypedParam::U8(v) => bytes.push(v),
@@ -411,10 +424,7 @@ mod tests {
             value_type,
             min,
             max,
-            default: None,
-            allowed: None,
-            labels: None,
-            notes: None,
+            ..Default::default()
         }
     }
 
@@ -436,9 +446,7 @@ mod tests {
             length: 1,
             name: "power".into(),
             field_type: ValueType::Bool,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(&[1], &field).unwrap(),
@@ -457,9 +465,7 @@ mod tests {
             length: 1,
             name: "brightness".into(),
             field_type: ValueType::Uint8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(&[0x00, 0x64], &field).unwrap(),
@@ -474,9 +480,7 @@ mod tests {
             length: 2,
             name: "value".into(),
             field_type: ValueType::Uint16,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // 0x0100 in little-endian = 256
         assert_eq!(
@@ -493,27 +497,21 @@ mod tests {
                 length: 1,
                 name: "power_state".into(),
                 field_type: ValueType::Bool,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
             FormatField {
                 offset: 1,
                 length: 1,
                 name: "brightness".into(),
                 field_type: ValueType::Uint8,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
             FormatField {
                 offset: 2,
                 length: 1,
                 name: "red".into(),
                 field_type: ValueType::Uint8,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
         ];
         let bytes = &[1, 80, 255];
@@ -535,9 +533,7 @@ mod tests {
             length: 1,
             name: "temp".into(),
             field_type: ValueType::Int8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // -10 as i8 = 0xF6
         assert_eq!(
@@ -554,9 +550,7 @@ mod tests {
             length: 2,
             name: "temp".into(),
             field_type: ValueType::Int16,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // -1000 as i16 in LE = [0x18, 0xFC]
         assert_eq!(
@@ -572,9 +566,7 @@ mod tests {
             length: 3,
             name: "payload".into(),
             field_type: ValueType::Bytes,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(&[0xDE, 0xAD, 0xBE], &field).unwrap(),
@@ -589,9 +581,7 @@ mod tests {
             length: 5,
             name: "label".into(),
             field_type: ValueType::String,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(b"hello", &field).unwrap(),
@@ -611,9 +601,7 @@ mod tests {
             length: 1,
             name: "boom".into(),
             field_type: ValueType::Uint8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         match decode_field(&[0u8; 4], &field) {
             Err(ProtocolError::FieldOffsetOverflow { offset, length }) => {
@@ -631,9 +619,7 @@ mod tests {
             length: 3,
             name: "data".into(),
             field_type: ValueType::Uint8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert!(decode_field(&[0x00, 0x01], &field).is_err());
     }
@@ -901,9 +887,7 @@ mod tests {
             length: 4,
             name: "value".into(),
             field_type: ValueType::Uint32,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // 0xFFFFFFFF LE = 4294967295
         assert_eq!(
@@ -1196,9 +1180,7 @@ mod tests {
             length: 1,
             name: "bad".into(),
             field_type: ValueType::Uint16,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // The buffer is plenty long; the *declared field* is what's too
         // short, so needed/got are slice-relative.

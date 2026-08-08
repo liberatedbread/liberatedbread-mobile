@@ -238,9 +238,7 @@ mod tests {
             length: 1,
             name: "power_state".into(),
             field_type: ValueType::Bool,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
 
         // Before write, get defaults
@@ -261,27 +259,21 @@ mod tests {
                 length: 1,
                 name: "power_state".into(),
                 field_type: ValueType::Bool,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
             FormatField {
                 offset: 1,
                 length: 1,
                 name: "brightness".into(),
                 field_type: ValueType::Uint8,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
             FormatField {
                 offset: 2,
                 length: 1,
                 name: "battery_percent".into(),
                 field_type: ValueType::Uint8,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
         ];
         let bytes = generate_defaults(&fields);
@@ -300,8 +292,7 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::Number(99.into())),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), vec![99]);
     }
@@ -314,8 +305,7 @@ mod tests {
             name: "power".into(),
             field_type: ValueType::Bool,
             mock_default: Some(serde_yaml::Value::Bool(true)),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), vec![1]);
     }
@@ -328,8 +318,7 @@ mod tests {
             name: "power".into(),
             field_type: ValueType::Bool,
             mock_default: Some(serde_yaml::Value::Bool(false)),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), vec![0]);
     }
@@ -343,8 +332,7 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::String("nope".into())),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), vec![80]); // heuristic for "brightness"
     }
@@ -358,8 +346,7 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::Number(999.into())),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), vec![80]); // heuristic, not 999 % 256
     }
@@ -372,8 +359,7 @@ mod tests {
             name: "brightness".into(),
             field_type: ValueType::Uint8,
             mock_default: Some(serde_yaml::Value::Number((-1).into())),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), vec![80]); // heuristic, not 255
     }
@@ -387,8 +373,7 @@ mod tests {
             name: "temp".into(),
             field_type: ValueType::Int16,
             mock_default: Some(serde_yaml::Value::Number((-40000).into())),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         // Heuristic for Int16: 220 LE → [0xDC, 0x00].
         assert_eq!(generate_defaults(&fields), vec![0xDC, 0x00]);
@@ -403,8 +388,7 @@ mod tests {
             name: "power".into(),
             field_type: ValueType::Bool,
             mock_default: Some(serde_yaml::Value::Number(2.into())),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), vec![1]); // heuristic: bool default-on
     }
@@ -417,8 +401,7 @@ mod tests {
             name: "lux".into(),
             field_type: ValueType::Uint16,
             mock_default: Some(serde_yaml::Value::Number(1234.into())),
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         // 1234 = 0x04D2, little-endian = [0xD2, 0x04]
         assert_eq!(generate_defaults(&fields), vec![0xD2, 0x04]);
@@ -435,9 +418,9 @@ mod tests {
             length: 2,
             name: "temperature".into(),
             field_type: ValueType::Int16,
-            mock_default: None,
             scale: Some(0.01),
             unit: Some("C".into()),
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), 2200i16.to_le_bytes().to_vec());
     }
@@ -451,9 +434,7 @@ mod tests {
             length: 2,
             name: "temperature".into(),
             field_type: ValueType::Int16,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), 220i16.to_le_bytes().to_vec());
     }
@@ -469,7 +450,7 @@ mod tests {
             field_type: ValueType::Int16,
             mock_default: Some(serde_yaml::Value::Number(1234.into())),
             scale: Some(0.01),
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), 1234i16.to_le_bytes().to_vec());
     }
@@ -481,9 +462,8 @@ mod tests {
             length: 2,
             name: "temperature".into(),
             field_type: ValueType::Int16,
-            mock_default: None,
             scale: Some(0.0),
-            unit: None,
+            ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), 22i16.to_le_bytes().to_vec());
     }
@@ -510,9 +490,7 @@ mod tests {
                     length: 3,
                     name: "lux".into(), // heuristic: 500 = 0x01F4
                     field_type: ValueType::Uint16,
-                    mock_default: None,
-                    scale: None,
-                    unit: None,
+                    ..Default::default()
                 },
                 want: vec![0xF4, 0x01, 0x00],
             },
@@ -524,8 +502,7 @@ mod tests {
                     name: "lux".into(),
                     field_type: ValueType::Uint16,
                     mock_default: Some(serde_yaml::Value::Number(0x1234.into())),
-                    scale: None,
-                    unit: None,
+                    ..Default::default()
                 },
                 want: vec![0x34, 0x12, 0x00],
             },
@@ -536,9 +513,7 @@ mod tests {
                     length: 4,
                     name: "reading".into(), // Int16 heuristic: 220 = 0x00DC
                     field_type: ValueType::Int16,
-                    mock_default: None,
-                    scale: None,
-                    unit: None,
+                    ..Default::default()
                 },
                 want: vec![0xDC, 0x00, 0x00, 0x00],
             },
@@ -550,8 +525,7 @@ mod tests {
                     name: "counter".into(),
                     field_type: ValueType::Uint32,
                     mock_default: Some(serde_yaml::Value::Number(0xAABB_CCDDi64.into())),
-                    scale: None,
-                    unit: None,
+                    ..Default::default()
                 },
                 want: vec![0xDD, 0xCC, 0xBB, 0xAA, 0, 0, 0, 0],
             },
@@ -562,9 +536,7 @@ mod tests {
                     length: 8,
                     name: "counter".into(),
                     field_type: ValueType::Uint32,
-                    mock_default: None,
-                    scale: None,
-                    unit: None,
+                    ..Default::default()
                 },
                 want: vec![0; 8],
             },

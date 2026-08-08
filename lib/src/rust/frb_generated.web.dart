@@ -67,6 +67,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   EntityDto dco_decode_entity_dto(dynamic raw);
 
   @protected
+  EntityWriteDto dco_decode_entity_write_dto(dynamic raw);
+
+  @protected
   double dco_decode_f_64(dynamic raw);
 
   @protected
@@ -233,6 +236,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   EntityDto sse_decode_entity_dto(SseDeserializer deserializer);
+
+  @protected
+  EntityWriteDto sse_decode_entity_write_dto(SseDeserializer deserializer);
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
@@ -421,6 +427,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_entity_dto(EntityDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_entity_write_dto(
+      EntityWriteDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
