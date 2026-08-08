@@ -279,29 +279,89 @@ class _PlistScanner {
 }
 
 // ---------------------------------------------------------------------------
-// Gradle-source scanning
+// Comment stripping
 // ---------------------------------------------------------------------------
 
-/// Blank out `//` and `/* */` comments in Groovy/Gradle [source], keeping
-/// string-literal CONTENTS intact and preserving offsets (removed characters
-/// become spaces, newlines are kept).
+/// Blank out `#` comments in YAML [source], keeping quoted values intact and
+/// preserving offsets.
 ///
-/// Deliberately different from [stripDartCommentsAndStringContents], which also
-/// blanks what is inside quotes. A Gradle audit has to read values that only
-/// exist inside string literals — `classpath 'com.android.tools.build:gradle'`
-/// is the whole point of one of the assertions — so blanking them would make
-/// the check unable to see the thing it exists to reject.
+/// The workflow this reads is unusually comment-dense about the very settings
+/// asserted against it — the `api-level` matrix has ~90 lines of prose around
+/// it explaining why it is duplicated — so an unstripped scan finds a second
+/// "declaration" the moment someone writes one in a sentence. That is the
+/// failure mode the workflow's own header documents biting this repo twice.
 ///
-/// Comments must still go, and not as a nicety: these build files carry long
-/// explanatory comments that name the very settings being asserted ("Matches
+/// A `#` inside quotes is preserved, matching `scripts/ci-versions.sh`'s
+/// reader, so a value that legitimately contains one is not truncated.
+String stripHashComments(String source) {
+  final out = StringBuffer();
+  var inQuote = '';
+  for (var i = 0; i < source.length; i++) {
+    final c = source[i];
+    if (c == '\n') {
+      inQuote = '';
+      out.write(c);
+      continue;
+    }
+    if (inQuote.isEmpty && (c == "'" || c == '"')) {
+      inQuote = c;
+      out.write(c);
+      continue;
+    }
+    if (inQuote.isNotEmpty) {
+      if (c == inQuote) inQuote = '';
+      out.write(c);
+      continue;
+    }
+    if (c == '#') {
+      // Blank to end of line, preserving offsets.
+      while (i < source.length && source[i] != '\n') {
+        out.write(' ');
+        i++;
+      }
+      if (i < source.length) out.write('\n');
+      continue;
+    }
+    out.write(c);
+  }
+  return out.toString();
+}
+
+// ---------------------------------------------------------------------------
+// Comment stripping that KEEPS string contents
+// ---------------------------------------------------------------------------
+
+/// Blank out `//` and `/* */` comments in [source], keeping string-literal
+/// CONTENTS intact and preserving offsets (removed characters become spaces,
+/// newlines are kept).
+///
+/// The counterpart to [stripDartCommentsAndStringContents], which also blanks
+/// what is inside quotes. Which one you want depends on where the value lives:
+///
+///   * Blank strings too when asking "does the code DO this?" — a log message
+///     or a doc string mentioning an API must not answer yes.
+///   * Keep strings, as here, when the value being audited only exists inside
+///     a literal. Both current callers need that: `classpath
+///     'com.android.tools.build:gradle'` in a Gradle file, and
+///     `import 'error_flow_test.dart' as ...;` in a Dart one — blanking the
+///     quotes would erase the very thing the assertion reads.
+///
+/// Comments must still go, and not as a nicety: the files audited here carry
+/// long explanatory comments naming the settings being asserted ("Matches
 /// android/app/build.gradle's literal minSdkVersion 24"), so a raw scan finds
-/// two declarations where the file has one, and a test asserting a single
-/// value fails on prose.
+/// two declarations where the file has one and a single-value assertion fails
+/// on prose. That is the same class of bug the workflow header describes.
 ///
 /// String state is tracked so a `//` inside a quoted URL (there is one in
 /// android/app/build.gradle's keystore warning) does not read as a comment and
 /// swallow the rest of the line.
-String stripGradleComments(String source) {
+///
+/// Groovy and Dart are close enough to share this: same `//`, `/* */`, quote
+/// and triple-quote forms. Two Dart-only shapes are NOT modelled, because
+/// neither appears in the files this reads — raw strings (`r'...'`, where a
+/// backslash is literal) and nested block comments, which Dart allows and
+/// Groovy does not.
+String stripCommentsKeepingStrings(String source) {
   final out = StringBuffer();
   var i = 0;
   final n = source.length;

@@ -103,11 +103,9 @@ For the **Linux desktop** target (`./scripts/run-linux.sh`), `./scripts/setup.sh
 installs the native toolchain for you on apt-based distros; to do it by hand:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y \
-  clang cmake ninja-build pkg-config \
-  libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
-# optional: run headlessly (no display), as CI does
-sudo apt-get install -y xvfb
+eval "$(./scripts/ci-versions.sh)"   # the list CI installs, xvfb included
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+  ${CI_LINUX_DESKTOP_PACKAGES}
 ```
 
 `libsecret-1-dev` is for `flutter_secure_storage_linux` (Home Assistant token
@@ -253,9 +251,13 @@ cd rust && cargo test              # Rust unit tests
 flutter test integration_test/ci_all_test.dart
 
 # Integration tests on the Linux desktop — no emulator, no display needed.
-# One file per invocation on desktop (see docs/BUILD_AND_TEST.md):
-xvfb-run -a flutter test integration_test/mock_flow_test.dart -d linux \
-  --dart-define=LIBERATED_BREAD_MOCK=true
+# One file per invocation here (a flutter_tools VM-service bug; see
+# docs/BUILD_AND_TEST.md), skipping the device-jobs aggregate:
+for t in integration_test/*_test.dart; do
+  [ "$(basename "$t")" = ci_all_test.dart ] && continue
+  xvfb-run -a flutter test "$t" -d linux --exclude-tags=e2e \
+    --dart-define=LIBERATED_BREAD_MOCK=true
+done
 ```
 
 Linting:

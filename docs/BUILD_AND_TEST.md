@@ -25,7 +25,7 @@ app on **Linux** and **macOS**.
 | Tool | Version | How to Check |
 |------|---------|-------------|
 | Git | any | `git --version` |
-| Flutter | 3.24+ (stable) | `flutter --version` |
+| Flutter | 3.44+ (stable) | `flutter --version` |
 | Rust | stable (1.82+) | `rustc --version` |
 
 No `cargo-ndk` needed: cargokit (the flutter_rust_bridge native-build plugin)
@@ -37,7 +37,7 @@ drives the NDK itself during `flutter build`.
 |------|---------|
 | Android SDK | API 36 — the pinned Flutter's `flutter.compileSdkVersion` |
 | Android NDK | CI's `FLUTTER_NDK_VERSION` — the pinned Flutter's `flutter.ndkVersion` |
-| Android SDK Build-Tools | 34.0.0 — AGP 8.6's default; a newer one only adds a download |
+| Android SDK Build-Tools | CI's `ANDROID_BUILD_TOOLS` — AGP 8.6's default; a newer one only adds a download |
 | Java (for Gradle) | 17+ |
 
 The emulator is a separate axis: it boots API 34 (see the CI table below), and
@@ -75,11 +75,10 @@ Only needed if you want to run the app on your Linux desktop (see
 one extra for secure storage:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y \
-  clang cmake ninja-build pkg-config \
-  libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
-# optional: run headlessly (no display), the way CI does
-sudo apt-get install -y xvfb
+eval "$(./scripts/ci-versions.sh)"
+# xvfb is in the list: CI runs the app headlessly and so can you.
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+  ${CI_LINUX_DESKTOP_PACKAGES}
 ```
 
 | Package | Why |
@@ -116,7 +115,7 @@ What it does:
 6. Installs the Linux desktop toolchain via apt (GTK 3, clang/cmake/ninja,
    `libsecret`, Xvfb) — Linux only, skipped on non-apt distros with the list
    printed so you can install the equivalents
-7. Sets up Android SDK components (platform, build-tools, NDK)
+7. Sets up Android SDK components (platform, build-tools, CMake, NDK)
 8. Installs the emulator and system image and creates the
    `liberated_bread_test` AVD — same image and device profile CI boots
 9. Runs `pod install` on macOS
@@ -126,7 +125,7 @@ What it does:
 
 None of the above are pinned in the setup script.
 `scripts/ci-versions.sh` reads them out of `.github/workflows/ci.yml` — the
-Flutter version, NDK, Android API and build-tools, the FRB codegen pin, the
+Flutter version, NDK, Android API, build-tools and CMake, the FRB codegen pin, the
 rustup target lists, the apt package list, and the emulator's API level,
 system image target/arch and device profile. Bumping CI moves every dev
 environment with it. To see what your environment will use:
@@ -153,7 +152,7 @@ same CI-derived values, in three tiers:
 |------|------|------|
 | Host | Flutter SDK, `flutter pub get`, host Rust library | always |
 | Linux desktop | the apt packages from CI's `linux-desktop` job | wherever apt is usable |
-| Android | SDK platform, build-tools, NDK, cross targets, emulator, `liberated_bread_test` AVD, `android/local.properties` | when `/dev/kvm` exists and there is disk for it |
+| Android | SDK platform, build-tools, CMake, NDK, cross targets, emulator, `liberated_bread_test` AVD, `android/local.properties` | when `/dev/kvm` exists and there is disk for it |
 
 The optional tiers skip themselves — with a logged reason — instead of failing
 the session, and both can be forced or suppressed:
@@ -200,7 +199,7 @@ Download from https://docs.flutter.dev/get-started/install or use the setup
 script. Ensure `flutter` is on your PATH.
 
 ```bash
-flutter --version    # Should show 3.24.x
+flutter --version    # Should match ci.yml's FLUTTER_VERSION
 flutter doctor       # Check for issues
 ```
 
@@ -227,7 +226,8 @@ rustup target add \
 ### 3. Install Cargo Tools
 
 ```bash
-cargo install --locked flutter_rust_bridge_codegen@2.9.0
+eval "$(./scripts/ci-versions.sh)"
+cargo install --locked "flutter_rust_bridge_codegen@${CI_FRB_VERSION}"
 ```
 
 ### 4. Android SDK
@@ -237,9 +237,13 @@ versions `./scripts/ci-versions.sh` prints, since the NDK moves with the
 Flutter pin:
 
 ```bash
-sdkmanager "platform-tools" "build-tools;34.0.0" \
-  "platforms;android-$(./scripts/ci-versions.sh | sed -n 's/^CI_ANDROID_API=//p')" \
-  "ndk;$(./scripts/ci-versions.sh | sed -n 's/^CI_NDK_VERSION=//p')"
+# One eval, then interpolate — ci-versions.sh prints every CI_* value.
+eval "$(./scripts/ci-versions.sh)"
+sdkmanager "platform-tools" \
+  "platforms;android-${CI_ANDROID_API}" \
+  "build-tools;${CI_BUILD_TOOLS_VERSION}" \
+  "cmake;${CI_CMAKE_VERSION}" \
+  "ndk;${CI_NDK_VERSION}"
 ```
 
 Set `ANDROID_HOME`:
@@ -252,9 +256,10 @@ For the emulator, add the emulator package and the system image CI boots, then
 create the AVD `scripts/run-android.sh` looks for:
 
 ```bash
-sdkmanager "emulator" "system-images;android-34;google_apis;x86_64"
+eval "$(./scripts/ci-versions.sh)"
+sdkmanager "emulator" "${CI_EMULATOR_SYSTEM_IMAGE}"
 avdmanager create avd -n liberated_bread_test \
-  -k "system-images;android-34;google_apis;x86_64" -d pixel_6
+  -k "${CI_EMULATOR_SYSTEM_IMAGE}" -d "${CI_EMULATOR_PROFILE}"
 ```
 
 Emulation needs KVM on Linux (`sudo apt-get install -y qemu-kvm && sudo usermod -aG kvm "$USER"`,
@@ -490,7 +495,11 @@ screenshot`.
 macOS + iOS Simulator only: the simulator shares the host's network, so
 `127.0.0.1` reaches the shot server. On the Android emulator `127.0.0.1` is
 the emulator itself — which is why the test is tagged `e2e` in
-`dart_test.yaml` and CI's emulator job runs with `--exclude-tags=e2e`.
+`dart_test.yaml`. Every CI job passes `--exclude-tags=e2e`, but on the device
+jobs that flag only filters group/test-level tags — a *file*-level `@Tags` is
+read from the entrypoint only, so what actually keeps this suite off a device
+is that `integration_test/ci_all_test.dart` does not import it
+(`test/platform/integration_aggregate_test.dart` asserts both directions).
 
 ### Integration tests on the Linux desktop (no emulator)
 

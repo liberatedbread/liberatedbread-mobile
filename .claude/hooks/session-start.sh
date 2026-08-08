@@ -391,7 +391,7 @@ fi
 log "Ready. ./scripts/test.sh mirrors CI (Flutter + Rust host jobs)."
 if [ "$ANDROID_READY" = "true" ]; then
   log "Android: ./scripts/run-android.sh boots the ${AVD_NAME} AVD;"
-  log "  flutter test integration_test --dart-define=LIBERATED_BREAD_MOCK=true runs on it."
+  log "  flutter test integration_test/ci_all_test.dart --dart-define=LIBERATED_BREAD_MOCK=true runs on it."
 else
   log "Android SDK/emulator not provisioned — see the notes above, or run"
   log "  LB_SETUP_ANDROID=1 .claude/hooks/session-start.sh to force it."

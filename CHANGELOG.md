@@ -298,11 +298,17 @@ heading.
   to `flutter test` is its own kernel-compile → native build → install →
   launch cycle (~2 minutes each on the 10x-billed macOS runner, even fully
   cached); the new `integration_test/ci_all_test.dart` bundles the mock-safe
-  suites so the iOS and Android jobs pay that cycle once. The `flutter` job
-  fails if a mock-safe test file is missing from the aggregate's imports, and
-  the linux-desktop job still runs each file in its own process, so per-file
-  isolation coverage survives. The iOS job also starts `simctl boot` right
-  after checkout and only waits for it after the build, turning ~65 serial
+  suites so the iOS and Android jobs pay that cycle once. It initialises the
+  integration-test binding itself, before the groups: the binding registers its
+  end-of-run `tearDownAll` in its constructor, so leaving that to the first
+  imported suite would scope the "all tests finished" hook to that suite and
+  fire it between the two.
+  `test/platform/integration_aggregate_test.dart` asserts both directions — a
+  mock-safe suite missing from the aggregate never runs on a device, and an
+  e2e-tagged one added to it would run where its host-side screenshot server is
+  unreachable. The linux-desktop job still runs each file in its own process,
+  so per-file isolation coverage survives. The iOS job also starts `simctl boot`
+  right after checkout and only waits for it after the build, turning ~65 serial
   seconds of boot wait into overlap. Together: ~10m10s → ~7m of macOS wall
   clock on a warm run, and the emulator job sheds a cycle too.
 - **Dev environment setup now follows CI instead of re-pinning it.**

@@ -28,11 +28,33 @@
 // imported file cannot be excluded with --exclude-tags — its tests would
 // simply run. Exclusion from CI is by omission here.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
 
 import 'error_flow_test.dart' as error_flow;
 import 'mock_flow_test.dart' as mock_flow;
 
 void main() {
+  // MUST come before the group() calls, and is not redundant with the
+  // ensureInitialized() each imported suite already makes.
+  //
+  // IntegrationTestWidgetsFlutterBinding's CONSTRUCTOR registers a tearDownAll
+  // (integration_test.dart: it completes _allTestsPassed and invokes the
+  // native `allTestsFinished` channel method). package:test scopes a
+  // tearDownAll to whatever group is being declared when it is registered — so
+  // with initialization left to the imported suites, the binding is built
+  // inside the FIRST group and its end-of-run hook fires between the two
+  // suites instead of after both. The second suite then runs against an
+  // already-finalised binding whose _allTestsPassed is complete, so its
+  // failures cannot flip the verdict.
+  //
+  // Under `flutter test` (what CI uses) that is currently masked: flutter_tools
+  // sets INTEGRATION_TEST_SHOULD_REPORT_RESULTS_TO_NATIVE=false and collects
+  // results itself. It is NOT masked under flutter drive / integration_test_driver
+  // / native instrumentation, which read exactly those results — so an
+  // aggregate is the one shape where this ordering matters, and this file is
+  // now the only device entrypoint.
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
   group('error_flow_test.dart', error_flow.main);
   group('mock_flow_test.dart', mock_flow.main);
 }
