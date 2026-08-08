@@ -105,6 +105,13 @@ env:
   ANDROID_EMULATOR_TARGET: 'google_apis'
   ANDROID_EMULATOR_ARCH: 'x86_64'
   ANDROID_EMULATOR_PROFILE: 'pixel_6'
+  # Flutter's spelling of ANDROID_EMULATOR_ARCH, for the warm-up build's
+  # --target-platform. A second vocabulary for one fact (x86_64 <-> android-x64),
+  # so it is declared here rather than inlined at the use site and
+  # test/platform/deployment_targets_test.dart asserts the pair agrees. If they
+  # drift, the warm-up populates caches the emulator's build cannot use and the
+  # real build lands back inside package:test_core's 12-minute load window.
+  ANDROID_WARMUP_TARGET_PLATFORM: 'android-x64'
 
   # ── Everything else the setup scripts provision ────────────────────────────
   JAVA_VERSION: '17'
@@ -132,35 +139,6 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      # The device jobs (ios-build, android-integration) run the aggregate
-      # entrypoint integration_test/ci_all_test.dart instead of the whole
-      # directory: on a device, every file passed to `flutter test` is its own
-      # kernel-compile → native build → install → launch cycle (~2 minutes each
-      # on the 10x-billed macOS runner), so bundling the suites into one file
-      # collapses N cycles into one. That makes "added a test file, forgot the
-      # import" a silent coverage hole — the file would still run in the
-      # linux-desktop per-file loop, but never on a device. Assert the import
-      # list is complete HERE: milliseconds, needs no toolchain, and this job
-      # already gates the expensive runners. e2e-tagged files are exempt
-      # because they cannot run in CI at all, and must stay out of the
-      # aggregate — a file-level @Tags in an imported file is invisible to
-      # --exclude-tags, so importing one would RUN it (the same annotation
-      # scan the linux-desktop job uses to skip them, kept in sync).
-      - name: Check integration_test/ci_all_test.dart imports every mock-safe test file
-        run: |
-          missing=0
-          for t in integration_test/*_test.dart; do
-            base="$(basename "$t")"
-            [ "$base" = "ci_all_test.dart" ] && continue
-            if grep -qE "@Tags\(\[.*'e2e'.*\]\)" "$t"; then
-              continue
-            fi
-            if ! grep -qF "'$base'" integration_test/ci_all_test.dart; then
-              echo "::error file=integration_test/ci_all_test.dart::$base is not imported by integration_test/ci_all_test.dart, so the iOS and Android device jobs will never run it. Import it there (import '$base' as ...;) and call its main() in a group()."
-              missing=1
-            fi
-          done
-          exit $missing
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -373,7 +351,7 @@ jobs:
     # ~3m45s, so 50/30 is still many times the observed cost — loose enough
     # that a cold cache cannot trip it, tight enough that a genuinely hung
     # emulator stops costing an hour.
-    timeout-minutes: 50
+    timeout-minutes: 60
     needs: [flutter, rust]
     # The one place a pinned value is repeated instead of interpolated:
     # GitHub does not expose the `env` context to `strategy:`, so
@@ -460,7 +438,7 @@ jobs:
       # artifacts and packaging on top.
       - name: Warm up Gradle, cargokit and Rust build caches
         run: |
-          flutter build apk --debug --target-platform android-x64 \
+          flutter build apk --debug --target-platform "$ANDROID_WARMUP_TARGET_PLATFORM" \
             --dart-define=LIBERATED_BREAD_MOCK=true
       # The Rust toolchain + NDK this job adds (~4 GB), plus the warm-up build
       # output, can starve the emulator of disk and prevent it from booting.
@@ -512,13 +490,13 @@ jobs:
           profile: ${{ env.ANDROID_EMULATOR_PROFILE }}
           # ci_all_test.dart, NOT the integration_test directory: each file is
           # its own device build+install+launch cycle (see the ios-build test
-          # step), so the aggregate runs the same suites in one cycle. It also
-          # keeps the e2e walkthrough out by omission — that test needs
-          # scripts/e2e_shot_server.py on the host and 127.0.0.1 (which on an
-          # emulator reaches the emulator, not the host); run it via
-          # scripts/e2e-walkthrough.sh on macOS. --exclude-tags would not work
-          # here anyway: tags are read from the entrypoint file only, never
-          # from imports.
+          # step), so the aggregate runs the same suites in one cycle. The e2e
+          # walkthrough stays out by omission — it needs scripts/e2e_shot_server.py
+          # on the host and 127.0.0.1 (which on an emulator reaches the
+          # emulator, not the host); run it via scripts/e2e-walkthrough.sh on
+          # macOS. --exclude-tags=e2e is kept as defence in depth: it cannot
+          # filter a FILE-level @Tags in an import, but it does filter a group-
+          # or test-level `tags:` inside an imported suite.
           #
           # --timeout raises the per-test *body* timeout only. It is defence in
           # depth for slow test bodies — an emulator on swiftshader with 2 cores
@@ -533,7 +511,7 @@ jobs:
           script: |
             adb logcat -c || true
             adb logcat -v time > emulator-logcat.txt 2>&1 &
-            flutter test integration_test/ci_all_test.dart --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
+            flutter test integration_test/ci_all_test.dart --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
       - name: Upload emulator logcat
         if: always()
         uses: actions/upload-artifact@v4
@@ -682,12 +660,17 @@ jobs:
       # file passed to `flutter test` is its own Dart entrypoint and pays a full
       # kernel-compile → Xcode build → install → launch cycle, ~2 minutes each
       # on this runner with every cache warm. The aggregate bundles the
-      # mock-safe suites into one cycle; the flutter job fails fast if a new
-      # *_test.dart is missing from it, and the linux-desktop job still runs
-      # the files individually so per-process isolation keeps coverage there.
-      # No --exclude-tags=e2e: a file-level @Tags annotation is read from the
-      # entrypoint file only, so it could not exclude an imported e2e suite
-      # anyway — e2e files stay out of CI by not being imported.
+      # mock-safe suites into one cycle. The linux-desktop job still runs the
+      # files individually, so per-process isolation keeps coverage there, and
+      # test/platform/integration_aggregate_test.dart fails the cheap job if a
+      # suite is missing from the aggregate — or if an e2e one is added to it.
+      #
+      # --exclude-tags=e2e is defence in depth, and does real work despite what
+      # an earlier version of this comment claimed. It is true that a FILE-level
+      # @Tags in an imported library is invisible to it (which is why e2e files
+      # are kept out by omission), but a group- or test-level `tags:` inside an
+      # imported suite IS registered at runtime and IS filtered by this flag.
+      # Dropping it left that case running on a device.
       #
       # -d is required, not optional: macos runners also expose the macOS
       # desktop device, and `flutter test` refuses to run with more than one
@@ -707,6 +690,7 @@ jobs:
         timeout-minutes: 30
         run: |
           flutter test integration_test/ci_all_test.dart \
+            --exclude-tags=e2e \
             -d "${{ steps.sim.outputs.udid }}" \
             --timeout 1200s \
             --dart-define=LIBERATED_BREAD_MOCK=true
@@ -786,7 +770,7 @@ jobs:
         run: |
           sudo apt-get update
           # shellcheck disable=SC2086
-          sudo apt-get install -y --no-install-recommends $LINUX_DESKTOP_PACKAGES
+          sudo apt-get install -y --no-install-recommends ${LINUX_DESKTOP_PACKAGES:?LINUX_DESKTOP_PACKAGES is empty — the env key was renamed or removed, and installing nothing here surfaces later as an unrelated CMake/GTK error inside flutter build linux}
       - run: flutter pub get
 
       # ── release build ───────────────────────────────────────────────────────
@@ -926,7 +910,7 @@ jobs:
               echo "::endgroup::"
               continue
             fi
-            if grep -qE "@Tags\(\[.*'e2e'.*\]\)" "$t"; then
+            if tr '\n' ' ' < "$t" | grep -qE "@Tags[[:space:]]*\([[:space:]]*(const[[:space:]]*)?(<[^>]*>[[:space:]]*)?\[[^]]*['\"]e2e['\"]"; then
               echo "SKIP  $t (file-level @Tags(['e2e']) — excluded by --exclude-tags=e2e)"
               echo "::endgroup::"
               continue

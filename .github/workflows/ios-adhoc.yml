@@ -87,12 +87,30 @@ jobs:
       # a stderr warning rather than a failed run — same contract setup.sh gets.
       - name: Resolve toolchain pins from ci.yml
         id: versions
+        env:
+          # Only used when the checked-out ref predates scripts/ci-versions.sh.
+          FALLBACK_FLUTTER: '3.44.8'
+          FALLBACK_IOS_TARGETS: 'aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios'
         run: |
           set -euo pipefail
-          source scripts/ci-versions.sh
-          echo "flutter=${CI_FLUTTER_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "ios-targets=$(echo "${CI_RUST_IOS_TARGETS}" | tr ' ' ',')" >> "$GITHUB_OUTPUT"
-          echo "Flutter ${CI_FLUTTER_VERSION}, iOS Rust targets: ${CI_RUST_IOS_TARGETS}"
+          if [ -r scripts/ci-versions.sh ]; then
+            # shellcheck source=/dev/null
+            source scripts/ci-versions.sh
+            flutter_version="$CI_FLUTTER_VERSION"
+            ios_targets="${CI_RUST_IOS_TARGETS// /,}"
+          else
+            # An older ref genuinely has no such script — see the note above
+            # about building historical commits. Warn and carry on with the
+            # pins as of this workflow, rather than dying at step two: a stale
+            # SDK still produces an IPA, and `set -e` on a missing file would
+            # not.
+            echo "::warning::scripts/ci-versions.sh is absent from this ref; using the pins baked into this workflow (Flutter ${FALLBACK_FLUTTER})."
+            flutter_version="$FALLBACK_FLUTTER"
+            ios_targets="$FALLBACK_IOS_TARGETS"
+          fi
+          echo "flutter=${flutter_version}" >> "$GITHUB_OUTPUT"
+          echo "ios-targets=${ios_targets}" >> "$GITHUB_OUTPUT"
+          echo "Flutter ${flutter_version}, iOS Rust targets: ${ios_targets}"
 
       - uses: subosito/flutter-action@v2
         with:
