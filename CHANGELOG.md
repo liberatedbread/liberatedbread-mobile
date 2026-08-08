@@ -225,6 +225,23 @@ heading.
   the committed PNG is the master and a stale vector of the old logo would
   have silently won back if the PNG were ever removed.
 
+- **The Android emulator job stopped hanging on a settling race.** It had hung
+  for its full timeout with zero Dart output while the same suites passed on
+  Linux and the iOS simulator, which reads as a graphics flake and is not one:
+  diffing the failing run's logcat against a passing one shows
+  `FlutterRenderer: Width is zero. 0,0` in *both*, while only the failing run
+  recreates `MainActivity` for a configuration change four seconds after the
+  Dart VM service came up — orphaning the isolate `flutter_tools` had attached
+  to, which then waited forever. It happened while the launcher and Play
+  Services were still ANR-ing their way through startup. The manifest already
+  declares Flutter's own `configChanges` set, so the fix is to remove the
+  churn: CI now boots `aosp_atd` (Google's CI image, no launcher or Play
+  Services, and faster to boot), and the test run makes two attempts each
+  bounded by `ANDROID_EMULATOR_ATTEMPT_TIMEOUT` — a bound rather than a bare
+  retry, because the failure hangs instead of exiting, so the step timeout
+  alone left nothing to retry with. A passing retry still warns and uploads
+  both attempts' logcats.
+
 - **CI's toolchain pins are declared once and read once, instead of being
   grepped out of the whole workflow.** `scripts/ci-versions.sh` used to hunt
   values out of step bodies: the highest `platforms;android-NN` anywhere in
