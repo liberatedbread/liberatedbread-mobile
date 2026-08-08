@@ -10,8 +10,12 @@
 //
 // Artwork source, highest priority first:
 //   1. app_icon_mascot.png  — square, transparent; drop one in to replace the
-//                             logo without touching any vector
-//   2. app_icon_mascot.svg  — the checked-in vector master
+//                             logo without touching any vector. This is the
+//                             current master: the 2026 mascot was supplied as
+//                             raster only, so there is no vector of it.
+//   2. app_icon_mascot.svg  — vector master, if one is ever drawn. Nothing
+//                             ships one today; the slot stays wired up so a
+//                             future vector needs no code change.
 //
 // The artwork is mascot-only on transparency; this script owns the background,
 // the per-platform padding, and the platform-specific shaping rules (iOS must
@@ -29,7 +33,7 @@ const ROOT = path.resolve(HERE, '../..');
 const p = (...parts) => path.join(ROOT, ...parts);
 
 const brand = JSON.parse(fs.readFileSync(path.join(HERE, 'brand.json'), 'utf8'));
-const BG = brand.teal;
+const BG = brand.blush;
 
 // Master render size. Everything is downscaled from this one raster so SVG and
 // PNG sources go through an identical path.
