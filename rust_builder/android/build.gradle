@@ -37,10 +37,11 @@ android {
 
     // Matches android/app/build.gradle's `compileSdk = flutter.compileSdkVersion`
     // (36 for the pinned Flutter 3.44.8 — FlutterExtension.kt). cargokit's
-    // template shipped 33, and that single stale number was what made Gradle
-    // stop and download SDK Platform 33 partway through EVERY Android CI build:
-    // the runner image ships current platforms, so 33 was the only one missing,
-    // and this module is the only thing that asked for it.
+    // template shipped 33: the runner image carries current platforms, so 33
+    // was the only one missing and this module was the only thing asking for
+    // it, which made Gradle stop mid-build to fetch it. That cost 2.5s, not
+    // minutes — the reason to fix it is that this module was compiling against
+    // an SDK three releases older than the app it links into, not the seconds.
     //
     // The template's warning that "bumping this requires all clients to bump
     // theirs" is the right instinct pointed backwards: this module is not

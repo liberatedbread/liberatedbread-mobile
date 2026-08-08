@@ -717,10 +717,36 @@ every pull request. Six jobs:
 | `ios-build` | macos-latest | starts a simulator booting in the background, `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true`, verifies the bundle, then runs `integration_test/ci_all_test.dart` on the (by now booted) simulator |
 | `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
 
-Caches: Flutter SDK, `~/.pub-cache`, `.dart_tool`, `rust/target/` and (in both
-Android jobs) the Gradle user home are cached across runs. The quick checks run
-first; the native build jobs wait for them to pass before spending runner time
-on the slower platform builds (fail fast on lint/test).
+The quick checks run first; the native build jobs wait for them to pass before
+spending runner time on the slower platform builds (fail fast on lint/test).
+
+### What CI caches
+
+| Cache | Where it comes from | Covers |
+|-------|--------------------|--------|
+| Flutter SDK + `~/.pub-cache` | `subosito/flutter-action` (`cache: true`) | every job |
+| `.dart_tool` | an explicit `actions/cache` step | the `flutter` job |
+| `rust/target/` + `~/.cargo` | `Swatinem/rust-cache` | every job that compiles Rust |
+| Gradle user home | `gradle/actions/setup-gradle` | both Android jobs |
+
+`setup-gradle` is read-only on non-default branches, so a PR reads the cache
+that a `main` run wrote — the first run after a change to the Android build
+does not benefit, later ones do.
+
+**Known gap, deliberately left open.** cargokit passes `--target-dir` pointing
+into the Gradle build directory (`build/liberated_bread_core/build`), so the
+cross-compiled Rust artifacts live *outside* `rust/target/` and
+`Swatinem/rust-cache` never sees them — every Android job recompiles the crate
+for each ABI. Before adding a cache for it, weigh what it actually buys:
+the artifacts are ~380 MB per ABI (~1.3 GB for a three-ABI debug build), while
+the compile they replace is 11–26s per ABI measured from CI logs. A cache that
+large also competes for the repo's 10 GB budget with the 2 GB Flutter SDK cache
+that every job depends on, so a naive `actions/cache` here can make the whole
+matrix slower by evicting something more valuable. If it is ever worth doing,
+`Swatinem/rust-cache`'s `workspaces: <root> -> <target>` form is the mechanism
+to use, because it prunes to dependency artifacts before saving — but note its
+`$target` is resolved *relative to the workspace root*, and this path is not
+under `rust/`.
 
 There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
 manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its
