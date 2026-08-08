@@ -229,12 +229,20 @@ jobs:
           channel: stable
           cache: true
       - uses: dtolnay/rust-toolchain@stable
-      # shared-key, not the default per-job key. `analyze` and `unit-tests`
-      # build byte-identical host artifacts (the same `cargo build` in rust/,
-      # plus the same `cargo install` of the FRB codegen), so a per-job key
-      # would store that twice and make whichever job ran first pay for a cold
-      # build. Measured on the run that split these jobs: the FRB step took
-      # 180s against an empty cache and 4s against a warm one.
+      # shared-key, not the default per-job key: `analyze` and `unit-tests` run
+      # the same `cargo build` in rust/ against the same host target, so a
+      # per-job key stores it twice and makes each job pay its own cold build.
+      # Measured on the run that split these jobs: the FRB step took 180s
+      # against an empty cache and 4s against a warm one.
+      #
+      # ONLY THIS JOB WRITES THAT CACHE — see the `save-if: false` on the
+      # unit-tests copy. The two jobs' caches are NOT interchangeable in one
+      # direction: this one additionally `cargo install`s the FRB codegen,
+      # which rust-cache picks up out of ~/.cargo/bin, and unit-tests does not.
+      # With both saving, unit-tests (the faster job) would win the race every
+      # time and publish a cache with no codegen binary in it — leaving this
+      # job cold on every run, which is the exact 180s the shared key is here
+      # to remove.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -304,16 +312,16 @@ jobs:
       # this job would not turn it red — it would quietly stop running those
       # tests while still reporting green, and cut coverage with it.
       - uses: dtolnay/rust-toolchain@stable
-      # shared-key, not the default per-job key. `analyze` and `unit-tests`
-      # build byte-identical host artifacts (the same `cargo build` in rust/,
-      # plus the same `cargo install` of the FRB codegen), so a per-job key
-      # would store that twice and make whichever job ran first pay for a cold
-      # build. Measured on the run that split these jobs: the FRB step took
-      # 180s against an empty cache and 4s against a warm one.
+      # Reads the cache `analyze` writes — same workspace, same host target.
+      # save-if: false because this job's artifact set is a strict SUBSET of
+      # that one's (no FRB codegen in ~/.cargo/bin), and this job finishes
+      # first, so letting it save would overwrite the fuller cache with a
+      # thinner one and quietly un-warm the `analyze` gate.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
           shared-key: host-dart
+          save-if: false
       - name: Cache pub
         uses: actions/cache@v4
         with:
