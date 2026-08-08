@@ -9,6 +9,7 @@ import '../core/constants.dart';
 import '../core/log.dart';
 import '../models/ad_banner.dart';
 import '../services/ad_banner_service.dart';
+import 'ble_provider.dart' show isMockMode;
 import 'saved_device_provider.dart';
 
 /// The banner-config fetcher. Tests override with a service on a mocked
@@ -44,7 +45,41 @@ class AdBannerNotifier extends Notifier<AdBanner?> {
     // state would throw into an unawaited future.
     var disposed = false;
     ref.onDispose(() => disposed = true);
-    unawaited(_refresh(isDisposed: () => disposed));
+
+    // MOCK MODE MAKES NO OUTBOUND REQUEST.
+    //
+    // Mock mode is the app's established "no real hardware, no external
+    // dependencies" switch — it is what swaps RealBleService for the mock —
+    // and every automated device run passes it. Firing a background HTTPS
+    // request to liberatedbread.com under it made the iOS simulator, Android
+    // emulator and Linux desktop jobs depend on that host being reachable, in
+    // a fetch whose whole design is that nobody waits for it.
+    //
+    // It did not fail quietly either. adBannerServiceProvider closes its
+    // http.Client on dispose, and closing it while a connect is still in
+    // flight makes dart:io deliver
+    //
+    //   SocketException: Connection attempt cancelled, host: liberatedbread.com
+    //
+    // to the ZONE as well as to the awaiting future. AdBannerService catches
+    // its own copy — that path is careful and works — but the zone copy has no
+    // owner, so flutter_test attributed it to whichever suite had most
+    // recently finished and reported "This test failed after it had already
+    // completed", naming a test that never touched the network. Seen on the
+    // emulator; timing-dependent, so it was a latent flake before it was a
+    // reproducible failure.
+    //
+    // Skipping the refresh removes the dependency rather than papering over
+    // the error, and costs no coverage: the host `flutter test` run does NOT
+    // pass the define, so ad_banner_provider_test.dart and
+    // ad_banner_bar_test.dart still exercise this path in full against their
+    // overridden service. What mock mode shows instead is the seed — the
+    // cached config or the bundled fallback — which is exactly what an offline
+    // launch shows, and a demo build arguably should not be pulling live
+    // promotions anyway.
+    if (!isMockMode) {
+      unawaited(_refresh(isDisposed: () => disposed));
+    }
     return _visible(_seedConfig().banner);
   }
 
