@@ -519,9 +519,10 @@ jobs:
       - name: Run integration tests on emulator
         # Outer bound so a genuinely hung test fails promptly rather than
         # sitting on the runner for the 6-hour job default — the per-test
-        # --timeout below is deliberately generous. Sized for the TWO attempts
-        # the script makes (2 x ANDROID_EMULATOR_ATTEMPT_TIMEOUT) plus the AVD
-        # boot, with headroom.
+        # --timeout inside the script is deliberately generous. Sized for the
+        # TWO attempts scripts/ci-emulator-tests.sh makes
+        # (2 x ANDROID_EMULATOR_ATTEMPT_TIMEOUT) plus the AVD boot, with
+        # headroom.
         timeout-minutes: 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -529,90 +530,24 @@ jobs:
           target: ${{ env.ANDROID_EMULATOR_TARGET }}
           arch: ${{ env.ANDROID_EMULATOR_ARCH }}
           profile: ${{ env.ANDROID_EMULATOR_PROFILE }}
-          # ci_all_test.dart, NOT the integration_test directory: each file is
-          # its own device build+install+launch cycle (see the ios-build test
-          # step), so the aggregate runs the same suites in one cycle. The e2e
-          # walkthrough stays out by omission — it needs scripts/e2e_shot_server.py
-          # on the host and 127.0.0.1 (which on an emulator reaches the
-          # emulator, not the host); run it via scripts/e2e-walkthrough.sh on
-          # macOS. --exclude-tags=e2e is kept as defence in depth: it cannot
-          # filter a FILE-level @Tags in an import, but it does filter a group-
-          # or test-level `tags:` inside an imported suite.
+          # ONE line, and it has to stay one line. This input is not handed to
+          # a shell as a script: the action splits it on newlines and execs
+          # each line separately as `/usr/bin/sh -c '<line>'`. So multi-line
+          # constructs never parse (a function body reaches end-of-input mid-
+          # definition), nothing persists between lines, and /usr/bin/sh is
+          # dash on the Ubuntu runner — no pipefail, no `[[`.
           #
-          # --timeout raises the per-test *body* timeout only. It is defence in
-          # depth for slow test bodies — an emulator on swiftshader with 2 cores
-          # is slow — and it CANNOT extend the load phase, whose 12-minute limit
-          # is hardcoded in package:test_core's synthetic load suite. Keeping
-          # loading inside that limit is the warm-up build step's job.
-          # Logcat runs in the background for the whole test session and is
-          # uploaded on every outcome below: when the harness hangs waiting
-          # for the app's VM service (as an engine-level failure at startup
-          # does), the step log shows nothing at all — the device log is the
-          # only place the actual failure is visible.
-          #
-          # TWO ATTEMPTS, each bounded by `timeout`. The retry is not
-          # superstition, it is aimed at the failure documented on
-          # ANDROID_EMULATOR_TARGET above: the app launching into a system that
-          # has not finished settling. By the time attempt 1 has burned its
-          # budget the emulator is long settled, so attempt 2 starts from the
-          # state attempt 1 wanted.
-          #
-          # `timeout` around each attempt is the load-bearing part, not the
-          # `||`. That failure HANGS rather than exiting non-zero, so with only
-          # the step's timeout-minutes to stop it there is nothing left to retry
-          # with — the step is killed outright. Bounding each attempt is what
-          # turns a 60-minute red into a ~12-minute blip plus a green retry.
-          #
-          # A retry that passes still prints a ::warning:: and keeps both
-          # logcats: a flake that leaves no trace is a flake nobody fixes, and
-          # this one took a logcat diff against a passing run to explain.
-          script: |
-            # `set -u`, NOT `set -uo pipefail`. This runs under /usr/bin/sh,
-            # which android-emulator-runner execs directly — on the Ubuntu
-            # runner that is dash, where `-o pipefail` is not a valid option and
-            # the shell exits 2 on line 1, before the emulator is even used.
-            # (`run:` blocks elsewhere in this file default to bash and may use
-            # it; this input is the exception.) Nothing here pipes anything, so
-            # pipefail bought nothing even where it parsed.
-            set -u
-            # Fail with a name rather than `timeout: invalid time interval ''`
-            # if the env key is ever renamed out from under this script.
-            : "${ANDROID_EMULATOR_ATTEMPT_TIMEOUT:?must be set in ci.yml's env block}"
-            adb logcat -c || true
-            adb logcat -v time > emulator-logcat.txt 2>&1 &
-
-            run_tests() {
-              timeout "$ANDROID_EMULATOR_ATTEMPT_TIMEOUT" \
-                flutter test integration_test/ci_all_test.dart \
-                  --exclude-tags=e2e \
-                  --timeout 1200s \
-                  --dart-define=LIBERATED_BREAD_MOCK=true
-            }
-
-            # Capture the status directly, NOT via `if run_tests; then ... fi`
-            # followed by `$?`: after a taken-no-branch `if`, `$?` is the IF
-            # statement's status (0), not the condition's, so a `timeout` kill
-            # reported itself as "exit 0". Getting that wrong here would print
-            # a misleading exit code for exactly the hang this retry exists for.
-            run_tests
-            status=$?
-            if [ "$status" -eq 0 ]; then
-              exit 0
-            fi
-            if [ "$status" -eq 124 ]; then
-              echo "::warning::Integration tests hit the ${ANDROID_EMULATOR_ATTEMPT_TIMEOUT} attempt timeout with no result — the known symptom of the app launching before the emulator settled. Retrying once."
-            else
-              echo "::warning::Integration tests failed (exit ${status}). Retrying once."
-            fi
-
-            # Keep attempt 1's device log; it is the only place that failure is
-            # visible, and attempt 2 would otherwise append over the top of it.
-            cp emulator-logcat.txt emulator-logcat-attempt1.txt || true
-            run_tests
-      # Both logs when a retry happened: emulator-logcat.txt is the attempt that
-      # decided the step, emulator-logcat-attempt1.txt the one that failed
-      # first. Diagnosing the settling race needed exactly this — a failing
-      # device log to diff against a passing one.
+          # Everything that used to be inlined here — the device log, the
+          # bounded retry, and the reasoning behind both — is in the script,
+          # where bash reads it as a whole and it can be run on a laptop.
+          script: ./scripts/ci-emulator-tests.sh
+      # The device log is the only place an engine-level startup failure is
+      # visible: when the harness hangs waiting for the app's VM service, the
+      # step log shows nothing at all. On a retry there is one file per
+      # attempt — emulator-logcat.txt is the attempt that decided the step and
+      # emulator-logcat-attemptN.txt each earlier one. Diagnosing the settling
+      # race needed exactly this: a failing device log to diff against a
+      # passing one.
       - name: Upload emulator logcat
         if: always()
         uses: actions/upload-artifact@v4
@@ -620,7 +555,7 @@ jobs:
           name: emulator-logcat-api${{ matrix.api-level }}
           path: |
             emulator-logcat.txt
-            emulator-logcat-attempt1.txt
+            emulator-logcat-attempt*.txt
           if-no-files-found: warn
 
   ios-build:
