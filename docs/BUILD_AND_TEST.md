@@ -35,10 +35,13 @@ drives the NDK itself during `flutter build`.
 
 | Tool | Version |
 |------|---------|
-| Android SDK | API 34 |
+| Android SDK | API 36 — the pinned Flutter's `flutter.compileSdkVersion` |
 | Android NDK | CI's `FLUTTER_NDK_VERSION` — the pinned Flutter's `flutter.ndkVersion` |
-| Android SDK Build-Tools | 34.0.0 |
+| Android SDK Build-Tools | 34.0.0 — AGP 8.6's default; a newer one only adds a download |
 | Java (for Gradle) | 17+ |
+
+The emulator is a separate axis: it boots API 34 (see the CI table below), and
+nothing requires it to match the compile SDK.
 
 Run `./scripts/ci-versions.sh` for the values CI is on right now; `./scripts/setup.sh`
 installs exactly those.
@@ -220,7 +223,8 @@ versions `./scripts/ci-versions.sh` prints, since the NDK moves with the
 Flutter pin:
 
 ```bash
-sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" \
+sdkmanager "platform-tools" "build-tools;34.0.0" \
+  "platforms;android-$(./scripts/ci-versions.sh | sed -n 's/^CI_ANDROID_API=//p')" \
   "ndk;$(./scripts/ci-versions.sh | sed -n 's/^CI_NDK_VERSION=//p')"
 ```
 
