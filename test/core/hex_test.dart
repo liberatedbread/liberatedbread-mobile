@@ -47,14 +47,39 @@ void main() {
   });
 
   group('normalizeUuid', () {
-    test('lowercases mixed case', () {
-      expect(normalizeUuid('0000FFF0-0000-1000-8000-00805F9B34FB'),
-          '0000fff0-0000-1000-8000-00805f9b34fb');
+    test('folds a SIG-base UUID to its short form, lowercased', () {
+      expect(normalizeUuid('0000FFF0-0000-1000-8000-00805F9B34FB'), 'fff0');
+      expect(normalizeUuid('0000180f-0000-1000-8000-00805f9b34fb'), '180f');
+    });
+
+    test('leaves a genuinely 128-bit UUID alone but lowercases it', () {
+      expect(normalizeUuid('6E400001-B5A3-F393-E0A9-E50E24DCCA9D'),
+          '6e400001-b5a3-f393-e0a9-e50e24dcca9d');
+    });
+
+    test('both spellings of one attribute compare equal', () {
+      // This is the whole point: device specs write the 128-bit form while
+      // flutter_blue_plus reports the short form, and the two name the same
+      // characteristic.
+      expect(normalizeUuid('00002a06-0000-1000-8000-00805f9b34fb'),
+          normalizeUuid('2a06'));
+      expect(normalizeUuid('2A06'), normalizeUuid('2a06'));
+    });
+
+    test('strips leading zeros from a bare short form', () {
+      expect(normalizeUuid('000000f0-0000-1000-8000-00805f9b34fb'), 'f0');
+      expect(normalizeUuid('00f0'), 'f0');
+      expect(normalizeUuid('0000'), '0');
     });
 
     test('is idempotent', () {
-      const u = '0000180f-0000-1000-8000-00805f9b34fb';
-      expect(normalizeUuid(normalizeUuid(u)), u);
+      for (final u in [
+        '0000180f-0000-1000-8000-00805f9b34fb',
+        '180f',
+        '6e400001-b5a3-f393-e0a9-e50e24dcca9d',
+      ]) {
+        expect(normalizeUuid(normalizeUuid(u)), normalizeUuid(u));
+      }
     });
   });
 
