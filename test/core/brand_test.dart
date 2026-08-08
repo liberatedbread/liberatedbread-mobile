@@ -54,8 +54,8 @@ void main() {
 
     final brand = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
 
-    expect(_hex(LiberatedBreadTheme.teal), brand['teal']);
-    expect(_hex(LiberatedBreadTheme.tealDark), brand['tealDark']);
+    expect(_hex(LiberatedBreadTheme.blush), brand['blush']);
+    expect(_hex(LiberatedBreadTheme.blushDeep), brand['blushDeep']);
     expect(_hex(LiberatedBreadTheme.breadOrange), brand['breadOrange']);
   });
 
@@ -64,14 +64,14 @@ void main() {
       File('tool/branding/brand.json').readAsStringSync(),
     ) as Map<String, dynamic>;
 
-    for (final key in ['teal', 'tealDark', 'breadOrange', 'crust', 'face']) {
+    for (final key in ['blush', 'blushDeep', 'breadOrange', 'crust', 'face']) {
       expect(brand[key], isA<String>(), reason: '$key must be defined');
       expect(brand[key] as String, matches(RegExp(r'^#[0-9A-Fa-f]{6}$')),
           reason: '$key must be a #RRGGBB hex string');
     }
   });
 
-  // Both brand colours are light enough that white-on-brand lands at ~2.4:1,
+  // Both brand colours are light enough that white-on-brand lands at 2.0-2.4:1,
   // under even the 3:1 WCAG floor for UI graphics. These guard the two
   // highest-traffic branded surfaces so a future palette change can't quietly
   // reintroduce unreadable chrome.
@@ -112,11 +112,11 @@ void main() {
     });
 
     test('onBrand flips to white once a background is dark enough', () {
-      expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.teal),
+      expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.blush),
           LiberatedBreadTheme.ink);
       expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.breadOrange),
           LiberatedBreadTheme.ink);
-      expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.tealDark),
+      expect(LiberatedBreadTheme.onBrand(LiberatedBreadTheme.blushDeep),
           Colors.white);
     });
   });
@@ -129,7 +129,7 @@ void main() {
       'android/app/src/main/res/values/ic_launcher_background.xml',
     ).readAsStringSync();
 
-    expect(xml, contains(brand['teal'] as String),
+    expect(xml, contains(brand['blush'] as String),
         reason: 'run `npm run icons` in tool/branding to re-sync');
   });
 

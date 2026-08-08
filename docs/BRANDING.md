@@ -6,7 +6,7 @@ Everything visual about Liberated Bread comes from two files in
 | File | Owns |
 | --- | --- |
 | `brand.json` | The palette (hex values) |
-| `app_icon_mascot.svg` | The logo artwork |
+| `app_icon_mascot.png` | The logo artwork |
 
 Everything else — 42 icon files across iOS/macOS/Android/web (plus the local
 `app_icon_preview.png` render, see below), the Android adaptive-icon
@@ -45,9 +45,10 @@ colour outside Dart, so they can't drift either:
 - `android/app/src/main/res/values/ic_launcher_background.xml`
 - `background_color` / `theme_color` in `web/manifest.json`
 
-If the logo artwork itself uses a colour you changed, update the fills in
-`app_icon_mascot.svg` too — the SVG is the artwork master and is not
-colour-substituted.
+The palette is sampled from the artwork, so a colour change usually means the
+artwork changed too — the generator composites `blush` behind a mascot that is
+otherwise drawn exactly as supplied, and never colour-substitutes anything
+inside it.
 
 ### Foreground colours are derived, not chosen
 
@@ -55,8 +56,8 @@ Don't hardcode a foreground on a brand fill. `LiberatedBreadTheme.onBrand()`
 picks one from the background's luminance — the mascot's dark `ink` on light
 fills, white on dark ones — so new brand colours stay readable automatically.
 
-This matters more than it looks: white on the turquoise is only **2.38:1** and
-on the bread orange **2.37:1**, both under even the 3:1 WCAG floor for UI
+This matters more than it looks: white on the blush is only **2.01:1** and
+on the bread orange **2.42:1**, both under even the 3:1 WCAG floor for UI
 graphics. `brand_test.dart` asserts the app bar and scan FAB clear 4.5:1 in
 both themes, so a palette change that breaks contrast fails CI rather than
 shipping.
@@ -65,9 +66,12 @@ shipping.
 
 Two ways, pick whichever matches what you have:
 
-- **Vector** — edit or replace `tool/branding/app_icon_mascot.svg`.
-- **Raster** — drop a `tool/branding/app_icon_mascot.png` next to it. If that
-  file exists it wins, and the SVG is ignored.
+- **Raster** — replace `tool/branding/app_icon_mascot.png`. This is the current
+  master: the 2026 mascot was supplied as raster only.
+- **Vector** — drop a `tool/branding/app_icon_mascot.svg` in. The generator
+  still prefers the PNG, so remove that file if you want the vector to win.
+  Nothing ships an SVG today; the slot stays wired up so adding one later needs
+  no code change.
 
 Then `cd tool/branding && npm run icons`.
 
