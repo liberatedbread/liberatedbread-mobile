@@ -225,6 +225,18 @@ heading.
   the committed PNG is the master and a stale vector of the old logo would
   have silently won back if the PNG were ever removed.
 
+- **CI's device integration tests now run as one cycle per platform, and the
+  iOS simulator boots while the build runs.** On a device, every file passed
+  to `flutter test` is its own kernel-compile → native build → install →
+  launch cycle (~2 minutes each on the 10x-billed macOS runner, even fully
+  cached); the new `integration_test/ci_all_test.dart` bundles the mock-safe
+  suites so the iOS and Android jobs pay that cycle once. The `flutter` job
+  fails if a mock-safe test file is missing from the aggregate's imports, and
+  the linux-desktop job still runs each file in its own process, so per-file
+  isolation coverage survives. The iOS job also starts `simctl boot` right
+  after checkout and only waits for it after the build, turning ~65 serial
+  seconds of boot wait into overlap. Together: ~10m10s → ~7m of macOS wall
+  clock on a warm run, and the emulator job sheds a cycle too.
 - **Dev environment setup now follows CI instead of re-pinning it.**
   `scripts/ci-versions.sh` reads the Flutter/NDK/Android API/build-tools/FRB
   pins, the rustup target lists, the Linux desktop apt packages and the
