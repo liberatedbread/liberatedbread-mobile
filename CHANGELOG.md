@@ -225,6 +225,25 @@ heading.
   the committed PNG is the master and a stale vector of the old logo would
   have silently won back if the PNG were ever removed.
 
+- **The ad-hoc IPA workflow no longer pins its own toolchain.** It had drifted
+  to Flutter 3.24.5 while CI moved to 3.44.8, so the one artifact that gets
+  installed on real hardware was built with an SDK nothing else tested.
+  `ios-adhoc.yml` now sources `scripts/ci-versions.sh` — the parser dev
+  environments already provision from — and feeds the Flutter version and the
+  iOS Rust target list out of `ci.yml` into its setup steps, so the two cannot
+  diverge again. Reading it after checkout means an ad-hoc build of an older
+  ref uses that ref's pins. The target list also fixes real work the old pin
+  caused: it carried only `aarch64-apple-ios`, so the no-secrets simulator
+  fallback made cargokit install `aarch64-apple-ios-sim` mid-build instead of
+  in the cached setup step.
+- **The Android emulator job got its Gradle cache and stopped building ABIs it
+  cannot run.** It never used `gradle/actions/setup-gradle` (the APK job always
+  had it), so it rebuilt Gradle's dependency cache every run — the same
+  `flutter build apk --debug` cost ~2m40s in one job and ~5m40s here. Its
+  warm-up build now also passes `--target-platform android-x64`: the AVD is
+  x86_64 and the test-phase build compiles exactly x86/x86_64, while the
+  warm-up had been compiling the Rust crate four times, including two arm
+  targets nothing in the job could load.
 - **CI's device integration tests now run as one cycle per platform, and the
   iOS simulator boots while the build runs.** On a device, every file passed
   to `flutter test` is its own kernel-compile → native build → install →
