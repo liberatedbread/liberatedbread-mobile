@@ -549,8 +549,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       characteristicUuid: dco_decode_String(arr[2]),
       commandName: dco_decode_String(arr[3]),
       userParams: dco_decode_list_String(arr[4]),
-      min: dco_decode_opt_box_autoadd_i_64(arr[5]),
-      max: dco_decode_opt_box_autoadd_i_64(arr[6]),
+      min: dco_decode_opt_box_autoadd_f_64(arr[5]),
+      max: dco_decode_opt_box_autoadd_f_64(arr[6]),
     );
   }
 
@@ -1058,8 +1058,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_characteristicUuid = sse_decode_String(deserializer);
     var var_commandName = sse_decode_String(deserializer);
     var var_userParams = sse_decode_list_String(deserializer);
-    var var_min = sse_decode_opt_box_autoadd_i_64(deserializer);
-    var var_max = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_min = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_max = sse_decode_opt_box_autoadd_f_64(deserializer);
     return EntityActionDto(
         role: var_role,
         serviceUuid: var_serviceUuid,
@@ -1703,8 +1703,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.characteristicUuid, serializer);
     sse_encode_String(self.commandName, serializer);
     sse_encode_list_String(self.userParams, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.min, serializer);
-    sse_encode_opt_box_autoadd_i_64(self.max, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.min, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.max, serializer);
   }
 
   @protected

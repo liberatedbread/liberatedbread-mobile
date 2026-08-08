@@ -155,9 +155,10 @@ pub struct EntityActionDto {
     pub user_params: Vec<String>,
     /// Declared bounds of the role's primary numeric parameter, so a
     /// brightness slider matches the device's real range (elk-bledom tops out
-    /// at 100, not 255).
-    pub min: Option<i64>,
-    pub max: Option<i64>,
+    /// at 100, not 255). `f64` for the same reason as [`ParameterDto`]'s
+    /// bounds: sliders consume doubles.
+    pub min: Option<f64>,
+    pub max: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -336,8 +337,8 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
             characteristic_uuid: action.characteristic.uuid.clone(),
             command_name: action.command_name.to_string(),
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
-            min: action.min,
-            max: action.max,
+            min: action.min.map(|v| v as f64),
+            max: action.max.map(|v| v as f64),
         })
         .collect();
 

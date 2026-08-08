@@ -255,7 +255,7 @@ fn vendored_specs_resolve_expected_control_actions() {
     assert_eq!(roles(strip), vec!["set_brightness", "set_color"]);
     let brightness = &strip.actions[0];
     assert_eq!(brightness.command_name, "set_brightness");
-    assert_eq!((brightness.min, brightness.max), (Some(0), Some(100)));
+    assert_eq!((brightness.min, brightness.max), (Some(0.0), Some(100.0)));
     assert_eq!(strip.actions[1].command_name, "set_rgb_color");
 
     // switchbot: no role map; bot_* names resolve via the suffix fallback,

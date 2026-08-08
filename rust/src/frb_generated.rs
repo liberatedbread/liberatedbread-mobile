@@ -548,8 +548,8 @@ impl SseDecode for crate::api::device_api::EntityActionDto {
         let mut var_characteristicUuid = <String>::sse_decode(deserializer);
         let mut var_commandName = <String>::sse_decode(deserializer);
         let mut var_userParams = <Vec<String>>::sse_decode(deserializer);
-        let mut var_min = <Option<i64>>::sse_decode(deserializer);
-        let mut var_max = <Option<i64>>::sse_decode(deserializer);
+        let mut var_min = <Option<f64>>::sse_decode(deserializer);
+        let mut var_max = <Option<f64>>::sse_decode(deserializer);
         return crate::api::device_api::EntityActionDto {
             role: var_role,
             service_uuid: var_serviceUuid,
@@ -1623,8 +1623,8 @@ impl SseEncode for crate::api::device_api::EntityActionDto {
         <String>::sse_encode(self.characteristic_uuid, serializer);
         <String>::sse_encode(self.command_name, serializer);
         <Vec<String>>::sse_encode(self.user_params, serializer);
-        <Option<i64>>::sse_encode(self.min, serializer);
-        <Option<i64>>::sse_encode(self.max, serializer);
+        <Option<f64>>::sse_encode(self.min, serializer);
+        <Option<f64>>::sse_encode(self.max, serializer);
     }
 }
 
