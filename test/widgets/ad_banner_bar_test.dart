@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,7 +23,8 @@ Widget _wrap({required List<Uri> opened}) => ProviderScope(
       overrides: [
         sharedPreferencesProvider.overrideWithValue(_prefs),
         adBannerServiceProvider.overrideWithValue(
-          AdBannerService(client: MockClient((_) async => http.Response('', 500))),
+          AdBannerService(
+              client: MockClient((_) async => http.Response('', 500))),
         ),
         urlOpenerProvider.overrideWithValue((url) async {
           opened.add(url);
@@ -71,8 +74,35 @@ void main() {
     expect(find.text('AD'), findsNothing);
     expect(find.text(AdBanner.fallback.message), findsNothing);
     expect(opened, isEmpty);
-    expect(_prefs.getString(AdBannerNotifier.dismissedKey),
-        AdBanner.fallback.id);
+    expect(
+        _prefs.getString(AdBannerNotifier.dismissedKey), AdBanner.fallback.id);
+  });
+
+  testWidgets('a maximum-length CTA ellipsizes on a narrow screen',
+      (tester) async {
+    // 320dp is the narrowest mainstream phone width; an unbounded CTA next to
+    // the fixed icons would overflow the row here and fail the test through
+    // the framework's overflow exception.
+    tester.view.physicalSize = const Size(320, 640);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({
+      AdBannerNotifier.cacheKey: jsonEncode({
+        'version': 1,
+        'banner': {
+          'id': 'long-cta',
+          'message': 'Buy dead devices cheap.',
+          'cta': 'C' * 40,
+          'url': 'https://liberatedbread.com/shop/',
+        },
+      }),
+    });
+    _prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(_wrap(opened: []));
+
+    expect(find.textContaining('CCCC'), findsOneWidget);
+    await tester.pumpAndSettle();
   });
 
   testWidgets('renders nothing when the promotion was already dismissed',

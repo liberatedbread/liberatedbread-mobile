@@ -143,8 +143,7 @@ void main() {
       }));
 
       expect(config?.banner, isNotNull);
-      expect(
-          config!.banner!.message.length, AdBannerConfig.maxMessageChars);
+      expect(config!.banner!.message.length, AdBannerConfig.maxMessageChars);
       expect(config.banner!.cta.length, AdBannerConfig.maxCtaChars);
     });
   });
