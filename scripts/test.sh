@@ -73,11 +73,30 @@ cd "$PROJECT_DIR"
 log "flutter pub get"
 flutter pub get
 
-log "dart format --set-exit-if-changed ."
-dart format --set-exit-if-changed .
+log "dart format (tracked Dart files)"
+./scripts/ci-format.sh
 
 log "flutter analyze --fatal-infos"
 flutter analyze --fatal-infos
+
+# CI's `analyze` job lints scripts/ too. Skipped with a warning rather than
+# fatal when shellcheck is absent, for the same reason the FRB check below is:
+# a missing dev tool should not look like a failing test suite. CI still runs
+# it, and CI has shellcheck preinstalled.
+if command -v shellcheck &>/dev/null; then
+  log "shellcheck (scripts/)"
+  ./scripts/ci-shellcheck.sh
+else
+  warn "SKIPPING shellcheck: not installed."
+  warn "  Install it with: sudo apt-get install -y shellcheck (or brew install shellcheck)."
+  warn "  CI still runs this check."
+fi
+
+# Drives scripts/ci-ios-tests.sh through its whole retry loop against stub
+# binaries. Needs no Mac and no simulator, which is the point — it is the only
+# way that logic gets exercised outside a real iOS CI failure.
+log "ci-ios-tests.sh self-test"
+./scripts/ci-ios-tests-selftest.sh
 
 log "cargo build (host Rust lib for FRB)"
 (cd rust && cargo build)
