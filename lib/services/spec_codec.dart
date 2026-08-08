@@ -14,6 +14,7 @@ export '../src/rust/api/device_api.dart'
     show
         DeviceSpecDto,
         EntityDto,
+        EntityActionDto,
         ServiceDto,
         CharacteristicDto,
         CommandDto,
