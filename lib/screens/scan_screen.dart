@@ -222,11 +222,16 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       rssi: device.rssi,
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
-      // Only worth saying for a device the catalogue could not place. Once a
-      // spec has matched, the badge already names the product, and "Ember
-      // Technologies · Battery Service" underneath it is noise.
-      description:
-          entry.guess == null ? deviceSubtitle(device, description) : null,
+      // Only worth saying for a device the badge could not place. Once the
+      // badge names a product, "Ember Technologies · Battery Service"
+      // underneath it is noise — but a guess that does NOT name a product
+      // (a shared OUI, or a tie) leaves the row titled with the maker, and
+      // two unnamed same-OUI devices are then the same row twice. The
+      // address is the only thing that tells them apart, which is exactly
+      // what deviceSubtitle documents itself as being for.
+      description: entry.guess?.namesAProduct == true
+          ? null
+          : deviceSubtitle(device, description),
       enabled: device.isConnectable,
       onTap: device.isConnectable ? () => _connect(device) : null,
     );

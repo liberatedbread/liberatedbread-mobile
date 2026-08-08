@@ -85,13 +85,12 @@ class NetworkDevice {
   /// Worth looking for: it is the one thing on the network side that can be
   /// run through the IEEE registry, and unlike the IP it does not move.
   String? get advertisedMac {
-    for (final key in const [
-      'mac',
-      'macaddr',
-      'macaddress',
-      'bridgeid',
-      'id'
-    ]) {
+    // Deliberately NOT 'id': HomeKit accessories publish `id=XX:XX:...` in
+    // _hap._tcp TXT records, and that is a randomly generated accessory
+    // identifier, not a hardware address. It is MAC-shaped, so the registry
+    // happily names whichever company owns the block it lands in — a confident
+    // lie about who made the device, from a value that means nothing.
+    for (final key in const ['mac', 'macaddr', 'macaddress', 'bridgeid']) {
       final value = txt[key];
       if (value == null) continue;
       final hex = normalizeMacHex(value);
