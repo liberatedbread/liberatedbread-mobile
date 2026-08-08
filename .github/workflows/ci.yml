@@ -161,8 +161,17 @@ env:
   # both paths accept, and the script rejects anything else rather than
   # bounding the run on one machine and not on another.
   #
-  # 720s x 2 attempts has to fit inside that step's timeout-minutes, below.
+  # (720 + 240) x 2 attempts = 32 minutes has to fit inside that step's
+  # timeout-minutes, below, and that inside the job's.
   IOS_SIMULATOR_ATTEMPT_TIMEOUT: '720'
+  # The boot wait gets its own budget rather than sharing the attempt's, and it
+  # is inside the retry loop: "the simulator never finishes booting" is one of
+  # the two failures the retry exists for, so an unbounded wait in front of the
+  # loop would hang through the whole step without ever erasing and retrying.
+  # On the first attempt the device has been booting since before the app build
+  # and the wait returns at once; one that is still not up four minutes later is
+  # wedged, not slow.
+  IOS_SIMULATOR_BOOT_TIMEOUT: '240'
 
   # ── Everything else the setup scripts provision ────────────────────────────
   JAVA_VERSION: '17'
@@ -220,9 +229,16 @@ jobs:
           channel: stable
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+      # shared-key, not the default per-job key. `analyze` and `unit-tests`
+      # build byte-identical host artifacts (the same `cargo build` in rust/,
+      # plus the same `cargo install` of the FRB codegen), so a per-job key
+      # would store that twice and make whichever job ran first pay for a cold
+      # build. Measured on the run that split these jobs: the FRB step took
+      # 180s against an empty cache and 4s against a warm one.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          shared-key: host-dart
       - name: Cache pub
         uses: actions/cache@v4
         with:
@@ -240,6 +256,14 @@ jobs:
       # shellcheck is preinstalled on ubuntu-latest.
       - name: Lint shell scripts
         run: ./scripts/ci-shellcheck.sh
+      # The retry loop guarding the 10x-billed iOS job, driven through all
+      # seven of its outcomes against stub xcrun/flutter binaries — on ubuntu,
+      # in ~20s. The situations it handles (a simulator that will not boot, an
+      # app that never launches) cannot be produced on demand even on a Mac, so
+      # without this its logic would only ever be exercised by the failure it
+      # is meant to survive.
+      - name: Self-test the iOS retry logic
+        run: ./scripts/ci-ios-tests-selftest.sh
       - name: Build host Rust library for FRB
         run: cd rust && cargo build
       - name: Check FRB bindings are up to date
@@ -280,9 +304,16 @@ jobs:
       # this job would not turn it red — it would quietly stop running those
       # tests while still reporting green, and cut coverage with it.
       - uses: dtolnay/rust-toolchain@stable
+      # shared-key, not the default per-job key. `analyze` and `unit-tests`
+      # build byte-identical host artifacts (the same `cargo build` in rust/,
+      # plus the same `cargo install` of the FRB codegen), so a per-job key
+      # would store that twice and make whichever job ran first pay for a cold
+      # build. Measured on the run that split these jobs: the FRB step took
+      # 180s against an empty cache and 4s against a warm one.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          shared-key: host-dart
       - name: Cache pub
         uses: actions/cache@v4
         with:
@@ -729,37 +760,43 @@ jobs:
       # --no-pub because the `flutter pub get` step above already ran; without
       # it every invocation re-resolves the whole dependency set.
       #
-      # --verbose is NOT decoration, and it is not free either (it makes this
-      # the longest block in the log). It is here to answer an open question
-      # with a measurement, the way the cargokit cache question was settled.
+      # WHERE THIS STEP'S TIME ACTUALLY GOES — measured, not guessed.
       #
-      # THE QUESTION. Comparing two warm runs of this job:
-      #   before (run 31240131392): this step took 120s, building lib/main.dart,
-      #                             with the simulator boot serial afterwards.
-      #   after  (run 31274291678): 321s, building the test entrypoint, with the
-      #                             boot started asynchronously just above.
-      # In the second, 168 of those 321 seconds elapse BEFORE flutter prints
-      # "Building … for simulator (ios)" — before the Xcode project migrations,
-      # before pod install (4.3s), before the Xcode build (129.2s). A different
-      # Dart entrypoint cannot cost 168 seconds of pre-build silence, so the
-      # suspect is the other change: `simctl boot` saturating a 3-core arm64
-      # runner and holding CoreSimulator while flutter_tools is querying Xcode.
+      # This step went from 120s (building lib/main.dart) to 223-321s when it
+      # started building the test entrypoint, and most of the increase was
+      # SILENT: nothing printed at all before "Building … for simulator (ios)".
+      # The suspicion was the `simctl boot` started just above, saturating a
+      # 3-core runner. It is not. A --verbose run (31277401272) breaks the 223s
+      # down as:
       #
-      # If that is what it is, moving the boot back to serial is a net win even
-      # at the ~70s a serial boot costs. If it is not — if the time is going to
-      # artifact staging or a slow `xcodebuild -showBuildSettings` — then moving
-      # the boot makes the job strictly worse. --verbose timestamps every step
-      # flutter takes, so the next run of this file says which, instead of this
-      # comment guessing.
+      #     39s  flutter tool startup, before its first log line
+      #     15s  xcodebuild -resolvePackageDependencies
+      #     47s  xcodebuild -list, the Xcode project migrations, plugin
+      #          injection and pod install (pod install itself is ~4s)
+      #    119s  the Xcode build proper
       #
-      # Remove the flag once that is settled and written down here.
+      # So ~100s is flutter_tools interrogating Xcode before it builds
+      # anything, no flag of ours controls it, and the simulator boot is
+      # blameless — it is a 14s step and the `bootstatus` wait later returns
+      # instantly. Moving the boot back to serial would have cost ~70s and
+      # bought nothing. --verbose is therefore gone again; this note is what it
+      # was for.
+      #
+      # The entrypoint change it was suspected of paid off regardless: this
+      # step got slower, the test step got much faster (438s -> 171s), and the
+      # job total fell from 645s to 579s. This step doing the work the test
+      # step used to redo is the point.
+      #
+      # A lead for whoever wants the next 60s: -resolvePackageDependencies and
+      # -list are Swift Package Manager plumbing, on a project where the step
+      # above deliberately turns SPM OFF. Whether flutter_tools can be made to
+      # skip them is unexplored.
       - name: Build iOS (simulator, no codesign) — the test entrypoint
         timeout-minutes: 25
         run: |
           flutter build ios --debug --no-codesign --simulator --no-pub \
             --target=integration_test/ci_all_test.dart \
-            --dart-define=LIBERATED_BREAD_MOCK=true \
-            --verbose
+            --dart-define=LIBERATED_BREAD_MOCK=true
 
       # ── verify the artifact, not just the exit code ─────────────────────────
       # Why a lockfile check is not redundant with a green build, which pods are
@@ -807,11 +844,13 @@ jobs:
       #     log is empty and the device log is the only evidence there is —
       #     which is exactly how the Android settling race was diagnosed.
       #
-      # Sized so two attempts (2 x IOS_SIMULATOR_ATTEMPT_TIMEOUT = 24m) plus the
-      # boot wait fit inside the step timeout, and the step timeout inside the
-      # job's.
+      # Sized for the worst case the script can reach: two attempts of
+      # (IOS_SIMULATOR_BOOT_TIMEOUT + IOS_SIMULATOR_ATTEMPT_TIMEOUT) = 32m, with
+      # headroom, and comfortably inside the job's 60 alongside the ~8 minutes
+      # the rest of this job takes. It is a ceiling on a double failure, not a
+      # budget anything normally spends — the step runs in about three minutes.
       - name: Run integration tests on the simulator (mock mode)
-        timeout-minutes: 28
+        timeout-minutes: 34
         env:
           LB_IOS_UDID: ${{ steps.sim.outputs.udid }}
         run: ./scripts/ci-ios-tests.sh --run

@@ -92,6 +92,12 @@ else
   warn "  CI still runs this check."
 fi
 
+# Drives scripts/ci-ios-tests.sh through its whole retry loop against stub
+# binaries. Needs no Mac and no simulator, which is the point — it is the only
+# way that logic gets exercised outside a real iOS CI failure.
+log "ci-ios-tests.sh self-test"
+./scripts/ci-ios-tests-selftest.sh
+
 log "cargo build (host Rust lib for FRB)"
 (cd rust && cargo build)
 
