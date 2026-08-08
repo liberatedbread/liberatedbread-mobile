@@ -26,34 +26,46 @@ concurrency:
 
 # THIS FILE IS THE TOOLCHAIN SOURCE OF TRUTH FOR DEV ENVIRONMENTS.
 #
-# scripts/ci-versions.sh parses the values below out of this workflow, and
-# scripts/setup.sh plus the Claude Code session hook (.claude/hooks/
-# session-start.sh) provision from what it reads — so bumping a version here
-# moves every developer environment with it, and nothing needs re-pinning.
+# scripts/ci-versions.sh reads the `env:` block below, and scripts/setup.sh plus
+# the Claude Code session hook (.claude/hooks/session-start.sh) provision from
+# what it reads — so bumping a version here moves every developer environment
+# with it, and nothing needs re-pinning.
 #
-# What is parsed, and the shape the parser expects:
-#   FLUTTER_VERSION / FLUTTER_NDK_VERSION  the `env:` keys below
-#   java-version:                          setup-java's input
-#   platforms;android-<api>                any sdkmanager package reference
-#   build-tools;<version>                  any sdkmanager package reference
-#   flutter_rust_bridge_codegen@<version>  the `cargo install` line
-#   targets:                               dtolnay/rust-toolchain inputs
-#   api-level: [..], target:, arch:,       the reactivecircus/
-#   profile:                               android-emulator-runner step
-#   apt-get install ... (with `\` conts)   the linux-desktop dep step
+# EVERY PINNED VERSION LIVES IN THAT ONE BLOCK, and each step interpolates it
+# rather than repeating the literal. That is a hard rule, and it is what makes
+# the parser safe: it reads exactly the top-level `env:` mapping and nothing
+# else, so no comment, no prose and no unrelated step can be mistaken for
+# configuration.
 #
-# RUN `./scripts/ci-versions.sh` AFTER CHANGING ANY OF THOSE and check the
-# printed values still match this file. The parser falls back to a stale
-# hard-coded default (and warns) when a lookup misses, so a rename here fails
-# quietly in dev environments rather than loudly in CI. Two things it cannot
-# read, because no version appears in this file, and which therefore have to be
-# updated by hand in the setup scripts if they ever matter:
+# It was not always so. The parser used to hunt values out of step bodies with
+# file-wide greps — the highest `platforms;android-NN` anywhere, the first
+# `targets:` line containing "-android", packages scraped from `apt-get install`
+# and its line continuations. Every one of those could be tripped by a COMMENT:
+# naming an API level in prose really did change what dev machines installed,
+# because prose and configuration look identical to a grep. Twice, while editing
+# this file, an explanatory comment silently became configuration.
+#
+# So: if you need a new pinned value, add a key here and reference it with
+# ${{ env.KEY }} (or $KEY inside `run:`). Do not inline a version at a use site,
+# and do not teach the parser a new place to look.
+#
+# RUN `./scripts/ci-versions.sh` AFTER ANY CHANGE and check the printed values.
+# A missing key falls back to a stale hard-coded default and warns on stderr, so
+# a rename fails quietly in dev environments rather than loudly in CI.
+#
+# Three things it cannot read, which must be updated by hand in the setup
+# scripts if they ever matter:
 #   * the Android command-line tools build number (android-actions/setup-android
 #     resolves "latest" itself) — pinned in .claude/hooks/session-start.sh
 #   * the Rust toolchain version (dtolnay/rust-toolchain@stable) — a minimum is
 #     pinned in scripts/setup.sh
+#   * ANDROID_EMULATOR_API is declared here AND repeated in the android-
+#     integration matrix, because GitHub does not expose the `env` context to
+#     `strategy:`. A test keeps the two honest — see
+#     test/platform/deployment_targets_test.dart.
 env:
   FLUTTER_VERSION: '3.44.8'
+
   # The NDK cargokit actually builds against, shared by every job that compiles
   # the Rust crate for Android. android/app/build.gradle sets
   # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
@@ -64,16 +76,54 @@ env:
   # Keep in sync with FLUTTER_VERSION — re-read it after any bump with:
   #   grep 'val ndkVersion' "$(dirname "$(readlink -f "$(command -v flutter)")")"/../\
   #     packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt
-  # (3.44.8 → 28.2.13676358, checked. Deliberately no `platforms;android-NN`
-  # token in this comment — the parser above greps those anywhere in the file
-  # and takes the highest, so a version named in prose would become a version
-  # dev environments install. That file also carries compileSdkVersion, which
-  # is 36, while the sdkmanager steps below install API 34; Gradle therefore
-  # downloads 36 itself mid-build. Aligning them is a real saving, left alone
-  # here only because rust_builder/android/build.gradle pins compileSdkVersion
-  # 33 on AGP 7.3.0, and moving that needs an AGP bump — its own tested change,
-  # not a rider on a CI-timing one.)
+  # (3.44.8 -> 28.2.13676358, checked.)
   FLUTTER_NDK_VERSION: '28.2.13676358'
+
+  # ── Android SDK ────────────────────────────────────────────────────────────
+  # The compile SDK: what android/app/build.gradle resolves
+  # `flutter.compileSdkVersion` to (36 on Flutter 3.44.8, in the same
+  # FlutterExtension.kt as the NDK above) and what rust_builder/android/
+  # build.gradle now pins to match.
+  ANDROID_API: '36'
+  # AGP 8.6's default build-tools. Naming a newer one adds a download instead of
+  # replacing one, because AGP fetches its default regardless.
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  # Required by FLUTTER, not by anything in this repo: its Gradle plugin ships
+  # packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt and wires an
+  # externalNativeBuild into :app (the Android 15 16 KB page-size support), so
+  # `:app:configureCMakeDebug[<abi>]` runs on every Android build and AGP
+  # installs its default CMake when absent. 3.22.1 is that default for AGP 8.6;
+  # if a toolchain bump moves it, this pin degrades to a small unused package
+  # and Gradle fetches the right one itself. Re-check with:
+  #   grep 'Install CMake' <build log>
+  ANDROID_CMAKE: '3.22.1'
+
+  # ── Android emulator ───────────────────────────────────────────────────────
+  # A separate axis from the compile SDK: nothing requires the AVD to run the
+  # API the app compiles against.
+  ANDROID_EMULATOR_API: '34'
+  ANDROID_EMULATOR_TARGET: 'google_apis'
+  ANDROID_EMULATOR_ARCH: 'x86_64'
+  ANDROID_EMULATOR_PROFILE: 'pixel_6'
+
+  # ── Everything else the setup scripts provision ────────────────────────────
+  JAVA_VERSION: '17'
+  FRB_VERSION: '2.9.0'
+  # Comma-separated: the shape dtolnay/rust-toolchain's `targets:` input wants.
+  # Android keeps all four even though no CI job builds every one, because a dev
+  # machine provisioned from this list should be able to build any ABI.
+  RUST_ANDROID_TARGETS: 'aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android'
+  # x86_64-apple-ios is the Intel-Mac simulator target: unused by CI (the
+  # runners are arm64) but needed by a developer on an Intel Mac.
+  RUST_IOS_TARGETS: 'aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios'
+  # Space-separated for `apt-get install`. Flutter's own Linux requirements:
+  #   clang / cmake / ninja-build / pkg-config  the build system itself
+  #   libgtk-3-dev      the GTK 3 shell the runner in linux/ is written against
+  #   liblzma-dev       transitively required to link against GTK
+  #   libsecret-1-dev   flutter_secure_storage_linux (HA token storage)
+  #   libjsoncpp-dev    pulled in by the CMake/plugin toolchain
+  #   xvfb              virtual X server, so the app can actually RUN in CI
+  LINUX_DESKTOP_PACKAGES: 'clang cmake libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config xvfb'
 
 jobs:
   flutter:
@@ -137,7 +187,7 @@ jobs:
         run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
       - name: Check FRB bindings are up to date
         run: |
-          cargo install --locked flutter_rust_bridge_codegen@2.9.0
+          cargo install --locked "flutter_rust_bridge_codegen@$FRB_VERSION"
           flutter_rust_bridge_codegen generate
           # `git diff --exit-code` catches edits to tracked generated files but
           # is blind to brand-new (untracked) ones, so also fail on ANY pending
@@ -192,7 +242,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -202,47 +252,30 @@ jobs:
       # jobs need the Rust toolchain, the Android targets, and a matching NDK.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: ${{ env.RUST_ANDROID_TARGETS }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      # Every SDK package the build needs, installed in ONE visible step.
+      # Every SDK package the build needs, installed in ONE visible step. Each
+      # version comes from the env block at the top of this file, where it is
+      # annotated — deliberately not repeated here, since a second copy is a
+      # second thing to forget.
       #
-      # This list is about making the build's inputs explicit, NOT about speed.
+      # This step is about making the build's inputs explicit, NOT about speed.
       # Measured from CI logs, the two mid-build installs it replaces cost 2.5s
-      # (SDK platform) and 1.2s (cmake) — worth stating plainly, because
-      # "Gradle downloads it mid-build" sounds expensive and is not. What it
-      # buys is that Gradle no longer stops partway through to accept a licence
-      # and pull a package over the network, where a blip fails the build in a
-      # place nothing retries.
-      #
-      #   the SDK platform    API 36: what the app compiles against
-      #                       (`compileSdk = flutter.compileSdkVersion`) and now
-      #                       rust_builder too. It said 34, which nothing
-      #                       compiled against. Spelled in prose, never as a
-      #                       `platforms;android-NN` token — the parser and
-      #                       test/platform/deployment_targets_test.dart both
-      #                       grep that shape file-wide, so a version mentioned
-      #                       in a comment becomes one dev machines install.
-      #   build-tools;34.0.0    AGP 8.6's default; naming a newer one would add
-      #                         a download rather than replace one.
-      #   cmake;3.22.1          required by FLUTTER, not by anything in this
-      #                         repo: its Gradle plugin ships packages/
-      #                         flutter_tools/gradle/src/main/scripts/
-      #                         CMakeLists.txt and wires an externalNativeBuild
-      #                         into :app (the Android 15 16 KB page-size
-      #                         support), so `:app:configureCMakeDebug[<abi>]`
-      #                         runs on every Android build and AGP installs its
-      #                         default CMake when absent. 3.22.1 is that
-      #                         default for AGP 8.6; if a toolchain bump moves
-      #                         it this pin degrades to a small unused package
-      #                         and Gradle fetches the right one itself. Re-check
-      #                         with: grep 'Install CMake' <build log>
+      # (SDK platform) and 1.2s (cmake) — worth stating plainly, because "Gradle
+      # downloads it mid-build" sounds expensive and is not. What it buys is
+      # that Gradle no longer stops partway through to accept a licence and pull
+      # a package over the network, where a blip fails the build in a place
+      # nothing retries.
       - uses: android-actions/setup-android@v3
         with:
           packages: >-
-            platform-tools platforms;android-36 build-tools;34.0.0
-            cmake;3.22.1 ndk;${{ env.FLUTTER_NDK_VERSION }}
+            platform-tools
+            platforms;android-${{ env.ANDROID_API }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            cmake;${{ env.ANDROID_CMAKE }}
+            ndk;${{ env.FLUTTER_NDK_VERSION }}
       - uses: gradle/actions/setup-gradle@v4
       - name: Write android/local.properties
         run: |
@@ -342,6 +375,12 @@ jobs:
     # emulator stops costing an hour.
     timeout-minutes: 50
     needs: [flutter, rust]
+    # The one place a pinned value is repeated instead of interpolated:
+    # GitHub does not expose the `env` context to `strategy:`, so
+    # ANDROID_EMULATOR_API cannot be referenced here. The matrix stays (rather
+    # than collapsing to a plain input) because its value is part of this job's
+    # check name — "…(34)" — which branch protection may require by name.
+    # test/platform/deployment_targets_test.dart asserts the two agree.
     strategy:
       matrix:
         api-level: [34]
@@ -350,7 +389,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -364,7 +403,7 @@ jobs:
       # cargokit compiles the Rust crate when the integration app is built.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: ${{ env.RUST_ANDROID_TARGETS }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -380,7 +419,9 @@ jobs:
       - name: Install Android SDK packages for the Rust build
         run: |
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-36" "build-tools;34.0.0" "cmake;3.22.1" \
+            "platforms;android-$ANDROID_API" \
+            "build-tools;$ANDROID_BUILD_TOOLS" \
+            "cmake;$ANDROID_CMAKE" \
             "ndk;$FLUTTER_NDK_VERSION" \
             > /dev/null
       # Gradle's dependency cache and wrapper distribution, which this job was
@@ -466,9 +507,9 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
+          target: ${{ env.ANDROID_EMULATOR_TARGET }}
+          arch: ${{ env.ANDROID_EMULATOR_ARCH }}
+          profile: ${{ env.ANDROID_EMULATOR_PROFILE }}
           # ci_all_test.dart, NOT the integration_test directory: each file is
           # its own device build+install+launch cycle (see the ios-build test
           # step), so the aggregate runs the same suites in one cycle. It also
@@ -552,7 +593,7 @@ jobs:
       # cargokit compiles the Rust crate during `flutter build ios`.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          targets: ${{ env.RUST_IOS_TARGETS }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -732,22 +773,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      # The Linux desktop toolchain. Flutter's own `flutter doctor` lists these
-      # as the Linux requirements, and the runner image ships none of the -dev
-      # packages:
-      #   clang / cmake / ninja-build / pkg-config  the build system itself
-      #   libgtk-3-dev      the GTK 3 shell the runner in linux/ is written against
-      #   liblzma-dev       transitively required to link against GTK
-      #   libsecret-1-dev   flutter_secure_storage_linux (HA token storage)
-      #   libjsoncpp-dev    pulled in by the CMake/plugin toolchain
-      #   xvfb              virtual X server, so the app can actually RUN below
+      # The Linux desktop toolchain — the runner image ships none of the -dev
+      # packages. The list itself is LINUX_DESKTOP_PACKAGES in the env block at
+      # the top of this file, where each entry is annotated; it lives there
+      # rather than here so scripts/setup.sh installs exactly what CI does
+      # without a parser that has to understand `apt-get install` and its line
+      # continuations.
+      #
+      # Unquoted on purpose: word splitting is what turns the single
+      # space-separated value into one argument per package.
       - name: Install Linux desktop build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev \
-            xvfb
+          # shellcheck disable=SC2086
+          sudo apt-get install -y --no-install-recommends $LINUX_DESKTOP_PACKAGES
       - run: flutter pub get
 
       # ── release build ───────────────────────────────────────────────────────
