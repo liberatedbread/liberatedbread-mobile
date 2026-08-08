@@ -19,6 +19,10 @@ log()  { printf '\033[1;32m[run]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[run]\033[0m %s\n' "$*"; }
 err()  { printf '\033[1;31m[run]\033[0m %s\n' "$*" >&2; }
 
+# Auto-upgrades the repo-managed SDK at ~/.flutter-sdk to CI's pinned Flutter.
+# shellcheck source=flutter-ensure-version.sh
+source "$SCRIPT_DIR/flutter-ensure-version.sh"
+
 # ── parse args ───────────────────────────────────────────────────────────────
 
 MOCK=false
@@ -37,6 +41,11 @@ if ! command -v flutter &>/dev/null; then
   err "Flutter not found. Run ./scripts/setup.sh first."
   exit 1
 fi
+
+# Follow CI's Flutter pin: upgrade ~/.flutter-sdk in place when it is stale, so
+# a version bump in ci.yml doesn't turn into a confusing `flutter pub get`
+# failure here. A Flutter installed elsewhere is left alone. (LB_FLUTTER_AUTO_UPGRADE=0 skips.)
+flutter_ensure_ci_version
 
 # ── ensure dependencies ──────────────────────────────────────────────────────
 
