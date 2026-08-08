@@ -105,7 +105,7 @@ impl DeviceProtocol for GenericProtocol {
                         value_offset: f.value_offset,
                         unit: f.unit.clone(),
                         values: f.values.clone(),
-                        unit_follows_device_setting: f.unit_follows_device_setting(),
+                        unit_source: f.unit_source.clone(),
                     })
                     .collect()
             })

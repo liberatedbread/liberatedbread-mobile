@@ -261,11 +261,10 @@ pub struct DecodedValueDto {
     /// table, already resolved for the value decoded — Ember's liquid state
     /// 5 arrives as "heating".
     pub value_label: Option<String>,
-    /// True when the spec says the wire unit follows a device setting rather
-    /// than being fixed by the protocol (the Inkbird iBBQ sends whichever
-    /// unit the device is set to). The UI must not present [`Self::unit`] as
-    /// fact when this is set.
-    pub unit_follows_device_setting: bool,
+    /// The spec's `unit_source` (`fixed` | `device_setting`). The Inkbird
+    /// iBBQ sends whichever unit the device is currently set to, so a UI must
+    /// not present [`Self::unit`] as fact when this reads `device_setting`.
+    pub unit_source: Option<String>,
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
@@ -569,7 +568,7 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
             value_offset: None,
             unit: None,
             value_label: None,
-            unit_follows_device_setting: false,
+            unit_source: None,
         };
         match value {
             DecodedValue::Bool(v) => dto.bool_value = Some(*v),
@@ -826,7 +825,7 @@ pub fn decode_value(
                 dto.scale = m.scale;
                 dto.value_offset = m.value_offset;
                 dto.unit = m.unit.clone();
-                dto.unit_follows_device_setting = m.unit_follows_device_setting;
+                dto.unit_source = m.unit_source.clone();
                 // Enumerated fields are looked up by the raw integer the
                 // device sent, rendered decimal to match the normalized
                 // table keys.

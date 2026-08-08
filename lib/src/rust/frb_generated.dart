@@ -551,7 +551,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       valueOffset: dco_decode_opt_box_autoadd_f_64(arr[8]),
       unit: dco_decode_opt_String(arr[9]),
       valueLabel: dco_decode_opt_String(arr[10]),
-      unitFollowsDeviceSetting: dco_decode_bool(arr[11]),
+      unitSource: dco_decode_opt_String(arr[11]),
     );
   }
 
@@ -1067,7 +1067,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_valueOffset = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_unit = sse_decode_opt_String(deserializer);
     var var_valueLabel = sse_decode_opt_String(deserializer);
-    var var_unitFollowsDeviceSetting = sse_decode_bool(deserializer);
+    var var_unitSource = sse_decode_opt_String(deserializer);
     return DecodedValueDto(
         name: var_name,
         valueType: var_valueType,
@@ -1080,7 +1080,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         valueOffset: var_valueOffset,
         unit: var_unit,
         valueLabel: var_valueLabel,
-        unitFollowsDeviceSetting: var_unitFollowsDeviceSetting);
+        unitSource: var_unitSource);
   }
 
   @protected
@@ -1756,7 +1756,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_f_64(self.valueOffset, serializer);
     sse_encode_opt_String(self.unit, serializer);
     sse_encode_opt_String(self.valueLabel, serializer);
-    sse_encode_bool(self.unitFollowsDeviceSetting, serializer);
+    sse_encode_opt_String(self.unitSource, serializer);
   }
 
   @protected

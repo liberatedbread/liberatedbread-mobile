@@ -60,6 +60,11 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
       widget.entity.actions.where((a) => a.role == role).firstOrNull;
 
   Future<void> _send(EntityActionDto action, {bool? assume}) async {
+    // Only a setpoint action can be a direct write with no command behind it;
+    // a switch role always names one. Guarding rather than asserting keeps a
+    // malformed remote spec from crashing the panel.
+    final commandName = action.commandName;
+    if (commandName == null) return;
     setState(() {
       _sendingRole = action.role;
       _status = null;
@@ -70,7 +75,7 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
         charUuid: action.characteristicUuid,
-        commandName: action.commandName,
+        commandName: commandName,
         params: const {},
       );
       await ref.read(bleServiceProvider).writeCharacteristic(

@@ -540,7 +540,7 @@ impl SseDecode for crate::api::device_api::DecodedValueDto {
         let mut var_valueOffset = <Option<f64>>::sse_decode(deserializer);
         let mut var_unit = <Option<String>>::sse_decode(deserializer);
         let mut var_valueLabel = <Option<String>>::sse_decode(deserializer);
-        let mut var_unitFollowsDeviceSetting = <bool>::sse_decode(deserializer);
+        let mut var_unitSource = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::DecodedValueDto {
             name: var_name,
             value_type: var_valueType,
@@ -553,7 +553,7 @@ impl SseDecode for crate::api::device_api::DecodedValueDto {
             value_offset: var_valueOffset,
             unit: var_unit,
             value_label: var_valueLabel,
-            unit_follows_device_setting: var_unitFollowsDeviceSetting,
+            unit_source: var_unitSource,
         };
     }
 }
@@ -1309,9 +1309,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DecodedValueDto {
             self.value_offset.into_into_dart().into_dart(),
             self.unit.into_into_dart().into_dart(),
             self.value_label.into_into_dart().into_dart(),
-            self.unit_follows_device_setting
-                .into_into_dart()
-                .into_dart(),
+            self.unit_source.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1701,7 +1699,7 @@ impl SseEncode for crate::api::device_api::DecodedValueDto {
         <Option<f64>>::sse_encode(self.value_offset, serializer);
         <Option<String>>::sse_encode(self.unit, serializer);
         <Option<String>>::sse_encode(self.value_label, serializer);
-        <bool>::sse_encode(self.unit_follows_device_setting, serializer);
+        <Option<String>>::sse_encode(self.unit_source, serializer);
     }
 }
 
