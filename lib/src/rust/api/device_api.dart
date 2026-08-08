@@ -333,9 +333,10 @@ class EntityActionDto {
 
   /// Declared bounds of the role's primary numeric parameter, so a
   /// brightness slider matches the device's real range (elk-bledom tops out
-  /// at 100, not 255).
-  final PlatformInt64? min;
-  final PlatformInt64? max;
+  /// at 100, not 255). `f64` for the same reason as [`ParameterDto`]'s
+  /// bounds: sliders consume doubles.
+  final double? min;
+  final double? max;
 
   const EntityActionDto({
     required this.role,
