@@ -44,8 +44,14 @@ class FakeBleService implements BleService {
   /// repeats once the list is exhausted. Empty means a steady -60.
   final List<int> rssiValues;
 
-  /// When set, every [readRssi] call throws it instead of returning a value.
+  /// When set, [readRssi] throws it instead of returning a value.
   final Object? rssiError;
+
+  /// Reads served successfully before [rssiError] starts being thrown. Lets a
+  /// test exercise the mid-session transition — samples accumulate, THEN the
+  /// link drops — which is the case the signal-lost state exists for.
+  /// Defaults to 0: fail from the first read.
+  final int rssiErrorAfter;
 
   /// When set, every [writeCharacteristic] call awaits this before recording,
   /// letting a test hold writes in flight to exercise send serialization.
@@ -79,6 +85,7 @@ class FakeBleService implements BleService {
     this.writeGate,
     this.rssiValues = const [],
     this.rssiError,
+    this.rssiErrorAfter = 0,
   });
 
   @override
@@ -176,7 +183,7 @@ class FakeBleService implements BleService {
   @override
   Future<int> readRssi(String deviceId) async {
     rssiReadCount++;
-    if (rssiError != null) throw rssiError!;
+    if (rssiError != null && rssiReadCount > rssiErrorAfter) throw rssiError!;
     if (rssiValues.isEmpty) return -60;
     return rssiValues[(rssiReadCount - 1).clamp(0, rssiValues.length - 1)];
   }

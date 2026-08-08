@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import '../models/ble_discovered_service.dart';
 import '../services/spec_codec.dart';
 import 'hex.dart';
+import 'value_format.dart';
 
 /// Assumed RSSI at 1 m, in dBm. Advertised BLE beacons calibrate this per
 /// device; generic peripherals don't, so this is the widely used default.
@@ -37,9 +38,18 @@ double estimateDistanceMeters(
 /// Render a distance guess honestly: one decimal under 10 m, whole meters to
 /// 20 m, and a flat "20+ m" beyond — the model has no meaningful resolution
 /// out there, and printing "43.7 m" would claim precision it doesn't have.
+///
+/// Both boundaries are tested on the *rounded* value rather than the raw one,
+/// so a distance never renders in a band it doesn't belong to: 9.96 would
+/// print "≈ 10.0 m" (a decimal above the decimal cutoff) and 19.7 would print
+/// "≈ 20 m" — indistinguishable from the "20+ m" cap that exists precisely to
+/// say "no resolution here", so a dBm of jitter would flip the headline
+/// between a precise-looking number and the cap.
 String formatApproxDistance(double meters) {
-  if (meters >= 20) return '20+ m';
-  if (meters >= 10) return '≈ ${meters.round()} m';
+  if (meters.round() >= 20) return '20+ m';
+  if (double.parse(meters.toStringAsFixed(1)) >= 10) {
+    return '≈ ${meters.round()} m';
+  }
   return '≈ ${meters.toStringAsFixed(1)} m';
 }
 
@@ -58,8 +68,30 @@ String proximityLabel(double meters) {
 /// floor) is 0, -30 dBm (touching the antenna) is 1.
 double signalFraction(double rssi) => ((rssi + 100) / 70).clamp(0.0, 1.0);
 
-/// Direction the signal is moving, for hot/cold guidance.
-enum RssiTrend { closer, farther, steady }
+/// Direction the signal is moving, for hot/cold guidance. [unknown] means
+/// too few samples to say — distinct from [steady], which is a real verdict
+/// ("you are standing still") the UI must not fabricate from two readings.
+enum RssiTrend { closer, farther, steady, unknown }
+
+/// Plausible RSSI range for a live BLE link, in dBm. A connected peripheral
+/// reads somewhere between about -100 (sensitivity floor) and -20 (touching
+/// the antenna); 0 and the SIG's 127 "RSSI unavailable" sentinel are not
+/// signal strengths.
+const int kMinPlausibleRssi = -127;
+const int kMaxPlausibleRssi = -1;
+
+/// Whether [rssi] can be a real reading rather than a backend's stand-in for
+/// "no value".
+///
+/// This is not defensive padding: flutter_blue_plus_linux answers `readRssi`
+/// from BlueZ's cached advertisement property and reports `success: true`
+/// with `rssi: 0` when that property is absent (which it is for a connected
+/// peripheral that stopped advertising), and the Android/Darwin plugins
+/// forward a controller-reported 127 with a success status. Both would
+/// otherwise render as a confident "≈ 0.0 m / Right here" that never
+/// resolves, because a successful read resets the failure counter.
+bool isPlausibleRssi(int rssi) =>
+    rssi >= kMinPlausibleRssi && rssi <= kMaxPlausibleRssi;
 
 /// Accumulates RSSI samples for one find session: latest/extremes for the
 /// raw readout, an exponential moving average that feeds the distance guess
@@ -87,6 +119,19 @@ class RssiTracker {
   int? _min;
   int? _max;
   int _count = 0;
+
+  /// Forget every sample, returning the tracker to its just-constructed
+  /// state. Called when polling restarts after a signal loss: the readings
+  /// either side of that gap describe different places (and possibly minutes
+  /// apart), so blending them would show a pre-loss distance as if live and
+  /// point the trend arrow the wrong way while the user walks.
+  void reset() {
+    _history.clear();
+    _smoothed = null;
+    _min = null;
+    _max = null;
+    _count = 0;
+  }
 
   /// Record one raw RSSI reading.
   void add(int rssi) {
@@ -128,7 +173,7 @@ class RssiTracker {
     final window = _history.length <= trendWindow
         ? _history
         : _history.sublist(_history.length - trendWindow);
-    if (window.length < 4) return RssiTrend.steady;
+    if (window.length < 4) return RssiTrend.unknown;
     final half = window.length ~/ 2;
     final olderAvg = window.take(half).reduce((a, b) => a + b) / half;
     final newerAvg =
@@ -208,14 +253,26 @@ const Set<String> _negatingTokens = {
   'clear', //
 };
 
-/// Tokens that mark a command as a settings/status QUERY. The Inkbird BBQ
-/// spec's `get_sound_switch` and `get_alarm_mode` are fixed encodable
-/// commands whose positive tokens describe what is being *queried*, not an
-/// alert being raised — pressing them would silently read state back instead
-/// of making the device noticeable.
+/// Tokens that mark a command as a settings/status QUERY, e.g. a
+/// `get_alarm_mode` whose `alarm` token describes what is being *read back*
+/// rather than an alert being raised. Pressing such a command would quietly
+/// fetch state instead of making the device noticeable.
+///
+/// Checked AFTER [_findTokens] on purpose: a name that says both ("find" and
+/// "status") is a locator that happens to mention a query word, and the find
+/// intent is the one the author encoded.
 const Set<String> _queryTokens = {
   'get', 'query', 'read', 'request', 'status', 'check', 'poll', 'report',
   'fetch', //
+};
+
+/// Tokens that mark a command as *configuring* an alert rather than raising
+/// one (`set_alarm`, `alarm_enable`, `set_flash_count`). These write
+/// persistent device settings, so surfacing them under "make it noticeable"
+/// would silently reconfigure the device instead of locating it.
+const Set<String> _configureTokens = {
+  'set', 'config', 'configure', 'mode', 'level', 'threshold', 'enable',
+  'default', 'duration', 'count', 'speed', 'color', 'colour', 'brightness', //
 };
 
 /// Tokens that mark a command as far too dangerous to hide behind a find
@@ -236,10 +293,13 @@ FindAlertKind? classifyAlertCommand(String commandName) {
       .toSet();
   if (tokens.any(_dangerTokens.contains)) return null;
   if (tokens.any(_negatingTokens.contains)) return null;
-  if (tokens.any(_queryTokens.contains)) return null;
-  // Find-me style commands often also name the mechanism ("alarm", "buzz");
-  // the find kind wins because that's the user intent they encode.
+  // Find-me style commands often also name the mechanism ("alarm", "buzz")
+  // or a query word ("find_status"); the find kind wins because that's the
+  // user intent they encode. Checked BEFORE the query/configure filters so
+  // those can't veto an explicit locator.
   if (tokens.any(_findTokens.contains)) return FindAlertKind.alert;
+  if (tokens.any(_queryTokens.contains)) return null;
+  if (tokens.any(_configureTokens.contains)) return null;
   if (tokens.any(_soundTokens.contains)) return FindAlertKind.sound;
   if (tokens.any(_flashTokens.contains)) return FindAlertKind.flash;
   return null;
@@ -248,12 +308,13 @@ FindAlertKind? classifyAlertCommand(String commandName) {
 /// Detect every alert action this device supports, from two sources:
 ///
 /// 1. **Spec commands** — fixed, encodable commands whose name says they make
-///    the device beep/blink (see [classifyAlertCommand]). Detection is
-///    transport-agnostic: it reads the spec, so it lights up for any protocol
-///    a spec describes — today's BLE devices now, Wi-Fi devices once the app
-///    grows a Wi-Fi transport. The command's characteristic must also have
-///    been *discovered* on this device (writable), because a spec may
-///    describe a bigger variant than the unit in front of us.
+///    the device beep/blink (see [classifyAlertCommand]). The command's
+///    characteristic must also have been *discovered* on this device
+///    (writable), because a spec may describe a bigger variant than the unit
+///    in front of us. This resolves against GATT endpoints, so it is BLE-only:
+///    a Wi-Fi spec's `http_endpoints`/`mqtt_topics` do not cross the FFI at
+///    all today, and lighting these buttons up for one would need both that
+///    and a transport-neutral endpoint type here.
 /// 2. **The standard Immediate Alert service**, when discovery found it with
 ///    a writable Alert Level — no spec needed. Skipped when a spec command
 ///    already targets that characteristic (the spec knows the device's
@@ -296,7 +357,7 @@ List<FindAlertAction> detectAlertActions({
           if (kind == null) continue;
           actions.add(FindAlertAction(
             kind: kind,
-            label: humanLabelForCommand(command.name),
+            label: humanizeName(command.name),
             serviceUuid: discovered.serviceUuid,
             charUuid: discovered.charUuid,
             commandName: command.name,
@@ -313,8 +374,8 @@ List<FindAlertAction> detectAlertActions({
   final alertLevel =
       writable[pairKey(immediateAlertServiceUuid, alertLevelCharUuid)];
   final specCoversAlertLevel = actions.any((a) =>
-      normalizeUuid(a.serviceUuid) == immediateAlertServiceUuid &&
-      normalizeUuid(a.charUuid) == alertLevelCharUuid);
+      pairKey(a.serviceUuid, a.charUuid) ==
+      pairKey(immediateAlertServiceUuid, alertLevelCharUuid));
   if (alertLevel != null && !specCoversAlertLevel) {
     actions.add(FindAlertAction(
       kind: FindAlertKind.alert,
@@ -327,18 +388,4 @@ List<FindAlertAction> detectAlertActions({
   }
 
   return actions;
-}
-
-/// `find_me` → `Find me`, `blink_led` → `Blink LED`. The all-caps fixups
-/// cover initialisms common in command names that plain sentence-casing
-/// would render as words.
-String humanLabelForCommand(String raw) {
-  final words = raw
-      .split(RegExp(r'[_\-\s]+'))
-      .where((w) => w.isNotEmpty)
-      .map((w) => const {'led': 'LED', 'rgb': 'RGB'}[w.toLowerCase()] ?? w)
-      .toList();
-  if (words.isEmpty) return raw;
-  final joined = words.join(' ');
-  return joined[0].toUpperCase() + joined.substring(1);
 }
