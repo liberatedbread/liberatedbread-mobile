@@ -68,7 +68,7 @@
 set -u
 
 # Relative paths below are the repo's, not the caller's.
-cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
+cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
 
 # No apostrophe in that message, deliberately: bash still does quote
 # processing on the word inside ${VAR:?word}, so a lone ' opens a quote that
