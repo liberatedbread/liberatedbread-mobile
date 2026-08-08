@@ -153,6 +153,13 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   @override
   void initState() {
     super.initState();
+    _applySpecDefaults();
+  }
+
+  /// Derive the canvas from the spec, discarding whatever was on it.
+  ///
+  /// Called from `initState` and again whenever the spec underneath changes.
+  void _applySpecDefaults() {
     // Fixed-resolution panels get their declared size; device-reported ones
     // start at a common small size the user can adjust.
     _width = _spec.resolutionDeviceReported
@@ -162,7 +169,37 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         ? initialCanvasSize(_spec.maxHeight)
         : (_spec.maxHeight ?? 16);
     _intervalMs = frameIntervalBoundsMs(_spec).initial;
-    _frames.add(Uint8List(_width * _height * 3));
+    _frames
+      ..clear()
+      ..add(Uint8List(_width * _height * 3));
+    _current = 0;
+    _frameSequence = 0;
+  }
+
+  @override
+  void didUpdateWidget(LedImageWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.specYaml == oldWidget.specYaml) return;
+    // The panel mounts this under a constant key, so a spec change updates the
+    // widget in place and this State survives it. Every geometry field is
+    // derived once in initState, so without this a 16x16 editor would go on
+    // encoding `width: 16, height: 16` against the new spec's YAML: a sheared
+    // image on the panel, or `ImageDimensionsInvalid` surfaced as "Could not
+    // send the image to the device" when the new maximum is smaller. Specs
+    // change under a live screen when a remote spec pack refreshes and a
+    // different candidate wins.
+    //
+    // The canvas resets rather than being carried across. It cannot be carried
+    // honestly — the frames are sized for a surface that is no longer the one
+    // being drawn on — and half-translating them would put a corrupted image
+    // in front of the user under a name they did not pick.
+    setState(() {
+      _stopPreview();
+      _streaming = false;
+      _streamEpoch++;
+      _error = null;
+      _applySpecDefaults();
+    });
   }
 
   @override
@@ -292,21 +329,40 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// otherwise splice into the old frame's fragment sequence.
   Future<void> _sendTail = Future<void>.value();
 
+  /// Queue a send of the frame at [index].
+  ///
+  /// The pixels and the canvas size are read *here*, not inside the queued
+  /// work: a send sits behind `_sendTail` and then awaits the encoder and one
+  /// write per fragment, and the user can edit throughout. Indexing the live
+  /// list on the far side of those awaits meant deleting a frame mid-send
+  /// threw a RangeError out of the loop (or, one frame earlier, quietly sent
+  /// whatever slid into that slot), and resizing the canvas encoded the old
+  /// buffer against the new dimensions. What is queued is a snapshot of what
+  /// the user asked to send.
   Future<void> _enqueueSend(int index, int payloadPerWrite) {
-    final send = _sendTail.then((_) => _sendFrame(index, payloadPerWrite));
+    final rgb = _frames[index];
+    final width = _width;
+    final height = _height;
+    final send =
+        _sendTail.then((_) => _sendFrame(rgb, width, height, payloadPerWrite));
     // Callers observe failures through `send`; the tail itself must swallow
     // them or every later send would rethrow a stale error.
     _sendTail = send.then((_) {}, onError: (_) {});
     return send;
   }
 
-  Future<void> _sendFrame(int index, int payloadPerWrite) async {
+  Future<void> _sendFrame(
+    Uint8List rgb,
+    int width,
+    int height,
+    int payloadPerWrite,
+  ) async {
     final ble = ref.read(bleServiceProvider);
     final plan = await ref.read(specCodecProvider).encodeImageFrame(
           specYaml: widget.specYaml,
-          width: _width,
-          height: _height,
-          rgb: _frames[index],
+          width: width,
+          height: height,
+          rgb: rgb,
           frameIndex: _frameSequence,
           maxPayloadPerWrite: payloadPerWrite,
         );

@@ -1,9 +1,12 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/hex.dart';
+import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/spec_choice_provider.dart';
@@ -164,9 +167,35 @@ class DeviceControlPanel extends ConsumerWidget {
         ),
     ];
 
+    // The keys above are only half the job. A lazy builder's delegate has no
+    // way back from a key to an index unless it is given one, so it still
+    // reconciles strictly per-index: at index i the old child holds
+    // `service:B` and the new one wants `service:A`, `Widget.canUpdate` is
+    // false, and the element is torn down and re-inflated rather than carried
+    // across. That is not a cosmetic rebuild here. Every notify-capable
+    // characteristic subscribes in `initState` and unsubscribes in `dispose`;
+    // the incoming element's `setNotifyValue(true)` runs during the rebuild
+    // and the outgoing one's `setNotifyValue(false)` in `finalizeTree` later
+    // in the same frame, against the same characteristic, with no reference
+    // counting between them. When the disable lands last that characteristic
+    // goes quiet for the rest of the session. And `leading.length` changes on
+    // essentially every connect: the match provider is `AsyncLoading` for the
+    // first frame, so the list starts empty and grows a slot a microtask
+    // later. It also throws away whatever the user had typed into a raw write
+    // field. `findChildIndexCallback` closes that: the delegate looks the key
+    // up, finds the child at its new index, and updates it in place.
+    final childIndexByKey = <Key, int>{
+      for (var i = 0; i < leading.length; i++)
+        if (leading[i].key case final key?) key: i,
+      for (var i = 0; i < services.length; i++)
+        ValueKey('service:${normalizeUuid(services[i].uuid)}'):
+            i + leading.length,
+    };
+
     return ListView.builder(
       padding: const EdgeInsets.all(8),
       itemCount: services.length + leading.length,
+      findChildIndexCallback: (key) => childIndexByKey[key],
       itemBuilder: (context, index) {
         if (index < leading.length) return leading[index];
         final service = services[index - leading.length];
@@ -179,6 +208,22 @@ class DeviceControlPanel extends ConsumerWidget {
       },
     );
   }
+}
+
+/// Fire off a spec-choice write, logging rather than throwing if the store
+/// cannot take it.
+///
+/// Both `choose` and `clear` await `SharedPreferences.setString`, which throws
+/// on a platform-channel or storage failure. Dropped, that surfaces as an
+/// unhandled async error — a red screen in debug, a stray `FlutterError` log in
+/// release — while the chooser sits there as if nothing happened. The choice is
+/// a convenience, not the point of the screen: the controls the user picked
+/// still render for this session, they simply will not be remembered. Same
+/// shape as the `savedDevicesProvider` write in `device_screen.dart`.
+void _remember(Future<void> write, String deviceId) {
+  unawaited(write.catchError((Object e) {
+    Log.spec.warning('could not save the spec choice for $deviceId', error: e);
+  }));
 }
 
 /// Shows that this device's controls come from a spec the user picked, with
@@ -231,8 +276,9 @@ class _SavedChoiceBanner extends ConsumerWidget {
             ),
             TextButton(
               style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-              onPressed: () =>
+              onPressed: () => _remember(
                   ref.read(specChoicesProvider.notifier).clear(deviceId),
+                  deviceId),
               child: const Text('Change'),
             ),
           ],
@@ -300,9 +346,11 @@ class _SpecChoicePrompt extends ConsumerWidget {
                       minimumSize: const Size(0, 44),
                       alignment: Alignment.centerLeft,
                     ),
-                    onPressed: () => ref
-                        .read(specChoicesProvider.notifier)
-                        .choose(deviceId, specKeyFor(candidate.spec)),
+                    onPressed: () => _remember(
+                        ref
+                            .read(specChoicesProvider.notifier)
+                            .choose(deviceId, specKeyFor(candidate.spec)),
+                        deviceId),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,

@@ -183,13 +183,50 @@ void main() {
     });
   });
 
+  group('ScanGuess.fromMatches', () {
+    test('sees one maker behind several tied specs', () {
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.possible, deviceName: 'Mi Flora'),
+        _match(MatchConfidence.possible, deviceName: 'Mi Band', specIndex: 1),
+      ]);
+      expect(g!.otherMatches, 1);
+      expect(g.manufacturerAgreed, isTrue);
+    });
+
+    test('sees several makers behind several tied specs', () {
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.possible, manufacturer: 'Enphase Energy'),
+        _match(MatchConfidence.possible, manufacturer: 'Rachio', specIndex: 1),
+      ]);
+      expect(g!.manufacturerAgreed, isFalse);
+      expect(g.label, 'Possibly supported');
+    });
+
+    test('ignores weaker matches when judging agreement', () {
+      // A Strong match is not made ambiguous by a trailing Possible one, and
+      // that other spec's maker has no bearing on the verdict either.
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, manufacturer: 'Ember Technologies'),
+        _match(MatchConfidence.possible, manufacturer: 'Rachio', specIndex: 1),
+      ]);
+      expect(g!.otherMatches, 0);
+      expect(g.manufacturerAgreed, isTrue);
+      expect(g.namesAProduct, isTrue);
+    });
+  });
+
   group('ScanGuess.label', () {
-    ScanGuess guess(MatchConfidence confidence, {int otherMatches = 0}) =>
+    ScanGuess guess(
+      MatchConfidence confidence, {
+      int otherMatches = 0,
+      bool manufacturerAgreed = true,
+    }) =>
         ScanGuess(
           deviceName: 'Ember Mug',
           manufacturer: 'Ember Technologies',
           confidence: confidence,
           otherMatches: otherMatches,
+          manufacturerAgreed: manufacturerAgreed,
         );
 
     test('names the product on a strong match', () {
@@ -214,6 +251,21 @@ void main() {
       expect(guess(MatchConfidence.likely, otherMatches: 2).label,
           'Likely supported');
     });
+
+    test('keeps the maker when the tied specs are all that maker', () {
+      // Two Ember products matching one OUI still tells the user who made it.
+      expect(guess(MatchConfidence.possible, otherMatches: 1).label,
+          'Possibly Ember Technologies');
+    });
+
+    test('drops the maker when the tied specs disagree about it', () {
+      // Four vendors' specs matching one shared OUI badged all of them with
+      // whichever happened to sort first.
+      final g = guess(MatchConfidence.possible,
+          otherMatches: 3, manufacturerAgreed: false);
+      expect(g.label, 'Possibly supported');
+      expect(g.namesAProduct, isFalse);
+    });
   });
 
   group('rankScannedDevices', () {
@@ -222,6 +274,7 @@ void main() {
           manufacturer: 'Y',
           confidence: confidence,
           otherMatches: 0,
+          manufacturerAgreed: true,
         );
 
     test('recognised devices come first, whatever the signal strength', () {

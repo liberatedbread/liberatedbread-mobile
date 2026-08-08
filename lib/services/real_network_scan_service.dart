@@ -171,9 +171,11 @@ class RealNetworkScanService implements NetworkScanService {
   RealNetworkScanService({MulticastLock? multicastLock})
       : multicastLock = multicastLock ?? MulticastLock();
 
-  MDnsClient? _mdns;
-  RawDatagramSocket? _ssdpSocket;
-  bool _stopped = false;
+  /// The scan currently entitled to the lock, or null between scans.
+  ///
+  /// Only ever compared by identity — a finishing scan checks whether it is
+  /// still this one before releasing anything shared.
+  _ScanSession? _session;
 
   @override
   Stream<NetworkDevice> scan({
@@ -181,7 +183,18 @@ class RealNetworkScanService implements NetworkScanService {
   }) {
     final controller = StreamController<NetworkDevice>();
     final coalescer = NetworkScanCoalescer();
-    _stopped = false;
+    // Everything a scan has to be able to stop lives on the session, not on
+    // the service. It used to live here, and one instance is shared through
+    // `networkScanServiceProvider`: cancel a scan and start another, and the
+    // first is still parked in _runMdns's post-enumeration delay (four seconds
+    // at the default timeout). When it comes back its `finally` tore down
+    // whatever it found on the fields — the *second* scan's mDNS client and
+    // SSDP socket, its stopped flag, and the multicast lock it had just taken.
+    // That scan then reported silent/silent, which on iOS and macOS is
+    // rendered as "Local Network access is off" to a user whose permission was
+    // never the problem.
+    final session = _ScanSession();
+    _session = session;
 
     void emit(NetworkDevice device) {
       if (controller.isClosed) return;
@@ -199,11 +212,11 @@ class RealNetworkScanService implements NetworkScanService {
         // a platform that blocks one (iOS multicast entitlements, a network
         // with IGMP snooping) should still return what the other found.
         final outcomes = await Future.wait([
-          _runMdns(emit, timeout).catchError((Object e) {
+          _runMdns(session, emit, timeout).catchError((Object e) {
             Log.net.warning('mDNS discovery failed', error: e);
             return TransportOutcome.failed;
           }),
-          _runSsdp(emit, timeout).catchError((Object e) {
+          _runSsdp(session, emit, timeout).catchError((Object e) {
             Log.net.warning('SSDP discovery failed', error: e);
             return TransportOutcome.failed;
           }),
@@ -219,15 +232,12 @@ class RealNetworkScanService implements NetworkScanService {
       } catch (e, st) {
         if (!controller.isClosed) controller.addError(e, st);
       } finally {
-        await _teardown();
+        await _end(session);
         if (!controller.isClosed) await controller.close();
       }
     }();
 
-    controller.onCancel = () async {
-      _stopped = true;
-      await _teardown();
-    };
+    controller.onCancel = () => _end(session);
     return controller.stream;
   }
 
@@ -238,21 +248,29 @@ class RealNetworkScanService implements NetworkScanService {
   /// asking is whether multicast reaches this app at all, and one record
   /// answers it. Records that resolve to nothing usable still count.
   Future<TransportOutcome> _runMdns(
+    _ScanSession session,
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
     final client = MDnsClient();
     await client.start();
-    _mdns = client;
+    session.mdns = client;
     var heard = false;
     final resolving = <String>{};
+    // `timeout` is the budget for the whole mDNS half, split between its two
+    // phases: enumerate the link's service types, then resolve the instances
+    // behind them. Both used to be given the full `timeout` and run back to
+    // back, so an 8-second scan took twelve — the enumeration ran its window
+    // out (it only closes early if every responder falls silent), and the
+    // grace period for the resolutions was added on top of it.
+    final phase = timeout ~/ 2;
     try {
       await for (final PtrResourceRecord type in client
           .lookup<PtrResourceRecord>(
               ResourceRecordQuery.serverPointer(_serviceEnumerationQuery))
-          .timeout(timeout, onTimeout: (sink) => sink.close())) {
+          .timeout(phase, onTimeout: (sink) => sink.close())) {
         heard = true;
-        if (_stopped) break;
+        if (session.stopped) break;
         // Once per type, not once per announcement. The meta-query is answered
         // by every responder on the link, so a common type like _http._tcp
         // arrives once per device; without this each arrival started another
@@ -262,24 +280,26 @@ class RealNetworkScanService implements NetworkScanService {
         if (!resolving.add(type.domainName)) continue;
         // Fire the per-type resolution off rather than awaiting it: a slow or
         // unanswered service type must not hold up every other one.
-        unawaited(_resolveServiceType(client, type.domainName, emit, timeout)
-            .catchError((Object e) {
+        unawaited(
+            _resolveServiceType(session, client, type.domainName, emit, phase)
+                .catchError((Object e) {
           Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
         }));
       }
-      // Give the fired-off resolutions their share of the window.
-      await Future<void>.delayed(timeout ~/ 2);
+      // Give the fired-off resolutions the other half of the window.
+      await Future<void>.delayed(phase);
       // No separate "heard during resolve" state: a resolution only ever
       // starts after the enumeration loop has already received a record, so
       // `heard` is necessarily true by then.
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
       client.stop();
-      _mdns = null;
+      session.mdns = null;
     }
   }
 
   Future<void> _resolveServiceType(
+    _ScanSession session,
     MDnsClient client,
     String serviceType,
     void Function(NetworkDevice) emit,
@@ -289,7 +309,7 @@ class RealNetworkScanService implements NetworkScanService {
         .lookup<PtrResourceRecord>(
             ResourceRecordQuery.serverPointer(serviceType))
         .timeout(timeout, onTimeout: (sink) => sink.close())) {
-      if (_stopped) return;
+      if (session.stopped) return;
       // TXT and SRV are independent queries; run them together. A device that
       // publishes no TXT record leaves that stream open until its timeout, and
       // awaiting it before even asking for SRV used to spend the whole
@@ -311,14 +331,14 @@ class RealNetworkScanService implements NetworkScanService {
               .lookup<SrvResourceRecord>(
                   ResourceRecordQuery.service(instance.domainName))
               .timeout(timeout, onTimeout: (sink) => sink.close())) {
-            if (_stopped) return;
+            if (session.stopped) return;
             srvRecords.add(srv);
           }
         }(),
       ]);
 
       for (final srv in srvRecords) {
-        if (_stopped) return;
+        if (session.stopped) return;
         await for (final IPAddressResourceRecord address in client
             .lookup<IPAddressResourceRecord>(
                 ResourceRecordQuery.addressIPv4(srv.target))
@@ -344,12 +364,13 @@ class RealNetworkScanService implements NetworkScanService {
   /// headers we cannot use: the caller is asking whether replies reach this app
   /// at all, and an unparseable reply still answers that yes.
   Future<TransportOutcome> _runSsdp(
+    _ScanSession session,
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
     final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
         reuseAddress: true);
-    _ssdpSocket = socket;
+    session.ssdpSocket = socket;
     socket.broadcastEnabled = true;
     var heard = false;
     try {
@@ -376,7 +397,7 @@ class RealNetworkScanService implements NetworkScanService {
         timeout,
         onTimeout: (sink) => sink.close(),
       )) {
-        if (_stopped || DateTime.now().isAfter(deadline)) break;
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
         if (event != RawSocketEvent.read) continue;
         final datagram = socket.receive();
         if (datagram == null) continue;
@@ -400,22 +421,51 @@ class RealNetworkScanService implements NetworkScanService {
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
       socket.close();
-      _ssdpSocket = null;
+      session.ssdpSocket = null;
     }
   }
 
-  Future<void> _teardown() async {
-    _stopped = true;
-    _mdns?.stop();
-    _mdns = null;
-    _ssdpSocket?.close();
-    _ssdpSocket = null;
-    // Every path out of a scan runs this — normal finish, cancel, error, and
-    // stopScan() — which is what keeps the lock from outliving the scan that
-    // took it. Holding it costs battery for the whole device, not just this app.
+  /// End [session]: stop its transports, and give the multicast lock back if
+  /// it is still the session holding it.
+  ///
+  /// Every path out of a scan runs this — normal finish, cancel, error, and
+  /// [stopScan] — which is what keeps the lock from outliving the scan that
+  /// took it. Holding it costs battery for the whole device, not just this app.
+  ///
+  /// The identity check is what stops a late finisher from disarming a live
+  /// scan: the lock is a single platform-wide flag with no reference counting,
+  /// so releasing one an overlapping scan is relying on silences it outright.
+  /// Whichever session is current took the lock last and will release it when
+  /// its own turn comes.
+  Future<void> _end(_ScanSession session) async {
+    session.stop();
+    if (!identical(_session, session)) return;
+    _session = null;
     await multicastLock.release();
   }
 
   @override
-  Future<void> stopScan() => _teardown();
+  Future<void> stopScan() async {
+    final session = _session;
+    if (session != null) await _end(session);
+  }
+}
+
+/// One scan's disposable state.
+///
+/// Exists so that stopping a scan stops *that* scan. These were fields on the
+/// service, and `networkScanServiceProvider` hands out a single shared
+/// instance, so an overlapping pair fought over them.
+class _ScanSession {
+  bool stopped = false;
+  MDnsClient? mdns;
+  RawDatagramSocket? ssdpSocket;
+
+  void stop() {
+    stopped = true;
+    mdns?.stop();
+    mdns = null;
+    ssdpSocket?.close();
+    ssdpSocket = null;
+  }
 }

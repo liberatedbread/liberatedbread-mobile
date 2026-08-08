@@ -24,11 +24,20 @@ class ScanGuess {
   /// catalogue is the usual cause.
   final int otherMatches;
 
+  /// Whether every equally-good match came from the same manufacturer.
+  ///
+  /// Separate from [otherMatches] because a tie between two of one vendor's
+  /// products is a different thing from a tie between four vendors: the first
+  /// still knows who made it, the second knows nothing but that something
+  /// matched. Trivially true when nothing else matched.
+  final bool manufacturerAgreed;
+
   const ScanGuess({
     required this.deviceName,
     required this.manufacturer,
     required this.confidence,
     required this.otherMatches,
+    required this.manufacturerAgreed,
   });
 
   /// Reduce a matcher result to a guess, or null when nothing matched.
@@ -41,12 +50,15 @@ class ScanGuess {
   static ScanGuess? fromMatches(List<ScanMatch> matches) {
     if (matches.isEmpty) return null;
     final best = matches.first;
+    final tied =
+        matches.skip(1).where((m) => m.confidence == best.confidence).toList();
     return ScanGuess(
       deviceName: best.deviceName,
       manufacturer: best.manufacturer,
       confidence: best.confidence,
-      otherMatches:
-          matches.skip(1).where((m) => m.confidence == best.confidence).length,
+      otherMatches: tied.length,
+      manufacturerAgreed:
+          tied.every((m) => m.manufacturer == best.manufacturer),
     );
   }
 
@@ -58,12 +70,19 @@ class ScanGuess {
       confidence != MatchConfidence.possible && otherMatches == 0;
 
   /// Short label for the scan list.
+  ///
+  /// The `possible` branch names the manufacturer only when the tied matches
+  /// agree on one. Four specs from four vendors can match a single shared OUI,
+  /// and reporting the first of them badged every one of those devices
+  /// "Possibly Enphase Energy" — the same confident lie [namesAProduct] exists
+  /// to prevent, one rung further down.
   String get label => switch (confidence) {
         MatchConfidence.strong =>
           namesAProduct ? deviceName : 'Supported device',
         MatchConfidence.likely =>
           namesAProduct ? 'Likely $deviceName' : 'Likely supported',
-        MatchConfidence.possible => 'Possibly $manufacturer',
+        MatchConfidence.possible =>
+          manufacturerAgreed ? 'Possibly $manufacturer' : 'Possibly supported',
       };
 }
 

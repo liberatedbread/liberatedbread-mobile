@@ -159,6 +159,7 @@ void main() {
           manufacturer: 'Signify',
           confidence: confidence,
           otherMatches: 0,
+          manufacturerAgreed: true,
         );
 
     test('recognised devices come first', () {
