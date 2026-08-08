@@ -426,6 +426,11 @@ Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/error_flow_test.dart` — error state + retry
 - `integration_test/e2e_walkthrough_test.dart` — scripted screenshot
   walkthrough, tagged `e2e` (see below)
+- `integration_test/ci_all_test.dart` — aggregate entrypoint importing the
+  mock-safe suites above. On a device, every file passed to `flutter test` is
+  its own build → install → launch cycle, so this is the file to run (and the
+  one CI's device jobs run): one cycle instead of one per file. CI fails if a
+  new mock-safe `*_test.dart` is missing from its imports.
 
 ### FRB-backed tests
 
@@ -492,10 +497,13 @@ Bad state: Cannot add new events after calling close
 That's flutter_tools closing the observatory socket when the first app exits
 and still receiving data on it — a tooling bug, not an app bug. The same file
 passes on its own in ~23 seconds. CI therefore loops over the files one at a
-time; mirror that locally:
+time; mirror that locally (skipping `ci_all_test.dart` — it exists for the
+device jobs, and here it would only re-run the suites this loop already runs
+individually):
 
 ```bash
 for t in integration_test/*_test.dart; do
+  [ "$(basename "$t")" = ci_all_test.dart ] && continue
   xvfb-run -a flutter test "$t" -d linux --exclude-tags=e2e \
     --dart-define=LIBERATED_BREAD_MOCK=true
 done
@@ -701,8 +709,8 @@ every pull request. Six jobs:
 | `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
-| `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an APK build, frees runner disk, then `flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
-| `ios-build` | macos-latest | `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true` |
+| `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an APK build, frees runner disk, then `flutter test integration_test/ci_all_test.dart --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
+| `ios-build` | macos-latest | starts a simulator booting in the background, `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true`, verifies the bundle, then runs `integration_test/ci_all_test.dart` on the (by now booted) simulator |
 | `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
 
 Caches: Flutter SDK, `~/.pub-cache`, `.dart_tool`, and `rust/target/` are

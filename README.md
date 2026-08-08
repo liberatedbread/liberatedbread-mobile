@@ -240,10 +240,16 @@ What does and doesn't work there:
 # Or individually:
 flutter test                       # Dart unit + widget tests
 cd rust && cargo test              # Rust unit tests
-flutter test integration_test      # Integration tests (needs a device/emulator)
 
-# Integration tests on the Linux desktop — no emulator, no display needed
-xvfb-run -a flutter test integration_test -d linux --exclude-tags=e2e \
+# Integration tests (needs a device/emulator). ci_all_test.dart bundles the
+# mock-safe suites into ONE build+install+launch cycle — passing the whole
+# integration_test/ directory instead runs each file as its own cycle (and
+# would run the bundled suites twice).
+flutter test integration_test/ci_all_test.dart
+
+# Integration tests on the Linux desktop — no emulator, no display needed.
+# One file per invocation on desktop (see docs/BUILD_AND_TEST.md):
+xvfb-run -a flutter test integration_test/mock_flow_test.dart -d linux \
   --dart-define=LIBERATED_BREAD_MOCK=true
 ```
 
