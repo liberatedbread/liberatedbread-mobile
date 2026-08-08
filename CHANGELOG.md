@@ -235,10 +235,15 @@ heading.
   - **macOS 10.14 → 10.15**, with the macOS podspec **10.11 → 10.15**.
   - **`rust_builder` Android `compileSdkVersion` 33 → 36** (matching the app's
     `flutter.compileSdkVersion`) and **`minSdkVersion` 19 → 24** (matching the
-    app's). The stale 33 is what made Gradle stop and download an extra SDK
-    platform partway through *every* Android CI build — nothing failed, each
-    build just paid for it.
-  - **CI installs API 36** instead of 34, which no module compiled against.
+    app's). The stale 33 also made Gradle stop mid-build to download an SDK
+    platform nothing else wanted — measured at 2.5s, so the reason to fix it
+    is the three-release gap against the app, not the seconds.
+  - **CI installs API 36** instead of 34, which no module compiled against,
+    and pins `cmake;3.22.1` alongside it — Flutter's own Gradle plugin wires a
+    `CMakeLists.txt` into `:app` for its Android 15 16 KB page-size support,
+    so AGP was installing CMake mid-build on every run (1.2s). Both are about
+    installing the build's inputs in one visible, retryable step rather than
+    having Gradle pause to accept a licence and fetch over the network.
     The emulator stays on API 34; it is a separate axis.
   - `rust_builder` no longer declares its own AGP on the buildscript classpath.
     cargokit's template pinned 7.3.0 there, which could never take effect —
