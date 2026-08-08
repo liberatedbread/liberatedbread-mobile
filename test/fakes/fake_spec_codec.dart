@@ -29,6 +29,15 @@ class FakeSpecCodec implements SpecCodec {
   final Object? encodeError;
   final Object? decodeError;
   final Object? encodeImageError;
+  final Object? encodeEntityValueError;
+
+  /// Returned by [encodeEntityValue]; defaults to a write of [encoded]
+  /// targeting service 'srv' / characteristic 'chr'.
+  final EntityWriteDto? entityWrite;
+
+  /// Setpoints requested through [encodeEntityValue], in DECODED units — what
+  /// a card believes the user picked.
+  final List<({String entityName, double value})> encodeEntityValueCalls = [];
 
   /// Returned by [encodeImageFrame]; defaults to a single write echoing the
   /// pixels, targeting service 'srv' / characteristic 'chr'.
@@ -58,6 +67,8 @@ class FakeSpecCodec implements SpecCodec {
     this.decodeError,
     this.encodeImageError,
     this.imagePlan,
+    this.encodeEntityValueError,
+    this.entityWrite,
   }) : encoded = encoded ?? Uint8List(0);
 
   @override
@@ -111,6 +122,22 @@ class FakeSpecCodec implements SpecCodec {
     List<String> serviceUuids,
   ) async =>
       const [];
+
+  @override
+  Future<EntityWriteDto> encodeEntityValue({
+    required String specYaml,
+    required String entityName,
+    required double value,
+  }) async {
+    encodeEntityValueCalls.add((entityName: entityName, value: value));
+    if (encodeEntityValueError != null) throw encodeEntityValueError!;
+    return entityWrite ??
+        EntityWriteDto(
+          serviceUuid: 'srv',
+          characteristicUuid: 'chr',
+          bytes: encoded,
+        );
+  }
 
   @override
   Future<ImageWritePlanDto> encodeImageFrame({

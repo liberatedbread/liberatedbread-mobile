@@ -15,6 +15,7 @@ export '../src/rust/api/device_api.dart'
         DeviceSpecDto,
         EntityDto,
         EntityActionDto,
+        EntityWriteDto,
         ServiceDto,
         CharacteristicDto,
         CommandDto,
@@ -72,6 +73,19 @@ abstract class SpecCodec {
   Future<List<ProfileInfoDto>> identifyStandardProfiles(
     List<String> serviceUuids,
   );
+
+  /// Encode a setpoint for a `number`/`climate` entity into the write that
+  /// applies it, and say where to send it.
+  ///
+  /// [value] is in the entity's DECODED unit — degrees, percent — because
+  /// that is what the user picked. Inverting the spec's linear transform to
+  /// get raw bytes happens in Rust, so the UI never has to know whether a
+  /// device speaks centidegrees or `raw * 0.5 + 85`.
+  Future<EntityWriteDto> encodeEntityValue({
+    required String specYaml,
+    required String entityName,
+    required double value,
+  });
 
   /// Encode one RGB888 image frame into the ordered BLE writes that display
   /// it, dispatched on the spec's `protocol_handler`.
