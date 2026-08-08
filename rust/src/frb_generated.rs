@@ -540,6 +540,28 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
     }
 }
 
+impl SseDecode for crate::api::device_api::EntityActionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_role = <String>::sse_decode(deserializer);
+        let mut var_serviceUuid = <String>::sse_decode(deserializer);
+        let mut var_characteristicUuid = <String>::sse_decode(deserializer);
+        let mut var_commandName = <String>::sse_decode(deserializer);
+        let mut var_userParams = <Vec<String>>::sse_decode(deserializer);
+        let mut var_min = <Option<i64>>::sse_decode(deserializer);
+        let mut var_max = <Option<i64>>::sse_decode(deserializer);
+        return crate::api::device_api::EntityActionDto {
+            role: var_role,
+            service_uuid: var_serviceUuid,
+            characteristic_uuid: var_characteristicUuid,
+            command_name: var_commandName,
+            user_params: var_userParams,
+            min: var_min,
+            max: var_max,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::EntityDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -547,11 +569,20 @@ impl SseDecode for crate::api::device_api::EntityDto {
         let mut var_platform = <Option<String>>::sse_decode(deserializer);
         let mut var_deviceClass = <Option<String>>::sse_decode(deserializer);
         let mut var_unit = <Option<String>>::sse_decode(deserializer);
-        let mut var_stateCharacteristic = <String>::sse_decode(deserializer);
+        let mut var_stateCharacteristic = <Option<String>>::sse_decode(deserializer);
         let mut var_canNotify = <bool>::sse_decode(deserializer);
         let mut var_hasFormat = <bool>::sse_decode(deserializer);
         let mut var_valueField = <Option<String>>::sse_decode(deserializer);
         let mut var_valueScale = <Option<f64>>::sse_decode(deserializer);
+        let mut var_onValue = <Option<i64>>::sse_decode(deserializer);
+        let mut var_onWhenNonzero = <bool>::sse_decode(deserializer);
+        let mut var_isOnField = <Option<String>>::sse_decode(deserializer);
+        let mut var_brightnessField = <Option<String>>::sse_decode(deserializer);
+        let mut var_colorRedField = <Option<String>>::sse_decode(deserializer);
+        let mut var_colorGreenField = <Option<String>>::sse_decode(deserializer);
+        let mut var_colorBlueField = <Option<String>>::sse_decode(deserializer);
+        let mut var_actions =
+            <Vec<crate::api::device_api::EntityActionDto>>::sse_decode(deserializer);
         return crate::api::device_api::EntityDto {
             name: var_name,
             platform: var_platform,
@@ -562,6 +593,14 @@ impl SseDecode for crate::api::device_api::EntityDto {
             has_format: var_hasFormat,
             value_field: var_valueField,
             value_scale: var_valueScale,
+            on_value: var_onValue,
+            on_when_nonzero: var_onWhenNonzero,
+            is_on_field: var_isOnField,
+            brightness_field: var_brightnessField,
+            color_red_field: var_colorRedField,
+            color_green_field: var_colorGreenField,
+            color_blue_field: var_colorBlueField,
+            actions: var_actions,
         };
     }
 }
@@ -701,6 +740,20 @@ impl SseDecode for Vec<crate::api::device_api::DeviceSpecDto> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<crate::api::device_api::DeviceSpecDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::EntityActionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::EntityActionDto>::sse_decode(
                 deserializer,
             ));
         }
@@ -1226,6 +1279,32 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::DeviceSpecDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::EntityActionDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.role.into_into_dart().into_dart(),
+            self.service_uuid.into_into_dart().into_dart(),
+            self.characteristic_uuid.into_into_dart().into_dart(),
+            self.command_name.into_into_dart().into_dart(),
+            self.user_params.into_into_dart().into_dart(),
+            self.min.into_into_dart().into_dart(),
+            self.max.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::EntityActionDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::EntityActionDto>
+    for crate::api::device_api::EntityActionDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::EntityActionDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::EntityDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -1238,6 +1317,14 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::EntityDto {
             self.has_format.into_into_dart().into_dart(),
             self.value_field.into_into_dart().into_dart(),
             self.value_scale.into_into_dart().into_dart(),
+            self.on_value.into_into_dart().into_dart(),
+            self.on_when_nonzero.into_into_dart().into_dart(),
+            self.is_on_field.into_into_dart().into_dart(),
+            self.brightness_field.into_into_dart().into_dart(),
+            self.color_red_field.into_into_dart().into_dart(),
+            self.color_green_field.into_into_dart().into_dart(),
+            self.color_blue_field.into_into_dart().into_dart(),
+            self.actions.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1528,6 +1615,19 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
     }
 }
 
+impl SseEncode for crate::api::device_api::EntityActionDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.role, serializer);
+        <String>::sse_encode(self.service_uuid, serializer);
+        <String>::sse_encode(self.characteristic_uuid, serializer);
+        <String>::sse_encode(self.command_name, serializer);
+        <Vec<String>>::sse_encode(self.user_params, serializer);
+        <Option<i64>>::sse_encode(self.min, serializer);
+        <Option<i64>>::sse_encode(self.max, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::EntityDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1535,11 +1635,19 @@ impl SseEncode for crate::api::device_api::EntityDto {
         <Option<String>>::sse_encode(self.platform, serializer);
         <Option<String>>::sse_encode(self.device_class, serializer);
         <Option<String>>::sse_encode(self.unit, serializer);
-        <String>::sse_encode(self.state_characteristic, serializer);
+        <Option<String>>::sse_encode(self.state_characteristic, serializer);
         <bool>::sse_encode(self.can_notify, serializer);
         <bool>::sse_encode(self.has_format, serializer);
         <Option<String>>::sse_encode(self.value_field, serializer);
         <Option<f64>>::sse_encode(self.value_scale, serializer);
+        <Option<i64>>::sse_encode(self.on_value, serializer);
+        <bool>::sse_encode(self.on_when_nonzero, serializer);
+        <Option<String>>::sse_encode(self.is_on_field, serializer);
+        <Option<String>>::sse_encode(self.brightness_field, serializer);
+        <Option<String>>::sse_encode(self.color_red_field, serializer);
+        <Option<String>>::sse_encode(self.color_green_field, serializer);
+        <Option<String>>::sse_encode(self.color_blue_field, serializer);
+        <Vec<crate::api::device_api::EntityActionDto>>::sse_encode(self.actions, serializer);
     }
 }
 
@@ -1639,6 +1747,16 @@ impl SseEncode for Vec<crate::api::device_api::DeviceSpecDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::DeviceSpecDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::EntityActionDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::EntityActionDto>::sse_encode(item, serializer);
         }
     }
 }

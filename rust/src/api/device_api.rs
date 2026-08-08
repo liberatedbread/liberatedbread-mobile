@@ -9,9 +9,11 @@ use std::collections::HashMap;
 use crate::codec::types::DecodedValue;
 use crate::protocol::dispatch::select_protocol;
 use crate::protocol::profiles;
+use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, FormatField, Parameter, Service,
+    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField, Parameter,
+    Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -85,8 +87,8 @@ pub struct ImageWritePlanDto {
     pub next_frame_index: u32,
 }
 
-/// A spec-declared reading: what to call it, what unit it is in, and which
-/// characteristic carries it.
+/// A spec-declared sensor or control surface: what to call it, which
+/// characteristic carries its state, and which commands drive it.
 #[derive(Debug, Clone)]
 pub struct EntityDto {
     pub name: String,
@@ -96,9 +98,12 @@ pub struct EntityDto {
     pub device_class: Option<String>,
     /// e.g. "F", "%". Rendered next to the value.
     pub unit: Option<String>,
-    /// UUID of the characteristic carrying this value. Guaranteed to resolve
-    /// to a characteristic in this spec — unresolvable entities are dropped.
-    pub state_characteristic: String,
+    /// UUID of the characteristic carrying this value. When present it is
+    /// guaranteed to resolve to a characteristic in this spec. `None` for
+    /// command-only entities (govee's plug declares on/off commands and no
+    /// state at all) — an entity crosses the FFI when *either* its state
+    /// resolves or at least one action does; with neither it is dropped.
+    pub state_characteristic: Option<String>,
     /// Whether the bound characteristic supports notifications, i.e. whether
     /// this reading can stream rather than being polled by read.
     pub can_notify: bool,
@@ -111,6 +116,48 @@ pub struct EntityDto {
     /// Multiplier for the decoded value, e.g. 0.01 when a device reports
     /// centidegrees. `None` means the decoded value is already in `unit`.
     pub value_scale: Option<f64>,
+    /// The decoded value that means "on" for a switch/binary_sensor, from
+    /// `state_mapping.on_value` (ember's charging base reads 1 when docked).
+    pub on_value: Option<i64>,
+    /// True when `state_mapping.on_when: nonzero` — any nonzero reading is
+    /// "on".
+    pub on_when_nonzero: bool,
+    /// Decoded field carrying a light's power state (`state_mapping.is_on`).
+    pub is_on_field: Option<String>,
+    /// Decoded field carrying a light's brightness
+    /// (`state_mapping.brightness`).
+    pub brightness_field: Option<String>,
+    /// Decoded fields carrying a light's color channels
+    /// (`state_mapping.color_rgb`). Either all three are present or none.
+    pub color_red_field: Option<String>,
+    pub color_green_field: Option<String>,
+    pub color_blue_field: Option<String>,
+    /// Sendable control actions resolved from the spec (`turn_on`,
+    /// `set_brightness`, ...), in role order. Empty for sensors. Every entry
+    /// is ready to send: encode the named command with the listed user
+    /// parameters and the spec's declared defaults fill the rest.
+    pub actions: Vec<EntityActionDto>,
+}
+
+/// One resolved control action: which command a role sends and what the UI
+/// supplies.
+#[derive(Debug, Clone)]
+pub struct EntityActionDto {
+    /// `turn_on` | `turn_off` | `press` | `set_brightness` | `set_color`.
+    pub role: String,
+    /// GATT service/characteristic the encoded command is written to.
+    pub service_uuid: String,
+    pub characteristic_uuid: String,
+    pub command_name: String,
+    /// Template parameters the UI owns for this role (e.g. `brightness`;
+    /// `red`/`green`/`blue`). Extra card state sent alongside is harmless —
+    /// the encoder only reads what the template references.
+    pub user_params: Vec<String>,
+    /// Declared bounds of the role's primary numeric parameter, so a
+    /// brightness slider matches the device's real range (elk-bledom tops out
+    /// at 100, not 255).
+    pub min: Option<i64>,
+    pub max: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -256,36 +303,84 @@ impl From<&DeviceSpec> for DeviceSpecDto {
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
             services: spec.services.iter().map(ServiceDto::from).collect(),
-            // Only entities that resolve to a real characteristic cross the
-            // FFI boundary: an entity pointing at a UUID the spec never
-            // declares can never produce a reading, and shipping it would put
-            // a permanently blank tile in the UI.
+            // Only entities with something real behind them cross the FFI
+            // boundary: a resolvable state characteristic, at least one
+            // sendable action, or both. An entity with neither (its UUID is
+            // absent from `services` and no command qualifies) would put a
+            // permanently dead tile in the UI, so it is dropped.
             entities: spec
-                .resolved_entities()
-                .into_iter()
-                .map(|(entity, characteristic)| EntityDto {
-                    name: entity.name.clone(),
-                    platform: entity.platform.clone(),
-                    device_class: entity.device_class.clone(),
-                    unit: entity.unit.clone(),
-                    state_characteristic: entity.state_characteristic.clone().unwrap_or_default(),
-                    can_notify: characteristic
-                        .properties
-                        .contains(&CharacteristicProperty::Notify),
-                    // Whether the bound characteristic declares a byte layout.
-                    // Without one there is nothing to decode the payload with,
-                    // so the UI shows the entity as awaiting a spec update
-                    // rather than rendering a raw blob under a friendly name.
-                    has_format: characteristic
-                        .format
-                        .as_ref()
-                        .is_some_and(|f| !f.is_empty()),
-                    value_field: entity.value_field().map(str::to_owned),
-                    value_scale: entity.value_scale(),
-                })
+                .entities
+                .iter()
+                .filter_map(|entity| entity_dto(spec, entity))
                 .collect(),
         }
     }
+}
+
+/// Build the DTO for one entity, or `None` when neither its state nor any
+/// control action resolves against this spec.
+fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
+    // The state binding keeps the historical resolution: prefer a declaration
+    // of the UUID that carries a `format:` block, fall back to any
+    // declaration (has_format then reports the gap).
+    let state = entity
+        .state_characteristic
+        .as_deref()
+        .and_then(|uuid| spec.find_decodable_characteristic(uuid));
+
+    let actions: Vec<EntityActionDto> = bindings::resolve_entity_actions(spec, entity)
+        .into_iter()
+        .map(|action| EntityActionDto {
+            role: action.role.to_string(),
+            service_uuid: action.service.uuid.clone(),
+            characteristic_uuid: action.characteristic.uuid.clone(),
+            command_name: action.command_name.to_string(),
+            user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
+            min: action.min,
+            max: action.max,
+        })
+        .collect();
+
+    if state.is_none() && actions.is_empty() {
+        return None;
+    }
+
+    let color_fields = entity.color_rgb_fields();
+    Some(EntityDto {
+        name: entity.name.clone(),
+        platform: entity.platform.clone(),
+        device_class: entity.device_class.clone(),
+        unit: entity.unit.clone(),
+        state_characteristic: state
+            .is_some()
+            .then(|| entity.state_characteristic.clone())
+            .flatten(),
+        can_notify: state.is_some_and(|(_, characteristic)| {
+            characteristic
+                .properties
+                .contains(&CharacteristicProperty::Notify)
+        }),
+        // Whether the bound characteristic declares a byte layout. Without
+        // one there is nothing to decode the payload with, so the UI shows
+        // the entity as awaiting a spec update rather than rendering a raw
+        // blob under a friendly name.
+        has_format: state.is_some_and(|(_, characteristic)| {
+            characteristic
+                .format
+                .as_ref()
+                .is_some_and(|f| !f.is_empty())
+        }),
+        value_field: entity.value_field().map(str::to_owned),
+        value_scale: entity.value_scale(),
+        on_value: entity.on_value(),
+        on_when_nonzero: entity.on_when_nonzero(),
+        is_on_field: entity.is_on_field().map(str::to_owned),
+        brightness_field: entity.brightness_field().map(str::to_owned),
+        color_red_field: color_fields.as_ref().map(|[r, _, _]| r.clone()),
+        color_green_field: color_fields.as_ref().map(|[_, g, _]| g.clone()),
+        color_blue_field: color_fields.as_ref().map(|[_, _, b]| b.clone()),
+        actions,
+    })
 }
 
 impl From<&Service> for ServiceDto {
