@@ -6,8 +6,8 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `image_upload_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These functions are ignored because they are not marked as `pub`: `entity_dto`, `image_upload_dto`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
@@ -315,8 +315,64 @@ class DeviceSpecDto {
           imageUpload == other.imageUpload;
 }
 
-/// A spec-declared reading: what to call it, what unit it is in, and which
-/// characteristic carries it.
+/// One resolved control action: which command a role sends and what the UI
+/// supplies.
+class EntityActionDto {
+  /// `turn_on` | `turn_off` | `press` | `set_brightness` | `set_color`.
+  final String role;
+
+  /// GATT service/characteristic the encoded command is written to.
+  final String serviceUuid;
+  final String characteristicUuid;
+  final String commandName;
+
+  /// Template parameters the UI owns for this role (e.g. `brightness`;
+  /// `red`/`green`/`blue`). Extra card state sent alongside is harmless —
+  /// the encoder only reads what the template references.
+  final List<String> userParams;
+
+  /// Declared bounds of the role's primary numeric parameter, so a
+  /// brightness slider matches the device's real range (elk-bledom tops out
+  /// at 100, not 255).
+  final PlatformInt64? min;
+  final PlatformInt64? max;
+
+  const EntityActionDto({
+    required this.role,
+    required this.serviceUuid,
+    required this.characteristicUuid,
+    required this.commandName,
+    required this.userParams,
+    this.min,
+    this.max,
+  });
+
+  @override
+  int get hashCode =>
+      role.hashCode ^
+      serviceUuid.hashCode ^
+      characteristicUuid.hashCode ^
+      commandName.hashCode ^
+      userParams.hashCode ^
+      min.hashCode ^
+      max.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EntityActionDto &&
+          runtimeType == other.runtimeType &&
+          role == other.role &&
+          serviceUuid == other.serviceUuid &&
+          characteristicUuid == other.characteristicUuid &&
+          commandName == other.commandName &&
+          userParams == other.userParams &&
+          min == other.min &&
+          max == other.max;
+}
+
+/// A spec-declared sensor or control surface: what to call it, which
+/// characteristic carries its state, and which commands drive it.
 class EntityDto {
   final String name;
 
@@ -329,9 +385,12 @@ class EntityDto {
   /// e.g. "F", "%". Rendered next to the value.
   final String? unit;
 
-  /// UUID of the characteristic carrying this value. Guaranteed to resolve
-  /// to a characteristic in this spec — unresolvable entities are dropped.
-  final String stateCharacteristic;
+  /// UUID of the characteristic carrying this value. When present it is
+  /// guaranteed to resolve to a characteristic in this spec. `None` for
+  /// command-only entities (govee's plug declares on/off commands and no
+  /// state at all) — an entity crosses the FFI when *either* its state
+  /// resolves or at least one action does; with neither it is dropped.
+  final String? stateCharacteristic;
 
   /// Whether the bound characteristic supports notifications, i.e. whether
   /// this reading can stream rather than being polled by read.
@@ -349,16 +408,51 @@ class EntityDto {
   /// centidegrees. `None` means the decoded value is already in `unit`.
   final double? valueScale;
 
+  /// The decoded value that means "on" for a switch/binary_sensor, from
+  /// `state_mapping.on_value` (ember's charging base reads 1 when docked).
+  final PlatformInt64? onValue;
+
+  /// True when `state_mapping.on_when: nonzero` — any nonzero reading is
+  /// "on".
+  final bool onWhenNonzero;
+
+  /// Decoded field carrying a light's power state (`state_mapping.is_on`).
+  final String? isOnField;
+
+  /// Decoded field carrying a light's brightness
+  /// (`state_mapping.brightness`).
+  final String? brightnessField;
+
+  /// Decoded fields carrying a light's color channels
+  /// (`state_mapping.color_rgb`). Either all three are present or none.
+  final String? colorRedField;
+  final String? colorGreenField;
+  final String? colorBlueField;
+
+  /// Sendable control actions resolved from the spec (`turn_on`,
+  /// `set_brightness`, ...), in role order. Empty for sensors. Every entry
+  /// is ready to send: encode the named command with the listed user
+  /// parameters and the spec's declared defaults fill the rest.
+  final List<EntityActionDto> actions;
+
   const EntityDto({
     required this.name,
     this.platform,
     this.deviceClass,
     this.unit,
-    required this.stateCharacteristic,
+    this.stateCharacteristic,
     required this.canNotify,
     required this.hasFormat,
     this.valueField,
     this.valueScale,
+    this.onValue,
+    required this.onWhenNonzero,
+    this.isOnField,
+    this.brightnessField,
+    this.colorRedField,
+    this.colorGreenField,
+    this.colorBlueField,
+    required this.actions,
   });
 
   @override
@@ -371,7 +465,15 @@ class EntityDto {
       canNotify.hashCode ^
       hasFormat.hashCode ^
       valueField.hashCode ^
-      valueScale.hashCode;
+      valueScale.hashCode ^
+      onValue.hashCode ^
+      onWhenNonzero.hashCode ^
+      isOnField.hashCode ^
+      brightnessField.hashCode ^
+      colorRedField.hashCode ^
+      colorGreenField.hashCode ^
+      colorBlueField.hashCode ^
+      actions.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -386,7 +488,15 @@ class EntityDto {
           canNotify == other.canNotify &&
           hasFormat == other.hasFormat &&
           valueField == other.valueField &&
-          valueScale == other.valueScale;
+          valueScale == other.valueScale &&
+          onValue == other.onValue &&
+          onWhenNonzero == other.onWhenNonzero &&
+          isOnField == other.isOnField &&
+          brightnessField == other.brightnessField &&
+          colorRedField == other.colorRedField &&
+          colorGreenField == other.colorGreenField &&
+          colorBlueField == other.colorBlueField &&
+          actions == other.actions;
 }
 
 class FormatFieldDto {

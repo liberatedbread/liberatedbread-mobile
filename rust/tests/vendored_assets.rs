@@ -209,3 +209,115 @@ fn dart_loader_does_not_hardcode_spec_filenames() {
          adding a device must stay a spec refresh, not a Dart edit"
     );
 }
+
+/// The control bindings the flagship devices resolve from the real catalogue,
+/// end-to-end through the DTO path the app consumes.
+///
+/// Each case pins behaviour a card depends on: govee's plug is command-only
+/// (no state characteristic at all) and must still cross the FFI; elk-bledom
+/// gets brightness and color but must NOT get a power toggle (its on/off
+/// command's `cmd` byte is un-defaulted and the spec itself calls it
+/// ambiguous); switchbot's prefixed commands resolve through the suffix
+/// fallback; ember's LED packs brightness into its color command.
+#[test]
+fn vendored_specs_resolve_expected_control_actions() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let load = |file: &str| {
+        let path = assets_dir().join(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"))
+    };
+
+    let roles = |dto: &liberated_bread_core::api::device_api::EntityDto| -> Vec<String> {
+        dto.actions.iter().map(|a| a.role.clone()).collect()
+    };
+
+    // govee-h5080: a stateless switch riding on payload.bytes commands.
+    let govee = load("govee-h5080-plug.yaml");
+    let plug = govee
+        .entities
+        .iter()
+        .find(|e| e.name == "Plug Outlet")
+        .expect("the plug's command-only switch entity must cross the FFI");
+    assert_eq!(plug.state_characteristic, None);
+    assert_eq!(roles(plug), vec!["turn_on", "turn_off"]);
+
+    // elk-bledom: brightness (bounded 0..100 by the spec) and color resolve;
+    // power must not.
+    let elk = load("elk-bledom-led-strip.yaml");
+    let strip = elk
+        .entities
+        .iter()
+        .find(|e| e.name == "LED Strip")
+        .expect("elk-bledom declares an LED Strip light");
+    assert_eq!(roles(strip), vec!["set_brightness", "set_color"]);
+    let brightness = &strip.actions[0];
+    assert_eq!(brightness.command_name, "set_brightness");
+    assert_eq!((brightness.min, brightness.max), (Some(0), Some(100)));
+    assert_eq!(strip.actions[1].command_name, "set_rgb_color");
+
+    // switchbot: no role map; bot_* names resolve via the suffix fallback,
+    // and press resolves alongside the toggle pair.
+    let switchbot = load("switchbot-ble.yaml");
+    let bot = switchbot
+        .entities
+        .iter()
+        .find(|e| e.name == "Bot Press")
+        .expect("switchbot declares a Bot Press switch");
+    assert_eq!(roles(bot), vec!["turn_on", "turn_off", "press"]);
+    assert_eq!(bot.actions[0].command_name, "bot_turn_on");
+    assert_eq!(bot.actions[2].command_name, "bot_press");
+
+    // ember: the LED's color command carries brightness as a user param, and
+    // the state mapping names the decoded color fields.
+    let ember = load("ember-mug.yaml");
+    let led = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "LED")
+        .expect("ember declares an LED light");
+    assert_eq!(roles(led), vec!["set_color"]);
+    assert_eq!(
+        led.actions[0].user_params,
+        vec!["red", "green", "blue", "brightness"]
+    );
+    assert_eq!(led.color_red_field.as_deref(), Some("red"));
+    assert_eq!(led.brightness_field.as_deref(), Some("brightness"));
+
+    // ember's temperature-control switch: no sendable commands (the role map
+    // is prose), but it still crosses on the strength of its state binding,
+    // with the on_when: nonzero rule intact.
+    let temp_control = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "Temperature Control")
+        .expect("ember declares a Temperature Control switch");
+    assert!(temp_control.actions.is_empty());
+    assert!(temp_control.on_when_nonzero);
+    assert!(temp_control.state_characteristic.is_some());
+
+    // ember's charging base: the binary_sensor on-mapping crosses intact.
+    let charging = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "Charging Base")
+        .expect("ember declares a Charging Base binary_sensor");
+    assert_eq!(charging.on_value, Some(1));
+
+    // example-bulb: the reference spec resolves the full role set, and its
+    // light state mapping (is_on/brightness/color_rgb) crosses intact.
+    let bulb = load("example-bulb.yaml");
+    let light = bulb
+        .entities
+        .iter()
+        .find(|e| e.name == "Bulb")
+        .expect("example-bulb declares a Bulb light");
+    assert_eq!(
+        roles(light),
+        vec!["turn_on", "turn_off", "set_brightness", "set_color"]
+    );
+    assert_eq!(light.is_on_field.as_deref(), Some("power_state"));
+    assert_eq!(light.color_green_field.as_deref(), Some("green"));
+}

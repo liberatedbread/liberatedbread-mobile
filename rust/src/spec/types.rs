@@ -108,6 +108,23 @@ pub struct Entity {
     pub unit: Option<String>,
     #[serde(default)]
     pub state_characteristic: Option<String>,
+    /// Characteristic the entity's writes target when it differs from
+    /// `state_characteristic` (spider-farmer's grow light) — and the first
+    /// place role commands are looked up when resolving control bindings.
+    #[serde(default)]
+    pub command_characteristic: Option<String>,
+    /// Role → command-name bindings, e.g. `turn_on: power_on` on a switch or
+    /// `set_brightness: set_tail_brightness` on a light. Values are untyped
+    /// because some specs put prose here instead of a command name (ember's
+    /// "restore previous nonzero target temperature"); resolution treats a
+    /// value that names no declared command as absent.
+    #[serde(default)]
+    pub commands: HashMap<String, serde_yaml::Value>,
+    /// Advisory capability tags on control entities (`brightness`, `color`,
+    /// `on_off`, ...). Untyped for the same tolerance reason as `commands`;
+    /// use [`Entity::has_feature`] to query.
+    #[serde(default)]
+    pub features: Vec<serde_yaml::Value>,
     /// Maps entity roles onto the named fields of the characteristic's
     /// `format:` block — e.g. `value: battery_percent` for a sensor, or
     /// `is_on: power_state` for a light. Left untyped because the key set
@@ -138,6 +155,60 @@ impl Entity {
     /// point: the scaling for a new device arrives as data, not as a patch.
     pub fn value_scale(&self) -> Option<f64> {
         self.state_mapping.get("scale")?.as_f64()
+    }
+
+    /// The command name bound to a control role (`turn_on`, `set_brightness`,
+    /// ...), when the spec declares one and it is a plain string. Prose values
+    /// (ember's switch describes behaviour instead of naming a command) come
+    /// back too — the caller decides whether the string names a real command.
+    pub fn command_for_role(&self, role: &str) -> Option<&str> {
+        self.commands.get(role)?.as_str()
+    }
+
+    /// Whether the entity's advisory `features:` list carries a tag.
+    pub fn has_feature(&self, feature: &str) -> bool {
+        self.features.iter().any(|f| f.as_str() == Some(feature))
+    }
+
+    /// The decoded value that means "on" for a switch/binary_sensor
+    /// (`state_mapping.on_value`). Ember's charging-base sensor reads a status
+    /// byte where exactly 1 means docked.
+    pub fn on_value(&self) -> Option<i64> {
+        self.state_mapping.get("on_value")?.as_i64()
+    }
+
+    /// True when `state_mapping.on_when: nonzero` — any nonzero reading means
+    /// "on". Ember's temperature-control switch is on whenever the target
+    /// temperature is set at all.
+    pub fn on_when_nonzero(&self) -> bool {
+        self.state_mapping
+            .get("on_when")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| s == "nonzero")
+    }
+
+    /// The decoded field carrying a light's power state
+    /// (`state_mapping.is_on`).
+    pub fn is_on_field(&self) -> Option<&str> {
+        self.state_mapping.get("is_on")?.as_str()
+    }
+
+    /// The decoded field carrying a light's brightness
+    /// (`state_mapping.brightness`).
+    pub fn brightness_field(&self) -> Option<&str> {
+        self.state_mapping.get("brightness")?.as_str()
+    }
+
+    /// The decoded fields carrying a light's color, in red/green/blue order
+    /// (`state_mapping.color_rgb: {red: ..., green: ..., blue: ...}`).
+    pub fn color_rgb_fields(&self) -> Option<[String; 3]> {
+        let map = self.state_mapping.get("color_rgb")?.as_mapping()?;
+        let get = |key: &str| {
+            map.get(serde_yaml::Value::String(key.to_string()))?
+                .as_str()
+                .map(str::to_owned)
+        };
+        Some([get("red")?, get("green")?, get("blue")?])
     }
 }
 
@@ -428,6 +499,31 @@ pub struct Command {
     pub payload: Option<serde_yaml::Value>,
 }
 
+impl Command {
+    /// The fixed byte sequence of an `encoding: bytes` command, when its
+    /// `payload.bytes` is a well-formed byte list.
+    ///
+    /// Govee specs write fixed commands as `encoding: bytes` +
+    /// `payload: {bytes: [...]}` instead of the `value:` key — the same
+    /// information in a different envelope. Returns `None` for any other
+    /// encoding, for a missing/short payload, or for entries outside 0..=255,
+    /// so a malformed payload stays "unsupported" rather than sending a
+    /// truncated write.
+    pub fn payload_bytes(&self) -> Option<Vec<u8>> {
+        if self.encoding.as_deref() != Some("bytes") {
+            return None;
+        }
+        let bytes = self.payload.as_ref()?.get("bytes")?.as_sequence()?;
+        if bytes.is_empty() {
+            return None;
+        }
+        bytes
+            .iter()
+            .map(|v| u8::try_from(v.as_u64()?).ok())
+            .collect()
+    }
+}
+
 /// The `parameters` block of a command.
 ///
 /// This is a map of parameter-name → [`Parameter`], plus a small set of
@@ -506,8 +602,8 @@ impl<'de> Deserialize<'de> for TemplateElement {
 /// A command parameter definition.
 ///
 /// Unknown keys sweep into `extensions`: specs annotate parameters with
-/// `description` and `default`, which document the parameter without changing
-/// how it encodes. `type`/`min`/`max` still bound the encoded value, so
+/// `description`, which documents the parameter without changing how it
+/// encodes. `type`/`min`/`max` still bound the encoded value, so
 /// a typo here should fail loudly. `allowed`/`labels`/`notes` are documented
 /// optional extensions (admore declares enumerated allowed values with UI
 /// labels); they are parsed and preserved but do not yet drive validation.
@@ -517,6 +613,14 @@ pub struct Parameter {
     pub value_type: ValueType,
     pub min: Option<i64>,
     pub max: Option<i64>,
+    /// Value the encoder uses when the caller supplies nothing for this
+    /// parameter. This is what lets a high-level control send a command
+    /// without understanding every protocol byte: elk-bledom's
+    /// `set_brightness` takes `seq`, `light_mode` and `flag` alongside the
+    /// brightness itself, and the spec defaults all three, so a brightness
+    /// slider only needs to provide `brightness`.
+    #[serde(default)]
+    pub default: Option<i64>,
     /// Enumerated set of allowed integer values (admore setting_id commands).
     #[serde(default)]
     pub allowed: Option<Vec<i64>>,
