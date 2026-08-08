@@ -225,6 +225,33 @@ heading.
   the committed PNG is the master and a stale vector of the old logo would
   have silently won back if the PNG were ever removed.
 
+- **Platform SDK floors raised to what the pinned Flutter actually supports,
+  and locked together by a test.** Every platform declared its floor in more
+  than one file and nothing cross-checked them, so they had drifted apart in
+  every direction:
+  - **iOS 12.0 → 13.0** across `ios/Runner.xcodeproj`, `AppFrameworkInfo.plist`
+    and the commented `ios/Podfile` platform line; the Rust core podspec went
+    **11.0 → 13.0**.
+  - **macOS 10.14 → 10.15**, with the macOS podspec **10.11 → 10.15**.
+  - **`rust_builder` Android `compileSdkVersion` 33 → 36** (matching the app's
+    `flutter.compileSdkVersion`) and **`minSdkVersion` 19 → 24** (matching the
+    app's). The stale 33 is what made Gradle stop and download an extra SDK
+    platform partway through *every* Android CI build — nothing failed, each
+    build just paid for it.
+  - **CI installs API 36** instead of 34, which no module compiled against.
+    The emulator stays on API 34; it is a separate axis.
+  - `rust_builder` no longer declares its own AGP on the buildscript classpath.
+    cargokit's template pinned 7.3.0 there, which could never take effect —
+    `android/settings.gradle` resolves AGP 8.6.0 first and a parent-first
+    classloader means the loaded class wins — so it only fetched a second,
+    ancient AGP while presenting a version number that looked authoritative.
+
+  13.0 and 10.15 are what Flutter 3.44.8 scaffolds for a new app, so this is
+  catching up to a decision the toolchain already made rather than a new one;
+  the practical effect is that iOS 12 and macOS 10.14 are no longer claimed.
+  New `test/platform/deployment_targets_test.dart` asserts every file
+  declaring a floor agrees and that none drops below the pinned Flutter's, so
+  the next bump cannot move one file and leave five behind.
 - **The ad-hoc IPA workflow no longer pins its own toolchain.** It had drifted
   to Flutter 3.24.5 while CI moved to 3.44.8, so the one artifact that gets
   installed on real hardware was built with an SDK nothing else tested.

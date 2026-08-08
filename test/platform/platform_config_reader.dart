@@ -279,6 +279,85 @@ class _PlistScanner {
 }
 
 // ---------------------------------------------------------------------------
+// Gradle-source scanning
+// ---------------------------------------------------------------------------
+
+/// Blank out `//` and `/* */` comments in Groovy/Gradle [source], keeping
+/// string-literal CONTENTS intact and preserving offsets (removed characters
+/// become spaces, newlines are kept).
+///
+/// Deliberately different from [stripDartCommentsAndStringContents], which also
+/// blanks what is inside quotes. A Gradle audit has to read values that only
+/// exist inside string literals — `classpath 'com.android.tools.build:gradle'`
+/// is the whole point of one of the assertions — so blanking them would make
+/// the check unable to see the thing it exists to reject.
+///
+/// Comments must still go, and not as a nicety: these build files carry long
+/// explanatory comments that name the very settings being asserted ("Matches
+/// android/app/build.gradle's literal minSdkVersion 24"), so a raw scan finds
+/// two declarations where the file has one, and a test asserting a single
+/// value fails on prose.
+///
+/// String state is tracked so a `//` inside a quoted URL (there is one in
+/// android/app/build.gradle's keystore warning) does not read as a comment and
+/// swallow the rest of the line.
+String stripGradleComments(String source) {
+  final out = StringBuffer();
+  var i = 0;
+  final n = source.length;
+
+  void blank(int count) {
+    for (var k = 0; k < count; k++) {
+      out.write(source[i + k] == '\n' ? '\n' : ' ');
+    }
+    i += count;
+  }
+
+  while (i < n) {
+    final c = source[i];
+
+    if (c == '/' && i + 1 < n && source[i + 1] == '/') {
+      final lineEnd = source.indexOf('\n', i);
+      blank((lineEnd < 0 ? n : lineEnd) - i);
+      continue;
+    }
+
+    if (c == '/' && i + 1 < n && source[i + 1] == '*') {
+      final end = source.indexOf('*/', i + 2);
+      blank((end < 0 ? n : end + 2) - i);
+      continue;
+    }
+
+    if (c == "'" || c == '"') {
+      final triple = source.startsWith(c * 3, i);
+      final delim = triple ? c * 3 : c;
+      out.write(delim);
+      i += delim.length;
+      while (i < n) {
+        if (source.startsWith(delim, i)) {
+          out.write(delim);
+          i += delim.length;
+          break;
+        }
+        if (source[i] == r'\' && i + 1 < n) {
+          out.write(source.substring(i, i + 2));
+          i += 2;
+          continue;
+        }
+        if (!triple && source[i] == '\n') break; // Unterminated: bail out.
+        out.write(source[i]);
+        i++;
+      }
+      continue;
+    }
+
+    out.write(c);
+    i++;
+  }
+  return out.toString();
+}
+
+// ---------------------------------------------------------------------------
 // Dart-source scanning
 // ---------------------------------------------------------------------------
 

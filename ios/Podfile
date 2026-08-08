@@ -1,5 +1,10 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '12.0'
+# Uncomment this line to define a global platform for your project.
+# Left commented, matching Flutter's template: with no platform declared here,
+# flutter_ios_podfile_setup takes it from the Runner target's
+# IPHONEOS_DEPLOYMENT_TARGET, so there is one place to change instead of two.
+# Keep the version here in step with that setting anyway — a stale number in a
+# commented line is what a reader copies when they do uncomment it.
+# platform :ios, '13.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

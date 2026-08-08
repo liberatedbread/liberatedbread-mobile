@@ -22,7 +22,11 @@ The BLE and device-spec engine behind Liberated Bread Mobile, built from
   s.source_files     = 'Classes/**/*'
   s.dependency 'FlutterMacOS'
 
-  s.platform = :osx, '10.11'
+  # Keep in step with MACOSX_DEPLOYMENT_TARGET in
+  # macos/Runner.xcodeproj/project.pbxproj — test/platform/
+  # deployment_targets_test.dart fails when they diverge. See the iOS podspec
+  # for why a pod floor below the app's is a real hazard, not just untidy.
+  s.platform = :osx, '10.15'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
   s.swift_version = '5.0'
 
