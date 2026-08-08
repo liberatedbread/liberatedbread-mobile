@@ -83,13 +83,18 @@ addresses and points you there.
 
 | Tool | Version | Notes |
 |------|---------|-------|
-| Flutter | 3.24+ | Stable channel |
+| Flutter | 3.44+ | Stable channel |
 | Rust | stable (1.82+) | Via rustup |
-| Android SDK | API 34 | With the NDK matching CI's Flutter (`flutter.ndkVersion`) |
+| Android SDK | API 36 | The pinned Flutter's `flutter.compileSdkVersion`; NDK matches its `flutter.ndkVersion` |
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
 | GTK 3 + CMake/Ninja/clang | — | Linux desktop builds only — see below |
-| Android emulator | API 34 `google_apis` x86-64 | Needs KVM on Linux; `./scripts/setup.sh` creates the AVD |
+| Android emulator | API 34 `aosp_atd` x86-64 | Needs KVM on Linux; `./scripts/setup.sh` creates the AVD. `aosp_atd` is Google's CI image — no launcher or Play Services, which is what CI wants; `flutter run` starts the activity directly so it works locally too |
+
+What the built app runs on, as opposed to what builds it: Android 7.0
+(API 24), iOS 13, macOS 10.15. Those are the floors the pinned Flutter
+supports, and `test/platform/deployment_targets_test.dart` fails if the files
+declaring them ever disagree.
 
 The exact versions live in `.github/workflows/ci.yml` and are read from there by
 `scripts/ci-versions.sh` — the table is a summary, that command is the answer.
@@ -98,11 +103,9 @@ For the **Linux desktop** target (`./scripts/run-linux.sh`), `./scripts/setup.sh
 installs the native toolchain for you on apt-based distros; to do it by hand:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y \
-  clang cmake ninja-build pkg-config \
-  libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
-# optional: run headlessly (no display), as CI does
-sudo apt-get install -y xvfb
+eval "$(./scripts/ci-versions.sh)"   # the list CI installs, xvfb included
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+  ${CI_LINUX_DESKTOP_PACKAGES}
 ```
 
 `libsecret-1-dev` is for `flutter_secure_storage_linux` (Home Assistant token
@@ -240,11 +243,21 @@ What does and doesn't work there:
 # Or individually:
 flutter test                       # Dart unit + widget tests
 cd rust && cargo test              # Rust unit tests
-flutter test integration_test      # Integration tests (needs a device/emulator)
 
-# Integration tests on the Linux desktop — no emulator, no display needed
-xvfb-run -a flutter test integration_test -d linux --exclude-tags=e2e \
-  --dart-define=LIBERATED_BREAD_MOCK=true
+# Integration tests (needs a device/emulator). ci_all_test.dart bundles the
+# mock-safe suites into ONE build+install+launch cycle — passing the whole
+# integration_test/ directory instead runs each file as its own cycle (and
+# would run the bundled suites twice).
+flutter test integration_test/ci_all_test.dart
+
+# Integration tests on the Linux desktop — no emulator, no display needed.
+# One file per invocation here (a flutter_tools VM-service bug; see
+# docs/BUILD_AND_TEST.md), skipping the device-jobs aggregate:
+for t in integration_test/*_test.dart; do
+  [ "$(basename "$t")" = ci_all_test.dart ] && continue
+  xvfb-run -a flutter test "$t" -d linux --exclude-tags=e2e \
+    --dart-define=LIBERATED_BREAD_MOCK=true
+done
 ```
 
 Linting:
