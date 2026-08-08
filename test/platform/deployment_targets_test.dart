@@ -28,6 +28,7 @@
 // `>=`), so raising a floor needs no edit here and only lowering one past what
 // the pinned Flutter supports is rejected.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -57,8 +58,13 @@ const String _ciWorkflow = '.github/workflows/ci.yml';
 /// matters — "10.9" sorts after "10.15" — which would make the floor assertions
 /// below pass on a downgrade.
 int _compareVersions(String a, String b) {
-  final left = a.split('.').map(int.parse).toList();
-  final right = b.split('.').map(int.parse).toList();
+  // tryParse, not parse: a hand-edit leaving `13.` or `10..15` in a pbxproj is
+  // still captured by the `([0-9.]+)` patterns below, and an unhandled
+  // FormatException out of a comparator tells the reader nothing about which
+  // of six files is malformed. Treating a junk segment as 0 lets the floor
+  // assertion fail with its own message instead.
+  final left = a.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  final right = b.split('.').map((s) => int.tryParse(s) ?? 0).toList();
   for (var i = 0;
       i < (left.length > right.length ? left.length : right.length);
       i++) {
@@ -69,47 +75,65 @@ int _compareVersions(String a, String b) {
   return 0;
 }
 
-/// A key's value from ci.yml's TOP-LEVEL `env:` mapping.
+/// The values `scripts/ci-versions.sh` resolves, by running it.
 ///
-/// Scoped the same way `scripts/ci-versions.sh`'s `_ci_env` is, and for the
-/// same reason: that block is the single declaration site for every pinned
-/// version, and reading only it is what stops a number mentioned in a comment
-/// from being read as configuration. A job-level `env:` is indented, so it is
-/// never picked up. Keep the two readers in step — if one starts accepting a
-/// shape the other rejects, this test stops guarding what CI actually does.
-String _ciEnv(String key) {
-  final contents = readRepoFile(
-    _ciWorkflow,
-    consequence: 'It is the toolchain source of truth that '
-        'scripts/ci-versions.sh reads and dev environments provision from.',
-  );
-  var inBlock = false;
-  for (final raw in const LineSplitter().convert(contents)) {
-    if (!inBlock) {
-      if (raw == 'env:' || RegExp(r'^env:\s*$').hasMatch(raw)) inBlock = true;
-      continue;
-    }
-    if (raw.trim().isEmpty || raw.trimLeft().startsWith('#')) continue;
-    if (!raw.startsWith(' ')) break; // Column-0 line ends the block.
-    final m = RegExp('^  ${RegExp.escape(key)}:\\s*(.*)\$').firstMatch(raw);
-    if (m == null) continue;
-    var value = m.group(1)!;
-    final hash = value.indexOf('#');
-    if (hash >= 0) value = value.substring(0, hash);
-    value = value.trim();
-    if (value.length >= 2 &&
-        (value.startsWith("'") && value.endsWith("'") ||
-            value.startsWith('"') && value.endsWith('"'))) {
-      value = value.substring(1, value.length - 1);
-    }
-    if (value.isNotEmpty) return value;
+/// Deliberately NOT a second parser. An earlier version of this file
+/// re-implemented that script's `env:`-block grammar in Dart, and the two
+/// disagreed before either had shipped — the shell reader preserves a `#`
+/// inside a quoted value, the Dart one truncated at the first `#` anywhere.
+/// A guard that agrees with its own copy of the grammar instead of the real
+/// one reports green precisely when the real one has started reading something
+/// else, which is the failure it exists to catch.
+///
+/// `ci_versions_print` already emits `KEY=value` per line — the contract
+/// ios-adhoc.yml consumes — so this asserts against exactly what dev
+/// environments provision from. Memoised: the script forks an awk per key, and
+/// nothing it reads changes mid-run.
+Map<String, String>? _ciVarsCache;
+
+Map<String, String> _ciVars() {
+  if (_ciVarsCache != null) return _ciVarsCache!;
+  final ProcessResult result;
+  try {
+    result = Process.runSync(
+      'bash',
+      ['scripts/ci-versions.sh'],
+      workingDirectory: repoRoot.path,
+    );
+  } on ProcessException catch (e) {
+    // Windows without a POSIX shell. Skipping beats failing: the script is what
+    // CI and both setup scripts run, so there is nothing meaningful to assert
+    // against here, and every other group in this file still runs.
+    markTestSkipped('Could not run scripts/ci-versions.sh ($e).');
+    return _ciVarsCache = const {};
   }
-  fail(
-    '$key is not declared in the top-level env: block of $_ciWorkflow. Every '
-    'pinned version belongs there — scripts/ci-versions.sh reads only that '
-    'block, so a value declared anywhere else is invisible to the setup '
-    'scripts that provision dev environments from it.',
-  );
+  if (result.exitCode != 0) {
+    fail('scripts/ci-versions.sh exited ${result.exitCode}. Dev environments '
+        'provision from it, so a failure here means setup.sh and the session '
+        'hook are reading nothing.\nstderr: ${result.stderr}');
+  }
+  return _ciVarsCache = {
+    for (final line in const LineSplitter().convert(result.stdout as String))
+      if (line.contains('=')) ...{
+        line.substring(0, line.indexOf('=')): line.substring(
+          line.indexOf('=') + 1,
+        ),
+      },
+  };
+}
+
+/// One resolved `CI_*` value, failing when the script did not produce it.
+String _ciVar(String key) {
+  final vars = _ciVars();
+  if (vars.isEmpty) return ''; // Skipped above.
+  final value = vars[key];
+  if (value == null || value.isEmpty) {
+    fail('scripts/ci-versions.sh did not print $key. Every pinned version '
+        "belongs in ci.yml's top-level env: block, which is the only place "
+        'that script reads — a value declared anywhere else is invisible to '
+        'the setup scripts that provision dev environments from it.');
+  }
+  return value;
 }
 
 /// Every capture of [pattern] in [path], failing when there are none.
@@ -123,10 +147,15 @@ List<String> _allMatches(
   required String consequence,
 }) {
   var contents = readRepoFile(path, consequence: consequence);
-  // Gradle files here document the very settings being asserted, so prose
-  // would otherwise read as a second declaration. Strings are kept — one
-  // assertion below has to see inside a `classpath '...'` literal.
-  if (path.endsWith('.gradle')) contents = stripGradleComments(contents);
+  // Gradle AND YAML both carry long comments naming the very settings being
+  // asserted, so prose would otherwise read as a second declaration. Quoted
+  // values are kept either way, because one assertion has to see inside a
+  // `classpath '...'` literal.
+  if (path.endsWith('.gradle')) {
+    contents = stripCommentsKeepingStrings(contents);
+  } else if (path.endsWith('.yml')) {
+    contents = stripHashComments(contents);
+  }
   final values = [
     for (final m in pattern.allMatches(contents)) m.group(1)!,
   ];
@@ -134,6 +163,30 @@ List<String> _allMatches(
     fail('Found no `${pattern.pattern}` in $path. $consequence');
   }
   return values;
+}
+
+/// The one value [pattern] captures in [path], failing readably when there are
+/// several.
+///
+/// `.single` throws `Bad state: Too many elements`, which discards the reasoned
+/// message these assertions are built around and points at no file. A second
+/// match is a legitimate thing to hit — an Android product flavour with its own
+/// `minSdkVersion`, or the emulator matrix gaining a second API level — and the
+/// reader deserves to be told which file and which values.
+String _onlyMatch(
+  String path,
+  RegExp pattern, {
+  required String consequence,
+}) {
+  final values = _allMatches(path, pattern, consequence: consequence);
+  if (values.length > 1) {
+    fail('Expected one `${pattern.pattern}` in $path but found '
+        '${values.length}: ${values.join(", ")}. $consequence This audit '
+        'compares a single declaration; if more than one is now legitimate, '
+        'the assertion needs to say which one governs rather than assuming '
+        'there is only one.');
+  }
+  return values.single;
 }
 
 void main() {
@@ -154,15 +207,20 @@ void main() {
           consequence: 'It declares the embedded App.framework minimum, which '
               'the App Store validates against the binary.',
         ),
-        // The Podfile line is commented out, matching Flutter's template — the
-        // platform comes from the Runner target instead. It is still asserted:
-        // a stale version in a commented line is precisely what someone copies
-        // the day they uncomment it.
+        // The Podfile line ships commented out, matching Flutter's template —
+        // the platform comes from the Runner target instead. It is still
+        // asserted, because a stale version in a commented line is precisely
+        // what someone copies the day they uncomment it.
+        //
+        // `#?` — the leading hash is OPTIONAL. Requiring it would turn
+        // uncommenting the line, which the Podfile's own comment explains how
+        // to do, into a "declaration is missing" failure at the exact moment
+        // the declaration became real and started overriding the target.
         _iosPodfile: _allMatches(
           _iosPodfile,
-          RegExp(r"#\s*platform\s*:ios,\s*'([0-9.]+)'"),
-          consequence: 'The commented platform line is the documented way to '
-              'pin the pod platform and must not name a stale version.',
+          RegExp(r"^\s*#?\s*platform\s*:ios,\s*'([0-9.]+)'", multiLine: true),
+          consequence: 'The platform line (commented or not) is the documented '
+              'way to pin the pod platform and must not name a stale version.',
         ),
         _iosPodspec: _allMatches(
           _iosPodspec,
@@ -254,16 +312,16 @@ void main() {
     RegExp gradleValue(String key) => RegExp('$key\\s*=?\\s*(\\d+)');
 
     test('rust_builder minSdk matches the app it links into', () {
-      final app = _allMatches(
+      final app = _onlyMatch(
         _appGradle,
         gradleValue('minSdkVersion'),
         consequence: 'It declares the oldest Android the app installs on.',
-      ).single;
-      final rust = _allMatches(
+      );
+      final rust = _onlyMatch(
         _rustGradle,
         gradleValue('minSdkVersion'),
         consequence: 'It declares the floor the Rust FFI module is built for.',
-      ).single;
+      );
       expect(
         rust,
         app,
@@ -275,12 +333,12 @@ void main() {
     });
 
     test('rust_builder compileSdk matches the SDK platform CI installs', () {
-      final rust = _allMatches(
+      final rust = _onlyMatch(
         _rustGradle,
         gradleValue('compileSdkVersion'),
         consequence: 'It selects the SDK the Rust FFI module compiles against.',
-      ).single;
-      final installed = _ciEnv('ANDROID_API');
+      );
+      final installed = _ciVar('CI_ANDROID_API');
       expect(
         rust,
         installed,
@@ -298,13 +356,50 @@ void main() {
     // makes it the only pair that can silently drift, so it is the one pair
     // worth asserting: scripts/ci-versions.sh reads the env key, while the job
     // that actually boots the emulator reads the matrix.
+    // The warm-up build's --target-platform must name the same ABI the AVD
+    // boots, in Flutter's vocabulary rather than the SDK's. They cannot be one
+    // key, so they are two keys with this assertion between them: if they
+    // drift, the warm-up populates caches the emulator's build cannot use and
+    // the real build happens inside package:test_core's hardcoded 12-minute
+    // load window — the `loading ...` timeout the warm-up step exists to
+    // prevent, reappearing with nothing pointing at the cause.
+    test('the warm-up target platform matches the emulator arch', () {
+      const abiToTargetPlatform = {
+        'x86_64': 'android-x64',
+        'x86': 'android-x86',
+        'arm64-v8a': 'android-arm64',
+        'armeabi-v7a': 'android-arm',
+      };
+      final arch = _ciVar('CI_EMULATOR_ARCH');
+      final warmup = _onlyMatch(
+        _ciWorkflow,
+        RegExp(r"ANDROID_WARMUP_TARGET_PLATFORM:\s*'([a-z0-9-]+)'"),
+        consequence: 'It is the ABI the emulator job warms its caches for.',
+      );
+      expect(
+        abiToTargetPlatform[arch],
+        isNotNull,
+        reason: 'No --target-platform mapping is known for emulator arch '
+            '$arch. Add it here alongside the ANDROID_WARMUP_TARGET_PLATFORM '
+            'change, or the two silently stop describing the same ABI.',
+      );
+      expect(
+        warmup,
+        abiToTargetPlatform[arch],
+        reason: 'The emulator boots $arch but the warm-up build targets '
+            '$warmup. The warm-up exists to build the app OUTSIDE the test '
+            'loading phase; aimed at the wrong ABI it warms nothing the '
+            'emulator can use.',
+      );
+    });
+
     test('the emulator matrix agrees with ANDROID_EMULATOR_API', () {
-      final declared = _ciEnv('ANDROID_EMULATOR_API');
-      final matrix = _allMatches(
+      final declared = _ciVar('CI_EMULATOR_API');
+      final matrix = _onlyMatch(
         _ciWorkflow,
         RegExp(r'api-level:\s*\[\s*(\d+)\s*\]'),
         consequence: 'It is the API level the emulator job boots.',
-      ).single;
+      );
       expect(
         matrix,
         declared,
@@ -317,7 +412,7 @@ void main() {
     });
 
     test('rust_builder does not pin its own Android Gradle Plugin', () {
-      final gradle = stripGradleComments(readRepoFile(
+      final gradle = stripCommentsKeepingStrings(readRepoFile(
         _rustGradle,
         consequence: 'It is the Gradle module that builds the Rust core for '
             'Android.',

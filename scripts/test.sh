@@ -8,10 +8,18 @@
 
 set -euo pipefail
 
-# Keep in sync with the pin in .github/workflows/ci.yml and scripts/setup.sh —
-# a different codegen version rewrites the generated bindings differently and
-# would report a spurious (or miss a real) drift.
-FRB_VERSION="2.9.0"
+# Read from .github/workflows/ci.yml, the same way scripts/setup.sh and the
+# Claude Code session hook do — a different codegen version rewrites the
+# generated bindings differently and would report a spurious (or miss a real)
+# drift. This used to be a third hardcoded copy of the pin, which meant a bump
+# in ci.yml made setup.sh install the new codegen while this script compared
+# against the old one, took its "not the pinned version" skip path, and quietly
+# stopped running the drift check that CI still enforces — green locally, red in
+# CI, which is the exact gap this script exists to close.
+SCRIPT_DIR_EARLY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=ci-versions.sh
+source "$SCRIPT_DIR_EARLY/ci-versions.sh"
+FRB_VERSION="$CI_FRB_VERSION"
 
 FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
 export PATH="${FLUTTER_HOME}/bin:$HOME/.cargo/bin:$PATH"
