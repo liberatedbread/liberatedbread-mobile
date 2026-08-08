@@ -195,18 +195,32 @@ stop_log() {
   log_pid=""
 }
 
-# A crash report is the one artifact that names the missing symbol or dylib
-# when the app dies before Dart ever runs — precisely the failure the step log
-# cannot show. The simulator writes them under the host user's DiagnosticReports.
-collect_crashes() {
-  local dest="$1"
-  local src="$HOME/Library/Logs/DiagnosticReports"
-  [ -d "$src" ] || return 0
+# Everything the host knows about a failed attempt, in two places because the
+# two failures leave their evidence in different ones:
+#
+#   DiagnosticReports        a crash report names the missing symbol or dylib
+#                            when the app dies before Dart ever runs — the
+#                            failure the step log cannot show at all.
+#   CoreSimulator/<udid>/    the device's own system log, which is where a boot
+#                            that never completes is recorded. `simctl spawn
+#                            log stream` cannot help there: it needs a booted
+#                            device, which is precisely what is missing.
+collect_diagnostics() {
+  local dest="$1" udid="$2"
   mkdir -p "$dest"
-  # -newermt is not portable to BSD find; -name is enough, since a fresh runner
-  # has no unrelated reports and a developer can tell theirs apart by name.
-  find "$src" -maxdepth 1 \( -name 'Runner*' -o -name 'liberated*' \) \
-    -exec cp {} "$dest/" \; 2>/dev/null || true
+
+  local reports="$HOME/Library/Logs/DiagnosticReports"
+  if [ -d "$reports" ]; then
+    # -newermt is not portable to BSD find; -name is enough, since a fresh
+    # runner has no unrelated reports and a developer can tell theirs apart.
+    find "$reports" -maxdepth 1 \( -name 'Runner*' -o -name 'liberated*' \) \
+      -exec cp {} "$dest/" \; 2>/dev/null || true
+  fi
+
+  local simlogs="$HOME/Library/Logs/CoreSimulator/$udid"
+  if [ -d "$simlogs" ]; then
+    cp -R "$simlogs" "$dest/coresimulator-$udid" 2>/dev/null || true
+  fi
 }
 
 # Don't leave a log stream running when the script exits by any route,
@@ -230,13 +244,35 @@ boot_async() {
 # Bring the device to a known-good, EMPTY state. Used before a retry: the most
 # likely reason attempt 1 hung is a wedged install or a half-launched app, and
 # erasing is the only reset that clears both.
+#
+# It START the boot and does not wait for it — waiting is wait_for_boot's job,
+# inside the next attempt, where it is bounded. An unbounded `bootstatus -b`
+# here would reintroduce exactly the hang this retry exists to survive.
 reset_device() {
   local udid="$1"
   warn "Erasing and rebooting simulator $udid before the retry"
   xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
   xcrun simctl erase "$udid" >/dev/null 2>&1 || true
   xcrun simctl boot "$udid" >/dev/null 2>&1 || true
-  xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
+}
+
+# Block until the device is usable, or give up.
+#
+# `simctl bootstatus -b` has no timeout of its own, and "the simulator never
+# finishes booting" is one of the two failures this whole script exists for —
+# so an unbounded call is the one place the bound must not be missing. It is
+# also why this lives INSIDE the attempt loop: a boot that fails or hangs has
+# to reach the erase-and-retry path like any other failed attempt, not abort
+# the step before the retry logic is ever entered.
+#
+# Its own budget, separate from the test attempt's: on the first attempt the
+# boot was started minutes earlier by --boot and this returns at once, and a
+# device that still is not up after IOS_SIMULATOR_BOOT_TIMEOUT is wedged rather
+# than slow. Folding it into the test budget would let a slow boot eat the time
+# the tests need.
+wait_for_boot() {
+  local udid="$1"
+  run_bounded "$IOS_SIMULATOR_BOOT_TIMEOUT" xcrun simctl bootstatus "$udid" -b
 }
 
 run_tests() {
@@ -261,53 +297,76 @@ run_tests() {
       --dart-define=LIBERATED_BREAD_MOCK=true
 }
 
-run_mode() {
-  : "${IOS_SIMULATOR_ATTEMPT_TIMEOUT:?must be set in the top-level env block of ci.yml}"
-  # Whole seconds, no suffix. `timeout 12m` is valid but `sleep 12m` is not on
-  # macOS, so a suffixed value would bound the run on a machine with coreutils
-  # and silently not bound it on one without — the two paths have to agree, and
-  # the only spelling both accept is a plain integer.
-  case "$IOS_SIMULATOR_ATTEMPT_TIMEOUT" in
+# Whole seconds, no suffix. `timeout 12m` is valid but `sleep 12m` is not on
+# macOS, so a suffixed value would bound the run on a machine with coreutils and
+# silently not bound it on one without — the two paths have to agree, and the
+# only spelling both accept is a plain integer.
+require_seconds() {
+  local name="$1" value="$2"
+  case "$value" in
     ''|*[!0-9]*)
-      echo "::error::IOS_SIMULATOR_ATTEMPT_TIMEOUT must be whole seconds with no unit suffix (got '${IOS_SIMULATOR_ATTEMPT_TIMEOUT}')." >&2
+      echo "::error::${name} must be whole seconds with no unit suffix (got '${value}')." >&2
       exit 2
       ;;
   esac
+}
+
+run_mode() {
+  : "${IOS_SIMULATOR_ATTEMPT_TIMEOUT:?must be set in the top-level env block of ci.yml}"
+  : "${IOS_SIMULATOR_BOOT_TIMEOUT:?must be set in the top-level env block of ci.yml}"
+  require_seconds IOS_SIMULATOR_ATTEMPT_TIMEOUT "$IOS_SIMULATOR_ATTEMPT_TIMEOUT"
+  require_seconds IOS_SIMULATOR_BOOT_TIMEOUT "$IOS_SIMULATOR_BOOT_TIMEOUT"
+
   local attempts="${LB_IOS_ATTEMPTS:-2}"
   local udid
   udid="$(require_udid)"
 
-  # The boot was started earlier (concurrently with the app build) so this is
-  # normally already terminal and returns at once. It stays a real wait rather
-  # than an assumption: a boot that never completes has to fail HERE, with a
-  # boot error, instead of thirty seconds later as an install timeout.
-  log "Waiting for simulator $udid to finish booting"
-  if ! xcrun simctl bootstatus "$udid" -b; then
-    echo "::error::Simulator $udid never reached a booted state." >&2
-    xcrun simctl list devices >&2
-    exit 1
-  fi
-
   local attempt=1
   while : ; do
     echo "::group::Integration tests on the simulator, attempt ${attempt}/${attempts}"
-    start_log "$udid"
 
-    # Capture the status directly, NOT via `if run_tests; then ... fi`: after
-    # an `if` whose branch was not taken, `$?` is the IF statement's status
-    # (0), not the condition's — so a watchdog kill would report itself as
-    # "exit 0", which is exactly the hang this retry exists for.
-    run_tests "$udid"
+    # The boot wait is INSIDE the loop, and bounded. It used to sit in front of
+    # the loop as a plain `bootstatus -b`, which got both halves of its own
+    # premise wrong: a boot that hangs is one of the two failures this retry
+    # exists for, and there it would have hung unbounded until the workflow
+    # step's timeout killed the whole thing — no erase, no retry, no log. A
+    # boot that failed fast was no better: it exited before the retry path.
+    #
+    # On the first attempt --boot started this device minutes ago, so this
+    # normally returns immediately.
+    log "Waiting for simulator $udid to finish booting"
+    wait_for_boot "$udid"
     local status=$?
 
-    stop_log
+    if [ "$status" -eq 0 ]; then
+      # Only now: `simctl spawn … log stream` needs a booted device, so
+      # starting it any earlier gets an error instead of a log. The boot
+      # failure's own evidence comes from collect_diagnostics below, which
+      # reads the device's system log off the host.
+      start_log "$udid"
+
+      # Capture the status directly, NOT via `if run_tests; then ... fi`:
+      # after an `if` whose branch was not taken, `$?` is the IF statement's
+      # status (0), not the condition's — so a watchdog kill would report
+      # itself as "exit 0", which is exactly the hang this retry exists for.
+      run_tests "$udid"
+      status=$?
+      stop_log
+    elif [ "$status" -eq 124 ]; then
+      echo "::error::Simulator $udid did not finish booting within ${IOS_SIMULATOR_BOOT_TIMEOUT}s." >&2
+      xcrun simctl list devices >&2
+    else
+      echo "::error::Simulator $udid failed to reach a booted state (exit ${status})." >&2
+      xcrun simctl list devices >&2
+    fi
+
     echo "::endgroup::"
 
     if [ "$status" -eq 0 ]; then
       exit 0
     fi
 
-    collect_crashes "$CRASH_DIR"
+    collect_diagnostics "$CRASH_DIR" "$udid"
 
     if [ "$attempt" -ge "$attempts" ]; then
       echo "::error::Integration tests failed on the simulator, attempt ${attempt}/${attempts} (exit ${status})." >&2
@@ -315,9 +374,9 @@ run_mode() {
     fi
 
     if [ "$status" -eq 124 ]; then
-      echo "::warning::Integration tests hit the ${IOS_SIMULATOR_ATTEMPT_TIMEOUT}s attempt timeout with no result — the symptom of an app that never launched or a wedged simulator. Retrying on an erased device."
+      echo "::warning::Attempt ${attempt} hit its timeout with no result — the symptom of an app that never launched or a wedged simulator. Retrying on an erased device."
     else
-      echo "::warning::Integration tests failed (exit ${status}). Retrying on an erased device."
+      echo "::warning::Attempt ${attempt} failed (exit ${status}). Retrying on an erased device."
     fi
 
     # Keep this attempt's device log under its own name; the next attempt would
