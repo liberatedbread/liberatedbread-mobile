@@ -90,10 +90,12 @@ device:
         local_name_prefix: "OBDLink MX+"
       notes: >
         STN2255 on original units — now out of production per the OBDLink FRPM rev F
-        §3.1 device table; current-production MX+ uses STN2256 (reported). Bluetooth
-        Classic v3.0 with MFi, so iOS, Android and Windows all work. MS-CAN and SW-CAN
-        as well as every legislated protocol — the only wireless iOS adapter that
-        reaches those manufacturer buses.
+        §3.1 device table; current-production MX+ uses STN2256 (reported). Dual-mode:
+        Bluetooth Classic v3.0 with MFi (SPP/iAP2) as primary link, plus a BLE GATT
+        pipe. MS-CAN and SW-CAN as well as every legislated protocol — the only
+        wireless iOS adapter that reaches those manufacturer buses. Dedicated spec:
+        device-specs/devices/obdlink-mx-plus.yaml (GATT UUIDs, button-pairing flow
+        and firmware-update mechanism recovered from the vendor app).
     - model: "Bluetooth Classic SPP (no GATT)"
       notes: >
         RFCOMM, usually channel 1, PIN 1234 / 0000 / 6789. Names OBDII, OBDII-BT, V-LINK,
