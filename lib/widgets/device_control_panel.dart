@@ -13,6 +13,7 @@ import 'entity_sensor_card.dart';
 import 'led_image_widget.dart';
 import 'light_control_card.dart';
 import 'raw_characteristic_widget.dart';
+import 'setpoint_control_card.dart';
 import 'switch_control_card.dart';
 import 'typed_characteristic_widget.dart';
 
@@ -92,10 +93,12 @@ class DeviceControlPanel extends ConsumerWidget {
         case null || 'sensor' || 'binary_sensor':
           if (owningState == null) continue;
           readings.add((entity: entity, serviceUuid: owningState.uuid));
-        case 'switch' || 'light':
+        case 'switch' || 'light' || 'number' || 'climate':
           // At least one action must target a characteristic this device
-          // actually has; a switch may instead ride on readable state alone
-          // (ember's temperature control has no sendable commands yet).
+          // actually has; a switch or setpoint may instead ride on readable
+          // state alone (ember's temperature control has no sendable command,
+          // and its target temperature cannot be encoded yet — both are still
+          // worth showing as live readings).
           final actionsDiscovered = entity.actions.any(
             (a) => services.any(
               (s) => s.characteristics.any(
@@ -105,7 +108,7 @@ class DeviceControlPanel extends ConsumerWidget {
               ),
             ),
           );
-          final stateOnly = entity.platform == 'switch' && owningState != null;
+          final stateOnly = entity.platform != 'light' && owningState != null;
           if (!actionsDiscovered && !stateOnly) continue;
           controls.add((entity: entity, stateServiceUuid: owningState?.uuid));
         default:
@@ -407,20 +410,26 @@ class _ControlsSection extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           for (final control in controls) ...[
-            if (control.entity.platform == 'light')
-              LightControlCard(
-                deviceId: deviceId,
-                stateServiceUuid: control.stateServiceUuid,
-                entity: control.entity,
-                specYaml: specYaml,
-              )
-            else
-              SwitchControlCard(
-                deviceId: deviceId,
-                stateServiceUuid: control.stateServiceUuid,
-                entity: control.entity,
-                specYaml: specYaml,
-              ),
+            switch (control.entity.platform) {
+              'light' => LightControlCard(
+                  deviceId: deviceId,
+                  stateServiceUuid: control.stateServiceUuid,
+                  entity: control.entity,
+                  specYaml: specYaml,
+                ),
+              'number' || 'climate' => SetpointControlCard(
+                  deviceId: deviceId,
+                  stateServiceUuid: control.stateServiceUuid,
+                  entity: control.entity,
+                  specYaml: specYaml,
+                ),
+              _ => SwitchControlCard(
+                  deviceId: deviceId,
+                  stateServiceUuid: control.stateServiceUuid,
+                  entity: control.entity,
+                  specYaml: specYaml,
+                ),
+            },
             const SizedBox(height: 10),
           ],
         ],

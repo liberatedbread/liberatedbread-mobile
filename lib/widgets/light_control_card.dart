@@ -117,6 +117,11 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
   }
 
   Future<void> _send(EntityActionDto action, {bool? assumeOn}) async {
+    // Only a setpoint action can be a direct write with no command behind it;
+    // a light role always names one. Guarding rather than asserting keeps a
+    // malformed remote spec from crashing the panel.
+    final commandName = action.commandName;
+    if (commandName == null) return;
     setState(() {
       _sending = true;
       _errorText = null;
@@ -126,7 +131,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       final bytes = await codec.encodeCommand(
         specYaml: widget.specYaml,
         charUuid: action.characteristicUuid,
-        commandName: action.commandName,
+        commandName: commandName,
         params: _paramsFor(action),
       );
       await ref.read(bleServiceProvider).writeCharacteristic(

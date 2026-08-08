@@ -26,10 +26,10 @@ pub struct FieldMeta {
     /// human name. The caller looks up the value it actually decoded; the
     /// table itself does not cross the FFI, only the resolved name does.
     pub values: Option<IndexMap<String, String>>,
-    /// True when the spec says the wire unit follows a device setting rather
-    /// than being a constant, so [`Self::unit`] must not be presented as
-    /// fact.
-    pub unit_follows_device_setting: bool,
+    /// The spec's `unit_source` verbatim (`fixed` | `device_setting`). When
+    /// it is `device_setting` the wire unit is not a constant of the
+    /// protocol, so [`Self::unit`] must not be presented as fact.
+    pub unit_source: Option<String>,
 }
 
 /// A device protocol knows how to encode commands and decode responses

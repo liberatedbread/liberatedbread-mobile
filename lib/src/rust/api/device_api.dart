@@ -240,11 +240,10 @@ class DecodedValueDto {
   /// 5 arrives as "heating".
   final String? valueLabel;
 
-  /// True when the spec says the wire unit follows a device setting rather
-  /// than being fixed by the protocol (the Inkbird iBBQ sends whichever
-  /// unit the device is set to). The UI must not present [`Self::unit`] as
-  /// fact when this is set.
-  final bool unitFollowsDeviceSetting;
+  /// The spec's `unit_source` (`fixed` | `device_setting`). The Inkbird
+  /// iBBQ sends whichever unit the device is currently set to, so a UI must
+  /// not present [`Self::unit`] as fact when this reads `device_setting`.
+  final String? unitSource;
 
   const DecodedValueDto({
     required this.name,
@@ -258,7 +257,7 @@ class DecodedValueDto {
     this.valueOffset,
     this.unit,
     this.valueLabel,
-    required this.unitFollowsDeviceSetting,
+    this.unitSource,
   });
 
   @override
@@ -274,7 +273,7 @@ class DecodedValueDto {
       valueOffset.hashCode ^
       unit.hashCode ^
       valueLabel.hashCode ^
-      unitFollowsDeviceSetting.hashCode;
+      unitSource.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -292,7 +291,7 @@ class DecodedValueDto {
           valueOffset == other.valueOffset &&
           unit == other.unit &&
           valueLabel == other.valueLabel &&
-          unitFollowsDeviceSetting == other.unitFollowsDeviceSetting;
+          unitSource == other.unitSource;
 }
 
 /// A parsed device specification, ready for use by the Flutter app.
