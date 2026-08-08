@@ -51,3 +51,7 @@ rust/target/
 # Branding icon generator (authoring-only tool; the icons it emits are committed)
 tool/branding/node_modules/
 tool/branding/package-lock.json
+
+# Device logs from scripts/ci-emulator-tests.sh (CI uploads them as artifacts;
+# running it locally drops them here)
+emulator-logcat*.txt

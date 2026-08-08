@@ -279,6 +279,145 @@ class _PlistScanner {
 }
 
 // ---------------------------------------------------------------------------
+// Comment stripping
+// ---------------------------------------------------------------------------
+
+/// Blank out `#` comments in YAML [source], keeping quoted values intact and
+/// preserving offsets.
+///
+/// The workflow this reads is unusually comment-dense about the very settings
+/// asserted against it — the `api-level` matrix has ~90 lines of prose around
+/// it explaining why it is duplicated — so an unstripped scan finds a second
+/// "declaration" the moment someone writes one in a sentence. That is the
+/// failure mode the workflow's own header documents biting this repo twice.
+///
+/// A `#` inside quotes is preserved, matching `scripts/ci-versions.sh`'s
+/// reader, so a value that legitimately contains one is not truncated.
+String stripHashComments(String source) {
+  final out = StringBuffer();
+  var inQuote = '';
+  for (var i = 0; i < source.length; i++) {
+    final c = source[i];
+    if (c == '\n') {
+      inQuote = '';
+      out.write(c);
+      continue;
+    }
+    if (inQuote.isEmpty && (c == "'" || c == '"')) {
+      inQuote = c;
+      out.write(c);
+      continue;
+    }
+    if (inQuote.isNotEmpty) {
+      if (c == inQuote) inQuote = '';
+      out.write(c);
+      continue;
+    }
+    if (c == '#') {
+      // Blank to end of line, preserving offsets.
+      while (i < source.length && source[i] != '\n') {
+        out.write(' ');
+        i++;
+      }
+      if (i < source.length) out.write('\n');
+      continue;
+    }
+    out.write(c);
+  }
+  return out.toString();
+}
+
+// ---------------------------------------------------------------------------
+// Comment stripping that KEEPS string contents
+// ---------------------------------------------------------------------------
+
+/// Blank out `//` and `/* */` comments in [source], keeping string-literal
+/// CONTENTS intact and preserving offsets (removed characters become spaces,
+/// newlines are kept).
+///
+/// The counterpart to [stripDartCommentsAndStringContents], which also blanks
+/// what is inside quotes. Which one you want depends on where the value lives:
+///
+///   * Blank strings too when asking "does the code DO this?" — a log message
+///     or a doc string mentioning an API must not answer yes.
+///   * Keep strings, as here, when the value being audited only exists inside
+///     a literal. Both current callers need that: `classpath
+///     'com.android.tools.build:gradle'` in a Gradle file, and
+///     `import 'error_flow_test.dart' as ...;` in a Dart one — blanking the
+///     quotes would erase the very thing the assertion reads.
+///
+/// Comments must still go, and not as a nicety: the files audited here carry
+/// long explanatory comments naming the settings being asserted ("Matches
+/// android/app/build.gradle's literal minSdkVersion 24"), so a raw scan finds
+/// two declarations where the file has one and a single-value assertion fails
+/// on prose. That is the same class of bug the workflow header describes.
+///
+/// String state is tracked so a `//` inside a quoted URL (there is one in
+/// android/app/build.gradle's keystore warning) does not read as a comment and
+/// swallow the rest of the line.
+///
+/// Groovy and Dart are close enough to share this: same `//`, `/* */`, quote
+/// and triple-quote forms. Two Dart-only shapes are NOT modelled, because
+/// neither appears in the files this reads — raw strings (`r'...'`, where a
+/// backslash is literal) and nested block comments, which Dart allows and
+/// Groovy does not.
+String stripCommentsKeepingStrings(String source) {
+  final out = StringBuffer();
+  var i = 0;
+  final n = source.length;
+
+  void blank(int count) {
+    for (var k = 0; k < count; k++) {
+      out.write(source[i + k] == '\n' ? '\n' : ' ');
+    }
+    i += count;
+  }
+
+  while (i < n) {
+    final c = source[i];
+
+    if (c == '/' && i + 1 < n && source[i + 1] == '/') {
+      final lineEnd = source.indexOf('\n', i);
+      blank((lineEnd < 0 ? n : lineEnd) - i);
+      continue;
+    }
+
+    if (c == '/' && i + 1 < n && source[i + 1] == '*') {
+      final end = source.indexOf('*/', i + 2);
+      blank((end < 0 ? n : end + 2) - i);
+      continue;
+    }
+
+    if (c == "'" || c == '"') {
+      final triple = source.startsWith(c * 3, i);
+      final delim = triple ? c * 3 : c;
+      out.write(delim);
+      i += delim.length;
+      while (i < n) {
+        if (source.startsWith(delim, i)) {
+          out.write(delim);
+          i += delim.length;
+          break;
+        }
+        if (source[i] == r'\' && i + 1 < n) {
+          out.write(source.substring(i, i + 2));
+          i += 2;
+          continue;
+        }
+        if (!triple && source[i] == '\n') break; // Unterminated: bail out.
+        out.write(source[i]);
+        i++;
+      }
+      continue;
+    }
+
+    out.write(c);
+    i++;
+  }
+  return out.toString();
+}
+
+// ---------------------------------------------------------------------------
 // Dart-source scanning
 // ---------------------------------------------------------------------------
 

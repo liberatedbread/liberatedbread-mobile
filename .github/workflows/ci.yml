@@ -26,42 +26,150 @@ concurrency:
 
 # THIS FILE IS THE TOOLCHAIN SOURCE OF TRUTH FOR DEV ENVIRONMENTS.
 #
-# scripts/ci-versions.sh parses the values below out of this workflow, and
-# scripts/setup.sh plus the Claude Code session hook (.claude/hooks/
-# session-start.sh) provision from what it reads — so bumping a version here
-# moves every developer environment with it, and nothing needs re-pinning.
+# scripts/ci-versions.sh reads the `env:` block below, and scripts/setup.sh plus
+# the Claude Code session hook (.claude/hooks/session-start.sh) provision from
+# what it reads — so bumping a version here moves every developer environment
+# with it, and nothing needs re-pinning.
 #
-# What is parsed, and the shape the parser expects:
-#   FLUTTER_VERSION / FLUTTER_NDK_VERSION  the `env:` keys below
-#   java-version:                          setup-java's input
-#   platforms;android-<api>                any sdkmanager package reference
-#   build-tools;<version>                  any sdkmanager package reference
-#   flutter_rust_bridge_codegen@<version>  the `cargo install` line
-#   targets:                               dtolnay/rust-toolchain inputs
-#   api-level: [..], target:, arch:,       the reactivecircus/
-#   profile:                               android-emulator-runner step
-#   apt-get install ... (with `\` conts)   the linux-desktop dep step
+# EVERY PINNED VERSION LIVES IN THAT ONE BLOCK, and each step interpolates it
+# rather than repeating the literal. That is a hard rule, and it is what makes
+# the parser safe: it reads exactly the top-level `env:` mapping and nothing
+# else, so no comment, no prose and no unrelated step can be mistaken for
+# configuration.
 #
-# RUN `./scripts/ci-versions.sh` AFTER CHANGING ANY OF THOSE and check the
-# printed values still match this file. The parser falls back to a stale
-# hard-coded default (and warns) when a lookup misses, so a rename here fails
-# quietly in dev environments rather than loudly in CI. Two things it cannot
-# read, because no version appears in this file, and which therefore have to be
-# updated by hand in the setup scripts if they ever matter:
+# It was not always so. The parser used to hunt values out of step bodies with
+# file-wide greps — the highest `platforms;android-NN` anywhere, the first
+# `targets:` line containing "-android", packages scraped from `apt-get install`
+# and its line continuations. Every one of those could be tripped by a COMMENT:
+# naming an API level in prose really did change what dev machines installed,
+# because prose and configuration look identical to a grep. Twice, while editing
+# this file, an explanatory comment silently became configuration.
+#
+# So: if you need a new pinned value, add a key here and reference it with
+# ${{ env.KEY }} (or $KEY inside `run:`). Do not inline a version at a use site,
+# and do not teach the parser a new place to look.
+#
+# RUN `./scripts/ci-versions.sh` AFTER ANY CHANGE and check the printed values.
+# A missing key falls back to a stale hard-coded default and warns on stderr, so
+# a rename fails quietly in dev environments rather than loudly in CI.
+#
+# Three things it cannot read, which must be updated by hand in the setup
+# scripts if they ever matter:
 #   * the Android command-line tools build number (android-actions/setup-android
 #     resolves "latest" itself) — pinned in .claude/hooks/session-start.sh
 #   * the Rust toolchain version (dtolnay/rust-toolchain@stable) — a minimum is
 #     pinned in scripts/setup.sh
+#   * ANDROID_EMULATOR_API is declared here AND repeated in the android-
+#     integration matrix, because GitHub does not expose the `env` context to
+#     `strategy:`. A test keeps the two honest — see
+#     test/platform/deployment_targets_test.dart.
 env:
   FLUTTER_VERSION: '3.44.8'
+
   # The NDK cargokit actually builds against, shared by every job that compiles
   # the Rust crate for Android. android/app/build.gradle sets
   # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
-  # `android.ndkVersion` to its build tool as CARGOKIT_NDK_VERSION, and Flutter
-  # 3.24.5 hardcodes 23.1.7779620 (packages/flutter_tools/gradle/src/main/
-  # groovy/flutter.groovy). Installing any other version just means cargokit
-  # downloads this one itself, mid-build. Keep in sync with FLUTTER_VERSION.
+  # `android.ndkVersion` to its build tool as CARGOKIT_NDK_VERSION, and the
+  # pinned Flutter hardcodes the value. Installing any other version just means
+  # cargokit downloads this one itself, mid-build.
+  #
+  # Keep in sync with FLUTTER_VERSION — re-read it after any bump with:
+  #   grep 'val ndkVersion' "$(dirname "$(readlink -f "$(command -v flutter)")")"/../\
+  #     packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt
+  # (3.44.8 -> 28.2.13676358, checked.)
   FLUTTER_NDK_VERSION: '28.2.13676358'
+
+  # ── Android SDK ────────────────────────────────────────────────────────────
+  # The compile SDK: what android/app/build.gradle resolves
+  # `flutter.compileSdkVersion` to (36 on Flutter 3.44.8, in the same
+  # FlutterExtension.kt as the NDK above) and what rust_builder/android/
+  # build.gradle now pins to match.
+  ANDROID_API: '36'
+  # AGP 8.6's default build-tools. Naming a newer one adds a download instead of
+  # replacing one, because AGP fetches its default regardless.
+  ANDROID_BUILD_TOOLS: '34.0.0'
+  # Required by FLUTTER, not by anything in this repo: its Gradle plugin ships
+  # packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt and wires an
+  # externalNativeBuild into :app (the Android 15 16 KB page-size support), so
+  # `:app:configureCMakeDebug[<abi>]` runs on every Android build and AGP
+  # installs its default CMake when absent. 3.22.1 is that default for AGP 8.6;
+  # if a toolchain bump moves it, this pin degrades to a small unused package
+  # and Gradle fetches the right one itself. Re-check with:
+  #   grep 'Install CMake' <build log>
+  ANDROID_CMAKE: '3.22.1'
+
+  # ── Android emulator ───────────────────────────────────────────────────────
+  # A separate axis from the compile SDK: nothing requires the AVD to run the
+  # API the app compiles against.
+  ANDROID_EMULATOR_API: '34'
+  # aosp_atd, not google_apis: an Automated Test Device image, which is the
+  # variant Google ships for CI. It strips the launcher and the Play Services
+  # stack, and that stack is not incidental here — it is what broke the job.
+  #
+  # Diagnosed from run 31142032906 on main, where this job hung for its full
+  # 60-minute timeout with zero Dart output while the same suites passed on
+  # Linux/Xvfb and the iOS simulator. Reading that run's logcat against a
+  # passing run's:
+  #   * `FlutterRenderer: Width is zero. 0,0` appears in BOTH, so it is normal
+  #     startup noise and not the graphics failure it looks like.
+  #   * The failing run alone logs onDetachedFromActivityForConfigChanges. Four
+  #     seconds after the Dart VM service came up, an Android configuration
+  #     change destroyed and recreated MainActivity with a fresh FlutterEngine.
+  #     flutter_tools had already attached to the first engine's isolate, so it
+  #     then waited forever on an isolate that would never run a test — the app
+  #     process sat idle for 55 minutes. "Zero Dart output" is exactly what an
+  #     orphaned VM-service attach looks like.
+  #   * In the 90s before launch: an ANR in nexuslauncher, an ANR in
+  #     gms.persistent, long monitor contention in system_server, Play Services
+  #     "Scheduling killing of process to refresh configuration", and telephony
+  #     bringing up MCC/MNC. The system was still settling when the app started.
+  # (Which config field actually changed is not named anywhere in the log, so
+  # that last step is inference from what was churning, not a certainty.)
+  #
+  # android/app/src/main/AndroidManifest.xml already declares the exact
+  # configChanges set Flutter 3.44.8's own template does, byte for byte, so
+  # there is no missing flag to add on our side — the fix has to be to stop the
+  # churn. Removing the launcher and GMS removes what was doing it, and boots
+  # faster besides.
+  #
+  # aosp_atd over google_atd because nothing here needs Google APIs: the app is
+  # BLE + local storage, and CI runs it in mock mode. If something ever does,
+  # google_atd is the one-word change. scripts/setup.sh and the session hook
+  # build the local AVD from this same value, so a developer's
+  # `liberated_bread_test` AVD follows — `flutter run` installs and starts the
+  # activity directly, so a missing launcher does not affect it.
+  ANDROID_EMULATOR_TARGET: 'aosp_atd'
+  ANDROID_EMULATOR_ARCH: 'x86_64'
+  ANDROID_EMULATOR_PROFILE: 'pixel_6'
+  # Per-attempt bound for the emulator test run, below. Two attempts plus the
+  # AVD boot have to fit inside that step's timeout-minutes.
+  ANDROID_EMULATOR_ATTEMPT_TIMEOUT: '12m'
+  # Flutter's spelling of ANDROID_EMULATOR_ARCH, for the warm-up build's
+  # --target-platform. A second vocabulary for one fact (x86_64 <-> android-x64),
+  # so it is declared here rather than inlined at the use site and
+  # test/platform/deployment_targets_test.dart asserts the pair agrees. If they
+  # drift, the warm-up populates caches the emulator's build cannot use and the
+  # real build lands back inside package:test_core's 12-minute load window.
+  ANDROID_WARMUP_TARGET_PLATFORM: 'android-x64'
+
+  # ── Everything else the setup scripts provision ────────────────────────────
+  JAVA_VERSION: '17'
+  FRB_VERSION: '2.9.0'
+  # Comma-separated: the shape dtolnay/rust-toolchain's `targets:` input wants.
+  # Android keeps all four even though no CI job builds every one, because a dev
+  # machine provisioned from this list should be able to build any ABI.
+  RUST_ANDROID_TARGETS: 'aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android'
+  # x86_64-apple-ios is the Intel-Mac simulator target: unused by CI (the
+  # runners are arm64) but needed by a developer on an Intel Mac.
+  RUST_IOS_TARGETS: 'aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios'
+  # Space-separated for `apt-get install`. Flutter's own Linux requirements:
+  #   clang / cmake / ninja-build / pkg-config  the build system itself
+  #   libgtk-3-dev      the GTK 3 shell the runner in linux/ is written against
+  #   liblzma-dev       transitively required to link against GTK
+  #   libsecret-1-dev   flutter_secure_storage_linux (HA token storage)
+  #   libjsoncpp-dev    pulled in by the CMake/plugin toolchain
+  #   xvfb              virtual X server, so the app can actually RUN in CI
+  LINUX_DESKTOP_PACKAGES: 'clang cmake libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config xvfb'
 
 jobs:
   flutter:
@@ -69,7 +177,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -96,7 +204,7 @@ jobs:
         run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
       - name: Check FRB bindings are up to date
         run: |
-          cargo install --locked flutter_rust_bridge_codegen@2.9.0
+          cargo install --locked "flutter_rust_bridge_codegen@$FRB_VERSION"
           flutter_rust_bridge_codegen generate
           # `git diff --exit-code` catches edits to tracked generated files but
           # is blind to brand-new (untracked) ones, so also fail on ANY pending
@@ -125,7 +233,7 @@ jobs:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -147,11 +255,11 @@ jobs:
     # not let the expensive native builds burn runner minutes.
     needs: [flutter, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -161,14 +269,29 @@ jobs:
       # jobs need the Rust toolchain, the Android targets, and a matching NDK.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: ${{ env.RUST_ANDROID_TARGETS }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+      # Every SDK package the build needs, installed in ONE visible step. Each
+      # version comes from the env block at the top of this file, where it is
+      # annotated — deliberately not repeated here, since a second copy is a
+      # second thing to forget.
+      #
+      # This step is about making the build's inputs explicit, NOT about speed.
+      # Measured from CI logs, the two mid-build installs it replaces cost 2.5s
+      # (SDK platform) and 1.2s (cmake) — worth stating plainly, because "Gradle
+      # downloads it mid-build" sounds expensive and is not. What it buys is
+      # that Gradle no longer stops partway through to accept a licence and pull
+      # a package over the network, where a blip fails the build in a place
+      # nothing retries.
       - uses: android-actions/setup-android@v3
         with:
           packages: >-
-            platform-tools platforms;android-34 build-tools;34.0.0
+            platform-tools
+            platforms;android-${{ env.ANDROID_API }}
+            build-tools;${{ env.ANDROID_BUILD_TOOLS }}
+            cmake;${{ env.ANDROID_CMAKE }}
             ndk;${{ env.FLUTTER_NDK_VERSION }}
       - uses: gradle/actions/setup-gradle@v4
       - name: Write android/local.properties
@@ -260,19 +383,30 @@ jobs:
   android-integration:
     name: Android integration tests (emulator, mock mode)
     runs-on: ubuntu-latest
-    # Job-level bound sits above the emulator step's own 60-minute timeout so
-    # the step limit fires first and setup/teardown still get headroom.
-    timeout-minutes: 75
+    # Job-level bound stays above the emulator step's own timeout so the step
+    # limit fires first and setup/teardown still get headroom. Both came down
+    # (75/60) once the Gradle cache, the x64-only warm-up and the single test
+    # cycle landed: the job ran ~10m45s before those, and the emulator step
+    # ~3m45s, so 50/30 is still many times the observed cost — loose enough
+    # that a cold cache cannot trip it, tight enough that a genuinely hung
+    # emulator stops costing an hour.
+    timeout-minutes: 60
     needs: [flutter, rust]
+    # The one place a pinned value is repeated instead of interpolated:
+    # GitHub does not expose the `env` context to `strategy:`, so
+    # ANDROID_EMULATOR_API cannot be referenced here. The matrix stays (rather
+    # than collapsing to a plain input) because its value is part of this job's
+    # check name — "…(34)" — which branch protection may require by name.
+    # test/platform/deployment_targets_test.dart asserts the two agree.
     strategy:
       matrix:
         api-level: [34]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -286,7 +420,7 @@ jobs:
       # cargokit compiles the Rust crate when the integration app is built.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+          targets: ${{ env.RUST_ANDROID_TARGETS }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -295,12 +429,27 @@ jobs:
       # in this job — it reinstalls platform-tools and disturbed the
       # emulator-runner, leaving the emulator unable to boot. Don't reinstall
       # platform-tools: the runner's adb/emulator are what boot the AVD.
+      # Same package set as android-build, and same reasoning — see the comment
+      # there for why cmake is on the list (Flutter's own Gradle plugin wires a
+      # CMakeLists into :app) and why this is about explicit inputs rather than
+      # saved seconds.
       - name: Install Android SDK packages for the Rust build
         run: |
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-34" "build-tools;34.0.0" \
+            "platforms;android-$ANDROID_API" \
+            "build-tools;$ANDROID_BUILD_TOOLS" \
+            "cmake;$ANDROID_CMAKE" \
             "ndk;$FLUTTER_NDK_VERSION" \
             > /dev/null
+      # Gradle's dependency cache and wrapper distribution, which this job was
+      # rebuilding from scratch on every run. android-build has had this since
+      # it was written; this job never did, and the gap shows — the SAME
+      # `flutter build apk --debug` command takes ~2m40s there and took ~5m40s
+      # here. Unlike android-actions/setup-android (deliberately avoided just
+      # above), setup-gradle touches only GRADLE_USER_HOME: it does not install
+      # or replace platform-tools, so it cannot disturb the adb/emulator setup
+      # that made setup-android unusable in this job.
+      - uses: gradle/actions/setup-gradle@v4
       # Warm up the native build BEFORE the emulator step.
       #
       # This step — not the --timeout flag further down — is what fixes the
@@ -318,8 +467,18 @@ jobs:
       # the emulator-runner step is what provides the device that `flutter test
       # integration_test` needs, so it cannot also be where the slow build
       # happens without being inside the load window again.
+      #
+      # --target-platform android-x64 because the AVD is x86_64 (see arch:
+      # below) and a warm-up is only worth the ABIs the real build will use.
+      # Without it this step built the crate FOUR times — armv7 (~26s), arm64
+      # (~12s), x86_64 (~11s), x86 (~11s) — while the test-phase build that
+      # follows compiles exactly x86_64 and x86, which is what the emulator
+      # loads. The two arm builds were pure waste, plus the arm engine
+      # artifacts and packaging on top.
       - name: Warm up Gradle, cargokit and Rust build caches
-        run: flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true
+        run: |
+          flutter build apk --debug --target-platform "$ANDROID_WARMUP_TARGET_PLATFORM" \
+            --dart-define=LIBERATED_BREAD_MOCK=true
       # The Rust toolchain + NDK this job adds (~4 GB), plus the warm-up build
       # output, can starve the emulator of disk and prevent it from booting.
       # Reclaim space from large preinstalled toolchains we don't use before
@@ -358,40 +517,45 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Run integration tests on emulator
-        # Outer bound so a genuinely hung test fails in an hour rather than
+        # Outer bound so a genuinely hung test fails promptly rather than
         # sitting on the runner for the 6-hour job default — the per-test
-        # --timeout below is deliberately generous.
-        timeout-minutes: 60
+        # --timeout inside the script is deliberately generous. Sized for the
+        # TWO attempts scripts/ci-emulator-tests.sh makes
+        # (2 x ANDROID_EMULATOR_ATTEMPT_TIMEOUT) plus the AVD boot, with
+        # headroom.
+        timeout-minutes: 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
-          target: google_apis
-          arch: x86_64
-          profile: pixel_6
-          # The e2e walkthrough needs scripts/e2e_shot_server.py on the host
-          # and 127.0.0.1 (which on an emulator reaches the emulator, not the
-          # host). Run it via scripts/e2e-walkthrough.sh on macOS.
+          target: ${{ env.ANDROID_EMULATOR_TARGET }}
+          arch: ${{ env.ANDROID_EMULATOR_ARCH }}
+          profile: ${{ env.ANDROID_EMULATOR_PROFILE }}
+          # ONE line, and it has to stay one line. This input is not handed to
+          # a shell as a script: the action splits it on newlines and execs
+          # each line separately as `/usr/bin/sh -c '<line>'`. So multi-line
+          # constructs never parse (a function body reaches end-of-input mid-
+          # definition), nothing persists between lines, and /usr/bin/sh is
+          # dash on the Ubuntu runner — no pipefail, no `[[`.
           #
-          # --timeout raises the per-test *body* timeout only. It is defence in
-          # depth for slow test bodies — an emulator on swiftshader with 2 cores
-          # is slow — and it CANNOT extend the load phase, whose 12-minute limit
-          # is hardcoded in package:test_core's synthetic load suite. Keeping
-          # loading inside that limit is the warm-up build step's job.
-          # Logcat runs in the background for the whole test session and is
-          # uploaded on every outcome below: when the harness hangs waiting
-          # for the app's VM service (as an engine-level failure at startup
-          # does), the step log shows nothing at all — the device log is the
-          # only place the actual failure is visible.
-          script: |
-            adb logcat -c || true
-            adb logcat -v time > emulator-logcat.txt 2>&1 &
-            flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
+          # Everything that used to be inlined here — the device log, the
+          # bounded retry, and the reasoning behind both — is in the script,
+          # where bash reads it as a whole and it can be run on a laptop.
+          script: ./scripts/ci-emulator-tests.sh
+      # The device log is the only place an engine-level startup failure is
+      # visible: when the harness hangs waiting for the app's VM service, the
+      # step log shows nothing at all. On a retry there is one file per
+      # attempt — emulator-logcat.txt is the attempt that decided the step and
+      # emulator-logcat-attemptN.txt each earlier one. Diagnosing the settling
+      # race needed exactly this: a failing device log to diff against a
+      # passing one.
       - name: Upload emulator logcat
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: emulator-logcat-api${{ matrix.api-level }}
-          path: emulator-logcat.txt
+          path: |
+            emulator-logcat.txt
+            emulator-logcat-attempt*.txt
           if-no-files-found: warn
 
   ios-build:
@@ -405,12 +569,14 @@ jobs:
     # Merging costs granularity — a flaky test also reddens the build smoke —
     # which is the deliberate trade for roughly halving the macOS spend.
     #
-    # Raised from 45 to cover the simctl boot and the test run on top of the
-    # build. The test step carries its own tighter timeout below.
-    timeout-minutes: 75
+    # Lowered from 75: the simulator now boots concurrently with the build and
+    # the integration tests run as a single device cycle (see the aggregate
+    # entrypoint below), so even a fully cold-cache run fits comfortably. The
+    # test step carries its own tighter timeout below.
+    timeout-minutes: 60
     needs: [flutter, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -419,7 +585,7 @@ jobs:
       # cargokit compiles the Rust crate during `flutter build ios`.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+          targets: ${{ env.RUST_IOS_TARGETS }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
@@ -432,8 +598,64 @@ jobs:
       # invariant those checks encode stays true.
       - name: Use CocoaPods for plugin resolution (disable SPM)
         run: flutter config --no-enable-swift-package-manager
-      - name: Build iOS (simulator, no codesign)
-        run: flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true
+      # Start the boot in the background so it overlaps the build below —
+      # booted-and-ready cost ~65 serial seconds when it sat between the build
+      # and the tests. `simctl boot` only STARTS the boot (it returns in
+      # seconds); the blocking `bootstatus -b` wait is its own step right before
+      # the tests, by which point the boot has long finished. A boot failure
+      # therefore still surfaces at that wait step, exactly where it did when
+      # this was one serial step.
+      #
+      # Placed HERE rather than right after checkout, which is where it went
+      # first. The build is ~2 minutes, so it already covers a ~65s boot twice
+      # over; starting any earlier only leaves a booted simulator idling through
+      # the SDK restore, rustup and pub get, holding a couple of GB and taking
+      # cycles from a 3-core runner during the part of the job that is actually
+      # CPU-bound. Overlap enough to hide the boot, not more.
+      #
+      # The first available iPhone in the runner image is used rather than a
+      # pinned model so an Xcode image bump that retires a device name cannot
+      # break the job.
+      - name: Start booting an iOS simulator (async)
+        id: sim
+        run: |
+          set -euo pipefail
+          # `simctl list devices available` prints "    iPhone 15 (UDID) (Shutdown)".
+          udid="$(xcrun simctl list devices available | awk -F'[()]' '/^ +iPhone/ { print $2; exit }')"
+          if [ -z "$udid" ]; then
+            echo "::error::No iPhone simulator available on this runner image."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Booting simulator $udid in the background"
+          xcrun simctl boot "$udid" || true   # non-zero if already booted
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      # --target is the point of this step, not an afterthought.
+      #
+      # This build exists to move the app build OUTSIDE `flutter test`'s loading
+      # phase, which package:test_core caps at a hardcoded 12 minutes that no
+      # flag can raise. It was building lib/main.dart while the test step built
+      # integration_test/ci_all_test.dart — a DIFFERENT Dart entrypoint, so the
+      # kernel differed and Xcode relinked. Measured on a warm run: 95.7s here,
+      # then another 64.1s inside the load window doing largely the same work.
+      # Building the entrypoint the tests actually use makes the second build
+      # incremental against the first instead of a near-repeat of it.
+      #
+      # What that costs: the bundle verified below is the test-harness app
+      # rather than the one main() produces. Nothing checked here is affected —
+      # Info.plist keys, CFBundleIdentifier and the linked Rust framework all
+      # come from the Runner target and the pods, which are identical either
+      # way — and lib/main.dart still gets compiled on Android (debug and
+      # release) and Linux (debug and release), so no iOS-only compile coverage
+      # is lost.
+      #
+      # --no-pub because the `flutter pub get` step above already ran; without
+      # it every invocation re-resolves the whole dependency set.
+      - name: Build iOS (simulator, no codesign) — the test entrypoint
+        run: |
+          flutter build ios --debug --no-codesign --simulator --no-pub \
+            --target=integration_test/ci_all_test.dart \
+            --dart-define=LIBERATED_BREAD_MOCK=true
 
       # ── verify the artifact, not just the exit code ─────────────────────────
       # `flutter build ios` running pod install itself means a *failed* pod
@@ -499,32 +721,35 @@ jobs:
       # device, so an iOS-only break in plugin registration, platform channels
       # or FFI initialisation had zero automated coverage.
       #
-      # One simulator only — macOS minutes bill at 10x. The first available
-      # iPhone in the runner image is used rather than a pinned model so an
-      # Xcode image bump that retires a device name cannot break the job.
-      - name: Boot an iOS simulator
-        id: sim
-        run: |
-          set -euo pipefail
-          # `simctl list devices available` prints "    iPhone 15 (UDID) (Shutdown)".
-          udid="$(xcrun simctl list devices available | awk -F'[()]' '/^ +iPhone/ { print $2; exit }')"
-          if [ -z "$udid" ]; then
-            echo "::error::No iPhone simulator available on this runner image."
-            xcrun simctl list devices available
-            exit 1
-          fi
-          echo "Booting simulator $udid"
-          xcrun simctl boot "$udid" || true   # non-zero if already booted
-          xcrun simctl bootstatus "$udid" -b
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      # One simulator only — macOS minutes bill at 10x. The boot itself was
+      # started right after checkout; this is only the wait, and by now it is
+      # normally already terminal.
+      - name: Wait for the simulator to finish booting
+        run: xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+      # ci_all_test.dart, NOT the integration_test directory: on a device every
+      # file passed to `flutter test` is its own Dart entrypoint and pays a full
+      # kernel-compile → Xcode build → install → launch cycle, ~2 minutes each
+      # on this runner with every cache warm. The aggregate bundles the
+      # mock-safe suites into one cycle. The linux-desktop job still runs the
+      # files individually, so per-process isolation keeps coverage there, and
+      # test/platform/integration_aggregate_test.dart fails the cheap job if a
+      # suite is missing from the aggregate — or if an e2e one is added to it.
+      #
+      # --exclude-tags=e2e is defence in depth, and does real work despite what
+      # an earlier version of this comment claimed. It is true that a FILE-level
+      # @Tags in an imported library is invisible to it (which is why e2e files
+      # are kept out by omission), but a group- or test-level `tags:` inside an
+      # imported suite IS registered at runtime and IS filtered by this flag.
+      # Dropping it left that case running on a device.
+      #
       # -d is required, not optional: macos runners also expose the macOS
-      # desktop device, and `flutter test integration_test` refuses to run with
-      # more than one device connected.
+      # desktop device, and `flutter test` refuses to run with more than one
+      # device connected.
       #
       # No separate warm-up step is needed here, unlike android-integration:
-      # `flutter test integration_test` builds the app during the *loading*
-      # phase, which package:test_core caps at a hardcoded 12 minutes that no
-      # flag can raise — but the "Build iOS (simulator, no codesign)" step above
+      # `flutter test` builds the app during the *loading* phase, which
+      # package:test_core caps at a hardcoded 12 minutes that no flag can
+      # raise — but the "Build iOS (simulator, no codesign)" step above
       # already populated the Xcode and cargo caches in this same job, so the
       # rebuild inside that window is incremental. That is a third reason these
       # are one job.
@@ -534,7 +759,8 @@ jobs:
       - name: Run integration tests on the simulator (mock mode)
         timeout-minutes: 30
         run: |
-          flutter test integration_test \
+          flutter test integration_test/ci_all_test.dart \
+            --no-pub \
             --exclude-tags=e2e \
             -d "${{ steps.sim.outputs.udid }}" \
             --timeout 1200s \
@@ -589,7 +815,7 @@ jobs:
     # must not burn runner minutes on a native build.
     needs: [flutter, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -602,22 +828,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      # The Linux desktop toolchain. Flutter's own `flutter doctor` lists these
-      # as the Linux requirements, and the runner image ships none of the -dev
-      # packages:
-      #   clang / cmake / ninja-build / pkg-config  the build system itself
-      #   libgtk-3-dev      the GTK 3 shell the runner in linux/ is written against
-      #   liblzma-dev       transitively required to link against GTK
-      #   libsecret-1-dev   flutter_secure_storage_linux (HA token storage)
-      #   libjsoncpp-dev    pulled in by the CMake/plugin toolchain
-      #   xvfb              virtual X server, so the app can actually RUN below
+      # The Linux desktop toolchain — the runner image ships none of the -dev
+      # packages. The list itself is LINUX_DESKTOP_PACKAGES in the env block at
+      # the top of this file, where each entry is annotated; it lives there
+      # rather than here so scripts/setup.sh installs exactly what CI does
+      # without a parser that has to understand `apt-get install` and its line
+      # continuations.
+      #
+      # Unquoted on purpose: word splitting is what turns the single
+      # space-separated value into one argument per package.
       - name: Install Linux desktop build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev \
-            xvfb
+          # shellcheck disable=SC2086
+          sudo apt-get install -y --no-install-recommends ${LINUX_DESKTOP_PACKAGES:?LINUX_DESKTOP_PACKAGES is empty — the env key was renamed or removed, and installing nothing here surfaces later as an unrelated CMake/GTK error inside flutter build linux}
       - run: flutter pub get
 
       # ── release build ───────────────────────────────────────────────────────
@@ -747,7 +971,17 @@ jobs:
           status=0
           for t in integration_test/*_test.dart; do
             echo "::group::$t"
-            if grep -qE "@Tags\(\[.*'e2e'.*\]\)" "$t"; then
+            # ci_all_test.dart is the device jobs' aggregate of the very files
+            # this loop iterates — running it here would execute every suite
+            # twice, and in one process, when this loop's whole point is a
+            # fresh invocation per file (both for the VM-service bug above and
+            # for the process isolation the aggregate gives up).
+            if [ "$(basename "$t")" = "ci_all_test.dart" ]; then
+              echo "SKIP  $t (device-job aggregate — its imports each run individually here)"
+              echo "::endgroup::"
+              continue
+            fi
+            if tr '\n' ' ' < "$t" | grep -qE "@Tags[[:space:]]*\([[:space:]]*(const[[:space:]]*)?(<[^>]*>[[:space:]]*)?\[[^]]*['\"]e2e['\"]"; then
               echo "SKIP  $t (file-level @Tags(['e2e']) — excluded by --exclude-tags=e2e)"
               echo "::endgroup::"
               continue

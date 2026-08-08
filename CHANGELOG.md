@@ -225,6 +225,128 @@ heading.
   the committed PNG is the master and a stale vector of the old logo would
   have silently won back if the PNG were ever removed.
 
+- **The Android emulator job stopped hanging on a settling race.** It had hung
+  for its full timeout with zero Dart output while the same suites passed on
+  Linux and the iOS simulator, which reads as a graphics flake and is not one:
+  diffing the failing run's logcat against a passing one shows
+  `FlutterRenderer: Width is zero. 0,0` in *both*, while only the failing run
+  recreates `MainActivity` for a configuration change four seconds after the
+  Dart VM service came up — orphaning the isolate `flutter_tools` had attached
+  to, which then waited forever. It happened while the launcher and Play
+  Services were still ANR-ing their way through startup. The manifest already
+  declares Flutter's own `configChanges` set, so the fix is to remove the
+  churn: CI now boots `aosp_atd` (Google's CI image, no launcher or Play
+  Services, and faster to boot), and the test run makes two attempts each
+  bounded by `ANDROID_EMULATOR_ATTEMPT_TIMEOUT` — a bound rather than a bare
+  retry, because the failure hangs instead of exiting, so the step timeout
+  alone left nothing to retry with. A passing retry still warns and uploads
+  both attempts' logcats. That logic is a real script,
+  `scripts/ci-emulator-tests.sh`, rather than an inline `script:` block:
+  `android-emulator-runner` splits that input on newlines and execs each line
+  as its own `/usr/bin/sh -c`, so a function body or an `if`/`fi` cannot
+  parse, nothing carries between lines, and the shell is dash. The workflow
+  now passes one line and the retry runs under bash — where it can also be
+  exercised against stub `flutter`/`adb` binaries locally.
+
+- **CI's toolchain pins are declared once and read once, instead of being
+  grepped out of the whole workflow.** `scripts/ci-versions.sh` used to hunt
+  values out of step bodies: the highest `platforms;android-NN` anywhere in
+  the file, the first `targets:` line containing `-android`, packages
+  recovered from `apt-get install` and its line continuations, the emulator's
+  settings found by scanning forward from a marker. Every one of those could
+  be tripped by a **comment** — naming an API level in prose really did change
+  what developer machines installed, twice, while this file was being edited.
+  Now every pinned version lives in ci.yml's top-level `env:` block, each step
+  interpolates it, and the parser reads that one block and nothing else, so
+  prose and configuration can no longer be confused. Output is unchanged apart
+  from a new `CI_CMAKE_VERSION`, and `scripts/setup.sh` plus the session hook
+  now install the matching CMake so dev machines stop hitting the same
+  mid-build install CI did. GitHub does not expose the `env` context to
+  `strategy:`, so the emulator's `api-level` matrix is the one repeated
+  literal — `test/platform/deployment_targets_test.dart` asserts it matches
+  its env key.
+- **Platform SDK floors raised to what the pinned Flutter actually supports,
+  and locked together by a test.** Every platform declared its floor in more
+  than one file and nothing cross-checked them, so they had drifted apart in
+  every direction:
+  - **iOS 12.0 → 13.0** across `ios/Runner.xcodeproj`, `AppFrameworkInfo.plist`
+    and the commented `ios/Podfile` platform line; the Rust core podspec went
+    **11.0 → 13.0**.
+  - **macOS 10.14 → 10.15**, with the macOS podspec **10.11 → 10.15**.
+  - **`rust_builder` Android `compileSdkVersion` 33 → 36** (matching the app's
+    `flutter.compileSdkVersion`) and **`minSdkVersion` 19 → 24** (matching the
+    app's). The stale 33 also made Gradle stop mid-build to download an SDK
+    platform nothing else wanted — measured at 2.5s, so the reason to fix it
+    is the three-release gap against the app, not the seconds.
+  - **CI installs API 36** instead of 34, which no module compiled against,
+    and pins `cmake;3.22.1` alongside it — Flutter's own Gradle plugin wires a
+    `CMakeLists.txt` into `:app` for its Android 15 16 KB page-size support,
+    so AGP was installing CMake mid-build on every run (1.2s). Both are about
+    installing the build's inputs in one visible, retryable step rather than
+    having Gradle pause to accept a licence and fetch over the network.
+    The emulator stays on API 34; it is a separate axis.
+  - `rust_builder` no longer declares its own AGP on the buildscript classpath.
+    cargokit's template pinned 7.3.0 there, which could never take effect —
+    `android/settings.gradle` resolves AGP 8.6.0 first and a parent-first
+    classloader means the loaded class wins — so it only fetched a second,
+    ancient AGP while presenting a version number that looked authoritative.
+
+  13.0 and 10.15 are what Flutter 3.44.8 scaffolds for a new app, so this is
+  catching up to a decision the toolchain already made rather than a new one;
+  the practical effect is that iOS 12 and macOS 10.14 are no longer claimed.
+  New `test/platform/deployment_targets_test.dart` asserts every file
+  declaring a floor agrees and that none drops below the pinned Flutter's, so
+  the next bump cannot move one file and leave five behind.
+- **The ad-hoc IPA workflow no longer pins its own toolchain.** It had drifted
+  to Flutter 3.24.5 while CI moved to 3.44.8, so the one artifact that gets
+  installed on real hardware was built with an SDK nothing else tested.
+  `ios-adhoc.yml` now sources `scripts/ci-versions.sh` — the parser dev
+  environments already provision from — and feeds the Flutter version and the
+  iOS Rust target list out of `ci.yml` into its setup steps, so the two cannot
+  diverge again. Reading it after checkout means an ad-hoc build of an older
+  ref uses that ref's pins. The target list also fixes real work the old pin
+  caused: it carried only `aarch64-apple-ios`, so the no-secrets simulator
+  fallback made cargokit install `aarch64-apple-ios-sim` mid-build instead of
+  in the cached setup step.
+- **The Android emulator job got its Gradle cache and stopped building ABIs it
+  cannot run.** It never used `gradle/actions/setup-gradle` (the APK job always
+  had it), so it rebuilt Gradle's dependency cache every run — the same
+  `flutter build apk --debug` cost ~2m40s in one job and ~5m40s here. Its
+  warm-up build now also passes `--target-platform android-x64`: the AVD is
+  x86_64 and the test-phase build compiles exactly x86/x86_64, while the
+  warm-up had been compiling the Rust crate four times, including two arm
+  targets nothing in the job could load.
+- **CI's device integration tests now run as one cycle per platform, and the
+  iOS simulator boots while the build runs.** On a device, every file passed
+  to `flutter test` is its own kernel-compile → native build → install →
+  launch cycle (~2 minutes each on the 10x-billed macOS runner, even fully
+  cached); the new `integration_test/ci_all_test.dart` bundles the mock-safe
+  suites so the iOS and Android jobs pay that cycle once. It initialises the
+  integration-test binding itself, before the groups: the binding registers its
+  end-of-run `tearDownAll` in its constructor, so leaving that to the first
+  imported suite would scope the "all tests finished" hook to that suite and
+  fire it between the two.
+  `test/platform/integration_aggregate_test.dart` asserts both directions — a
+  mock-safe suite missing from the aggregate never runs on a device, and an
+  e2e-tagged one added to it would run where its host-side screenshot server is
+  unreachable. The linux-desktop job still runs each file in its own process,
+  so per-file isolation coverage survives. The iOS job also starts `simctl boot`
+  right after checkout and only waits for it after the build, turning ~65 serial
+  seconds of boot wait into overlap. Together: ~10m10s → ~7m of macOS wall
+  clock on a warm run, and the emulator job sheds a cycle too.
+
+  The iOS job's warm-up build now compiles the **test** entrypoint
+  (`--target=integration_test/ci_all_test.dart`) rather than `lib/main.dart`.
+  It exists to move the app build outside `flutter test`'s hardcoded
+  12-minute loading window, but it was building a different Dart entrypoint
+  than the tests use — so the kernel differed, Xcode relinked, and a warm run
+  paid 95.7s there plus another 64.1s inside the window for largely the same
+  work. Both invocations also pass `--no-pub`, since the job already ran
+  `flutter pub get`. The simulator boot moved to just before that build:
+  ~2 minutes of build already covers a ~65s boot twice over, and starting it
+  at checkout only left a booted simulator idling through the SDK restore and
+  rustup, holding memory and cycles on a 3-core runner during the CPU-bound
+  part of the job.
 - **Dev environment setup now follows CI instead of re-pinning it.**
   `scripts/ci-versions.sh` reads the Flutter/NDK/Android API/build-tools/FRB
   pins, the rustup target lists, the Linux desktop apt packages and the

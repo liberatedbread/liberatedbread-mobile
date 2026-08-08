@@ -25,7 +25,7 @@ app on **Linux** and **macOS**.
 | Tool | Version | How to Check |
 |------|---------|-------------|
 | Git | any | `git --version` |
-| Flutter | 3.24+ (stable) | `flutter --version` |
+| Flutter | 3.44+ (stable) | `flutter --version` |
 | Rust | stable (1.82+) | `rustc --version` |
 
 No `cargo-ndk` needed: cargokit (the flutter_rust_bridge native-build plugin)
@@ -35,10 +35,27 @@ drives the NDK itself during `flutter build`.
 
 | Tool | Version |
 |------|---------|
-| Android SDK | API 34 |
+| Android SDK | API 36 — the pinned Flutter's `flutter.compileSdkVersion` |
 | Android NDK | CI's `FLUTTER_NDK_VERSION` — the pinned Flutter's `flutter.ndkVersion` |
-| Android SDK Build-Tools | 34.0.0 |
+| Android SDK Build-Tools | CI's `ANDROID_BUILD_TOOLS` — AGP 8.6's default; a newer one only adds a download |
 | Java (for Gradle) | 17+ |
+
+The emulator is a separate axis: it boots API 34 (see the CI table below), and
+nothing requires it to match the compile SDK.
+
+Every pinned version is declared once, in the top-level `env:` block of
+`.github/workflows/ci.yml`, and each step interpolates it (`${{ env.KEY }}`, or
+`$KEY` inside `run:`). `scripts/ci-versions.sh` reads exactly that block —
+nothing else in the file — which is what lets the setup scripts provision the
+same toolchain CI uses. **To pin something new, add a key there and reference
+it; do not inline a version at a use site.** The parser previously scraped
+values out of step bodies with file-wide greps, and a version named in a
+*comment* could change what dev machines installed.
+
+One value is repeated rather than interpolated: GitHub does not expose the
+`env` context to `strategy:`, so the emulator job's `api-level` matrix carries
+the literal alongside `ANDROID_EMULATOR_API`.
+`test/platform/deployment_targets_test.dart` asserts the two agree.
 
 Run `./scripts/ci-versions.sh` for the values CI is on right now; `./scripts/setup.sh`
 installs exactly those.
@@ -58,11 +75,10 @@ Only needed if you want to run the app on your Linux desktop (see
 one extra for secure storage:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y \
-  clang cmake ninja-build pkg-config \
-  libgtk-3-dev liblzma-dev libsecret-1-dev libjsoncpp-dev
-# optional: run headlessly (no display), the way CI does
-sudo apt-get install -y xvfb
+eval "$(./scripts/ci-versions.sh)"
+# xvfb is in the list: CI runs the app headlessly and so can you.
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+  ${CI_LINUX_DESKTOP_PACKAGES}
 ```
 
 | Package | Why |
@@ -99,7 +115,7 @@ What it does:
 6. Installs the Linux desktop toolchain via apt (GTK 3, clang/cmake/ninja,
    `libsecret`, Xvfb) — Linux only, skipped on non-apt distros with the list
    printed so you can install the equivalents
-7. Sets up Android SDK components (platform, build-tools, NDK)
+7. Sets up Android SDK components (platform, build-tools, CMake, NDK)
 8. Installs the emulator and system image and creates the
    `liberated_bread_test` AVD — same image and device profile CI boots
 9. Runs `pod install` on macOS
@@ -109,7 +125,7 @@ What it does:
 
 None of the above are pinned in the setup script.
 `scripts/ci-versions.sh` reads them out of `.github/workflows/ci.yml` — the
-Flutter version, NDK, Android API and build-tools, the FRB codegen pin, the
+Flutter version, NDK, Android API, build-tools and CMake, the FRB codegen pin, the
 rustup target lists, the apt package list, and the emulator's API level,
 system image target/arch and device profile. Bumping CI moves every dev
 environment with it. To see what your environment will use:
@@ -136,7 +152,7 @@ same CI-derived values, in three tiers:
 |------|------|------|
 | Host | Flutter SDK, `flutter pub get`, host Rust library | always |
 | Linux desktop | the apt packages from CI's `linux-desktop` job | wherever apt is usable |
-| Android | SDK platform, build-tools, NDK, cross targets, emulator, `liberated_bread_test` AVD, `android/local.properties` | when `/dev/kvm` exists and there is disk for it |
+| Android | SDK platform, build-tools, CMake, NDK, cross targets, emulator, `liberated_bread_test` AVD, `android/local.properties` | when `/dev/kvm` exists and there is disk for it |
 
 The optional tiers skip themselves — with a logged reason — instead of failing
 the session, and both can be forced or suppressed:
@@ -183,7 +199,7 @@ Download from https://docs.flutter.dev/get-started/install or use the setup
 script. Ensure `flutter` is on your PATH.
 
 ```bash
-flutter --version    # Should show 3.24.x
+flutter --version    # Should match ci.yml's FLUTTER_VERSION
 flutter doctor       # Check for issues
 ```
 
@@ -210,7 +226,8 @@ rustup target add \
 ### 3. Install Cargo Tools
 
 ```bash
-cargo install --locked flutter_rust_bridge_codegen@2.9.0
+eval "$(./scripts/ci-versions.sh)"
+cargo install --locked "flutter_rust_bridge_codegen@${CI_FRB_VERSION}"
 ```
 
 ### 4. Android SDK
@@ -220,8 +237,13 @@ versions `./scripts/ci-versions.sh` prints, since the NDK moves with the
 Flutter pin:
 
 ```bash
-sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" \
-  "ndk;$(./scripts/ci-versions.sh | sed -n 's/^CI_NDK_VERSION=//p')"
+# One eval, then interpolate — ci-versions.sh prints every CI_* value.
+eval "$(./scripts/ci-versions.sh)"
+sdkmanager "platform-tools" \
+  "platforms;android-${CI_ANDROID_API}" \
+  "build-tools;${CI_BUILD_TOOLS_VERSION}" \
+  "cmake;${CI_CMAKE_VERSION}" \
+  "ndk;${CI_NDK_VERSION}"
 ```
 
 Set `ANDROID_HOME`:
@@ -234,9 +256,10 @@ For the emulator, add the emulator package and the system image CI boots, then
 create the AVD `scripts/run-android.sh` looks for:
 
 ```bash
-sdkmanager "emulator" "system-images;android-34;google_apis;x86_64"
+eval "$(./scripts/ci-versions.sh)"
+sdkmanager "emulator" "${CI_EMULATOR_SYSTEM_IMAGE}"
 avdmanager create avd -n liberated_bread_test \
-  -k "system-images;android-34;google_apis;x86_64" -d pixel_6
+  -k "${CI_EMULATOR_SYSTEM_IMAGE}" -d "${CI_EMULATOR_PROFILE}"
 ```
 
 Emulation needs KVM on Linux (`sudo apt-get install -y qemu-kvm && sudo usermod -aG kvm "$USER"`,
@@ -426,6 +449,11 @@ Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/error_flow_test.dart` — error state + retry
 - `integration_test/e2e_walkthrough_test.dart` — scripted screenshot
   walkthrough, tagged `e2e` (see below)
+- `integration_test/ci_all_test.dart` — aggregate entrypoint importing the
+  mock-safe suites above. On a device, every file passed to `flutter test` is
+  its own build → install → launch cycle, so this is the file to run (and the
+  one CI's device jobs run): one cycle instead of one per file. CI fails if a
+  new mock-safe `*_test.dart` is missing from its imports.
 
 ### FRB-backed tests
 
@@ -467,7 +495,11 @@ screenshot`.
 macOS + iOS Simulator only: the simulator shares the host's network, so
 `127.0.0.1` reaches the shot server. On the Android emulator `127.0.0.1` is
 the emulator itself — which is why the test is tagged `e2e` in
-`dart_test.yaml` and CI's emulator job runs with `--exclude-tags=e2e`.
+`dart_test.yaml`. Every CI job passes `--exclude-tags=e2e`, but on the device
+jobs that flag only filters group/test-level tags — a *file*-level `@Tags` is
+read from the entrypoint only, so what actually keeps this suite off a device
+is that `integration_test/ci_all_test.dart` does not import it
+(`test/platform/integration_aggregate_test.dart` asserts both directions).
 
 ### Integration tests on the Linux desktop (no emulator)
 
@@ -492,10 +524,13 @@ Bad state: Cannot add new events after calling close
 That's flutter_tools closing the observatory socket when the first app exits
 and still receiving data on it — a tooling bug, not an app bug. The same file
 passes on its own in ~23 seconds. CI therefore loops over the files one at a
-time; mirror that locally:
+time; mirror that locally (skipping `ci_all_test.dart` — it exists for the
+device jobs, and here it would only re-run the suites this loop already runs
+individually):
 
 ```bash
 for t in integration_test/*_test.dart; do
+  [ "$(basename "$t")" = ci_all_test.dart ] && continue
   xvfb-run -a flutter test "$t" -d linux --exclude-tags=e2e \
     --dart-define=LIBERATED_BREAD_MOCK=true
 done
@@ -701,14 +736,113 @@ every pull request. Six jobs:
 | `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
-| `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an APK build, frees runner disk, then `flutter test integration_test --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
-| `ios-build` | macos-latest | `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true` |
+| `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator — twice if the first attempt hits its per-attempt timeout (see below) |
+| `ios-build` | macos-latest | starts a simulator booting in the background, builds the **test entrypoint** for the simulator (`--target=integration_test/ci_all_test.dart`) so the build inside `flutter test`'s 12-minute loading window is incremental rather than a near-repeat, verifies the bundle, then runs that entrypoint on the (by now booted) simulator |
 | `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
 
-Caches: Flutter SDK, `~/.pub-cache`, `.dart_tool`, and `rust/target/` are
-cached across runs. The quick checks run first; the native build jobs wait for
-them to pass before spending runner time on the slower platform builds (fail
-fast on lint/test).
+The quick checks run first; the native build jobs wait for them to pass before
+spending runner time on the slower platform builds (fail fast on lint/test).
+
+### What CI caches
+
+| Cache | Where it comes from | Covers |
+|-------|--------------------|--------|
+| Flutter SDK + `~/.pub-cache` | `subosito/flutter-action` (`cache: true`) | every job |
+| `.dart_tool` | an explicit `actions/cache` step | the `flutter` job |
+| `rust/target/` + `~/.cargo` | `Swatinem/rust-cache` | every job that compiles Rust |
+| Gradle user home | `gradle/actions/setup-gradle` | both Android jobs |
+
+`setup-gradle` is read-only on non-default branches, so a PR reads the cache
+that a `main` run wrote — the first run after a change to the Android build
+does not benefit, later ones do.
+
+**The one thing not cached, and why it stays that way.** cargokit does not
+build into `rust/target`, so `Swatinem/rust-cache` never sees its output. It
+passes `--target-dir` explicitly: on Android that is the Gradle build directory
+(`plugin.gradle`), and on iOS it is Xcode's `TARGET_TEMP_DIR`
+(`cargokit/build_pod.sh`). Every job therefore recompiles the Rust crate for
+its cross-target from scratch.
+
+That sounds worth fixing and is not. Measured directly — a from-scratch build
+of the whole 87-crate dependency graph into an empty target dir:
+
+| | |
+|---|---|
+| compile time saved | **13.6s** |
+| cache that would buy it | **366 MB** |
+
+Restoring 366 MB costs several seconds before decompression even at a generous
+100 MB/s, has to be re-uploaded whenever the lockfile moves, and competes with
+the 2 GB Flutter SDK cache every job depends on inside the repo's 10 GB budget.
+The dependencies are light (serde, indexmap, serde_yaml, thiserror, anyhow,
+flutter_rust_bridge), which is why the number is so small. It is a losing trade
+on Android and still a losing one on the 10x-billed macOS runner, where 13.6s
+is worth about two billed minutes and the cache round-trip would eat most of
+it. Revisit only if the dependency graph grows heavy enough to move that 13.6s
+substantially.
+
+The other iOS candidates were checked and rejected for the same
+measure-first reason: `pod install` runs in **1.6s** (the plugin pods are local
+path pods, so there is nothing to download), and caching Xcode's DerivedData
+is defeated before it starts — a fresh `git checkout` gives every source a new
+mtime, and `pod install` regenerates `ios/Pods/`, so Xcode treats both as dirty
+and recompiles regardless of what was restored. Cargo is the exception that
+makes `rust-cache` work at all: it fingerprints against a restored
+`~/.cargo/registry`, whose mtimes are stable.
+
+### The Android emulator flake, and what is done about it
+
+`android-integration` has hung for its whole step timeout with **zero Dart
+output**, while the same suites passed on Linux/Xvfb and the iOS simulator
+(run 31142032906 on `main`). That looks like a graphics failure and is not one.
+Diffing that run's logcat against a passing run's:
+
+- `FlutterRenderer: Width is zero. 0,0` appears in **both**. It is normal
+  startup noise, not the fault.
+- Only the failing run logs `onDetachedFromActivityForConfigChanges`. Four
+  seconds after the Dart VM service came up, a configuration change destroyed
+  and recreated `MainActivity` with a fresh `FlutterEngine`. `flutter_tools`
+  had already attached to the first engine's isolate, so it waited forever on
+  an isolate that would never run a test — the app process sat idle for 55
+  minutes. Zero Dart output is exactly what an orphaned VM-service attach looks
+  like.
+- In the 90 seconds before launch: an ANR in `nexuslauncher`, an ANR in
+  `gms.persistent`, long monitor contention in `system_server`, Play Services
+  reaping processes "to refresh configuration". The system was still settling
+  when the app launched into it.
+
+`android/app/src/main/AndroidManifest.xml` already declares the same
+`configChanges` set Flutter's own template does, so there is no missing flag to
+add. Two changes address it instead:
+
+1. **`aosp_atd`** rather than `google_apis` — Google's Automated Test Device
+   image, without the launcher and Play Services stack that was doing the
+   churning. It also boots faster.
+2. **Two attempts, each bounded by `ANDROID_EMULATOR_ATTEMPT_TIMEOUT`.** The
+   bound is the load-bearing part: this failure *hangs* rather than exiting
+   non-zero, so with only the step's `timeout-minutes` to stop it there is
+   nothing left to retry with. By the time attempt 1 has burned its budget the
+   emulator has settled, so attempt 2 starts from the state attempt 1 wanted.
+   A retry that passes still prints a `::warning::` and keeps both logcats — a
+   flake that leaves no trace is a flake nobody fixes.
+
+That retry lives in **`scripts/ci-emulator-tests.sh`**, not in the workflow.
+`reactivecircus/android-emulator-runner` does not run its `script:` input as a
+script: it splits the input on newlines and execs each line separately as
+`/usr/bin/sh -c '<line>'`. So a function body or an `if`/`fi` never parses
+(the shell hits end-of-input mid-construct), a `set -u` on one line does not
+apply to the next, and `/usr/bin/sh` is dash on the Ubuntu runner — no
+`pipefail`. The workflow therefore passes one line, `./scripts/ci-emulator-tests.sh`,
+and the logic lives in a bash file that can be run against stub `flutter`/`adb`
+binaries on a laptop instead of only in a 40-minute CI job. Set
+`LB_EMULATOR_ATTEMPTS=1` to reproduce a failure without waiting out the retry.
+
+There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
+manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its
+own: a step sources `scripts/ci-versions.sh` and feeds the Flutter version and
+iOS Rust targets it reads out of `ci.yml` into the setup actions, so the
+shipped IPA is always built with the SDK the rest of CI tested. Because that
+read happens after checkout, building an old ref uses that ref's pins.
 
 ### Running CI locally
 

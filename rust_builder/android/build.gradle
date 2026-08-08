@@ -9,10 +9,16 @@ buildscript {
         mavenCentral()
     }
 
-    dependencies {
-        // The Android Gradle Plugin knows how to build native code with the NDK.
-        classpath 'com.android.tools.build:gradle:7.3.0'
-    }
+    // No `classpath 'com.android.tools.build:gradle:<v>'` here, deliberately.
+    // cargokit's template pinned 7.3.0, which was already dead code: the app's
+    // android/settings.gradle resolves AGP 8.6.0 through pluginManagement, that
+    // class is loaded first, and a parent-first classloader means the 7.3.0
+    // declared here could never win. All it did was make Gradle resolve (and
+    // fetch) a second, ancient AGP on every cold build, and stand as a version
+    // that looked authoritative while having no effect — the worst combination
+    // when someone later goes looking for which AGP builds this module.
+    // Inheriting it means there is exactly one AGP version in the build, the
+    // one in android/settings.gradle.
 }
 
 rootProject.allprojects {
@@ -29,9 +35,19 @@ android {
         namespace 'ca.pigscanfly.liberatedbread.rust'
     }
 
-    // Bumping the plugin compileSdkVersion requires all clients of this plugin
-    // to bump the version in their app.
-    compileSdkVersion 33
+    // Matches android/app/build.gradle's `compileSdk = flutter.compileSdkVersion`
+    // (36 for the pinned Flutter 3.44.8 — FlutterExtension.kt). cargokit's
+    // template shipped 33: the runner image carries current platforms, so 33
+    // was the only one missing and this module was the only thing asking for
+    // it, which made Gradle stop mid-build to fetch it. That cost 2.5s, not
+    // minutes — the reason to fix it is that this module was compiling against
+    // an SDK three releases older than the app it links into, not the seconds.
+    //
+    // The template's warning that "bumping this requires all clients to bump
+    // theirs" is the right instinct pointed backwards: this module is not
+    // published, its one client is the app in this repo, and that client
+    // already compiles against 36. Being BELOW the app was the hazard.
+    compileSdkVersion 36
 
     // Use the NDK version
     // declared in /android/app/build.gradle file of the Flutter project.
@@ -45,7 +61,13 @@ android {
     }
 
     defaultConfig {
-        minSdkVersion 19
+        // Matches android/app/build.gradle's literal minSdkVersion 24, which is
+        // Flutter 3.44's own floor. 19 came from the cargokit template and was
+        // a claim this module cannot honour: the app it links into refuses to
+        // install below 24, and the manifest merger takes the highest value
+        // anyway, so the only effect of the lower number was to describe an
+        // API range nothing ever built or tested.
+        minSdkVersion 24
     }
 }
 
