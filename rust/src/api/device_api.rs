@@ -871,8 +871,14 @@ struct MatchAxes {
     by_name_prefix: bool,
     /// Strong tier: a vendor-allocated identifier the device volunteered.
     service_uuids: Vec<String>,
-    /// Strong tier, network side: mDNS service types and SSDP search targets.
+    /// Strong tier, network side: mDNS service types and SSDP search targets
+    /// that identify a vendor. Only ones [`is_shared_service_type`] rejects
+    /// land here.
     service_types: Vec<String>,
+    /// The network counterpart of a low-confidence OUI: identifiers a whole
+    /// category of hardware answers to, like `upnp:rootdevice` or `_hap._tcp`.
+    /// Reported so the caller can say what matched, but never promoting.
+    shared_service_types: Vec<String>,
     /// Likely tier.
     company_ids: Vec<u16>,
     /// Identifies a vendor, not a product — except where the spec says
@@ -887,9 +893,18 @@ impl MatchAxes {
         !self.by_name_prefix
             && self.service_uuids.is_empty()
             && self.service_types.is_empty()
+            && self.shared_service_types.is_empty()
             && self.company_ids.is_empty()
             && self.mac_prefix.is_none()
             && self.port.is_none()
+    }
+
+    /// Every network identifier that matched, shared ones last. What the UI
+    /// reports; the confidence rule reads the two lists separately.
+    fn all_service_types(&self) -> Vec<String> {
+        let mut all = self.service_types.clone();
+        all.extend(self.shared_service_types.iter().cloned());
+        all
     }
 
     /// How much the matched OUI is worth, or `Low` when none matched. `Low` is
@@ -906,22 +921,31 @@ impl MatchAxes {
     /// a name prefix on its own is ordinary, a name prefix on a device whose
     /// OUI also belongs to that vendor is not.
     ///
-    /// A low-confidence OUI does not count. It is the one axis that can match
-    /// by coincidence rather than by design — a block IEEE subdivided among
-    /// fifteen companies, or a radio module vendor's block carried by every
-    /// product that ever used the chip — so letting it be half of an
+    /// Three axes deliberately do not count, because each can match by
+    /// coincidence rather than by design, and letting one be half of an
     /// "everything agrees" verdict is exactly how a scanner ends up confidently
-    /// naming the wrong product.
+    /// naming the wrong product:
+    ///
+    /// - a low-confidence OUI (a block IEEE subdivided among fifteen companies,
+    ///   or a radio module vendor's block carried by every product using the
+    ///   chip);
+    /// - a shared service type or search target (`upnp:rootdevice` is answered
+    ///   by every router, printer and NAS on the link);
+    /// - a default port, which the DTO itself documents as saying nothing —
+    ///   port 80 does not tell you who is listening on it.
     fn agreeing(&self) -> usize {
         usize::from(self.by_name_prefix)
             + usize::from(!self.service_uuids.is_empty())
             + usize::from(!self.service_types.is_empty())
             + usize::from(!self.company_ids.is_empty())
             + usize::from(self.mac_prefix_confidence() >= MacPrefixConfidence::Medium)
-            + usize::from(self.port.is_some())
     }
 
     fn confidence(&self) -> MatchConfidence {
+        // `service_types` here is only the vendor-specific half: a match on
+        // `_hue._tcp` is proof-shaped, a match on `upnp:rootdevice` is not, and
+        // before that split every UPnP root device on the link was reported as
+        // a Strong "Philips Hue Bridge".
         if !self.service_uuids.is_empty() || !self.service_types.is_empty() || self.agreeing() >= 2
         {
             MatchConfidence::Strong
@@ -1089,6 +1113,17 @@ fn match_network_axes(
     }
 
     let mut service_types: Vec<String> = Vec::new();
+    let mut shared_service_types: Vec<String> = Vec::new();
+    // Sorted into the bucket its genericness earns: a vendor's own type proves
+    // a lot, one a whole category answers to proves nothing on its own.
+    let mut record = |declared: &str, normalized: &str| {
+        if is_shared_service_type(normalized) {
+            shared_service_types.push(declared.to_string());
+        } else {
+            service_types.push(declared.to_string());
+        }
+    };
+
     if let Some(declared) = identity
         .mdns_service_type
         .as_ref()
@@ -1099,7 +1134,7 @@ fn match_network_axes(
         // trailing-dot difference is not a missed device.
         let wanted = normalize_service_type(declared);
         if device_types.contains(&wanted) {
-            service_types.push(declared.clone());
+            record(declared, &wanted);
         }
     }
     for target in &identity.ssdp_search_targets {
@@ -1108,7 +1143,7 @@ fn match_network_axes(
             .iter()
             .any(|t| t.eq_ignore_ascii_case(target))
         {
-            service_types.push(target.clone());
+            record(target, &normalize_service_type(target));
         }
     }
 
@@ -1130,9 +1165,54 @@ fn match_network_axes(
     MatchAxes {
         by_name_prefix,
         service_types,
+        shared_service_types,
         port,
         ..MatchAxes::default()
     }
+}
+
+/// Whether a network identifier is answered by a whole category of hardware
+/// rather than by one vendor's product.
+///
+/// The network counterpart of [`MacPrefixConfidence::Low`], and it exists for
+/// the same reason: an identifier that many unrelated devices volunteer ranks a
+/// device, it does not name one. Without this, a spec declaring
+/// `upnp:rootdevice` matched every router, printer and NAS on the link at the
+/// top confidence tier, and the Wi-Fi tab badged them with that spec's product
+/// name.
+///
+/// A fixed list rather than a spec-declared flag, deliberately: these are
+/// published, standard identifiers whose generic-ness is a property of the
+/// protocol and not of any one device, so it should not be restated (or
+/// forgotten) per spec. Compared on the [`normalize_service_type`] stem, so
+/// `_hap._tcp.local.` and `_hap._tcp` are the same entry.
+fn is_shared_service_type(normalized: &str) -> bool {
+    matches!(
+        normalized,
+        // UPnP boilerplate: the root-device and basic-device announcements
+        // every SSDP responder sends, plus the wildcard search target.
+        "upnp:rootdevice"
+            | "ssdp:all"
+            | "urn:schemas-upnp-org:device:basic:1"
+            // Whole-ecosystem DNS-SD types. HomeKit and AirPlay in particular
+            // cover hundreds of unrelated products.
+            | "_hap._tcp"
+            | "_airplay._tcp"
+            | "_raop._tcp"
+            | "_companion-link._tcp"
+            | "_googlecast._tcp"
+            // "It speaks HTTP" and "it is a printer" are categories, not
+            // products.
+            | "_http._tcp"
+            | "_https._tcp"
+            | "_ipp._tcp"
+            | "_ipps._tcp"
+            | "_printer._tcp"
+            | "_pdl-datastream._tcp"
+            | "_workstation._tcp"
+            | "_device-info._tcp"
+            | "_services._dns-sd._udp"
+    )
 }
 
 /// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
@@ -1223,6 +1303,8 @@ fn rank_matches(
         .enumerate()
         .filter_map(|(index, identity)| {
             let axes = axes_for(identity);
+            // Built before the struct moves the axes apart.
+            let matched_service_types = axes.all_service_types();
             (!axes.is_empty()).then(|| ScanMatch {
                 spec_index: index as u32,
                 device_name: identity.device_name.clone(),
@@ -1232,7 +1314,7 @@ fn rank_matches(
                 matched_service_uuids: axes.service_uuids,
                 matched_company_ids: axes.company_ids,
                 matched_mac_prefix: axes.mac_prefix,
-                matched_service_types: axes.service_types,
+                matched_service_types,
             })
         })
         .collect();
@@ -2240,6 +2322,13 @@ http_endpoints:
     name: "Root"
 "#;
 
+    impl SpecIdentityDto {
+        /// Drop the name axis so a test can isolate the network identifiers.
+        fn local_name_prefix_clear(&mut self) {
+            self.local_name_prefixes.clear();
+        }
+    }
+
     fn network_identity() -> SpecIdentityDto {
         SpecIdentityDto::from(&load_device_spec(NETWORK_YAML.into()).unwrap())
     }
@@ -2352,6 +2441,107 @@ http_endpoints:
             matches.is_empty(),
             "a BLE spec's local_name_prefix must not be enough on its own here"
         );
+    }
+
+    #[test]
+    fn a_shared_search_target_alone_is_only_possible() {
+        // The regression this whole split exists for. hue-bridge.yaml declares
+        // `upnp:rootdevice`, and the Wi-Fi scan's M-SEARCH uses `ST: ssdp:all`,
+        // which every UPnP responder answers with exactly that. Before this,
+        // the router, the printer and the NAS were each reported Strong and
+        // badged "Philips Hue Bridge".
+        let mut identity = network_identity();
+        identity.mdns_service_type = None;
+        identity.ssdp_search_targets = vec!["upnp:rootdevice".into()];
+        identity.local_name_prefix_clear();
+
+        let device = NetworkDeviceDto {
+            ssdp_targets: vec!["upnp:rootdevice".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches.len(), 1, "it still ranks — it just cannot claim");
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+        assert_eq!(
+            matches[0].matched_service_types,
+            vec!["upnp:rootdevice".to_string()],
+            "still reported, so the UI can say what matched"
+        );
+    }
+
+    #[test]
+    fn a_shared_mdns_type_alone_is_only_possible() {
+        // roku-ecp declares `_airplay._tcp`, lifx-z and rachio declare
+        // `_hap._tcp`. An Apple TV is not a Roku; a HomeKit plug is not a
+        // sprinkler controller.
+        for shared in ["_airplay._tcp.local.", "_hap._tcp.local."] {
+            let mut identity = network_identity();
+            identity.mdns_service_type = Some(shared.into());
+            identity.ssdp_search_targets = vec![];
+            identity.local_name_prefix_clear();
+
+            let device = NetworkDeviceDto {
+                service_types: vec![shared.into()],
+                ..anonymous_host()
+            };
+            let matches = match_network_device(vec![identity], device);
+            assert_eq!(
+                matches[0].confidence,
+                MatchConfidence::Possible,
+                "{shared} is answered by a whole ecosystem"
+            );
+        }
+    }
+
+    #[test]
+    fn a_vendor_specific_mdns_type_is_still_strong() {
+        // The other half of the contract: splitting shared identifiers out must
+        // not weaken a real one. `_testbridge._tcp` belongs to one product.
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn a_shared_type_still_corroborates_a_real_signal() {
+        // A shared identifier is not evidence on its own, but it does not
+        // subtract either: the vendor-specific type still carries the match.
+        let mut identity = network_identity();
+        identity.ssdp_search_targets = vec!["upnp:rootdevice".into()];
+
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ssdp_targets: vec!["upnp:rootdevice".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(
+            matches[0].matched_service_types.len(),
+            2,
+            "both are reported even though only one of them ranks"
+        );
+    }
+
+    #[test]
+    fn a_default_port_does_not_promote_a_name_prefix() {
+        // Port 80 says nothing about who is listening, which the DTO's own doc
+        // comment states — so it must not be half of a "two signals agree"
+        // promotion, for the same reason a shared block is not.
+        let mut identity = network_identity();
+        identity.mdns_service_type = None;
+        identity.ssdp_search_targets = vec![];
+
+        let device = NetworkDeviceDto {
+            hostname: Some("TestBridge-1.local".into()),
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
     }
 
     #[test]

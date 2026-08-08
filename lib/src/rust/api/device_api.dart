@@ -7,7 +7,7 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `confidence`, `image_upload_dto`, `is_empty`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `confidence`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`

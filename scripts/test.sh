@@ -23,8 +23,7 @@ FRB_VERSION="$CI_FRB_VERSION"
 
 FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
 export PATH="${FLUTTER_HOME}/bin:$HOME/.cargo/bin:$PATH"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$SCRIPT_DIR_EARLY"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 log()  { printf '\033[1;32m[test]\033[0m %s\n' "$*"; }

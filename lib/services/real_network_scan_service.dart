@@ -145,9 +145,15 @@ class NetworkScanCoalescer {
   NetworkDevice? next(NetworkDevice sighting) {
     final previous = _seen[sighting.host];
     final merged = previous == null ? sighting : previous.mergedWith(sighting);
-    if (previous != null && previous.hasSameIdentity(merged)) return null;
+    // Store first, always. `hasSameIdentity` decides whether the ROW needs
+    // redrawing; it deliberately ignores `sources` and `server`, which are not
+    // identity. Returning early without storing threw those away permanently:
+    // a host already known over mDNS that then answered SSDP kept showing
+    // "mDNS" forever, because the merge carrying the second source was
+    // discarded rather than remembered.
+    final unchanged = previous != null && previous.hasSameIdentity(merged);
     _seen[sighting.host] = merged;
-    return merged;
+    return unchanged ? null : merged;
   }
 }
 
@@ -239,6 +245,7 @@ class RealNetworkScanService implements NetworkScanService {
     await client.start();
     _mdns = client;
     var heard = false;
+    final resolving = <String>{};
     try {
       await for (final PtrResourceRecord type in client
           .lookup<PtrResourceRecord>(
@@ -246,6 +253,13 @@ class RealNetworkScanService implements NetworkScanService {
           .timeout(timeout, onTimeout: (sink) => sink.close())) {
         heard = true;
         if (_stopped) break;
+        // Once per type, not once per announcement. The meta-query is answered
+        // by every responder on the link, so a common type like _http._tcp
+        // arrives once per device; without this each arrival started another
+        // full resolution of the same type, and multicast_dns fans every
+        // incoming record to every pending lookup — so D duplicates cost D
+        // queries and D^2 record deliveries.
+        if (!resolving.add(type.domainName)) continue;
         // Fire the per-type resolution off rather than awaiting it: a slow or
         // unanswered service type must not hold up every other one.
         unawaited(_resolveServiceType(client, type.domainName, emit, timeout)

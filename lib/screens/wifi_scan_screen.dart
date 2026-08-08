@@ -294,7 +294,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   /// `_ipp._tcp.local` -> `_ipp._tcp`. The `.local` is on every one of them and
   /// carries no information.
   static String _prettyServiceType(String type) {
-    final trimmed = type.replaceAll(RegExp(r'\.local\.?$'), '');
+    final trimmed = stripLocalSuffix(type);
     return trimmed.isEmpty ? type : trimmed;
   }
 
