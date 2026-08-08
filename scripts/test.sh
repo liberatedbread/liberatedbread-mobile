@@ -73,8 +73,8 @@ cd "$PROJECT_DIR"
 log "flutter pub get"
 flutter pub get
 
-log "dart format --set-exit-if-changed ."
-dart format --set-exit-if-changed .
+log "dart format (tracked Dart files)"
+./scripts/ci-format.sh
 
 log "flutter analyze --fatal-infos"
 flutter analyze --fatal-infos

@@ -446,6 +446,14 @@ Two callouts worth knowing about:
 
 Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/mock_flow_test.dart` — scan → connect → discover
+- `integration_test/app_launch_test.dart` — boots the app through its **real**
+  entrypoint (`lib/main.dart`'s `main()`) and waits for the scan screen. Every
+  other test constructs `LiberatedBreadApp` itself with overridden providers,
+  which meant `main()` was executed by nothing and did not appear in
+  `coverage/lcov.info` at all. It owns the ordering and wiring the shipped app
+  depends on: `RustLib.init()`, resolving `SharedPreferences` *before* `runApp`,
+  and the one un-overridden `ProviderScope`. A break in any of those is an app
+  that dies on launch while the whole suite stays green.
 - `integration_test/error_flow_test.dart` — error state + retry
 - `integration_test/native_core_test.dart` — loads the **bundled** Rust core on
   the device and calls through it. The three bundle verifiers
@@ -460,7 +468,15 @@ Integration tests under `integration_test/` need a connected device or emulator:
 - `integration_test/e2e_walkthrough_test.dart` — scripted screenshot
   walkthrough, tagged `e2e` (see below)
 - `integration_test/ci_all_test.dart` — aggregate entrypoint importing the
-  mock-safe suites above. On a device, every file passed to `flutter test` is
+  mock-safe suites above. **Group order is load-bearing and deliberately not
+  alphabetical**: `app_launch` and `native_core` bring up `RustLib`, which is
+  process-wide, and the aggregate is one process — so they run last. Put
+  `app_launch_test.dart` in its alphabetical position (first) and
+  `mock_flow_test.dart` fails on the device jobs with `Found 0 widgets with
+  text "Battery Service"`, because the real codec parses the bulb spec and the
+  screen renders spec-driven controls instead of the raw GATT list. The
+  `linux-desktop` job cannot catch it (one process per file), so
+  `test/platform/integration_aggregate_test.dart` pins the ordering. On a device, every file passed to `flutter test` is
   its own build → install → launch cycle, so this is the file to run (and the
   one CI's device jobs run): one cycle instead of one per file. CI fails if a
   new mock-safe `*_test.dart` is missing from its imports.
@@ -742,7 +758,7 @@ every pull request. Seven jobs:
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| `analyze` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, `scripts/ci-ios-tests-selftest.sh`. Dart only — no Rust toolchain, nothing compiled |
+| `analyze` | ubuntu-latest | `scripts/ci-format.sh`, `flutter analyze --fatal-infos`, `scripts/ci-shellcheck.sh`, `scripts/ci-ios-tests-selftest.sh`. Dart only — no Rust toolchain, nothing compiled |
 | `unit-tests` | ubuntu-latest | builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | debug **and** release APK, each checked with `scripts/verify_apk.sh`; uploads the debug APK artifact |
@@ -924,6 +940,26 @@ step timeout killed everything, with no erase, no retry and no log. A reviewer
 caught that by reading it. The self-test is there to catch the next one by
 running it.
 
+### Why `dart format .` is not what CI runs
+
+`scripts/ci-format.sh` formats the tracked Dart files (`git ls-files '*.dart'`)
+rather than the working tree. `dart format .` walks `build/`, where cargokit
+stages its own `build_tool_runner.dart` — so it reformats somebody else's
+vendored source and then fails because it changed something. CI never hit it,
+because the format check runs before anything is built; **`./scripts/test.sh`
+hit it on every machine where the app had ever been run**, which is the
+green-in-CI-red-locally inversion that script exists to prevent, inverted.
+
+Deriving the list from git rather than naming `lib/ test/ …` matters for the
+opposite failure: a new top-level Dart file or directory would silently stop
+being formatted, and nothing would say so. Build output is gitignored, so it
+drops out for free.
+
+```bash
+./scripts/ci-format.sh          # check
+./scripts/ci-format.sh --write  # reformat in place
+```
+
 ### Shell is linted too
 
 The CI logic in this repo deliberately lives in `scripts/` rather than in
@@ -958,6 +994,24 @@ Exits non-zero on the first failure.
 
 Coverage uploads use `codecov/codecov-action@v4`. Set a `CODECOV_TOKEN` repo
 secret if your fork is private; public repos don't need one.
+
+`codecov.yml` makes the policy explicit, where before it was whatever Codecov's
+defaults happened to be:
+
+- **`lib/src/rust/**` is ignored.** It is flutter_rust_bridge output — 1037 of
+  4426 measured lines, 23% of the codebase, sitting at 40% and dragging the
+  reported total to 75.2% while hand-written code was at 86%. Nobody writes or
+  reviews those lines. They are *not* unverified: the `unit-tests` job
+  regenerates them and fails on any diff, and
+  `integration_test/native_core_test.dart` executes them through the real crate
+  on an iOS simulator, an Android emulator and the Linux desktop — more than a
+  host-only line count was doing for them. The effect is that the number now
+  tracks code a change can be careless with.
+- **`project` status**: `auto` against the base commit, 1% threshold. Blocks a
+  cliff, tolerates the few tenths that unrelated changes move.
+- **`patch` status**: `informational: true` — it reports how well a diff's new
+  lines are covered and never fails. Making new code blocking is a policy call;
+  flip `informational` to `false` to enforce it.
 
 ---
 
