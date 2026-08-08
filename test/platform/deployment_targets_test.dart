@@ -27,6 +27,8 @@
 // to protect. The `_floor*` constants below are therefore MINIMUMS (assert
 // `>=`), so raising a floor needs no edit here and only lowering one past what
 // the pinned Flutter supports is rejected.
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'platform_config_reader.dart';
@@ -65,6 +67,49 @@ int _compareVersions(String a, String b) {
     if (l != r) return l.compareTo(r);
   }
   return 0;
+}
+
+/// A key's value from ci.yml's TOP-LEVEL `env:` mapping.
+///
+/// Scoped the same way `scripts/ci-versions.sh`'s `_ci_env` is, and for the
+/// same reason: that block is the single declaration site for every pinned
+/// version, and reading only it is what stops a number mentioned in a comment
+/// from being read as configuration. A job-level `env:` is indented, so it is
+/// never picked up. Keep the two readers in step — if one starts accepting a
+/// shape the other rejects, this test stops guarding what CI actually does.
+String _ciEnv(String key) {
+  final contents = readRepoFile(
+    _ciWorkflow,
+    consequence: 'It is the toolchain source of truth that '
+        'scripts/ci-versions.sh reads and dev environments provision from.',
+  );
+  var inBlock = false;
+  for (final raw in const LineSplitter().convert(contents)) {
+    if (!inBlock) {
+      if (raw == 'env:' || RegExp(r'^env:\s*$').hasMatch(raw)) inBlock = true;
+      continue;
+    }
+    if (raw.trim().isEmpty || raw.trimLeft().startsWith('#')) continue;
+    if (!raw.startsWith(' ')) break; // Column-0 line ends the block.
+    final m = RegExp('^  ${RegExp.escape(key)}:\\s*(.*)\$').firstMatch(raw);
+    if (m == null) continue;
+    var value = m.group(1)!;
+    final hash = value.indexOf('#');
+    if (hash >= 0) value = value.substring(0, hash);
+    value = value.trim();
+    if (value.length >= 2 &&
+        (value.startsWith("'") && value.endsWith("'") ||
+            value.startsWith('"') && value.endsWith('"'))) {
+      value = value.substring(1, value.length - 1);
+    }
+    if (value.isNotEmpty) return value;
+  }
+  fail(
+    '$key is not declared in the top-level env: block of $_ciWorkflow. Every '
+    'pinned version belongs there — scripts/ci-versions.sh reads only that '
+    'block, so a value declared anywhere else is invisible to the setup '
+    'scripts that provision dev environments from it.',
+  );
 }
 
 /// Every capture of [pattern] in [path], failing when there are none.
@@ -235,34 +280,39 @@ void main() {
         gradleValue('compileSdkVersion'),
         consequence: 'It selects the SDK the Rust FFI module compiles against.',
       ).single;
-      // Only real sdkmanager package references carry a numeric token; the
-      // workflow's prose deliberately spells the placeholder form so this (and
-      // scripts/ci-versions.sh, which greps the same shape) cannot read a
-      // version out of a comment.
-      final installed = {
-        ..._allMatches(
-          _ciWorkflow,
-          RegExp(r'platforms;android-(\d+)'),
-          consequence: 'CI must install the SDK platform the modules compile '
-              'against.',
-        ),
-      };
-      expect(
-        installed,
-        hasLength(1),
-        reason: 'CI installs more than one SDK platform ($installed). Each '
-            'extra one is a download no module compiles against.',
-      );
+      final installed = _ciEnv('ANDROID_API');
       expect(
         rust,
-        installed.single,
+        installed,
         reason: 'rust_builder compiles against SDK $rust but CI installs '
-            '${installed.single}. When they differ, Gradle stops partway '
-            'through every Android build to download the missing platform — '
-            'the build stays green and simply costs more, every run, which is '
-            'why this went unnoticed. The app itself tracks '
-            '`flutter.compileSdkVersion`, so this is the number to keep '
-            'aligned with it.',
+            '$installed. When they differ, Gradle stops partway through every '
+            'Android build to download the missing platform — the build stays '
+            'green and simply costs more, which is why this went unnoticed. '
+            "The app tracks `flutter.compileSdkVersion`, so ci.yml's "
+            'ANDROID_API is the number to keep aligned with it.',
+      );
+    });
+
+    // The single place ci.yml repeats a pinned value instead of interpolating
+    // it, because GitHub does not expose the `env` context to `strategy:`. That
+    // makes it the only pair that can silently drift, so it is the one pair
+    // worth asserting: scripts/ci-versions.sh reads the env key, while the job
+    // that actually boots the emulator reads the matrix.
+    test('the emulator matrix agrees with ANDROID_EMULATOR_API', () {
+      final declared = _ciEnv('ANDROID_EMULATOR_API');
+      final matrix = _allMatches(
+        _ciWorkflow,
+        RegExp(r'api-level:\s*\[\s*(\d+)\s*\]'),
+        consequence: 'It is the API level the emulator job boots.',
+      ).single;
+      expect(
+        matrix,
+        declared,
+        reason: 'ci.yml boots an API $matrix emulator but declares '
+            'ANDROID_EMULATOR_API: $declared. scripts/ci-versions.sh reads the '
+            'env key, so setup.sh and the Claude Code session hook would '
+            'create an API $declared AVD for a job that runs on API $matrix — '
+            'dev environments quietly testing a different Android than CI.',
       );
     });
 
