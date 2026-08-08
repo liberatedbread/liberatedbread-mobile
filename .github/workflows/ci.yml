@@ -632,30 +632,6 @@ jobs:
     needs: [flutter, rust]
     steps:
       - uses: actions/checkout@v5
-      # Kick the simulator boot off NOW, in the background, so it overlaps the
-      # SDK cache restore and the ~2-minute build below — booted-and-ready cost
-      # ~65 serial seconds when it sat between the build and the tests. `simctl
-      # boot` only STARTS the boot (it returns in seconds); the blocking
-      # `bootstatus -b` wait lives in its own step right before the tests, by
-      # which point the boot has long finished. A boot failure therefore also
-      # surfaces at that wait step, exactly where it did when this was one
-      # serial step. The first available iPhone in the runner image is used
-      # rather than a pinned model so an Xcode image bump that retires a device
-      # name cannot break the job.
-      - name: Start booting an iOS simulator (async)
-        id: sim
-        run: |
-          set -euo pipefail
-          # `simctl list devices available` prints "    iPhone 15 (UDID) (Shutdown)".
-          udid="$(xcrun simctl list devices available | awk -F'[()]' '/^ +iPhone/ { print $2; exit }')"
-          if [ -z "$udid" ]; then
-            echo "::error::No iPhone simulator available on this runner image."
-            xcrun simctl list devices available
-            exit 1
-          fi
-          echo "Booting simulator $udid in the background"
-          xcrun simctl boot "$udid" || true   # non-zero if already booted
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -677,8 +653,64 @@ jobs:
       # invariant those checks encode stays true.
       - name: Use CocoaPods for plugin resolution (disable SPM)
         run: flutter config --no-enable-swift-package-manager
-      - name: Build iOS (simulator, no codesign)
-        run: flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true
+      # Start the boot in the background so it overlaps the build below —
+      # booted-and-ready cost ~65 serial seconds when it sat between the build
+      # and the tests. `simctl boot` only STARTS the boot (it returns in
+      # seconds); the blocking `bootstatus -b` wait is its own step right before
+      # the tests, by which point the boot has long finished. A boot failure
+      # therefore still surfaces at that wait step, exactly where it did when
+      # this was one serial step.
+      #
+      # Placed HERE rather than right after checkout, which is where it went
+      # first. The build is ~2 minutes, so it already covers a ~65s boot twice
+      # over; starting any earlier only leaves a booted simulator idling through
+      # the SDK restore, rustup and pub get, holding a couple of GB and taking
+      # cycles from a 3-core runner during the part of the job that is actually
+      # CPU-bound. Overlap enough to hide the boot, not more.
+      #
+      # The first available iPhone in the runner image is used rather than a
+      # pinned model so an Xcode image bump that retires a device name cannot
+      # break the job.
+      - name: Start booting an iOS simulator (async)
+        id: sim
+        run: |
+          set -euo pipefail
+          # `simctl list devices available` prints "    iPhone 15 (UDID) (Shutdown)".
+          udid="$(xcrun simctl list devices available | awk -F'[()]' '/^ +iPhone/ { print $2; exit }')"
+          if [ -z "$udid" ]; then
+            echo "::error::No iPhone simulator available on this runner image."
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Booting simulator $udid in the background"
+          xcrun simctl boot "$udid" || true   # non-zero if already booted
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      # --target is the point of this step, not an afterthought.
+      #
+      # This build exists to move the app build OUTSIDE `flutter test`'s loading
+      # phase, which package:test_core caps at a hardcoded 12 minutes that no
+      # flag can raise. It was building lib/main.dart while the test step built
+      # integration_test/ci_all_test.dart — a DIFFERENT Dart entrypoint, so the
+      # kernel differed and Xcode relinked. Measured on a warm run: 95.7s here,
+      # then another 64.1s inside the load window doing largely the same work.
+      # Building the entrypoint the tests actually use makes the second build
+      # incremental against the first instead of a near-repeat of it.
+      #
+      # What that costs: the bundle verified below is the test-harness app
+      # rather than the one main() produces. Nothing checked here is affected —
+      # Info.plist keys, CFBundleIdentifier and the linked Rust framework all
+      # come from the Runner target and the pods, which are identical either
+      # way — and lib/main.dart still gets compiled on Android (debug and
+      # release) and Linux (debug and release), so no iOS-only compile coverage
+      # is lost.
+      #
+      # --no-pub because the `flutter pub get` step above already ran; without
+      # it every invocation re-resolves the whole dependency set.
+      - name: Build iOS (simulator, no codesign) — the test entrypoint
+        run: |
+          flutter build ios --debug --no-codesign --simulator --no-pub \
+            --target=integration_test/ci_all_test.dart \
+            --dart-define=LIBERATED_BREAD_MOCK=true
 
       # ── verify the artifact, not just the exit code ─────────────────────────
       # `flutter build ios` running pod install itself means a *failed* pod
@@ -783,6 +815,7 @@ jobs:
         timeout-minutes: 30
         run: |
           flutter test integration_test/ci_all_test.dart \
+            --no-pub \
             --exclude-tags=e2e \
             -d "${{ steps.sim.outputs.udid }}" \
             --timeout 1200s \

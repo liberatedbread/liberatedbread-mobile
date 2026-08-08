@@ -737,7 +737,7 @@ every pull request. Six jobs:
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
 | `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator — twice if the first attempt hits its per-attempt timeout (see below) |
-| `ios-build` | macos-latest | starts a simulator booting in the background, `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true`, verifies the bundle, then runs `integration_test/ci_all_test.dart` on the (by now booted) simulator |
+| `ios-build` | macos-latest | starts a simulator booting in the background, builds the **test entrypoint** for the simulator (`--target=integration_test/ci_all_test.dart`) so the build inside `flutter test`'s 12-minute loading window is incremental rather than a near-repeat, verifies the bundle, then runs that entrypoint on the (by now booted) simulator |
 | `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
 
 The quick checks run first; the native build jobs wait for them to pass before

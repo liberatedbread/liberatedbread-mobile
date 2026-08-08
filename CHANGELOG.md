@@ -328,6 +328,19 @@ heading.
   right after checkout and only waits for it after the build, turning ~65 serial
   seconds of boot wait into overlap. Together: ~10m10s → ~7m of macOS wall
   clock on a warm run, and the emulator job sheds a cycle too.
+
+  The iOS job's warm-up build now compiles the **test** entrypoint
+  (`--target=integration_test/ci_all_test.dart`) rather than `lib/main.dart`.
+  It exists to move the app build outside `flutter test`'s hardcoded
+  12-minute loading window, but it was building a different Dart entrypoint
+  than the tests use — so the kernel differed, Xcode relinked, and a warm run
+  paid 95.7s there plus another 64.1s inside the window for largely the same
+  work. Both invocations also pass `--no-pub`, since the job already ran
+  `flutter pub get`. The simulator boot moved to just before that build:
+  ~2 minutes of build already covers a ~65s boot twice over, and starting it
+  at checkout only left a booted simulator idling through the SDK restore and
+  rustup, holding memory and cycles on a 3-core runner during the CPU-bound
+  part of the job.
 - **Dev environment setup now follows CI instead of re-pinning it.**
   `scripts/ci-versions.sh` reads the Flutter/NDK/Android API/build-tools/FRB
   pins, the rustup target lists, the Linux desktop apt packages and the
