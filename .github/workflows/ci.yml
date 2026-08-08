@@ -102,9 +102,48 @@ env:
   # A separate axis from the compile SDK: nothing requires the AVD to run the
   # API the app compiles against.
   ANDROID_EMULATOR_API: '34'
-  ANDROID_EMULATOR_TARGET: 'google_apis'
+  # aosp_atd, not google_apis: an Automated Test Device image, which is the
+  # variant Google ships for CI. It strips the launcher and the Play Services
+  # stack, and that stack is not incidental here — it is what broke the job.
+  #
+  # Diagnosed from run 31142032906 on main, where this job hung for its full
+  # 60-minute timeout with zero Dart output while the same suites passed on
+  # Linux/Xvfb and the iOS simulator. Reading that run's logcat against a
+  # passing run's:
+  #   * `FlutterRenderer: Width is zero. 0,0` appears in BOTH, so it is normal
+  #     startup noise and not the graphics failure it looks like.
+  #   * The failing run alone logs onDetachedFromActivityForConfigChanges. Four
+  #     seconds after the Dart VM service came up, an Android configuration
+  #     change destroyed and recreated MainActivity with a fresh FlutterEngine.
+  #     flutter_tools had already attached to the first engine's isolate, so it
+  #     then waited forever on an isolate that would never run a test — the app
+  #     process sat idle for 55 minutes. "Zero Dart output" is exactly what an
+  #     orphaned VM-service attach looks like.
+  #   * In the 90s before launch: an ANR in nexuslauncher, an ANR in
+  #     gms.persistent, long monitor contention in system_server, Play Services
+  #     "Scheduling killing of process to refresh configuration", and telephony
+  #     bringing up MCC/MNC. The system was still settling when the app started.
+  # (Which config field actually changed is not named anywhere in the log, so
+  # that last step is inference from what was churning, not a certainty.)
+  #
+  # android/app/src/main/AndroidManifest.xml already declares the exact
+  # configChanges set Flutter 3.44.8's own template does, byte for byte, so
+  # there is no missing flag to add on our side — the fix has to be to stop the
+  # churn. Removing the launcher and GMS removes what was doing it, and boots
+  # faster besides.
+  #
+  # aosp_atd over google_atd because nothing here needs Google APIs: the app is
+  # BLE + local storage, and CI runs it in mock mode. If something ever does,
+  # google_atd is the one-word change. scripts/setup.sh and the session hook
+  # build the local AVD from this same value, so a developer's
+  # `liberated_bread_test` AVD follows — `flutter run` installs and starts the
+  # activity directly, so a missing launcher does not affect it.
+  ANDROID_EMULATOR_TARGET: 'aosp_atd'
   ANDROID_EMULATOR_ARCH: 'x86_64'
   ANDROID_EMULATOR_PROFILE: 'pixel_6'
+  # Per-attempt bound for the emulator test run, below. Two attempts plus the
+  # AVD boot have to fit inside that step's timeout-minutes.
+  ANDROID_EMULATOR_ATTEMPT_TIMEOUT: '12m'
   # Flutter's spelling of ANDROID_EMULATOR_ARCH, for the warm-up build's
   # --target-platform. A second vocabulary for one fact (x86_64 <-> android-x64),
   # so it is declared here rather than inlined at the use site and
@@ -480,8 +519,10 @@ jobs:
       - name: Run integration tests on emulator
         # Outer bound so a genuinely hung test fails promptly rather than
         # sitting on the runner for the 6-hour job default — the per-test
-        # --timeout below is deliberately generous.
-        timeout-minutes: 30
+        # --timeout below is deliberately generous. Sized for the TWO attempts
+        # the script makes (2 x ANDROID_EMULATOR_ATTEMPT_TIMEOUT) plus the AVD
+        # boot, with headroom.
+        timeout-minutes: 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -508,16 +549,68 @@ jobs:
           # for the app's VM service (as an engine-level failure at startup
           # does), the step log shows nothing at all — the device log is the
           # only place the actual failure is visible.
+          #
+          # TWO ATTEMPTS, each bounded by `timeout`. The retry is not
+          # superstition, it is aimed at the failure documented on
+          # ANDROID_EMULATOR_TARGET above: the app launching into a system that
+          # has not finished settling. By the time attempt 1 has burned its
+          # budget the emulator is long settled, so attempt 2 starts from the
+          # state attempt 1 wanted.
+          #
+          # `timeout` around each attempt is the load-bearing part, not the
+          # `||`. That failure HANGS rather than exiting non-zero, so with only
+          # the step's timeout-minutes to stop it there is nothing left to retry
+          # with — the step is killed outright. Bounding each attempt is what
+          # turns a 60-minute red into a ~12-minute blip plus a green retry.
+          #
+          # A retry that passes still prints a ::warning:: and keeps both
+          # logcats: a flake that leaves no trace is a flake nobody fixes, and
+          # this one took a logcat diff against a passing run to explain.
           script: |
+            set -uo pipefail
             adb logcat -c || true
             adb logcat -v time > emulator-logcat.txt 2>&1 &
-            flutter test integration_test/ci_all_test.dart --exclude-tags=e2e --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true
+
+            run_tests() {
+              timeout "$ANDROID_EMULATOR_ATTEMPT_TIMEOUT" \
+                flutter test integration_test/ci_all_test.dart \
+                  --exclude-tags=e2e \
+                  --timeout 1200s \
+                  --dart-define=LIBERATED_BREAD_MOCK=true
+            }
+
+            # Capture the status directly, NOT via `if run_tests; then ... fi`
+            # followed by `$?`: after a taken-no-branch `if`, `$?` is the IF
+            # statement's status (0), not the condition's, so a `timeout` kill
+            # reported itself as "exit 0". Getting that wrong here would print
+            # a misleading exit code for exactly the hang this retry exists for.
+            run_tests
+            status=$?
+            if [ "$status" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$status" -eq 124 ]; then
+              echo "::warning::Integration tests hit the ${ANDROID_EMULATOR_ATTEMPT_TIMEOUT} attempt timeout with no result — the known symptom of the app launching before the emulator settled. Retrying once."
+            else
+              echo "::warning::Integration tests failed (exit ${status}). Retrying once."
+            fi
+
+            # Keep attempt 1's device log; it is the only place that failure is
+            # visible, and attempt 2 would otherwise append over the top of it.
+            cp emulator-logcat.txt emulator-logcat-attempt1.txt || true
+            run_tests
+      # Both logs when a retry happened: emulator-logcat.txt is the attempt that
+      # decided the step, emulator-logcat-attempt1.txt the one that failed
+      # first. Diagnosing the settling race needed exactly this — a failing
+      # device log to diff against a passing one.
       - name: Upload emulator logcat
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: emulator-logcat-api${{ matrix.api-level }}
-          path: emulator-logcat.txt
+          path: |
+            emulator-logcat.txt
+            emulator-logcat-attempt1.txt
           if-no-files-found: warn
 
   ios-build:

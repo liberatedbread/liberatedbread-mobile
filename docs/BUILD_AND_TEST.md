@@ -736,7 +736,7 @@ every pull request. Six jobs:
 | `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
-| `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then `flutter test integration_test/ci_all_test.dart --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
+| `android-integration` | ubuntu-latest (API 34 `aosp_atd` emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then runs `integration_test/ci_all_test.dart` on the emulator — twice if the first attempt hits its per-attempt timeout (see below) |
 | `ios-build` | macos-latest | starts a simulator booting in the background, `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true`, verifies the bundle, then runs `integration_test/ci_all_test.dart` on the (by now booted) simulator |
 | `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
 
@@ -770,6 +770,42 @@ matrix slower by evicting something more valuable. If it is ever worth doing,
 to use, because it prunes to dependency artifacts before saving — but note its
 `$target` is resolved *relative to the workspace root*, and this path is not
 under `rust/`.
+
+### The Android emulator flake, and what is done about it
+
+`android-integration` has hung for its whole step timeout with **zero Dart
+output**, while the same suites passed on Linux/Xvfb and the iOS simulator
+(run 31142032906 on `main`). That looks like a graphics failure and is not one.
+Diffing that run's logcat against a passing run's:
+
+- `FlutterRenderer: Width is zero. 0,0` appears in **both**. It is normal
+  startup noise, not the fault.
+- Only the failing run logs `onDetachedFromActivityForConfigChanges`. Four
+  seconds after the Dart VM service came up, a configuration change destroyed
+  and recreated `MainActivity` with a fresh `FlutterEngine`. `flutter_tools`
+  had already attached to the first engine's isolate, so it waited forever on
+  an isolate that would never run a test — the app process sat idle for 55
+  minutes. Zero Dart output is exactly what an orphaned VM-service attach looks
+  like.
+- In the 90 seconds before launch: an ANR in `nexuslauncher`, an ANR in
+  `gms.persistent`, long monitor contention in `system_server`, Play Services
+  reaping processes "to refresh configuration". The system was still settling
+  when the app launched into it.
+
+`android/app/src/main/AndroidManifest.xml` already declares the same
+`configChanges` set Flutter's own template does, so there is no missing flag to
+add. Two changes address it instead:
+
+1. **`aosp_atd`** rather than `google_apis` — Google's Automated Test Device
+   image, without the launcher and Play Services stack that was doing the
+   churning. It also boots faster.
+2. **Two attempts, each bounded by `ANDROID_EMULATOR_ATTEMPT_TIMEOUT`.** The
+   bound is the load-bearing part: this failure *hangs* rather than exiting
+   non-zero, so with only the step's `timeout-minutes` to stop it there is
+   nothing left to retry with. By the time attempt 1 has burned its budget the
+   emulator has settled, so attempt 2 starts from the state attempt 1 wanted.
+   A retry that passes still prints a `::warning::` and keeps both logcats — a
+   flake that leaves no trace is a flake nobody fixes.
 
 There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
 manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its

@@ -89,7 +89,7 @@ addresses and points you there.
 | Xcode | 15+ | macOS only, for iOS builds |
 | CocoaPods | latest | macOS only |
 | GTK 3 + CMake/Ninja/clang | — | Linux desktop builds only — see below |
-| Android emulator | API 34 `google_apis` x86-64 | Needs KVM on Linux; `./scripts/setup.sh` creates the AVD |
+| Android emulator | API 34 `aosp_atd` x86-64 | Needs KVM on Linux; `./scripts/setup.sh` creates the AVD. `aosp_atd` is Google's CI image — no launcher or Play Services, which is what CI wants; `flutter run` starts the activity directly so it works locally too |
 
 What the built app runs on, as opposed to what builds it: Android 7.0
 (API 24), iOS 13, macOS 10.15. Those are the floors the pinned Flutter
