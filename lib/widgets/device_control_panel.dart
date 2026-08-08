@@ -105,8 +105,7 @@ class DeviceControlPanel extends ConsumerWidget {
               ),
             ),
           );
-          final stateOnly =
-              entity.platform == 'switch' && owningState != null;
+          final stateOnly = entity.platform == 'switch' && owningState != null;
           if (!actionsDiscovered && !stateOnly) continue;
           controls.add((entity: entity, stateServiceUuid: owningState?.uuid));
         default:

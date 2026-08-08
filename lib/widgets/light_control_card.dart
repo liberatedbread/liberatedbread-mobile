@@ -186,8 +186,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
     if (!_touchedBrightness) {
       final raw = value.rawOf(entity.brightnessField);
       if (raw != null) {
-        _brightness =
-            raw.toDouble().clamp(_brightnessMin, _brightnessMax);
+        _brightness = raw.toDouble().clamp(_brightnessMin, _brightnessMax);
       }
     }
     if (!_touchedColor) {
@@ -195,8 +194,8 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
       final g = value.rawOf(entity.colorGreenField);
       final b = value.rawOf(entity.colorBlueField);
       if (r != null && g != null && b != null) {
-        _color = Color.fromARGB(255, r.clamp(0, 255), g.clamp(0, 255),
-            b.clamp(0, 255));
+        _color = Color.fromARGB(
+            255, r.clamp(0, 255), g.clamp(0, 255), b.clamp(0, 255));
       }
     }
     _seeded = true;
@@ -250,9 +249,7 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: Icon(
-                  shownOn == true
-                      ? Icons.lightbulb
-                      : Icons.lightbulb_outline,
+                  shownOn == true ? Icons.lightbulb : Icons.lightbulb_outline,
                   color: shownOn == true
                       ? scheme.primary
                       : scheme.onSecondaryContainer,
@@ -335,13 +332,14 @@ class _LightControlCardState extends ConsumerState<LightControlCard> {
                               _touchedBrightness = true;
                               _brightness = v;
                             }),
-                    onChangeEnd: _sending ? null : (_) => _onBrightnessCommitted(),
+                    onChangeEnd:
+                        _sending ? null : (_) => _onBrightnessCommitted(),
                   ),
                 ),
                 Text(
                   '${_effectiveBrightness.round()}',
-                  style: text.bodySmall
-                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  style:
+                      text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
                 ),
               ],
             ),

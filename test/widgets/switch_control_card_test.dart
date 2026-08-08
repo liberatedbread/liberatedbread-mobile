@@ -169,7 +169,7 @@ void main() {
       (tester) async {
     // ember's temperature-control switch binds prose, not commands: live
     // state with no way to change it is exactly what the spec supports.
-    final entity = EntityDto(
+    const entity = EntityDto(
       name: 'Temperature Control',
       platform: 'switch',
       stateCharacteristic: _stateChar,
@@ -177,7 +177,7 @@ void main() {
       hasFormat: true,
       valueField: 'target_temp_raw',
       onWhenNonzero: true,
-      actions: const [],
+      actions: [],
     );
     final codec = FakeSpecCodec(decoded: const [
       DecodedValueDto(

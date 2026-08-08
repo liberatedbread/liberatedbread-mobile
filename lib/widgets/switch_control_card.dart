@@ -56,9 +56,8 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
   bool? _assumed;
   List<DecodedValueDto>? _assumedBaseline;
 
-  EntityActionDto? _action(String role) => widget.entity.actions
-      .where((a) => a.role == role)
-      .firstOrNull;
+  EntityActionDto? _action(String role) =>
+      widget.entity.actions.where((a) => a.role == role).firstOrNull;
 
   Future<void> _send(EntityActionDto action, {bool? assume}) async {
     setState(() {
@@ -159,9 +158,7 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                   borderRadius: BorderRadius.circular(13),
                 ),
                 child: Icon(
-                  shownOn == true
-                      ? Icons.toggle_on
-                      : Icons.toggle_off_outlined,
+                  shownOn == true ? Icons.toggle_on : Icons.toggle_off_outlined,
                   color: shownOn == true
                       ? scheme.primary
                       : scheme.onSecondaryContainer,
@@ -175,8 +172,8 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                   children: [
                     Text(
                       widget.entity.name,
-                      style:
-                          text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                      style: text.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -191,7 +188,9 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                   onChanged: _sendingRole != null
                       ? null
                       : (on) {
-                          _assumedBaseline = value?.decoded;
+                          // `value` is promoted non-null here: hasToggle
+                          // implies canReadState implies a live builder.
+                          _assumedBaseline = value.decoded;
                           _send(on ? turnOn : turnOff, assume: on);
                         },
                 ),
@@ -226,9 +225,8 @@ class _SwitchControlCardState extends ConsumerState<SwitchControlCard> {
                     ),
                   if (press != null)
                     OutlinedButton.icon(
-                      onPressed: _sendingRole != null
-                          ? null
-                          : () => _send(press),
+                      onPressed:
+                          _sendingRole != null ? null : () => _send(press),
                       icon: const Icon(Icons.touch_app, size: 16),
                       label: const Text('Press'),
                     ),

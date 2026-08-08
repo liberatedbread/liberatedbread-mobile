@@ -76,8 +76,7 @@ Widget _wrap(
     );
 
 void main() {
-  testWidgets('renders only the controls whose roles resolved',
-      (tester) async {
+  testWidgets('renders only the controls whose roles resolved', (tester) async {
     final codec = FakeSpecCodec();
     await tester
         .pumpWidget(_wrap(_stripEntity(), codec: codec, ble: FakeBleService()));
@@ -113,7 +112,8 @@ void main() {
     expect(ble.writes.single.value, [1, 2, 3]);
   });
 
-  testWidgets('the brightness slider honors the spec bounds and sends on '
+  testWidgets(
+      'the brightness slider honors the spec bounds and sends on '
       'release', (tester) async {
     final codec = FakeSpecCodec(encoded: Uint8List.fromList([9]));
     final ble = FakeBleService();
