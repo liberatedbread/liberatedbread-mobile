@@ -58,7 +58,6 @@ permissions:
   contents: read
 
 env:
-  FLUTTER_VERSION: '3.24.5'
   KEYCHAIN_NAME: build.keychain
 
 jobs:
@@ -67,19 +66,50 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      # No FLUTTER_VERSION pin in this file, deliberately. It carried its own
+      # copy and silently rotted to 3.24.5 while ci.yml moved to 3.44.8 — this
+      # workflow was building the shipped IPA with an SDK no other job had
+      # tested, which is the one artifact where that matters most. ci.yml is
+      # already the declared toolchain source of truth, and
+      # scripts/ci-versions.sh is already the parser that dev environments
+      # provision from, so read the pins through it here too rather than
+      # re-pinning and hoping someone updates both.
+      #
+      # Read AFTER checkout and therefore from the ref being built: an ad-hoc
+      # build of an old commit uses that commit's pins, which is what makes a
+      # rebuild of an old tag reproducible.
+      #
+      # Every value has a fallback, so a parse miss degrades to a stale pin and
+      # a stderr warning rather than a failed run — same contract setup.sh gets.
+      - name: Resolve toolchain pins from ci.yml
+        id: versions
+        run: |
+          set -euo pipefail
+          source scripts/ci-versions.sh
+          echo "flutter=${CI_FLUTTER_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "ios-targets=$(echo "${CI_RUST_IOS_TARGETS}" | tr ' ' ',')" >> "$GITHUB_OUTPUT"
+          echo "Flutter ${CI_FLUTTER_VERSION}, iOS Rust targets: ${CI_RUST_IOS_TARGETS}"
+
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
+          flutter-version: ${{ steps.versions.outputs.flutter }}
           channel: stable
           cache: true
 
+      # The full iOS target list from ci.yml, not just aarch64-apple-ios. The
+      # signed path only needs the device target, but the no-secrets fallback
+      # below builds a SIMULATOR bundle, and macos-latest is arm64 — so that
+      # path needs aarch64-apple-ios-sim. It was not a hard failure only
+      # because cargokit installs a missing target itself mid-build
+      # (rust_builder/cargokit/build_tool/lib/src/builder.dart), i.e. the cost
+      # was paid inside the build instead of in this cached setup step.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios
+          targets: ${{ steps.versions.outputs.ios-targets }}
 
       - uses: Swatinem/rust-cache@v2
         with:

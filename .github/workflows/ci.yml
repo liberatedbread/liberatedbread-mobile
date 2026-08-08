@@ -57,10 +57,22 @@ env:
   # The NDK cargokit actually builds against, shared by every job that compiles
   # the Rust crate for Android. android/app/build.gradle sets
   # `ndkVersion = flutter.ndkVersion`, cargokit's plugin.gradle forwards
-  # `android.ndkVersion` to its build tool as CARGOKIT_NDK_VERSION, and Flutter
-  # 3.24.5 hardcodes 23.1.7779620 (packages/flutter_tools/gradle/src/main/
-  # groovy/flutter.groovy). Installing any other version just means cargokit
-  # downloads this one itself, mid-build. Keep in sync with FLUTTER_VERSION.
+  # `android.ndkVersion` to its build tool as CARGOKIT_NDK_VERSION, and the
+  # pinned Flutter hardcodes the value. Installing any other version just means
+  # cargokit downloads this one itself, mid-build.
+  #
+  # Keep in sync with FLUTTER_VERSION — re-read it after any bump with:
+  #   grep 'val ndkVersion' "$(dirname "$(readlink -f "$(command -v flutter)")")"/../\
+  #     packages/flutter_tools/gradle/src/main/kotlin/FlutterExtension.kt
+  # (3.44.8 → 28.2.13676358, checked. Deliberately no `platforms;android-NN`
+  # token in this comment — the parser above greps those anywhere in the file
+  # and takes the highest, so a version named in prose would become a version
+  # dev environments install. That file also carries compileSdkVersion, which
+  # is 36, while the sdkmanager steps below install API 34; Gradle therefore
+  # downloads 36 itself mid-build. Aligning them is a real saving, left alone
+  # here only because rust_builder/android/build.gradle pins compileSdkVersion
+  # 33 on AGP 7.3.0, and moving that needs an AGP bump — its own tested change,
+  # not a rider on a CI-timing one.)
   FLUTTER_NDK_VERSION: '28.2.13676358'
 
 jobs:
@@ -69,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # The device jobs (ios-build, android-integration) run the aggregate
       # entrypoint integration_test/ci_all_test.dart instead of the whole
       # directory: on a device, every file passed to `flutter test` is its own
@@ -154,7 +166,7 @@ jobs:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -176,7 +188,7 @@ jobs:
     # not let the expensive native builds burn runner minutes.
     needs: [flutter, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -289,15 +301,20 @@ jobs:
   android-integration:
     name: Android integration tests (emulator, mock mode)
     runs-on: ubuntu-latest
-    # Job-level bound sits above the emulator step's own 60-minute timeout so
-    # the step limit fires first and setup/teardown still get headroom.
-    timeout-minutes: 75
+    # Job-level bound stays above the emulator step's own timeout so the step
+    # limit fires first and setup/teardown still get headroom. Both came down
+    # (75/60) once the Gradle cache, the x64-only warm-up and the single test
+    # cycle landed: the job ran ~10m45s before those, and the emulator step
+    # ~3m45s, so 50/30 is still many times the observed cost — loose enough
+    # that a cold cache cannot trip it, tight enough that a genuinely hung
+    # emulator stops costing an hour.
+    timeout-minutes: 50
     needs: [flutter, rust]
     strategy:
       matrix:
         api-level: [34]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -330,6 +347,15 @@ jobs:
             "platforms;android-34" "build-tools;34.0.0" \
             "ndk;$FLUTTER_NDK_VERSION" \
             > /dev/null
+      # Gradle's dependency cache and wrapper distribution, which this job was
+      # rebuilding from scratch on every run. android-build has had this since
+      # it was written; this job never did, and the gap shows — the SAME
+      # `flutter build apk --debug` command takes ~2m40s there and took ~5m40s
+      # here. Unlike android-actions/setup-android (deliberately avoided just
+      # above), setup-gradle touches only GRADLE_USER_HOME: it does not install
+      # or replace platform-tools, so it cannot disturb the adb/emulator setup
+      # that made setup-android unusable in this job.
+      - uses: gradle/actions/setup-gradle@v4
       # Warm up the native build BEFORE the emulator step.
       #
       # This step — not the --timeout flag further down — is what fixes the
@@ -347,8 +373,18 @@ jobs:
       # the emulator-runner step is what provides the device that `flutter test
       # integration_test` needs, so it cannot also be where the slow build
       # happens without being inside the load window again.
+      #
+      # --target-platform android-x64 because the AVD is x86_64 (see arch:
+      # below) and a warm-up is only worth the ABIs the real build will use.
+      # Without it this step built the crate FOUR times — armv7 (~26s), arm64
+      # (~12s), x86_64 (~11s), x86 (~11s) — while the test-phase build that
+      # follows compiles exactly x86_64 and x86, which is what the emulator
+      # loads. The two arm builds were pure waste, plus the arm engine
+      # artifacts and packaging on top.
       - name: Warm up Gradle, cargokit and Rust build caches
-        run: flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true
+        run: |
+          flutter build apk --debug --target-platform android-x64 \
+            --dart-define=LIBERATED_BREAD_MOCK=true
       # The Rust toolchain + NDK this job adds (~4 GB), plus the warm-up build
       # output, can starve the emulator of disk and prevent it from booting.
       # Reclaim space from large preinstalled toolchains we don't use before
@@ -387,10 +423,10 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Run integration tests on emulator
-        # Outer bound so a genuinely hung test fails in an hour rather than
+        # Outer bound so a genuinely hung test fails promptly rather than
         # sitting on the runner for the 6-hour job default — the per-test
         # --timeout below is deliberately generous.
-        timeout-minutes: 60
+        timeout-minutes: 30
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -447,7 +483,7 @@ jobs:
     timeout-minutes: 60
     needs: [flutter, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Kick the simulator boot off NOW, in the background, so it overlaps the
       # SDK cache restore and the ~2-minute build below — booted-and-ready cost
       # ~65 serial seconds when it sat between the build and the tests. `simctl
@@ -647,7 +683,7 @@ jobs:
     # must not burn runner minutes on a native build.
     needs: [flutter, rust]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
