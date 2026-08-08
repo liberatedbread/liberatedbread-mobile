@@ -709,14 +709,21 @@ every pull request. Six jobs:
 | `flutter` | ubuntu-latest | `dart format --set-exit-if-changed`, `flutter analyze --fatal-infos`, builds the host Rust lib, checks the FRB bindings haven't drifted from `rust/src/api/`, `flutter test --coverage`, upload coverage to Codecov |
 | `rust` | ubuntu-latest | `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` |
 | `android-build` | ubuntu-latest | `flutter build apk --debug --dart-define=LIBERATED_BREAD_MOCK=true`; uploads the APK artifact |
-| `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an APK build, frees runner disk, then `flutter test integration_test/ci_all_test.dart --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
+| `android-integration` | ubuntu-latest (API 34 emulator) | warms the Gradle/cargokit caches with an `--target-platform android-x64` APK build (the emulator's ABI), frees runner disk, then `flutter test integration_test/ci_all_test.dart --timeout 1200s --dart-define=LIBERATED_BREAD_MOCK=true` on the emulator |
 | `ios-build` | macos-latest | starts a simulator booting in the background, `flutter build ios --debug --no-codesign --simulator --dart-define=LIBERATED_BREAD_MOCK=true`, verifies the bundle, then runs `integration_test/ci_all_test.dart` on the (by now booted) simulator |
 | `linux-desktop` | ubuntu-latest | installs the GTK toolchain, builds release + debug (`--target-platform=linux-x64`), runs `scripts/verify_linux_bundle.sh` against both bundles, then runs the integration tests headlessly under Xvfb in mock mode |
 
-Caches: Flutter SDK, `~/.pub-cache`, `.dart_tool`, and `rust/target/` are
-cached across runs. The quick checks run first; the native build jobs wait for
-them to pass before spending runner time on the slower platform builds (fail
-fast on lint/test).
+Caches: Flutter SDK, `~/.pub-cache`, `.dart_tool`, `rust/target/` and (in both
+Android jobs) the Gradle user home are cached across runs. The quick checks run
+first; the native build jobs wait for them to pass before spending runner time
+on the slower platform builds (fail fast on lint/test).
+
+There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
+manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its
+own: a step sources `scripts/ci-versions.sh` and feeds the Flutter version and
+iOS Rust targets it reads out of `ci.yml` into the setup actions, so the
+shipped IPA is always built with the SDK the rest of CI tested. Because that
+read happens after checkout, building an old ref uses that ref's pins.
 
 ### Running CI locally
 
