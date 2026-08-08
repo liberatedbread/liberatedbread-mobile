@@ -247,6 +247,15 @@ jobs:
         with:
           workspaces: rust
           shared-key: host-dart
+          # cache-bin: false, and the FRB codegen gets its own cache below.
+          # rust-cache's default sweeps ~/.cargo/bin into the same snapshot as
+          # rust/target, which makes a 90-second build the hostage of a
+          # coarse-grained key: a run cancelled BEFORE the install published a
+          # snapshot without the binary, rust-cache never overwrites an
+          # existing key, and every run afterwards "hit" that cache and rebuilt
+          # from source. Observed, not theorised — run 31278340720 spent 89s
+          # compiling it behind a reported cache hit.
+          cache-bin: false
       - name: Cache pub
         uses: actions/cache@v4
         with:
@@ -274,13 +283,24 @@ jobs:
         run: ./scripts/ci-ios-tests-selftest.sh
       - name: Build host Rust library for FRB
         run: cd rust && cargo build
+      # One file, keyed on the one thing that changes it. Building the codegen
+      # costs ~90s on the job that gates every other job, so this is the single
+      # most valuable cache in the workflow — and the narrowest, which is the
+      # point: a key of "OS + pinned version" over a path of one binary either
+      # restores something correct or restores nothing. There is no state it
+      # can be half-saved in, which is exactly how the previous arrangement
+      # (leaving it to rust-cache's ~/.cargo/bin snapshot) went wrong.
+      - name: Cache the FRB codegen binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/flutter_rust_bridge_codegen
+          key: frb-codegen-${{ runner.os }}-${{ env.FRB_VERSION }}
       - name: Check FRB bindings are up to date
         run: |
-          # Network-facing: a crates.io blip here fails a pull request for
-          # reasons that have nothing to do with it. Swatinem/rust-cache
-          # restores ~/.cargo/bin, so on a warm cache this is a no-op and the
-          # retry never fires.
-          ./scripts/ci-retry.sh cargo install --locked "flutter_rust_bridge_codegen@$FRB_VERSION"
+          # Skips the build when the cache already restored the pinned version;
+          # see scripts/ci-install-frb.sh for why the check is on the binary
+          # rather than on cargo's bookkeeping.
+          ./scripts/ci-install-frb.sh
           flutter_rust_bridge_codegen generate
           # `git diff --exit-code` catches edits to tracked generated files but
           # is blind to brand-new (untracked) ones, so also fail on ANY pending
@@ -322,6 +342,7 @@ jobs:
           workspaces: rust
           shared-key: host-dart
           save-if: false
+          cache-bin: false
       - name: Cache pub
         uses: actions/cache@v4
         with:

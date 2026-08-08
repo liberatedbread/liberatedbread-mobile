@@ -120,14 +120,22 @@ require_udid() {
 # "I killed it", and the retry logic below distinguishes it from a test that
 # ran and reported failures — the two look identical in a step log, since both
 # produce no Dart output at all.
+#
+# --kill-after on both real-timeout paths, matching the TERM-then-KILL the
+# fallback below already does. Without it `timeout` sends one TERM and then
+# waits indefinitely for a process that, by the time this fires, is already not
+# behaving — and an orphaned `flutter test` still holding the simulator is
+# precisely what attempt 2 does not need. (GNU timeout does signal the whole
+# process group by default, so the escalation is the part that was missing, not
+# the reach.)
 run_bounded() {
   local secs="$1"; shift
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$secs" "$@"
+    timeout --kill-after=10 "$secs" "$@"
     return $?
   fi
   if command -v gtimeout >/dev/null 2>&1; then
-    gtimeout "$secs" "$@"
+    gtimeout --kill-after=10 "$secs" "$@"
     return $?
   fi
 
