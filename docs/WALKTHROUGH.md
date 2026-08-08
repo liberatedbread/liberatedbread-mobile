@@ -44,7 +44,7 @@ native library isn't bundled (e.g. test builds that skip cargokit);
 ### `lib/app.dart`
 
 `LiberatedBreadApp` is a `StatelessWidget` that returns a `MaterialApp` with:
-- Material Design 3 theming (Liberated Bread orange/turquoise, light + dark —
+- Material Design 3 theming (Liberated Bread orange/blush, light + dark —
   see [BRANDING.md](BRANDING.md))
 - Home screen: `ScanScreen()`
 
