@@ -313,11 +313,14 @@ setup_android() {
 
   yes | "$sdkmanager" --licenses >>"$WORK_LOG" 2>&1 || true
 
-  log "Installing Android SDK packages (API ${CI_ANDROID_API}, build-tools ${CI_BUILD_TOOLS_VERSION}, NDK ${CI_NDK_VERSION}, from ci.yml)..."
+  log "Installing Android SDK packages (API ${CI_ANDROID_API}, build-tools ${CI_BUILD_TOOLS_VERSION}, NDK ${CI_NDK_VERSION}, CMake ${CI_CMAKE_VERSION}, from ci.yml)..."
+  # cmake matches CI's list: Flutter's Gradle plugin wires an externalNativeBuild
+  # into :app, so AGP installs its default CMake mid-build without it.
   if ! "$sdkmanager" \
         "platform-tools" \
         "platforms;android-${CI_ANDROID_API}" \
         "build-tools;${CI_BUILD_TOOLS_VERSION}" \
+        "cmake;${CI_CMAKE_VERSION}" \
         "ndk;${CI_NDK_VERSION}" \
         >>"$WORK_LOG" 2>&1; then
     warn "Some Android SDK packages failed to install; see the log tail above."

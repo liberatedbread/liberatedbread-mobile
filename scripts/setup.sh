@@ -28,6 +28,7 @@ FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
 NDK_VERSION="$CI_NDK_VERSION"
 ANDROID_API="$CI_ANDROID_API"
 BUILD_TOOLS_VERSION="$CI_BUILD_TOOLS_VERSION"
+CMAKE_VERSION="$CI_CMAKE_VERSION"
 FRB_VERSION="$CI_FRB_VERSION"
 AVD_NAME="${AVD_NAME:-liberated_bread_test}"
 
@@ -374,10 +375,14 @@ setup_android_sdk() {
 
   # Don't hide stderr on the installs below: when they fail, the reason
   # (network, licenses, disk) must reach the user alongside the warning.
+  # cmake matches CI's list: Flutter's Gradle plugin wires an externalNativeBuild
+  # into :app, so AGP installs its default CMake mid-build on any machine that
+  # lacks it — including this one.
   "$sdkmanager" \
     "platform-tools" \
     "build-tools;${BUILD_TOOLS_VERSION}" \
     "platforms;android-${ANDROID_API}" \
+    "cmake;${CMAKE_VERSION}" \
     "ndk;${NDK_VERSION}" \
     || warn "Some SDK components may have failed to install."
 

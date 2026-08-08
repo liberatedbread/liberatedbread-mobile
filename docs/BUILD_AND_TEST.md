@@ -43,6 +43,20 @@ drives the NDK itself during `flutter build`.
 The emulator is a separate axis: it boots API 34 (see the CI table below), and
 nothing requires it to match the compile SDK.
 
+Every pinned version is declared once, in the top-level `env:` block of
+`.github/workflows/ci.yml`, and each step interpolates it (`${{ env.KEY }}`, or
+`$KEY` inside `run:`). `scripts/ci-versions.sh` reads exactly that block —
+nothing else in the file — which is what lets the setup scripts provision the
+same toolchain CI uses. **To pin something new, add a key there and reference
+it; do not inline a version at a use site.** The parser previously scraped
+values out of step bodies with file-wide greps, and a version named in a
+*comment* could change what dev machines installed.
+
+One value is repeated rather than interpolated: GitHub does not expose the
+`env` context to `strategy:`, so the emulator job's `api-level` matrix carries
+the literal alongside `ANDROID_EMULATOR_API`.
+`test/platform/deployment_targets_test.dart` asserts the two agree.
+
 Run `./scripts/ci-versions.sh` for the values CI is on right now; `./scripts/setup.sh`
 installs exactly those.
 

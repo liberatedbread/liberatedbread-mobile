@@ -225,6 +225,23 @@ heading.
   the committed PNG is the master and a stale vector of the old logo would
   have silently won back if the PNG were ever removed.
 
+- **CI's toolchain pins are declared once and read once, instead of being
+  grepped out of the whole workflow.** `scripts/ci-versions.sh` used to hunt
+  values out of step bodies: the highest `platforms;android-NN` anywhere in
+  the file, the first `targets:` line containing `-android`, packages
+  recovered from `apt-get install` and its line continuations, the emulator's
+  settings found by scanning forward from a marker. Every one of those could
+  be tripped by a **comment** — naming an API level in prose really did change
+  what developer machines installed, twice, while this file was being edited.
+  Now every pinned version lives in ci.yml's top-level `env:` block, each step
+  interpolates it, and the parser reads that one block and nothing else, so
+  prose and configuration can no longer be confused. Output is unchanged apart
+  from a new `CI_CMAKE_VERSION`, and `scripts/setup.sh` plus the session hook
+  now install the matching CMake so dev machines stop hitting the same
+  mid-build install CI did. GitHub does not expose the `env` context to
+  `strategy:`, so the emulator's `api-level` matrix is the one repeated
+  literal — `test/platform/deployment_targets_test.dart` asserts it matches
+  its env key.
 - **Platform SDK floors raised to what the pinned Flutter actually supports,
   and locked together by a test.** Every platform declared its floor in more
   than one file and nothing cross-checked them, so they had drifted apart in
