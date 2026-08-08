@@ -44,9 +44,11 @@ device:
 
     Schema gaps (device-specs/schema.json intentionally not modified): there is
     no dedicated field for BLE manufacturer-data format, characteristic
-    endianness, enum/value maps, write authentication/pairing caveats, multiple
-    equivalent service UUIDs sharing one characteristic table, or per-field
-    evidence links. These are documented in notes and references.
+    endianness, write authentication/pairing caveats, multiple equivalent
+    service UUIDs sharing one characteristic table, or per-field evidence
+    links. These are documented in notes and references. (Enum/value maps and
+    unit/scale, formerly on this list, are now first-class: format fields carry
+    `values`, `unit` and `scale` — see $defs/number_semantics in the schema.)
   identification:
     local_name_prefix: "Ember"
     service_uuids:
@@ -186,6 +188,12 @@ services:
             length: 2
             name: "current_temp_raw"
             type: "uint16"
+            scale: 0.01
+            unit: "C"
+            notes: >
+              Wire unit is always centi-°C regardless of the display unit
+              selected via fc540004 — that characteristic changes what the
+              mug and app show, not what is encoded here.
 
       - uuid: "fc540003-236c-4c94-8fa9-944a3e5353fa"
         name: "Target Temperature"
@@ -203,15 +211,29 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
+                description: >
+                  Low byte of the little-endian uint16 target in centi-°C.
+                  The pair encodes round(target_c * 100): 56.5 C -> 5650 ->
+                  temp_low 0x12, temp_high 0x16. Wire unit is °C even when
+                  the display unit (fc540004) is Fahrenheit.
               temp_high:
                 type: "uint8"
                 min: 0
                 max: 255
+                description: >
+                  High byte of the same little-endian centi-°C value; 0x0000
+                  across both bytes disables temperature control.
         format:
           - offset: 0
             length: 2
             name: "target_temp_raw"
             type: "uint16"
+            scale: 0.01
+            unit: "C"
+            notes: >
+              0x0000 means temperature control disabled, not 0 °C. Nonzero
+              setpoints are accepted in 49-63 °C (120-145 °F converted to
+              centi-°C before writing).
 
       - uuid: "fc540004-236c-4c94-8fa9-944a3e5353fa"
         name: "Temperature Unit"
@@ -229,6 +251,12 @@ services:
             length: 1
             name: "temp_unit"
             type: "uint8"
+            values:
+              0: "Celsius"
+              1: "Fahrenheit"
+            notes: >
+              Display preference only — every temperature characteristic
+              stays centi-°C on the wire whatever this byte says.
 
       - uuid: "fc540005-236c-4c94-8fa9-944a3e5353fa"
         name: "Liquid Level"
@@ -320,6 +348,15 @@ services:
             length: 1
             name: "liquid_state"
             type: "uint8"
+            values:
+              0: "standby"
+              1: "empty"
+              2: "filling"
+              3: "cold_no_temp_control"
+              4: "cooling"
+              5: "heating"
+              6: "target_temperature"
+              7: "warm_no_temp_control"
 
       - uuid: "fc540009-236c-4c94-8fa9-944a3e5353fa"
         name: "Volume"
@@ -342,6 +379,10 @@ services:
             length: 1
             name: "volume_level"
             type: "uint8"
+            values:
+              0: "low"
+              1: "medium"
+              2: "high"
 
       - uuid: "fc54000a-236c-4c94-8fa9-944a3e5353fa"
         name: "Last Location"
@@ -469,6 +510,16 @@ services:
             length: 1
             name: "event_id"
             type: "uint8"
+            values:
+              1: "battery_changed"
+              2: "charger_connected"
+              3: "charger_disconnected"
+              4: "target_temp_changed"
+              5: "drink_temp_changed"
+              6: "auth_info_not_found"
+              7: "liquid_level_changed"
+              8: "liquid_state_changed"
+              9: "battery_voltage_state_changed"
 
       - uuid: "fc540013-236c-4c94-8fa9-944a3e5353fa"
         name: "Statistics"
@@ -544,6 +595,10 @@ entities:
     name: "Target Temperature"
     device_class: "temperature"
     unit: "C"
+    # Decoded °C, per the settable range python-ember-mug enforces; 0-to-disable
+    # is the separate Temperature Control switch entity below.
+    min: 49
+    max: 63
     state_characteristic: "fc540003-236c-4c94-8fa9-944a3e5353fa"
     state_mapping:
       value: "target_temp_raw"
