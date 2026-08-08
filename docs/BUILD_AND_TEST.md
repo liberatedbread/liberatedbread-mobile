@@ -826,6 +826,17 @@ add. Two changes address it instead:
    A retry that passes still prints a `::warning::` and keeps both logcats — a
    flake that leaves no trace is a flake nobody fixes.
 
+That retry lives in **`scripts/ci-emulator-tests.sh`**, not in the workflow.
+`reactivecircus/android-emulator-runner` does not run its `script:` input as a
+script: it splits the input on newlines and execs each line separately as
+`/usr/bin/sh -c '<line>'`. So a function body or an `if`/`fi` never parses
+(the shell hits end-of-input mid-construct), a `set -u` on one line does not
+apply to the next, and `/usr/bin/sh` is dash on the Ubuntu runner — no
+`pipefail`. The workflow therefore passes one line, `./scripts/ci-emulator-tests.sh`,
+and the logic lives in a bash file that can be run against stub `flutter`/`adb`
+binaries on a laptop instead of only in a 40-minute CI job. Set
+`LB_EMULATOR_ATTEMPTS=1` to reproduce a failure without waiting out the retry.
+
 There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
 manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its
 own: a step sources `scripts/ci-versions.sh` and feeds the Flutter version and
