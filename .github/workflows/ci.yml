@@ -206,20 +206,43 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      # The installed platform is now API 36 — what the app compiles against
-      # (`compileSdk = flutter.compileSdkVersion`, 36 in Flutter 3.44.8) and now
-      # also what rust_builder does. The list said 34, which nothing compiled
-      # against — so CI installed a platform no module used and then let Gradle
-      # download the ones it did. (Version named in prose, not as a
-      # `platforms;android-NN` token: the parser greps those file-wide.)
+      # Every SDK package the build needs, installed in ONE visible step.
       #
-      # build-tools stays at 34.0.0 on purpose: that is AGP 8.6's default, so
-      # naming a newer one here would add a download rather than replace one.
+      # This list is about making the build's inputs explicit, NOT about speed.
+      # Measured from CI logs, the two mid-build installs it replaces cost 2.5s
+      # (SDK platform) and 1.2s (cmake) — worth stating plainly, because
+      # "Gradle downloads it mid-build" sounds expensive and is not. What it
+      # buys is that Gradle no longer stops partway through to accept a licence
+      # and pull a package over the network, where a blip fails the build in a
+      # place nothing retries.
+      #
+      #   the SDK platform    API 36: what the app compiles against
+      #                       (`compileSdk = flutter.compileSdkVersion`) and now
+      #                       rust_builder too. It said 34, which nothing
+      #                       compiled against. Spelled in prose, never as a
+      #                       `platforms;android-NN` token — the parser and
+      #                       test/platform/deployment_targets_test.dart both
+      #                       grep that shape file-wide, so a version mentioned
+      #                       in a comment becomes one dev machines install.
+      #   build-tools;34.0.0    AGP 8.6's default; naming a newer one would add
+      #                         a download rather than replace one.
+      #   cmake;3.22.1          required by FLUTTER, not by anything in this
+      #                         repo: its Gradle plugin ships packages/
+      #                         flutter_tools/gradle/src/main/scripts/
+      #                         CMakeLists.txt and wires an externalNativeBuild
+      #                         into :app (the Android 15 16 KB page-size
+      #                         support), so `:app:configureCMakeDebug[<abi>]`
+      #                         runs on every Android build and AGP installs its
+      #                         default CMake when absent. 3.22.1 is that
+      #                         default for AGP 8.6; if a toolchain bump moves
+      #                         it this pin degrades to a small unused package
+      #                         and Gradle fetches the right one itself. Re-check
+      #                         with: grep 'Install CMake' <build log>
       - uses: android-actions/setup-android@v3
         with:
           packages: >-
             platform-tools platforms;android-36 build-tools;34.0.0
-            ndk;${{ env.FLUTTER_NDK_VERSION }}
+            cmake;3.22.1 ndk;${{ env.FLUTTER_NDK_VERSION }}
       - uses: gradle/actions/setup-gradle@v4
       - name: Write android/local.properties
         run: |
@@ -350,10 +373,14 @@ jobs:
       # in this job — it reinstalls platform-tools and disturbed the
       # emulator-runner, leaving the emulator unable to boot. Don't reinstall
       # platform-tools: the runner's adb/emulator are what boot the AVD.
+      # Same package set as android-build, and same reasoning — see the comment
+      # there for why cmake is on the list (Flutter's own Gradle plugin wires a
+      # CMakeLists into :app) and why this is about explicit inputs rather than
+      # saved seconds.
       - name: Install Android SDK packages for the Rust build
         run: |
           yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
-            "platforms;android-36" "build-tools;34.0.0" \
+            "platforms;android-36" "build-tools;34.0.0" "cmake;3.22.1" \
             "ndk;$FLUTTER_NDK_VERSION" \
             > /dev/null
       # Gradle's dependency cache and wrapper distribution, which this job was
