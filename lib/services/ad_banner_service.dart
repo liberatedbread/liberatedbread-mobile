@@ -37,11 +37,15 @@ class AdBannerService {
       return const AdBannerFetchFailed('not a valid https URL');
     }
 
-    final http.Response response;
+    final http.StreamedResponse response;
     try {
-      response = await _client
-          .get(uri, headers: const {'accept': 'application/json'})
-          .timeout(timeout);
+      // No redirects: the endpoint is ours and serves directly. Following one
+      // blindly could hop off https, and a fetch failure just means the
+      // cached/bundled banner stays — the safe default.
+      final request = http.Request('GET', uri)
+        ..headers['accept'] = 'application/json'
+        ..followRedirects = false;
+      response = await _client.send(request).timeout(timeout);
     } on TimeoutException {
       // Routine on a slow or absent network: debug, not warning — this fires
       // on every offline launch and must not spam the console.
@@ -52,18 +56,43 @@ class AdBannerService {
       return const AdBannerFetchFailed('network error');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      // Drain so the connection can be reused/closed cleanly.
+      unawaited(response.stream.drain<void>().catchError((_) {}));
       Log.ads.debug('config fetch returned HTTP ${response.statusCode}');
       return AdBannerFetchFailed('HTTP ${response.statusCode}');
     }
-    if (response.bodyBytes.length > maxConfigBytes) {
-      Log.ads.warning('config rejected: ${response.bodyBytes.length} bytes '
+    final contentLength = response.contentLength;
+    if (contentLength != null && contentLength > maxConfigBytes) {
+      unawaited(response.stream.drain<void>().catchError((_) {}));
+      Log.ads.warning('config rejected: $contentLength bytes '
           'exceeds the $maxConfigBytes-byte cap');
       return const AdBannerFetchFailed('config too large');
     }
 
+    // Stream with the cap enforced per chunk, so a misconfigured or hostile
+    // server can't balloon startup memory before an after-the-fact check.
+    // Returning out of the await-for cancels the subscription.
+    final bytes = <int>[];
+    try {
+      await for (final chunk in response.stream.timeout(timeout)) {
+        bytes.addAll(chunk);
+        if (bytes.length > maxConfigBytes) {
+          Log.ads.warning('config rejected: body exceeds the '
+              '$maxConfigBytes-byte cap');
+          return const AdBannerFetchFailed('config too large');
+        }
+      }
+    } on TimeoutException {
+      Log.ads.debug('config download stalled');
+      return const AdBannerFetchFailed('timed out');
+    } on Object catch (e) {
+      Log.ads.debug('config download failed', error: e);
+      return const AdBannerFetchFailed('network error');
+    }
+
     final String text;
     try {
-      text = utf8.decode(response.bodyBytes);
+      text = utf8.decode(bytes);
     } on FormatException {
       Log.ads.warning('config rejected: not valid UTF-8');
       return const AdBannerFetchFailed('not valid UTF-8');

@@ -63,11 +63,19 @@ class AdBannerBar extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    banner.cta,
-                    style: text.labelLarge?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w700,
+                  // Bounded so a long remote CTA (or large accessibility text)
+                  // ellipsizes instead of overflowing the row — the message's
+                  // Expanded must always keep some width.
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 120),
+                    child: Text(
+                      banner.cta,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.labelLarge?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   Icon(Icons.chevron_right, size: 18, color: scheme.primary),
@@ -77,8 +85,8 @@ class AdBannerBar extends ConsumerWidget {
                     visualDensity: VisualDensity.compact,
                     color: scheme.onSurfaceVariant,
                     tooltip: 'Dismiss ad',
-                    onPressed: () =>
-                        unawaited(ref.read(adBannerProvider.notifier).dismiss()),
+                    onPressed: () => unawaited(
+                        ref.read(adBannerProvider.notifier).dismiss()),
                   ),
                 ],
               ),
