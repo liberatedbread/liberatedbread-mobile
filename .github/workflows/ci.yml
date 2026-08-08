@@ -253,7 +253,13 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
           restore-keys: pub-${{ runner.os }}-
       - run: flutter pub get
-      - run: dart format --set-exit-if-changed .
+      # Not `dart format .` — that walks build/ and reformats cargokit's
+      # vendored build_tool_runner.dart, then fails because it changed
+      # something. This job never hit it (it runs before anything is built) but
+      # scripts/test.sh did, on every machine where the app had ever been run.
+      # See scripts/ci-format.sh.
+      - name: Check Dart formatting
+        run: ./scripts/ci-format.sh
       - run: flutter analyze --fatal-infos
       # The shell in scripts/ is where this project's CI logic deliberately
       # lives, and it was the only language here with no linter. See the header

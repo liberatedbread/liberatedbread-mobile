@@ -30,6 +30,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'app_launch_test.dart' as app_launch;
 import 'error_flow_test.dart' as error_flow;
 import 'mock_flow_test.dart' as mock_flow;
 import 'native_core_test.dart' as native_core;
@@ -58,10 +59,31 @@ void main() {
 
   group('error_flow_test.dart', error_flow.main);
   group('mock_flow_test.dart', mock_flow.main);
-  // Last, and not only because the alphabet puts it there. It calls
-  // RustLib.init(), which is process-wide: once the bridge is up
+  // ── the two suites that bring up RustLib, and why they are pinned here ────
+  //
+  // NOT alphabetical, deliberately, and this is the one place in the repo
+  // where that convention is broken on purpose.
+  //
+  // RustLib is process-wide. The moment either of these initialises it,
   // MockBleService stops using its Dart fallback table and starts calling the
-  // real codec, so running this suite earlier would quietly change what the
-  // two above are testing. See the header of native_core_test.dart.
+  // real spec codec — so the two suites above would silently begin testing a
+  // different code path than the one they were written for.
+  //
+  // That is not a theory. Placing app_launch_test.dart in its alphabetical
+  // position (first) makes mock_flow_test.dart fail with:
+  //
+  //   Expected: exactly one matching candidate
+  //     Actual: Found 0 widgets with text "Battery Service"
+  //
+  // because the real codec parses the bulb spec and the device screen renders
+  // spec-driven controls instead of the raw GATT service list that suite
+  // asserts on. test/platform/integration_aggregate_test.dart pins this
+  // ordering so the next person to add a suite cannot reintroduce it.
+  //
+  // app_launch before native_core: lib/main.dart's RustLib.init() is then the
+  // one that actually brings the bridge up (its success path, which is what
+  // that suite is there to exercise), and native_core finds it already
+  // initialised and goes straight to calling through it.
+  group('app_launch_test.dart', app_launch.main);
   group('native_core_test.dart', native_core.main);
 }
