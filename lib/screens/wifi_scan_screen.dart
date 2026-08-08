@@ -265,7 +265,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       icon: Icons.router_outlined,
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
-      description: entry.guess == null ? _describe(device, vendor) : null,
+      // Same rule as the BLE tab, and for the same reason: it is naming a
+      // product that makes the description redundant, not merely matching
+      // something. A badge reading "Supported device" or "Possibly supported"
+      // has told the user nothing about which one — the vendor and the service
+      // type underneath it are precisely what distinguishes this row.
+      description:
+          entry.guess?.namesAProduct == true ? null : _describe(device, vendor),
       onTap: () => _showDetails(device, vendor),
     );
   }
@@ -273,6 +279,10 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   static String _transportLabel(NetworkDevice device) {
     final both = device.sources.length > 1;
     if (both) return 'mDNS + SSDP';
+    // `sources` is required but carries no non-empty invariant, and `.first`
+    // on an empty set throws inside a list builder — an awkward place to find
+    // out. Naming the transport is the least important thing on the row.
+    if (device.sources.isEmpty) return '';
     return device.sources.first == NetworkDiscoverySource.mdns
         ? 'mDNS'
         : 'SSDP';

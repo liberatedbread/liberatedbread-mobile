@@ -53,11 +53,15 @@ void main() {
       expect(byId['AA:BB:CC:DD:EE:03']!.companyIds, contains(820),
           reason: 'one device must be recognisable by company ID alone');
 
-      final anonymous = byId['C4:7C:8D:11:22:04']!;
+      // C4:7C:8D is subdivided among fifteen companies and the trailing 6 is
+      // what picks out HHCC Plant Technology's 28-bit block — the Mi Flora's
+      // OEM. An address elsewhere in the octet resolves to someone unrelated,
+      // which titled the demo row with one company and badged it with another.
+      final anonymous = byId['C4:7C:8D:61:22:04']!;
       expect(anonymous.name, isEmpty);
       expect(anonymous.serviceUuids, isEmpty);
       expect(anonymous.companyIds, isEmpty);
-      expect(anonymous.macAddress, 'C4:7C:8D:11:22:04',
+      expect(anonymous.macAddress, 'C4:7C:8D:61:22:04',
           reason: 'one device must be identifiable only by its OUI');
     });
   });

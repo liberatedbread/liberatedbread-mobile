@@ -870,7 +870,12 @@ pub fn encode_entity_value(
 struct MatchAxes {
     by_name_prefix: bool,
     /// Strong tier: a vendor-allocated identifier the device volunteered.
+    /// Only UUIDs [`is_sig_assigned_service`] rejects land here.
     service_uuids: Vec<String>,
+    /// The BLE counterpart of [`shared_service_types`](Self::shared_service_types):
+    /// services the Bluetooth SIG defined for everyone, which say what a device
+    /// can do and never who made it. Reported, never promoting.
+    shared_service_uuids: Vec<String>,
     /// Strong tier, network side: mDNS service types and SSDP search targets
     /// that identify a vendor. Only ones [`is_shared_service_type`] rejects
     /// land here.
@@ -884,19 +889,26 @@ struct MatchAxes {
     /// Identifies a vendor, not a product — except where the spec says
     /// otherwise. Worth what its [`MacPrefixConfidence`] says it is.
     mac_prefix: Option<MacPrefixDto>,
-    /// Possible tier, network side: port 80 says nothing about who is on it.
-    port: Option<u16>,
+    // There is deliberately no port axis. A matched `default_port` used to sit
+    // here and count towards `is_empty`, which made it *admitting*: the two
+    // specs whose only network signal is a port claimed every host answering on
+    // it, so any router admin page or NAS on the link came back "Possibly
+    // Rachio". A port is not a weak identifier, it is not an identifier —
+    // nothing about port 80 distinguishes one listener from the next. The
+    // declaration still gates a spec into the network path (see
+    // [`match_network_axes`]) so its name prefix gets a hearing; it just cannot
+    // be the evidence itself.
 }
 
 impl MatchAxes {
     fn is_empty(&self) -> bool {
         !self.by_name_prefix
             && self.service_uuids.is_empty()
+            && self.shared_service_uuids.is_empty()
             && self.service_types.is_empty()
             && self.shared_service_types.is_empty()
             && self.company_ids.is_empty()
             && self.mac_prefix.is_none()
-            && self.port.is_none()
     }
 
     /// Every network identifier that matched, shared ones last. What the UI
@@ -904,6 +916,15 @@ impl MatchAxes {
     fn all_service_types(&self) -> Vec<String> {
         let mut all = self.service_types.clone();
         all.extend(self.shared_service_types.iter().cloned());
+        all
+    }
+
+    /// The same, for BLE service UUIDs. A user asking why a device was flagged
+    /// wants to see every UUID that matched, including the standard ones — it
+    /// is only the confidence verdict that has to tell them apart.
+    fn all_service_uuids(&self) -> Vec<String> {
+        let mut all = self.service_uuids.clone();
+        all.extend(self.shared_service_uuids.iter().cloned());
         all
     }
 
@@ -929,10 +950,14 @@ impl MatchAxes {
     /// - a low-confidence OUI (a block IEEE subdivided among fifteen companies,
     ///   or a radio module vendor's block carried by every product using the
     ///   chip);
+    /// - a SIG-assigned service UUID (0x180F Battery, 0x181A Environmental
+    ///   Sensing — services the specification defines for everyone, so matching
+    ///   one says what the device does and nothing about who built it);
     /// - a shared service type or search target (`upnp:rootdevice` is answered
     ///   by every router, printer and NAS on the link);
-    /// - a default port, which the DTO itself documents as saying nothing —
-    ///   port 80 does not tell you who is listening on it.
+    ///
+    /// A default port does not appear at all — not because it cannot promote,
+    /// but because it is not an axis; see the note on [`MatchAxes`].
     fn agreeing(&self) -> usize {
         usize::from(self.by_name_prefix)
             + usize::from(!self.service_uuids.is_empty())
@@ -942,10 +967,13 @@ impl MatchAxes {
     }
 
     fn confidence(&self) -> MatchConfidence {
-        // `service_types` here is only the vendor-specific half: a match on
+        // Both lists here are only the vendor-specific half. A match on
         // `_hue._tcp` is proof-shaped, a match on `upnp:rootdevice` is not, and
         // before that split every UPnP root device on the link was reported as
-        // a Strong "Philips Hue Bridge".
+        // a Strong "Philips Hue Bridge". A SIG-assigned UUID is the same thing
+        // one axis over: 0x181A is the Environmental Sensing service every
+        // thermometer on the market exposes, and matching it was reporting each
+        // of them as a Strong "Xiaomi LYWSD03MMC".
         if !self.service_uuids.is_empty() || !self.service_types.is_empty() || self.agreeing() >= 2
         {
             MatchConfidence::Strong
@@ -1036,17 +1064,27 @@ fn match_axes(
     // gives Dart callers a predictable casing. We only allocate the lowercased
     // copy when a spec UUID actually matches; the per-element compare uses
     // `eq_ignore_ascii_case`.
-    let service_uuids: Vec<String> = identity
-        .service_uuids
-        .iter()
-        .filter(|spec_uuid| {
-            device
-                .service_uuids
-                .iter()
-                .any(|adv| adv.eq_ignore_ascii_case(spec_uuid))
-        })
-        .map(|spec_uuid| spec_uuid.to_ascii_lowercase())
-        .collect();
+    // Split as they are collected, on the same principle as the network side's
+    // shared search targets: a UUID the SIG allocated identifies a capability
+    // that any vendor may implement, so it belongs in the report but not in the
+    // promotion rule.
+    let mut service_uuids: Vec<String> = Vec::new();
+    let mut shared_service_uuids: Vec<String> = Vec::new();
+    for spec_uuid in &identity.service_uuids {
+        let matched = device
+            .service_uuids
+            .iter()
+            .any(|adv| adv.eq_ignore_ascii_case(spec_uuid));
+        if !matched {
+            continue;
+        }
+        let lowered = spec_uuid.to_ascii_lowercase();
+        if is_sig_assigned_service(spec_uuid) {
+            shared_service_uuids.push(lowered);
+        } else {
+            service_uuids.push(lowered);
+        }
+    }
 
     let company_ids: Vec<u16> = identity
         .company_ids
@@ -1077,10 +1115,50 @@ fn match_axes(
     MatchAxes {
         by_name_prefix,
         service_uuids,
+        shared_service_uuids,
         company_ids,
         mac_prefix,
         ..MatchAxes::default()
     }
+}
+
+/// The Bluetooth SIG's GATT service registry, as vendored by the specs repo:
+/// one `<short-uuid>\t<name>` line per assignment, sorted.
+///
+/// Compiled in rather than loaded, because this is consulted inside the match
+/// loop and the answer can never depend on runtime state. Dart reads the same
+/// file as an asset for its *naming* lookups; here only the key set matters.
+const SIG_SERVICE_UUIDS: &str =
+    include_str!("../../../vendor/protocol-specs/registries/bluetooth-service-uuids.tsv");
+
+/// Whether `uuid` is a service the Bluetooth SIG defined, rather than one a
+/// vendor allocated for its own product.
+///
+/// The BLE half of the rule [`is_shared_service_type`] states for the network.
+/// A SIG service is a *capability*: 0x180F means the device reports a battery
+/// level, 0x181A that it reports environmental readings, 0x1802 that it can be
+/// told to beep. Every vendor implementing that capability advertises the same
+/// UUID, so a spec declaring one is describing what its device does — useful to
+/// report, worthless as proof of what it is. Left unsplit, three specs in the
+/// catalogue turned it into a confident lie: any thermometer exposing 0x181A
+/// was a Strong "Xiaomi LYWSD03MMC", any scale exposing 0x181D a Strong
+/// "Xiaomi Mi Scale", any tag exposing 0x1802 a Strong "iTag BLE Key Finder".
+///
+/// Membership of the SIG registry is the test, not membership of the base UUID
+/// range: 0xFFF0-0xFFFF sit in that range and are the unassigned values cheap
+/// modules squat on, which are weak for a different reason (collision, not
+/// standardisation) and are still the only identifier those devices have.
+fn is_sig_assigned_service(uuid: &str) -> bool {
+    let short = crate::protocol::profiles::normalize_uuid(uuid);
+    // Only the 16-bit forms can be SIG assignments; anything else cannot
+    // collide with a registry key, and skipping them keeps the scan short.
+    if short.len() > 4 {
+        return false;
+    }
+    let padded = format!("{:0>4}", short);
+    SIG_SERVICE_UUIDS
+        .lines()
+        .any(|line| line.split('\t').next() == Some(padded.as_str()))
 }
 
 /// Compare one spec identity against one device seen on the local network.
@@ -1088,8 +1166,9 @@ fn match_axes(
 /// Deliberately the same [`MatchAxes`] and therefore the same confidence rule
 /// as the BLE path: an mDNS service type or an SSDP search target is a
 /// vendor-specific identifier the device volunteered, which is the network
-/// equivalent of a vendor service UUID, while a default port is the equivalent
-/// of an OUI -- port 80 tells you nothing about who is listening on it.
+/// equivalent of a vendor service UUID. A declared `default_port` gates a spec
+/// into this path but never becomes evidence within it -- port 80 tells you
+/// nothing about who is listening on it.
 /// `device_types` is `device.service_types` already through
 /// [`normalize_service_type`], computed once by the caller for the same reason
 /// [`match_axes`] takes the MAC pre-normalized: this runs per identity.
@@ -1158,15 +1237,10 @@ fn match_network_axes(
                 .is_some_and(|h| name_has_prefix(h, prefix))
     });
 
-    let port = identity
-        .default_port
-        .filter(|declared| device.port == Some(*declared));
-
     MatchAxes {
         by_name_prefix,
         service_types,
         shared_service_types,
-        port,
         ..MatchAxes::default()
     }
 }
@@ -1257,11 +1331,13 @@ pub fn match_device_to_spec(
         .into_iter()
         .filter_map(|spec| {
             let axes = match_axes(&SpecIdentityDto::from(&spec), &device, None);
+            // Built before the struct moves the axes apart.
+            let matched_service_uuids = axes.all_service_uuids();
             (!axes.is_empty()).then(|| MatchResult {
                 spec,
                 matched_by_name_prefix: axes.by_name_prefix,
                 confidence: axes.confidence(),
-                matched_service_uuids: axes.service_uuids,
+                matched_service_uuids,
             })
         })
         .collect()
@@ -1305,13 +1381,14 @@ fn rank_matches(
             let axes = axes_for(identity);
             // Built before the struct moves the axes apart.
             let matched_service_types = axes.all_service_types();
+            let matched_service_uuids = axes.all_service_uuids();
             (!axes.is_empty()).then(|| ScanMatch {
                 spec_index: index as u32,
                 device_name: identity.device_name.clone(),
                 manufacturer: identity.manufacturer.clone(),
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,
-                matched_service_uuids: axes.service_uuids,
+                matched_service_uuids,
                 matched_company_ids: axes.company_ids,
                 matched_mac_prefix: axes.mac_prefix,
                 matched_service_types,
@@ -1982,6 +2059,84 @@ services:
         }
     }
 
+    /// The scan identity with its vendor UUID swapped for a SIG-assigned one.
+    /// `181a` is Environmental Sensing — what xiaomi-lywsd03mmc really declares.
+    fn scan_identity_with_sig_uuid() -> SpecIdentityDto {
+        let mut identity = scan_identity();
+        identity.service_uuids = vec!["0000181a-0000-1000-8000-00805f9b34fb".into()];
+        identity
+    }
+
+    #[test]
+    fn a_sig_assigned_service_uuid_alone_is_only_possible() {
+        // Every thermometer on the market exposes Environmental Sensing; it
+        // says the device reports a temperature, not who built it. While it
+        // ranked as a vendor UUID, each of them came back Strong and was badged
+        // "Xiaomi LYWSD03MMC".
+        let device = ScannedDeviceDto {
+            service_uuids: vec!["0000181A-0000-1000-8000-00805F9B34FB".into()],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity_with_sig_uuid()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+        assert_eq!(
+            matches[0].matched_service_uuids,
+            vec!["0000181a-0000-1000-8000-00805f9b34fb"],
+            "still reported — the user asked what matched, and it did"
+        );
+    }
+
+    #[test]
+    fn a_sig_assigned_service_uuid_does_not_promote_a_name_prefix() {
+        // The other half of the rule: a shared identifier cannot be one of the
+        // two agreeing axes either, or the promotion sneaks back in.
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            service_uuids: vec!["0000181a-0000-1000-8000-00805f9b34fb".into()],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity_with_sig_uuid()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+    }
+
+    #[test]
+    fn a_vendor_service_uuid_is_still_strong() {
+        // The control. 0xfff0 sits inside the base UUID range but the SIG never
+        // assigned it, so it is a squatted vendor value — weak against
+        // collision, but still the only identifier such a device has, and the
+        // strongest thing it volunteers.
+        let device = ScannedDeviceDto {
+            service_uuids: vec!["0000fff0-0000-1000-8000-00805f9b34fb".into()],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn the_sig_registry_answers_in_every_uuid_spelling() {
+        // Specs write these three ways interchangeably; a miss in any spelling
+        // silently restores the Strong verdict for that spec alone.
+        for spelling in [
+            "181a",
+            "0000181A-0000-1000-8000-00805F9B34FB",
+            "0000181a-0000-1000-8000-00805f9b34fb",
+        ] {
+            assert!(is_sig_assigned_service(spelling), "{spelling}");
+        }
+        // Padding matters: 0x1800 is Generic Access, and normalize_uuid hands
+        // back "1800" — but a two-digit assignment would come back stripped.
+        assert!(is_sig_assigned_service("1800"));
+        // Not assignments: the squatted range, and a full vendor UUID.
+        assert!(!is_sig_assigned_service("fff0"));
+        assert!(!is_sig_assigned_service(
+            "0000fff0-0000-1000-8000-00805f9b34fb"
+        ));
+        assert!(!is_sig_assigned_service(
+            "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        ));
+    }
+
     #[test]
     fn identification_axes_reach_the_dto() {
         let dto = load_device_spec(SCAN_YAML.into()).unwrap();
@@ -2404,15 +2559,26 @@ http_endpoints:
     }
 
     #[test]
-    fn a_default_port_alone_is_only_possible() {
+    fn a_default_port_alone_matches_nothing() {
         // Port 8081 is not evidence of anything much, and port 80 is evidence
-        // of nothing at all.
+        // of nothing at all — so a port on its own does not admit a match. Two
+        // specs in the catalogue declare a port and nothing else, and while the
+        // port was admitting they claimed every host answering on it: any
+        // router admin page came back "Possibly Rachio".
+        let mut identity = network_identity();
+        identity.mdns_service_type = None;
+        identity.ssdp_search_targets = vec![];
+        identity.local_name_prefixes = vec![];
+
         let device = NetworkDeviceDto {
             port: Some(8081),
             ..anonymous_host()
         };
-        let matches = match_network_device(vec![network_identity()], device);
-        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+        let matches = match_network_device(vec![identity], device);
+        assert!(
+            matches.is_empty(),
+            "a matched port is not evidence of anything"
+        );
     }
 
     #[test]
@@ -2546,15 +2712,18 @@ http_endpoints:
 
     #[test]
     fn network_matches_come_back_best_first() {
+        // Weak matches on its shared search target alone, which ranks but never
+        // promotes; the full identity matches on its own mDNS type.
         let mut weak = network_identity();
         weak.device_name = "Weak".into();
         weak.mdns_service_type = None;
-        weak.ssdp_search_targets = vec![];
+        weak.ssdp_search_targets = vec!["upnp:rootdevice".into()];
         weak.local_name_prefixes = vec![];
 
         let device = NetworkDeviceDto {
             hostname: Some("TestBridge-1.local".into()),
             service_types: vec!["_testbridge._tcp.local".into()],
+            ssdp_targets: vec!["upnp:rootdevice".into()],
             port: Some(8081),
             ..anonymous_host()
         };

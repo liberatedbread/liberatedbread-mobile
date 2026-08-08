@@ -193,6 +193,56 @@ void main() {
     expect(store.load(), {'AA:BB': 'Brand A Lights|Vendor A'});
   });
 
+  testWidgets('a slot appearing above the service list does not resubscribe',
+      (tester) async {
+    // The list is lazy, and a lazy delegate reconciles per index unless it is
+    // given findChildIndexCallback — so keyed rows were still torn down and
+    // re-inflated whenever the leading slots changed count, which they do on
+    // essentially every connect (the match provider is AsyncLoading for the
+    // first frame). The remount's setNotifyValue(true) races the outgoing
+    // element's setNotifyValue(false) on the same characteristic, with no
+    // reference counting; when the disable lands last, the characteristic goes
+    // quiet for the rest of the session.
+    const notifying = [
+      BleDiscoveredService(
+        uuid: '0000aaa0-0000-1000-8000-00805f9b34fb',
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: '0000aaa1-0000-1000-8000-00805f9b34fb',
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ],
+      ),
+      ..._tieServices,
+    ];
+    final ble = FakeBleService();
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: 'AA:BB', deviceName: 'Mystery', services: notifying),
+      ble: ble,
+      codec: _tieCodec(),
+      specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
+    ));
+    // First frame: no leading slot yet, every service card mounts.
+    await tester.pump();
+    expect(ble.subscriptions, hasLength(1));
+
+    // The match resolves and the chooser takes slot 0, shifting every service
+    // card down by one.
+    await tester.pumpAndSettle();
+    expect(find.text('Which device is this?'), findsOneWidget);
+    expect(ble.subscriptions, hasLength(1),
+        reason: 'the shifted card must be carried to its new index, not '
+            'destroyed and re-inflated');
+
+    // And again in the other direction, when answering the chooser removes it.
+    await tester.tap(find.text('Brand A Lights'));
+    await tester.pumpAndSettle();
+    expect(ble.subscriptions, hasLength(1));
+  });
+
   testWidgets(
       'a saved choice shows the banner; Change reopens the chooser and a '
       'new pick replaces the stored choice', (tester) async {
