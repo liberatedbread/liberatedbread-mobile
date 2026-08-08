@@ -102,7 +102,10 @@ impl DeviceProtocol for GenericProtocol {
                     .map(|f| FieldMeta {
                         name: f.name.clone(),
                         scale: f.scale,
+                        value_offset: f.value_offset,
                         unit: f.unit.clone(),
+                        values: f.values.clone(),
+                        unit_follows_device_setting: f.unit_follows_device_setting(),
                     })
                     .collect()
             })

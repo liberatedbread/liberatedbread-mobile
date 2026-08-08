@@ -137,18 +137,30 @@ pub struct EntityDto {
     /// is ready to send: encode the named command with the listed user
     /// parameters and the spec's declared defaults fill the rest.
     pub actions: Vec<EntityActionDto>,
+    /// Bounds and granularity of a `number`/`climate` setpoint control, in
+    /// DECODED units (what the user sees and picks), not raw bytes. Taken
+    /// from the entity's own `min`/`max`/`step` — or the `climate` spelling
+    /// `min_temp`/`max_temp`/`temp_step` — falling back to what the bound
+    /// parameter or field can physically hold.
+    pub setpoint_min: Option<f64>,
+    pub setpoint_max: Option<f64>,
+    pub setpoint_step: Option<f64>,
 }
 
 /// One resolved control action: which command a role sends and what the UI
 /// supplies.
 #[derive(Debug, Clone)]
 pub struct EntityActionDto {
-    /// `turn_on` | `turn_off` | `press` | `set_brightness` | `set_color`.
+    /// `turn_on` | `turn_off` | `press` | `set_brightness` | `set_color` |
+    /// `set_value`.
     pub role: String,
     /// GATT service/characteristic the encoded command is written to.
     pub service_uuid: String,
     pub characteristic_uuid: String,
-    pub command_name: String,
+    /// The command this action sends. `None` for a `set_value` action that
+    /// writes the encoded value directly to the characteristic — send those
+    /// through [`encode_entity_value`], which handles both shapes.
+    pub command_name: Option<String>,
     /// Template parameters the UI owns for this role (e.g. `brightness`;
     /// `red`/`green`/`blue`). Extra card state sent alongside is harmless —
     /// the encoder only reads what the template references.
@@ -237,9 +249,23 @@ pub struct DecodedValueDto {
     /// decoded value stays raw so the caller keeps both halves; applying this
     /// is what turns a SIG temperature's 2350 into 23.5.
     pub scale: Option<f64>,
+    /// Additive term completing the spec's linear transform,
+    /// `value = raw * scale + value_offset`. Gerbing's thermometer is
+    /// `raw * 0.5 + 85` °F, and dropping the offset makes every reading wrong
+    /// by 85 degrees.
+    pub value_offset: Option<f64>,
     /// Unit symbol from the spec's `format:` block, used when the entity
     /// surfacing this reading does not name one.
     pub unit: Option<String>,
+    /// Human name for this value when the field declares a `values:` code
+    /// table, already resolved for the value decoded — Ember's liquid state
+    /// 5 arrives as "heating".
+    pub value_label: Option<String>,
+    /// True when the spec says the wire unit follows a device setting rather
+    /// than being fixed by the protocol (the Inkbird iBBQ sends whichever
+    /// unit the device is set to). The UI must not present [`Self::unit`] as
+    /// fact when this is set.
+    pub unit_follows_device_setting: bool,
 }
 
 /// One match returned by [`match_device_to_spec`]. Callers pick whichever
@@ -329,13 +355,39 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
         .as_deref()
         .and_then(|uuid| spec.find_decodable_characteristic(uuid));
 
-    let actions: Vec<EntityActionDto> = bindings::resolve_entity_actions(spec, entity)
-        .into_iter()
+    let resolved = bindings::resolve_entity_actions(spec, entity);
+
+    // Setpoint bounds are shown to the user, so they are in decoded units.
+    // The entity's own declarations win; otherwise the action's raw bounds
+    // (the parameter's, or what the field type can hold) are mapped through
+    // the same transform the value itself uses. A negative scale flips which
+    // raw bound is the larger decoded one, so the pair is re-ordered rather
+    // than assumed.
+    // The entity's own declarations always stand — they describe the quantity,
+    // not the write, so they are worth carrying even for a read-only setpoint
+    // whose command never resolved. Only the fallback needs an action.
+    let action_bounds = resolved
+        .iter()
+        .find(|a| a.role == "set_value")
+        .and_then(|action| {
+            let transform = bindings::setpoint_transform(spec, entity, action);
+            let (min, max) = (action.min?, action.max?);
+            let (a, b) = (transform.decode(min as f64), transform.decode(max as f64));
+            Some((a.min(b), a.max(b)))
+        });
+    let setpoint = (
+        entity.setpoint_min().or(action_bounds.map(|(lo, _)| lo)),
+        entity.setpoint_max().or(action_bounds.map(|(_, hi)| hi)),
+        entity.setpoint_step(),
+    );
+
+    let actions: Vec<EntityActionDto> = resolved
+        .iter()
         .map(|action| EntityActionDto {
             role: action.role.to_string(),
             service_uuid: action.service.uuid.clone(),
             characteristic_uuid: action.characteristic.uuid.clone(),
-            command_name: action.command_name.to_string(),
+            command_name: action.command_name.map(str::to_owned),
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
             min: action.min.map(|v| v as f64),
             max: action.max.map(|v| v as f64),
@@ -381,6 +433,9 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
         color_green_field: color_fields.as_ref().map(|[_, g, _]| g.clone()),
         color_blue_field: color_fields.as_ref().map(|[_, _, b]| b.clone()),
         actions,
+        setpoint_min: setpoint.0,
+        setpoint_max: setpoint.1,
+        setpoint_step: setpoint.2,
     })
 }
 
@@ -511,7 +566,10 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
             uint_value: None,
             string_value: None,
             scale: None,
+            value_offset: None,
             unit: None,
+            value_label: None,
+            unit_follows_device_setting: false,
         };
         match value {
             DecodedValue::Bool(v) => dto.bool_value = Some(*v),
@@ -538,6 +596,84 @@ impl From<(&str, &DecodedValue)> for DecodedValueDto {
 pub fn load_device_spec(yaml: String) -> anyhow::Result<DeviceSpecDto> {
     let spec = parse_device_spec(&yaml)?;
     Ok(DeviceSpecDto::from(&spec))
+}
+
+/// The bytes that set a `number`/`climate` entity to a value, and where to
+/// write them.
+#[derive(Debug, Clone)]
+pub struct EntityWriteDto {
+    pub service_uuid: String,
+    pub characteristic_uuid: String,
+    pub bytes: Vec<u8>,
+}
+
+/// Encode a setpoint the user picked into the write that applies it.
+///
+/// `value` is in DECODED units — degrees, percent, whatever the entity's
+/// `unit` says — because that is what the user chose. Converting to the raw
+/// wire value happens here rather than in the UI so the rule lives in one
+/// place: the spec's linear transform is inverted
+/// (`raw = round((value - value_offset) / scale)`), which is exactly why the
+/// schema keeps that transform linear.
+///
+/// Both `set_value` shapes are handled: a command carrying the value in its
+/// single un-defaulted parameter, and a direct write of the encoded value to
+/// a characteristic the entity explicitly nominates.
+pub fn encode_entity_value(
+    spec_yaml: String,
+    entity_name: String,
+    value: f64,
+) -> anyhow::Result<EntityWriteDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let entity = spec
+        .entities
+        .iter()
+        .find(|e| e.name == entity_name)
+        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
+
+    let actions = bindings::resolve_entity_actions(&spec, entity);
+    let action = actions
+        .iter()
+        .find(|a| a.role == "set_value")
+        .ok_or_else(|| anyhow::anyhow!("entity '{entity_name}' has no settable value"))?;
+
+    let transform = bindings::setpoint_transform(&spec, entity, action);
+    let raw = transform.encode(value).ok_or_else(|| {
+        anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
+    })?;
+    let value_type = bindings::setpoint_value_type(action)
+        .ok_or_else(|| anyhow::anyhow!("entity '{entity_name}' does not declare a value type"))?;
+
+    let bytes = match action.command_name {
+        // The command owns the byte layout; hand it the raw value for its one
+        // un-defaulted parameter and let the encoder place it, defaults and
+        // all.
+        Some(command_name) => {
+            let command = action
+                .characteristic
+                .commands
+                .as_ref()
+                .and_then(|cmds| cmds.get(command_name))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("command '{command_name}' vanished from the spec")
+                })?;
+            let params = action
+                .user_params
+                .first()
+                .map(|name| HashMap::from([((*name).to_string(), raw)]))
+                .unwrap_or_default();
+            crate::codec::types::encode_command(command, &params)?
+        }
+        // Direct write: the value IS the payload, at the width the single
+        // format field declares.
+        None => crate::codec::types::encode_scalar(raw, &value_type, &entity_name)?,
+    };
+
+    Ok(EntityWriteDto {
+        service_uuid: action.service.uuid.clone(),
+        characteristic_uuid: action.characteristic.uuid.clone(),
+        bytes,
+    })
 }
 
 /// Find every spec matching a scanned device, with the reasons it matched.
@@ -688,7 +824,16 @@ pub fn decode_value(
             let mut dto = DecodedValueDto::from((name.as_str(), value));
             if let Some(m) = meta.iter().find(|m| &m.name == name) {
                 dto.scale = m.scale;
+                dto.value_offset = m.value_offset;
                 dto.unit = m.unit.clone();
+                dto.unit_follows_device_setting = m.unit_follows_device_setting;
+                // Enumerated fields are looked up by the raw integer the
+                // device sent, rendered decimal to match the normalized
+                // table keys.
+                dto.value_label = m.values.as_ref().and_then(|table| {
+                    let raw = dto.int_value.or(dto.uint_value)?;
+                    table.get(&raw.to_string()).cloned()
+                });
             }
             dto
         })

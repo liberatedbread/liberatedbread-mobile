@@ -7,11 +7,30 @@ import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `entity_dto`, `image_upload_dto`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`
 
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
     RustLib.instance.api.crateApiDeviceApiLoadDeviceSpec(yaml: yaml);
+
+/// Encode a setpoint the user picked into the write that applies it.
+///
+/// `value` is in DECODED units — degrees, percent, whatever the entity's
+/// `unit` says — because that is what the user chose. Converting to the raw
+/// wire value happens here rather than in the UI so the rule lives in one
+/// place: the spec's linear transform is inverted
+/// (`raw = round((value - value_offset) / scale)`), which is exactly why the
+/// schema keeps that transform linear.
+///
+/// Both `set_value` shapes are handled: a command carrying the value in its
+/// single un-defaulted parameter, and a direct write of the encoded value to
+/// a characteristic the entity explicitly nominates.
+Future<EntityWriteDto> encodeEntityValue(
+        {required String specYaml,
+        required String entityName,
+        required double value}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeEntityValue(
+        specYaml: specYaml, entityName: entityName, value: value);
 
 /// Find every spec matching a scanned device, with the reasons it matched.
 ///
@@ -206,9 +225,26 @@ class DecodedValueDto {
   /// is what turns a SIG temperature's 2350 into 23.5.
   final double? scale;
 
+  /// Additive term completing the spec's linear transform,
+  /// `value = raw * scale + value_offset`. Gerbing's thermometer is
+  /// `raw * 0.5 + 85` °F, and dropping the offset makes every reading wrong
+  /// by 85 degrees.
+  final double? valueOffset;
+
   /// Unit symbol from the spec's `format:` block, used when the entity
   /// surfacing this reading does not name one.
   final String? unit;
+
+  /// Human name for this value when the field declares a `values:` code
+  /// table, already resolved for the value decoded — Ember's liquid state
+  /// 5 arrives as "heating".
+  final String? valueLabel;
+
+  /// True when the spec says the wire unit follows a device setting rather
+  /// than being fixed by the protocol (the Inkbird iBBQ sends whichever
+  /// unit the device is set to). The UI must not present [`Self::unit`] as
+  /// fact when this is set.
+  final bool unitFollowsDeviceSetting;
 
   const DecodedValueDto({
     required this.name,
@@ -219,7 +255,10 @@ class DecodedValueDto {
     this.uintValue,
     this.stringValue,
     this.scale,
+    this.valueOffset,
     this.unit,
+    this.valueLabel,
+    required this.unitFollowsDeviceSetting,
   });
 
   @override
@@ -232,7 +271,10 @@ class DecodedValueDto {
       uintValue.hashCode ^
       stringValue.hashCode ^
       scale.hashCode ^
-      unit.hashCode;
+      valueOffset.hashCode ^
+      unit.hashCode ^
+      valueLabel.hashCode ^
+      unitFollowsDeviceSetting.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -247,7 +289,10 @@ class DecodedValueDto {
           uintValue == other.uintValue &&
           stringValue == other.stringValue &&
           scale == other.scale &&
-          unit == other.unit;
+          valueOffset == other.valueOffset &&
+          unit == other.unit &&
+          valueLabel == other.valueLabel &&
+          unitFollowsDeviceSetting == other.unitFollowsDeviceSetting;
 }
 
 /// A parsed device specification, ready for use by the Flutter app.
@@ -318,13 +363,18 @@ class DeviceSpecDto {
 /// One resolved control action: which command a role sends and what the UI
 /// supplies.
 class EntityActionDto {
-  /// `turn_on` | `turn_off` | `press` | `set_brightness` | `set_color`.
+  /// `turn_on` | `turn_off` | `press` | `set_brightness` | `set_color` |
+  /// `set_value`.
   final String role;
 
   /// GATT service/characteristic the encoded command is written to.
   final String serviceUuid;
   final String characteristicUuid;
-  final String commandName;
+
+  /// The command this action sends. `None` for a `set_value` action that
+  /// writes the encoded value directly to the characteristic — send those
+  /// through [`encode_entity_value`], which handles both shapes.
+  final String? commandName;
 
   /// Template parameters the UI owns for this role (e.g. `brightness`;
   /// `red`/`green`/`blue`). Extra card state sent alongside is harmless —
@@ -342,7 +392,7 @@ class EntityActionDto {
     required this.role,
     required this.serviceUuid,
     required this.characteristicUuid,
-    required this.commandName,
+    this.commandName,
     required this.userParams,
     this.min,
     this.max,
@@ -436,6 +486,15 @@ class EntityDto {
   /// parameters and the spec's declared defaults fill the rest.
   final List<EntityActionDto> actions;
 
+  /// Bounds and granularity of a `number`/`climate` setpoint control, in
+  /// DECODED units (what the user sees and picks), not raw bytes. Taken
+  /// from the entity's own `min`/`max`/`step` — or the `climate` spelling
+  /// `min_temp`/`max_temp`/`temp_step` — falling back to what the bound
+  /// parameter or field can physically hold.
+  final double? setpointMin;
+  final double? setpointMax;
+  final double? setpointStep;
+
   const EntityDto({
     required this.name,
     this.platform,
@@ -454,6 +513,9 @@ class EntityDto {
     this.colorGreenField,
     this.colorBlueField,
     required this.actions,
+    this.setpointMin,
+    this.setpointMax,
+    this.setpointStep,
   });
 
   @override
@@ -474,7 +536,10 @@ class EntityDto {
       colorRedField.hashCode ^
       colorGreenField.hashCode ^
       colorBlueField.hashCode ^
-      actions.hashCode;
+      actions.hashCode ^
+      setpointMin.hashCode ^
+      setpointMax.hashCode ^
+      setpointStep.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -497,7 +562,37 @@ class EntityDto {
           colorRedField == other.colorRedField &&
           colorGreenField == other.colorGreenField &&
           colorBlueField == other.colorBlueField &&
-          actions == other.actions;
+          actions == other.actions &&
+          setpointMin == other.setpointMin &&
+          setpointMax == other.setpointMax &&
+          setpointStep == other.setpointStep;
+}
+
+/// The bytes that set a `number`/`climate` entity to a value, and where to
+/// write them.
+class EntityWriteDto {
+  final String serviceUuid;
+  final String characteristicUuid;
+  final Uint8List bytes;
+
+  const EntityWriteDto({
+    required this.serviceUuid,
+    required this.characteristicUuid,
+    required this.bytes,
+  });
+
+  @override
+  int get hashCode =>
+      serviceUuid.hashCode ^ characteristicUuid.hashCode ^ bytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EntityWriteDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          characteristicUuid == other.characteristicUuid &&
+          bytes == other.bytes;
 }
 
 class FormatFieldDto {

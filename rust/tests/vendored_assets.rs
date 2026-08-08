@@ -254,9 +254,12 @@ fn vendored_specs_resolve_expected_control_actions() {
         .expect("elk-bledom declares an LED Strip light");
     assert_eq!(roles(strip), vec!["set_brightness", "set_color"]);
     let brightness = &strip.actions[0];
-    assert_eq!(brightness.command_name, "set_brightness");
+    assert_eq!(brightness.command_name, Some("set_brightness".to_string()));
     assert_eq!((brightness.min, brightness.max), (Some(0.0), Some(100.0)));
-    assert_eq!(strip.actions[1].command_name, "set_rgb_color");
+    assert_eq!(
+        strip.actions[1].command_name,
+        Some("set_rgb_color".to_string())
+    );
 
     // switchbot: no role map; bot_* names resolve via the suffix fallback,
     // and press resolves alongside the toggle pair.
@@ -267,8 +270,8 @@ fn vendored_specs_resolve_expected_control_actions() {
         .find(|e| e.name == "Bot Press")
         .expect("switchbot declares a Bot Press switch");
     assert_eq!(roles(bot), vec!["turn_on", "turn_off", "press"]);
-    assert_eq!(bot.actions[0].command_name, "bot_turn_on");
-    assert_eq!(bot.actions[2].command_name, "bot_press");
+    assert_eq!(bot.actions[0].command_name, Some("bot_turn_on".to_string()));
+    assert_eq!(bot.actions[2].command_name, Some("bot_press".to_string()));
 
     // ember: the LED's color command carries brightness as a user param, and
     // the state mapping names the decoded color fields.
@@ -320,4 +323,126 @@ fn vendored_specs_resolve_expected_control_actions() {
     );
     assert_eq!(light.is_on_field.as_deref(), Some("power_state"));
     assert_eq!(light.color_green_field.as_deref(), Some("green"));
+}
+
+/// Setpoint resolution against the real catalogue, end to end through the
+/// encode path a card actually calls.
+///
+/// Gerbing is the worked example the whole `set_value` role exists for: no
+/// commands anywhere in its spec, but each heat channel nominates a writable
+/// characteristic with a single `uint8` percentage field, so a value the user
+/// picks becomes one byte on the right characteristic. Ember is the honest
+/// negative: its centi-°C target is split across two byte parameters whose
+/// order lives only in prose, so it must resolve nothing rather than write a
+/// wildly wrong temperature.
+#[test]
+fn vendored_specs_resolve_expected_setpoints() {
+    use liberated_bread_core::api::device_api::{encode_entity_value, load_device_spec};
+
+    let read = |file: &str| {
+        let path = assets_dir().join(file);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    };
+
+    // ── Gerbing: direct write, bounds in decoded units ─────────────────────
+    let yaml = read("gerbing-thermogauge.yaml");
+    let gerbing = load_device_spec(yaml.clone()).expect("gerbing should load");
+    let heat = gerbing
+        .entities
+        .iter()
+        .find(|e| e.name == "Heat Level 1")
+        .expect("gerbing declares Heat Level 1");
+    assert_eq!(
+        heat.actions.len(),
+        1,
+        "the heat channel resolves exactly one setpoint action"
+    );
+    assert_eq!(heat.actions[0].role, "set_value");
+    assert_eq!(
+        heat.actions[0].command_name, None,
+        "gerbing has no commands; this is a direct write"
+    );
+    assert_eq!(
+        (heat.setpoint_min, heat.setpoint_max, heat.setpoint_step),
+        (Some(0.0), Some(100.0), Some(1.0))
+    );
+
+    let write =
+        encode_entity_value(yaml.clone(), "Heat Level 1".into(), 60.0).expect("60% should encode");
+    assert_eq!(write.bytes, vec![60], "raw byte IS the percentage here");
+    assert_eq!(
+        write.characteristic_uuid,
+        "90759319-1668-44da-9ef3-492d593bd1e5"
+    );
+    // The two channels are distinct characteristics; a card must not send
+    // channel 2's value to channel 1.
+    let write2 = encode_entity_value(yaml.clone(), "Heat Level 2".into(), 60.0)
+        .expect("channel 2 should encode");
+    assert_ne!(write.characteristic_uuid, write2.characteristic_uuid);
+
+    // Out-of-range values fail loudly rather than wrapping to a byte.
+    assert!(
+        encode_entity_value(yaml, "Heat Level 1".into(), 300.0).is_err(),
+        "300% must not silently wrap into a u8"
+    );
+
+    // ── Ember: the two-byte split must NOT be guessed at ───────────────────
+    let yaml = read("ember-mug.yaml");
+    let ember = load_device_spec(yaml.clone()).expect("ember should load");
+    let target = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "Target Temperature")
+        .expect("ember declares Target Temperature");
+    assert!(
+        target.actions.is_empty(),
+        "temp_low/temp_high ordering is prose-only; resolving it would be a guess"
+    );
+    // The entity's own declared bounds still cross, so a read-only setpoint
+    // still knows what range the device accepts.
+    assert_eq!(
+        (target.setpoint_min, target.setpoint_max),
+        (Some(49.0), Some(63.0))
+    );
+    assert!(encode_entity_value(yaml, "Target Temperature".into(), 55.0).is_err());
+}
+
+/// The number-semantics vocabulary the subtree refresh brought in must reach
+/// the decode path, or Gerbing's thermometer reads 85 degrees cold and
+/// Ember's liquid state stays an opaque integer.
+#[test]
+fn vendored_specs_decode_with_offsets_and_value_tables() {
+    use liberated_bread_core::api::device_api::decode_value;
+
+    let read = |file: &str| {
+        let path = assets_dir().join(file);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    };
+
+    // Gerbing channel 1: value = raw * 0.5 + 85 (°F). Raw 100 is 135 °F.
+    let decoded = decode_value(
+        Some(read("gerbing-thermogauge.yaml")),
+        None,
+        "ab06bd91-cc16-11e4-8830-0800200c9a66".into(),
+        vec![100],
+    )
+    .expect("temperature should decode");
+    let temp = &decoded[0];
+    assert_eq!(temp.uint_value, Some(100), "decoding stays lossless");
+    assert_eq!(temp.scale, Some(0.5));
+    assert_eq!(
+        temp.value_offset,
+        Some(85.0),
+        "without the offset this reading is 85 degrees wrong"
+    );
+
+    // Ember liquid state 5 is "heating", not 5.
+    let decoded = decode_value(
+        Some(read("ember-mug.yaml")),
+        None,
+        "fc540008-236c-4c94-8fa9-944a3e5353fa".into(),
+        vec![5],
+    )
+    .expect("liquid state should decode");
+    assert_eq!(decoded[0].value_label.as_deref(), Some("heating"));
 }

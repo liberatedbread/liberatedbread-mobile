@@ -5,6 +5,7 @@
 
 use crate::codec::types::DecodedValues;
 use crate::error::ProtocolError;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 
 /// How a decoded field should be presented, as declared by the spec.
@@ -17,7 +18,18 @@ use std::collections::HashMap;
 pub struct FieldMeta {
     pub name: String,
     pub scale: Option<f64>,
+    /// Additive term completing the linear transform
+    /// `value = raw * scale + value_offset`.
+    pub value_offset: Option<f64>,
     pub unit: Option<String>,
+    /// Code table for an enumerated field: raw value (as a decimal string) →
+    /// human name. The caller looks up the value it actually decoded; the
+    /// table itself does not cross the FFI, only the resolved name does.
+    pub values: Option<IndexMap<String, String>>,
+    /// True when the spec says the wire unit follows a device setting rather
+    /// than being a constant, so [`Self::unit`] must not be presented as
+    /// fact.
+    pub unit_follows_device_setting: bool,
 }
 
 /// A device protocol knows how to encode commands and decode responses
