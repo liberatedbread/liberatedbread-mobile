@@ -97,6 +97,7 @@ fi
 # A leading ~ would be quoted literally in the remote commands below (while
 # rsync's destination *does* expand it), splitting the sync and run dirs.
 # Normalize to a home-relative path — the remote shell starts in $HOME.
+# shellcheck disable=SC2088  # the "~/" pattern below matches a literal tilde on purpose — it is stripped, not expanded
 case "$REMOTE_DIR" in
   "~")   REMOTE_DIR="." ;;
   "~/"*) REMOTE_DIR="${REMOTE_DIR#\~/}" ;;

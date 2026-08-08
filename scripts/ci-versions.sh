@@ -163,6 +163,7 @@ ci_versions_load() {
   _ci_set CI_EMULATOR_TARGET 'aosp_atd' "$(_ci_env ANDROID_EMULATOR_TARGET || true)"
   _ci_set CI_EMULATOR_ARCH 'x86_64' "$(_ci_env ANDROID_EMULATOR_ARCH || true)"
   _ci_set CI_EMULATOR_PROFILE 'pixel_6' "$(_ci_env ANDROID_EMULATOR_PROFILE || true)"
+  # shellcheck disable=SC2034  # read by setup.sh / the session hook, which source this file
   CI_EMULATOR_SYSTEM_IMAGE="system-images;android-${CI_EMULATOR_API};${CI_EMULATOR_TARGET};${CI_EMULATOR_ARCH}"
 
   _ci_set CI_LINUX_DESKTOP_PACKAGES \

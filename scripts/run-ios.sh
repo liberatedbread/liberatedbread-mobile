@@ -109,13 +109,22 @@ fi
 
 # Returns a UDID for the requested device, or the newest available iPhone
 # if no name was provided. Uses python3 to walk simctl's JSON output.
+#
+# python3 fetches the JSON itself rather than reading it from a pipe. It used
+# to be `xcrun simctl … | python3 - "$DEVICE_NAME" <<'PY'`, which cannot work:
+# `python3 -` reads the PROGRAM from stdin, the heredoc is what supplies stdin,
+# and so the pipe was overridden and `json.load(sys.stdin)` got EOF. Every call
+# raised JSONDecodeError, `$(pick_simulator)` came back empty, and the script
+# stopped at "Could not select a simulator." (shellcheck SC2259 names exactly
+# this; it is why the CI lint gate over scripts/ exists.)
 pick_simulator() {
-  xcrun simctl list devices available --json \
-    | python3 - "$DEVICE_NAME" <<'PY'
-import json, re, sys
+  python3 - "$DEVICE_NAME" <<'PY'
+import json, re, subprocess, sys
 
 want = sys.argv[1] if len(sys.argv) > 1 else ""
-data = json.load(sys.stdin)
+data = json.loads(subprocess.run(
+    ["xcrun", "simctl", "list", "devices", "available", "--json"],
+    check=True, capture_output=True, text=True).stdout)
 devs_by_runtime = data.get("devices", {})
 
 def runtime_key(rt):
