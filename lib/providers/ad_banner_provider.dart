@@ -69,14 +69,21 @@ class AdBannerNotifier extends Notifier<AdBanner?> {
     if (isDisposed()) return;
     switch (result) {
       case AdBannerFetchOk(:final config, :final rawJson):
+        // Apply the fetched config first — a remote kill switch must work
+        // even when the cache write below fails.
+        state = _visible(config.banner);
         // Cache verbatim so the next launch seeds with this config — including
         // a "show nothing" one, which must keep the banner off from the first
-        // frame, not flash the fallback and then hide it.
-        await ref
-            .read(sharedPreferencesProvider)
-            .setString(cacheKey, rawJson);
-        if (isDisposed()) return;
-        state = _visible(config.banner);
+        // frame, not flash the fallback and then hide it. Best-effort: this
+        // future is unawaited by build(), so a platform-storage failure must
+        // be swallowed here or it becomes an unhandled async error.
+        try {
+          await ref
+              .read(sharedPreferencesProvider)
+              .setString(cacheKey, rawJson);
+        } catch (e) {
+          Log.ads.warning('could not cache the banner config', error: e);
+        }
       case AdBannerFetchFailed():
         break;
     }
@@ -96,9 +103,16 @@ class AdBannerNotifier extends Notifier<AdBanner?> {
     final banner = state;
     if (banner == null) return;
     state = null;
-    await ref
-        .read(sharedPreferencesProvider)
-        .setString(dismissedKey, banner.id);
+    // Best-effort like the cache write in _refresh: the caller fires this
+    // unawaited, and the banner is already hidden for this session even if
+    // persisting the id fails.
+    try {
+      await ref
+          .read(sharedPreferencesProvider)
+          .setString(dismissedKey, banner.id);
+    } catch (e) {
+      Log.ads.warning('could not persist the ad dismissal', error: e);
+    }
     Log.ads.info('banner "${banner.id}" dismissed');
   }
 }

@@ -70,8 +70,7 @@ void main() {
   });
 
   test('keeps the fallback when the fetch fails', () async {
-    final container =
-        _container((_) => throw http.ClientException('offline'));
+    final container = _container((_) => throw http.ClientException('offline'));
 
     expect(container.read(adBannerProvider), AdBanner.fallback);
     // Give the failed refresh time to (wrongly) change state if it were going
@@ -123,8 +122,8 @@ void main() {
     await container.read(adBannerProvider.notifier).dismiss();
 
     expect(container.read(adBannerProvider), isNull);
-    expect(_prefs.getString(AdBannerNotifier.dismissedKey),
-        AdBanner.fallback.id);
+    expect(
+        _prefs.getString(AdBannerNotifier.dismissedKey), AdBanner.fallback.id);
 
     // Next launch: same promotion stays hidden.
     final next = _container((_) async => http.Response('', 500));
