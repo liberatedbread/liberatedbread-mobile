@@ -230,6 +230,15 @@ void main() {
       expect(classifyAlertCommand('play_program'), isNull);
       expect(classifyAlertCommand('music_start'), isNull);
     });
+
+    test('rejects settings/status queries that merely name an alert', () {
+      // The Inkbird BBQ spec's get_* commands are fixed and encodable but
+      // only read configuration back — pressing them makes no noise.
+      expect(classifyAlertCommand('get_sound_switch'), isNull);
+      expect(classifyAlertCommand('get_alarm_mode'), isNull);
+      expect(classifyAlertCommand('alarm_status'), isNull);
+      expect(classifyAlertCommand('read_tone'), isNull);
+    });
   });
 
   group('humanLabelForCommand', () {
@@ -259,6 +268,15 @@ void main() {
           _discovered(immediateAlertServiceUuid, alertLevelCharUuid,
               canWrite: false),
         ],
+      );
+      expect(actions, isEmpty);
+    });
+
+    test('skips an Alert Level hanging off a non-Immediate-Alert service', () {
+      // 0x2A06 under some vendor service is not the standard profile;
+      // writing alert levels there would hit an unknown endpoint.
+      final actions = detectAlertActions(
+        services: [_discovered(_svc, alertLevelCharUuid)],
       );
       expect(actions, isEmpty);
     });
@@ -300,6 +318,37 @@ void main() {
         ),
         isEmpty,
       );
+      // The characteristic UUID alone is not enough: discovered under a
+      // DIFFERENT service than the spec names, it is a different endpoint.
+      expect(
+        detectAlertActions(
+          spec: spec,
+          specYaml: 'y',
+          services: [
+            _discovered('0000eee0-0000-1000-8000-00805f9b34fb', _chr),
+          ],
+        ),
+        isEmpty,
+      );
+    });
+
+    test(
+        'a characteristic UUID duplicated across services binds to the '
+        'service the spec names', () {
+      const otherSvc = '0000eee0-0000-1000-8000-00805f9b34fb';
+      final actions = detectAlertActions(
+        spec: _spec(
+          serviceUuid: _svc,
+          charUuid: _chr,
+          commands: [_command('beep')],
+        ),
+        specYaml: 'yaml',
+        // The duplicate under the unrelated service is discovered LAST, so a
+        // characteristic-keyed lookup would capture the wrong service.
+        services: [_discovered(_svc, _chr), _discovered(otherSvc, _chr)],
+      );
+      expect(actions, hasLength(1));
+      expect(actions.single.serviceUuid, _svc);
     });
 
     test('skips parameterized and non-encodable commands', () {

@@ -208,6 +208,16 @@ const Set<String> _negatingTokens = {
   'clear', //
 };
 
+/// Tokens that mark a command as a settings/status QUERY. The Inkbird BBQ
+/// spec's `get_sound_switch` and `get_alarm_mode` are fixed encodable
+/// commands whose positive tokens describe what is being *queried*, not an
+/// alert being raised — pressing them would silently read state back instead
+/// of making the device noticeable.
+const Set<String> _queryTokens = {
+  'get', 'query', 'read', 'request', 'status', 'check', 'poll', 'report',
+  'fetch', //
+};
+
 /// Tokens that mark a command as far too dangerous to hide behind a find
 /// button even when a positive token also matches (`flash_firmware` contains
 /// `flash`; it must never be one tap away).
@@ -226,6 +236,7 @@ FindAlertKind? classifyAlertCommand(String commandName) {
       .toSet();
   if (tokens.any(_dangerTokens.contains)) return null;
   if (tokens.any(_negatingTokens.contains)) return null;
+  if (tokens.any(_queryTokens.contains)) return null;
   // Find-me style commands often also name the mechanism ("alarm", "buzz");
   // the find kind wins because that's the user intent they encode.
   if (tokens.any(_findTokens.contains)) return FindAlertKind.alert;
@@ -254,12 +265,19 @@ List<FindAlertAction> detectAlertActions({
 }) {
   final actions = <FindAlertAction>[];
 
-  // Writable discovered characteristics, keyed by normalized UUID pair.
+  // Writable discovered characteristics, keyed by the normalized
+  // service|characteristic UUID pair. The pair matters: the same
+  // characteristic UUID can appear under several services (vendor channels
+  // reuse 0xFFE1-style UUIDs), and an action must write to the service the
+  // spec — or the standard profile — actually names, not whichever duplicate
+  // discovery happened to list last.
+  String pairKey(String serviceUuid, String charUuid) =>
+      '${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
   final writable = <String, ({String serviceUuid, String charUuid})>{};
   for (final service in services) {
     for (final char in service.characteristics) {
       if (!char.canWrite) continue;
-      writable[normalizeUuid(char.uuid)] =
+      writable[pairKey(service.uuid, char.uuid)] =
           (serviceUuid: service.uuid, charUuid: char.uuid);
     }
   }
@@ -267,7 +285,7 @@ List<FindAlertAction> detectAlertActions({
   if (spec != null && specYaml != null) {
     for (final specService in spec.services) {
       for (final specChar in specService.characteristics) {
-        final discovered = writable[normalizeUuid(specChar.uuid)];
+        final discovered = writable[pairKey(specService.uuid, specChar.uuid)];
         if (discovered == null) continue;
         for (final command in specChar.commands) {
           // Only parameterless commands: a find button must be a single tap,
@@ -289,9 +307,14 @@ List<FindAlertAction> detectAlertActions({
     }
   }
 
-  final alertLevel = writable[alertLevelCharUuid];
-  final specCoversAlertLevel =
-      actions.any((a) => normalizeUuid(a.charUuid) == alertLevelCharUuid);
+  // Only the Alert Level under the Immediate Alert service itself: 0x2A06
+  // hanging off some unrelated service is not the standard profile, and
+  // writing alert levels there would hit an unknown endpoint.
+  final alertLevel =
+      writable[pairKey(immediateAlertServiceUuid, alertLevelCharUuid)];
+  final specCoversAlertLevel = actions.any((a) =>
+      normalizeUuid(a.serviceUuid) == immediateAlertServiceUuid &&
+      normalizeUuid(a.charUuid) == alertLevelCharUuid);
   if (alertLevel != null && !specCoversAlertLevel) {
     actions.add(FindAlertAction(
       kind: FindAlertKind.alert,
