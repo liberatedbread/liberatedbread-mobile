@@ -240,7 +240,13 @@ heading.
   bounded by `ANDROID_EMULATOR_ATTEMPT_TIMEOUT` — a bound rather than a bare
   retry, because the failure hangs instead of exiting, so the step timeout
   alone left nothing to retry with. A passing retry still warns and uploads
-  both attempts' logcats.
+  both attempts' logcats. That logic is a real script,
+  `scripts/ci-emulator-tests.sh`, rather than an inline `script:` block:
+  `android-emulator-runner` splits that input on newlines and execs each line
+  as its own `/usr/bin/sh -c`, so a function body or an `if`/`fi` cannot
+  parse, nothing carries between lines, and the shell is dash. The workflow
+  now passes one line and the retry runs under bash — where it can also be
+  exercised against stub `flutter`/`adb` binaries locally.
 
 - **CI's toolchain pins are declared once and read once, instead of being
   grepped out of the whole workflow.** `scripts/ci-versions.sh` used to hunt
