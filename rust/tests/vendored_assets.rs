@@ -14,6 +14,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use liberated_bread_core::spec::parser::parse_device_spec;
+use liberated_bread_core::spec::types::LocateKind;
 
 /// The bundled spec directories, derived from this crate's manifest dir
 /// (`<repo>/rust`) so the test is location-independent.
@@ -94,17 +95,18 @@ fn every_vendored_spec_parses_ok() {
     // unparseable specs at runtime, so a listed spec means one missing device,
     // not a broken app.
     //
-    // seeblue-motorcycle-led: the `direct_brake_feature` command's template
-    // references `{message_length}`, which the command never declares. The
-    // write would fail at send time with a missing parameter, so rejecting it
-    // at parse time is right — the spec should declare it or drop the
-    // reference.
-    //
-    // fardriver-controller: declares `min` on a `bytes` parameter. Byte-string
-    // parameters have no numeric range, so the bound is meaningless and the
-    // validator is right to reject it — the spec should drop `min` or change
-    // the type.
-    const KNOWN_BAD: &[&str] = &["fardriver-controller.yaml", "seeblue-motorcycle-led.yaml"];
+    // The list is empty, and the two entries it used to hold are why it is
+    // worth keeping empty rather than deleting. Both were real authoring
+    // errors, both cost their whole spec, and both were a key saying something
+    // the schema did not define — seeblue spelled its transport envelope into
+    // nine command templates as placeholders no command declared, and
+    // fardriver bounded a `bytes` parameter with `min`/`max`, which mean a
+    // numeric range that a run of octets does not have. Upstream fixed both
+    // (`framing.scheme: seeblue_envelope` owns the envelope bytes now, and
+    // `bytes` parameters use `min_length`/`max_length`) and now enforces both
+    // rules in `scripts/test_device_specs.py`, so a spec cannot arrive here
+    // broken the same way again.
+    const KNOWN_BAD: &[&str] = &[];
 
     let mut failures = Vec::new();
     for path in &paths {
@@ -560,4 +562,112 @@ fn smartdawn_spec_encodes_a_doodle_frame() {
         plan.writes[0].characteristic_uuid,
         "01020074-1972-1925-3022-077119514e44"
     );
+}
+
+/// The catalogue's own uses of the keys this app newly honours.
+///
+/// Each of these was carrying real information that reached nothing: the
+/// endianness declarations were written into a key the BLE schema did not
+/// define, Gerbing's icons and Hotwired's precision had no consumer, and the
+/// two locator commands were found — when they were found — by matching on
+/// their names. Pinning them against the vendored catalogue rather than a
+/// fixture is the point: a hand-written fixture would keep passing after an
+/// upstream refresh dropped the key.
+#[test]
+fn vendored_specs_exercise_the_newly_honoured_keys() {
+    let read = |name: &str| {
+        let path = spec_path(name);
+        parse_device_spec(
+            &fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("reading {}: {e}", path.display())),
+        )
+        .unwrap_or_else(|e| panic!("{name} should parse: {e:?}"))
+    };
+
+    // xiaomi-miflora states `endianness: little` on five fields. All little,
+    // so the reading is the same either way — what matters is that the key
+    // now parses into something the decoder consults rather than being
+    // dropped on the floor.
+    let miflora = read("xiaomi-miflora.yaml");
+    let (_, realtime) = miflora
+        .find_decodable_characteristic("00001a01-0000-1000-8000-00805f9b34fb")
+        .expect("miflora declares the realtime sensor characteristic");
+    let fields = realtime.format.as_ref().expect("format block");
+    let stated: Vec<_> = fields.iter().filter(|f| f.endianness.is_some()).collect();
+    assert!(
+        !stated.is_empty(),
+        "miflora should still declare endianness on its multi-byte fields"
+    );
+    for field in stated {
+        assert!(
+            !field.is_big_endian(),
+            "{} is big-endian upstream now; the decoder handles it, but the \
+             reading it produces has changed and wants checking",
+            field.name
+        );
+    }
+
+    // gerbing-thermogauge asks for an icon on its heat levels: `number`
+    // entities with no device_class that implies a heater.
+    let gerbing = read("gerbing-thermogauge.yaml");
+    let iconed: Vec<_> = gerbing
+        .entities
+        .iter()
+        .filter(|e| e.icon.is_some())
+        .collect();
+    assert!(
+        !iconed.is_empty(),
+        "gerbing should still declare entity icons"
+    );
+    assert!(
+        iconed
+            .iter()
+            .all(|e| e.icon.as_deref() == Some("mdi:heat-wave")),
+        "gerbing's icons changed upstream; check lib/core/entity_icon.dart \
+         maps the new name"
+    );
+
+    // hotwired-heated-gear declares precision on its climate control.
+    let hotwired = read("hotwired-heated-gear.yaml");
+    assert!(
+        hotwired.entities.iter().any(|e| e.precision.is_some()),
+        "hotwired should still declare entity precision"
+    );
+
+    // The two commands upstream marks as locators. Both must stay FIXED:
+    // a find button is one tap, so a command needing a user-supplied
+    // parameter cannot be offered as one however it is labelled.
+    for (file, uuid, command, kind) in [
+        (
+            "xiaomi-miflora.yaml",
+            "00001a00-0000-1000-8000-00805f9b34fb",
+            "blink_led",
+            LocateKind::Flash,
+        ),
+        (
+            "m6-fitness-band.yaml",
+            "6e400002-b5a3-f393-e0a9-e50e24dcca9d",
+            "find_me",
+            LocateKind::Both,
+        ),
+    ] {
+        let spec = read(file);
+        let (_, characteristic) = spec
+            .find_characteristic(uuid)
+            .unwrap_or_else(|| panic!("{file} should declare {uuid}"));
+        let cmd = &characteristic
+            .commands
+            .as_ref()
+            .unwrap_or_else(|| panic!("{file}: {uuid} should carry commands"))[command];
+        assert_eq!(
+            cmd.locate_kind(),
+            Some(kind),
+            "{file}: {command} should still declare itself a {kind:?} locator"
+        );
+        assert!(
+            cmd.value.is_some(),
+            "{file}: {command} must stay a fixed command — a locator is one \
+             tap, with no user to supply parameters"
+        );
+    }
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
 
+import '../core/entity_icon.dart';
 import '../services/spec_codec.dart';
 import 'entity_value.dart';
 
@@ -29,14 +30,10 @@ class EntitySensorCard extends StatelessWidget {
     required this.specYaml,
   });
 
-  IconData get _icon => switch (entity.deviceClass) {
-        'temperature' => Icons.thermostat,
-        'battery' => Icons.battery_full,
-        'humidity' => Icons.water_drop_outlined,
-        'pressure' => Icons.speed,
-        'signal_strength' => Icons.signal_cellular_alt,
-        _ => Icons.sensors,
-      };
+  /// The spec's `icon` when it names one this build can draw, else what the
+  /// `device_class` implies. See [entityIcon] — the choice lives there so the
+  /// sensor card and the setpoint control cannot disagree about one entity.
+  IconData get _icon => entityIcon(entity);
 
   @override
   Widget build(BuildContext context) {

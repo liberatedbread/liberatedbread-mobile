@@ -591,6 +591,7 @@ impl SseDecode for crate::api::device_api::CommandDto {
         let mut var_isFixed = <bool>::sse_decode(deserializer);
         let mut var_isEncodable = <bool>::sse_decode(deserializer);
         let mut var_unsupportedEncoding = <Option<String>>::sse_decode(deserializer);
+        let mut var_locate = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::CommandDto {
             name: var_name,
             description: var_description,
@@ -598,6 +599,7 @@ impl SseDecode for crate::api::device_api::CommandDto {
             is_fixed: var_isFixed,
             is_encodable: var_isEncodable,
             unsupported_encoding: var_unsupportedEncoding,
+            locate: var_locate,
         };
     }
 }
@@ -704,6 +706,8 @@ impl SseDecode for crate::api::device_api::EntityDto {
         let mut var_name = <String>::sse_decode(deserializer);
         let mut var_platform = <Option<String>>::sse_decode(deserializer);
         let mut var_deviceClass = <Option<String>>::sse_decode(deserializer);
+        let mut var_icon = <Option<String>>::sse_decode(deserializer);
+        let mut var_precision = <Option<f64>>::sse_decode(deserializer);
         let mut var_unit = <Option<String>>::sse_decode(deserializer);
         let mut var_stateCharacteristic = <Option<String>>::sse_decode(deserializer);
         let mut var_canNotify = <bool>::sse_decode(deserializer);
@@ -726,6 +730,8 @@ impl SseDecode for crate::api::device_api::EntityDto {
             name: var_name,
             platform: var_platform,
             device_class: var_deviceClass,
+            icon: var_icon,
+            precision: var_precision,
             unit: var_unit,
             state_characteristic: var_stateCharacteristic,
             can_notify: var_canNotify,
@@ -1612,6 +1618,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::CommandDto {
             self.is_fixed.into_into_dart().into_dart(),
             self.is_encodable.into_into_dart().into_dart(),
             self.unsupported_encoding.into_into_dart().into_dart(),
+            self.locate.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1726,6 +1733,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::EntityDto {
             self.name.into_into_dart().into_dart(),
             self.platform.into_into_dart().into_dart(),
             self.device_class.into_into_dart().into_dart(),
+            self.icon.into_into_dart().into_dart(),
+            self.precision.into_into_dart().into_dart(),
             self.unit.into_into_dart().into_dart(),
             self.state_characteristic.into_into_dart().into_dart(),
             self.can_notify.into_into_dart().into_dart(),
@@ -2212,6 +2221,7 @@ impl SseEncode for crate::api::device_api::CommandDto {
         <bool>::sse_encode(self.is_fixed, serializer);
         <bool>::sse_encode(self.is_encodable, serializer);
         <Option<String>>::sse_encode(self.unsupported_encoding, serializer);
+        <Option<String>>::sse_encode(self.locate, serializer);
     }
 }
 
@@ -2274,6 +2284,8 @@ impl SseEncode for crate::api::device_api::EntityDto {
         <String>::sse_encode(self.name, serializer);
         <Option<String>>::sse_encode(self.platform, serializer);
         <Option<String>>::sse_encode(self.device_class, serializer);
+        <Option<String>>::sse_encode(self.icon, serializer);
+        <Option<f64>>::sse_encode(self.precision, serializer);
         <Option<String>>::sse_encode(self.unit, serializer);
         <Option<String>>::sse_encode(self.state_characteristic, serializer);
         <bool>::sse_encode(self.can_notify, serializer);

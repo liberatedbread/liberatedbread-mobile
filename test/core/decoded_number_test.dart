@@ -85,6 +85,42 @@ void main() {
     });
   });
 
+  group('precision', () {
+    test('rounds and prints to the declared increment', () {
+      // hotwired-heated-gear declares `precision: 1.0` on a control whose
+      // level is a whole number; ember's centi-degree encoding is finer than
+      // a mug's thermometer actually is.
+      final centidegrees = _field(intValue: 2347, scale: 0.01);
+      expect(decodedTextOf(centidegrees), '23.47');
+      expect(decodedTextOf(centidegrees, precision: 0.1), '23.5');
+      expect(decodedTextOf(centidegrees, precision: 1), '23');
+      expect(decodedTextOf(centidegrees, precision: 0.5), '23.5');
+    });
+
+    test('a code-table label still wins over any rounding', () {
+      // For an enumerated field the number IS the code, so there is nothing
+      // to round — ember's `liquid_state: 5` means "heating".
+      final enumerated = _field(uintValue: 5, valueLabel: 'heating');
+      expect(labelledTextOf(enumerated, precision: 1), 'heating');
+    });
+
+    test('absent or nonsensical precision leaves the transform in charge', () {
+      final centidegrees = _field(intValue: 2347, scale: 0.01);
+      expect(decodedTextOf(centidegrees, precision: null), '23.47');
+      // Zero would divide; a negative increment means nothing. Neither is a
+      // reason to stop rendering the reading.
+      expect(decodedTextOf(centidegrees, precision: 0), '23.47');
+      expect(decodedTextOf(centidegrees, precision: -1), '23.47');
+    });
+
+    test('is presentation only — the number itself is untouched', () {
+      // Controls seed from decodedNumberOf, which must keep the real value:
+      // rounding a slider's starting point would write back the rounding.
+      final centidegrees = _field(intValue: 2347, scale: 0.01);
+      expect(decodedNumberOf(centidegrees), closeTo(23.47, 1e-9));
+    });
+  });
+
   group('decimalsForTransform', () {
     test('shows as many places as the transform carries', () {
       expect(decimalsForTransform(scale: 0.01), 2);

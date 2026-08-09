@@ -85,7 +85,11 @@ class EntityLiveValue {
   String? get display {
     final value = primary;
     if (value == null) return null;
-    return labelledTextOf(value, scaleOverride: entity.valueScale);
+    return labelledTextOf(
+      value,
+      scaleOverride: entity.valueScale,
+      precision: entity.precision,
+    );
   }
 
   /// The reading as a number in decoded units, for controls that seed from

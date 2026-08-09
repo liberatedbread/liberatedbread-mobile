@@ -26,6 +26,44 @@ heading.
 
 ### Changed
 
+- **Four spec keys the app was ignoring now drive it, and one it was carrying
+  is gone.** Each had real information in the catalogue reaching nothing.
+  - **`endianness` on `format:` fields.** The decoder hardcoded little-endian.
+    Six fields across `xiaomi-miflora` and `pax-vape` declared byte order, all
+    saying `little`, into a key the BLE schema did not define — so nothing
+    decoded wrong and nothing would have said so if it had. The schema
+    declares it now (same enum and default as the bus fields it mirrors) and
+    the decoder consults it. A byte-swapped reading is not visibly broken, it
+    is a different plausible number: a big-endian `0x0100` reads as 1 rather
+    than 256.
+  - **`entity.icon`.** The cards derived every icon from `device_class`, which
+    has nothing to say about `gerbing-thermogauge`'s heat levels — `number`
+    entities with no class that means "this warms you up". The spec's `icon`
+    now wins, translated from its MDI name into the Material glyph this app
+    can draw (`lib/core/entity_icon.dart`); `device_class` remains the answer
+    for the entities that do not state one, so nothing regresses and an
+    unmapped name degrades to exactly the old behaviour.
+  - **`entity.precision`.** Display rounding, which is a different question
+    from the transform's implied decimal places: the transform says how finely
+    the value was *encoded*, `precision` how finely the device actually knows
+    it. Presentation only — controls still seed from the unrounded number, so
+    a slider cannot write its own rounding back to the device.
+  - **`locate` on a command** (new upstream). The Find view classified alert
+    commands by matching their names against six token sets, four of which
+    existed only to take matches back: across the 350 BLE commands in the
+    catalogue, `play_effect`, `set_mode`, `identify` and `set_volume_low` all
+    read as locators and none is one, while `flash_firmware` reads as one and
+    must never be one tap away. A command can now say what it is, and two do.
+    The name heuristic stays as the fallback for spec packs that have not
+    caught up, and the danger-token veto applies to declared locators too — a
+    third-party pack is not obliged to have run the schema.
+  - **`parameters.color_order` is gone.** It declared RGB channel order beside
+    a `template` that already emitted the channels in an order, with nothing
+    saying which won if they disagreed. It never crossed the FFI, all eight
+    uses said `rgb`, and every one sat next to a template already naming
+    `{red}`/`{green}`/`{blue}` in that order. The parser still absorbs the key
+    so a spec pack written against the older schema loads rather than failing
+    whole.
 - **`assets/` is gone; everything ships from the vendored subtree.** Both the
   device specs and the number registries were duplicated — 1.2MB and 1.7MB of
   byte-identical copies of `vendor/protocol-specs/`, made by
