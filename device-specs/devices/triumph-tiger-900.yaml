@@ -19,6 +19,7 @@ device:
   manufacturer: "Triumph Motorcycles Ltd."
   manufacturer_status: "active"
   protocol: "obd2"
+  category: "vehicle"
   notes: >
     The Tiger 900's spanner/wrench service reminder cannot be cleared from the bike's own
     controls; it needs a dealer or a paid third-party tool (TuneECU, TigerTool, DealerTool,

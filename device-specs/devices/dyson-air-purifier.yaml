@@ -7,6 +7,7 @@ device:
   manufacturer: "Dyson"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "climate"
   transport: "mqtt"
   notes: >
     Dyson connected purifiers advertise a local MQTT broker on port 1883 via

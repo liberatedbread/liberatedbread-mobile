@@ -7,6 +7,7 @@ device:
   manufacturer: "Xiaomi"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "sensor"
   notes: >
     Compact BLE thermometer and hygrometer with E-ink display. Telink
     TLSR8251 SoC, CR2032 battery, 6-12 month battery life. $4-6.

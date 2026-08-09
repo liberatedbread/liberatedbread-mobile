@@ -53,7 +53,7 @@ device:
       covers only the cloud path. Everything in this spec was recovered from
       the vendor's Android app. The Go library cited is an independent
       third-party reimplementation, not vendor documentation.
-  category: "smart_lock"
+  category: "lock"
   type: "electronic_door_lock"
   protocol: "ble"
   transport: "ble-gatt"

@@ -9,6 +9,7 @@ device:
   manufacturer: "Generic (ELM327 clones), ScanTool.net, Vgate, LELink"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "vehicle"
   notes: >
     The dongle every vehicle target in this repo is reached through — the transport under
     the transport. Bluetooth side is a serial pipe (Classic SPP/RFCOMM or BLE GATT)

@@ -7,6 +7,7 @@ device:
   manufacturer: "Niu Technologies"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "vehicle"
   notes: >
     CLOUD-ONLY. This spec exists to record a dependency, not to offer a control
     surface. The scooter reports over cellular to NIU's servers; the app

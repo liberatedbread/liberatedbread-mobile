@@ -13,6 +13,7 @@ device:
   manufacturer: "Frigidaire (Electrolux)"
   manufacturer_status: "unsupported"
   protocol: "wifi"
+  category: "climate"
   notes: >
     WiFi-connected window AC units controlled via the Frigidaire app
     (Electrolux platform). Covers FHWW series (8K-24K BTU; the range extends

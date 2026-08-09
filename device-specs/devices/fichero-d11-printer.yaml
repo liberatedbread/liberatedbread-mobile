@@ -7,6 +7,7 @@ device:
   manufacturer: "Xiamen Print Future Technology Co., Ltd"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "printer"
   notes: >
     Compact thermal label printer sold as Fichero D11s / AiYin D11.
     Price $15-20. 96px printhead at 203 DPI. Li-Ion battery with USB-C

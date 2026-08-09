@@ -15,6 +15,7 @@ device:
   manufacturer: "devolo AG"
   manufacturer_status: "shutdown"
   protocol: "zwave"
+  category: "hub"
   notes: >
     German-market Z-Wave smart-home system (launched 2015, sold across
     DE/AT/CH/Benelux/UK). devolo announced on 2025-08-21 that the Home

@@ -7,6 +7,7 @@ device:
   manufacturer: "WLED project (Aircoookie and contributors)"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "light"
   transport: "http"
 
   openness:
