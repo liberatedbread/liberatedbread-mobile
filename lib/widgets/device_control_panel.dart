@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/device_category.dart';
 import '../core/hex.dart';
 import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
@@ -144,6 +145,16 @@ class DeviceControlPanel extends ConsumerWidget {
           deviceId: deviceId,
           chosen: outcome.chosen!,
         ),
+      // Which spec is driving this screen, when the app worked it out on its
+      // own. The scan list stated a device's name and type before the tap;
+      // arriving here and finding neither — just controls, appearing — leaves
+      // the user to infer what the app decided and no way to check it. The
+      // banner above already answers this for a spec the user picked.
+      if (outcome != null && outcome.source == SpecChoiceSource.auto)
+        _MatchedSpecHeader(
+          key: const ValueKey('matched-spec-header'),
+          chosen: outcome.chosen!,
+        ),
       if (match != null && match.spec.imageUpload != null)
         LedImageWidget(
           key: const ValueKey('led-image-editor'),
@@ -224,6 +235,78 @@ void _remember(Future<void> write, String deviceId) {
   unawaited(write.catchError((Object e) {
     Log.spec.warning('could not save the spec choice for $deviceId', error: e);
   }));
+}
+
+/// Names the spec the app matched this device to, and what kind of device that
+/// makes it.
+///
+/// Same icon and same wording as the scan list, now backed by the device's real
+/// GATT database rather than an advertisement — this is where the row's claim
+/// gets kept.
+class _MatchedSpecHeader extends StatelessWidget {
+  final MatchedSpec chosen;
+
+  const _MatchedSpecHeader({super.key, required this.chosen});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final category = DeviceCategory.parse(chosen.spec.category);
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(8, 8, 8, 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.secondaryContainer,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                category?.icon ?? unknownDeviceIcon,
+                color: scheme.onSecondaryContainer,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    chosen.spec.deviceName,
+                    style:
+                        text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    // Reads as a plain noun beside the maker, e.g.
+                    // "Light · Govee". A spec predating `category` gets the
+                    // manufacturer alone rather than a placeholder that says
+                    // nothing.
+                    [
+                      if (category != null) category.label,
+                      chosen.spec.manufacturer,
+                    ].join(' · '),
+                    style: text.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Shows that this device's controls come from a spec the user picked, with

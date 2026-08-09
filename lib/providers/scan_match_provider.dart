@@ -3,8 +3,10 @@
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart' show IconData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/device_category.dart';
 import '../core/log.dart';
 import '../models/iot_device.dart';
 import '../services/spec_codec.dart';
@@ -17,6 +19,17 @@ class ScanGuess {
   /// The best-matching spec's device name, e.g. "Ember Mug".
   final String deviceName;
   final String manufacturer;
+
+  /// What kind of thing the matched spec says this is, when every equally-good
+  /// match agrees on one. Null when they disagree, when the spec states no
+  /// category, or when this build has not met the category it states.
+  ///
+  /// Agreement is required for the same reason [manufacturerAgreed] exists: a
+  /// shared OUI can tie four specs, and drawing the first one's icon would be
+  /// the same confident guess in picture form. But agreement is a lower bar
+  /// than [namesAProduct] — a UUID shared by ten of one vendor's lights cannot
+  /// say which light, and can still say "light".
+  final DeviceCategory? category;
   final MatchConfidence confidence;
 
   /// How many other specs also matched. Non-zero means the signals were not
@@ -38,6 +51,7 @@ class ScanGuess {
     required this.confidence,
     required this.otherMatches,
     required this.manufacturerAgreed,
+    this.category,
   });
 
   /// Reduce a matcher result to a guess, or null when nothing matched.
@@ -52,6 +66,7 @@ class ScanGuess {
     final best = matches.first;
     final tied =
         matches.skip(1).where((m) => m.confidence == best.confidence).toList();
+    final category = DeviceCategory.parse(best.category);
     return ScanGuess(
       deviceName: best.deviceName,
       manufacturer: best.manufacturer,
@@ -59,6 +74,9 @@ class ScanGuess {
       otherMatches: tied.length,
       manufacturerAgreed:
           tied.every((m) => m.manufacturer == best.manufacturer),
+      category: tied.every((m) => DeviceCategory.parse(m.category) == category)
+          ? category
+          : null,
     );
   }
 
@@ -68,6 +86,18 @@ class ScanGuess {
   /// strength of a Xiaomi OUI would be a confident lie.
   bool get namesAProduct =>
       confidence != MatchConfidence.possible && otherMatches == 0;
+
+  /// The icon to draw for this device: its class where the catalogue agrees on
+  /// one, and [fallback] — the tab's own generic glyph — otherwise.
+  ///
+  /// A category only ever comes from a matched spec, never from a heuristic
+  /// over the advertised name, so a row whose icon is not the fallback is one
+  /// the catalogue actually placed. Names are suggestive ("LEDBlue-A1B2C3")
+  /// and it is tempting to read them, but a guess drawn in the same glyph as a
+  /// real match is a claim with its evidence stripped off — and
+  /// [DeviceDescription] already says the true version of that, naming who
+  /// made the device and what it offers, out of the registries.
+  IconData iconOr(IconData fallback) => category?.icon ?? fallback;
 
   /// Short label for the scan list.
   ///
@@ -139,6 +169,7 @@ final specIdentitiesProvider =
       SpecIdentityDto(
         deviceName: p.spec.deviceName,
         manufacturer: p.spec.manufacturer,
+        category: p.spec.category,
         localNamePrefixes: p.spec.localNamePrefixes,
         serviceUuids: p.spec.serviceUuids,
         companyIds: p.spec.companyIds,

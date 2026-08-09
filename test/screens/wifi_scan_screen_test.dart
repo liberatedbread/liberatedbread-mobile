@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/network_scan_provider.dart';
@@ -41,6 +42,7 @@ final _spec = DeviceSpecDto(
   manufacturer: 'Signify',
   manufacturerStatus: 'active',
   protocol: 'wifi',
+  category: 'hub',
   localNamePrefixes: const [],
   serviceUuids: const [],
   companyIds: Uint16List(0),
@@ -52,10 +54,12 @@ final _spec = DeviceSpecDto(
   services: const [],
 );
 
-ScanMatch _match(MatchConfidence confidence) => ScanMatch(
+ScanMatch _match(MatchConfidence confidence, {String? category = 'hub'}) =>
+    ScanMatch(
       specIndex: 0,
       deviceName: 'Hue Bridge',
       manufacturer: 'Signify',
+      category: category,
       confidence: confidence,
       matchedByNamePrefix: false,
       matchedServiceUuids: const [],
@@ -289,5 +293,33 @@ void main() {
     // is unique to the sheet.
     expect(find.text('Address block'), findsOneWidget);
     expect(find.text('Philips Lighting BV'), findsWidgets);
+  });
+
+  testWidgets('a matched host is drawn with its device-type icon',
+      (tester) async {
+    final service = _FakeNetworkScanService(devices: [_device()]);
+    await tester.pumpWidget(
+        _wrap(service, matchFor: (_) => [_match(MatchConfidence.strong)]));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(DeviceCategory.hub.icon), findsOneWidget);
+    expect(find.byIcon(Icons.router_outlined), findsNothing);
+  });
+
+  testWidgets('an unmatched host keeps the router glyph, not the BLE one',
+      (tester) async {
+    // Each tab supplies its own fallback: there is no radio on this one, so
+    // an anonymous host is a box on the network rather than a Bluetooth
+    // device.
+    final service = _FakeNetworkScanService(devices: [_device()]);
+    await tester.pumpWidget(_wrap(service, matchFor: (_) => const []));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.router_outlined), findsOneWidget);
+    expect(find.byIcon(unknownDeviceIcon), findsNothing);
   });
 }
