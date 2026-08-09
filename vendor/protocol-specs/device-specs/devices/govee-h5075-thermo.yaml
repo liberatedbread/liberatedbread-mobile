@@ -91,6 +91,14 @@ device:
     local_name_prefix: "GVH5075"
     service_uuids:
       - "000088ec-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 60552
+      company_id_hex: "0xEC88"
+      description: >
+        Govee H5074/H5075/H5179. The H5177's 0x0001 is deliberately NOT listed
+        in additional_company_ids: 0x0001 is Nokia's assigned ID and is one of
+        the most widely squatted values in the wild, so scanning on it would
+        flag unrelated hardware as a likely Govee.
 
   discovery:
     methods:

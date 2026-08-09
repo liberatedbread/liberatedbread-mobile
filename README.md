@@ -382,7 +382,10 @@ The Rust core (`rust/src/`) provides protocol logic independent of Flutter:
 
 ## Device Specs
 
-Device behavior is defined in YAML files under `assets/device_specs/`. Example:
+Device behavior is defined in YAML files, bundled straight out of the vendored
+protocol-specs subtree at `vendor/protocol-specs/device-specs/`. There is no
+copy under `assets/`: the subtree is the single source of truth, so refreshing
+the catalogue is `git subtree pull`, not a sync step. Example:
 
 ```yaml
 device:
@@ -394,6 +397,12 @@ device:
     local_name_prefix: "ACME_"
     service_uuids:
       - "0000fff0-0000-1000-8000-00805f9b34fb"
+    # Optional, and both are used to rank scan results before connecting.
+    # A MAC OUI identifies a vendor rather than a product, so it only ever
+    # promotes a device up the list — it never claims one is supported.
+    manufacturer_data:
+      company_id: 961
+    mac_prefixes: ["C4:7C:8D"]
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"

@@ -167,6 +167,10 @@ device:
             actor: "client"
             expect: "Device leaves AP mode and appears on the LAN advertising _rabbitair._udp.local."
     factory_reset:
+      # `unknown` rather than `true`: the effect below is believed, but no
+      # procedure has been established here, and `applicable: true` would
+      # oblige this spec to list steps it would have to invent.
+      applicable: "unknown"
       confidence: "low"
       effect: >
         Clears Wi-Fi credentials and cloud binding, returning the unit to

@@ -68,6 +68,21 @@ device:
     local_name_prefix: "Flower"
     service_uuids:
       - "0000fe95-0000-1000-8000-00805f9b34fb"
+    mac_prefixes:
+      - prefix: "C4:7C:8D:6"
+        confidence: "high"
+        notes: >
+          IEEE subdivided C4:7C:8D into fifteen 28-bit MA-M assignments held by
+          unrelated companies. C4:7C:8D:6 is the one issued to HHCC Plant
+          Technology Co.,Ltd. — the OEM behind the HHCCJCY01 model number — and
+          it is theirs alone, so a match on the full 28 bits names the vendor
+          rather than the octet's fifteen tenants.
+      - prefix: "C4:7C:8D"
+        confidence: "low"
+        notes: >
+          The enclosing 24-bit block, kept so a consumer that only understands
+          whole octets still ranks the device. It matches the other fourteen
+          MA-M holders too, which is why it stays at low.
 
   discovery:
     methods:

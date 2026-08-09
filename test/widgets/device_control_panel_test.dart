@@ -81,15 +81,22 @@ void main() {
       (tester) async {
     const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
     const charUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
-    const spec = DeviceSpecDto(
+    // `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, which has
+    // no const form.
+    final spec = DeviceSpecDto(
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
-      localNamePrefix: 'ACME_',
-      serviceUuids: [svcUuid],
-      entities: <EntityDto>[],
-      services: [
+      localNamePrefixes: const ['ACME_'],
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: const [
         ServiceDto(uuid: svcUuid, name: 'Control Service', characteristics: [
           CharacteristicDto(
             uuid: charUuid,
@@ -132,16 +139,19 @@ void main() {
       ble: FakeBleService(),
       codec: FakeSpecCodec(
         spec: spec,
-        matches: const [
+        matches: [
           MatchResult(
             spec: spec,
             matchedByNamePrefix: true,
-            matchedServiceUuids: [svcUuid],
+            matchedServiceUuids: const [svcUuid],
+            confidence: MatchConfidence.strong,
           ),
         ],
         encoded: Uint8List.fromList([1, 1]),
       ),
-      specs: const {'assets/device_specs/example-bulb.yaml': 'dummy'},
+      specs: const {
+        'vendor/protocol-specs/device-specs/examples/example-bulb.yaml': 'dummy'
+      },
     ));
     await tester.pumpAndSettle();
 
@@ -181,6 +191,56 @@ void main() {
     // And the choice was persisted for the next connection.
     final store = SpecChoiceStore(await SharedPreferences.getInstance());
     expect(store.load(), {'AA:BB': 'Brand A Lights|Vendor A'});
+  });
+
+  testWidgets('a slot appearing above the service list does not resubscribe',
+      (tester) async {
+    // The list is lazy, and a lazy delegate reconciles per index unless it is
+    // given findChildIndexCallback — so keyed rows were still torn down and
+    // re-inflated whenever the leading slots changed count, which they do on
+    // essentially every connect (the match provider is AsyncLoading for the
+    // first frame). The remount's setNotifyValue(true) races the outgoing
+    // element's setNotifyValue(false) on the same characteristic, with no
+    // reference counting; when the disable lands last, the characteristic goes
+    // quiet for the rest of the session.
+    const notifying = [
+      BleDiscoveredService(
+        uuid: '0000aaa0-0000-1000-8000-00805f9b34fb',
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: '0000aaa1-0000-1000-8000-00805f9b34fb',
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ],
+      ),
+      ..._tieServices,
+    ];
+    final ble = FakeBleService();
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: 'AA:BB', deviceName: 'Mystery', services: notifying),
+      ble: ble,
+      codec: _tieCodec(),
+      specs: const {'a.yaml': 'yaml-a', 'b.yaml': 'yaml-b'},
+    ));
+    // First frame: no leading slot yet, every service card mounts.
+    await tester.pump();
+    expect(ble.subscriptions, hasLength(1));
+
+    // The match resolves and the chooser takes slot 0, shifting every service
+    // card down by one.
+    await tester.pumpAndSettle();
+    expect(find.text('Which device is this?'), findsOneWidget);
+    expect(ble.subscriptions, hasLength(1),
+        reason: 'the shifted card must be carried to its new index, not '
+            'destroyed and re-inflated');
+
+    // And again in the other direction, when answering the chooser removes it.
+    await tester.tap(find.text('Brand A Lights'));
+    await tester.pumpAndSettle();
+    expect(ble.subscriptions, hasLength(1));
   });
 
   testWidgets(
@@ -229,15 +289,21 @@ void main() {
 const _tieSvcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _tieCharUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
-const _brandA = DeviceSpecDto(
+final _brandA = DeviceSpecDto(
   deviceName: 'Brand A Lights',
   manufacturer: 'Vendor A',
   manufacturerStatus: 'active',
   protocol: 'ble',
+  localNamePrefixes: [],
+  companyIds: Uint16List(0),
+  macPrefixes: [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: [],
+  defaultPort: null,
   serviceUuids: [_tieSvcUuid],
   entities: <EntityDto>[],
   services: [
-    ServiceDto(uuid: _tieSvcUuid, name: 'A Control', characteristics: [
+    const ServiceDto(uuid: _tieSvcUuid, name: 'A Control', characteristics: [
       CharacteristicDto(
         uuid: _tieCharUuid,
         name: 'Command',
@@ -260,15 +326,21 @@ const _brandA = DeviceSpecDto(
   ],
 );
 
-const _brandB = DeviceSpecDto(
+final _brandB = DeviceSpecDto(
   deviceName: 'Brand B Lights',
   manufacturer: 'Vendor B',
   manufacturerStatus: 'active',
   protocol: 'ble',
+  localNamePrefixes: [],
+  companyIds: Uint16List(0),
+  macPrefixes: [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: [],
+  defaultPort: null,
   serviceUuids: [_tieSvcUuid],
   entities: <EntityDto>[],
   services: [
-    ServiceDto(uuid: _tieSvcUuid, name: 'B Control', characteristics: []),
+    const ServiceDto(uuid: _tieSvcUuid, name: 'B Control', characteristics: []),
   ],
 );
 
@@ -287,17 +359,19 @@ const _tieServices = [
 ];
 
 FakeSpecCodec _tieCodec() => FakeSpecCodec(
-      specByYaml: const {'yaml-a': _brandA, 'yaml-b': _brandB},
-      matches: const [
+      specByYaml: {'yaml-a': _brandA, 'yaml-b': _brandB},
+      matches: [
         MatchResult(
           spec: _brandA,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_tieSvcUuid],
+          confidence: MatchConfidence.strong,
         ),
         MatchResult(
           spec: _brandB,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_tieSvcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
       encoded: Uint8List.fromList([1, 1]),

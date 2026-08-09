@@ -10,11 +10,12 @@ import '../core/constants.dart';
 import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
-import '../providers/saved_device_provider.dart';
+import '../providers/device_description_provider.dart';
+import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
-import '../services/saved_device_store.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/device_list_tile.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
 import 'ha_settings_screen.dart';
@@ -114,29 +115,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     );
   }
 
-  /// Reconnect to a device the user already paired with.
-  ///
-  /// A saved record carries no live RSSI — it's a pointer, not a sighting — so
-  /// the reconstructed device is marked connectable and lets the device screen
-  /// surface the real outcome if it's out of range.
-  Future<void> _reconnect(SavedDevice saved) => _connect(
-        IoTDevice(
-          id: saved.id,
-          name: saved.name,
-          rssi: 0,
-          isConnectable: true,
-          discoveredAt: DateTime.now(),
-        ),
-      );
-
-  Future<void> _forget(SavedDevice saved) async {
-    await ref.read(savedDevicesProvider.notifier).remove(saved.id);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Removed ${saved.name}')),
-    );
-  }
-
   @override
   void dispose() {
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
@@ -179,6 +157,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       // the provider never blocks: bundled/cached content first, network later.
       bottomNavigationBar: const AdBannerBar(),
       floatingActionButton: FloatingActionButton.extended(
+        // Explicit because HomeShell keeps this screen and the Wi-Fi one alive
+        // together in an IndexedStack, so both FABs are in the tree at once and
+        // the default tag would collide. A Hero tag collision is not a layout
+        // nit: it throws out of the hero controller the moment any route is
+        // pushed, which is every tap on a device.
+        heroTag: 'scan-fab',
         onPressed: _isScanning ? null : _startScan,
         icon: _isScanning
             ? SizedBox(
@@ -227,9 +211,45 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     return AppConstants.appTagline;
   }
 
+  /// One row in either found-devices group.
+  Widget _deviceCard(RankedDevice entry, DeviceDescription description) {
+    final device = entry.device;
+    return DeviceListTile(
+      title: deviceTitle(device, description),
+      subtitle:
+          device.isConnectable ? _signalLabel(device.rssi) : 'Not connectable',
+      detail: '${device.rssi} dBm',
+      rssi: device.rssi,
+      badge: entry.guess?.label,
+      badgeIsClaim: entry.isLikelySupported,
+      // Only worth saying for a device the badge could not place. Once the
+      // badge names a product, "Ember Technologies · Battery Service"
+      // underneath it is noise — but a guess that does NOT name a product
+      // (a shared OUI, or a tie) leaves the row titled with the maker, and
+      // two unnamed same-OUI devices are then the same row twice. The
+      // address is the only thing that tells them apart, which is exactly
+      // what deviceSubtitle documents itself as being for.
+      description: entry.guess?.namesAProduct == true
+          ? null
+          : deviceSubtitle(device, description),
+      enabled: device.isConnectable,
+      onTap: device.isConnectable ? () => _connect(device) : null,
+    );
+  }
+
   Widget _buildBody() {
-    final saved = ref.watch(savedDevicesProvider);
+    final registry = ref.watch(numberRegistryProvider);
     final found = _deviceManager.devices;
+    // Each device gets its own matching future, keyed on its identity rather
+    // than its id — an rssi tick reuses the cached result instead of asking
+    // again. A guess that has not resolved yet reads as "no guess", so a row
+    // appears immediately and gains its badge a frame later rather than the
+    // whole list waiting on the catalogue.
+    final ranked = rankScannedDevices(
+      found,
+      (device) =>
+          ref.watch(scanGuessProvider(ScanIdentity.of(device))).valueOrNull,
+    );
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
 
@@ -268,24 +288,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         if (_permissionDenied) ...[
           const SizedBox(height: 24),
           Center(
-            child: ElevatedButton(
+            child: ActionPillButton(
               // Fire-and-forget like the other teardown calls in this file: a
               // failure to open the settings app must not become an unhandled
               // async error.
               onPressed: () =>
                   unawaited(openAppSettings().catchError((Object _) => false)),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.settings),
-                  SizedBox(width: 8),
-                  Text('Open settings'),
-                ],
-              ),
+              icon: Icons.settings,
+              label: 'Open settings',
             ),
           ),
           const SizedBox(height: 4),
@@ -300,20 +310,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         if (_error != null) ...[
           const SizedBox(height: 24),
           Center(
-            child: ElevatedButton(
+            child: ActionPillButton(
               onPressed: _isScanning ? null : _startScan,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.refresh),
-                  SizedBox(width: 8),
-                  Text('Retry'),
-                ],
-              ),
+              icon: Icons.refresh,
+              label: 'Retry',
             ),
           ),
         ],
@@ -326,55 +326,39 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             !_permissionDenied) ...[
           const SizedBox(height: 24),
           Center(
-            child: ElevatedButton(
+            child: ActionPillButton(
               onPressed: _startScan,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.refresh),
-                  SizedBox(width: 8),
-                  Text('Scan again'),
-                ],
-              ),
+              icon: Icons.refresh,
+              label: 'Scan again',
             ),
           ),
         ],
         if (found.isNotEmpty) ...[
-          const SizedBox(height: 36),
-          _SectionHeader(label: 'Found', count: found.length),
-          const SizedBox(height: 12),
-          for (final device in found) ...[
-            _DeviceCard(
-              title: device.displayName,
-              subtitle: device.isConnectable
-                  ? _signalLabel(device.rssi)
-                  : 'Not connectable',
-              detail: '${device.rssi} dBm',
-              rssi: device.rssi,
-              enabled: device.isConnectable,
-              onTap: device.isConnectable ? () => _connect(device) : null,
+          if (ranked.likelySupported.isNotEmpty) ...[
+            const SizedBox(height: 36),
+            SectionHeader(
+              label: 'Likely supported',
+              count: ranked.likelySupported.length,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
+            for (final entry in ranked.likelySupported) ...[
+              _deviceCard(entry, describeWith(registry, entry.device)),
+              const SizedBox(height: 10),
+            ],
           ],
-        ],
-        if (saved.isNotEmpty) ...[
-          const SizedBox(height: 28),
-          _SectionHeader(label: 'History', count: saved.length),
-          const SizedBox(height: 12),
-          for (final device in saved) ...[
-            _DeviceCard(
-              title: device.name,
-              subtitle: 'Paired',
-              detail: _relativeTime(device.lastSeen),
-              icon: Icons.memory,
-              onTap: () => _reconnect(device),
-              onForget: () => _forget(device),
+          if (ranked.other.isNotEmpty) ...[
+            const SizedBox(height: 36),
+            SectionHeader(
+              // Only worth distinguishing from the group above when there IS
+              // a group above; otherwise this is simply everything found.
+              label: ranked.likelySupported.isEmpty ? 'Found' : 'Other devices',
+              count: ranked.other.length,
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
+            for (final entry in ranked.other) ...[
+              _deviceCard(entry, describeWith(registry, entry.device)),
+              const SizedBox(height: 10),
+            ],
           ],
         ],
       ],
@@ -385,213 +369,6 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
     if (rssi >= -60) return 'Strong signal';
     if (rssi >= -75) return 'Good signal';
     return 'Weak signal';
-  }
-
-  static String _relativeTime(DateTime when) {
-    final diff = DateTime.now().difference(when);
-    if (diff.inMinutes < 1) return 'Just now';
-    if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-    if (diff.inDays < 1) return '${diff.inHours}h ago';
-    if (diff.inDays < 7) return '${diff.inDays}d ago';
-    return '${when.year}-${when.month.toString().padLeft(2, '0')}-'
-        '${when.day.toString().padLeft(2, '0')}';
-  }
-}
-
-/// Section label with a count pill, e.g. "Found · 2".
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  final int count;
-
-  const _SectionHeader({required this.label, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Row(
-      children: [
-        Text(
-          label,
-          style: text.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.2,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            '$count',
-            style: text.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A device row — used for both live scan results and saved history entries.
-///
-/// One component for both keeps the two lists visually consistent; the only
-/// difference is the trailing detail (signal vs. last-seen) and whether a
-/// forget action is offered.
-class _DeviceCard extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  final String detail;
-  final int? rssi;
-  final IconData icon;
-  final bool enabled;
-  final VoidCallback? onTap;
-  final VoidCallback? onForget;
-
-  const _DeviceCard({
-    required this.title,
-    required this.subtitle,
-    required this.detail,
-    this.rssi,
-    this.icon = Icons.bluetooth,
-    this.enabled = true,
-    this.onTap,
-    this.onForget,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    // Unconnectable devices stay visible but recede, so the list still reflects
-    // what's on air without inviting a tap that would do nothing.
-    final tint = enabled ? scheme.onSurface : scheme.onSurfaceVariant;
-
-    return Material(
-      color: scheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: scheme.outlineVariant),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(icon, color: tint, size: 22),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: tint,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        if (rssi != null) ...[
-                          _SignalBars(rssi: rssi!, color: scheme.secondary),
-                          const SizedBox(width: 8),
-                        ],
-                        Flexible(
-                          child: Text(
-                            subtitle,
-                            style: text.bodySmall
-                                ?.copyWith(color: scheme.onSurfaceVariant),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Text(
-                          '  ·  $detail',
-                          style: text.bodySmall?.copyWith(
-                            color:
-                                scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                            // Tabular figures stop the row jittering as values
-                            // update.
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (onForget != null)
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  iconSize: 18,
-                  tooltip: 'Forget $title',
-                  onPressed: onForget,
-                )
-              else if (onTap != null)
-                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Four-step signal meter.
-///
-/// Signal strength is conveyed by bar count as well as colour, so it still
-/// reads without colour perception.
-class _SignalBars extends StatelessWidget {
-  final int rssi;
-  final Color color;
-
-  const _SignalBars({required this.rssi, required this.color});
-
-  int get _filled {
-    if (rssi >= -60) return 4;
-    if (rssi >= -70) return 3;
-    if (rssi >= -80) return 2;
-    return 1;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: List.generate(4, (i) {
-        final on = i < _filled;
-        return Container(
-          width: 3,
-          height: 5.0 + (i * 3),
-          margin: const EdgeInsets.only(right: 2),
-          decoration: BoxDecoration(
-            color: on ? color : color.withValues(alpha: 0.22),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        );
-      }),
-    );
   }
 }
 

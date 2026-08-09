@@ -8,6 +8,22 @@ String bytesToHex(List<int> bytes) =>
 /// Lowercase a BLE UUID for case-insensitive comparison.
 String normalizeUuid(String uuid) => uuid.toLowerCase();
 
+final RegExp _macSeparators = RegExp('[:-]');
+final RegExp _upperHex = RegExp(r'^[0-9A-F]+$');
+
+/// Strip a MAC's `:`/`-` separators and uppercase it, or return null when what
+/// remains is not pure hex.
+///
+/// Deliberately does NOT enforce a length: an address is 12 digits, a Hue
+/// `bridgeid` is an EUI-64's 16, and each caller owns that rule. What is shared
+/// is the tolerant-input step, so the registry lookup and the TXT-record parser
+/// cannot drift on what counts as a MAC. The regexes are top-level so per-call
+/// sites on the scan path do not recompile them per device per rebuild.
+String? normalizeMacHex(String raw) {
+  final hex = raw.replaceAll(_macSeparators, '').toUpperCase();
+  return _upperHex.hasMatch(hex) ? hex : null;
+}
+
 /// Parse a user-entered hex string into bytes, or return null if it isn't
 /// valid hex.
 ///

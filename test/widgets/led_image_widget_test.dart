@@ -410,4 +410,188 @@ void main() {
     expect(find.textContaining('popled_json'), findsOneWidget);
     expect(find.text('Send to device'), findsNothing);
   });
+
+  testWidgets('a spec swapped underneath resizes the canvas with it',
+      (tester) async {
+    // The panel mounts this under a constant key, so a remote spec-pack
+    // refresh that promotes a different candidate updates the widget in place
+    // and this State survives. Without didUpdateWidget the editor kept the old
+    // geometry and encoded it against the new spec's YAML.
+    const wider = ImageUploadDto(
+      handler: 'daniao_ddp',
+      encodable: true,
+      format: 'rgb888',
+      maxWidth: 8,
+      maxHeight: 2,
+      resolutionDeviceReported: false,
+      animation: true,
+    );
+    final codec = FakeSpecCodec();
+    final ble = FakeBleService();
+
+    Widget build(ImageUploadDto spec, String yaml) => _wrap(
+          LedImageWidget(
+            key: const ValueKey('led-image-editor'),
+            deviceId: 'AA:BB',
+            imageUpload: spec,
+            specYaml: yaml,
+          ),
+          ble: ble,
+          codec: codec,
+        );
+
+    await tester.pumpWidget(build(_encodableSpec, 'yaml-a'));
+    await _scrollAndTap(tester, find.text('Send to device'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeImageCalls.single.width, 4);
+    expect(codec.encodeImageCalls.single.height, 4);
+
+    await tester.pumpWidget(build(wider, 'yaml-b'));
+    await tester.pumpAndSettle();
+    await _scrollAndTap(tester, find.text('Send to device'));
+    await tester.pumpAndSettle();
+
+    final latest = codec.encodeImageCalls.last;
+    expect(latest.width, 8);
+    expect(latest.height, 2);
+    expect(latest.rgb.length, 8 * 2 * 3,
+        reason: 'the buffer must match the dimensions it is sent with');
+    expect(latest.specYaml, 'yaml-b',
+        reason: 'geometry and spec must come from the same snapshot');
+    // And the first send is still whole: old spec with old dimensions.
+    final first = codec.encodeImageCalls.first;
+    expect(first.specYaml, 'yaml-a');
+    expect(first.width, 4);
+  });
+
+  testWidgets('a send queued before a spec swap keeps its own spec',
+      (tester) async {
+    // The other direction of the same snapshot. The geometry was captured at
+    // enqueue but the YAML was read later, so a send parked behind an
+    // in-flight one encoded the PRE-swap dimensions against the POST-swap
+    // spec once didUpdateWidget reset the canvas — the sheared image the
+    // snapshot exists to prevent, arrived at backwards.
+    const wider = ImageUploadDto(
+      handler: 'daniao_ddp',
+      encodable: true,
+      format: 'rgb888',
+      maxWidth: 8,
+      maxHeight: 2,
+      resolutionDeviceReported: false,
+      animation: true,
+    );
+    final gate = Completer<void>();
+    final ble = FakeBleService(writeGate: gate.future);
+    final codec = FakeSpecCodec();
+
+    Widget build(ImageUploadDto spec, String yaml) => _wrap(
+          LedImageWidget(
+            key: const ValueKey('led-image-editor'),
+            deviceId: 'AA:BB',
+            imageUpload: spec,
+            specYaml: yaml,
+          ),
+          ble: ble,
+          codec: codec,
+        );
+
+    await tester.pumpWidget(build(_encodableSpec, 'yaml-a'));
+    await _scrollAndTap(tester, find.text('Animation'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.text('Stream to device'));
+    await tester.pump();
+    await tester.pump(); // frame 1 encodes, its write parks on the gate
+    expect(codec.encodeImageCalls, hasLength(1));
+    expect(codec.encodeImageCalls.single.specYaml, 'yaml-a');
+
+    // Queue a SECOND send behind the parked one. This is the window: it has
+    // been enqueued (so its geometry is captured) but not yet encoded, so a
+    // late read of widget.specYaml would pick up the swap below.
+    await _scrollAndTap(tester, find.text('Stop streaming'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.text('Stream to device'));
+    await tester.pump();
+    await tester.pump();
+    expect(codec.encodeImageCalls, hasLength(1),
+        reason: 'the second send must still be queued');
+
+    // Swap the spec under the widget while that send is still queued.
+    await tester.pumpWidget(build(wider, 'yaml-b'));
+    await tester.pump();
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(codec.encodeImageCalls.length, greaterThanOrEqualTo(2));
+
+    for (final call in codec.encodeImageCalls) {
+      expect(call.rgb.length, call.width * call.height * 3,
+          reason: 'every send must carry a buffer matching its dimensions');
+      final expected = call.specYaml == 'yaml-a' ? 4 : 8;
+      expect(call.width, expected,
+          reason: 'dimensions must match the spec they were encoded against');
+    }
+  });
+
+  testWidgets('deleting a frame under an in-flight send does not derail it',
+      (tester) async {
+    // Stopping a stream re-enables the frame controls while the frame being
+    // written is still going — the window this reaches through. The queued
+    // send used to index the live list on the far side of its awaits, so
+    // deleting the last frame under it threw a RangeError out of the write
+    // loop; deleting an earlier one silently sent a different image.
+    final gate = Completer<void>();
+    final ble = FakeBleService(writeGate: gate.future);
+    final codec = FakeSpecCodec();
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: _encodableSpec,
+        specYaml: 'yaml',
+      ),
+      ble: ble,
+      codec: codec,
+    ));
+
+    await _scrollAndTap(tester, find.text('Animation'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.byTooltip('Add frame'));
+    await tester.pump();
+    // _current is now the second (last) frame — the one whose index goes out
+    // of range the moment it is removed.
+    expect(find.widgetWithText(ChoiceChip, '2'), findsOneWidget);
+
+    await _scrollAndTap(tester, find.text('Stream to device'));
+    await tester.pump();
+    await tester.pump(); // encode runs, the first write parks on the gate
+    expect(codec.encodeImageCalls, hasLength(1));
+
+    // Stop and restart: the restart's frame is queued *behind* the parked one,
+    // so it does not read the frame list until the gate opens. That is the
+    // window — an enqueued send whose turn has not come yet.
+    await _scrollAndTap(tester, find.text('Stop streaming'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.text('Stream to device'));
+    await tester.pump();
+    await tester.pump();
+    expect(codec.encodeImageCalls, hasLength(1),
+        reason: 'the second send must still be queued');
+
+    await _scrollAndTap(tester, find.text('Stop streaming'));
+    await tester.pump();
+    await _scrollAndTap(tester, find.byTooltip('Delete frame'));
+    await tester.pump();
+    expect(find.widgetWithText(ChoiceChip, '2'), findsNothing);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(ble.writes, isNotEmpty,
+        reason: 'the in-flight frame must still finish its writes');
+    expect(codec.encodeImageCalls, hasLength(2),
+        reason: 'the queued send must run, not throw on a stale index');
+    for (final call in codec.encodeImageCalls) {
+      expect(call.rgb.length, call.width * call.height * 3);
+    }
+  });
 }

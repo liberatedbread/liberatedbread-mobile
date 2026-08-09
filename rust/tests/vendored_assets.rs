@@ -1,12 +1,13 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 //
-//! End-to-end consumption test: every bundled device spec in the Flutter app's
-//! `assets/device_specs/` must parse via the real `parse_device_spec()`.
+//! End-to-end consumption test: every bundled device spec must parse via the
+//! real `parse_device_spec()`.
 //!
-//! The specs are read from the app's real asset directory at test time (the
-//! same files `rootBundle` ships to the device), so this test fails loudly if a
-//! bundled fallback spec cannot be parsed.
+//! The specs are read from the vendored protocol-specs subtree at test time —
+//! the same files `pubspec.yaml` bundles and `rootBundle` ships to the device,
+//! since there is no copy under `assets/` — so this test fails loudly if a
+//! bundled spec cannot be parsed.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -14,20 +15,53 @@ use std::path::PathBuf;
 
 use liberated_bread_core::spec::parser::parse_device_spec;
 
-/// Absolute path to `<repo>/assets/device_specs`, derived from this crate's
-/// manifest dir (`<repo>/rust`) so the test is location-independent.
-fn assets_dir() -> PathBuf {
+/// The bundled spec directories, derived from this crate's manifest dir
+/// (`<repo>/rust`) so the test is location-independent.
+///
+/// Two of them, because that is how upstream is laid out and the app bundles it
+/// verbatim: `devices/` is the real catalogue and `examples/` holds the bulb
+/// that mock mode and the widget tests depend on. `pubspec.yaml` lists both.
+/// The repo root: one level above this crate. Every path in this file hangs
+/// off it, so derive it once.
+fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("rust crate should have a parent repo dir")
-        .join("assets/device_specs")
+        .to_path_buf()
 }
 
-/// Every `*.yaml` under `assets/device_specs/`.
+fn assets_dirs() -> Vec<PathBuf> {
+    let repo = repo_root();
+    ["devices", "examples"]
+        .iter()
+        .map(|d| repo.join("vendor/protocol-specs/device-specs").join(d))
+        .collect()
+}
+
+/// The bundled path of one spec by filename.
+///
+/// The catalogue is split across `devices/` and `examples/`, so a caller that
+/// knows only the filename cannot join a single directory any more. Panics
+/// rather than returning an Option: every caller here names a spec that is
+/// supposed to ship, and "the file moved" is exactly what these tests exist to
+/// notice.
+fn spec_path(file: &str) -> PathBuf {
+    assets_dirs()
+        .into_iter()
+        .map(|dir| dir.join(file))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| panic!("{file} should be bundled under device-specs/"))
+}
+
+/// Every `*.yaml` the app bundles.
 fn vendored_yaml_paths() -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = fs::read_dir(assets_dir())
-        .expect("assets/device_specs should exist")
-        .map(|e| e.expect("readable dir entry").path())
+    let mut paths: Vec<PathBuf> = assets_dirs()
+        .into_iter()
+        .flat_map(|dir| {
+            fs::read_dir(&dir)
+                .unwrap_or_else(|e| panic!("{} should exist: {e}", dir.display()))
+                .map(|e| e.expect("readable dir entry").path())
+        })
         .filter(|p| {
             p.extension()
                 .is_some_and(|ext| ext == "yaml" || ext == "yml")
@@ -100,28 +134,34 @@ fn every_vendored_spec_parses_ok() {
 
 #[test]
 fn manifest_and_spec_files_agree() {
-    // The Dart loader is manifest-driven: it loads exactly the files listed in
-    // manifest.json. An entry with no file behind it means a device silently
-    // missing at runtime, and a file with no entry means a spec that is shipped
-    // but never loaded. Both are invisible without this check — the sync script
-    // writes both sides, so they can only drift by hand-editing.
-    let manifest_path = assets_dir().join("manifest.json");
-    let raw = fs::read_to_string(&manifest_path).expect("manifest.json should exist");
+    // The Dart loader is index-driven: it loads exactly the files listed in the
+    // subtree's own index.json. An entry with no file behind it means a device
+    // silently missing at runtime, and a file with no entry means a spec that is
+    // shipped but never loaded. Both are invisible without this check.
+    //
+    // Since the app dropped its copy under assets/ and bundles the subtree
+    // directly, both sides of this comparison come from upstream — so they now
+    // drift only when upstream itself is inconsistent, which is exactly the case
+    // a consumer cannot see.
+    let manifest_path = repo_root().join("vendor/protocol-specs/device-specs/index.json");
+    let raw = fs::read_to_string(&manifest_path).expect("index.json should exist");
 
-    // Pull `"file": "<name>"` out without taking a JSON dependency for a test.
+    // Pull `"path": "<repo-relative path>"` out without taking a JSON
+    // dependency for a test, then reduce to basenames to compare with the files
+    // on disk.
     let listed: Vec<String> = raw
-        .split("\"file\"")
+        .split("\"path\"")
         .skip(1)
         .filter_map(|chunk| {
             let start = chunk.find('"')? + 1;
             let rest = &chunk[start..];
             let end = rest.find('"')?;
-            Some(rest[..end].to_owned())
+            Some(rest[..end].rsplit('/').next()?.to_owned())
         })
         .collect();
     assert!(
         !listed.is_empty(),
-        "manifest.json should list spec files via a `file` key"
+        "index.json should list spec files via a `path` key"
     );
 
     let on_disk: Vec<String> = vendored_yaml_paths()
@@ -152,7 +192,8 @@ fn manifest_and_spec_files_agree() {
 /// other, as happened with `entities:`) fails loudly.
 #[test]
 fn shipped_example_bulb_matches_test_fixture_semantically() {
-    let asset_path = assets_dir().join("example-bulb.yaml");
+    let asset_path =
+        repo_root().join("vendor/protocol-specs/device-specs/examples/example-bulb.yaml");
     let asset = fs::read_to_string(&asset_path)
         .unwrap_or_else(|e| panic!("reading {}: {e}", asset_path.display()));
     let fixture = include_str!("specs/example-bulb.yaml");
@@ -163,7 +204,7 @@ fn shipped_example_bulb_matches_test_fixture_semantically() {
         serde_yaml::from_str(fixture).expect("fixture should be valid YAML");
     assert_eq!(
         asset_value, fixture_value,
-        "assets/device_specs/example-bulb.yaml and rust/tests/specs/example-bulb.yaml \
+        "the bundled example-bulb.yaml and rust/tests/specs/example-bulb.yaml \
          must stay semantically identical — update both together"
     );
 }
@@ -175,19 +216,16 @@ fn shipped_example_bulb_matches_test_fixture_semantically() {
 /// each new device needed a Dart edit, so vendoring the catalogue would have
 /// meant hand-maintaining 70+ entries in lockstep with the sync script. The
 /// invariant it protected — nothing shipped-but-unloaded, nothing listed-but-
-/// missing — is now enforced against `manifest.json` by
+/// missing — is now enforced against the subtree's `index.json` by
 /// `manifest_and_spec_files_agree`, which is the list the loader actually
 /// reads. What is left to guard here is a regression back to a hardcoded list.
 #[test]
 fn dart_loader_does_not_hardcode_spec_filenames() {
-    let dart_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("rust crate should have a parent repo dir")
-        .join("lib/providers/device_spec_provider.dart");
+    let dart_path = repo_root().join("lib/providers/device_spec_provider.dart");
     let dart_src = fs::read_to_string(&dart_path)
         .unwrap_or_else(|e| panic!("reading {}: {e}", dart_path.display()));
 
-    const PREFIX: &str = "assets/device_specs/";
+    const PREFIX: &str = "device-specs/";
     let mut hardcoded = BTreeSet::new();
     for (idx, _) in dart_src.match_indices(PREFIX) {
         let rest = &dart_src[idx + PREFIX.len()..];
@@ -200,9 +238,10 @@ fn dart_loader_does_not_hardcode_spec_filenames() {
     }
 
     // The example bulb is the one permitted literal: it is the fallback used
-    // when the manifest is missing or unreadable, so mock mode still works
-    // after a broken vendor step.
-    hardcoded.remove("example-bulb.yaml");
+    // when the index is missing or unreadable, so mock mode still works after a
+    // broken vendoring. Matched in the repo-relative form the loader now uses,
+    // since paths come straight from upstream's index.json.
+    hardcoded.remove("examples/example-bulb.yaml");
     assert!(
         hardcoded.is_empty(),
         "device_spec_provider.dart names spec files directly ({hardcoded:?}); \
@@ -224,7 +263,7 @@ fn vendored_specs_resolve_expected_control_actions() {
     use liberated_bread_core::api::device_api::load_device_spec;
 
     let load = |file: &str| {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         let yaml =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
         load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"))
@@ -340,7 +379,7 @@ fn vendored_specs_resolve_expected_setpoints() {
     use liberated_bread_core::api::device_api::{encode_entity_value, load_device_spec};
 
     let read = |file: &str| {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
     };
 
@@ -415,7 +454,7 @@ fn vendored_specs_decode_with_offsets_and_value_tables() {
     use liberated_bread_core::api::device_api::decode_value;
 
     let read = |file: &str| {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
     };
 
@@ -476,7 +515,7 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
     ];
 
     for (file, transform) in cases {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         let yaml =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
         let dto = load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"));

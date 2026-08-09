@@ -11,6 +11,7 @@ import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'spec/types.dart';
 
 /// Main entrypoint of the Rust API
 class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
@@ -67,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 1663442031;
+  int get rustContentHash => -1327585841;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -113,6 +114,14 @@ abstract class RustLibApi extends BaseApi {
       {required List<DeviceSpecDto> specs,
       required String deviceName,
       required List<String> advertisedServiceUuids});
+
+  Future<List<ScanMatch>> crateApiDeviceApiMatchNetworkDevice(
+      {required List<SpecIdentityDto> identities,
+      required NetworkDeviceDto device});
+
+  Future<List<ScanMatch>> crateApiDeviceApiMatchScannedDevice(
+      {required List<SpecIdentityDto> identities,
+      required ScannedDeviceDto device});
 
   Future<Uint8List> crateApiMockApiMockReadCharacteristic(
       {required String deviceId,
@@ -363,6 +372,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<List<ScanMatch>> crateApiDeviceApiMatchNetworkDevice(
+      {required List<SpecIdentityDto> identities,
+      required NetworkDeviceDto device}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_spec_identity_dto(identities, serializer);
+        sse_encode_box_autoadd_network_device_dto(device, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 8, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_scan_match,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiMatchNetworkDeviceConstMeta,
+      argValues: [identities, device],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiMatchNetworkDeviceConstMeta =>
+      const TaskConstMeta(
+        debugName: 'match_network_device',
+        argNames: ['identities', 'device'],
+      );
+
+  @override
+  Future<List<ScanMatch>> crateApiDeviceApiMatchScannedDevice(
+      {required List<SpecIdentityDto> identities,
+      required ScannedDeviceDto device}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_spec_identity_dto(identities, serializer);
+        sse_encode_box_autoadd_scanned_device_dto(device, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 9, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_scan_match,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiMatchScannedDeviceConstMeta,
+      argValues: [identities, device],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiMatchScannedDeviceConstMeta =>
+      const TaskConstMeta(
+        debugName: 'match_scanned_device',
+        argNames: ['identities', 'device'],
+      );
+
+  @override
   Future<Uint8List> crateApiMockApiMockReadCharacteristic(
       {required String deviceId,
       required String charUuid,
@@ -374,7 +439,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_String(specYaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 10, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -398,7 +463,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 9, port: port_);
+            funcId: 11, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -427,7 +492,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_list_prim_u_8_loose(value, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 10, port: port_);
+            funcId: 12, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -495,6 +560,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  MacPrefixDto dco_decode_box_autoadd_mac_prefix_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_mac_prefix_dto(raw);
+  }
+
+  @protected
+  NetworkDeviceDto dco_decode_box_autoadd_network_device_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_network_device_dto(raw);
+  }
+
+  @protected
+  ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_scanned_device_dto(raw);
+  }
+
+  @protected
+  int dco_decode_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
   int dco_decode_box_autoadd_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -559,19 +648,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
       manufacturerStatus: dco_decode_String(arr[2]),
       protocol: dco_decode_String(arr[3]),
       notes: dco_decode_opt_String(arr[4]),
-      localNamePrefix: dco_decode_opt_String(arr[5]),
+      localNamePrefixes: dco_decode_list_String(arr[5]),
       serviceUuids: dco_decode_list_String(arr[6]),
-      services: dco_decode_list_service_dto(arr[7]),
-      entities: dco_decode_list_entity_dto(arr[8]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[9]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[7]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[8]),
+      mdnsServiceType: dco_decode_opt_String(arr[9]),
+      ssdpSearchTargets: dco_decode_list_String(arr[10]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[11]),
+      services: dco_decode_list_service_dto(arr[12]),
+      entities: dco_decode_list_entity_dto(arr[13]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[14]),
     );
   }
 
@@ -653,6 +747,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       offset: dco_decode_u_32(arr[2]),
       length: dco_decode_u_32(arr[3]),
     );
+  }
+
+  @protected
+  int dco_decode_i_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
   }
 
   @protected
@@ -750,6 +850,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<MacPrefixDto> dco_decode_list_mac_prefix_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_mac_prefix_dto).toList();
+  }
+
+  @protected
   List<MatchResult> dco_decode_list_match_result(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_match_result).toList();
@@ -765,6 +871,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   Int64List dco_decode_list_prim_i_64_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeInt64List(raw);
+  }
+
+  @protected
+  Uint16List dco_decode_list_prim_u_16_strict(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as Uint16List;
   }
 
   @protected
@@ -801,21 +913,73 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ScanMatch> dco_decode_list_scan_match(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_scan_match).toList();
+  }
+
+  @protected
   List<ServiceDto> dco_decode_list_service_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_service_dto).toList();
   }
 
   @protected
+  List<SpecIdentityDto> dco_decode_list_spec_identity_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_spec_identity_dto).toList();
+  }
+
+  @protected
+  MacPrefixConfidence dco_decode_mac_prefix_confidence(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return MacPrefixConfidence.values[raw as int];
+  }
+
+  @protected
+  MacPrefixDto dco_decode_mac_prefix_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return MacPrefixDto(
+      prefix: dco_decode_String(arr[0]),
+      confidence: dco_decode_mac_prefix_confidence(arr[1]),
+    );
+  }
+
+  @protected
+  MatchConfidence dco_decode_match_confidence(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return MatchConfidence.values[raw as int];
+  }
+
+  @protected
   MatchResult dco_decode_match_result(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
     return MatchResult(
       spec: dco_decode_device_spec_dto(arr[0]),
       matchedByNamePrefix: dco_decode_bool(arr[1]),
       matchedServiceUuids: dco_decode_list_String(arr[2]),
+      confidence: dco_decode_match_confidence(arr[3]),
+    );
+  }
+
+  @protected
+  NetworkDeviceDto dco_decode_network_device_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return NetworkDeviceDto(
+      name: dco_decode_String(arr[0]),
+      hostname: dco_decode_opt_String(arr[1]),
+      serviceTypes: dco_decode_list_String(arr[2]),
+      ssdpTargets: dco_decode_list_String(arr[3]),
+      port: dco_decode_opt_box_autoadd_u_16(arr[4]),
     );
   }
 
@@ -847,6 +1011,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ImageUploadDto? dco_decode_opt_box_autoadd_image_upload_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_image_upload_dto(raw);
+  }
+
+  @protected
+  MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_mac_prefix_dto(raw);
+  }
+
+  @protected
+  int? dco_decode_opt_box_autoadd_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_16(raw);
   }
 
   @protected
@@ -925,6 +1101,39 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ScanMatch dco_decode_scan_match(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return ScanMatch(
+      specIndex: dco_decode_u_32(arr[0]),
+      deviceName: dco_decode_String(arr[1]),
+      manufacturer: dco_decode_String(arr[2]),
+      confidence: dco_decode_match_confidence(arr[3]),
+      matchedByNamePrefix: dco_decode_bool(arr[4]),
+      matchedServiceUuids: dco_decode_list_String(arr[5]),
+      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[6]),
+      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[7]),
+      matchedServiceTypes: dco_decode_list_String(arr[8]),
+    );
+  }
+
+  @protected
+  ScannedDeviceDto dco_decode_scanned_device_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return ScannedDeviceDto(
+      name: dco_decode_String(arr[0]),
+      serviceUuids: dco_decode_list_String(arr[1]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[2]),
+      macAddress: dco_decode_opt_String(arr[3]),
+    );
+  }
+
+  @protected
   ServiceDto dco_decode_service_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -935,6 +1144,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       name: dco_decode_String(arr[1]),
       characteristics: dco_decode_list_characteristic_dto(arr[2]),
     );
+  }
+
+  @protected
+  SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return SpecIdentityDto(
+      deviceName: dco_decode_String(arr[0]),
+      manufacturer: dco_decode_String(arr[1]),
+      localNamePrefixes: dco_decode_list_String(arr[2]),
+      serviceUuids: dco_decode_list_String(arr[3]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[4]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[5]),
+      mdnsServiceType: dco_decode_opt_String(arr[6]),
+      ssdpSearchTargets: dco_decode_list_String(arr[7]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[8]),
+    );
+  }
+
+  @protected
+  int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
   }
 
   @protected
@@ -1006,6 +1240,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_image_upload_dto(deserializer));
+  }
+
+  @protected
+  MacPrefixDto sse_decode_box_autoadd_mac_prefix_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_mac_prefix_dto(deserializer));
+  }
+
+  @protected
+  NetworkDeviceDto sse_decode_box_autoadd_network_device_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_network_device_dto(deserializer));
+  }
+
+  @protected
+  ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_scanned_device_dto(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_16(deserializer));
   }
 
   @protected
@@ -1091,8 +1352,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_manufacturerStatus = sse_decode_String(deserializer);
     var var_protocol = sse_decode_String(deserializer);
     var var_notes = sse_decode_opt_String(deserializer);
-    var var_localNamePrefix = sse_decode_opt_String(deserializer);
+    var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
+    var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
+    var var_mdnsServiceType = sse_decode_opt_String(deserializer);
+    var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
+    var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_services = sse_decode_list_service_dto(deserializer);
     var var_entities = sse_decode_list_entity_dto(deserializer);
     var var_imageUpload =
@@ -1103,8 +1369,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         manufacturerStatus: var_manufacturerStatus,
         protocol: var_protocol,
         notes: var_notes,
-        localNamePrefix: var_localNamePrefix,
+        localNamePrefixes: var_localNamePrefixes,
         serviceUuids: var_serviceUuids,
+        companyIds: var_companyIds,
+        macPrefixes: var_macPrefixes,
+        mdnsServiceType: var_mdnsServiceType,
+        ssdpSearchTargets: var_ssdpSearchTargets,
+        defaultPort: var_defaultPort,
         services: var_services,
         entities: var_entities,
         imageUpload: var_imageUpload);
@@ -1206,6 +1477,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         fieldType: var_fieldType,
         offset: var_offset,
         length: var_length);
+  }
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getInt32();
   }
 
   @protected
@@ -1371,6 +1648,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<MacPrefixDto> sse_decode_list_mac_prefix_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <MacPrefixDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_mac_prefix_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1400,6 +1690,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
     return deserializer.buffer.getInt64List(len_);
+  }
+
+  @protected
+  Uint16List sse_decode_list_prim_u_16_strict(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint16List(len_);
   }
 
   @protected
@@ -1456,6 +1753,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <ScanMatch>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_scan_match(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ServiceDto> sse_decode_list_service_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1468,15 +1777,69 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SpecIdentityDto> sse_decode_list_spec_identity_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SpecIdentityDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_spec_identity_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  MacPrefixConfidence sse_decode_mac_prefix_confidence(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return MacPrefixConfidence.values[inner];
+  }
+
+  @protected
+  MacPrefixDto sse_decode_mac_prefix_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_prefix = sse_decode_String(deserializer);
+    var var_confidence = sse_decode_mac_prefix_confidence(deserializer);
+    return MacPrefixDto(prefix: var_prefix, confidence: var_confidence);
+  }
+
+  @protected
+  MatchConfidence sse_decode_match_confidence(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return MatchConfidence.values[inner];
+  }
+
+  @protected
   MatchResult sse_decode_match_result(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_spec = sse_decode_device_spec_dto(deserializer);
     var var_matchedByNamePrefix = sse_decode_bool(deserializer);
     var var_matchedServiceUuids = sse_decode_list_String(deserializer);
+    var var_confidence = sse_decode_match_confidence(deserializer);
     return MatchResult(
         spec: var_spec,
         matchedByNamePrefix: var_matchedByNamePrefix,
-        matchedServiceUuids: var_matchedServiceUuids);
+        matchedServiceUuids: var_matchedServiceUuids,
+        confidence: var_confidence);
+  }
+
+  @protected
+  NetworkDeviceDto sse_decode_network_device_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_hostname = sse_decode_opt_String(deserializer);
+    var var_serviceTypes = sse_decode_list_String(deserializer);
+    var var_ssdpTargets = sse_decode_list_String(deserializer);
+    var var_port = sse_decode_opt_box_autoadd_u_16(deserializer);
+    return NetworkDeviceDto(
+        name: var_name,
+        hostname: var_hostname,
+        serviceTypes: var_serviceTypes,
+        ssdpTargets: var_ssdpTargets,
+        port: var_port);
   }
 
   @protected
@@ -1530,6 +1893,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_image_upload_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_mac_prefix_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_16(deserializer));
     } else {
       return null;
     }
@@ -1626,6 +2012,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ScanMatch sse_decode_scan_match(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_specIndex = sse_decode_u_32(deserializer);
+    var var_deviceName = sse_decode_String(deserializer);
+    var var_manufacturer = sse_decode_String(deserializer);
+    var var_confidence = sse_decode_match_confidence(deserializer);
+    var var_matchedByNamePrefix = sse_decode_bool(deserializer);
+    var var_matchedServiceUuids = sse_decode_list_String(deserializer);
+    var var_matchedCompanyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_matchedMacPrefix =
+        sse_decode_opt_box_autoadd_mac_prefix_dto(deserializer);
+    var var_matchedServiceTypes = sse_decode_list_String(deserializer);
+    return ScanMatch(
+        specIndex: var_specIndex,
+        deviceName: var_deviceName,
+        manufacturer: var_manufacturer,
+        confidence: var_confidence,
+        matchedByNamePrefix: var_matchedByNamePrefix,
+        matchedServiceUuids: var_matchedServiceUuids,
+        matchedCompanyIds: var_matchedCompanyIds,
+        matchedMacPrefix: var_matchedMacPrefix,
+        matchedServiceTypes: var_matchedServiceTypes);
+  }
+
+  @protected
+  ScannedDeviceDto sse_decode_scanned_device_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_serviceUuids = sse_decode_list_String(deserializer);
+    var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_macAddress = sse_decode_opt_String(deserializer);
+    return ScannedDeviceDto(
+        name: var_name,
+        serviceUuids: var_serviceUuids,
+        companyIds: var_companyIds,
+        macAddress: var_macAddress);
+  }
+
+  @protected
   ServiceDto sse_decode_service_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_uuid = sse_decode_String(deserializer);
@@ -1633,6 +2058,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_characteristics = sse_decode_list_characteristic_dto(deserializer);
     return ServiceDto(
         uuid: var_uuid, name: var_name, characteristics: var_characteristics);
+  }
+
+  @protected
+  SpecIdentityDto sse_decode_spec_identity_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_deviceName = sse_decode_String(deserializer);
+    var var_manufacturer = sse_decode_String(deserializer);
+    var var_localNamePrefixes = sse_decode_list_String(deserializer);
+    var var_serviceUuids = sse_decode_list_String(deserializer);
+    var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
+    var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
+    var var_mdnsServiceType = sse_decode_opt_String(deserializer);
+    var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
+    var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
+    return SpecIdentityDto(
+        deviceName: var_deviceName,
+        manufacturer: var_manufacturer,
+        localNamePrefixes: var_localNamePrefixes,
+        serviceUuids: var_serviceUuids,
+        companyIds: var_companyIds,
+        macPrefixes: var_macPrefixes,
+        mdnsServiceType: var_mdnsServiceType,
+        ssdpSearchTargets: var_ssdpSearchTargets,
+        defaultPort: var_defaultPort);
+  }
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint16();
   }
 
   @protected
@@ -1650,12 +2105,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_decode_unit(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-  }
-
-  @protected
-  int sse_decode_i_32(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return deserializer.buffer.getInt32();
   }
 
   @protected
@@ -1709,6 +2158,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ImageUploadDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_image_upload_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_mac_prefix_dto(
+      MacPrefixDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_mac_prefix_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_network_device_dto(
+      NetworkDeviceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_network_device_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_scanned_device_dto(
+      ScannedDeviceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_scanned_device_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_16(self, serializer);
   }
 
   @protected
@@ -1768,8 +2244,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.manufacturerStatus, serializer);
     sse_encode_String(self.protocol, serializer);
     sse_encode_opt_String(self.notes, serializer);
-    sse_encode_opt_String(self.localNamePrefix, serializer);
+    sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
+    sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
+    sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
+    sse_encode_opt_String(self.mdnsServiceType, serializer);
+    sse_encode_list_String(self.ssdpSearchTargets, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
     sse_encode_list_service_dto(self.services, serializer);
     sse_encode_list_entity_dto(self.entities, serializer);
     sse_encode_opt_box_autoadd_image_upload_dto(self.imageUpload, serializer);
@@ -1836,6 +2317,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.fieldType, serializer);
     sse_encode_u_32(self.offset, serializer);
     sse_encode_u_32(self.length, serializer);
+  }
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putInt32(self);
   }
 
   @protected
@@ -1960,6 +2447,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_mac_prefix_dto(
+      List<MacPrefixDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_mac_prefix_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_match_result(
       List<MatchResult> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1985,6 +2482,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.length, serializer);
     serializer.buffer.putInt64List(self);
+  }
+
+  @protected
+  void sse_encode_list_prim_u_16_strict(
+      Uint16List self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer.putUint16List(self);
   }
 
   @protected
@@ -2035,6 +2540,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_scan_match(
+      List<ScanMatch> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_scan_match(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_service_dto(
       List<ServiceDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2045,11 +2560,54 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_spec_identity_dto(
+      List<SpecIdentityDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_spec_identity_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_mac_prefix_confidence(
+      MacPrefixConfidence self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_mac_prefix_dto(MacPrefixDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.prefix, serializer);
+    sse_encode_mac_prefix_confidence(self.confidence, serializer);
+  }
+
+  @protected
+  void sse_encode_match_confidence(
+      MatchConfidence self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
   void sse_encode_match_result(MatchResult self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_device_spec_dto(self.spec, serializer);
     sse_encode_bool(self.matchedByNamePrefix, serializer);
     sse_encode_list_String(self.matchedServiceUuids, serializer);
+    sse_encode_match_confidence(self.confidence, serializer);
+  }
+
+  @protected
+  void sse_encode_network_device_dto(
+      NetworkDeviceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_opt_String(self.hostname, serializer);
+    sse_encode_list_String(self.serviceTypes, serializer);
+    sse_encode_list_String(self.ssdpTargets, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.port, serializer);
   }
 
   @protected
@@ -2101,6 +2659,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_image_upload_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_mac_prefix_dto(
+      MacPrefixDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_mac_prefix_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_16(self, serializer);
     }
   }
 
@@ -2177,11 +2756,57 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_scan_match(ScanMatch self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.specIndex, serializer);
+    sse_encode_String(self.deviceName, serializer);
+    sse_encode_String(self.manufacturer, serializer);
+    sse_encode_match_confidence(self.confidence, serializer);
+    sse_encode_bool(self.matchedByNamePrefix, serializer);
+    sse_encode_list_String(self.matchedServiceUuids, serializer);
+    sse_encode_list_prim_u_16_strict(self.matchedCompanyIds, serializer);
+    sse_encode_opt_box_autoadd_mac_prefix_dto(
+        self.matchedMacPrefix, serializer);
+    sse_encode_list_String(self.matchedServiceTypes, serializer);
+  }
+
+  @protected
+  void sse_encode_scanned_device_dto(
+      ScannedDeviceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_list_String(self.serviceUuids, serializer);
+    sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
+    sse_encode_opt_String(self.macAddress, serializer);
+  }
+
+  @protected
   void sse_encode_service_dto(ServiceDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.uuid, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_list_characteristic_dto(self.characteristics, serializer);
+  }
+
+  @protected
+  void sse_encode_spec_identity_dto(
+      SpecIdentityDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.deviceName, serializer);
+    sse_encode_String(self.manufacturer, serializer);
+    sse_encode_list_String(self.localNamePrefixes, serializer);
+    sse_encode_list_String(self.serviceUuids, serializer);
+    sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
+    sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
+    sse_encode_opt_String(self.mdnsServiceType, serializer);
+    sse_encode_list_String(self.ssdpSearchTargets, serializer);
+    sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
+  }
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint16(self);
   }
 
   @protected
@@ -2199,11 +2824,5 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   @protected
   void sse_encode_unit(void self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
-  }
-
-  @protected
-  void sse_encode_i_32(int self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    serializer.buffer.putInt32(self);
   }
 }

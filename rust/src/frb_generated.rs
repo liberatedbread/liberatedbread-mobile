@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1663442031;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1327585841;
 
 // Section: executor
 
@@ -333,6 +333,82 @@ fn wire__crate__api__device_api__match_device_to_spec_impl(
         },
     )
 }
+fn wire__crate__api__device_api__match_network_device_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "match_network_device",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_identities =
+                <Vec<crate::api::device_api::SpecIdentityDto>>::sse_decode(&mut deserializer);
+            let api_device =
+                <crate::api::device_api::NetworkDeviceDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::match_network_device(api_identities, api_device),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__match_scanned_device_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "match_scanned_device",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_identities =
+                <Vec<crate::api::device_api::SpecIdentityDto>>::sse_decode(&mut deserializer);
+            let api_device =
+                <crate::api::device_api::ScannedDeviceDto>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::match_scanned_device(api_identities, api_device),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__mock_api__mock_read_characteristic_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -566,8 +642,14 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_manufacturerStatus = <String>::sse_decode(deserializer);
         let mut var_protocol = <String>::sse_decode(deserializer);
         let mut var_notes = <Option<String>>::sse_decode(deserializer);
-        let mut var_localNamePrefix = <Option<String>>::sse_decode(deserializer);
+        let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
+        let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
+        let mut var_macPrefixes =
+            <Vec<crate::api::device_api::MacPrefixDto>>::sse_decode(deserializer);
+        let mut var_mdnsServiceType = <Option<String>>::sse_decode(deserializer);
+        let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
+        let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
         let mut var_services = <Vec<crate::api::device_api::ServiceDto>>::sse_decode(deserializer);
         let mut var_entities = <Vec<crate::api::device_api::EntityDto>>::sse_decode(deserializer);
         let mut var_imageUpload =
@@ -578,8 +660,13 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             manufacturer_status: var_manufacturerStatus,
             protocol: var_protocol,
             notes: var_notes,
-            local_name_prefix: var_localNamePrefix,
+            local_name_prefixes: var_localNamePrefixes,
             service_uuids: var_serviceUuids,
+            company_ids: var_companyIds,
+            mac_prefixes: var_macPrefixes,
+            mdns_service_type: var_mdnsServiceType,
+            ssdp_search_targets: var_ssdpSearchTargets,
+            default_port: var_defaultPort,
             services: var_services,
             entities: var_entities,
             image_upload: var_imageUpload,
@@ -692,6 +779,13 @@ impl SseDecode for crate::api::device_api::FormatFieldDto {
             offset: var_offset,
             length: var_length,
         };
+    }
+}
+
+impl SseDecode for i32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_i32::<NativeEndian>().unwrap()
     }
 }
 
@@ -868,6 +962,20 @@ impl SseDecode for Vec<Vec<u8>> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::MacPrefixDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::MacPrefixDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::MatchResult> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -903,6 +1011,18 @@ impl SseDecode for Vec<i64> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<i64>::sse_decode(deserializer));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<u16>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -958,6 +1078,20 @@ impl SseDecode for Vec<(String, f64)> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::ScanMatch> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::ScanMatch>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::ServiceDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -972,16 +1106,90 @@ impl SseDecode for Vec<crate::api::device_api::ServiceDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::SpecIdentityDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::SpecIdentityDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for crate::spec::types::MacPrefixConfidence {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::spec::types::MacPrefixConfidence::Low,
+            1 => crate::spec::types::MacPrefixConfidence::Medium,
+            2 => crate::spec::types::MacPrefixConfidence::High,
+            _ => unreachable!("Invalid variant for MacPrefixConfidence: {}", inner),
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::MacPrefixDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_prefix = <String>::sse_decode(deserializer);
+        let mut var_confidence =
+            <crate::spec::types::MacPrefixConfidence>::sse_decode(deserializer);
+        return crate::api::device_api::MacPrefixDto {
+            prefix: var_prefix,
+            confidence: var_confidence,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::MatchConfidence {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut inner = <i32>::sse_decode(deserializer);
+        return match inner {
+            0 => crate::api::device_api::MatchConfidence::Possible,
+            1 => crate::api::device_api::MatchConfidence::Likely,
+            2 => crate::api::device_api::MatchConfidence::Strong,
+            _ => unreachable!("Invalid variant for MatchConfidence: {}", inner),
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::MatchResult {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_spec = <crate::api::device_api::DeviceSpecDto>::sse_decode(deserializer);
         let mut var_matchedByNamePrefix = <bool>::sse_decode(deserializer);
         let mut var_matchedServiceUuids = <Vec<String>>::sse_decode(deserializer);
+        let mut var_confidence =
+            <crate::api::device_api::MatchConfidence>::sse_decode(deserializer);
         return crate::api::device_api::MatchResult {
             spec: var_spec,
             matched_by_name_prefix: var_matchedByNamePrefix,
             matched_service_uuids: var_matchedServiceUuids,
+            confidence: var_confidence,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::NetworkDeviceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_hostname = <Option<String>>::sse_decode(deserializer);
+        let mut var_serviceTypes = <Vec<String>>::sse_decode(deserializer);
+        let mut var_ssdpTargets = <Vec<String>>::sse_decode(deserializer);
+        let mut var_port = <Option<u16>>::sse_decode(deserializer);
+        return crate::api::device_api::NetworkDeviceDto {
+            name: var_name,
+            hostname: var_hostname,
+            service_types: var_serviceTypes,
+            ssdp_targets: var_ssdpTargets,
+            port: var_port,
         };
     }
 }
@@ -1037,6 +1245,30 @@ impl SseDecode for Option<crate::api::device_api::ImageUploadDto> {
             return Some(<crate::api::device_api::ImageUploadDto>::sse_decode(
                 deserializer,
             ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::MacPrefixDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::MacPrefixDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u16>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -1138,6 +1370,50 @@ impl SseDecode for (String, f64) {
     }
 }
 
+impl SseDecode for crate::api::device_api::ScanMatch {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_specIndex = <u32>::sse_decode(deserializer);
+        let mut var_deviceName = <String>::sse_decode(deserializer);
+        let mut var_manufacturer = <String>::sse_decode(deserializer);
+        let mut var_confidence =
+            <crate::api::device_api::MatchConfidence>::sse_decode(deserializer);
+        let mut var_matchedByNamePrefix = <bool>::sse_decode(deserializer);
+        let mut var_matchedServiceUuids = <Vec<String>>::sse_decode(deserializer);
+        let mut var_matchedCompanyIds = <Vec<u16>>::sse_decode(deserializer);
+        let mut var_matchedMacPrefix =
+            <Option<crate::api::device_api::MacPrefixDto>>::sse_decode(deserializer);
+        let mut var_matchedServiceTypes = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::device_api::ScanMatch {
+            spec_index: var_specIndex,
+            device_name: var_deviceName,
+            manufacturer: var_manufacturer,
+            confidence: var_confidence,
+            matched_by_name_prefix: var_matchedByNamePrefix,
+            matched_service_uuids: var_matchedServiceUuids,
+            matched_company_ids: var_matchedCompanyIds,
+            matched_mac_prefix: var_matchedMacPrefix,
+            matched_service_types: var_matchedServiceTypes,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::ScannedDeviceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
+        let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
+        let mut var_macAddress = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::ScannedDeviceDto {
+            name: var_name,
+            service_uuids: var_serviceUuids,
+            company_ids: var_companyIds,
+            mac_address: var_macAddress,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::ServiceDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1150,6 +1426,40 @@ impl SseDecode for crate::api::device_api::ServiceDto {
             name: var_name,
             characteristics: var_characteristics,
         };
+    }
+}
+
+impl SseDecode for crate::api::device_api::SpecIdentityDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_deviceName = <String>::sse_decode(deserializer);
+        let mut var_manufacturer = <String>::sse_decode(deserializer);
+        let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
+        let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
+        let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
+        let mut var_macPrefixes =
+            <Vec<crate::api::device_api::MacPrefixDto>>::sse_decode(deserializer);
+        let mut var_mdnsServiceType = <Option<String>>::sse_decode(deserializer);
+        let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
+        let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
+        return crate::api::device_api::SpecIdentityDto {
+            device_name: var_deviceName,
+            manufacturer: var_manufacturer,
+            local_name_prefixes: var_localNamePrefixes,
+            service_uuids: var_serviceUuids,
+            company_ids: var_companyIds,
+            mac_prefixes: var_macPrefixes,
+            mdns_service_type: var_mdnsServiceType,
+            ssdp_search_targets: var_ssdpSearchTargets,
+            default_port: var_defaultPort,
+        };
+    }
+}
+
+impl SseDecode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        deserializer.cursor.read_u16::<NativeEndian>().unwrap()
     }
 }
 
@@ -1170,13 +1480,6 @@ impl SseDecode for u8 {
 impl SseDecode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
-}
-
-impl SseDecode for i32 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
-        deserializer.cursor.read_i32::<NativeEndian>().unwrap()
-    }
 }
 
 fn pde_ffi_dispatcher_primary_impl(
@@ -1212,14 +1515,26 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        8 => wire__crate__api__mock_api__mock_read_characteristic_impl(
+        8 => wire__crate__api__device_api__match_network_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        9 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
-        10 => wire__crate__api__mock_api__mock_write_characteristic_impl(
+        9 => wire__crate__api__device_api__match_scanned_device_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        10 => wire__crate__api__mock_api__mock_read_characteristic_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        11 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
+        12 => wire__crate__api__mock_api__mock_write_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
@@ -1334,8 +1649,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.manufacturer_status.into_into_dart().into_dart(),
             self.protocol.into_into_dart().into_dart(),
             self.notes.into_into_dart().into_dart(),
-            self.local_name_prefix.into_into_dart().into_dart(),
+            self.local_name_prefixes.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
+            self.company_ids.into_into_dart().into_dart(),
+            self.mac_prefixes.into_into_dart().into_dart(),
+            self.mdns_service_type.into_into_dart().into_dart(),
+            self.ssdp_search_targets.into_into_dart().into_dart(),
+            self.default_port.into_into_dart().into_dart(),
             self.services.into_into_dart().into_dart(),
             self.entities.into_into_dart().into_dart(),
             self.image_upload.into_into_dart().into_dart(),
@@ -1517,12 +1837,78 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ImageWritePlanDto
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::spec::types::MacPrefixConfidence {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Low => 0.into_dart(),
+            Self::Medium => 1.into_dart(),
+            Self::High => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::spec::types::MacPrefixConfidence
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::spec::types::MacPrefixConfidence>
+    for crate::spec::types::MacPrefixConfidence
+{
+    fn into_into_dart(self) -> crate::spec::types::MacPrefixConfidence {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::MacPrefixDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.prefix.into_into_dart().into_dart(),
+            self.confidence.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::MacPrefixDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::MacPrefixDto>
+    for crate::api::device_api::MacPrefixDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::MacPrefixDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::MatchConfidence {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        match self {
+            Self::Possible => 0.into_dart(),
+            Self::Likely => 1.into_dart(),
+            Self::Strong => 2.into_dart(),
+            _ => unreachable!(),
+        }
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::MatchConfidence
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::MatchConfidence>
+    for crate::api::device_api::MatchConfidence
+{
+    fn into_into_dart(self) -> crate::api::device_api::MatchConfidence {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::MatchResult {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.spec.into_into_dart().into_dart(),
             self.matched_by_name_prefix.into_into_dart().into_dart(),
             self.matched_service_uuids.into_into_dart().into_dart(),
+            self.confidence.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1535,6 +1921,30 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::MatchResult>
     for crate::api::device_api::MatchResult
 {
     fn into_into_dart(self) -> crate::api::device_api::MatchResult {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkDeviceDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.hostname.into_into_dart().into_dart(),
+            self.service_types.into_into_dart().into_dart(),
+            self.ssdp_targets.into_into_dart().into_dart(),
+            self.port.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::NetworkDeviceDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::NetworkDeviceDto>
+    for crate::api::device_api::NetworkDeviceDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::NetworkDeviceDto {
         self
     }
 }
@@ -1610,6 +2020,57 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ProfileInfoDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.spec_index.into_into_dart().into_dart(),
+            self.device_name.into_into_dart().into_dart(),
+            self.manufacturer.into_into_dart().into_dart(),
+            self.confidence.into_into_dart().into_dart(),
+            self.matched_by_name_prefix.into_into_dart().into_dart(),
+            self.matched_service_uuids.into_into_dart().into_dart(),
+            self.matched_company_ids.into_into_dart().into_dart(),
+            self.matched_mac_prefix.into_into_dart().into_dart(),
+            self.matched_service_types.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::ScanMatch
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ScanMatch>
+    for crate::api::device_api::ScanMatch
+{
+    fn into_into_dart(self) -> crate::api::device_api::ScanMatch {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScannedDeviceDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.service_uuids.into_into_dart().into_dart(),
+            self.company_ids.into_into_dart().into_dart(),
+            self.mac_address.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::ScannedDeviceDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ScannedDeviceDto>
+    for crate::api::device_api::ScannedDeviceDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::ScannedDeviceDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::ServiceDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -1628,6 +2089,34 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ServiceDto>
     for crate::api::device_api::ServiceDto
 {
     fn into_into_dart(self) -> crate::api::device_api::ServiceDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.device_name.into_into_dart().into_dart(),
+            self.manufacturer.into_into_dart().into_dart(),
+            self.local_name_prefixes.into_into_dart().into_dart(),
+            self.service_uuids.into_into_dart().into_dart(),
+            self.company_ids.into_into_dart().into_dart(),
+            self.mac_prefixes.into_into_dart().into_dart(),
+            self.mdns_service_type.into_into_dart().into_dart(),
+            self.ssdp_search_targets.into_into_dart().into_dart(),
+            self.default_port.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::SpecIdentityDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SpecIdentityDto>
+    for crate::api::device_api::SpecIdentityDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::SpecIdentityDto {
         self
     }
 }
@@ -1711,8 +2200,13 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <String>::sse_encode(self.manufacturer_status, serializer);
         <String>::sse_encode(self.protocol, serializer);
         <Option<String>>::sse_encode(self.notes, serializer);
-        <Option<String>>::sse_encode(self.local_name_prefix, serializer);
+        <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
+        <Vec<u16>>::sse_encode(self.company_ids, serializer);
+        <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);
+        <Option<String>>::sse_encode(self.mdns_service_type, serializer);
+        <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
+        <Option<u16>>::sse_encode(self.default_port, serializer);
         <Vec<crate::api::device_api::ServiceDto>>::sse_encode(self.services, serializer);
         <Vec<crate::api::device_api::EntityDto>>::sse_encode(self.entities, serializer);
         <Option<crate::api::device_api::ImageUploadDto>>::sse_encode(self.image_upload, serializer);
@@ -1781,6 +2275,13 @@ impl SseEncode for crate::api::device_api::FormatFieldDto {
         <String>::sse_encode(self.field_type, serializer);
         <u32>::sse_encode(self.offset, serializer);
         <u32>::sse_encode(self.length, serializer);
+    }
+}
+
+impl SseEncode for i32 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
     }
 }
 
@@ -1907,6 +2408,16 @@ impl SseEncode for Vec<Vec<u8>> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::MacPrefixDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::MacPrefixDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::MatchResult> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1933,6 +2444,16 @@ impl SseEncode for Vec<i64> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <i64>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <u16>::sse_encode(item, serializer);
         }
     }
 }
@@ -1977,6 +2498,16 @@ impl SseEncode for Vec<(String, f64)> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::ScanMatch> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::ScanMatch>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::ServiceDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -1987,12 +2518,76 @@ impl SseEncode for Vec<crate::api::device_api::ServiceDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::SpecIdentityDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::SpecIdentityDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for crate::spec::types::MacPrefixConfidence {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::spec::types::MacPrefixConfidence::Low => 0,
+                crate::spec::types::MacPrefixConfidence::Medium => 1,
+                crate::spec::types::MacPrefixConfidence::High => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::device_api::MacPrefixDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.prefix, serializer);
+        <crate::spec::types::MacPrefixConfidence>::sse_encode(self.confidence, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::MatchConfidence {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(
+            match self {
+                crate::api::device_api::MatchConfidence::Possible => 0,
+                crate::api::device_api::MatchConfidence::Likely => 1,
+                crate::api::device_api::MatchConfidence::Strong => 2,
+                _ => {
+                    unimplemented!("");
+                }
+            },
+            serializer,
+        );
+    }
+}
+
 impl SseEncode for crate::api::device_api::MatchResult {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <crate::api::device_api::DeviceSpecDto>::sse_encode(self.spec, serializer);
         <bool>::sse_encode(self.matched_by_name_prefix, serializer);
         <Vec<String>>::sse_encode(self.matched_service_uuids, serializer);
+        <crate::api::device_api::MatchConfidence>::sse_encode(self.confidence, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::NetworkDeviceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <Option<String>>::sse_encode(self.hostname, serializer);
+        <Vec<String>>::sse_encode(self.service_types, serializer);
+        <Vec<String>>::sse_encode(self.ssdp_targets, serializer);
+        <Option<u16>>::sse_encode(self.port, serializer);
     }
 }
 
@@ -2042,6 +2637,26 @@ impl SseEncode for Option<crate::api::device_api::ImageUploadDto> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <crate::api::device_api::ImageUploadDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::MacPrefixDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::MacPrefixDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u16> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u16>::sse_encode(value, serializer);
         }
     }
 }
@@ -2119,6 +2734,34 @@ impl SseEncode for (String, f64) {
     }
 }
 
+impl SseEncode for crate::api::device_api::ScanMatch {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u32>::sse_encode(self.spec_index, serializer);
+        <String>::sse_encode(self.device_name, serializer);
+        <String>::sse_encode(self.manufacturer, serializer);
+        <crate::api::device_api::MatchConfidence>::sse_encode(self.confidence, serializer);
+        <bool>::sse_encode(self.matched_by_name_prefix, serializer);
+        <Vec<String>>::sse_encode(self.matched_service_uuids, serializer);
+        <Vec<u16>>::sse_encode(self.matched_company_ids, serializer);
+        <Option<crate::api::device_api::MacPrefixDto>>::sse_encode(
+            self.matched_mac_prefix,
+            serializer,
+        );
+        <Vec<String>>::sse_encode(self.matched_service_types, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::ScannedDeviceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <Vec<String>>::sse_encode(self.service_uuids, serializer);
+        <Vec<u16>>::sse_encode(self.company_ids, serializer);
+        <Option<String>>::sse_encode(self.mac_address, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::ServiceDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -2128,6 +2771,28 @@ impl SseEncode for crate::api::device_api::ServiceDto {
             self.characteristics,
             serializer,
         );
+    }
+}
+
+impl SseEncode for crate::api::device_api::SpecIdentityDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.device_name, serializer);
+        <String>::sse_encode(self.manufacturer, serializer);
+        <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
+        <Vec<String>>::sse_encode(self.service_uuids, serializer);
+        <Vec<u16>>::sse_encode(self.company_ids, serializer);
+        <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);
+        <Option<String>>::sse_encode(self.mdns_service_type, serializer);
+        <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
+        <Option<u16>>::sse_encode(self.default_port, serializer);
+    }
+}
+
+impl SseEncode for u16 {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        serializer.cursor.write_u16::<NativeEndian>(self).unwrap();
     }
 }
 
@@ -2148,13 +2813,6 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
-}
-
-impl SseEncode for i32 {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
-        serializer.cursor.write_i32::<NativeEndian>(self).unwrap();
-    }
 }
 
 #[cfg(not(target_family = "wasm"))]

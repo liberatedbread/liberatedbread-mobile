@@ -185,6 +185,9 @@ class Log {
   /// Home Assistant config, registration and sensor forwarding.
   static const Logger ha = Logger._('ha');
 
+  /// Local-network discovery: mDNS, SSDP, and the multicast lock.
+  static const Logger net = Logger._('net');
+
   /// Spec-pack download, validation, install and cache.
   static const Logger packs = Logger._('packs');
 
@@ -198,7 +201,16 @@ class Log {
   static const Logger ui = Logger._('ui');
 
   /// Every category, for tests and for documenting the filterable set.
-  static const List<Logger> categories = [ble, spec, ha, packs, ads, app, ui];
+  static const List<Logger> categories = [
+    ble,
+    spec,
+    ha,
+    net,
+    packs,
+    ads,
+    app,
+    ui
+  ];
 
   /// Release builds never emit below this, whatever [minLevel] says. Verbose
   /// logging shipping to users is a privacy and performance problem, so the

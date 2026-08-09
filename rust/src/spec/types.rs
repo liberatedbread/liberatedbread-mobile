@@ -423,10 +423,32 @@ impl std::fmt::Display for Protocol {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Identification {
     pub local_name_prefix: Option<String>,
+    /// Further names the same family advertises under, for hardware sold as
+    /// several rebadged models. Alternatives, not a conjunction: a match on any
+    /// one of them means what a `local_name_prefix` match means. Read both
+    /// through [`Identification::local_name_prefixes`].
+    #[serde(default)]
+    pub local_name_prefixes: Option<Vec<String>>,
     pub service_uuids: Option<Vec<String>>,
+    /// BLE manufacturer-specific advertisement data (AD type 0xFF).
+    #[serde(default)]
+    pub manufacturer_data: Option<ManufacturerData>,
+    /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
+    ///
+    /// The weakest signal the catalogue carries: an OUI belongs to a vendor,
+    /// not a product. How weak depends on the block, which is what each entry's
+    /// `confidence` says. See
+    /// [`MatchConfidence`](crate::api::device_api::MatchConfidence).
+    #[serde(default)]
+    pub mac_prefixes: Option<Vec<MacPrefix>>,
     /// mDNS/Bonjour service type for WiFi discovery (e.g. `_http._tcp`).
     #[serde(default)]
     pub mdns_service_type: Option<String>,
+    /// SSDP/UPnP search targets the device answers to, e.g.
+    /// `urn:Belkin:device:controllee:1`. The only way to find hardware with no
+    /// meaningful mDNS presence — Wemo, and pre-2020 Hue bridges.
+    #[serde(default)]
+    pub ssdp_search_targets: Option<Vec<String>>,
     /// WiFi SSID prefix when the device is in AP mode.
     #[serde(default)]
     pub ssid_prefix: Option<String>,
@@ -435,6 +457,127 @@ pub struct Identification {
     pub default_port: Option<u16>,
     /// Other discovery hints (e.g. admore's `local_name_dfu`,
     /// `local_name_armband*`), parsed and preserved but not yet interpreted.
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl Identification {
+    /// Every local name prefix this device family advertises under: the
+    /// singular key plus the plural one, deduplicated in declaration order.
+    ///
+    /// Empty strings are dropped rather than passed on. `"anything"
+    /// .starts_with("")` is true, so one would turn the spec into a claim on
+    /// every device the scanner sees.
+    pub fn local_name_prefixes(&self) -> Vec<String> {
+        let mut prefixes: Vec<String> = Vec::new();
+        for prefix in self
+            .local_name_prefix
+            .iter()
+            .chain(self.local_name_prefixes.iter().flatten())
+        {
+            if !prefix.is_empty() && !prefixes.contains(prefix) {
+                prefixes.push(prefix.clone());
+            }
+        }
+        prefixes
+    }
+
+    /// Every company ID this device family advertises: the primary one plus
+    /// any `additional_company_ids`, deduplicated in declaration order.
+    pub fn company_ids(&self) -> Vec<u16> {
+        let Some(data) = self.manufacturer_data.as_ref() else {
+            return Vec::new();
+        };
+        let mut ids = Vec::new();
+        for id in data
+            .company_id
+            .into_iter()
+            .chain(data.additional_company_ids.iter().flatten().copied())
+        {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids
+    }
+}
+
+/// One MAC prefix, with how much of its block belongs to this device.
+///
+/// Accepts either a bare string or a `{prefix, confidence, notes}` map, because
+/// the catalogue is hand-written and most entries have nothing interesting to
+/// say. A bare string means [`MacPrefixConfidence::Low`] — the safe reading,
+/// and the right one for a prefix nobody has checked.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum MacPrefix {
+    Bare(String),
+    Detailed {
+        prefix: String,
+        #[serde(default)]
+        confidence: MacPrefixConfidence,
+        #[serde(flatten)]
+        extensions: HashMap<String, serde_yaml::Value>,
+    },
+}
+
+impl MacPrefix {
+    pub fn prefix(&self) -> &str {
+        match self {
+            MacPrefix::Bare(prefix) => prefix,
+            MacPrefix::Detailed { prefix, .. } => prefix,
+        }
+    }
+
+    pub fn confidence(&self) -> MacPrefixConfidence {
+        match self {
+            MacPrefix::Bare(_) => MacPrefixConfidence::Low,
+            MacPrefix::Detailed { confidence, .. } => *confidence,
+        }
+    }
+}
+
+/// How much of an address block belongs to this device.
+///
+/// An OUI names whoever bought the block, which is frequently not who built the
+/// product, so the default is deliberately the pessimistic one.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum MacPrefixConfidence {
+    /// The block is shared — subdivided into MA-M/MA-S assignments held by
+    /// unrelated companies, or belonging to a third-party radio module's
+    /// vendor. Ranks a device, and nothing more.
+    #[default]
+    Low,
+    /// The block really is this manufacturer's, but covers their whole
+    /// catalogue: "something this vendor made", not "this device".
+    Medium,
+    /// The block is used by this device family and effectively nothing else.
+    /// Rare, and it needs evidence.
+    High,
+}
+
+/// The identifying part of a spec's BLE manufacturer-specific advertisement
+/// data.
+///
+/// Unknown keys sweep into `extensions` rather than failing the parse: the
+/// catalogue attaches `company_id_hex`, `description`, `format` and
+/// `discovery_patterns` here, none of which change who a device is. The
+/// payload-level matching rules (offsets, byte patterns) live under the spec's
+/// `discovery` block, which this core does not execute.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ManufacturerData {
+    /// Bluetooth SIG company identifier from the advertisement header.
+    ///
+    /// Note this identifies an advertisement shape rather than a vendor —
+    /// squatting on an unassigned ID is common — so it is a weaker signal than
+    /// a service UUID.
+    #[serde(default)]
+    pub company_id: Option<u16>,
+    /// Further IDs the same family advertises (older firmware, rebadges),
+    /// treated as equivalent to `company_id`.
+    #[serde(default)]
+    pub additional_company_ids: Option<Vec<u16>>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }

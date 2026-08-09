@@ -29,10 +29,22 @@ name: iOS ad-hoc build
 #                           'Liberated Bread Ad Hoc' found" unless your profile
 #                           happens to carry that exact name.
 #
+# The profile must carry the MULTICAST entitlement. ios/Runner/Runner.entitlements
+# declares com.apple.developer.networking.multicast, which iOS 14+ requires
+# before an app may touch a multicast address at all — both halves of the Wi-Fi
+# scan use raw sockets, so without it the scan finds nothing. Apple grants that
+# entitlement by manual request, not by ticking a box, and a profile generated
+# before the grant fails the archive step with "Provisioning profile ... doesn't
+# include the com.apple.developer.networking.multicast entitlement". Regenerate
+# the profile after the grant and re-upload IOS_PROVISIONING_PROFILE. See
+# docs/ios-from-linux.md for the request itself. The no-secrets simulator
+# fallback below is unaffected: it does not code-sign, so nothing checks
+# entitlements.
+#
 # Setup guide:
 #   1. In Xcode → Signing & Capabilities, set your Team and Bundle ID.
 #   2. On developer.apple.com, create an Ad Hoc provisioning profile that
-#      includes your test device UDIDs.
+#      includes your test device UDIDs and the Multicast Networking capability.
 #   3. Export your signing certificate as a .p12 and base64-encode both:
 #        base64 -i certificate.p12 | pbcopy   # → IOS_CERTIFICATE_P12
 #        base64 -i profile.mobileprovision | pbcopy  # → IOS_PROVISIONING_PROFILE
@@ -248,6 +260,14 @@ jobs:
       # moment CoreBluetooth is touched; a CFBundleIdentifier that drifted from
       # ca.pigscanfly.liberatedbread means the ad-hoc provisioning profile no
       # longer matches and the install silently fails on the device.
+      #
+      # It is also the ONLY place the multicast entitlement can be checked.
+      # ios/Runner/Runner.entitlements is asserted on Linux by
+      # test/platform/ios_entitlements_test.dart, but whether the entitlement
+      # survived into the signed binary depends on the provisioning profile
+      # this run used, and that is knowable only here. A profile predating the
+      # grant produces an installable IPA whose Wi-Fi scan silently finds
+      # nothing; the verifier turns that into a red build.
       #
       # --skip-symbols here, unlike the CI simulator build: this is a profile
       # build, and Xcode strips the app binary, so asserting on the Rust FFI

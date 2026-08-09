@@ -84,6 +84,26 @@ void main() {
       );
     });
 
+    test('NSBonjourServices declares the mDNS types the scan asks for', () {
+      final services = plistValue(plist, ['NSBonjourServices']);
+      expect(
+        services,
+        isA<List<Object?>>(),
+        reason: 'NSBonjourServices must be an array in $_plistPath. iOS 14+ '
+            'will not deliver an mDNS answer for a service type absent from '
+            'it, and does so SILENTLY -- the scan just returns nothing.',
+      );
+      expect(
+        services as List<Object?>,
+        contains('_services._dns-sd._udp'),
+        reason: 'The DNS-SD meta-query is how the Wi-Fi scan enumerates '
+            'service types it has no spec for (see the enumeration query in '
+            'lib/services/real_network_scan_service.dart). Without it '
+            'declared, iOS discovers only the specific types listed and the '
+            'scan can never find unknown hardware.',
+      );
+    });
+
     test('NSAppTransportSecurity enables NSAllowsLocalNetworking', () {
       expect(
         plistValue(

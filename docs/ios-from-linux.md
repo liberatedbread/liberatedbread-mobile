@@ -4,6 +4,62 @@ iOS apps must be compiled by Xcode, which only runs on macOS. This document
 describes three workflows for iterating on the iPhone app when your primary
 editing environment is Linux (including Claude Code on the web).
 
+Read the [multicast entitlement](#prerequisite--the-multicast-entitlement)
+section first if you intend to test Wi-Fi device discovery. It gates every
+option below, and it is the one prerequisite that needs Apple's approval rather
+than a setting you can change yourself.
+
+## Prerequisite — the multicast entitlement
+
+`ios/Runner/Runner.entitlements` declares
+`com.apple.developer.networking.multicast`. Both halves of the Wi-Fi scan need
+it: `multicast_dns` binds UDP 5353 and joins 224.0.0.251 directly, and the SSDP
+half sends M-SEARCH to 239.255.255.250 from its own socket. Since iOS 14 raw
+multicast is blocked without this entitlement.
+
+`NSBonjourServices` in `Info.plist` does **not** cover this. That key applies to
+mDNS performed through the Bonjour APIs (`NWBrowser`, `NetService`), where
+`mDNSResponder` does the multicast for you. This app uses raw sockets, so it
+needs both: the entitlement to send at all, and the service-type list because
+the OS still filters mDNS answers by declared type.
+
+Unlike most capabilities, you cannot simply tick this one on in the App ID.
+Apple grants it by request:
+
+1. File the request at
+   <https://developer.apple.com/contact/request/networking-multicast>. It asks
+   for your Team ID, the App ID (`ca.pigscanfly.liberatedbread`), and what the
+   app does with multicast. Describe the actual use — discovering local IoT
+   devices via mDNS/DNS-SD and SSDP, on the user's own network, in the
+   foreground, only while a scan is running. Turnaround is typically days, not
+   hours.
+2. Once granted, enable **Multicast Networking** on the App ID under
+   *Certificates, Identifiers & Profiles → Identifiers*.
+3. **Regenerate every provisioning profile** for that App ID and re-upload the
+   ad-hoc one as `IOS_PROVISIONING_PROFILE` (see Option B). Existing profiles
+   do not pick up a newly granted capability; they have to be reissued.
+
+**Until it is granted**, expect this:
+
+| Path | Effect |
+|------|--------|
+| Simulator builds (CI, and the no-secrets fallback in Option B) | Unaffected. Code signing is off, so the entitlement is never checked. |
+| Signed device builds (Option B with secrets, Option A, Option C) | **Fail at signing**: *"Provisioning profile … doesn't include the com.apple.developer.networking.multicast entitlement."* |
+
+That failure is deliberate and is why the entitlement is committed rather than
+left for later. The alternative is worse: an app signed without it installs and
+runs perfectly, sends its queries into a void, and reports the resulting silence
+as *"Nothing answered on this network"* — pointing the user at a Local Network
+toggle that was never the problem. `scripts/verify_ios_app.sh` asserts the
+entitlement is present in any bundle carrying a provisioning profile, so a
+profile that silently predates the grant reddens the ad-hoc build rather than
+shipping.
+
+macOS needs none of this — the App Sandbox governs there instead, via
+`com.apple.security.network.server` (binding the mDNS socket) and
+`com.apple.security.network.client`, both granted in
+`macos/Runner/*.entitlements`.
+
 ## Option A — Hot reload via a local Mac (fastest iteration)
 
 This gives true hot-reload (sub-second UI updates without restarting the app).

@@ -314,6 +314,61 @@ void main() {
         isNotNull,
       );
     });
+
+    test('advertised service uuids and company ids reach the device', () {
+      final coalescer = ScanResultCoalescer();
+      final device = coalescer.next(
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+        serviceUuids: const ['0000fff0-0000-1000-8000-00805f9b34fb'],
+        companyIds: const [961],
+      )!;
+      expect(
+          device.serviceUuids, const ['0000fff0-0000-1000-8000-00805f9b34fb']);
+      expect(device.companyIds, const [961]);
+    });
+
+    test('a newly-appearing service uuid re-emits', () {
+      // A device that only names itself in its scan response, or that starts
+      // advertising a service UUID partway through, must reach the matcher
+      // with the richer advertisement rather than being deduped away.
+      final coalescer = ScanResultCoalescer();
+      coalescer.next(id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true);
+      final updated = coalescer.next(
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+        serviceUuids: const ['0000fff0-0000-1000-8000-00805f9b34fb'],
+      );
+      expect(updated, isNotNull);
+      expect(updated!.serviceUuids, hasLength(1));
+    });
+
+    test('an unchanged advertisement is still suppressed', () {
+      final coalescer = ScanResultCoalescer();
+      coalescer.next(
+        id: 'AA',
+        name: 'Bulb',
+        rssi: -50,
+        isConnectable: true,
+        serviceUuids: const ['0000fff0-0000-1000-8000-00805f9b34fb'],
+        companyIds: const [961],
+      );
+      expect(
+        coalescer.next(
+          id: 'AA',
+          name: 'Bulb',
+          rssi: -50,
+          isConnectable: true,
+          serviceUuids: const ['0000fff0-0000-1000-8000-00805f9b34fb'],
+          companyIds: const [961],
+        ),
+        isNull,
+      );
+    });
   });
 
   group('shouldStopNativeScanOnCancel (N1 re-entrancy guard)', () {

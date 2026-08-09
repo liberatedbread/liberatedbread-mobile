@@ -24,8 +24,106 @@ heading.
   remote `ssh` commands (a quote in the path could execute arbitrary commands
   on the remote Mac).
 
+### Changed
+
+- **`assets/` is gone; everything ships from the vendored subtree.** Both the
+  device specs and the number registries were duplicated — 1.2MB and 1.7MB of
+  byte-identical copies of `vendor/protocol-specs/`, made by
+  `scripts/sync_device_specs.sh` and committed alongside their originals. Two
+  copies of the same data with nothing checking they agree is a bug waiting for
+  someone to edit the wrong one.
+
+  `pubspec.yaml` now bundles the subtree paths directly, and the loader reads
+  upstream's own `index.json` instead of a rewritten `manifest.json`. Refreshing
+  the catalogue becomes `git subtree pull` and nothing else, so
+  `sync_device_specs.sh` is deleted rather than kept as a step people can forget.
+
+  Not symlinks: a Windows checkout without developer mode or `core.symlinks`
+  writes a text file containing a path, and Flutter's asset pipeline treats
+  symlinks inconsistently across platforms. Both failures are silent — an empty
+  catalogue, no error — where a wrong path is a loud missing asset.
+
+  **Remote spec packs are unaffected**, and now have tests saying so: bundled
+  specs are keyed by subtree asset path and remote ones by `pack:<name>/<file>`,
+  and the two namespaces are pinned as non-overlapping so neither half can
+  shadow the other in the merged catalogue.
+- **iOS deployment target 12.0 → 13.0.** Flutter 3.44 no longer supports an
+  iOS 12 target. The Podfile now pins the platform explicitly rather than
+  leaving it commented out, so CocoaPods and the Xcode project cannot drift
+  apart. Flutter 3.44 also stopped building 32-bit x86 for Android, so the APK
+  ABI assertions no longer name it.
+
+### Fixed
+
+- **iOS could never have discovered a Wi-Fi device.** Since iOS 14 an app may
+  not touch a multicast address over a raw socket without
+  `com.apple.developer.networking.multicast`, and there was no entitlements
+  file in `ios/` at all. `NSBonjourServices` does not substitute for it: that
+  key covers mDNS done through the Bonjour APIs, where `mDNSResponder`
+  multicasts on the app's behalf, and this app uses neither — `multicast_dns`
+  binds UDP 5353 and joins 224.0.0.251 itself, and the SSDP half sends
+  M-SEARCH to 239.255.255.250 from its own socket. Both were blocked.
+
+  Nothing said so. The sockets bound, the queries went out, the OS dropped
+  them, and `scanFailureFor()` read the silence exactly as designed and told
+  the user their Local Network permission might be off — pointing at a toggle
+  that was already on.
+
+  `ios/Runner/Runner.entitlements` now declares it and all three app build
+  configurations reference it. Apple grants this entitlement by manual request
+  rather than a checkbox, so signed device builds fail at signing until the
+  request is approved and the provisioning profile reissued;
+  `docs/ios-from-linux.md` covers what to file and what breaks meanwhile.
+  Simulator builds, including all of CI, are unaffected — they do not sign.
+
+- **macOS release builds lost half the Wi-Fi scan.**
+  `com.apple.security.network.server` was in `DebugProfile.entitlements` but
+  not `Release.entitlements`, on the reading that it belonged to the Dart VM
+  service. Under the App Sandbox it is also what permits binding a listening
+  socket, which is what `multicast_dns` does to join 224.0.0.251 on port 5353.
+  So mDNS worked in `flutter run -d macos` and threw in a release build, which
+  then discovered only what SSDP happened to find. The macOS local-network
+  usage string also described only Home Assistant, though the prompt now
+  fires when a user taps Scan.
+
+- **A `--` inside an XML comment broke the Android manifest.** XML forbids it —
+  it is the first half of the comment terminator — and the manifest merger fails
+  the whole build with "Error parsing AndroidManifest.xml" and no line number.
+  Every existing platform test passed, because the hand-rolled comment stripper
+  in `test/platform/platform_config_reader.dart` just scans to the next `-->`.
+  `test/platform/xml_wellformedness_test.dart` now closes that gap for the
+  manifest, both plists and both entitlements files.
+
 ### Added
 
+- **The device screen says who made the thing, and shows its address.** The
+  IEEE and SIG registries have been vendored and searched for a while, but the
+  BLE detail screen never read them: it showed a name, a status dot and a
+  service count, and the MAC only by accident, when a device had no name and
+  the title fell back to `Unknown (<id>)`. It now carries the address and what
+  the registries make of it, and the Wi-Fi details sheet gained the `MAC` row
+  its existing `Address block` row was silently drawing its conclusion from.
+
+  The two sources stay separate rows rather than collapsing into one
+  "manufacturer" line, because they answer different questions: a company ID
+  is something the device put in its own advertisement, while an address block
+  names whoever bought the block — frequently the radio module's vendor, which
+  is why the Lutron Caséta bridge resolves to Texas Instruments. Labelling
+  them apart ("Advertises as" / "Address block") is what makes showing the
+  registry safe at all. Nothing new looks anything up: this is
+  `describeWith` + `DeviceDescription`, already used by the scan list.
+
+  On Apple platforms both rows are simply absent — CoreBluetooth substitutes a
+  per-host UUID for the hardware address, so there is no address to show and no
+  block to look up, and printing the UUID under "Address" would invite exactly
+  the lookup that cannot work.
+- **`scripts/update-specs.sh`** — refreshing the vendored specs is a script
+  now, not a remembered `git subtree pull`. It takes a ref, and `--from` takes
+  any remote including a local checkout, so a spec change can be pulled from
+  the branch it is still being written on. Afterwards it asserts that every
+  path `pubspec.yaml` bundles actually arrived: a pull that drops
+  `registries/ieee-oui36.tsv` fails nothing at build time, it just makes the
+  app quietly stop naming vendors.
 - **Bottom ad banner on the scan screen** — a small dismissible house-ad bar
   pointing at the new liberatedbread.com/shop/ affiliate page (dead devices
   cheap, WeMos boards, liberation gear). Content comes from
@@ -34,6 +132,59 @@ heading.
   release; a bundled fallback (and a cache of the last fetched config) renders
   from the first frame, so a slow or absent network never blocks anything.
   Dismissal is remembered per promotion id.
+- **Wi-Fi device discovery, as a destination of its own.** Half the catalogue is
+  hardware with no Bluetooth at all — bridges, plugs, printers — and a BLE scan
+  could never see any of it. The new Wi-Fi tab asks over both mDNS/DNS-SD and
+  SSDP, because the two do not overlap: modern local-first devices announce over
+  mDNS only, while Wemo and pre-2020 Hue bridges are SSDP-only, so running one
+  would silently miss half the devices. Discovery is by the generic DNS-SD
+  service enumeration rather than a fixed list, so it finds hardware whose spec
+  nobody has written yet. A host answering on both transports is merged into one
+  row carrying what each said. Tapping one shows everything it advertised.
+
+  Matching reuses the same `MatchConfidence` core as the BLE path, so a badge
+  means the same thing on either tab: an mDNS service type or an SSDP search
+  target is a vendor-specific identifier and rates Strong, while a default port
+  is the network's equivalent of an OUI — port 80 says nothing about who is
+  listening — and only ever ranks. A spec that declares nothing about the
+  network can never match a host on it, so a BLE spec whose name prefix happens
+  to prefix an mDNS instance name stays off this tab.
+
+  Platform notes: iOS will not deliver mDNS answers for a service type absent
+  from `NSBonjourServices`, and fails silently when one is missing, so the plist
+  now declares them; Android needs `CHANGE_WIFI_MULTICAST_STATE` or the Wi-Fi
+  driver filters multicast out to save power. A denied local-network permission
+  looks exactly like an empty network from inside the app, so on Apple platforms
+  that case gets its own guidance and a settings link rather than a "no devices
+  found" dead end.
+- **Saved devices are a top-level destination, not a footer.** They were a
+  "History" section pinned below however many strangers' earbuds the last scan
+  turned up. The app now has a bottom bar — Nearby, Saved, Wi-Fi — and saved
+  devices get a pane with room for the address, the vendor the address block
+  belongs to, and an empty state that says how devices get there.
+- **The scan list leads with devices we can probably talk to.** A scan in any
+  populated building returns mostly noise — earbuds, laptops, a neighbour's TV —
+  and the previous list sorted purely by signal strength, so a supported device
+  across the room sat below every anonymous radio on the desk. Advertised
+  service UUIDs, manufacturer-data company IDs and the MAC OUI are now read at
+  scan time alongside the local name, matched against the spec catalogue, and
+  the results split into a **Likely supported** section above the rest, each row
+  badged with what the catalogue thinks it is.
+
+  The four signals are weighted rather than pooled, because they are not equally
+  telling (`MatchConfidence` in `rust/src/api/device_api.rs` is the single source
+  of that judgement, shared by the scan and post-connect matchers). A vendor
+  service UUID is near proof; a name prefix or company ID is good evidence; a MAC
+  OUI is a vendor, not a product, so an OUI-only match stays out of the promoted
+  section and reads "Possibly Xiaomi" rather than naming a device. Apple
+  platforms report a per-host CoreBluetooth UUID instead of an address, so the
+  OUI signal is simply absent there and is never confused for one.
+
+  Matching is keyed on a device's identity rather than its id, so the hundreds of
+  advertisements a device emits during one scan cost a single match; only the
+  identifying fields of each spec cross the FFI boundary, not the parsed
+  catalogue. Demo mode's mock devices now advertise a different signal each, so
+  every rung of the ladder is visible without hardware.
 - **Linux desktop target (x86-64)** — build and iterate without an emulator:
   `./scripts/run-linux.sh --mock`, committed `linux/` scaffold, a
   `verify_linux_bundle.sh` that checks the Rust library is bundled *and*
