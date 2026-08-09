@@ -46,6 +46,12 @@ services:
                 type: "uint8"
                 min: 0
                 max: 100
+                # Number semantics: what the raw value MEANS. Here raw == %
+                # directly; a scaled value would add scale/value_offset, and a
+                # temperature would state unit "C" or "F" (or
+                # unit_source: device_setting when the device decides).
+                unit: "%"
+                description: "Brightness as a percentage; raw value is the percentage itself."
           set_color:
             description: "Set RGB color"
             template: [0x03, "{red}", "{green}", "{blue}"]
