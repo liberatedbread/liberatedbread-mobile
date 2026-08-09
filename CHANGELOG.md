@@ -55,6 +55,26 @@ heading.
 
 ### Fixed
 
+- **`MockNetworkScanService.stopScan()` did not stop the scan.** The same bug
+  that was fixed in `RealNetworkScanService`, still present in the mock: the
+  stop flag was read only at the top of the enumeration loop, so a stop during
+  a sleep still yielded the device that sleep was waiting for, and the sleep
+  *after* the loop never read it at all — the stream stayed open for a quarter
+  of the scan window (two seconds at the default) after the scan was told to
+  stop, so a UI that re-enables its button on stream close sat there saying
+  "scanning". Every wait now races the stop, as the real service's does. This
+  is the class that runs in demo mode and in every mock-mode integration suite,
+  and it had 0 of 17 lines covered, which is how it survived the first fix.
+
+- **The `network-discovery` job's coverage was collected nowhere.** The job that
+  uploads coverage is the one that excludes the netdisco suites, so
+  `lib/services/real_network_scan_service.dart` reported 108/169 lines while
+  that job was covering 164/169 of it. Fifty-six lines on the service with the
+  most elaborate harness in the repo counted as untested, a change to it looked
+  like it was adding uncovered code, and improving those tests moved the number
+  not at all. The job now writes `coverage/netdisco-lcov.info` and uploads it
+  under a `netdisco` flag; Codecov merges the two reports.
+
 - **`scripts/test.sh` ran `flutter test` without the environment it thought it
   was setting.** The two `LD_LIBRARY_PATH`/`DYLD_FALLBACK_LIBRARY_PATH`
   assignments ended in a line continuation that ran into a *comment*, so bash
