@@ -194,6 +194,12 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
                     break;
                 }
                 shift += 7;
+                // A u64 varint is at most 10 bytes; stop before the shift would
+                // overflow (a malformed over-long continuation must not panic
+                // the decode of an incoming notification).
+                if shift >= 64 {
+                    break;
+                }
             }
             Ok(DecodedValue::Uint(v))
         }
@@ -347,6 +353,20 @@ pub fn encode_command(
     // Patch the total length into every reserved packet_length field.
     let total = bytes.len();
     for (offset, width, big_endian) in length_fixups {
+        // Refuse to silently truncate: a length that doesn't fit the field
+        // would put a wrong length on the wire and make the device mis-parse.
+        let capacity = if width >= 8 {
+            u64::MAX
+        } else {
+            (1u64 << (width * 8)) - 1
+        };
+        if total as u64 > capacity {
+            return Err(ProtocolError::ParameterInvalid {
+                name: "packet_length".to_string(),
+                value: total as f64,
+                reason: format!("packet length {total} does not fit the {width}-byte length field"),
+            });
+        }
         let le = (total as u64).to_le_bytes();
         for i in 0..width {
             let src = if big_endian { width - 1 - i } else { i };
@@ -354,24 +374,6 @@ pub fn encode_command(
         }
     }
     Ok(bytes)
-}
-
-/// The low byte of a command's `auto: sequence` parameter as resolved by
-/// [`encode_command`] (supplied value, else 0), or 0 when the command declares
-/// none. Fragment framings reuse it as the packet serial so the serial tracks
-/// the message counter when a stateful caller supplies one.
-pub fn sequence_low_byte(command: &Command, params: &HashMap<String, f64>) -> u8 {
-    command
-        .parameters
-        .as_ref()
-        .and_then(|defs| {
-            defs.params
-                .iter()
-                .find(|(_, def)| def.auto == Some(AutoRole::Sequence))
-                .map(|(name, _)| params.get(name.as_str()).copied().unwrap_or(0.0))
-        })
-        .map(|v| (v as i64 & 0xFF) as u8)
-        .unwrap_or(0)
 }
 
 /// Validate that `val` is within `[def.min, def.max]` if either bound is set.
@@ -844,6 +846,48 @@ mod tests {
         assert_eq!(bytes, vec![0xF0, 0x00, 0x05, 0x08, 0x64]);
         // 256 is out of the varint param's declared max (255).
         assert!(encode_command(&cmd, &HashMap::from([("brightness".into(), 256.0)])).is_err());
+    }
+
+    #[test]
+    fn packet_length_that_overflows_the_field_is_rejected() {
+        // A uint8 auto:packet_length field with a packet longer than 255 bytes
+        // must error, not silently truncate the length.
+        let mut template = vec![TemplateElement::Param("len".into())];
+        template.extend((0..300).map(|_| TemplateElement::Byte(0)));
+        let cmd = Command {
+            description: "x".into(),
+            value: None,
+            template: Some(template),
+            parameters: Some(pset([(
+                "len",
+                Parameter {
+                    value_type: ValueType::Uint8,
+                    auto: Some(AutoRole::PacketLength),
+                    ..Default::default()
+                },
+            )])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+        };
+        assert!(matches!(
+            encode_command(&cmd, &HashMap::new()),
+            Err(ProtocolError::ParameterInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn varint_decode_does_not_panic_on_overlong_continuation() {
+        // 12 continuation bytes (all high-bit set) must not overflow the shift.
+        let field = FormatField {
+            offset: 0,
+            length: 12,
+            name: "v".into(),
+            field_type: ValueType::Varint,
+            ..Default::default()
+        };
+        let decoded = decode_field(&[0x80; 12], &field);
+        assert!(decoded.is_ok());
     }
 
     fn assert_invalid(result: Result<Vec<u8>, ProtocolError>, want_reason: &str) {
