@@ -43,6 +43,7 @@ import 'fakes/emulated_ble.dart';
 import 'helpers/host_rust_lib.dart';
 
 const _bulbId = 'AA:BB:CC:DD:EE:01';
+const _lockId = 'AA:BB:CC:DD:EE:03';
 
 late SharedPreferences _prefs;
 
@@ -234,6 +235,80 @@ void main() {
     // crate. It costs about ten seconds in practice; the bound only exists so a
     // genuine hang fails instead of running to the harness default.
   }, timeout: const Timeout(Duration(minutes: 3)));
+
+  // A pairing-required device and an open one, side by side. They are identical
+  // right up to the first read: both advertise, both connect, both hand over
+  // their GATT table. Only then does one of them refuse.
+  //
+  // Neither carries a name prefix or service UUID any bundled spec claims, so
+  // both render the raw characteristic browser — which reads on build, making
+  // this the shortest path from "device in range" to "what the user is told".
+  // It also means these two cases need no FFI codec and stay fast.
+  EmulatedPeripheral sensor(
+      {required String id, required bool requiresPairing}) {
+    return EmulatedPeripheral(
+      id: id,
+      name: requiresPairing ? 'Vault Sensor' : 'Open Sensor',
+      requiresPairing: requiresPairing,
+      services: [
+        EmulatedService(
+          uuid: '7b2c0001-4f1a-4a3e-9b6d-2f8a1c5e0d31',
+          characteristics: [
+            EmulatedCharacteristic(
+              uuid: '7b2c0002-4f1a-4a3e-9b6d-2f8a1c5e0d31',
+              value: const [0x2a],
+              canRead: true,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  testWidgets(
+      'a device that needs pairing says so, in words the user can act '
+      'on', (tester) async {
+    ble.add(sensor(id: _lockId, requiresPairing: true));
+
+    await _scenario(tester, () async {
+      await tester.pumpWidget(app());
+      await _pumpAWhile(tester, rounds: 4);
+      await tester.tap(find.byType(FloatingActionButton));
+      await _pumpUntil(tester, find.text('Vault Sensor'));
+      await tester.tap(find.text('Vault Sensor'));
+
+      // Connecting and discovery must still succeed — an unpaired device is not
+      // a broken one, and hiding its services would leave the user with nothing
+      // to act on.
+      await _pumpUntil(tester, find.textContaining('needs to be paired'));
+      expect(find.text('7b2c0001-4f1a-4a3e-9b6d-2f8a1c5e0d31'), findsOneWidget,
+          reason: 'the GATT table still came across; only the read was '
+              'refused');
+      expect(find.textContaining('needs to be paired'), findsWidgets,
+          reason: 'the refusal has to name pairing; the generic fallback '
+              'sends the user looking at the wrong thing');
+      expect(find.textContaining('GATT'), findsNothing,
+          reason: 'the native error code is for the log, not the screen');
+    });
+  });
+
+  testWidgets('an identical device that needs no pairing just reads',
+      (tester) async {
+    ble.add(sensor(id: _bulbId, requiresPairing: false));
+
+    await _scenario(tester, () async {
+      await tester.pumpWidget(app());
+      await _pumpAWhile(tester, rounds: 4);
+      await tester.tap(find.byType(FloatingActionButton));
+      await _pumpUntil(tester, find.text('Open Sensor'));
+      await tester.tap(find.text('Open Sensor'));
+
+      // 0x2a, straight off the peripheral, rendered as hex by the raw browser.
+      await _pumpUntil(tester, find.textContaining('2a'));
+      expect(find.textContaining('2a'), findsWidgets);
+      expect(find.textContaining('needs to be paired'), findsNothing);
+    });
+  });
 
   testWidgets('a radio that is switched off is reported, not swallowed',
       (tester) async {

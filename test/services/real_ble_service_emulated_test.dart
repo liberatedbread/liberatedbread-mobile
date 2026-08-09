@@ -30,6 +30,11 @@ const _scanWindow = Duration(milliseconds: 300);
 const _bulbId = 'AA:BB:CC:DD:EE:01';
 const _lampId = 'AA:BB:CC:DD:EE:02';
 
+/// A device whose characteristics demand an authenticated link — a lock is the
+/// canonical example, and the class of device the app must not simply report
+/// as broken.
+const _lockId = 'AA:BB:CC:DD:EE:03';
+
 void main() {
   late EmulatedBleAdapter ble;
   late RealBleService service;
@@ -645,6 +650,123 @@ void main() {
             _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
         throwsA(isA<Exception>()),
       );
+    });
+  });
+
+  // Two devices, identical up to the moment data is asked for. Everything
+  // before that — advertising, connecting, service discovery — behaves the
+  // same on both, which is exactly why a suite that only ever exercises open
+  // devices never learns what the app says to the other kind.
+  group('pairing', () {
+    Future<void> openAndDiscover(String id) async {
+      await service.connect(id);
+      await service.discoverServices(id);
+    }
+
+    test('a device that needs no pairing is readable straight away', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await openAndDiscover(_bulbId);
+
+      expect(
+        await service.readCharacteristic(
+            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        [85],
+      );
+      expect(ble.platformCalls, isNot(contains('createBond:$_bulbId')),
+          reason: 'nothing refused anything, so nothing should ask to pair');
+    });
+
+    test('a device that needs pairing still connects and discovers', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      await service.connect(_lockId);
+
+      // The GATT table is readable on an unencrypted link, so this must NOT
+      // fail. A device whose services never appeared would look broken rather
+      // than unpaired, and the user would have no idea what to do about it.
+      expect(await service.discoverServices(_lockId), hasLength(2));
+    });
+
+    test('a read from an unpaired device asks the user to pair', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      await openAndDiscover(_lockId);
+
+      await expectLater(
+        service.readCharacteristic(
+            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        throwsA(isA<BlePairingRequiredException>()),
+      );
+    });
+
+    test('a write to an unpaired device asks the user to pair', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      await openAndDiscover(_lockId);
+
+      await expectLater(
+        service.writeCharacteristic(_lockId, EmulatedUuids.controlService,
+            EmulatedUuids.controlCommand, [1, 1]),
+        throwsA(isA<BlePairingRequiredException>()),
+      );
+    });
+
+    test('subscribing to an unpaired device asks the user to pair', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      await openAndDiscover(_lockId);
+
+      // The CCCD is an attribute like any other, so enabling notifications is
+      // refused the same way — and a spec-declared sensor reaches the device
+      // through exactly this call.
+      await expectLater(
+        service.subscribeCharacteristic(
+            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        emitsError(isA<BlePairingRequiredException>()),
+      );
+    });
+
+    test('the same read succeeds once the device is bonded', () async {
+      final lock =
+          ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      await openAndDiscover(_lockId);
+
+      await expectLater(
+        service.readCharacteristic(
+            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        throwsA(isA<BlePairingRequiredException>()),
+      );
+
+      // What accepting the system pairing dialog amounts to.
+      lock.bondState = EmulatedBondState.bonded;
+
+      expect(
+        await service.readCharacteristic(
+            _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        [85],
+      );
+    });
+
+    test('a bonded pairing-required device behaves like an open one', () async {
+      final lock =
+          ble.add(EmulatedPeripheral.bulb(id: _lockId, requiresPairing: true));
+      lock.bondState = EmulatedBondState.bonded;
+      await openAndDiscover(_lockId);
+
+      await service.writeCharacteristic(_lockId, EmulatedUuids.controlService,
+          EmulatedUuids.controlCommand, [1, 1]);
+      expect(lock.characteristic(EmulatedUuids.controlCommand)!.writes,
+          hasLength(1));
+
+      final received = <List<int>>[];
+      final sub = service
+          .subscribeCharacteristic(
+              _lockId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      lock.pushNotification(EmulatedUuids.batteryLevel, [84]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+
+      expect(received, [
+        [84]
+      ]);
     });
   });
 }

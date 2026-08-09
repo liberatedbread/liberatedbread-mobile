@@ -65,6 +65,10 @@ typedef EmulatedAdapterState = BmAdapterStateEnum;
 /// Which ATT write a central used. Aliased for the same reason.
 typedef EmulatedWriteType = BmWriteType;
 
+/// Whether the central and the peripheral have paired. Aliased for the same
+/// reason.
+typedef EmulatedBondState = BmBondStateEnum;
+
 /// Well-known UUIDs used by the emulated devices below, in the 128-bit form
 /// flutter_blue_plus normalizes to.
 class EmulatedUuids {
@@ -100,6 +104,19 @@ class EmulatedGattError {
 
   /// A stand-in for the common "the peripheral refused it" case.
   static const refused = EmulatedGattError(133, 'GATT_ERROR');
+
+  /// ATT error 0x05, what a peripheral answers when the attribute needs an
+  /// authenticated (paired) link and the link is not one yet. Android's
+  /// GATT_INSUFFICIENT_AUTHENTICATION and Apple's
+  /// CBATTError.insufficientAuthentication are both this same ATT code.
+  static const insufficientAuthentication =
+      EmulatedGattError(5, 'GATT_INSUFFICIENT_AUTHENTICATION');
+
+  /// ATT error 0x0F: the link is paired but not encrypted to the level the
+  /// attribute demands. Reaches the app through the same route as
+  /// [insufficientAuthentication] and wants the same recovery.
+  static const insufficientEncryption =
+      EmulatedGattError(15, 'GATT_INSUFFICIENT_ENCRYPTION');
 }
 
 /// A characteristic in an emulated peripheral's GATT table.
@@ -220,6 +237,29 @@ class EmulatedPeripheral {
   /// times out AFTER having succeeded. Set false to reproduce that.
   bool confirmsCccdWrites = true;
 
+  /// Whether this peripheral's attributes demand an authenticated (paired)
+  /// link.
+  ///
+  /// Plenty of BLE devices do — anything with a lock, a payment function or a
+  /// vendor that read the security guidelines — and plenty do not. The
+  /// difference is invisible until a GATT operation is attempted: the
+  /// peripheral advertises, connects and answers service discovery exactly the
+  /// same either way, then answers the first read or write with ATT error 0x05
+  /// (insufficient authentication) instead of data. That asymmetry is the whole
+  /// reason this knob exists — a test that only ever sees pairing-free devices
+  /// never finds out what the app says when a real one refuses.
+  ///
+  /// Set [bondState] to [EmulatedBondState.bonded] (or let the central call
+  /// createBond) and the same reads start working.
+  bool requiresPairing = false;
+
+  /// Whether an attempt to pair succeeds. False models a user declining the
+  /// system pairing dialog, or a wrong PIN.
+  bool acceptsPairing = true;
+
+  /// Current bond state between this peripheral and the central.
+  EmulatedBondState bondState = EmulatedBondState.none;
+
   bool _connected = false;
   bool get isConnected => _connected;
 
@@ -231,6 +271,7 @@ class EmulatedPeripheral {
     this.rssi = -55,
     this.connectable = true,
     this.mtu = 23,
+    this.requiresPairing = false,
     List<EmulatedService>? services,
   }) : services = services ?? [];
 
@@ -244,12 +285,14 @@ class EmulatedPeripheral {
     int mtu = 512,
     List<int> state = const [1, 80, 255, 180, 50],
     int batteryLevel = 85,
+    bool requiresPairing = false,
   }) {
     return EmulatedPeripheral(
       id: id,
       name: name,
       rssi: rssi,
       mtu: mtu,
+      requiresPairing: requiresPairing,
       services: [
         EmulatedService(
           uuid: EmulatedUuids.controlService,
@@ -291,6 +334,19 @@ class EmulatedPeripheral {
     }
     return null;
   }
+
+  /// The error every GATT operation must answer with while this peripheral
+  /// insists on a paired link it does not have, or null when operations may
+  /// proceed.
+  ///
+  /// Service discovery deliberately does NOT consult this: on real hardware the
+  /// GATT table is readable unencrypted, and it is the first read or write that
+  /// gets refused. Testing the refusal anywhere earlier would be testing a
+  /// device that does not exist.
+  EmulatedGattError? get _pairingBarrier =>
+      requiresPairing && bondState != EmulatedBondState.bonded
+          ? EmulatedGattError.insufficientAuthentication
+          : null;
 
   EmulatedCharacteristic? _lookup(Guid service, Guid characteristic) {
     for (final s in services) {
@@ -416,6 +472,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
       StreamController<BmCharacteristicData>.broadcast();
   final _descWrittenController = StreamController<BmDescriptorData>.broadcast();
   final _mtuController = StreamController<BmMtuChangedResponse>.broadcast();
+  final _bondController = StreamController<BmBondStateResponse>.broadcast();
 
   final Map<String, EmulatedPeripheral> _peripherals = {};
 
@@ -474,6 +531,12 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
         _setConnectionState(peripheral, false,
             reasonCode: 0, reason: 'test reset');
       }
+      // Bond state is cached per remote id inside flutter_blue_plus and read
+      // only when it has none, so a device left bonded would still look bonded
+      // to the next test that reuses the id. Unbond it out loud.
+      if (peripheral.bondState != EmulatedBondState.none) {
+        _setBondState(peripheral, EmulatedBondState.none);
+      }
     }
     // Two turns of the event loop: one to deliver the disconnects, one for the
     // `Future.delayed(Duration.zero)` flutter_blue_plus itself schedules when
@@ -500,6 +563,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     await _charWrittenController.close();
     await _descWrittenController.close();
     await _mtuController.close();
+    await _bondController.close();
   }
 
   // ── event plumbing ────────────────────────────────────────────────────────
@@ -551,6 +615,17 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
           : BmConnectionStateEnum.disconnected,
       disconnectReasonCode: reasonCode,
       disconnectReasonString: reason,
+    ));
+  }
+
+  void _setBondState(EmulatedPeripheral peripheral, EmulatedBondState state) {
+    final previous = peripheral.bondState;
+    peripheral.bondState = state;
+    if (_bondController.isClosed) return;
+    _bondController.add(BmBondStateResponse(
+      remoteId: DeviceIdentifier(peripheral.id),
+      bondState: state,
+      prevState: previous,
     ));
   }
 
@@ -610,6 +685,54 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
 
   @override
   Stream<BmMtuChangedResponse> get onMtuChanged => _mtuController.stream;
+
+  @override
+  Stream<BmBondStateResponse> get onBondStateChanged => _bondController.stream;
+
+  @override
+  Future<BmBondStateResponse> getBondState(BmBondStateRequest request) async {
+    final peripheral = _peripherals[request.remoteId.str];
+    return BmBondStateResponse(
+      remoteId: request.remoteId,
+      bondState: peripheral?.bondState ?? EmulatedBondState.none,
+      prevState: null,
+    );
+  }
+
+  @override
+  Future<bool> createBond(BmCreateBondRequest request) async {
+    platformCalls.add('createBond:${request.remoteId.str}');
+    final peripheral = _peripherals[request.remoteId.str];
+    if (peripheral == null) return false;
+    // false means "no change" — flutter_blue_plus then skips the wait, which is
+    // what an already-bonded device should produce.
+    if (peripheral.bondState == EmulatedBondState.bonded) return false;
+
+    _setBondState(peripheral, EmulatedBondState.bonding);
+    _later(() {
+      // Rejection lands back on `none`, which is what the platform reports when
+      // the user dismisses the pairing dialog or the PIN is wrong;
+      // flutter_blue_plus turns that into a createBond failure.
+      _setBondState(
+        peripheral,
+        peripheral.acceptsPairing
+            ? EmulatedBondState.bonded
+            : EmulatedBondState.none,
+      );
+    });
+    return true;
+  }
+
+  @override
+  Future<bool> removeBond(BmRemoveBondRequest request) async {
+    platformCalls.add('removeBond:${request.remoteId.str}');
+    final peripheral = _peripherals[request.remoteId.str];
+    if (peripheral == null || peripheral.bondState == EmulatedBondState.none) {
+      return false;
+    }
+    _later(() => _setBondState(peripheral, EmulatedBondState.none));
+    return true;
+  }
 
   @override
   Future<bool> isSupported(BmIsSupportedRequest request) async => true;
@@ -760,7 +883,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     if (peripheral == null || char == null) return false;
     platformCalls.add('read:${Guid(char.uuid).str128}');
 
-    final failure = char.readError;
+    final failure = peripheral._pairingBarrier ?? char.readError;
     _later(() {
       if (_charReceivedController.isClosed) return;
       _charReceivedController.add(BmCharacteristicData(
@@ -785,7 +908,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     if (peripheral == null || char == null) return false;
     platformCalls.add('write:${Guid(char.uuid).str128}');
 
-    final failure = char.writeError;
+    final failure = peripheral._pairingBarrier ?? char.writeError;
     if (failure == null) {
       char.writes
           .add((type: request.writeType, value: List<int>.of(request.value)));
@@ -814,6 +937,28 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
         peripheral?._lookup(request.serviceUuid, request.characteristicUuid);
     if (peripheral == null || char == null) return false;
     platformCalls.add('setNotify:${Guid(char.uuid).str128}=${request.enable}');
+
+    // Subscribing writes the CCCD, so an unpaired link is refused here too —
+    // reported as a failed descriptor write, which is how the platform reports
+    // it. The subscription does NOT take effect.
+    final barrier = peripheral._pairingBarrier;
+    if (barrier != null && request.enable) {
+      _later(() {
+        if (_descWrittenController.isClosed) return;
+        _descWrittenController.add(BmDescriptorData(
+          remoteId: request.remoteId,
+          serviceUuid: request.serviceUuid,
+          characteristicUuid: request.characteristicUuid,
+          descriptorUuid: Guid(EmulatedUuids.cccd),
+          primaryServiceUuid: request.primaryServiceUuid,
+          value: const [],
+          success: false,
+          errorCode: barrier.code,
+          errorString: barrier.message,
+        ));
+      });
+      return true;
+    }
 
     char.isNotifying = request.enable;
 

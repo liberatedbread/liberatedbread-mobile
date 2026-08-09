@@ -52,6 +52,29 @@ class BleUnavailableException implements UserFacingException {
   String toString() => message;
 }
 
+/// Raised when a peripheral refuses a GATT operation because the link has not
+/// been paired (bonded) yet.
+///
+/// Some BLE devices mark their characteristics as requiring an authenticated
+/// link — locks, anything handling payment, and any vendor that followed the
+/// security guidance. Such a device advertises, connects and answers service
+/// discovery exactly like an open one; the refusal only arrives on the first
+/// read or write, as ATT error 0x05. Without a distinct type for it the user
+/// got the generic "the device did not accept that command", which points them
+/// at the command rather than at the pairing prompt that is the actual next
+/// step — so this exists to say the one useful thing instead.
+class BlePairingRequiredException implements UserFacingException {
+  @override
+  final String message;
+  const BlePairingRequiredException(
+      [this.message = 'This device needs to be paired before it will share '
+          'data. Accept the pairing request from your system Bluetooth '
+          'settings, then try again.']);
+
+  @override
+  String toString() => message;
+}
+
 /// Abstract interface for BLE operations.
 abstract class BleService {
   /// Request runtime permissions for BLE scanning.
