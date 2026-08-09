@@ -29,17 +29,36 @@
 #
 # The effect is that the number now tracks the code a change can actually be
 # careless with, so a drop in it means something.
+# THE OTHER HALF OF THE SAME PAIR
+#
+# rust/src/frb_generated.rs is the Rust side of that generated boundary, and it
+# behaves identically: 1917 lines, and `cargo test` covers exactly 0.0% of them,
+# because the crate's own tests never cross the FFI boundary that file exists to
+# implement — the Dart side does. Left in, it takes a crate whose hand-written
+# code measures 95.6% to a reported 72.0%, which is a number that moves when the
+# Rust API grows and not when anyone tests anything.
+#
+# Same justification as above, and the same verification: the `unit-tests` job
+# regenerates it and fails on any diff, and integration_test/native_core_test.dart
+# calls through that exact dispatch into the real crate on three platforms.
 ignore:
-  - "lib/src/rust/**"       # flutter_rust_bridge output; see above
-  - "**/*.g.dart"           # any future build_runner output
+  - "lib/src/rust/**"          # flutter_rust_bridge output; see above
+  - "rust/src/frb_generated.rs" # its Rust counterpart; see above
+  - "**/*.g.dart"              # any future build_runner output
   - "**/*.freezed.dart"
 
-# TWO UPLOADS, ONE REPORT
+# THREE UPLOADS, ONE REPORT
 #
 # `unit` is the unit-tests job (`flutter test --coverage --exclude-tags=
 # netdisco`); `netdisco` is the network-discovery job, which runs the suites
-# that other one excludes — the only place RealNetworkScanService executes.
-# Codecov merges both for the commit, so each is a partial report on purpose.
+# that other one excludes — the only place RealNetworkScanService executes;
+# `rust` is the rust-coverage job, `cargo llvm-cov` over the crate. Codecov
+# merges all three for the commit, so each is a partial report on purpose.
+#
+# Until `rust` existed the reported figure was the Dart half of the project
+# only: roughly a third of the hand-written code — the spec parser, the codec,
+# the protocol dispatch, the mock simulator — was tested and never measured, so
+# a change that moved it moved the number not at all.
 #
 # That merge is the point. Before it, the excluded suites' coverage was
 # collected nowhere and the uploaded report showed
@@ -58,6 +77,9 @@ flags:
   netdisco:
     paths:
       - lib/
+  rust:
+    paths:
+      - rust/
 
 coverage:
   status:
