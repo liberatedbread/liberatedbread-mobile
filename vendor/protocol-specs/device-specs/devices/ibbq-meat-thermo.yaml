@@ -7,6 +7,7 @@ device:
   manufacturer: "Inkbird / Tenergy Solis / various OEMs"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "sensor"
   notes: >
     BLE BBQ/meat thermometer with 2-6 temperature probes. Sold under
     Inkbird, Tenergy Solis, and generic iBBQ brands. $15-25.

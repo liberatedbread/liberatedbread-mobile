@@ -7,6 +7,7 @@ device:
   manufacturer: "Unbranded / various OEMs"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "tracker"
   notes: >
     Ultra-cheap ($1-2) BLE key finder / anti-loss tracker. CR2032 battery,
     LED and buzzer. Hard-coded public MAC address — a privacy concern

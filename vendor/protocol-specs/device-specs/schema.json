@@ -28,6 +28,32 @@
           { "required": ["cloud"] }
         ]
       }
+    },
+    {
+      "$comment": "A reference spec is not a device, so it must not claim a device category — and a device must not claim to be a reference. `type` starting with 'reference-' and `category: reference` are two spellings of the same fact, and the schema keys the access-surface exemption above off the first one; letting them disagree would put a protocol table in the app's scan list wearing a light-bulb icon, or a real light bar in a consumer's list of published standards. Both directions are enforced here rather than only in this repository's pytest conventions, because the schema is published for standalone consumers who never run those tests.",
+      "if": {
+        "required": ["device"],
+        "properties": {
+          "device": {
+            "required": ["type"],
+            "properties": { "type": { "pattern": "^reference-" } }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "device": { "properties": { "category": { "const": "reference" } } }
+        }
+      },
+      "else": {
+        "properties": {
+          "device": {
+            "properties": {
+              "category": { "not": { "const": "reference" } }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -326,7 +352,7 @@
     },
     "framing": {
       "type": "object",
-      "description": "Structured packet framing applied on top of raw BLE writes for this characteristic.",
+      "description": "Structured packet framing applied on top of raw BLE writes for this characteristic. When `scheme` is set, every logical packet (including the byte sequences produced by this characteristic's `commands`) MUST be wrapped in the named fragment framing before it is written — the packet templates deliberately do NOT include the framing bytes.",
       "properties": {
         "length_prefix": {
           "type": "boolean",
@@ -341,6 +367,17 @@
           "type": "integer",
           "minimum": 1,
           "description": "Maximum payload bytes per frame (e.g. for chunked image uploads)."
+        },
+        "scheme": {
+          "type": "string",
+          "enum": ["daniao_fragment"],
+          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
+        },
+        "channel_tag": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Value of the scheme's channel-tag byte for writes to this characteristic (daniao_fragment byte 3): 0 on the command channel; on bulk channels it identifies the buffer type and is chosen per transfer, so a fixed value here only covers the common case."
         }
       }
     }
@@ -348,7 +385,14 @@
   "properties": {
     "device": {
       "type": "object",
-      "required": ["name", "manufacturer", "manufacturer_status", "protocol"],
+      "$comment": "`category` is required rather than optional because an absent category is not a neutral omission at the consumer: the mobile app has nothing to draw beside the device but a generic radio icon, which is also what it draws for a device whose protocol nobody ever worked out. A spec author always knows what kind of thing they documented, so stating it costs one line and omitting it is paid for by every user of the app.",
+      "required": [
+        "name",
+        "manufacturer",
+        "manufacturer_status",
+        "protocol",
+        "category"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -414,7 +458,38 @@
         },
         "type": {
           "type": "string",
-          "description": "Free-form device class, e.g. 'smart-scale' or 'ebike-controller'. One value is load-bearing: a `type` starting with 'reference-' (e.g. 'reference-diagnostic-protocol', 'reference-transport-protocol') marks the file as a published-protocol reference rather than a device. Reference specs document a standard other specs cite instead of restating -- SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing -- and so are exempt from the rule that a spec must document an access surface (`services`, `http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`)."
+          "description": "Free-form device class, e.g. 'smart-scale' or 'ebike-controller'. One value is load-bearing: a `type` starting with 'reference-' (e.g. 'reference-diagnostic-protocol', 'reference-transport-protocol') marks the file as a published-protocol reference rather than a device. Reference specs document a standard other specs cite instead of restating -- SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing -- and so are exempt from the rule that a spec must document an access surface (`services`, `http_endpoints`, `mqtt_topics`, `obd`, `bus` or `cloud`). Say what the thing IS here in whatever words fit; say what KIND of thing it is in `category`, which is the closed vocabulary consumers can actually branch on."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "appliance",
+            "camera",
+            "climate",
+            "display",
+            "energy",
+            "fitness",
+            "health",
+            "hub",
+            "irrigation",
+            "light",
+            "lock",
+            "motor",
+            "printer",
+            "reference",
+            "robot",
+            "scale",
+            "sensor",
+            "speaker",
+            "switch",
+            "tool",
+            "tracker",
+            "tv",
+            "vehicle",
+            "wearable",
+            "other"
+          ],
+          "description": "Broad device class from a CLOSED vocabulary, unlike free-form `type`. This is the field a consumer branches on: the mobile app picks the icon it draws beside a scan result from this value, so a device whose category is missing or unrecognised shows up as an anonymous Bluetooth address next to devices that announce what they are. That is the whole reason the vocabulary is closed -- 'smart-scale', 'kitchen-scale' and 'body-composition-scale' are three useful `type` values and one `category` ('scale'). Pick the category a person would use to describe the device across the room, not the most precise one: an LED strip controller is a 'light', an LED matrix panel is a 'display', an e-bike mid-drive is a 'motor'. Use 'reference' for published-protocol reference specs (the ones whose `type` starts with 'reference-'); they document a standard, not a device. Use 'other' only when nothing else fits, and treat it as a prompt to propose a new value rather than a resting place. Values not in this list are rejected on purpose: a typo'd or invented category is indistinguishable from an unknown one at the consumer, and silently degrades to the generic icon."
         },
         "notes": {
           "type": "string",

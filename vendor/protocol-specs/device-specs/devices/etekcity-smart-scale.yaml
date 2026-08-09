@@ -8,6 +8,7 @@ device:
   manufacturer: "ETEKCITY (VeSync platform)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "scale"
   notes: >
     The VeSync app is a multi-device platform. The ESN00 kitchen scale's own
     BLE interface is service 0x1910 with characteristics 0x2C10 (read),

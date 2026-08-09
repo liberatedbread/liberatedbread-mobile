@@ -7,6 +7,7 @@ device:
   manufacturer: "Unbranded / Yu Tian (YT01) / various OEMs"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "printer"
   notes: >
     Cat-shaped (and other shaped) mini thermal printers sold under many
     names: GB01, GB02, GB03, GT01, YT01, MX05, MX06, MX08, MX09, MX10,

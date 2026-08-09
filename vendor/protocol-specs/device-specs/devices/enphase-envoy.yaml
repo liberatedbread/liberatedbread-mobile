@@ -7,6 +7,7 @@ device:
   manufacturer: "Enphase Energy"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "energy"
   transport: "http"
   notes: >
     Enphase Envoy gateways expose a local REST API on port 80 for solar

@@ -7,6 +7,7 @@ device:
   manufacturer: "ProGLOW / TTCBLE"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "light"
   notes: >
     Motorcycle ground-effect LED controller from com.ttcble.proglow static
     analysis (APK v4.7). Normal command sends are unencoded GATT writes to

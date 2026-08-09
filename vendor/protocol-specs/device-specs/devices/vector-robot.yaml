@@ -7,6 +7,7 @@ device:
   manufacturer: "Anki / Digital Dream Labs"
   manufacturer_status: "shutdown"
   protocol: "wifi"
+  category: "robot"
   notes: >
     Desktop companion robot with primary local control over WiFi using gRPC and
     protobuf 3 over TLS on port 443. Discovery uses mDNS service
