@@ -1,0 +1,33 @@
+# Staples Connect Hub — Device Spec (research note, REJECTED)
+# Staples exited 2016-06 (support to Z-Wave Products/Zonoff); service dead by 2018-02.
+# Local cache kept schedules running but no documented local control API exists.
+
+device:
+  id: staples-connect-hub
+  name: Staples Connect Hub (D-Link-built, Zonoff platform)
+  manufacturer: Staples / D-Link / Zonoff — service dead 2018
+  category: smart_home_hub
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: false   # REJECTED: cloud-only control path
+  note: >
+    Hub cached automations locally (survived WAN outages) but all config and
+    app control flowed through the Zonoff cloud. No documented or
+    reverse-engineered local API; unprovisionable since service shutdown.
+    Paired Z-Wave/Zigbee devices are reusable on other hubs.
+
+status:
+  apk_acquired: false
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: false
+  cloud_dead: true
+  rejected: true
+  reject_reason: cloud-only control plane; no known local API; service dead since ~2018
+  references:
+    - zatznotfunny.com/2016-06/staples-pulls-plug-smart-home/ (2016-06-06)
+    - slashgear.com/staples-connect-hub-is-dead-as-iot-graveyard-grows-26521126/ (2018-02-26)
+    - cnet.com/reviews/staples-connect-hub-d-link-edition-review/ (2015-03-06)

@@ -25,6 +25,8 @@ EntityDto _tempEntity({double? scale, String? valueField}) => EntityDto(
       hasFormat: true,
       valueField: valueField ?? 'current_temp_raw',
       valueScale: scale,
+      onWhenNonzero: false,
+      actions: const [],
     );
 
 Widget _wrap(EntityDto entity, FakeSpecCodec codec) => ProviderScope(
@@ -99,6 +101,8 @@ void main() {
       hasFormat: false,
       valueField: null,
       valueScale: null,
+      onWhenNonzero: false,
+      actions: [],
     );
 
     await tester.pumpWidget(_wrap(entity, _codecReturning(0)));
@@ -151,6 +155,8 @@ void main() {
       hasFormat: true,
       valueField: 'current_temp_raw',
       valueScale: null,
+      onWhenNonzero: false,
+      actions: [],
     );
 
     await tester.pumpWidget(

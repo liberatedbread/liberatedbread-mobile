@@ -1,0 +1,51 @@
+# Edimax SP-1101W / SP-2101W — Device Spec (research note)
+# Edimax (Taiwan) alive; EdiPlug app legacy; local HTTP API independent of cloud
+# Local path: HTTP POST XML to port 10000, Basic auth admin/1234
+
+device:
+  id: edimax-smart-plug
+  name: Edimax SP-1101W / SP-2101W Wi-Fi Smart Plug
+  manufacturer: Edimax Technology (Taiwan) — alive; EdiPlug app legacy
+  category: smart_plug
+  safety_class: LOW  # mains relay; change default admin/1234 or LAN-segment
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Control is plain LAN HTTP. No account or cloud step needed for control.
+    Vendor cloud only used for out-of-home access from the EdiPlug app.
+
+lan:
+  discovery:
+    method: network_scan  # no SSDP/mDNS documented; scan DHCP leases / ARP
+  control:
+    protocol: http-post-xml
+    url: "http://<plug-ip>:10000/smartplug.cgi"
+    auth: http-basic (default admin/1234, user-changeable)
+  web_ui: "http://<plug-ip>:80/ with same credentials"
+
+protocol:
+  note: >
+    POST bodies are XML command documents; full templates in wendlers/ediplug-py.
+    NOW_POWER switches state and (SP-2101W) returns power/energy readings;
+    SCHEDULE reads/writes the on-device weekly schedule; SYSTEM_INFO gives
+    model/fw. XML namespace "http://cloud.edimax.com.tw/im" appears in
+    envelopes but the endpoint is served locally by the plug.
+  commands:
+    power_on: "POST NOW_POWER XML, Device.System.Power.State=ON"
+    power_off: "POST NOW_POWER XML, Device.System.Power.State=OFF"
+    get_power_state: "POST NOW_POWER query"
+    get_meter: "POST NOW_POWER query (SP-2101W: current W, day energy Wh)"
+    schedule_rw: "POST SCHEDULE XML"
+
+status:
+  apk_acquired: false   # com.edimax.ediplug: google-play auth error + apk-pure failed 2026-08-07; app likely delisted; not needed (protocol documented)
+  apk_decompiled: false
+  protocol_recovered: true   # ediplug-py, Edimax-Smart-Plug-Java, HA edimax integration
+  rating: confirmed
+  cloud_dead: false   # company alive; app/cloud legacy
+  references:
+    - github.com/wendlers/ediplug-py
+    - github.com/Wandmalfarbe/Edimax-Smart-Plug-Java (2025-03 update)
+    - home-assistant.io edimax integration (iot_class: local_polling)

@@ -8,9 +8,13 @@ import '../models/ble_discovered_service.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/spec_choice_provider.dart';
 import '../services/spec_codec.dart';
+import 'binary_sensor_card.dart';
 import 'entity_sensor_card.dart';
 import 'led_image_widget.dart';
+import 'light_control_card.dart';
 import 'raw_characteristic_widget.dart';
+import 'setpoint_control_card.dart';
+import 'switch_control_card.dart';
 import 'typed_characteristic_widget.dart';
 
 /// Displays the services/characteristics of a connected device. When the device
@@ -61,23 +65,55 @@ class DeviceControlPanel extends ConsumerWidget {
     final match = outcome?.chosen;
 
     // Entities the spec declares, paired with the discovered service that
-    // actually carries them. An entity whose characteristic was not discovered
-    // on this device is dropped: the spec may describe a variant with more
-    // hardware than the unit in front of us.
+    // actually carries them. An entity whose characteristics were not
+    // discovered on this device is dropped: the spec may describe a variant
+    // with more hardware than the unit in front of us.
+    //
+    // Sensors and binary sensors become readings; `switch` and `light`
+    // entities become control cards when the spec resolved something for
+    // them (a sendable action, or at least readable state for a switch).
+    // Anything else still comes through the typed command widgets below.
     final readings = <({EntityDto entity, String serviceUuid})>[];
+    final controls = <({EntityDto entity, String? stateServiceUuid})>[];
     for (final entity in match?.spec.entities ?? const <EntityDto>[]) {
-      // Only sensors render as readings; `light`/`switch` entities are control
-      // surfaces and still come through the typed command widgets below.
-      if (entity.platform != null && entity.platform != 'sensor') continue;
-      final owning = services.where(
-        (s) => s.characteristics.any(
-          (c) =>
-              normalizeUuid(c.uuid) ==
-              normalizeUuid(entity.stateCharacteristic),
-        ),
-      );
-      if (owning.isEmpty) continue;
-      readings.add((entity: entity, serviceUuid: owning.first.uuid));
+      // The discovered service owning the entity's state characteristic,
+      // when it has one and this device carries it.
+      final stateChar = entity.stateCharacteristic;
+      final owningState = stateChar == null
+          ? null
+          : services
+              .where(
+                (s) => s.characteristics.any(
+                  (c) => normalizeUuid(c.uuid) == normalizeUuid(stateChar),
+                ),
+              )
+              .firstOrNull;
+
+      switch (entity.platform) {
+        case null || 'sensor' || 'binary_sensor':
+          if (owningState == null) continue;
+          readings.add((entity: entity, serviceUuid: owningState.uuid));
+        case 'switch' || 'light' || 'number' || 'climate':
+          // At least one action must target a characteristic this device
+          // actually has; a switch or setpoint may instead ride on readable
+          // state alone (ember's temperature control has no sendable command,
+          // and its target temperature cannot be encoded yet — both are still
+          // worth showing as live readings).
+          final actionsDiscovered = entity.actions.any(
+            (a) => services.any(
+              (s) => s.characteristics.any(
+                (c) =>
+                    normalizeUuid(c.uuid) ==
+                    normalizeUuid(a.characteristicUuid),
+              ),
+            ),
+          );
+          final stateOnly = entity.platform != 'light' && owningState != null;
+          if (!actionsDiscovered && !stateOnly) continue;
+          controls.add((entity: entity, stateServiceUuid: owningState?.uuid));
+        default:
+          continue;
+      }
     }
 
     // Leading slots above the raw service list: the spec chooser when several
@@ -111,6 +147,13 @@ class DeviceControlPanel extends ConsumerWidget {
           deviceId: deviceId,
           imageUpload: match.spec.imageUpload!,
           specYaml: match.yaml,
+        ),
+      if (controls.isNotEmpty)
+        _ControlsSection(
+          key: const ValueKey('controls-section'),
+          deviceId: deviceId,
+          controls: controls,
+          specYaml: match!.yaml,
         ),
       if (readings.isNotEmpty)
         _ReadingsSection(
@@ -286,7 +329,8 @@ class _SpecChoicePrompt extends ConsumerWidget {
 ///
 /// These come straight from the spec's `entities:` block, so a device gains a
 /// named, unit-labelled reading purely by its spec being vendored — no
-/// per-device code.
+/// per-device code. `binary_sensor` entities get the on/off presentation;
+/// everything else the numeric one.
 class _ReadingsSection extends StatelessWidget {
   final String deviceId;
   final List<({EntityDto entity, String serviceUuid})> readings;
@@ -313,12 +357,79 @@ class _ReadingsSection extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           for (final reading in readings) ...[
-            EntitySensorCard(
-              deviceId: deviceId,
-              serviceUuid: reading.serviceUuid,
-              entity: reading.entity,
-              specYaml: specYaml,
-            ),
+            if (reading.entity.platform == 'binary_sensor')
+              BinarySensorCard(
+                deviceId: deviceId,
+                serviceUuid: reading.serviceUuid,
+                entity: reading.entity,
+                specYaml: specYaml,
+              )
+            else
+              EntitySensorCard(
+                deviceId: deviceId,
+                serviceUuid: reading.serviceUuid,
+                entity: reading.entity,
+                specYaml: specYaml,
+              ),
+            const SizedBox(height: 10),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Spec-declared controls (switches, lights), shown above the readings.
+///
+/// Same payoff as the readings section, for the write direction: the spec's
+/// resolved actions become working toggles, sliders and color pickers with no
+/// per-device code.
+class _ControlsSection extends StatelessWidget {
+  final String deviceId;
+  final List<({EntityDto entity, String? stateServiceUuid})> controls;
+  final String specYaml;
+
+  const _ControlsSection({
+    super.key,
+    required this.deviceId,
+    required this.controls,
+    required this.specYaml,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Controls',
+            style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          for (final control in controls) ...[
+            switch (control.entity.platform) {
+              'light' => LightControlCard(
+                  deviceId: deviceId,
+                  stateServiceUuid: control.stateServiceUuid,
+                  entity: control.entity,
+                  specYaml: specYaml,
+                ),
+              'number' || 'climate' => SetpointControlCard(
+                  deviceId: deviceId,
+                  stateServiceUuid: control.stateServiceUuid,
+                  entity: control.entity,
+                  specYaml: specYaml,
+                ),
+              _ => SwitchControlCard(
+                  deviceId: deviceId,
+                  stateServiceUuid: control.stateServiceUuid,
+                  entity: control.entity,
+                  specYaml: specYaml,
+                ),
+            },
             const SizedBox(height: 10),
           ],
         ],
