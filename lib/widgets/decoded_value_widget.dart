@@ -222,7 +222,9 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
     if (unit != null) return '$body $unit';
     // A device-setting unit is real but unknowable from here, and saying
     // nothing would imply the number is dimensionless.
-    return unitFollowsDeviceSetting(v) ? '$body (unit set on the device)' : body;
+    return unitFollowsDeviceSetting(v)
+        ? '$body (unit set on the device)'
+        : body;
   }
 
   /// A 0..100 reading for percentage fields, else null.
@@ -232,8 +234,7 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
   /// for the many bundled fields that carry no unit at all. The bar is drawn
   /// from the DECODED value, so a scaled percentage fills correctly.
   double? _percentOf(DecodedValueDto v) {
-    final isPercent =
-        v.unit == '%' || v.name.toLowerCase().contains('battery');
+    final isPercent = v.unit == '%' || v.name.toLowerCase().contains('battery');
     if (!isPercent) return null;
     return decodedNumberOf(v);
   }
