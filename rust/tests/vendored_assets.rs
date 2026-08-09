@@ -38,6 +38,21 @@ fn assets_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
+/// The bundled path of one spec by filename.
+///
+/// The catalogue is split across `devices/` and `examples/`, so a caller that
+/// knows only the filename cannot join a single directory any more. Panics
+/// rather than returning an Option: every caller here names a spec that is
+/// supposed to ship, and "the file moved" is exactly what these tests exist to
+/// notice.
+fn spec_path(file: &str) -> PathBuf {
+    assets_dirs()
+        .into_iter()
+        .map(|dir| dir.join(file))
+        .find(|p| p.exists())
+        .unwrap_or_else(|| panic!("{file} should be bundled under device-specs/"))
+}
+
 /// Every `*.yaml` the app bundles.
 fn vendored_yaml_paths() -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = assets_dirs()
@@ -248,7 +263,7 @@ fn vendored_specs_resolve_expected_control_actions() {
     use liberated_bread_core::api::device_api::load_device_spec;
 
     let load = |file: &str| {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         let yaml =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
         load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"))
@@ -364,7 +379,7 @@ fn vendored_specs_resolve_expected_setpoints() {
     use liberated_bread_core::api::device_api::{encode_entity_value, load_device_spec};
 
     let read = |file: &str| {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
     };
 
@@ -439,7 +454,7 @@ fn vendored_specs_decode_with_offsets_and_value_tables() {
     use liberated_bread_core::api::device_api::decode_value;
 
     let read = |file: &str| {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
     };
 
@@ -500,7 +515,7 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
     ];
 
     for (file, transform) in cases {
-        let path = assets_dir().join(file);
+        let path = spec_path(file);
         let yaml =
             fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
         let dto = load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"));

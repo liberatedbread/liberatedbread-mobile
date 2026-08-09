@@ -82,8 +82,26 @@ if ! git subtree pull --prefix="$PREFIX" "$REMOTE" "$REF" --squash \
      -m "Update vendored protocol-specs
 
 Refreshed from $REF via scripts/update-specs.sh."; then
-  echo "::error::subtree pull failed. Resolve the conflicts, 'git add' them," >&2
-  echo "::error::and commit — the merge is already in progress." >&2
+  # Two very different failures reach here and the advice is opposite, so ask
+  # git which one it was rather than guessing. An unresolved merge leaves
+  # MERGE_HEAD behind; a fetch that never got that far leaves the tree
+  # untouched, and telling someone to resolve conflicts they do not have sends
+  # them looking for a merge that is not there.
+  if [ -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+    echo "::error::subtree pull hit conflicts. Resolve them, 'git add' them," >&2
+    echo "::error::and commit — the merge is in progress." >&2
+  else
+    echo "::error::subtree pull failed before merging; the tree is unchanged." >&2
+    echo "::error::Check that '$REF' exists on $REMOTE." >&2
+    case "$REMOTE" in
+      *://*|git@*) ;;
+      # The one that actually bites: git refuses to fetch a branch out of a
+      # shallow clone, and says so in terms of "shallow roots" rather than in
+      # terms of the thing you asked for.
+      *) echo "::error::A shallow local checkout cannot be fetched from — push" >&2
+         echo "::error::the branch and pull from the remote instead." >&2 ;;
+    esac
+  fi
   exit 1
 fi
 

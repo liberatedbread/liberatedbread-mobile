@@ -14,7 +14,8 @@ use crate::protocol::profiles;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField, Identification, MacPrefix, MacPrefixConfidence, Parameter, Service,
+    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField,
+    Identification, MacPrefix, MacPrefixConfidence, Parameter, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
