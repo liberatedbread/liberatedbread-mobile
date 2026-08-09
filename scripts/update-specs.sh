@@ -87,12 +87,15 @@ Refreshed from $REF via scripts/update-specs.sh."; then
   exit 1
 fi
 
+changed=1
 if [ "$(git rev-parse HEAD)" = "$BEFORE" ]; then
-  log "already up to date; nothing to do."
-  exit 0
+  changed=0
+  log "already at that ref; checking the bundled paths anyway."
 fi
 
-# The assertion this script exists for. Every path here is one pubspec.yaml
+# The assertion this script exists for. Run even when the pull was a no-op:
+# the question it answers is "does the tree satisfy pubspec.yaml", and that
+# can stop being true without the subtree moving at all. Every path here is one pubspec.yaml
 # lists under `assets:`; Flutter resolves those at build time, and a directory
 # that has become empty is bundled as nothing at all rather than as an error.
 missing=0
@@ -120,5 +123,7 @@ done
 specs=$(find "$PREFIX/device-specs/devices" "$PREFIX/device-specs/examples" \
         -name '*.yaml' | wc -l | tr -d ' ')
 log "$specs spec(s) vendored; every bundled asset path present."
-log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"
-log "Bonjour list and the registries, and each has a test that reads it."
+if [ "$changed" -eq 1 ]; then
+  log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"
+  log "Bonjour list and the registries, and each has a test that reads it."
+fi
