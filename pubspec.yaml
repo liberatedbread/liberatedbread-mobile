@@ -31,6 +31,17 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # Test-only, and pinned exactly like flutter_blue_plus above because it is
+  # that package's own federated interface — the two move together and a
+  # mismatch is a compile error, not a warning.
+  #
+  # test/fakes/emulated_ble.dart implements FlutterBluePlusPlatform to stand a
+  # virtual BLE controller up in-process, which is what lets RealBleService be
+  # tested against the real flutter_blue_plus code with no radio. That interface
+  # is NOT re-exported by package:flutter_blue_plus (it exports only
+  # DeviceIdentifier, Guid, LogLevel and PhySupport), so it has to be depended
+  # on directly rather than reached through the transitive dependency.
+  flutter_blue_plus_platform_interface: 4.0.2
 
 flutter:
   uses-material-design: true
