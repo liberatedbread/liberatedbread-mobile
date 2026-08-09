@@ -1,0 +1,80 @@
+# QardioArm (A100) Smart Blood Pressure Monitor — Research Note
+# APK source: apkeep (APKPure mirror), package com.getqardio.android (delisted from Play)
+# APK SHA-256: 50681c026b9ef2987b14a82307804b03e6e9b31bf319d58a4ce40197bf5e5b95
+
+device:
+  id: qardio-arm
+  name: QardioArm (A100) Smart Blood Pressure Monitor
+  manufacturer: Qardio, Inc. (bankrupt ~2024; cloud down 2025-04-29)
+  category: blood_pressure_monitor
+  safety_class: MEDIUM  # Readings inform medication decisions; client must not alter or interpret them
+  related_devices:
+    - QardioBase / QardioBase 2 smart scale (same app; protocol in APK, not yet RE'd)
+    - QardioCore ECG patch (same app)
+
+transport:
+  type: ble
+  local_only: true  # LibreArm proves full local operation, no cloud/account needed
+
+cloud_status:
+  state: dead
+  evidence:
+    - "App removed from App Store; company bankrupt (Apple Discussions 255768352, 2024-09-23)"
+    - "Qardio servers down 2025-04-29 (Apple Discussions 256006237)"
+    - "Post-mortem: technodabbler.com 2026-05-19"
+    - "com.getqardio.android 404 on Google Play (checked 2026-08-03)"
+
+ble:
+  advertising:
+    name_patterns: ["QardioArm"]  # probable; confirm with live scan
+    service_uuids: ["00001810-0000-1000-8000-00805f9b34fb"]
+
+  services:
+    - uuid: "00001810-0000-1000-8000-00805f9b34fb"
+      name: blood_pressure
+      description: Standard Bluetooth SIG Blood Pressure service
+      characteristics:
+        - uuid: "00002a35-0000-1000-8000-00805f9b34fb"
+          name: blood_pressure_measurement
+          description: SIG-standard BPM (sys/dia/MAP SFLOAT + optional pulse); partial values while inflating
+          properties: [notify]
+        - uuid: "583cb5b3-875d-40ed-9098-c39eb0c1983d"
+          name: vendor_control
+          description: Vendor command channel inside 0x1810 service
+          properties: [write]
+
+  standard_services:
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+    - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+      name: battery_level
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+
+protocol:
+  note: >
+    Fully recovered by the LibreArm project (ptylr/LibreArm). Subscribe to 0x2A35
+    notifications; write F1 01 to the vendor control char to start a measurement,
+    F1 02 to cancel. Readings arrive in SIG Blood Pressure Measurement format;
+    the cuff streams partial (inflating) values, so only persist a reading when
+    systolic, diastolic and pulse are all present. Device uses BLE bonding — on
+    pairing ATT errors, factory-reset the cuff via the LED pinhole and re-pair.
+  commands:
+    start_measurement: "F1 01"
+    cancel_measurement: "F1 02"
+
+prior_art:
+  - name: LibreArm (iOS, open source, on App Store)
+    url: https://github.com/ptylr/LibreArm
+  - name: LibreArm for Android
+    url: https://github.com/agreenbhm/LibreArm_Android
+  - name: Author writeup
+    url: https://ptylr.com/posts/2025-09-28-librearm-breathing-new-life-into-qardioarm-devices
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # DEX strings triage only; protocol already public via LibreArm
+  uuids_recovered: true  # 0x1810/0x2A35 + vendor control 583cb5b3 confirmed in APK strings
+  protocol_recovered: true  # via LibreArm source (start/cancel bytes + BLP parsing)
+  hci_snoop_needed: false
+  community_client_works: true

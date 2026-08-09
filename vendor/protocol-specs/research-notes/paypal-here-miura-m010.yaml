@@ -1,0 +1,51 @@
+# PayPal Here / Miura M010 — Device Spec
+# APK source: apkeep (apk-pure), package com.paypal.here
+# APK SHA-256: 5c7699c4a036eca7e5c348993fe07678d236133df53efaed3a92a269d2b7620b
+
+device:
+  id: paypal-here-miura-m010
+  name: PayPal Here / Zettle Reader (Miura Systems M010)
+  manufacturer: Miura Systems (sold under PayPal Here / iZettle / Zettle brands)
+  category: payment_card_reader
+  safety_class: HIGH  # Payment terminal: EMV keys, DUKPT, SRED encryption; do not
+                      # treat local access as a payment capability
+
+transport:
+  type: bluetooth_classic
+  local_only: true   # pairing + socket are local; payment function requires dead cloud
+  profiles: [SPP]    # also USB serial and TCP/IP per Miura spec
+
+bluetooth_classic:
+  radio: Bluetooth 2.1 + EDR (Classic)
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"  # standard SPP; confirm live
+  pairing:
+    method: host_os_bluetooth_settings
+    discovery: hold ENTER key until BT icon flashes fast
+    name_patterns: ["Miura*"]  # "Miura" + last 6 of serial number
+  other_interfaces: [usb_serial, tcp_ip]
+
+protocol:
+  note: >
+    Miura "Open Protocols" (MPI) command/response frames, identical across
+    BT/USB/TCP transports. Integrator documentation is NDA-gated; no public
+    reverse engineering found. Frame constants are extractable from the Miura
+    SDK bundled in com.paypal.here (not yet done). Device-management commands
+    (battery, firmware version) are likely reachable; the payment path requires
+    acquirer-injected keys (DUKPT/SRED) and a processor backend — unrecoverable.
+  known_commands: []  # TBD — static pass on com.paypal.here pending
+
+status:
+  apk_acquired: true    # com.paypal.here via apk-pure
+  apk_decompiled: false # 68 MB hybrid app; triage budget exceeded — follow-up
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  product_status: service_shutdown  # PayPal Here dead (TfL notice, Spring 2023);
+                                    # Zettle legacy readers retired May 2021
+  cloud_dependency: payments fully cloud/processor dependent; device cannot process cards offline
+  local_value: LOW  # pairing works; useful local function minimal
+  reference: >
+    zettle.com/gb/help/articles/2980873-discontinued-card-readers;
+    content.tfl.gov.uk/onroute-spring-2023.pdf;
+    developers.bluefin.com/decryptx/docs/miura-shuttle;
+    hips.com/ch/terminals_m010

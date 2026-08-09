@@ -59,7 +59,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw);
 
   @protected
+  EntityActionDto dco_decode_entity_action_dto(dynamic raw);
+
+  @protected
   EntityDto dco_decode_entity_dto(dynamic raw);
+
+  @protected
+  EntityWriteDto dco_decode_entity_write_dto(dynamic raw);
 
   @protected
   double dco_decode_f_64(dynamic raw);
@@ -90,6 +96,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<DeviceSpecDto> dco_decode_list_device_spec_dto(dynamic raw);
+
+  @protected
+  List<EntityActionDto> dco_decode_list_entity_action_dto(dynamic raw);
 
   @protected
   List<EntityDto> dco_decode_list_entity_dto(dynamic raw);
@@ -221,7 +230,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   DeviceSpecDto sse_decode_device_spec_dto(SseDeserializer deserializer);
 
   @protected
+  EntityActionDto sse_decode_entity_action_dto(SseDeserializer deserializer);
+
+  @protected
   EntityDto sse_decode_entity_dto(SseDeserializer deserializer);
+
+  @protected
+  EntityWriteDto sse_decode_entity_write_dto(SseDeserializer deserializer);
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
@@ -255,6 +270,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<DeviceSpecDto> sse_decode_list_device_spec_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<EntityActionDto> sse_decode_list_entity_action_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -401,7 +420,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_device_spec_dto(DeviceSpecDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_entity_action_dto(
+      EntityActionDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_entity_dto(EntityDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_entity_write_dto(
+      EntityWriteDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
@@ -439,6 +466,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_device_spec_dto(
       List<DeviceSpecDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_entity_action_dto(
+      List<EntityActionDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_entity_dto(
