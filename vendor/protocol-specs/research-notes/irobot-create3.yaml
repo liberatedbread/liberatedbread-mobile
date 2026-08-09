@@ -1,0 +1,50 @@
+# iRobot Create 3 — Device Spec (research note)
+# Vendor-documented local control: ROS 2 (DDS) over Wi-Fi, built-in
+# webserver, USB-C wired Ethernet at 192.168.186.2. No cloud, no account.
+
+device:
+  id: irobot-create3
+  name: iRobot Create 3 educational robot (Roomba i3 platform, no vacuum)
+  manufacturer: iRobot Education (iRobot — Picea-owned since 2026-01)
+  category: robot_vacuum   # developer mobile base derived from a vacuum platform
+  safety_class: LOW        # small mobile base; standard cmd_vel speed limits apply
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Local by design: ROS 2 DDS graph on the LAN, onboard webserver for
+    config/firmware, and USB-C RNDIS Ethernet (robot at 192.168.186.2) that
+    works with no Wi-Fi provisioning at all. BLE is only for optional app
+    setup.
+
+lan:
+  discovery:
+    method: network_scan   # or fixed 192.168.186.2 over USB-C Ethernet
+  control:
+    - protocol: ros2-dds
+      note: "match ROS 2 distro + domain ID; irobot_create_msgs custom interfaces (dock/undock, drive, LEDs, audio); cmd_vel for motion"
+    - protocol: http-webserver
+      note: "onboard config/firmware/log pages; REST surface thinly documented — probe opportunity"
+    - protocol: usb-c-ethernet
+      endpoint: "http://192.168.186.2/"
+
+protocol:
+  note: >
+    Vendor-documented: iroboteducation.github.io/create3_docs (ROS 2 API,
+    webserver, hazards). Firmware images are public downloads flashed via
+    the local webserver; no account anywhere in the workflow.
+  commands:
+    motion: ROS 2 cmd_vel / drive actions
+    dock: dock/undock actions
+    leds_audio: irobot_create_msgs interfaces
+
+status:
+  apk_acquired: false   # n/a — no companion app required
+  protocol_recovered: true   # vendor-documented
+  rating: confirmed
+  cloud_dead: false          # iRobot alive (Picea); docs hosted at iroboteducation.github.io
+  cloud_bootstrap: none
+  references:
+    - iroboteducation.github.io/create3_docs
+    - github.com/iRobotEducation (create3_sim, irobot_create_msgs)

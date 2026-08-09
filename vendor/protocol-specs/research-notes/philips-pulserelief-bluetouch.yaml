@@ -1,0 +1,88 @@
+# Philips PulseRelief + BlueTouch — Research Spec
+# Static analysis of com.philips.cl.painrelief v3.3 ("Philips Treatment" app)
+# APK source: apkeep (apk-pure), downloaded 2026-08-04
+# APK SHA-256: 75a07422e106d4a48c8ae65d1f85cf5338df92b9b992f93450a655a9fe55c997
+
+device:
+  id: philips-pulserelief-bluetouch
+  name: Philips PulseRelief PR3840 (TENS) + BlueTouch PR3741/PR3743 (blue-light patch)
+  manufacturer: Philips (consumer health)
+  category: medical_therapy_tens
+  safety_class: MEDIUM  # PulseRelief = electrical stimulator; BlueTouch = LOW (LED/heat)
+
+transport:
+  type: ble
+  local_only: true  # No account needed; all treatment control is local BLE
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — app scans by service UUID only
+    service_uuids:
+      - "de18f4e1-9352-4d9c-a802-58f25ec97cc3"  # PulseRelief (DeviceType.PULSERELIEF, PR3840/00)
+      - "d25f1008-5579-46e5-a115-5068c9961894"  # BlueTouch  (DeviceType.BLUETOUCH, PR3741/00 PR3743/00)
+
+  # Scan filter uses the advertised service UUIDs above (BluetoothScanner.java).
+  # Characteristic UUIDs below are per-device, from model/meta/*Characteristics.java.
+
+  pulserelief_characteristics:
+    # State / notify
+    - { uuid: "ca4d4066-8332-4d36-b5ef-9404ba0df6fe", name: electrode_connection_status }
+    - { uuid: "b28e6202-7533-4b10-a22f-45fd8e9bc2eb", name: selected_program }
+    - { uuid: "0da609e4-1914-434a-9af5-f5e5a0184b4e", name: channel_intensity }
+    - { uuid: "e449b37a-b5f5-43ba-bc7b-13e61c2d01ae", name: treatment_time_remaining }
+    - { uuid: "55413fdd-0c2f-47b9-b94a-161e5c01c0bd", name: battery_level }
+    - { uuid: "f287421b-c4a2-4b60-9a9e-230a2685f335", name: body_part }
+    - { uuid: "bac8bd37-9616-431e-9da5-51878b98555c", name: pain_score }
+    - { uuid: "77e1998d-2607-f4ea-a8ee-3b12afb4c729", name: post_treatment_sensation }
+    # Commands / write
+    - { uuid: "a1b85038-82ea-4ba2-9531-9ea931b75aeb", name: set_system_time }
+    - { uuid: "f0c5bd8c-7384-4199-b46f-a3ad2b24a55b", name: increment_channel }
+    - { uuid: "72d9a1dc-b847-4ee6-ade2-d9589743f8a7", name: decrement_channel }
+    - { uuid: "699a894f-8476-4ba1-aa11-bfd5d8cc4715", name: zero_channel }
+    - { uuid: "fa60da2f-1c38-4b62-b472-310a71080d31", name: set_program_number }
+    - { uuid: "7b0abb7b-92f0-4a16-acc5-859442329ce5", name: set_treatment_time }
+    - { uuid: "063053b0-638a-497a-811a-69a2b9b90639", name: factory_reset }
+    # Identity / diag
+    - { uuid: "ab722e2c-c182-4b39-ab88-766a9ab44e4e", name: system_id }
+    - { uuid: "75627910-be83-43a2-b467-ccc6789f3e48", name: firmware_revision }
+    - { uuid: "dc4cad94-8a0d-4f4a-a38c-46dc7057c76a", name: device_id }
+    - { uuid: "f927e044-a5a2-4b72-957f-df4a393213de", name: start_get_log }
+    - { uuid: "a66b1449-034e-4533-879e-e2c89c98127f", name: continue_next_block }
+    - { uuid: "45f8a225-132a-465e-9ec7-50b0b83f245e", name: logdata }
+    - { uuid: "4ddde93e-00b8-4ed6-aa5c-ca7f6e5758ad", name: send_log_finished }
+
+  bluetouch_characteristics:
+    - { uuid: "6841b70d-4cd7-4d4b-ade7-6679f649c4aa", name: treatment_status }
+    - { uuid: "eb0fc08e-39b5-4110-ad0f-c39d5e271b03", name: program_number }
+    - { uuid: "db5e18de-0a68-4cbf-a135-5c6237ada3b2", name: treatment_prohibited }
+    - { uuid: "0aa66f20-2439-42ce-a37e-4f198d181d7c", name: treatment_time_remaining }
+    - { uuid: "1ff801ca-93b7-4413-9cc1-a36abe07d3bd", name: body_part }
+    - { uuid: "9a325dd5-6bdb-4c43-a133-c3fb240a27db", name: pain_score }
+    - { uuid: "6f840614-2216-427c-881a-3c4dca26fdb6", name: treatment_satisfaction_score }
+    - { uuid: "881d6ce2-fb97-4805-9aa4-72c834490ba1", name: set_system_time }
+    - { uuid: "e496d127-606d-4cf4-9632-49fdd77abc3f", name: battery_level }
+    - { uuid: "64025f95-e80a-413b-a969-3fcc891fbb04", name: system_id }
+    - { uuid: "bae68f37-1cb1-4fd7-9f95-0b5e0beb4d5d", name: firmware_revision }
+    - { uuid: "3f8dd104-203a-4888-a27e-4ecdfc83b966", name: device_id }
+    - { uuid: "77ddaa2a-76f5-48bb-a393-8aeba9711449", name: factory_reset }
+    - { uuid: "c530251b-7e6e-4f7c-bf7d-21b6f27bc32e", name: start_get_log }
+    - { uuid: "694ffbdb-5e3e-4402-be48-ed8a1070b8ed", name: continue_next_block }
+    - { uuid: "a466db6e-1507-418b-b9c7-383a5493721b", name: logdata }
+    - { uuid: "e45bb9f9-2153-4b6d-9196-0b82a5f12fa5", name: send_log_finished }
+
+protocol:
+  note: >
+    Plain GATT read/write/notify via queued commands (GattManager.java).
+    Write semantics: set_program_number / set_treatment_time configure a session,
+    increment/decrement/zero_channel adjust intensity; state arrives on notify
+    characteristics. Byte-level value encodings TBD — inspect
+    bluetooth/device/PulseReliefDevice.java handlers or HCI snoop.
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true       # Service + full characteristic maps for both devices
+  protocol_recovered: partial # Characteristic semantics known; byte encodings TBD
+  hci_snoop_needed: true
+  cloud_required: false
+  abandonment: both products discontinued (Philips product pages); app from 2016 era, Android 4.4-8 target

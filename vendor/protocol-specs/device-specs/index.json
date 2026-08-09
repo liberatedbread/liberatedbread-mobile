@@ -102,6 +102,56 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "devolo Home Control",
+    "path": "device-specs/devices/devolo-home-control.yaml",
+    "protocol": "zwave",
+    "manufacturer": "devolo AG",
+    "manufacturer_status": "shutdown",
+    "helpful_urls": [
+      {
+        "title": "devolo press release: Abschaltung der Home Control-Server (2025-08-21)",
+        "url": "https://www.devolo.de/de/ueber-devolo/presse/2025/abschaltung-der-home-control-server"
+      },
+      {
+        "title": "Home Assistant alert: devolo Home Control server shutdown",
+        "url": "https://alerts.home-assistant.io/alerts/devolo_home_control/"
+      },
+      {
+        "title": "Home Assistant devolo Home Control integration (local API, mydevolo credentials)",
+        "url": "https://www.home-assistant.io/integrations/devolo_home_control/"
+      },
+      {
+        "title": "devolo_home_control_api — Python library documenting the gateway local API (mprm REST/WebSocket)",
+        "url": "https://github.com/2Fake/devolo_home_control_api"
+      },
+      {
+        "title": "openHAB Z-Wave device database — devolo device set (inclusion/exclusion/reset procedures)",
+        "url": "https://github.com/openhab/org.openhab.binding.zwave/tree/main/doc/devolo"
+      },
+      {
+        "title": "OpenZWave manufacturer_specific.xml — manufacturer ID 0x0175 = devolo Home Control",
+        "url": "https://github.com/OpenZWave/open-zwave/blob/master/config/manufacturer_specific.xml"
+      },
+      {
+        "title": "ROCKETHOME devolo migration landing page (99 EUR/yr + 30 EUR activation)",
+        "url": "https://rockethome.de/devolo-landingpage"
+      },
+      {
+        "title": "Homey community: devolo-badged Philio devices pair as Unknown Z-Wave Device (manufacturer ID 373)",
+        "url": "https://community.homey.app/t/philio-app-devolo-badged-philio-devices-pair-as-unknown-z-wave-device/148412"
+      },
+      {
+        "title": "HA community: including devolo smoke detectors (the exclusion dance)",
+        "url": "https://community.home-assistant.io/t/how-to-include-devolo-smoke-detectors/668418"
+      },
+      {
+        "title": "HA community: Danfoss LC13 (aka POPP/devolo) temperature offset",
+        "url": "https://community.home-assistant.io/t/danfoss-lc13-aka-popp-devolo-temperature-calibration-set-permanent-offset/971303"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Divoom Pixoo WiFi",
     "path": "device-specs/devices/divoom-pixoo.yaml",
     "protocol": "wifi",
@@ -279,6 +329,50 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)",
+    "path": "device-specs/devices/kingsmith-walkingpad.yaml",
+    "protocol": "ble",
+    "manufacturer": "KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "helpful_urls": [
+      {
+        "url": "https://github.com/ph4r05/ph4-walkingpad",
+        "title": "ph4r05/ph4-walkingpad",
+        "description": "Original WiLink protocol reverse engineering and working Python controller (A1; R1 Pro reported working). Source of the frame grammar and command bytes."
+      },
+      {
+        "url": "https://github.com/DorianRudolph/QWalkingPad",
+        "title": "DorianRudolph/QWalkingPad",
+        "description": "Independent GPL C++/Qt implementation of the WiLink protocol incl. params query, calibration toggle and workout records."
+      },
+      {
+        "url": "https://github.com/mcdax/walkingpad-controller",
+        "title": "mcdax/walkingpad-controller",
+        "description": "Active (2026) Python library unifying FTMS and WiLink; HCI-snoop-verified FTMS encodings and the ODM pre-amble behaviour."
+      },
+      {
+        "url": "https://github.com/mcdax/walkingpad-controller/blob/main/docs/ks-fit-reverse-engineering.md",
+        "title": "KS Fit reverse-engineering log (mcdax)",
+        "description": "blutter (Dart AOT) decompilation log of KS Fit v5.9.10/v6.0.7: model detection prefixes, ODM/supplement channels, FTMS routing."
+      },
+      {
+        "url": "https://github.com/darnfish/walkingpad",
+        "title": "darnfish/walkingpad",
+        "description": "JavaScript/Node BLE client for the WiLink protocol."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Kwikset Kevo",
+    "path": "device-specs/devices/kwikset-kevo.yaml",
+    "protocol": "ble",
+    "manufacturer": "Kwikset / ASSA ABLOY (UniKey Technologies platform)",
+    "manufacturer_status": "shutdown",
+    "schema_version": "2020-12"
+  },
+  {
     "name": "SP107E/SP110E LED Controller",
     "path": "device-specs/devices/leds2rave4-lunchbox-led.yaml",
     "protocol": "ble",
@@ -378,6 +472,46 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "OBDLink MX+",
+    "path": "device-specs/devices/obdlink-mx-plus.yaml",
+    "protocol": "ble",
+    "manufacturer": "OBD Solutions LLC (ScanTool.net)",
+    "manufacturer_status": "active",
+    "helpful_urls": [
+      {
+        "title": "OBDLink MX+ product page (ScanTool.net)",
+        "url": "https://www.scantool.net/obdlink-mxp/",
+        "description": "Vendor spec sheet: Classic v3.0 SPP/iAP2 profiles, Connect-button pairing, 128-bit encryption, MS-CAN/SW-CAN support, BatterySaver figures."
+      },
+      {
+        "title": "OBDLink Family Reference and Programming Manual (FRPM rev F)",
+        "url": "https://www.scantool.net/scantool/downloads/682/obdlink_frpm_f.pdf",
+        "description": "Authoritative ST command set and device table (STN2255 out of production on MX+; documents MX+ BLE output)."
+      },
+      {
+        "title": "Understand OBDLink Bluetooth Adapter LEDs",
+        "url": "https://support.obdlink.com/support/solutions/articles/43000722033-understand-obdlink-bluetooth-adapter-leds",
+        "description": "Button and LED semantics: press to pair (rapid blue blink), hold to factory reset."
+      },
+      {
+        "title": "Restore OBDLink Bluetooth Adapter to Factory Settings",
+        "url": "https://support.scantool.net/support/solutions/articles/43000714324-restore-obdlink-bluetooth-adapter-to-factory-settings",
+        "description": "Factory reset procedure: hold button 15 s until POWER LED flashes rapidly."
+      },
+      {
+        "title": "Update OBDLink Adapter Firmware",
+        "url": "https://support.obdlink.com/support/solutions/articles/43000705180-update-obdlink-adapter-firmware",
+        "description": "Vendor firmware-update flow and Bluetooth troubleshooting for MX+/LX/CX."
+      },
+      {
+        "title": "OBDLink firmware API (device manifest endpoint)",
+        "url": "https://api.obdlink.com/devices",
+        "description": "Base URL the app downloads firmware manifests and v5 firmware files from (strings in OCTech.OBDLink.dll: /devices, /devices/{0}/{1}, /private/{0})."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Oral-B iO Smart Brush",
     "path": "device-specs/devices/oral-b-io-smartbrush.yaml",
     "protocol": "ble",
@@ -420,6 +554,33 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / BioGS 2.0 (SPA-550A/SPA-625A)",
+    "path": "device-specs/devices/rabbit-air-purifier.yaml",
+    "protocol": "wifi",
+    "manufacturer": "Rabbit Air",
+    "manufacturer_status": "active",
+    "protocol_handler": "rabbit_air_lan",
+    "openness": "documented_api",
+    "helpful_urls": [
+      {
+        "url": "https://github.com/rabbit-air/python-rabbitair",
+        "title": "rabbit-air/python-rabbitair (vendor library)",
+        "description": "Rabbit Air's own Apache-2.0 Python client — the reference implementation this spec is transcribed from (framing, crypto, cmd IDs, field enums)."
+      },
+      {
+        "url": "https://www.home-assistant.io/integrations/rabbitair/",
+        "title": "Home Assistant Rabbit Air integration",
+        "description": "Vendor-authored core integration (local_polling); documents Thing ID / user-key retrieval from the Rabbit Air 2 app and mDNS hostname usage."
+      },
+      {
+        "url": "https://pypi.org/project/python-rabbitair/",
+        "title": "python-rabbitair on PyPI",
+        "description": "Released packages 0.0.2-0.0.8 (0.0.1 yanked); 0.0.8 is the version pinned by Home Assistant."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Rachio Controller",
     "path": "device-specs/devices/rachio-controller.yaml",
     "protocol": "wifi",
@@ -433,6 +594,15 @@
     "protocol": "wifi",
     "manufacturer": "Roku / TCL",
     "manufacturer_status": "active",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Schlage Smart Locks (Sense / Encode family)",
+    "path": "device-specs/devices/schlage-smart-locks.yaml",
+    "protocol": "ble",
+    "manufacturer": "Schlage (Allegion)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
     "schema_version": "2020-12"
   },
   {
@@ -498,6 +668,11 @@
         "title": "SmartDawn on Google Play (com.daniaokeji.smartdawn)",
         "url": "https://play.google.com/store/apps/details?id=com.daniaokeji.smartdawn",
         "description": "Official companion app; v1.2.4 was the source of this protocol map (jadx decompile)."
+      },
+      {
+        "title": "Vendor-hosted SmartDawn APK (daniaokeji.com CDN)",
+        "url": "http://file.daniaokeji.com/download/SmartDawn.apk",
+        "description": "Direct download of the companion APK from the ODM's own server; v1.2.4 sha256 58aaf3d6027c59aa5ab7876930fb16661d224d28220f58f227e35c2ddeca07aa (fetched 2026-08-08, also matches the 2026-08-03 research-store copy)."
       },
       {
         "title": "Hangzhou Daniao Technology (ODM)",
@@ -611,7 +786,22 @@
       {
         "title": "wire-pod",
         "url": "https://github.com/kercre123/wire-pod",
-        "description": "Community replacement for the cloud GUID/token step, built on DDL's open-sourced vector-cloud."
+        "description": "MIT-licensed local voice server (chipper/TMS/jdocs replacement) built on DDL's open-sourced vector-cloud. Restores voice commands on production Vector 1.0/2.0 with no DDL subscription and issues the onboarding GUID/token locally. 778 stars at verification 2026-08-04."
+      },
+      {
+        "title": "wire-pod installation wiki",
+        "url": "https://github.com/kercre123/wire-pod/wiki/Installation",
+        "description": "The production-bot flow: recovery mode (hold backpack button ~15 s), Web Bluetooth pairing in Chrome at wpsetup.keriganc.com, flash of DDL's production-signed Escape-Pod-compatible 'ep' firmware (no Escape Pod purchase needed), clear user data, then authenticate against the local wire-pod instance."
+      },
+      {
+        "title": "WirePod releases (packaged installers)",
+        "url": "https://github.com/kercre123/WirePod/releases",
+        "description": "Separate releases repo shipping v1.2.18 (2026-05-10): WirePodInstaller .exe for Windows, .dmg for macOS 11+, .deb for amd64/arm64/armhf Debian/Ubuntu, .apk for Android. Installers are unsigned: SmartScreen, unidentified-developer, unknown-sources and Play Protect warnings are expected."
+      },
+      {
+        "title": "vector-wirepod-setup web page",
+        "url": "https://wpsetup.keriganc.com/",
+        "description": "Chrome/Chromium Web Bluetooth page that serves both recovery-mode firmware flashes and robot authentication. The Escape-Pod-compatible 'ep' firmware it applies is a DDL production-signed OTA delivered through this page, not a separately distributed image."
       },
       {
         "title": "DDL vector-cloud",
@@ -621,7 +811,12 @@
       {
         "title": "DDL support portal",
         "url": "https://support.anki.bot/",
-        "description": "Still online; articles 383/384 document Firmware Recovery Mode vs Clear User Data, article 108 the firmware changelog."
+        "description": "Still online; articles 383/384 document Firmware Recovery Mode vs Clear User Data, article 108 the firmware changelog, article 344 the $11.99/mo or $99.99/yr membership pricing."
+      },
+      {
+        "title": "PA AG complaint against Digital Dream Labs",
+        "url": "https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf",
+        "description": "September 2024 Court of Common Pleas filing: PA AG Henry v. Digital Dream Labs and CEO Hanchar over unfulfilled prepaid robot orders (>$4M in sales, ~14,000 orders Nov 2020-Jan 2024 per the AG's announcement)."
       }
     ],
     "schema_version": "2020-12"

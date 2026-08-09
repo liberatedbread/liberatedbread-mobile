@@ -309,6 +309,17 @@ per-device code — Buttplug's central win — while keeping our byte-level grou
 truth intact. It also subsumes P3-era range metadata and could carry an optional
 endpoint `role` for the machine-routing Buttplug gets from `tx`/`rx`.
 
+**Partially landed since this was written.** The schema now has
+`$defs/number_semantics` — `unit`, an invertible linear `scale`/`value_offset`
+transform, `values` code tables, and `unit_source`/`unit_reference`/
+`unit_values` for devices whose wire unit follows a device setting (C-vs-F on
+the Inkbird iBBQ) — shared by BLE command `parameters`, BLE `format` fields,
+`bus` fields and `payload_formats` fields; `number` entities carry
+`min`/`max`/`step` (Buttplug's StepRange, as data). That covers this
+proposal's resolution/range half. The capability *vocabulary* — `actuator` /
+`sensor` kinds independent of the bytes — remains open and still deserves its
+design pass.
+
 **Compatibility.** Fully additive and ignorable. The risk is scope, not breakage:
 a controlled vocabulary has to be curated or it rots into free text. Start with the
 handful of kinds the registry actually has and grow it deliberately.
