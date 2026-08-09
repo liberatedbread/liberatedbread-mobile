@@ -322,8 +322,8 @@ impl DeviceSpec {
 ///
 /// `deny_unknown_fields` was dropped here after vendoring the full catalogue:
 /// it rejected 70 of 71 upstream specs outright, over descriptive keys the BLE
-/// path never reads (`discovery`, `setup`, `model`, `transport`, `category`,
-/// `type`, …). Losing a whole device because it documents its own setup steps
+/// path never reads (`discovery`, `setup`, `model`, `transport`, `type`, …).
+/// Losing a whole device because it documents its own setup steps
 /// is far worse than missing a typo, and the catalogue is meant to be refreshed
 /// as data — a new descriptive key upstream must not require a Rust change.
 ///
@@ -339,6 +339,21 @@ pub struct DeviceInfo {
     pub manufacturer: String,
     pub manufacturer_status: ManufacturerStatus,
     pub protocol: Protocol,
+    /// Broad device class from the schema's closed vocabulary — `light`,
+    /// `display`, `sensor`, `motor`, `switch`, `lock`, `tv`, `printer`, and so
+    /// on. Promoted out of `extensions` because it is what a consumer draws:
+    /// the app's scan list picks a device's icon from it, so without one a
+    /// documented device is rendered with the same anonymous radio glyph as a
+    /// stranger's earbuds.
+    ///
+    /// Kept as a `String` rather than a Rust enum on purpose. The vocabulary is
+    /// owned by the spec schema and will grow there first, and a consumer that
+    /// refuses to parse a spec because it has not heard of `camera` yet loses
+    /// the device entirely — where one that carries the string through loses
+    /// only the icon. Optional for the same reason: a spec pack cached by an
+    /// older build, or one still being written, must keep loading.
+    #[serde(default)]
+    pub category: Option<String>,
     pub notes: Option<String>,
     pub identification: Option<Identification>,
     /// Device variants sharing service UUIDs but differing in command sets.
@@ -354,8 +369,8 @@ pub struct DeviceInfo {
     #[serde(default)]
     pub version_fields: Option<serde_yaml::Value>,
     /// Descriptive keys the catalogue carries but this core does not execute —
-    /// `discovery`, `setup`, `model`, `transport`, `category`, `type`, and
-    /// whatever upstream adds next. Preserved verbatim so nothing is lost.
+    /// `discovery`, `setup`, `model`, `transport`, `type`, and whatever
+    /// upstream adds next. Preserved verbatim so nothing is lost.
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }

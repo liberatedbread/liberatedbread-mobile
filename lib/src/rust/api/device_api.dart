@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -340,6 +340,13 @@ class DeviceSpecDto {
   final String manufacturer;
   final String manufacturerStatus;
   final String protocol;
+
+  /// Broad device class from the spec schema's closed vocabulary (`light`,
+  /// `display`, `sensor`, `motor`, `switch`, `tv`, …), which the app maps to
+  /// the icon it draws for the device. Carried across as the raw string so a
+  /// category added upstream after this build still reaches Dart, which
+  /// decides what to do with a value it does not recognise.
+  final String? category;
   final String? notes;
 
   /// Every BLE local name prefix this device family advertises under, in
@@ -387,6 +394,7 @@ class DeviceSpecDto {
     required this.manufacturer,
     required this.manufacturerStatus,
     required this.protocol,
+    this.category,
     this.notes,
     required this.localNamePrefixes,
     required this.serviceUuids,
@@ -406,6 +414,7 @@ class DeviceSpecDto {
       manufacturer.hashCode ^
       manufacturerStatus.hashCode ^
       protocol.hashCode ^
+      category.hashCode ^
       notes.hashCode ^
       localNamePrefixes.hashCode ^
       serviceUuids.hashCode ^
@@ -427,6 +436,7 @@ class DeviceSpecDto {
           manufacturer == other.manufacturer &&
           manufacturerStatus == other.manufacturerStatus &&
           protocol == other.protocol &&
+          category == other.category &&
           notes == other.notes &&
           localNamePrefixes == other.localNamePrefixes &&
           serviceUuids == other.serviceUuids &&
@@ -1083,6 +1093,10 @@ class ScanMatch {
   final int specIndex;
   final String deviceName;
   final String manufacturer;
+
+  /// The matched spec's device class, copied through from
+  /// [`SpecIdentityDto::category`]. `None` when the spec states none.
+  final String? category;
   final MatchConfidence confidence;
   final bool matchedByNamePrefix;
 
@@ -1103,6 +1117,7 @@ class ScanMatch {
     required this.specIndex,
     required this.deviceName,
     required this.manufacturer,
+    this.category,
     required this.confidence,
     required this.matchedByNamePrefix,
     required this.matchedServiceUuids,
@@ -1116,6 +1131,7 @@ class ScanMatch {
       specIndex.hashCode ^
       deviceName.hashCode ^
       manufacturer.hashCode ^
+      category.hashCode ^
       confidence.hashCode ^
       matchedByNamePrefix.hashCode ^
       matchedServiceUuids.hashCode ^
@@ -1131,6 +1147,7 @@ class ScanMatch {
           specIndex == other.specIndex &&
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
+          category == other.category &&
           confidence == other.confidence &&
           matchedByNamePrefix == other.matchedByNamePrefix &&
           matchedServiceUuids == other.matchedServiceUuids &&
@@ -1218,6 +1235,14 @@ class ServiceDto {
 class SpecIdentityDto {
   final String deviceName;
   final String manufacturer;
+
+  /// Broad device class, carried so a caller can say what kind of thing a
+  /// scan result is without fetching the whole spec back. Alongside
+  /// `manufacturer` rather than behind `spec_index` because it is answering
+  /// the same question that field does — who/what is this — and a caller
+  /// that has to index back into its own list to draw an icon will sooner or
+  /// later index into a stale one.
+  final String? category;
   final List<String> localNamePrefixes;
   final List<String> serviceUuids;
   final Uint16List companyIds;
@@ -1236,6 +1261,7 @@ class SpecIdentityDto {
   const SpecIdentityDto({
     required this.deviceName,
     required this.manufacturer,
+    this.category,
     required this.localNamePrefixes,
     required this.serviceUuids,
     required this.companyIds,
@@ -1249,6 +1275,7 @@ class SpecIdentityDto {
   int get hashCode =>
       deviceName.hashCode ^
       manufacturer.hashCode ^
+      category.hashCode ^
       localNamePrefixes.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
@@ -1264,6 +1291,7 @@ class SpecIdentityDto {
           runtimeType == other.runtimeType &&
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
+          category == other.category &&
           localNamePrefixes == other.localNamePrefixes &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
