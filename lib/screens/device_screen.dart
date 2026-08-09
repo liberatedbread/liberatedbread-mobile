@@ -14,6 +14,7 @@ import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
+import 'find_device_screen.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
@@ -287,6 +288,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               description: describeWith(
                   ref.watch(numberRegistryProvider), widget.device),
               serviceCount: _services.length,
+              onFind: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => FindDeviceScreen(
+                    deviceId: widget.device.id,
+                    deviceName: widget.device.displayName,
+                    services: _services,
+                  ),
+                ),
+              ),
               onDisconnect: () async {
                 await _cleanupConnection();
                 if (!mounted) return;
@@ -307,15 +318,18 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 }
 
 /// Live summary above the controls: what's connected, how much was discovered,
-/// and a way out.
+/// and the connection-level actions (find the physical device, disconnect).
 ///
 /// Previously the only cue that a device was connected was the presence of
-/// controls; disconnecting meant backing out of the screen.
+/// controls; disconnecting meant backing out of the screen. The actions get
+/// their own row rather than sharing the identity row: two labeled buttons
+/// beside the name left it a few dozen pixels on narrow phones.
 class _ConnectedHeader extends StatelessWidget {
   final String name;
   final IoTDevice device;
   final DeviceDescription description;
   final int serviceCount;
+  final VoidCallback onFind;
   final Future<void> Function() onDisconnect;
 
   const _ConnectedHeader({
@@ -323,6 +337,7 @@ class _ConnectedHeader extends StatelessWidget {
     required this.device,
     required this.description,
     required this.serviceCount,
+    required this.onFind,
     required this.onDisconnect,
   });
 
@@ -361,85 +376,110 @@ class _ConnectedHeader extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: scheme.outlineVariant),
       ),
-      child: Row(
+      child: Column(
         children: [
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              color: scheme.secondaryContainer,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(Icons.memory, color: scheme.onSecondaryContainer),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: scheme.secondaryContainer,
+                  borderRadius: BorderRadius.circular(14),
                 ),
-                const SizedBox(height: 4),
-                Row(
+                child: Icon(Icons.memory, color: scheme.onSecondaryContainer),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 7,
-                      height: 7,
-                      margin: const EdgeInsets.only(right: 6),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: scheme.secondary,
-                      ),
-                    ),
                     Text(
-                      'Connected  ·  $serviceCount service'
-                      '${serviceCount == 1 ? '' : 's'}',
-                      style: text.bodySmall
-                          ?.copyWith(color: scheme.onSurfaceVariant),
+                      name,
+                      style: text.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ],
-                ),
-                for (final row in _identity) ...[
-                  const SizedBox(height: 3),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 92,
-                        child: Text(
-                          row.label,
-                          style: text.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant.withValues(
-                              alpha: 0.75,
-                            ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: scheme.secondary,
                           ),
                         ),
-                      ),
-                      Expanded(
-                        // Selectable: an address is a thing people copy into a
-                        // bug report or another tool, and the whole point of
-                        // showing it is that it can be acted on.
-                        child: SelectableText(
-                          row.value,
+                        Text(
+                          'Connected  ·  $serviceCount service'
+                          '${serviceCount == 1 ? '' : 's'}',
                           style: text.bodySmall
                               ?.copyWith(color: scheme.onSurfaceVariant),
-                          maxLines: 2,
                         ),
+                      ],
+                    ),
+                    for (final row in _identity) ...[
+                      const SizedBox(height: 3),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: 92,
+                            child: Text(
+                              row.label,
+                              style: text.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant.withValues(
+                                  alpha: 0.75,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            // Selectable: an address is a thing people copy into a
+                            // bug report or another tool, and the whole point of
+                            // showing it is that it can be acted on.
+                            child: SelectableText(
+                              row.value,
+                              style: text.bodySmall
+                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                              maxLines: 2,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                ],
-              ],
-            ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: onDisconnect,
-            style: TextButton.styleFrom(minimumSize: const Size(0, 44)),
-            child: const Text('Disconnect'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: onFind,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                  ),
+                  icon: const Icon(Icons.radar, size: 18),
+                  label: const Text('Find device'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onDisconnect,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                  ),
+                  child: const Text('Disconnect'),
+                ),
+              ),
+            ],
           ),
         ],
       ),

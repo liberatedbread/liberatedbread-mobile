@@ -7,6 +7,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 import '../core/error_text.dart';
+import '../core/find_device.dart' show isPlausibleRssi;
 import '../core/hex.dart';
 import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
@@ -207,6 +208,12 @@ class ScanResultCoalescer {
     return device;
   }
 }
+
+/// Seconds to wait for an RSSI read before giving up, overriding
+/// flutter_blue_plus's 15s default. The Find Device view polls once a second
+/// and treats three consecutive failures as a lost signal, so a 15s wait
+/// would stretch "signal lost" to ~45 seconds of stale-looking-live data.
+const int rssiReadTimeoutSeconds = 3;
 
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService {
@@ -663,6 +670,32 @@ class RealBleService implements BleService {
   @override
   Future<int> mtu(String deviceId) async =>
       BluetoothDevice.fromId(deviceId).mtuNow;
+
+  /// Read the connection's RSSI, rejecting values that are a backend's
+  /// stand-in for "no reading" rather than a signal strength.
+  ///
+  /// The check is not padding. flutter_blue_plus_linux answers this from
+  /// BlueZ's cached *advertisement* RSSI property and reports success with
+  /// `rssi: 0` when that property is absent — which it is for a connected
+  /// peripheral, since it stopped advertising — and the Android/Darwin
+  /// plugins forward a controller-reported 127 (the SIG "RSSI unavailable"
+  /// sentinel) with a success status. Passing either through would render as
+  /// a confident "≈ 0.0 m / Right here" forever, because a *successful* read
+  /// resets the caller's failure counter and the signal-lost path is never
+  /// reached. Throwing routes them into that path instead.
+  ///
+  /// The wait is also bounded well below fbp's 15s default: a once-a-second
+  /// poll that blocks for fifteen seconds has stopped being a live readout,
+  /// and each read holds fbp's process-wide BLE mutex while it waits.
+  @override
+  Future<int> readRssi(String deviceId) async {
+    final rssi = await BluetoothDevice.fromId(deviceId)
+        .readRssi(timeout: rssiReadTimeoutSeconds);
+    if (!isPlausibleRssi(rssi)) {
+      throw StateError('implausible RSSI $rssi dBm for $deviceId');
+    }
+    return rssi;
+  }
 
   /// Enable/disable notifications, tolerating the Linux backend's spurious
   /// confirmation timeout (see [isSpuriousLinuxNotifyTimeout]: the

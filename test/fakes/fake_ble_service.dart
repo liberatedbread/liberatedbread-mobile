@@ -40,6 +40,19 @@ class FakeBleService implements BleService {
   /// Returned by [mtu]; the BLE minimum unless a test raises it.
   final int mtuToReturn;
 
+  /// Values [readRssi] returns, consumed in call order; the last value
+  /// repeats once the list is exhausted. Empty means a steady -60.
+  final List<int> rssiValues;
+
+  /// When set, [readRssi] throws it instead of returning a value.
+  final Object? rssiError;
+
+  /// Reads served successfully before [rssiError] starts being thrown. Lets a
+  /// test exercise the mid-session transition — samples accumulate, THEN the
+  /// link drops — which is the case the signal-lost state exists for.
+  /// Defaults to 0: fail from the first read.
+  final int rssiErrorAfter;
+
   /// When set, every [writeCharacteristic] call awaits this before recording,
   /// letting a test hold writes in flight to exercise send serialization.
   final Future<void>? writeGate;
@@ -48,6 +61,7 @@ class FakeBleService implements BleService {
   final List<String> disconnectedIds = [];
   final List<({String deviceId, String charUuid, List<int> value})> writes = [];
   int stopScanCount = 0;
+  int rssiReadCount = 0;
 
   /// Ordered log of connect/disconnect calls (e.g. 'connect:01',
   /// 'disconnect:01'). Lets tests assert the *order* of lifecycle calls, which
@@ -69,6 +83,9 @@ class FakeBleService implements BleService {
     this.discoverGate,
     this.mtuToReturn = 23,
     this.writeGate,
+    this.rssiValues = const [],
+    this.rssiError,
+    this.rssiErrorAfter = 0,
   });
 
   @override
@@ -162,4 +179,12 @@ class FakeBleService implements BleService {
 
   @override
   Future<int> mtu(String deviceId) async => mtuToReturn;
+
+  @override
+  Future<int> readRssi(String deviceId) async {
+    rssiReadCount++;
+    if (rssiError != null && rssiReadCount > rssiErrorAfter) throw rssiError!;
+    if (rssiValues.isEmpty) return -60;
+    return rssiValues[(rssiReadCount - 1).clamp(0, rssiValues.length - 1)];
+  }
 }
