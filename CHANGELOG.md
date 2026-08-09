@@ -362,6 +362,21 @@ heading.
 
 ### Changed
 
+- **`./scripts/run*.sh` keep the repo-managed Flutter SDK on CI's pin.** When
+  the run scripts use the SDK they install at `~/.flutter-sdk` and CI's
+  `FLUTTER_VERSION` (in `.github/workflows/ci.yml`, surfaced by
+  `scripts/ci-versions.sh`) has moved ahead of what is on disk, a run would
+  otherwise fail deep inside `flutter pub get` on pubspec's Dart SDK
+  constraint. `run.sh`, `run-linux.sh`, `run-android.sh` and `run-ios.sh` now
+  source a shared `scripts/flutter-ensure-version.sh` that upgrades that SDK in
+  place before running, so a bump in `ci.yml` no longer needs a separate
+  `./scripts/setup.sh`. It is deliberately narrow: only an SDK that actually
+  lives under `FLUTTER_HOME` is ever replaced — a Flutter from Homebrew,
+  Android Studio, the distro, or a checkout elsewhere is left alone and only
+  warned about, exactly as `setup.sh` does. A failed download leaves the
+  existing SDK intact and the run continues (offline degrades to "slightly
+  stale", not "cannot run"). Set `LB_FLUTTER_AUTO_UPGRADE=0` to skip the check.
+
 - **New mascot, and a palette re-derived from it.** The 2026 logo keeps the
   loaf and the arms but swaps the ground it flexes on from turquoise to blush
   pink, and outlines the mascot in navy rather than warm brown. Because
