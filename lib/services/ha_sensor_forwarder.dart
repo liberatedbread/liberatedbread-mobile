@@ -13,20 +13,39 @@ import 'spec_codec.dart';
 import '../core/error_text.dart';
 
 /// Observable health of the forwarder, surfaced on the settings screen.
+///
+/// Records survive disposal as no-ops, and that is load-bearing rather than
+/// defensive tidiness. A flush is an in-flight HTTP call; the provider that
+/// owns this notifier is disposed whenever its ProviderScope goes away — the
+/// user leaving the app, or a screen being torn down — and the flush then
+/// finishes afterwards and reports its outcome. `notifyListeners()` on a
+/// disposed ChangeNotifier ASSERTS in debug builds, so without this the app
+/// throws on teardown for anyone running a debug build, with a stack that
+/// names the framework rather than the race. Nothing is lost by dropping the
+/// update: there is by definition no listener left to tell.
 class HaForwarderStatus extends ChangeNotifier {
   DateTime? _lastSuccess;
   String? _lastError;
+  bool _disposed = false;
 
   DateTime? get lastSuccess => _lastSuccess;
   String? get lastError => _lastError;
 
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   void _recordSuccess(DateTime at) {
+    if (_disposed) return;
     _lastSuccess = at;
     _lastError = null;
     notifyListeners();
   }
 
   void _recordError(String message) {
+    if (_disposed) return;
     _lastError = message;
     notifyListeners();
   }
