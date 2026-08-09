@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod daniao;
+pub mod daniao_upload;
 pub mod dispatch;
 pub mod generic;
 pub mod profiles;
