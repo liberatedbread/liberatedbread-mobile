@@ -1,2 +1,7 @@
 tags:
   e2e: {}
+  # Local-network discovery against emulated devices on the real multicast
+  # groups. Declared here so `flutter test` does not warn about an unknown tag;
+  # excluded from the ordinary runs and opted into by
+  # scripts/ci-netdisco-tests.sh, which explains why.
+  netdisco: {}

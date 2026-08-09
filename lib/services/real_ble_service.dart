@@ -139,6 +139,61 @@ bool isSpuriousLinuxNotifyTimeout(Object error, {required bool isLinux}) =>
     error.function == 'setNotifyValue' &&
     error.code == FbpErrorCode.timeout.index;
 
+/// ATT error codes that all mean "this attribute needs a paired, encrypted
+/// link and this link is not one".
+///
+/// These are ATT protocol codes, so Android's `GATT_INSUFFICIENT_*` constants,
+/// Apple's `CBATTError` cases and BlueZ's ATT errors are all the same numbers —
+/// which is why one small set covers every platform:
+///   0x05 insufficient authentication, 0x08 insufficient authorization,
+///   0x0F insufficient encryption.
+const _attPairingErrorCodes = {0x05, 0x08, 0x0F};
+
+/// Whether [error] is a peripheral refusing an operation for lack of pairing.
+///
+/// The platform check is the load-bearing part. `FlutterBluePlusException.code`
+/// means completely different things depending on `platform`: for a NATIVE
+/// error it is the ATT/GATT code the stack reported, but for
+/// [ErrorPlatform.fbp] it is an index into flutter_blue_plus's own
+/// [FbpErrorCode] enum, where 5 is `removeBondFailed` and 8 is
+/// `characteristicNotFound`. Reading those as ATT codes would tell a user to go
+/// and pair a device over a missing characteristic.
+///
+/// Extracted as a pure top-level function so the classification can be
+/// unit-tested without a real Bluetooth adapter.
+bool isPairingRequiredError(Object error) {
+  if (error is FlutterBluePlusException) {
+    if (error.platform == ErrorPlatform.fbp) return false;
+    if (_attPairingErrorCodes.contains(error.code)) return true;
+    // BlueZ answers over D-Bus with a name rather than an ATT code — the code
+    // arrives as 0 or null and the description carries the meaning.
+    return _namesPairing(error.description);
+  }
+  // Not every failure arrives wrapped. flutter_blue_plus_linux converts a
+  // failed READ into a BmCharacteristicData with an error string (which becomes
+  // a FlutterBluePlusException above), but it lets the D-Bus exception from
+  // StartNotify propagate as-is — so a peripheral refusing a subscription for
+  // lack of pairing reaches us as a raw DBusMethodResponseException. Matching
+  // the phrase rather than the type keeps package:dbus out of this package's
+  // dependencies for the sake of one `is` check.
+  return _namesPairing(error.toString());
+}
+
+/// Whether [text] is a stack saying, in words, that the link must be paired.
+///
+/// The phrases are the D-Bus/BlueZ renderings; every numeric platform is
+/// handled by the ATT codes above. Matched narrowly on purpose: BlueZ also
+/// raises `org.bluez.Error.NotPermitted` for an ordinary write to a read-only
+/// characteristic, so the error NAME alone would send users to pair a device
+/// over something pairing cannot fix.
+bool _namesPairing(String? text) {
+  final lower = text?.toLowerCase() ?? '';
+  return lower.contains('not paired') ||
+      lower.contains('insufficient authentication') ||
+      lower.contains('insufficient encryption') ||
+      lower.contains('not authorized');
+}
+
 /// Decide whether a write should be sent WITHOUT a response, given a
 /// characteristic's advertised write properties.
 ///
@@ -591,7 +646,7 @@ class RealBleService implements BleService {
     String charUuid,
   ) async {
     final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
-    return char.read();
+    return _pairingAware(deviceId, () => char.read());
   }
 
   @override
@@ -602,13 +657,53 @@ class RealBleService implements BleService {
     List<int> value,
   ) async {
     final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
-    await char.write(
-      value,
-      withoutResponse: useWriteWithoutResponse(
-        canWriteWithResponse: char.properties.write,
-        canWriteWithoutResponse: char.properties.writeWithoutResponse,
+    await _pairingAware(
+      deviceId,
+      () => char.write(
+        value,
+        withoutResponse: useWriteWithoutResponse(
+          canWriteWithResponse: char.properties.write,
+          canWriteWithoutResponse: char.properties.writeWithoutResponse,
+        ),
       ),
     );
+  }
+
+  /// Run [operation], turning a pairing refusal into something the user can act
+  /// on.
+  ///
+  /// Two things happen on a refusal. The error becomes a
+  /// [BlePairingRequiredException], so the UI says "pair this device" instead of
+  /// the generic "the device did not accept that command" — that part works on
+  /// every platform. And on Android a bond is requested, which is what makes
+  /// the system pairing dialog appear; iOS and BlueZ raise their own prompt off
+  /// the failed operation, so asking again there would be redundant at best.
+  ///
+  /// The bond request is deliberately NOT awaited. `createBond` resolves only
+  /// once the user answers the dialog (up to 90s), and holding the read open
+  /// that long would leave the screen spinning behind the prompt. Reporting the
+  /// refusal immediately puts the guidance on screen while the dialog is up,
+  /// and the user's retry finds a bonded link.
+  Future<T> _pairingAware<T>(String deviceId, Future<T> Function() operation) {
+    // Catches Object, not FlutterBluePlusException: on Linux a refused
+    // subscription arrives as a raw D-Bus exception (see
+    // [isPairingRequiredError]), and narrowing the catch would let exactly that
+    // case through untranslated.
+    return operation().onError<Object>((error, stack) {
+      if (!isPairingRequiredError(error)) throw error;
+      Log.ble.warning('$deviceId refused an operation: the link is not '
+          'paired ($error)');
+      if (Platform.isAndroid) {
+        unawaited(
+          BluetoothDevice.fromId(deviceId).createBond().catchError((Object e) {
+            // Best-effort: already bonding, user dismissed, or the platform
+            // declined. The exception below is what the user acts on.
+            Log.ble.debug('bond request for $deviceId failed', error: e);
+          }),
+        );
+      }
+      throw const BlePairingRequiredException();
+    });
   }
 
   @override
@@ -630,7 +725,12 @@ class RealBleService implements BleService {
         // write the peripheral never acks) is visible as an unanswered line
         // instead of the log only ever showing successes.
         Log.ble.debug('enabling notifications for $charUuid on $deviceId');
-        await _setNotifyValue(char, enable: true);
+        // Subscribing writes the CCCD, which a pairing-required peripheral
+        // refuses like any other attribute access — so the same translation
+        // applies, and a spec-declared sensor reports "pair this device"
+        // instead of a raw GATT code.
+        await _pairingAware(
+            deviceId, () => _setNotifyValue(char, enable: true));
         // Once per subscription. The notifications themselves are deliberately
         // NOT logged — that is the tight loop this logging must stay out of.
         Log.ble.debug('notifications enabled for $charUuid on $deviceId');

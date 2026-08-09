@@ -81,6 +81,15 @@ void main() {
         expect(normalizeUuid(normalizeUuid(u)), normalizeUuid(u));
       }
     });
+
+    // Normalization must never reject input: it is used on values that come
+    // from user-editable device specs, where a typo should degrade to "no
+    // match" rather than crashing the panel that renders the device.
+    test('passes through anything that is not a short-form UUID', () {
+      expect(normalizeUuid(''), '');
+      expect(normalizeUuid('NotAUuid'), 'notauuid');
+      expect(normalizeUuid('zzzz'), 'zzzz');
+    });
   });
 
   group('asciiPreview', () {
