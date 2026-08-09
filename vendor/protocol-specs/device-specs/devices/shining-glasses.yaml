@@ -29,6 +29,13 @@ device:
   identification:
     service_uuids:
       - "0000fff0-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 21076
+      company_id_hex: "0x5254"
+      description: >
+        Not an assigned identifier: 0x5254 little-endian spells "TR", the first
+        two bytes of the vendor's own 54 52 00 41 advertisement prefix. See
+        discovery below for the payload match the vendor app actually performs.
 
   discovery:
     methods:

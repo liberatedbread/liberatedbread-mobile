@@ -25,8 +25,19 @@ export '../src/rust/api/device_api.dart'
         ImageUploadDto,
         ImageWritePlanDto,
         MatchResult,
+        MatchConfidence,
+        MacPrefixDto,
+        ScanMatch,
+        ScannedDeviceDto,
+        NetworkDeviceDto,
+        SpecIdentityDto,
         ProfileInfoDto,
         ProfileCharacteristicDto;
+
+// `MacPrefixDto.confidence` is generated into the spec module rather than the
+// api one, because the enum is declared where the catalogue is parsed. Callers
+// of this abstraction should not have to know that.
+export '../src/rust/spec/types.dart' show MacPrefixConfidence;
 
 // `ParameterDto.allowed` crosses the FFI as flutter_rust_bridge's Int64List
 // (a List<BigInt>, not dart:typed_data's). Re-export it so tests and widgets
@@ -45,11 +56,31 @@ abstract class SpecCodec {
   /// Parse a device-spec YAML string into a [DeviceSpecDto].
   Future<DeviceSpecDto> loadDeviceSpec(String yaml);
 
-  /// Find every spec matching a scanned device, with the reasons it matched.
+  /// Find every spec matching a device we are already connected to, with the
+  /// reasons it matched. Expects discovered GATT service UUIDs.
   Future<List<MatchResult>> matchDeviceToSpec({
     required List<DeviceSpecDto> specs,
     required String deviceName,
     required List<String> advertisedServiceUuids,
+  });
+
+  /// Rank the catalogue against one device seen during a scan, best first.
+  ///
+  /// Takes identities rather than whole specs: this runs per newly-seen device
+  /// while a scan is in flight, and pushing 70-odd parsed specs across the FFI
+  /// boundary each time would cost far more than the matching.
+  Future<List<ScanMatch>> matchScannedDevice({
+    required List<SpecIdentityDto> identities,
+    required ScannedDeviceDto device,
+  });
+
+  /// Rank the catalogue against one device found on the local network.
+  ///
+  /// Shares [matchScannedDevice]'s confidence vocabulary, so a badge means the
+  /// same thing whichever tab it appears on.
+  Future<List<ScanMatch>> matchNetworkDevice({
+    required List<SpecIdentityDto> identities,
+    required NetworkDeviceDto device,
   });
 
   /// Encode a named command into bytes for a BLE write.

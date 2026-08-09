@@ -121,6 +121,7 @@ nav:
   - Data API:
       - Overview: api/index.md
       - Reading a Device Spec: api/spec-format.md
+      - Number Registries: api/registries.md
   - Contributing:
       - How to Contribute: contributing/index.md
       - Documentation Guide: contributing/documentation-guide.md

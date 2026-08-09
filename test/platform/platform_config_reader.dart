@@ -73,6 +73,29 @@ String readRepoFile(String relativePath, {required String consequence}) {
 /// The config files here never carry `<!--` inside an attribute or text value,
 /// so a straight scan is sound and keeps commented-out config (a real way to
 /// "remove" a permission) from reading as if it were still declared.
+/// Every XML comment in [xml] whose body contains `--`.
+///
+/// XML forbids `--` inside a comment (it is the comment terminator's first
+/// half), and the tooling that reads these files is *not* lenient about it:
+/// Android's manifest merger fails the whole build with a bare
+/// "Error parsing AndroidManifest.xml". The readers in this file strip comments
+/// non-strictly and so sail straight past it, which is exactly why this needs
+/// asserting separately — a prose comment with an em-dash-as-two-hyphens is an
+/// easy edit to make and produces a build failure that names no line number.
+List<String> xmlCommentsWithDoubleHyphen(String xml) {
+  final offenders = <String>[];
+  var i = 0;
+  while (true) {
+    final start = xml.indexOf('<!--', i);
+    if (start < 0) return offenders;
+    final end = xml.indexOf('-->', start + 4);
+    if (end < 0) return offenders; // Unterminated: not this check's business.
+    final body = xml.substring(start + 4, end);
+    if (body.contains('--')) offenders.add(body.trim());
+    i = end + 3;
+  }
+}
+
 String stripXmlComments(String xml) {
   final out = StringBuffer();
   var i = 0;

@@ -98,7 +98,7 @@ void main() {
     await _shot(tester, '05_device_connecting');
 
     await _soak(tester, const Duration(seconds: 3));
-    // The mock device matches assets/device_specs/example-bulb.yaml, so the
+    // The mock device matches vendor/protocol-specs/device-specs/examples/example-bulb.yaml, so the
     // spec-typed controls render instead of the raw hex browser.
     expect(find.text('Control Service'), findsOneWidget);
     expect(find.text('Power on'), findsWidgets);

@@ -23,6 +23,7 @@ dependencies:
   cupertino_icons: ^1.0.8
   liberated_bread_core:
     path: rust_builder
+  multicast_dns: ^0.3.3+1
 
 dev_dependencies:
   flutter_test:
@@ -34,4 +35,18 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/device_specs/
+    # Everything ships straight out of the vendored protocol-specs subtree.
+    # There is no copy under assets/: the subtree is the single source of truth,
+    # so there is nothing to keep in step and nothing to go stale. The specs are
+    # read through the subtree's own index.json, unmodified.
+    - vendor/protocol-specs/device-specs/index.json
+    - vendor/protocol-specs/device-specs/devices/
+    - vendor/protocol-specs/device-specs/examples/
+    # Registries listed file by file rather than as a directory so SOURCES.md,
+    # which is documentation for people reading the repo, does not ship inside
+    # the app.
+    - vendor/protocol-specs/registries/ieee-oui.tsv
+    - vendor/protocol-specs/registries/ieee-oui28.tsv
+    - vendor/protocol-specs/registries/ieee-oui36.tsv
+    - vendor/protocol-specs/registries/bluetooth-company-ids.tsv
+    - vendor/protocol-specs/registries/bluetooth-service-uuids.tsv

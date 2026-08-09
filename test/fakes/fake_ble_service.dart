@@ -142,13 +142,23 @@ class FakeBleService implements BleService {
     writes.add((deviceId: deviceId, charUuid: charUuid, value: value));
   }
 
+  /// Every characteristic [subscribeCharacteristic] was called for, in order.
+  ///
+  /// A widget that remounts re-subscribes, and the real service has no
+  /// reference counting behind `setNotifyValue`, so a duplicate here is a
+  /// characteristic that can end up silently disabled. Counting them is the
+  /// only way a widget test can see that from outside.
+  final List<String> subscriptions = [];
+
   @override
   Stream<List<int>> subscribeCharacteristic(
     String deviceId,
     String serviceUuid,
     String charUuid,
-  ) =>
-      notifyStream ?? const Stream<List<int>>.empty();
+  ) {
+    subscriptions.add(charUuid);
+    return notifyStream ?? const Stream<List<int>>.empty();
+  }
 
   @override
   Future<int> mtu(String deviceId) async => mtuToReturn;

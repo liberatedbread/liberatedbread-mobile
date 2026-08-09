@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,15 +17,26 @@ import '../fakes/fake_spec_codec.dart';
 const _svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
 const _charUuid = '0000fff1-0000-1000-8000-00805f9b34fb';
 
-const _spec = DeviceSpecDto(
+/// Shared empty company-ID list. Uint16List has no const form, so each spec
+/// DTO would otherwise allocate its own.
+final _noCompanyIds = Uint16List(0);
+
+// `final`, not `const`: DeviceSpecDto.companyIds is a Uint16List, and a typed
+// list cannot be a constant. Same reason for every other spec DTO below.
+final _spec = DeviceSpecDto(
   deviceName: 'Bulb',
   manufacturer: 'Acme',
   manufacturerStatus: 'abandoned',
   protocol: 'ble',
-  localNamePrefix: 'ACME_',
-  serviceUuids: [_svcUuid],
-  entities: <EntityDto>[],
-  services: [
+  localNamePrefixes: const ['ACME_'],
+  serviceUuids: const [_svcUuid],
+  companyIds: _noCompanyIds,
+  macPrefixes: const [],
+  mdnsServiceType: null,
+  ssdpSearchTargets: const [],
+  defaultPort: null,
+  entities: const <EntityDto>[],
+  services: const [
     ServiceDto(uuid: _svcUuid, name: 'Control Service', characteristics: [
       CharacteristicDto(
         uuid: _charUuid,
@@ -68,20 +80,23 @@ SpecMatchRequest _req({
 
 void main() {
   group('rank + evidence policy (pure)', () {
-    const nameOnly = MatchResult(
+    final nameOnly = MatchResult(
       spec: _spec,
       matchedByNamePrefix: true,
-      matchedServiceUuids: [],
+      matchedServiceUuids: const [],
+      confidence: MatchConfidence.likely,
     );
-    const uuidOnly = MatchResult(
+    final uuidOnly = MatchResult(
       spec: _spec,
       matchedByNamePrefix: false,
-      matchedServiceUuids: [_svcUuid],
+      matchedServiceUuids: const [_svcUuid],
+      confidence: MatchConfidence.strong,
     );
-    const corroborated = MatchResult(
+    final corroborated = MatchResult(
       spec: _spec,
       matchedByNamePrefix: true,
-      matchedServiceUuids: [_svcUuid],
+      matchedServiceUuids: const [_svcUuid],
+      confidence: MatchConfidence.strong,
     );
 
     test('evidence tiers order corroborated > uuidOnly > nameOnly', () {
@@ -122,23 +137,30 @@ void main() {
       // services are present on the device. That is support, not
       // contradiction; the regression this pins is those devices silently
       // degrading to the raw browser.
-      const advOnly = DeviceSpecDto(
+      final advOnly = DeviceSpecDto(
         deviceName: 'Thermo',
         manufacturer: 'Govee-ish',
         manufacturerStatus: 'active',
         protocol: 'ble',
-        localNamePrefix: 'GVH',
+        companyIds: _noCompanyIds,
+        macPrefixes: [],
+        mdnsServiceType: null,
+        ssdpSearchTargets: [],
+        defaultPort: null,
+        localNamePrefixes: ['GVH'],
         // Advertisement service-data UUID, never a GATT service.
         serviceUuids: ['00008888-0000-1000-8000-00805f9b34fb'],
         entities: <EntityDto>[],
         services: [
-          ServiceDto(uuid: _svcUuid, name: 'Real GATT', characteristics: []),
+          const ServiceDto(
+              uuid: _svcUuid, name: 'Real GATT', characteristics: []),
         ],
       );
-      const match = MatchResult(
+      final match = MatchResult(
         spec: advOnly,
         matchedByNamePrefix: true,
         matchedServiceUuids: [], // the adv UUID matched nothing discovered
+        confidence: MatchConfidence.likely,
       );
       expect(
         isContradictedNameOnlyMatch(match, discoveredUuids: const [_svcUuid]),
@@ -151,20 +173,26 @@ void main() {
     });
 
     test('a name-only match survives when the spec declares no services', () {
-      const nameIsOnlyAxis = DeviceSpecDto(
+      final nameIsOnlyAxis = DeviceSpecDto(
         deviceName: 'NameOnly',
         manufacturer: 'X',
         manufacturerStatus: 'abandoned',
         protocol: 'ble',
-        localNamePrefix: 'NAMEONLY_',
+        companyIds: _noCompanyIds,
+        macPrefixes: [],
+        mdnsServiceType: null,
+        ssdpSearchTargets: [],
+        defaultPort: null,
+        localNamePrefixes: ['NAMEONLY_'],
         serviceUuids: [],
         entities: <EntityDto>[],
         services: [],
       );
-      const match = MatchResult(
+      final match = MatchResult(
         spec: nameIsOnlyAxis,
         matchedByNamePrefix: true,
         matchedServiceUuids: [],
+        confidence: MatchConfidence.likely,
       );
       expect(
         isContradictedNameOnlyMatch(match, discoveredUuids: const ['1234']),
@@ -197,11 +225,12 @@ void main() {
   test('returns the best match with its source yaml', () async {
     final codec = FakeSpecCodec(
       spec: _spec,
-      matches: const [
+      matches: [
         MatchResult(
           spec: _spec,
           matchedByNamePrefix: true,
-          matchedServiceUuids: [_svcUuid],
+          matchedServiceUuids: const [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -217,27 +246,35 @@ void main() {
 
   test('corroborated (name + uuid) beats uuid-only with more matched uuids',
       () async {
-    const other = DeviceSpecDto(
+    final other = DeviceSpecDto(
       deviceName: 'Other',
       manufacturer: 'X',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
-      serviceUuids: [_svcUuid],
-      entities: <EntityDto>[],
-      services: [],
+      localNamePrefixes: const [],
+      serviceUuids: const [_svcUuid],
+      companyIds: _noCompanyIds,
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: const [],
     );
     final codec = FakeSpecCodec(
       spec: _spec,
-      matches: const [
+      matches: [
         MatchResult(
           spec: other,
           matchedByNamePrefix: false,
-          matchedServiceUuids: [_svcUuid, _charUuid],
+          matchedServiceUuids: const [_svcUuid, _charUuid],
+          confidence: MatchConfidence.strong,
         ),
         MatchResult(
           spec: _spec,
           matchedByNamePrefix: true,
-          matchedServiceUuids: [_svcUuid],
+          matchedServiceUuids: const [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -251,39 +288,52 @@ void main() {
   test('uuid evidence beats a bare name-prefix match', () async {
     // The regression this pins: a device whose GATT matched spec A must not
     // be claimed by spec B on the strength of a short name prefix alone.
-    const byUuid = DeviceSpecDto(
+    final byUuid = DeviceSpecDto(
       deviceName: 'RightOne',
       manufacturer: 'X',
       manufacturerStatus: 'active',
       protocol: 'ble',
+      localNamePrefixes: [],
+      companyIds: _noCompanyIds,
+      macPrefixes: [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: [],
+      defaultPort: null,
       serviceUuids: [_svcUuid],
       entities: <EntityDto>[],
       services: [],
     );
     // Declares no UUIDs, so its name match is not contradicted — it still
     // must rank below hard GATT evidence.
-    const byName = DeviceSpecDto(
+    final byName = DeviceSpecDto(
       deviceName: 'NameGrabber',
       manufacturer: 'Y',
       manufacturerStatus: 'active',
       protocol: 'ble',
-      localNamePrefix: 'AC',
+      companyIds: _noCompanyIds,
+      macPrefixes: [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: [],
+      defaultPort: null,
+      localNamePrefixes: ['AC'],
       serviceUuids: [],
       entities: <EntityDto>[],
       services: [],
     );
     final codec = FakeSpecCodec(
-      specByYaml: const {'yaml-right': byUuid, 'yaml-name': byName},
-      matches: const [
+      specByYaml: {'yaml-right': byUuid, 'yaml-name': byName},
+      matches: [
         MatchResult(
           spec: byName,
           matchedByNamePrefix: true,
           matchedServiceUuids: [],
+          confidence: MatchConfidence.likely,
         ),
         MatchResult(
           spec: byUuid,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -301,11 +351,12 @@ void main() {
       'the spec\'s services', () async {
     final codec = FakeSpecCodec(
       spec: _spec,
-      matches: const [
+      matches: [
         MatchResult(
           spec: _spec, // declares _svcUuid
           matchedByNamePrefix: true,
           matchedServiceUuids: [], // ...but the device doesn't carry it
+          confidence: MatchConfidence.likely,
         ),
       ],
     );
@@ -321,36 +372,50 @@ void main() {
 
   test('two specs tying on evidence ask the user instead of guessing',
       () async {
-    const brandA = DeviceSpecDto(
+    final brandA = DeviceSpecDto(
       deviceName: 'Brand A Lights',
       manufacturer: 'A',
       manufacturerStatus: 'active',
       protocol: 'ble',
+      localNamePrefixes: [],
+      companyIds: _noCompanyIds,
+      macPrefixes: [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: [],
+      defaultPort: null,
       serviceUuids: [_svcUuid],
       entities: <EntityDto>[],
       services: [],
     );
-    const brandB = DeviceSpecDto(
+    final brandB = DeviceSpecDto(
       deviceName: 'Brand B Lights',
       manufacturer: 'B',
       manufacturerStatus: 'active',
       protocol: 'ble',
+      localNamePrefixes: [],
+      companyIds: _noCompanyIds,
+      macPrefixes: [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: [],
+      defaultPort: null,
       serviceUuids: [_svcUuid],
       entities: <EntityDto>[],
       services: [],
     );
     final codec = FakeSpecCodec(
-      specByYaml: const {'yaml-a': brandA, 'yaml-b': brandB},
-      matches: const [
+      specByYaml: {'yaml-a': brandA, 'yaml-b': brandB},
+      matches: [
         MatchResult(
           spec: brandA,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
         MatchResult(
           spec: brandB,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -372,36 +437,50 @@ void main() {
   });
 
   test('a saved user choice resolves a tie and is marked as such', () async {
-    const brandA = DeviceSpecDto(
+    final brandA = DeviceSpecDto(
       deviceName: 'Brand A Lights',
       manufacturer: 'A',
       manufacturerStatus: 'active',
       protocol: 'ble',
+      localNamePrefixes: [],
+      companyIds: _noCompanyIds,
+      macPrefixes: [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: [],
+      defaultPort: null,
       serviceUuids: [_svcUuid],
       entities: <EntityDto>[],
       services: [],
     );
-    const brandB = DeviceSpecDto(
+    final brandB = DeviceSpecDto(
       deviceName: 'Brand B Lights',
       manufacturer: 'B',
       manufacturerStatus: 'active',
       protocol: 'ble',
+      localNamePrefixes: [],
+      companyIds: _noCompanyIds,
+      macPrefixes: [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: [],
+      defaultPort: null,
       serviceUuids: [_svcUuid],
       entities: <EntityDto>[],
       services: [],
     );
     final codec = FakeSpecCodec(
-      specByYaml: const {'yaml-a': brandA, 'yaml-b': brandB},
-      matches: const [
+      specByYaml: {'yaml-a': brandA, 'yaml-b': brandB},
+      matches: [
         MatchResult(
           spec: brandA,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
         MatchResult(
           spec: brandB,
           matchedByNamePrefix: false,
           matchedServiceUuids: [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -425,11 +504,12 @@ void main() {
   test('a stale saved choice is ignored and ranking proceeds', () async {
     final codec = FakeSpecCodec(
       spec: _spec,
-      matches: const [
+      matches: [
         MatchResult(
           spec: _spec,
           matchedByNamePrefix: true,
           matchedServiceUuids: [_svcUuid],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );
@@ -448,7 +528,7 @@ void main() {
   });
 
   test('none when nothing matches', () async {
-    final codec = FakeSpecCodec(spec: _spec, matches: const []);
+    final codec = FakeSpecCodec(spec: _spec, matches: []);
     final c = await _container(codec, const {'bulb.yaml': 'dummy'});
 
     final r = await c.read(matchedDeviceSpecProvider(
@@ -473,25 +553,35 @@ void main() {
       () async {
     const svcA = '0000aaa0-0000-1000-8000-00805f9b34fb';
     const svcB = '0000bbb0-0000-1000-8000-00805f9b34fb';
-    const specA = DeviceSpecDto(
+    final specA = DeviceSpecDto(
       deviceName: 'Alpha',
       manufacturer: 'A',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
-      localNamePrefix: 'ALPHA_',
-      serviceUuids: [svcA],
-      entities: <EntityDto>[],
-      services: [],
+      localNamePrefixes: const ['ALPHA_'],
+      serviceUuids: const [svcA],
+      companyIds: _noCompanyIds,
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: const [],
     );
-    const specB = DeviceSpecDto(
+    final specB = DeviceSpecDto(
       deviceName: 'Beta',
       manufacturer: 'B',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
-      localNamePrefix: 'BETA_',
-      serviceUuids: [svcB],
-      entities: <EntityDto>[],
-      services: [],
+      localNamePrefixes: const ['BETA_'],
+      serviceUuids: const [svcB],
+      companyIds: _noCompanyIds,
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: const [],
     );
     // A separate, non-const instance with the same content as specB, simulating
     // the FFI round-trip. The generated `DeviceSpecDto ==` compares lists by
@@ -502,19 +592,25 @@ void main() {
       manufacturer: 'B',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
-      localNamePrefix: 'BETA_',
+      localNamePrefixes: const ['BETA_'],
       serviceUuids: List<String>.of(const [svcB]),
-      entities: <EntityDto>[],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
       services: const [],
     );
 
     final codec = FakeSpecCodec(
-      specByYaml: const {'yaml-a': specA, 'yaml-b': specB},
+      specByYaml: {'yaml-a': specA, 'yaml-b': specB},
       matches: [
         MatchResult(
           spec: specBRoundTrip,
           matchedByNamePrefix: true,
           matchedServiceUuids: const [svcB],
+          confidence: MatchConfidence.strong,
         ),
       ],
     );

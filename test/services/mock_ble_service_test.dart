@@ -18,9 +18,9 @@ void main() {
   });
 
   group('scan', () {
-    test('emits exactly 3 mock devices', () async {
+    test('emits exactly 4 mock devices', () async {
       final devices = await service.scan().toList();
-      expect(devices.length, 3);
+      expect(devices.length, 4);
     });
 
     test('emits devices with expected names', () async {
@@ -36,6 +36,33 @@ void main() {
     test('emitted devices are connectable', () async {
       final devices = await service.scan().toList();
       expect(devices.every((d) => d.isConnectable), isTrue);
+    });
+
+    // Demo mode has to produce every rung of the scan-time confidence ladder,
+    // otherwise the ranked device list can only ever be seen against real
+    // hardware.
+    test('mock advertisements cover every identification signal', () async {
+      final devices = await service.scan().toList();
+      final byId = {for (final d in devices) d.id: d};
+
+      expect(byId['AA:BB:CC:DD:EE:01']!.serviceUuids,
+          contains('0000fff0-0000-1000-8000-00805f9b34fb'),
+          reason: 'one device must advertise a service UUID');
+      expect(byId['AA:BB:CC:DD:EE:02']!.serviceUuids, isEmpty,
+          reason: 'one device must be recognisable by name alone');
+      expect(byId['AA:BB:CC:DD:EE:03']!.companyIds, contains(820),
+          reason: 'one device must be recognisable by company ID alone');
+
+      // C4:7C:8D is subdivided among fifteen companies and the trailing 6 is
+      // what picks out HHCC Plant Technology's 28-bit block — the Mi Flora's
+      // OEM. An address elsewhere in the octet resolves to someone unrelated,
+      // which titled the demo row with one company and badged it with another.
+      final anonymous = byId['C4:7C:8D:61:22:04']!;
+      expect(anonymous.name, isEmpty);
+      expect(anonymous.serviceUuids, isEmpty);
+      expect(anonymous.companyIds, isEmpty);
+      expect(anonymous.macAddress, 'C4:7C:8D:61:22:04',
+          reason: 'one device must be identifiable only by its OUI');
     });
   });
 

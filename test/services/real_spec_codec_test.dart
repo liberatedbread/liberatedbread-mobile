@@ -22,7 +22,8 @@ void main() {
 
   setUpAll(() async {
     rustReady = await initHostRustLib();
-    yaml = await rootBundle.loadString('assets/device_specs/example-bulb.yaml');
+    yaml = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/examples/example-bulb.yaml');
   });
 
   test('loadDeviceSpec parses the bundled bulb spec', () async {
@@ -32,7 +33,7 @@ void main() {
     }
     final spec = await codec.loadDeviceSpec(yaml);
     expect(spec.deviceName, 'Example Smart Bulb');
-    expect(spec.localNamePrefix, 'ACME_');
+    expect(spec.localNamePrefixes, const ['ACME_']);
 
     final control =
         spec.services.firstWhere((s) => s.name == 'Control Service');
