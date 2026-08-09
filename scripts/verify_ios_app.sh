@@ -169,6 +169,18 @@ else
   log "  ok  NSAppTransportSecurity:NSAllowsLocalNetworking = true"
 fi
 
+# iOS 14+ withholds mDNS answers for a service type absent from this array, and
+# does it silently, so a truncated list is a set of devices that simply never
+# appear. The exact contents are cross-checked against the bundled catalogue by
+# test/platform/ios_bonjour_catalogue_test.dart; what can only be checked here
+# is that the array survived into the BUILT bundle at all.
+bonjour_count="$("$PLISTBUDDY" -c "Print :NSBonjourServices" "$PLIST" 2>/dev/null | grep -c '_' || true)"
+if [[ "$bonjour_count" -eq 0 ]]; then
+  fail "NSBonjourServices is missing or empty in the built Info.plist — iOS delivers no mDNS answers for undeclared service types, so the Wi-Fi scan finds nothing over mDNS and reports it as an empty network."
+else
+  log "  ok  NSBonjourServices declares $bonjour_count service type(s)"
+fi
+
 bundle_id="$(plist_get "CFBundleIdentifier" || true)"
 if [[ "$bundle_id" != "$EXPECTED_BUNDLE_ID" ]]; then
   fail "CFBundleIdentifier is '${bundle_id:-<absent>}', expected '$EXPECTED_BUNDLE_ID' — a mismatch invalidates the provisioning profile and orphans existing installs."
@@ -176,7 +188,40 @@ else
   log "  ok  CFBundleIdentifier = $bundle_id"
 fi
 
-# ── 2. Rust FFI entry points ────────────────────────────────────────────────
+# ── 2. Entitlements (device builds only) ────────────────────────────────────
+# The multicast entitlement is the one thing this app needs that neither
+# compiles nor signs into existence by accident: Apple grants it by manual
+# request, it lives on the App ID, and it reaches the binary only if the
+# provisioning profile used for THIS build carries it. A profile generated
+# before the grant produces a perfectly valid, installable IPA whose Wi-Fi scan
+# finds nothing at all, and nothing in the build log says so.
+#
+# Gated on embedded.mobileprovision because only a device build has one. A
+# simulator bundle is signed ad-hoc or not at all and has no profile-derived
+# entitlements, so asserting there would fail for the wrong reason — the same
+# rule the symbol check below follows for stripped binaries.
+if [[ -f "$APP/embedded.mobileprovision" ]]; then
+  if ! command -v codesign >/dev/null 2>&1; then
+    fail "codesign not found. This is a device build (it has an embedded.mobileprovision), so its entitlements cannot be verified and a silently unentitled IPA would pass."
+  else
+    ENTITLEMENTS="$WORK/entitlements.plist"
+    if codesign -d --entitlements :- --xml "$APP" >"$ENTITLEMENTS" 2>/dev/null &&
+       [[ -s "$ENTITLEMENTS" ]]; then
+      multicast="$("$PLISTBUDDY" -c "Print :com.apple.developer.networking.multicast" "$ENTITLEMENTS" 2>/dev/null || true)"
+      if [[ "$multicast" != "true" ]]; then
+        fail "com.apple.developer.networking.multicast is '${multicast:-<absent>}' in the signed entitlements, expected 'true'. iOS 14+ blocks raw multicast without it, so every mDNS query and SSDP M-SEARCH this app sends is dropped and the Wi-Fi scan finds nothing. Usually this means the provisioning profile predates the entitlement being granted on the App ID — regenerate it on developer.apple.com and update IOS_PROVISIONING_PROFILE. See docs/ios-from-linux.md."
+      else
+        log "  ok  com.apple.developer.networking.multicast = true"
+      fi
+    else
+      fail "Could not read the code signature's entitlements from $APP. A device build that cannot be inspected cannot be shown to carry the multicast entitlement, and an IPA without it discovers nothing over Wi-Fi."
+    fi
+  fi
+else
+  warn "No embedded.mobileprovision in the bundle — skipping the entitlements check (simulator builds carry no profile-derived entitlements)."
+fi
+
+# ── 3. Rust FFI entry points ────────────────────────────────────────────────
 if [[ "$SKIP_SYMBOLS" -eq 1 ]]; then
   warn "Skipping the Rust symbol check (--skip-symbols)."
 else

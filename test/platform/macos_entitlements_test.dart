@@ -100,13 +100,22 @@ void main() {
     });
 
     test('Debug and Release grant the same capability set', () {
-      // The two files legitimately differ (Debug adds allow-jit and
-      // network.server for the Dart VM service), but a capability the app
-      // DEPENDS ON must never be present in only one of them — that is the
-      // shape of "worked on my machine, shipped broken".
+      // The two files legitimately differ (Debug adds allow-jit for the Dart
+      // VM service), but a capability the app DEPENDS ON must never be
+      // present in only one of them — that is the shape of "worked on my
+      // machine, shipped broken".
+      //
+      // network.server is in this list rather than in the legitimate-drift
+      // set, which is where it sat while Release went without it. It is not
+      // only the Dart VM service's: the mDNS half of the Wi-Fi scan binds UDP
+      // 5353 through `multicast_dns`, and binding a listening socket is
+      // exactly what the App Sandbox withholds without it. Debug had it, so
+      // discovery worked in `flutter run -d macos` and a release build found
+      // only whatever SSDP turned up.
       const required = [
         'com.apple.security.device.bluetooth',
         'com.apple.security.network.client',
+        'com.apple.security.network.server',
         'keychain-access-groups',
       ];
       final byFile = {

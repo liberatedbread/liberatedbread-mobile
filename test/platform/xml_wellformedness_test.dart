@@ -23,6 +23,13 @@ const _xmlFiles = <String, String>{
   'ios/Runner/Info.plist':
       'Xcode cannot read the app\'s Info.plist, so the build fails and no '
           'usage-description string reaches the OS',
+  'ios/Runner/Runner.entitlements':
+      'codesign cannot read the entitlements, so the iOS app ships without '
+          'the multicast entitlement and the Wi-Fi scan silently finds '
+          'nothing',
+  'macos/Runner/Info.plist':
+      'macOS cannot read the app\'s Info.plist, so no usage-description '
+          'string reaches the local-network and Bluetooth prompts',
   'macos/Runner/DebugProfile.entitlements':
       'the debug macOS build loses its entitlements',
   'macos/Runner/Release.entitlements':

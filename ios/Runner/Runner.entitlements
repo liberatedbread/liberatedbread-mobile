@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required by BOTH halves of the Wi-Fi scan, and by nothing else in the
+	     app. Since iOS 14 an app may not send to, or receive from, a multicast
+	     or broadcast address over a raw socket without this entitlement.
+
+	     The exemption people usually remember does not apply here. Apple
+	     exempts mDNS performed through the Bonjour APIs (NWBrowser, the old
+	     NetService) because mDNSResponder does the multicast on the app's
+	     behalf, and NSBonjourServices in Info.plist is what declares the
+	     service types for that path. lib/services/real_network_scan_service.dart
+	     uses neither: `multicast_dns` binds UDP 5353 and joins 224.0.0.251
+	     itself, and the SSDP half sends M-SEARCH to 239.255.255.250 from its
+	     own RawDatagramSocket. Both are raw multicast and both need this key.
+
+	     Unlike a missing usage-description string, the failure is silent: the
+	     sockets bind, the queries go out, nothing answers. That is
+	     indistinguishable from an empty network from inside the app, and it is
+	     what scanFailureFor() reports as LocalNetworkDeniedException, sending
+	     the user to a Settings toggle that was never the problem.
+
+	     Apple gates this entitlement behind a manual approval request; it
+	     cannot simply be enabled in the App ID like most capabilities. See
+	     docs/ios-from-linux.md for what to file and what breaks until it is
+	     granted. -->
+	<key>com.apple.developer.networking.multicast</key>
+	<true/>
+</dict>
+</plist>
