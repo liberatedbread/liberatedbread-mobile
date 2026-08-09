@@ -244,6 +244,50 @@ void main() {
   });
 
   group('classifyAlertCommand', () {
+    test('a declared locate settles it, whatever the name says', () {
+      // The point of the schema key. `set_mode` reads as a configuration
+      // command to every name heuristic ever written, and on a device whose
+      // set_mode really is the locator that heuristic is simply wrong. The
+      // author knows; the name cannot.
+      expect(
+        classifyAlertCommand('set_mode', locate: 'sound'),
+        FindAlertKind.sound,
+      );
+      expect(
+        classifyAlertCommand('get_alarm_mode', locate: 'flash'),
+        FindAlertKind.flash,
+      );
+      // `both` is the SIG's "buzzer and/or LED, device's choice", which is
+      // what FindAlertKind.alert already means.
+      expect(
+        classifyAlertCommand('vendor_opcode_7', locate: 'both'),
+        FindAlertKind.alert,
+      );
+    });
+
+    test('an unknown locate value falls back to the name, not to a guess', () {
+      // A spec pack written against a newer vocabulary than this build knows.
+      // Reading an unrecognised modality as "some kind of alert" would offer a
+      // button whose label is invented, so the declaration is discarded and
+      // the usual rules apply — which for `blink_led` still finds the flash.
+      expect(
+        classifyAlertCommand('blink_led', locate: 'haptic'),
+        FindAlertKind.flash,
+      );
+      expect(classifyAlertCommand('set_mode', locate: 'haptic'), isNull);
+    });
+
+    test('a declaration cannot make a dangerous command a locator', () {
+      // Defence in depth against a mistaken or hostile third-party pack: the
+      // schema forbids `locate` on an `advanced` command, but nothing obliges
+      // a pack to have been validated. Refusing a real locator costs a
+      // convenience button; honouring a fake one puts a firmware wipe one tap
+      // away with no confirmation.
+      expect(classifyAlertCommand('flash_firmware', locate: 'flash'), isNull);
+      expect(classifyAlertCommand('factory_reset', locate: 'both'), isNull);
+      expect(classifyAlertCommand('start_dfu', locate: 'sound'), isNull);
+    });
+
     test('recognizes find/sound/flash command names', () {
       expect(classifyAlertCommand('find_me'), FindAlertKind.alert);
       expect(classifyAlertCommand('locate'), FindAlertKind.alert);
