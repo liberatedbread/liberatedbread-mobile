@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/decoded_number.dart';
 import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
 import '../providers/ha_provider.dart';
@@ -179,30 +180,61 @@ class _DecodedValueWidgetState extends ConsumerState<DecodedValueWidget> {
 
   Widget _buildField(DecodedValueDto v) {
     final label = humanizeName(v.name);
-    final pct = _batteryPercent(v);
-    if (pct != null) {
+    final pct = _percentOf(v);
+    final line = Text('$label: ${_valueText(v)}');
+    if (pct == null) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('$label: ${v.display}'),
-            const SizedBox(height: 2),
-            LinearProgressIndicator(value: (pct / 100).clamp(0.0, 1.0)),
-          ],
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 1),
+        child: line,
       );
     }
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Text('$label: ${v.display}'),
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          line,
+          const SizedBox(height: 2),
+          LinearProgressIndicator(value: (pct / 100).clamp(0.0, 1.0)),
+        ],
+      ),
     );
   }
 
-  /// A 0..100 percentage for battery-style fields, else null.
-  int? _batteryPercent(DecodedValueDto v) {
-    if (!v.name.toLowerCase().contains('battery')) return null;
-    final u = v.uintValue;
-    return u?.toInt();
+  /// One decoded field as text, using everything the spec said about it.
+  ///
+  /// This view used to print `DecodedValueDto.display` — the raw wire integer
+  /// — while `scale`, `value_offset`, `unit`, `values` and `unit_source` all
+  /// crossed the FFI beside it and went unread. A SIG temperature therefore
+  /// read "2350" here and "23.5 °C" on the entity card above it, from the
+  /// same characteristic and the same spec.
+  ///
+  /// The code-table name keeps the raw code beside it, unlike the entity card
+  /// which shows the name alone: this is the GATT browser, and someone
+  /// reverse-engineering a device needs to see the byte that produced the
+  /// word. Same "Label (value)" shape [allowedEntryLabel] uses for the write
+  /// direction.
+  String _valueText(DecodedValueDto v) {
+    final number = decodedTextOf(v);
+    final named = v.valueLabel;
+    final body = named == null ? number : '$named ($number)';
+    final unit = unitOf(v);
+    if (unit != null) return '$body $unit';
+    // A device-setting unit is real but unknowable from here, and saying
+    // nothing would imply the number is dimensionless.
+    return unitFollowsDeviceSetting(v) ? '$body (unit set on the device)' : body;
+  }
+
+  /// A 0..100 reading for percentage fields, else null.
+  ///
+  /// Driven by the spec's declared `unit` first — a field saying `unit: "%"`
+  /// is a percentage whatever it is called — and only falls back to the name
+  /// for the many bundled fields that carry no unit at all. The bar is drawn
+  /// from the DECODED value, so a scaled percentage fills correctly.
+  double? _percentOf(DecodedValueDto v) {
+    final isPercent =
+        v.unit == '%' || v.name.toLowerCase().contains('battery');
+    if (!isPercent) return null;
+    return decodedNumberOf(v);
   }
 }

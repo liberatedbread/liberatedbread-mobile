@@ -169,6 +169,133 @@ void main() {
     expect(api.stateUpdates.single.single.state, 80);
   });
 
+  group('spec number semantics', () {
+    /// Pump the browser over one decoded field and return nothing — the
+    /// caller asserts on what rendered.
+    Future<void> show(WidgetTester tester, DecodedValueDto value) async {
+      await tester.pumpWidget(_wrap(
+        const DecodedValueWidget(
+          deviceId: 'd',
+          serviceUuid: 's',
+          specYaml: 'y',
+          specChar: _statusChar,
+          canRead: true,
+          canNotify: false,
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(decoded: [value]),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('applies the transform and names the unit', (tester) async {
+      // This view printed `display` — the raw wire integer — while scale,
+      // value_offset and unit all crossed the FFI beside it. The same
+      // characteristic then read "2350" here and "23.50 °C" on the entity
+      // card directly above it.
+      await show(
+        tester,
+        const DecodedValueDto(
+          name: 'temperature',
+          valueType: 'int',
+          display: '2350',
+          intValue: 2350,
+          scale: 0.01,
+          unit: '°C',
+        ),
+      );
+      expect(find.text('Temperature: 23.50 °C'), findsOneWidget);
+      expect(find.text('Temperature: 2350'), findsNothing);
+    });
+
+    testWidgets('applies an offset scaling', (tester) async {
+      await show(
+        tester,
+        const DecodedValueDto(
+          name: 'temp_raw',
+          valueType: 'uint',
+          display: '100',
+          uintValue: 100,
+          scale: 0.5,
+          valueOffset: 85,
+          unit: '°F',
+        ),
+      );
+      expect(find.text('Temp raw: 135.0 °F'), findsOneWidget);
+    });
+
+    testWidgets('names an enumerated code and keeps the code beside it',
+        (tester) async {
+      // The browser shows both, unlike the entity card: someone reverse-
+      // engineering a device needs the byte that produced the word.
+      await show(
+        tester,
+        const DecodedValueDto(
+          name: 'liquid_state',
+          valueType: 'uint',
+          display: '5',
+          uintValue: 5,
+          valueLabel: 'heating',
+        ),
+      );
+      expect(find.text('Liquid state: heating (5)'), findsOneWidget);
+    });
+
+    testWidgets('says a device-setting unit is not fixed by the protocol',
+        (tester) async {
+      // The Inkbird iBBQ sends whichever unit the device is set to, so
+      // printing "165 °C" would be a guess dressed as a fact — and printing
+      // a bare "165" would imply it is dimensionless.
+      await show(
+        tester,
+        const DecodedValueDto(
+          name: 'probe_1',
+          valueType: 'uint',
+          display: '165',
+          uintValue: 165,
+          unit: 'C',
+          unitSource: 'device_setting',
+        ),
+      );
+      expect(find.text('Probe 1: 165 (unit set on the device)'),
+          findsOneWidget);
+    });
+
+    testWidgets('a bool still reads as on/off, not 1', (tester) async {
+      await show(
+        tester,
+        const DecodedValueDto(
+          name: 'power_state',
+          valueType: 'bool',
+          display: 'on',
+          boolValue: true,
+        ),
+      );
+      expect(find.text('Power state: on'), findsOneWidget);
+    });
+
+    testWidgets('a scaled percentage fills its bar from the decoded value',
+        (tester) async {
+      // The bar is 0..100 in DECODED terms; driving it from the raw count
+      // would peg a 50.0% reading (raw 500, scale 0.1) at full.
+      await show(
+        tester,
+        const DecodedValueDto(
+          name: 'charge',
+          valueType: 'uint',
+          display: '500',
+          uintValue: 500,
+          scale: 0.1,
+          unit: '%',
+        ),
+      );
+      expect(find.text('Charge: 50.0 %'), findsOneWidget);
+      final bar = tester.widget<LinearProgressIndicator>(
+          find.byType(LinearProgressIndicator));
+      expect(bar.value, closeTo(0.5, 1e-9));
+    });
+  });
+
   testWidgets('updates on a notify event', (tester) async {
     final controller = StreamController<List<int>>.broadcast();
     addTearDown(controller.close);
