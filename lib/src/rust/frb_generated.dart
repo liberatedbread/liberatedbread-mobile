@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 1484585155;
+  int get rustContentHash => -1327585841;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -91,6 +91,11 @@ abstract class RustLibApi extends BaseApi {
       required String charUuid,
       required String commandName,
       required Map<String, double> params});
+
+  Future<EntityWriteDto> crateApiDeviceApiEncodeEntityValue(
+      {required String specYaml,
+      required String entityName,
+      required double value});
 
   Future<ImageWritePlanDto> crateApiDeviceApiEncodeImageFrame(
       {required String specYaml,
@@ -212,6 +217,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<EntityWriteDto> crateApiDeviceApiEncodeEntityValue(
+      {required String specYaml,
+      required String entityName,
+      required double value}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(entityName, serializer);
+        sse_encode_f_64(value, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 3, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_entity_write_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiEncodeEntityValueConstMeta,
+      argValues: [specYaml, entityName, value],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiEncodeEntityValueConstMeta =>
+      const TaskConstMeta(
+        debugName: 'encode_entity_value',
+        argNames: ['specYaml', 'entityName', 'value'],
+      );
+
+  @override
   Future<ImageWritePlanDto> crateApiDeviceApiEncodeImageFrame(
       {required String specYaml,
       required int width,
@@ -229,7 +264,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_32(frameIndex, serializer);
         sse_encode_u_32(maxPayloadPerWrite, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 3, port: port_);
+            funcId: 4, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_image_write_plan_dto,
@@ -262,7 +297,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(serviceUuids, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 4, port: port_);
+            funcId: 5, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_profile_info_dto,
@@ -288,7 +323,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(yaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 5, port: port_);
+            funcId: 6, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_device_spec_dto,
@@ -318,7 +353,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(deviceName, serializer);
         sse_encode_list_String(advertisedServiceUuids, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 6, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_match_result,
@@ -346,7 +381,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_list_spec_identity_dto(identities, serializer);
         sse_encode_box_autoadd_network_device_dto(device, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 7, port: port_);
+            funcId: 8, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_scan_match,
@@ -374,7 +409,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_list_spec_identity_dto(identities, serializer);
         sse_encode_box_autoadd_scanned_device_dto(device, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 9, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_scan_match,
@@ -404,7 +439,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_String(specYaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 9, port: port_);
+            funcId: 10, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -428,7 +463,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 10, port: port_);
+            funcId: 11, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -457,7 +492,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_list_prim_u_8_loose(value, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 11, port: port_);
+            funcId: 12, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -591,8 +626,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DecodedValueDto dco_decode_decoded_value_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
     return DecodedValueDto(
       name: dco_decode_String(arr[0]),
       valueType: dco_decode_String(arr[1]),
@@ -602,7 +637,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       uintValue: dco_decode_opt_box_autoadd_i_64(arr[5]),
       stringValue: dco_decode_opt_String(arr[6]),
       scale: dco_decode_opt_box_autoadd_f_64(arr[7]),
-      unit: dco_decode_opt_String(arr[8]),
+      valueOffset: dco_decode_opt_box_autoadd_f_64(arr[8]),
+      unit: dco_decode_opt_String(arr[9]),
+      valueLabel: dco_decode_opt_String(arr[10]),
+      unitSource: dco_decode_opt_String(arr[11]),
     );
   }
 
@@ -632,21 +670,62 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  EntityActionDto dco_decode_entity_action_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return EntityActionDto(
+      role: dco_decode_String(arr[0]),
+      serviceUuid: dco_decode_String(arr[1]),
+      characteristicUuid: dco_decode_String(arr[2]),
+      commandName: dco_decode_opt_String(arr[3]),
+      userParams: dco_decode_list_String(arr[4]),
+      min: dco_decode_opt_box_autoadd_f_64(arr[5]),
+      max: dco_decode_opt_box_autoadd_f_64(arr[6]),
+    );
+  }
+
+  @protected
   EntityDto dco_decode_entity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 20)
+      throw Exception('unexpected arr length: expect 20 but see ${arr.length}');
     return EntityDto(
       name: dco_decode_String(arr[0]),
       platform: dco_decode_opt_String(arr[1]),
       deviceClass: dco_decode_opt_String(arr[2]),
       unit: dco_decode_opt_String(arr[3]),
-      stateCharacteristic: dco_decode_String(arr[4]),
+      stateCharacteristic: dco_decode_opt_String(arr[4]),
       canNotify: dco_decode_bool(arr[5]),
       hasFormat: dco_decode_bool(arr[6]),
       valueField: dco_decode_opt_String(arr[7]),
       valueScale: dco_decode_opt_box_autoadd_f_64(arr[8]),
+      onValue: dco_decode_opt_box_autoadd_i_64(arr[9]),
+      onWhenNonzero: dco_decode_bool(arr[10]),
+      isOnField: dco_decode_opt_String(arr[11]),
+      brightnessField: dco_decode_opt_String(arr[12]),
+      colorRedField: dco_decode_opt_String(arr[13]),
+      colorGreenField: dco_decode_opt_String(arr[14]),
+      colorBlueField: dco_decode_opt_String(arr[15]),
+      actions: dco_decode_list_entity_action_dto(arr[16]),
+      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[17]),
+      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[18]),
+      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[19]),
+    );
+  }
+
+  @protected
+  EntityWriteDto dco_decode_entity_write_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return EntityWriteDto(
+      serviceUuid: dco_decode_String(arr[0]),
+      characteristicUuid: dco_decode_String(arr[1]),
+      bytes: dco_decode_list_prim_u_8_strict(arr[2]),
     );
   }
 
@@ -744,6 +823,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<DeviceSpecDto> dco_decode_list_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_device_spec_dto).toList();
+  }
+
+  @protected
+  List<EntityActionDto> dco_decode_list_entity_action_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_entity_action_dto).toList();
   }
 
   @protected
@@ -1240,7 +1325,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_uintValue = sse_decode_opt_box_autoadd_i_64(deserializer);
     var var_stringValue = sse_decode_opt_String(deserializer);
     var var_scale = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_valueOffset = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_unit = sse_decode_opt_String(deserializer);
+    var var_valueLabel = sse_decode_opt_String(deserializer);
+    var var_unitSource = sse_decode_opt_String(deserializer);
     return DecodedValueDto(
         name: var_name,
         valueType: var_valueType,
@@ -1250,7 +1338,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         uintValue: var_uintValue,
         stringValue: var_stringValue,
         scale: var_scale,
-        unit: var_unit);
+        valueOffset: var_valueOffset,
+        unit: var_unit,
+        valueLabel: var_valueLabel,
+        unitSource: var_unitSource);
   }
 
   @protected
@@ -1291,17 +1382,48 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  EntityActionDto sse_decode_entity_action_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_role = sse_decode_String(deserializer);
+    var var_serviceUuid = sse_decode_String(deserializer);
+    var var_characteristicUuid = sse_decode_String(deserializer);
+    var var_commandName = sse_decode_opt_String(deserializer);
+    var var_userParams = sse_decode_list_String(deserializer);
+    var var_min = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_max = sse_decode_opt_box_autoadd_f_64(deserializer);
+    return EntityActionDto(
+        role: var_role,
+        serviceUuid: var_serviceUuid,
+        characteristicUuid: var_characteristicUuid,
+        commandName: var_commandName,
+        userParams: var_userParams,
+        min: var_min,
+        max: var_max);
+  }
+
+  @protected
   EntityDto sse_decode_entity_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
     var var_platform = sse_decode_opt_String(deserializer);
     var var_deviceClass = sse_decode_opt_String(deserializer);
     var var_unit = sse_decode_opt_String(deserializer);
-    var var_stateCharacteristic = sse_decode_String(deserializer);
+    var var_stateCharacteristic = sse_decode_opt_String(deserializer);
     var var_canNotify = sse_decode_bool(deserializer);
     var var_hasFormat = sse_decode_bool(deserializer);
     var var_valueField = sse_decode_opt_String(deserializer);
     var var_valueScale = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_onValue = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_onWhenNonzero = sse_decode_bool(deserializer);
+    var var_isOnField = sse_decode_opt_String(deserializer);
+    var var_brightnessField = sse_decode_opt_String(deserializer);
+    var var_colorRedField = sse_decode_opt_String(deserializer);
+    var var_colorGreenField = sse_decode_opt_String(deserializer);
+    var var_colorBlueField = sse_decode_opt_String(deserializer);
+    var var_actions = sse_decode_list_entity_action_dto(deserializer);
+    var var_setpointMin = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_setpointMax = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_setpointStep = sse_decode_opt_box_autoadd_f_64(deserializer);
     return EntityDto(
         name: var_name,
         platform: var_platform,
@@ -1311,7 +1433,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         canNotify: var_canNotify,
         hasFormat: var_hasFormat,
         valueField: var_valueField,
-        valueScale: var_valueScale);
+        valueScale: var_valueScale,
+        onValue: var_onValue,
+        onWhenNonzero: var_onWhenNonzero,
+        isOnField: var_isOnField,
+        brightnessField: var_brightnessField,
+        colorRedField: var_colorRedField,
+        colorGreenField: var_colorGreenField,
+        colorBlueField: var_colorBlueField,
+        actions: var_actions,
+        setpointMin: var_setpointMin,
+        setpointMax: var_setpointMax,
+        setpointStep: var_setpointStep);
+  }
+
+  @protected
+  EntityWriteDto sse_decode_entity_write_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_serviceUuid = sse_decode_String(deserializer);
+    var var_characteristicUuid = sse_decode_String(deserializer);
+    var var_bytes = sse_decode_list_prim_u_8_strict(deserializer);
+    return EntityWriteDto(
+        serviceUuid: var_serviceUuid,
+        characteristicUuid: var_characteristicUuid,
+        bytes: var_bytes);
   }
 
   @protected
@@ -1447,6 +1592,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <DeviceSpecDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_device_spec_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<EntityActionDto> sse_decode_list_entity_action_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <EntityActionDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_entity_action_dto(deserializer));
     }
     return ans_;
   }
@@ -2071,7 +2229,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_i_64(self.uintValue, serializer);
     sse_encode_opt_String(self.stringValue, serializer);
     sse_encode_opt_box_autoadd_f_64(self.scale, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.valueOffset, serializer);
     sse_encode_opt_String(self.unit, serializer);
+    sse_encode_opt_String(self.valueLabel, serializer);
+    sse_encode_opt_String(self.unitSource, serializer);
   }
 
   @protected
@@ -2096,17 +2257,50 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_entity_action_dto(
+      EntityActionDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.role, serializer);
+    sse_encode_String(self.serviceUuid, serializer);
+    sse_encode_String(self.characteristicUuid, serializer);
+    sse_encode_opt_String(self.commandName, serializer);
+    sse_encode_list_String(self.userParams, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.min, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.max, serializer);
+  }
+
+  @protected
   void sse_encode_entity_dto(EntityDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.name, serializer);
     sse_encode_opt_String(self.platform, serializer);
     sse_encode_opt_String(self.deviceClass, serializer);
     sse_encode_opt_String(self.unit, serializer);
-    sse_encode_String(self.stateCharacteristic, serializer);
+    sse_encode_opt_String(self.stateCharacteristic, serializer);
     sse_encode_bool(self.canNotify, serializer);
     sse_encode_bool(self.hasFormat, serializer);
     sse_encode_opt_String(self.valueField, serializer);
     sse_encode_opt_box_autoadd_f_64(self.valueScale, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.onValue, serializer);
+    sse_encode_bool(self.onWhenNonzero, serializer);
+    sse_encode_opt_String(self.isOnField, serializer);
+    sse_encode_opt_String(self.brightnessField, serializer);
+    sse_encode_opt_String(self.colorRedField, serializer);
+    sse_encode_opt_String(self.colorGreenField, serializer);
+    sse_encode_opt_String(self.colorBlueField, serializer);
+    sse_encode_list_entity_action_dto(self.actions, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.setpointMin, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.setpointMax, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.setpointStep, serializer);
+  }
+
+  @protected
+  void sse_encode_entity_write_dto(
+      EntityWriteDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.serviceUuid, serializer);
+    sse_encode_String(self.characteristicUuid, serializer);
+    sse_encode_list_prim_u_8_strict(self.bytes, serializer);
   }
 
   @protected
@@ -2209,6 +2403,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_device_spec_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_entity_action_dto(
+      List<EntityActionDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_entity_action_dto(item, serializer);
     }
   }
 
