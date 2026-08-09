@@ -65,6 +65,19 @@ int decimalsForTransform({double? scale, double? valueOffset}) {
   return byScale > byOffset ? byScale : byOffset;
 }
 
+/// Decimal places for an entity's declared `precision`, expressed as the
+/// smallest increment worth showing: 0.1 is one place, 1.0 is none.
+///
+/// This answers a different question from [decimalsForTransform], which is
+/// why it can override it. The transform says how finely the value was
+/// *encoded*; `precision` says how finely the device actually *knows* it.
+/// They agree most of the time, and where they do not it is because the
+/// encoding is finer than the sensor — a characteristic carrying centidegrees
+/// from a probe accurate to a tenth renders "23.47 °C" and means "about
+/// 23.5". Only a spec author can tell those apart, so nothing is inferred:
+/// with no `precision` the transform keeps deciding.
+int decimalsForPrecision(double precision) => _decimalPlaces(precision);
+
 /// Decimal places needed to write [v] exactly, capped at [_maxDecimals].
 ///
 /// Counted by walking the value up to a whole number rather than by splitting
@@ -97,9 +110,20 @@ const double _integralEpsilon = 1e-9;
 ///
 /// Never includes the unit or the code-table label — see [labelledTextOf] and
 /// [unitOf] for those, which callers combine as their layout needs.
-String decodedTextOf(DecodedValueDto value, {double? scaleOverride}) {
+String decodedTextOf(
+  DecodedValueDto value, {
+  double? scaleOverride,
+  double? precision,
+}) {
   final decoded = decodedNumberOf(value, scaleOverride: scaleOverride);
   if (decoded == null) return value.display;
+  if (precision != null && precision > 0) {
+    // Round to the increment, then print exactly that many places: a
+    // precision of 0.5 has to reach 23.5 rather than merely render 23.47 with
+    // one place, and both halves are the same statement about resolution.
+    final rounded = (decoded / precision).round() * precision;
+    return rounded.toStringAsFixed(decimalsForPrecision(precision));
+  }
   final decimals = scaleOverride != null
       ? decimalsForTransform(scale: scaleOverride)
       : decimalsForTransform(
@@ -113,8 +137,13 @@ String decodedTextOf(DecodedValueDto value, {double? scaleOverride}) {
 /// The label wins because for an enumerated field the number IS the code —
 /// Ember's `liquid_state: 5` means "heating", and 5 on its own means nothing
 /// to anyone who does not have the spec open.
-String labelledTextOf(DecodedValueDto value, {double? scaleOverride}) =>
-    value.valueLabel ?? decodedTextOf(value, scaleOverride: scaleOverride);
+String labelledTextOf(
+  DecodedValueDto value, {
+  double? scaleOverride,
+  double? precision,
+}) =>
+    value.valueLabel ??
+    decodedTextOf(value, scaleOverride: scaleOverride, precision: precision);
 
 /// The unit to render beside a reading, or null when there is none to state
 /// honestly.

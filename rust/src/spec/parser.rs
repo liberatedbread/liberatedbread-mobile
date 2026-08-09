@@ -269,8 +269,10 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codec::types::encode_command;
     use crate::spec::types::{CharacteristicProperty, ManufacturerStatus, Protocol, ValueType};
     use crate::test_fixtures::make_minimal_spec;
+    use std::collections::HashMap;
 
     const EXAMPLE_BULB_YAML: &str = r#"
 device:
@@ -1104,9 +1106,17 @@ services: []
     }
 
     #[test]
-    fn tolerates_reserved_color_order_key_in_parameters() {
-        // `color_order` is a reserved sibling of the parameter definitions, not
-        // a parameter itself; it must be pulled out and the rest still parse.
+    fn a_stale_color_order_key_does_not_cost_the_whole_spec() {
+        // `color_order` was a reserved sibling of the parameter definitions
+        // until upstream removed it: the template already states the channel
+        // order by naming {red}/{green}/{blue} in the sequence the bytes go
+        // out, so the two could disagree with nothing to say which won.
+        //
+        // A third-party spec pack pinned to the older schema still carries it,
+        // and its value is a string where a parameter definition is a map. The
+        // point of this test is that the mismatch costs that one key and not
+        // the device: without the absorbing field, serde hands "rbg" to
+        // Parameter's deserializer and the error fails the entire parse.
         let yaml = make_minimal_spec(
             r#"        properties: ["write"]
         commands:
@@ -1124,19 +1134,32 @@ services: []
               blue:
                 type: uint8"#,
         );
-        let spec = parse_device_spec(&yaml).expect("color_order should be tolerated");
+        let spec = parse_device_spec(&yaml).expect("a stale color_order must not fail the spec");
         let cmd = &spec.services[0].characteristics[0]
             .commands
             .as_ref()
             .unwrap()["set_color"];
         let params = cmd.parameters.as_ref().unwrap();
-        assert_eq!(params.color_order.as_deref(), Some("rbg"));
         assert_eq!(
             params.params.len(),
             3,
             "color_order must not become a param"
         );
         assert!(params.params.contains_key("red"));
+        // The channel order the encoder actually walks is the template's, and
+        // it is unchanged by the retired key claiming otherwise.
+        assert_eq!(
+            encode_command(
+                cmd,
+                &HashMap::from([
+                    ("red".to_string(), 1.0),
+                    ("green".to_string(), 2.0),
+                    ("blue".to_string(), 3.0),
+                ])
+            )
+            .expect("encodes"),
+            vec![0x03, 1, 2, 3],
+        );
     }
 
     #[test]

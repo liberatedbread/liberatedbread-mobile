@@ -150,24 +150,44 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
         }
     }
 
+    // The spec's `endianness`, defaulting to little — BLE's convention, the
+    // schema's default, and what this decoder assumed unconditionally before
+    // the key was honoured. Only the multi-byte integers consult it: a single
+    // byte has no order, and `bytes`/`string` are sequences the device already
+    // laid out.
+    let two = |a: [u8; 2]| {
+        if field.is_big_endian() {
+            [a[1], a[0]]
+        } else {
+            a
+        }
+    };
+    let four = |a: [u8; 4]| {
+        if field.is_big_endian() {
+            [a[3], a[2], a[1], a[0]]
+        } else {
+            a
+        }
+    };
+
     match field.field_type {
         ValueType::Bool => Ok(DecodedValue::Bool(slice[0] != 0)),
         ValueType::Uint8 => Ok(DecodedValue::Uint(slice[0] as u64)),
         ValueType::Uint16 => Ok(DecodedValue::Uint(
-            u16::from_le_bytes([slice[0], slice[1]]) as u64
+            u16::from_le_bytes(two([slice[0], slice[1]])) as u64,
         )),
         ValueType::Int8 => Ok(DecodedValue::Int(slice[0] as i8 as i64)),
         ValueType::Int16 => Ok(DecodedValue::Int(
-            i16::from_le_bytes([slice[0], slice[1]]) as i64
+            i16::from_le_bytes(two([slice[0], slice[1]])) as i64,
         )),
         ValueType::Int32 => {
             Ok(DecodedValue::Int(
-                i32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as i64,
+                i32::from_le_bytes(four([slice[0], slice[1], slice[2], slice[3]])) as i64,
             ))
         }
         ValueType::Uint32 => {
             Ok(DecodedValue::Uint(
-                u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]) as u64,
+                u32::from_le_bytes(four([slice[0], slice[1], slice[2], slice[3]])) as u64,
             ))
         }
         ValueType::Bytes => Ok(DecodedValue::Bytes(slice.to_vec())),
@@ -529,10 +549,10 @@ mod tests {
         }
     }
 
-    /// Wrap named parameters into a [`ParameterSet`] with no reserved keys.
+    /// Wrap named parameters into a [`ParameterSet`].
     fn pset(entries: impl IntoIterator<Item = (&'static str, Parameter)>) -> ParameterSet {
         ParameterSet {
-            color_order: None,
+            retired_color_order: None,
             params: entries
                 .into_iter()
                 .map(|(name, p)| (name.to_string(), p))
@@ -584,6 +604,109 @@ mod tests {
             ..Default::default()
         };
         // 0x0100 in little-endian = 256
+        assert_eq!(
+            decode_field(&[0x00, 0x01], &field).unwrap(),
+            DecodedValue::Uint(256)
+        );
+    }
+
+    /// The same bytes, both ways round, for every multi-byte width.
+    ///
+    /// `endianness` is a spec key the decoder ignored until recently: six
+    /// fields in the catalogue declared it, all saying `little`, so nothing
+    /// decoded wrong and nothing would have reported it if it had. That is the
+    /// hazard worth pinning — a byte-swapped reading is not obviously broken,
+    /// it is a different plausible number, so only a test comparing the two
+    /// orders can tell them apart.
+    #[test]
+    fn decode_honours_declared_endianness() {
+        fn field(ty: ValueType, endianness: Option<&str>) -> FormatField {
+            FormatField {
+                offset: 0,
+                length: ty.fixed_byte_size().unwrap(),
+                name: "value".into(),
+                field_type: ty,
+                endianness: endianness.map(str::to_string),
+                ..Default::default()
+            }
+        }
+
+        let two = &[0x00, 0x01];
+        // 0x0100: 256 read low-byte-first, 1 read high-byte-first. Both are
+        // ordinary sensor readings, which is the whole problem.
+        assert_eq!(
+            decode_field(two, &field(ValueType::Uint16, None)).unwrap(),
+            DecodedValue::Uint(256)
+        );
+        assert_eq!(
+            decode_field(two, &field(ValueType::Uint16, Some("little"))).unwrap(),
+            DecodedValue::Uint(256)
+        );
+        assert_eq!(
+            decode_field(two, &field(ValueType::Uint16, Some("big"))).unwrap(),
+            DecodedValue::Uint(1)
+        );
+
+        // Signed widths swap the same way, and the sign follows the swap: the
+        // high byte is the one that carries it.
+        assert_eq!(
+            decode_field(&[0x00, 0xFF], &field(ValueType::Int16, None)).unwrap(),
+            DecodedValue::Int(-256)
+        );
+        assert_eq!(
+            decode_field(&[0xFF, 0x00], &field(ValueType::Int16, Some("big"))).unwrap(),
+            DecodedValue::Int(-256)
+        );
+
+        let four = &[0x01, 0x02, 0x03, 0x04];
+        assert_eq!(
+            decode_field(four, &field(ValueType::Uint32, None)).unwrap(),
+            DecodedValue::Uint(0x0403_0201)
+        );
+        assert_eq!(
+            decode_field(four, &field(ValueType::Uint32, Some("big"))).unwrap(),
+            DecodedValue::Uint(0x0102_0304)
+        );
+        assert_eq!(
+            decode_field(four, &field(ValueType::Int32, Some("big"))).unwrap(),
+            DecodedValue::Int(0x0102_0304)
+        );
+
+        // A single byte has no order to get wrong, and `bytes` is a sequence
+        // the device already laid out — neither may be reversed by the key.
+        assert_eq!(
+            decode_field(&[0x7F], &field(ValueType::Uint8, Some("big"))).unwrap(),
+            DecodedValue::Uint(0x7F)
+        );
+        let blob = FormatField {
+            offset: 0,
+            length: 3,
+            name: "blob".into(),
+            field_type: ValueType::Bytes,
+            endianness: Some("big".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            decode_field(&[1, 2, 3], &blob).unwrap(),
+            DecodedValue::Bytes(vec![1, 2, 3])
+        );
+    }
+
+    /// An unrecognised spelling reads as the default rather than failing.
+    ///
+    /// The alternative — rejecting the field — turns a typo in one line of one
+    /// spec into a device that will not load, and "little" is the answer that
+    /// was being given before the key was honoured at all.
+    #[test]
+    fn an_unrecognised_endianness_falls_back_to_little() {
+        let field = FormatField {
+            offset: 0,
+            length: 2,
+            name: "value".into(),
+            field_type: ValueType::Uint16,
+            endianness: Some("BIG".into()),
+            ..Default::default()
+        };
         assert_eq!(
             decode_field(&[0x00, 0x01], &field).unwrap(),
             DecodedValue::Uint(256)
@@ -735,6 +858,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
@@ -756,6 +880,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         let params = HashMap::from([("brightness".into(), 75.0)]);
         let bytes = encode_command(&cmd, &params).unwrap();
@@ -778,6 +903,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         let params = HashMap::from([("brightness".into(), 150.0)]);
         assert!(encode_command(&cmd, &params).is_err());
@@ -797,6 +923,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         }
     }
 
@@ -837,6 +964,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         // 200 -> two-byte varint [0xC8, 0x01], total length 6 (BE in len).
         let bytes = encode_command(&cmd, &HashMap::from([("brightness".into(), 200.0)])).unwrap();
@@ -869,6 +997,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         assert!(matches!(
             encode_command(&cmd, &HashMap::new()),
@@ -988,6 +1117,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         let lo = HashMap::from([("n".into(), -128.0)]);
         assert_eq!(encode_command(&cmd, &lo).unwrap(), vec![0x80]);
@@ -1006,6 +1136,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         let params = HashMap::from([("n".into(), -2.0)]);
         assert_eq!(
@@ -1030,6 +1161,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         let params = HashMap::from([("n".into(), 4_000_000_000.0)]);
         assert_eq!(
@@ -1099,6 +1231,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         };
         // Even pathological parameter values should be ignored.
         let params = HashMap::from([("nonsense".into(), f64::NAN)]);
@@ -1119,6 +1252,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         }
     }
 
@@ -1262,6 +1396,7 @@ mod tests {
             setting_id: None,
             encoding: None,
             payload: None,
+            locate: None,
         }
     }
 
