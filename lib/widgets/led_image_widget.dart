@@ -146,6 +146,22 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   int _paintRevision = 0;
   String? _error;
 
+  /// Designs memoized for the current canvas size — regenerating them (three
+  /// stripe buffers + two scaled images per open) on every popup tap is pure
+  /// waste, since they only change when the canvas resizes.
+  List<LedDesign>? _designsCache;
+  int _designsW = -1;
+  int _designsH = -1;
+
+  List<LedDesign> get _designs {
+    if (_designsCache == null || _designsW != _width || _designsH != _height) {
+      _designsCache = defaultDesigns(_width, _height);
+      _designsW = _width;
+      _designsH = _height;
+    }
+    return _designsCache!;
+  }
+
   ImageUploadDto get _spec => widget.imageUpload;
 
   @override
@@ -317,20 +333,21 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// doodle session.
   void _loadDesign(LedDesign design) {
     final asAnimation = design.animation && _spec.animation;
-    var frames = design.frames;
+    // Choose the frames first (static keeps one), THEN clamp to the spec's
+    // frame cap — never below 1, so a maxFrames of 0 can't leave the canvas
+    // empty and crash the indexing in build()/_sendCurrentFrame.
+    var frames = asAnimation ? design.frames : design.frames.take(1).toList();
     final maxFrames = _spec.maxFrames;
     if (maxFrames != null && frames.length > maxFrames) {
-      frames = frames.sublist(0, maxFrames);
+      frames = frames.sublist(0, maxFrames < 1 ? 1 : maxFrames);
     }
     setState(() {
       _stopPreview();
       _error = null;
-      _animationMode = asAnimation;
+      _animationMode = asAnimation && frames.length > 1;
       _frames
         ..clear()
-        ..addAll(
-          (asAnimation ? frames : frames.take(1)).map(Uint8List.fromList),
-        );
+        ..addAll(frames.map(Uint8List.fromList));
       _current = 0;
       _frameSequence = 0;
       _paintRevision++;
@@ -370,7 +387,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// buffer against the new dimensions. What is queued is a snapshot of what
   /// the user asked to send.
   Future<void> _enqueueSend(int index, int payloadPerWrite) {
-    final rgb = _frames[index];
+    // Snapshot the pixels by COPY: the encode runs later (behind _sendTail and
+    // an MTU await) and the paint gesture stays live, so aliasing the frame
+    // buffer would let an edit-in-progress leak into the frame being sent.
+    final rgb = Uint8List.fromList(_frames[index]);
     final width = _width;
     final height = _height;
     // The spec YAML is part of the same snapshot, and leaving it out undid the
@@ -395,6 +415,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     String specYaml,
     int payloadPerWrite,
   ) async {
+    // Pin this frame to the operation that launched it. A stop+restart (or a
+    // new single send) bumps _streamEpoch and resets _frameSequence to 0; if a
+    // prior in-flight frame lands after that reset, it must NOT write its stale
+    // nextFrameIndex back, or the restart would skip the session-open.
+    final epoch = _streamEpoch;
     final ble = ref.read(bleServiceProvider);
     final plan = await ref.read(specCodecProvider).encodeImageFrame(
           specYaml: specYaml,
@@ -414,6 +439,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         write.bytes,
       );
     }
+    if (epoch != _streamEpoch) return; // a newer operation owns the sequence now
     // Advance ONLY after every write lands, not before: if a write throws
     // mid-frame the session may not have opened, so the sequence must stay put
     // and the retry re-send frame 0 (which re-opens the session). Continue from
@@ -431,7 +457,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       // (ui_end_sync + doodle_start). Without this, a send after a BLE reconnect
       // — or after a prior send failed partway — would carry frame_index > 0,
       // skip the session-open, and silently render nothing on a device no
-      // longer in doodle mode.
+      // longer in doodle mode. Bump the epoch too so a still-in-flight frame
+      // from a previous operation can't write its stale sequence back over
+      // this reset.
+      _streamEpoch++;
       _frameSequence = 0;
     });
     try {
@@ -610,7 +639,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                 enabled: !_streaming && !_sending,
                 onSelected: _loadDesign,
                 itemBuilder: (context) => [
-                  for (final d in defaultDesigns(_width, _height))
+                  for (final d in _designs)
                     PopupMenuItem(
                       value: d,
                       child: Text(d.animation ? '${d.name} (animation)' : d.name),
