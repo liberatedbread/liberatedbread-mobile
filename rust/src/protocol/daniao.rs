@@ -165,6 +165,16 @@ pub fn encode_doodle_frame(
             ),
         });
     }
+    // Chunk headers pack start_x/start_y as single bytes, so pixel indices must
+    // fit a u8 — a dimension over 256 would silently wrap coordinates and
+    // scramble the image. Reject rather than corrupt.
+    if width > 256 || height > 256 {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "{width}x{height} exceeds 256 in a dimension; TUTU chunk coordinates are u8"
+            ),
+        });
+    }
     if max_payload_per_write < MIN_PAYLOAD_PER_WRITE {
         return Err(ProtocolError::ImageDimensionsInvalid {
             reason: format!(
@@ -252,6 +262,16 @@ pub fn encode_doodle_frame(
     }
 
     let packets = serial.wrapping_sub(frame_index);
+    // The fragment serial is a u8, so a frame that needs more than 256 distinct
+    // serials would reuse a byte mid-frame and corrupt reassembly on the device.
+    if packets > 256 {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "frame needs {packets} logical packets; the u8 fragment serial allows at most 256 \
+                 per frame — reduce the image's distinct-run count or size"
+            ),
+        });
+    }
     Ok(EncodedFrame { writes, packets })
 }
 
@@ -304,15 +324,16 @@ fn encode_tutu_restore(
         } else {
             tokens.push(first);
             let mut r = run;
-            while r > 0 {
-                if r >= 127 {
-                    tokens.push(255);
-                } else {
-                    tokens.push(r as u8);
-                    break;
-                }
+            while r >= 127 {
+                tokens.push(255);
                 r -= 127;
             }
+            // ALWAYS emit a terminating remainder byte (0..=126), even when the
+            // run is an exact multiple of 127. The decoder stops on the first
+            // byte < 255 (confirmed by the live red=400 case, which ends in 19);
+            // without this, a 127/254/381-pixel run would leave the decoder
+            // reading the next run's token as its count and corrupt the image.
+            tokens.push(r as u8);
         }
     }
 
@@ -518,5 +539,40 @@ services:
         assert_eq!(chunks.len(), 1);
         assert_eq!(&chunks[0][..6], &[0, 0, 1, 0x11, 0x11, 0x11]);
         assert_eq!(&chunks[0][6..], &[0x00, 255, 255, 255, 19]);
+    }
+
+    #[test]
+    fn run_that_is_an_exact_multiple_of_127_still_terminates() {
+        // 127 identical pixels (127x1): the run must end with a remainder byte
+        // (here 0), not just a trailing 0xFF, or the decoder would swallow the
+        // next run's token.
+        let rgb = vec![0x22u8; 127 * 3];
+        let chunks = encode_tutu_restore(&rgb, 127, 1).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(&chunks[0][6..], &[0x00, 0xFF, 0x00]);
+    }
+
+    #[test]
+    fn dimension_over_256_is_rejected() {
+        // Chunk coordinates are u8; a 257-wide canvas would wrap them.
+        let err = encode_doodle_frame(&spec(), &vec![0u8; 257 * 3], 257, 1, 0, 509).unwrap_err();
+        assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
+    }
+
+    #[test]
+    fn frame_needing_more_than_256_serials_is_rejected() {
+        // A 256x256 two-color checkerboard has no runs longer than 1, so it
+        // produces far more than 256 ~200-byte chunks — the u8 fragment serial
+        // would wrap and collide, so the encoder must reject it.
+        let (w, h) = (256usize, 256usize);
+        let mut rgb = Vec::with_capacity(w * h * 3);
+        for y in 0..h {
+            for x in 0..w {
+                let on = (x + y) % 2 == 0;
+                rgb.extend_from_slice(if on { &[255, 255, 255] } else { &[0, 0, 0] });
+            }
+        }
+        let err = encode_doodle_frame(&spec(), &rgb, w as u32, h as u32, 0, 509).unwrap_err();
+        assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
     }
 }
