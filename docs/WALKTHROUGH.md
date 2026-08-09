@@ -360,6 +360,22 @@ hundreds of advertisements one device emits during a scan resolve to a single
 FFI call; only `SpecIdentityDto` — a few strings per spec — crosses the
 boundary, not the parsed catalogue.
 
+**Device type**: `ScanMatch` carries the matched spec's `device.category`
+alongside its manufacturer, and `ScanGuess.iconOr` maps it to the icon on the
+row through `DeviceCategory` (`lib/core/device_category.dart`). The category
+survives a tie whenever every tied match agrees on one — a deliberately lower
+bar than `namesAProduct`, because a shared OUI cannot say *which* of a
+vendor's ten lights this is and can still say "light". Where the tied matches
+disagree, the icon falls back to the tab's own generic glyph, exactly as
+`label` falls back to "Possibly supported" when the manufacturers disagree.
+
+The fallback is the caller's, not a global one: an unplaced BLE device is a
+Bluetooth glyph and an unplaced host on the Wi-Fi tab is a router. And a
+category only ever comes from a matched spec — never from reading the
+advertised name — so an icon that is not the fallback means the catalogue
+placed the device. `DeviceDescription` is where an unplaced device gets
+described instead.
+
 ### SavedDevicesScreen — `lib/screens/saved_devices_screen.dart`
 
 The Saved tab: devices the user has already paired with, newest first, each
@@ -692,6 +708,7 @@ device:
   manufacturer: "Manufacturer Name"
   manufacturer_status: "abandoned"  # abandoned | active | shutdown | unsupported
   protocol: "ble"                   # ble | wifi | zigbee | zwave
+  category: "light"                 # Broad class, closed vocabulary (see below)
   notes: "Optional notes"          # Optional
   identification:                   # Optional: for auto-matching
     local_name_prefix: "PREFIX_"   # Match by BLE advertised name
@@ -734,6 +751,20 @@ services:
             mock_default: true        # Optional: what the mock simulator returns
                                       # for unwritten reads (see §6)
 ```
+
+### `device.category`
+
+A broad device class from a closed vocabulary defined upstream in the
+protocol-specs schema: `appliance`, `camera`, `climate`, `display`, `energy`,
+`fitness`, `health`, `hub`, `irrigation`, `light`, `lock`, `motor`, `printer`,
+`reference`, `robot`, `scale`, `sensor`, `speaker`, `switch`, `tool`,
+`tracker`, `tv`, `vehicle`, `wearable`, `other`.
+
+Deliberately separate from the free-form `device.type`: `type` says what the
+thing is, in whatever words fit, and `category` says what kind of thing it is,
+in words a program can branch on. `DeviceCategory` (§5) maps it to the row
+icon; a value this build has not met parses to `null` and costs the device its
+icon, never its controls.
 
 ### Supported Value Types
 

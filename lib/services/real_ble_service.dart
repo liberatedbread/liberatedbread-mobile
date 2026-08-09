@@ -466,12 +466,19 @@ class RealBleService implements BleService {
   @override
   Future<List<BleDiscoveredService>> discoverServices(String deviceId) async {
     final services = await _loadServices(deviceId);
+    // `str128`, never `toString()`. Guid.toString() is Guid.str, which
+    // abbreviates a Bluetooth-base UUID to its 16-bit short form — the example
+    // bulb's control service comes back as `fff0`. Specs always write UUIDs
+    // out in full, so every short-form UUID handed to the matcher is one that
+    // cannot match the spec describing it, and the device falls back to raw
+    // GATT controls for no visible reason. The scan path already normalizes
+    // this way; this puts the connected path in the same vocabulary.
     return services
         .map((s) => BleDiscoveredService(
-              uuid: s.uuid.toString(),
+              uuid: s.uuid.str128,
               characteristics: s.characteristics
                   .map((c) => BleDiscoveredCharacteristic(
-                        uuid: c.uuid.toString(),
+                        uuid: c.uuid.str128,
                         canRead: c.properties.read,
                         canWrite: c.properties.write ||
                             c.properties.writeWithoutResponse,
@@ -562,10 +569,13 @@ class RealBleService implements BleService {
     final services = await _loadServices(deviceId);
     final s = normalizeUuid(serviceUuid);
     final c = normalizeUuid(charUuid);
+    // Same 128-bit vocabulary as discoverServices: callers hand back a UUID
+    // that came from there, so both sides of this comparison have to be
+    // written the same way.
     for (final service in services) {
-      if (normalizeUuid(service.uuid.toString()) == s) {
+      if (normalizeUuid(service.uuid.str128) == s) {
         for (final char in service.characteristics) {
-          if (normalizeUuid(char.uuid.toString()) == c) {
+          if (normalizeUuid(char.uuid.str128) == c) {
             return char;
           }
         }

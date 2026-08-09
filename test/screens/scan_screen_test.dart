@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
@@ -14,6 +15,7 @@ import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/screens/ha_settings_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
+import 'package:liberated_bread_mobile/widgets/device_list_tile.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -51,6 +53,7 @@ final _catalogueSpec = DeviceSpecDto(
   manufacturer: 'Acme',
   manufacturerStatus: 'abandoned',
   protocol: 'ble',
+  category: 'light',
   localNamePrefixes: const ['ACME_'],
   serviceUuids: const [],
   companyIds: Uint16List(0),
@@ -62,10 +65,13 @@ final _catalogueSpec = DeviceSpecDto(
   services: const [],
 );
 
-ScanMatch _scanMatch(MatchConfidence confidence) => ScanMatch(
+ScanMatch _scanMatch(MatchConfidence confidence,
+        {String? category = 'light'}) =>
+    ScanMatch(
       specIndex: 0,
       deviceName: 'Example Smart Bulb',
       manufacturer: 'Acme',
+      category: category,
       confidence: confidence,
       matchedByNamePrefix: false,
       matchedServiceUuids: const [],
@@ -125,6 +131,74 @@ void main() {
           ],
           child: const MaterialApp(home: ScanScreen()),
         );
+
+    testWidgets('a matched device is drawn with its device-type icon',
+        (tester) async {
+      final fake =
+          FakeBleService(devicesToEmit: [_device('01', name: 'ACME_Bulb')]);
+      await tester.pumpWidget(wrapWithCatalogue(
+        fake,
+        matchFor: (_) => [_scanMatch(MatchConfidence.strong)],
+      ));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(DeviceCategory.light.icon), findsOneWidget);
+      // The generic glyph the radar draws is not in a row.
+      expect(
+        find.descendant(
+          of: find.byType(DeviceListTile),
+          matching: find.byIcon(unknownDeviceIcon),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an unmatched device keeps the anonymous glyph',
+        (tester) async {
+      // The icon is only ever drawn from a matched spec. "LEDBlue-A1B2C3"
+      // reads like a light, and reading it would put a guess in the same
+      // glyph as a real match.
+      final fake = FakeBleService(
+          devicesToEmit: [_device('01', name: 'LEDBlue-A1B2C3')]);
+      await tester
+          .pumpWidget(wrapWithCatalogue(fake, matchFor: (_) => const []));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(DeviceCategory.light.icon), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(DeviceListTile),
+          matching: find.byIcon(unknownDeviceIcon),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an OUI-only match still shows the type it agrees on',
+        (tester) async {
+      // The badge stays hedged — "Possibly Acme", not a product name — while
+      // the icon says the one thing the tie does agree on.
+      final fake =
+          FakeBleService(devicesToEmit: [_device('01', name: 'Mystery')]);
+      await tester.pumpWidget(wrapWithCatalogue(
+        fake,
+        matchFor: (_) => [
+          _scanMatch(MatchConfidence.possible),
+          _scanMatch(MatchConfidence.possible),
+        ],
+      ));
+
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Possibly Acme'), findsOneWidget);
+      expect(find.text('Example Smart Bulb'), findsNothing);
+      expect(find.byIcon(DeviceCategory.light.icon), findsOneWidget);
+    });
 
     testWidgets('recognised devices get their own section, above the rest',
         (tester) async {

@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
@@ -88,6 +89,7 @@ void main() {
       manufacturer: 'Acme',
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
+      category: 'light',
       localNamePrefixes: const ['ACME_'],
       serviceUuids: const [svcUuid],
       companyIds: Uint16List(0),
@@ -280,6 +282,105 @@ void main() {
     expect(find.text('Device type you picked'), findsOneWidget);
     final store = SpecChoiceStore(await SharedPreferences.getInstance());
     expect(store.load(), {'AA:BB': 'Brand B Lights|Vendor B'});
+  });
+
+  testWidgets('an automatic match names the spec and its device type',
+      (tester) async {
+    // The scan row said "Example Smart Bulb" with a bulb icon before the tap.
+    // Arriving here to find neither — just controls, appearing — leaves the
+    // user to infer what the app decided, with nothing to check it against.
+    const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
+    final spec = DeviceSpecDto(
+      deviceName: 'Example Smart Bulb',
+      manufacturer: 'Acme Corp',
+      manufacturerStatus: 'abandoned',
+      protocol: 'ble',
+      category: 'light',
+      localNamePrefixes: const ['ACME_'],
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: const [
+        ServiceDto(uuid: svcUuid, name: 'Control Service', characteristics: []),
+      ],
+    );
+    const services = [BleDiscoveredService(uuid: svcUuid, characteristics: [])];
+
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: '01', deviceName: 'ACME_Living_Room', services: services),
+      ble: FakeBleService(),
+      codec: FakeSpecCodec(
+        spec: spec,
+        matches: [
+          MatchResult(
+            spec: spec,
+            matchedByNamePrefix: true,
+            confidence: MatchConfidence.strong,
+            matchedServiceUuids: const [svcUuid],
+          ),
+        ],
+      ),
+      specs: const {'bulb.yaml': 'yaml'},
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Example Smart Bulb'), findsOneWidget);
+    expect(find.text('Light · Acme Corp'), findsOneWidget);
+    expect(find.byIcon(DeviceCategory.light.icon), findsOneWidget);
+    // The user did not pick this one, so it is not the saved-choice banner.
+    expect(find.text('Device type you picked'), findsNothing);
+  });
+
+  testWidgets('a matched spec with no category still names the manufacturer',
+      (tester) async {
+    // Specs vendored before `device.category` existed. The header must not
+    // render a stray separator or a placeholder saying nothing.
+    const svcUuid = '0000fff0-0000-1000-8000-00805f9b34fb';
+    final spec = DeviceSpecDto(
+      deviceName: 'Legacy Device',
+      manufacturer: 'Acme Corp',
+      manufacturerStatus: 'abandoned',
+      protocol: 'ble',
+      localNamePrefixes: const ['ACME_'],
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: const [
+        ServiceDto(uuid: svcUuid, name: 'Control Service', characteristics: []),
+      ],
+    );
+    const services = [BleDiscoveredService(uuid: svcUuid, characteristics: [])];
+
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: '01', deviceName: 'ACME_Old', services: services),
+      ble: FakeBleService(),
+      codec: FakeSpecCodec(
+        spec: spec,
+        matches: [
+          MatchResult(
+            spec: spec,
+            matchedByNamePrefix: true,
+            confidence: MatchConfidence.strong,
+            matchedServiceUuids: const [svcUuid],
+          ),
+        ],
+      ),
+      specs: const {'legacy.yaml': 'yaml'},
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Acme Corp'), findsOneWidget);
+    expect(find.byIcon(unknownDeviceIcon), findsOneWidget);
   });
 }
 

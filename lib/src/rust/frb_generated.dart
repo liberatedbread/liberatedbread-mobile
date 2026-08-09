@@ -648,24 +648,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 15)
-      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
       manufacturerStatus: dco_decode_String(arr[2]),
       protocol: dco_decode_String(arr[3]),
-      notes: dco_decode_opt_String(arr[4]),
-      localNamePrefixes: dco_decode_list_String(arr[5]),
-      serviceUuids: dco_decode_list_String(arr[6]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[7]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[8]),
-      mdnsServiceType: dco_decode_opt_String(arr[9]),
-      ssdpSearchTargets: dco_decode_list_String(arr[10]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[11]),
-      services: dco_decode_list_service_dto(arr[12]),
-      entities: dco_decode_list_entity_dto(arr[13]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[14]),
+      category: dco_decode_opt_String(arr[4]),
+      notes: dco_decode_opt_String(arr[5]),
+      localNamePrefixes: dco_decode_list_String(arr[6]),
+      serviceUuids: dco_decode_list_String(arr[7]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[8]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[9]),
+      mdnsServiceType: dco_decode_opt_String(arr[10]),
+      ssdpSearchTargets: dco_decode_list_String(arr[11]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[12]),
+      services: dco_decode_list_service_dto(arr[13]),
+      entities: dco_decode_list_entity_dto(arr[14]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[15]),
     );
   }
 
@@ -1104,18 +1105,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ScanMatch dco_decode_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return ScanMatch(
       specIndex: dco_decode_u_32(arr[0]),
       deviceName: dco_decode_String(arr[1]),
       manufacturer: dco_decode_String(arr[2]),
-      confidence: dco_decode_match_confidence(arr[3]),
-      matchedByNamePrefix: dco_decode_bool(arr[4]),
-      matchedServiceUuids: dco_decode_list_String(arr[5]),
-      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[6]),
-      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[7]),
-      matchedServiceTypes: dco_decode_list_String(arr[8]),
+      category: dco_decode_opt_String(arr[3]),
+      confidence: dco_decode_match_confidence(arr[4]),
+      matchedByNamePrefix: dco_decode_bool(arr[5]),
+      matchedServiceUuids: dco_decode_list_String(arr[6]),
+      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[7]),
+      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[8]),
+      matchedServiceTypes: dco_decode_list_String(arr[9]),
     );
   }
 
@@ -1150,18 +1152,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
     return SpecIdentityDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
-      localNamePrefixes: dco_decode_list_String(arr[2]),
-      serviceUuids: dco_decode_list_String(arr[3]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[4]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[5]),
-      mdnsServiceType: dco_decode_opt_String(arr[6]),
-      ssdpSearchTargets: dco_decode_list_String(arr[7]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[8]),
+      category: dco_decode_opt_String(arr[2]),
+      localNamePrefixes: dco_decode_list_String(arr[3]),
+      serviceUuids: dco_decode_list_String(arr[4]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[5]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[6]),
+      mdnsServiceType: dco_decode_opt_String(arr[7]),
+      ssdpSearchTargets: dco_decode_list_String(arr[8]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[9]),
     );
   }
 
@@ -1351,6 +1354,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_manufacturer = sse_decode_String(deserializer);
     var var_manufacturerStatus = sse_decode_String(deserializer);
     var var_protocol = sse_decode_String(deserializer);
+    var var_category = sse_decode_opt_String(deserializer);
     var var_notes = sse_decode_opt_String(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
@@ -1368,6 +1372,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         manufacturer: var_manufacturer,
         manufacturerStatus: var_manufacturerStatus,
         protocol: var_protocol,
+        category: var_category,
         notes: var_notes,
         localNamePrefixes: var_localNamePrefixes,
         serviceUuids: var_serviceUuids,
@@ -2017,6 +2022,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_specIndex = sse_decode_u_32(deserializer);
     var var_deviceName = sse_decode_String(deserializer);
     var var_manufacturer = sse_decode_String(deserializer);
+    var var_category = sse_decode_opt_String(deserializer);
     var var_confidence = sse_decode_match_confidence(deserializer);
     var var_matchedByNamePrefix = sse_decode_bool(deserializer);
     var var_matchedServiceUuids = sse_decode_list_String(deserializer);
@@ -2028,6 +2034,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         specIndex: var_specIndex,
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
+        category: var_category,
         confidence: var_confidence,
         matchedByNamePrefix: var_matchedByNamePrefix,
         matchedServiceUuids: var_matchedServiceUuids,
@@ -2065,6 +2072,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_deviceName = sse_decode_String(deserializer);
     var var_manufacturer = sse_decode_String(deserializer);
+    var var_category = sse_decode_opt_String(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
@@ -2075,6 +2083,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return SpecIdentityDto(
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
+        category: var_category,
         localNamePrefixes: var_localNamePrefixes,
         serviceUuids: var_serviceUuids,
         companyIds: var_companyIds,
@@ -2243,6 +2252,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.manufacturer, serializer);
     sse_encode_String(self.manufacturerStatus, serializer);
     sse_encode_String(self.protocol, serializer);
+    sse_encode_opt_String(self.category, serializer);
     sse_encode_opt_String(self.notes, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
@@ -2761,6 +2771,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_32(self.specIndex, serializer);
     sse_encode_String(self.deviceName, serializer);
     sse_encode_String(self.manufacturer, serializer);
+    sse_encode_opt_String(self.category, serializer);
     sse_encode_match_confidence(self.confidence, serializer);
     sse_encode_bool(self.matchedByNamePrefix, serializer);
     sse_encode_list_String(self.matchedServiceUuids, serializer);
@@ -2794,6 +2805,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.deviceName, serializer);
     sse_encode_String(self.manufacturer, serializer);
+    sse_encode_opt_String(self.category, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
