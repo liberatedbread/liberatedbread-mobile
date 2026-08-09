@@ -9,9 +9,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/number_registry.dart';
 import 'package:liberated_bread_mobile/services/spec_choice_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/device_control_panel.dart';
@@ -20,6 +22,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_spec_codec.dart';
+
+/// A stand-in for the vendored Bluetooth SIG registry the panel names
+/// standard services from.
+///
+/// Overridden rather than left to load for real: the production provider
+/// reads ~1.7MB of assets through `rootBundle`, so the names would land some
+/// unspecified number of frames after the widget does and the assertions
+/// would race it. Entries must be sorted — [RegistryTable.parse] verifies it.
+final _sigServices = NumberRegistry(
+  addressBlocks: const [],
+  companyIds: RegistryTable.empty,
+  serviceUuids: RegistryTable.parse(
+    '1800\tGeneric Access\n'
+    '180f\tBattery Service\n',
+    keyWidth: 4,
+  ),
+);
 
 Future<Widget> _wrap(
   Widget child, {
@@ -35,6 +54,7 @@ Future<Widget> _wrap(
       sharedPreferencesProvider.overrideWithValue(prefs),
       bleServiceProvider.overrideWithValue(ble),
       specCodecProvider.overrideWithValue(codec),
+      numberRegistryProvider.overrideWith((ref) => _sigServices),
       if (specs != null) deviceSpecsProvider.overrideWith((ref) => specs),
     ],
     child: MaterialApp(home: Scaffold(body: child)),
@@ -76,6 +96,82 @@ void main() {
     expect(find.text('Battery Service'), findsOneWidget);
     expect(find.text('Generic Access'), findsOneWidget);
     expect(find.byType(TypedCharacteristicWidget), findsNothing);
+  });
+
+  testWidgets('a service the registry does not know keeps the generic label',
+      (tester) async {
+    // A vendor's own 128-bit UUID is in no registry, and there is nothing
+    // true to say about it here — identifying it is the spec matcher's job
+    // one level up.
+    const services = [
+      BleDiscoveredService(
+        uuid: '6e400001-b5a3-f393-e0a9-e50e24dcca9e',
+        characteristics: [],
+      ),
+    ];
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: '01', deviceName: 'Dev', services: services),
+      ble: FakeBleService(),
+      codec: FakeSpecCodec(),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Service'), findsOneWidget);
+  });
+
+  testWidgets('two instances of one service UUID each get their own card',
+      (tester) async {
+    // GATT permits a peripheral to expose several instances of one service,
+    // and multi-channel vendor hardware does. Keying the cards on the UUID
+    // alone collapsed them in `childIndexByKey`, so both were handed the same
+    // index and the per-index reconciliation that callback exists to prevent
+    // came straight back — remounting cards, and with them the notify
+    // subscriptions bound in initState.
+    const duplicated = [
+      BleDiscoveredService(
+        uuid: '0000aaa0-0000-1000-8000-00805f9b34fb',
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: '0000aaa1-0000-1000-8000-00805f9b34fb',
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ],
+      ),
+      BleDiscoveredService(
+        uuid: '0000aaa0-0000-1000-8000-00805f9b34fb',
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: '0000aaa2-0000-1000-8000-00805f9b34fb',
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ],
+      ),
+    ];
+    final ble = FakeBleService();
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: 'AA:BB', deviceName: 'Dual', services: duplicated),
+      ble: ble,
+      codec: FakeSpecCodec(),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(Card), findsNWidgets(2));
+    // Each instance subscribed to its own characteristic, exactly once.
+    expect(
+      ble.subscriptions,
+      containsAll(const [
+        '0000aaa1-0000-1000-8000-00805f9b34fb',
+        '0000aaa2-0000-1000-8000-00805f9b34fb',
+      ]),
+    );
+    expect(ble.subscriptions, hasLength(2));
   });
 
   testWidgets('renders typed controls for a matched characteristic',

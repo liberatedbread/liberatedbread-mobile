@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
+import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
@@ -201,13 +202,15 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
           if (_writable) ...[
             const SizedBox(height: 6),
             _control(scheme, text),
-          ] else if (_min != null && _max != null)
+          ] else if (setpointRange(_min, _max) case final range?)
             // Read-only: the range is still worth stating — it is what the
-            // device accepts, even though this build cannot send it.
+            // device accepts, even though this build cannot send it. Same
+            // guard as the control, so a spec whose bounds do not make a
+            // range says nothing rather than "Accepts 100–2.55".
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
-                'Accepts ${_fmt(_min!)}–${_fmt(_max!)}'
+                'Accepts ${_fmt(range.min)}–${_fmt(range.max)}'
                 '${widget.entity.unit == null ? '' : ' ${widget.entity.unit}'}, '
                 'but this spec does not describe how to set it yet.',
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
@@ -219,16 +222,13 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
   }
 
   /// The live reading in decoded units, when there is one to show.
+  ///
+  /// Goes through the same shared transform every other surface uses, which
+  /// is also the one `encodeEntityValue` inverts when sending — so what the
+  /// slider reads back and what a chosen value writes cannot drift apart.
   double? _readingOf(EntityLiveValue? value) {
     if (value == null || value.status != EntityValueStatus.live) return null;
-    final primary = value.primary;
-    if (primary == null) return null;
-    final raw = (primary.intValue ?? primary.uintValue)?.toDouble();
-    if (raw == null) return null;
-    // Same linear transform the codec inverts when sending: the entity's own
-    // scale wins over the field's, and they must never compound.
-    final scale = widget.entity.valueScale ?? primary.scale ?? 1.0;
-    return raw * scale + (primary.valueOffset ?? 0.0);
+    return value.decodedNumber;
   }
 
   Widget _currentValue(
@@ -283,7 +283,7 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
         // A unit that follows a device setting is not a fact about the
         // protocol — the same raw number means °C or °F depending on how the
         // device is configured, so the reading must not imply otherwise.
-        if (value.primary?.unitSource == 'device_setting') ...[
+        if (value.unitIsDeviceSetting) ...[
           const SizedBox(width: 6),
           Tooltip(
             message: 'The device decides this unit; it is not fixed by the '
@@ -297,13 +297,17 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
   }
 
   Widget _control(ColorScheme scheme, TextTheme text) {
-    final min = _min;
-    final max = _max;
-    final target = _pending ?? min ?? 0;
+    // Not `(_min, _max)` directly: an absent, inverted or zero-width pair
+    // cannot drive a Slider (whose `min <= max` is an assert) or `clamp`
+    // (which throws on an inverted range), and specs load from arbitrary
+    // remote packs. `setpointRange` folds all three cases into "no usable
+    // range", which the stepper branch below already handles honestly.
+    final range = setpointRange(_min, _max);
+    final target = _pending ?? range?.min ?? _min ?? 0;
 
-    // Without a declared range a slider would be inventing bounds, so offer
+    // Without a usable range a slider would be inventing bounds, so offer
     // steppers around the current value instead.
-    if (min == null || max == null) {
+    if (range == null) {
       return Row(
         children: [
           Text('Set to ${_fmt(target)}', style: text.bodyMedium),
@@ -326,10 +330,14 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
       );
     }
 
+    final (min, max) = (range.min, range.max);
     final clamped = target.clamp(min, max).toDouble();
     // Discrete stops so the slider can only land on values the device can
     // actually hold — `step` is the device's real resolution, not cosmetic.
-    final divisions = ((max - min) / _step).round();
+    // Null past the division cap: a uint32 setpoint stepped by 1 asks for 4.3
+    // billion stops, and a continuous slider is the honest rendering when the
+    // steps are finer than the screen.
+    final divisions = divisionsForStep(min, max, _step);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -351,7 +359,7 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
         Slider(
           min: min,
           max: max,
-          divisions: divisions > 0 ? divisions : null,
+          divisions: divisions,
           value: clamped,
           label: _fmt(clamped),
           onChanged: _sending

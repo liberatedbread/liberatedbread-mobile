@@ -9,8 +9,10 @@ import '../core/device_category.dart';
 import '../core/hex.dart';
 import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
+import '../providers/device_description_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/spec_choice_provider.dart';
+import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
 import 'binary_sensor_card.dart';
 import 'entity_sensor_card.dart';
@@ -50,6 +52,12 @@ class DeviceControlPanel extends ConsumerWidget {
     // case-insensitive, so this only affects the key's stability.
     final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
       ..sort();
+
+    // Names standard services the spec does not describe. Watched, not read:
+    // it resolves a frame or two after the first build, and the cards should
+    // gain their names when it does rather than on the next unrelated
+    // rebuild.
+    final registry = ref.watch(numberRegistryProvider);
 
     // valueOrNull rather than asData: on a recompute (e.g. a spec choice was
     // just saved) riverpod re-emits AsyncLoading, and asData would go null —
@@ -198,8 +206,15 @@ class DeviceControlPanel extends ConsumerWidget {
     final childIndexByKey = <Key, int>{
       for (var i = 0; i < leading.length; i++)
         if (leading[i].key case final key?) key: i,
+      // The index is part of the key, not just the value. GATT permits a
+      // peripheral to expose several instances of one service UUID, and a
+      // UUID-only key made those instances collide: two children built with
+      // the same key, and a map that kept only the last of them — so
+      // `findChildIndexCallback` handed both cards the same index and the
+      // per-index reconciliation this callback exists to prevent came
+      // straight back.
       for (var i = 0; i < services.length; i++)
-        ValueKey('service:${normalizeUuid(services[i].uuid)}'):
+        ValueKey('service:$i:${normalizeUuid(services[i].uuid)}'):
             i + leading.length,
     };
 
@@ -209,12 +224,18 @@ class DeviceControlPanel extends ConsumerWidget {
       findChildIndexCallback: (key) => childIndexByKey[key],
       itemBuilder: (context, index) {
         if (index < leading.length) return leading[index];
-        final service = services[index - leading.length];
+        // Keyed on the service's own position, NOT the list index: the list
+        // index shifts by `leading.length` as slots appear and disappear, and
+        // a key that shifts with it is not a key — it remounts the very cards
+        // findChildIndexCallback exists to carry across.
+        final position = index - leading.length;
+        final service = services[position];
         return _ServiceCard(
-          key: ValueKey('service:${normalizeUuid(service.uuid)}'),
+          key: ValueKey('service:$position:${normalizeUuid(service.uuid)}'),
           deviceId: deviceId,
           service: service,
           matched: match,
+          registry: registry,
         );
       },
     );
@@ -574,11 +595,18 @@ class _ServiceCard extends StatelessWidget {
   final BleDiscoveredService service;
   final MatchedSpec? matched;
 
+  /// The vendored Bluetooth SIG registry, for naming standard services the
+  /// matched spec does not describe. `AsyncValue` because it is indexed once
+  /// on a background load: until it lands the card shows the bare UUID, which
+  /// is what it showed for every unlisted service before.
+  final AsyncValue<NumberRegistry> registry;
+
   const _ServiceCard({
     super.key,
     required this.deviceId,
     required this.service,
     required this.matched,
+    required this.registry,
   });
 
   @override
@@ -623,17 +651,19 @@ class _ServiceCard extends StatelessWidget {
     );
   }
 
-  String _serviceDisplayName(String uuid) {
-    // Well-known BLE service names, matched on the short assigned number:
-    // normalizeUuid folds SIG-base UUIDs down to it, so both the spec's
-    // 128-bit spelling and flutter_blue_plus's short form land here as
-    // e.g. '180f'.
-    return switch (normalizeUuid(uuid)) {
-      '180f' => 'Battery Service',
-      '1800' => 'Generic Access',
-      '1801' => 'Generic Attribute',
-      '181a' => 'Environmental Sensing',
-      _ => 'Service',
-    };
-  }
+  /// What to call a service the matched spec does not name.
+  ///
+  /// Read from the vendored Bluetooth SIG registry rather than a hardcoded
+  /// switch. The switch knew four assigned numbers; the registry — already
+  /// bundled, already indexed, and already what the scan list names services
+  /// from — knows every one the SIG has published, so a Heart Rate or Human
+  /// Interface Device service stops rendering as the anonymous "Service".
+  ///
+  /// The registry answers in the same vocabulary either UUID spelling folds
+  /// to, so both the spec's 128-bit form and flutter_blue_plus's short form
+  /// resolve. A vendor's own 128-bit UUID is in no registry and keeps the
+  /// generic label — there is nothing true to say about it here, which is the
+  /// spec matcher's job one level up.
+  String _serviceDisplayName(String uuid) =>
+      registry.valueOrNull?.serviceName(uuid) ?? 'Service';
 }
