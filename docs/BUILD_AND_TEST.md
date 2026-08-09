@@ -377,6 +377,10 @@ cargo build --release
 
 The run script:
 - Checks for Flutter on PATH
+- Auto-upgrades the repo-managed SDK at `~/.flutter-sdk` to CI's pinned
+  `FLUTTER_VERSION` when it is stale, so a version bump in `ci.yml` doesn't fail
+  later inside `flutter pub get`. A Flutter installed elsewhere is left alone;
+  set `LB_FLUTTER_AUTO_UPGRADE=0` to skip the check.
 - Runs `flutter pub get` if needed
 - Finds a connected device or launches the Android emulator
 - Waits for the emulator to boot (up to 120 seconds)
