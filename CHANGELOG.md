@@ -137,6 +137,28 @@ heading.
 
 ### Added
 
+- **A file no test imports can no longer hide from the coverage number.**
+  `flutter test --coverage` instruments only what a test reaches, so an
+  unreferenced library is absent from the report rather than reported as zero —
+  and therefore absent from the denominator, which means adding an entirely
+  untested file to `lib/` moved coverage by nothing at all.
+  `scripts/ci-coverage-audit.sh` compares the tracked `lib/` files against the
+  report and fails on anything missing, in the `unit-tests` job and in
+  `scripts/test.sh`. Two abstract-only files are allowlisted with their
+  reasons, and the allowlist is checked in both directions.
+
+  `lib/main.dart` was the file living in that gap — the app's own entrypoint,
+  executed by nothing. `test/main_test.dart` now covers it, including the
+  documented contract that a failed `RustLib.init` is logged loudly and does
+  not stop the app.
+
+- **`RealSpecCodec`'s untested half.** Four of its methods —
+  `matchNetworkDevice`, `identifyStandardProfiles`, `encodeEntityValue`,
+  `encodeImageFrame` — had never been executed, because every widget test
+  drives the fake instead. They are thin pass-throughs to generated FFI
+  functions, which is exactly the code that looks too boring to test and then
+  transposes two adjacent int arguments. 57.9% to 100%.
+
 - **The Rust crate's coverage is measured.** Roughly a third of the
   hand-written code in this project — the spec parser, the codec, the protocol
   dispatch, the mock simulator — was tested and never counted, so the reported

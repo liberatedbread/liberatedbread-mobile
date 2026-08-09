@@ -140,6 +140,17 @@ log "host Rust library (FFI-backed tests load it by path)"
 log "flutter test --coverage --exclude-tags=netdisco"
 flutter test --coverage --exclude-tags=netdisco
 
+# A file no test imports is ABSENT from lcov rather than reported as zero, so
+# it silently leaves the percentage alone. Both reports are offered when the
+# netdisco run has left one behind, since a library only those suites reach is
+# legitimately missing from the run above.
+log "coverage audit (every lib/ file measured?)"
+coverage_reports=(coverage/lcov.info)
+if [[ -s coverage/netdisco-lcov.info ]]; then
+  coverage_reports+=(coverage/netdisco-lcov.info)
+fi
+./scripts/ci-coverage-audit.sh "${coverage_reports[@]}"
+
 log "cargo fmt --all -- --check"
 (cd rust && cargo fmt --all -- --check)
 

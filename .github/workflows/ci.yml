@@ -435,6 +435,17 @@ jobs:
       # real seconds for multicast datagrams. They have a job of their own — see
       # scripts/ci-netdisco-tests.sh for why they are not part of this one.
       - run: flutter test --coverage --exclude-tags=netdisco
+      # `flutter test --coverage` instruments only what a test imports, so a
+      # library no test reaches is ABSENT from the report rather than reported
+      # as zero — and therefore absent from the denominator, contributing
+      # nothing to the percentage. Adding an entirely untested file to lib/
+      # moved the number not at all, which makes the status below a measurement
+      # of "code somebody already tested". lib/main.dart was living in that gap.
+      #
+      # Before the upload on purpose: a report that is missing files is not one
+      # to publish a percentage from.
+      - name: Audit the report for files no test imports
+        run: ./scripts/ci-coverage-audit.sh coverage/lcov.info
       # Flagged, because this is no longer the only job that uploads: the
       # network-discovery job sends the coverage for the suites this run
       # EXCLUDES. Codecov merges both reports for the commit; the flags are so a

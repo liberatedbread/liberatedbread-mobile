@@ -1107,6 +1107,32 @@ that moved Rust coverage moved the number not at all.
 missing flag means an upload failed, and the number *should* move rather than
 quietly reusing the last one.
 
+#### Files no test imports are absent, not zero
+
+```bash
+./scripts/ci-coverage-audit.sh coverage/lcov.info    # runs in unit-tests and test.sh
+```
+
+`flutter test --coverage` instruments the libraries a test actually **imports**.
+A file nothing reaches does not appear in `lcov.info` at all — it is not
+reported as 0%, it is missing, which means it is missing from the denominator
+too. The consequence is the wrong way round from what anyone expects: adding an
+entirely untested file to `lib/` does not lower coverage, it moves it by
+nothing, and the `project` status cannot see it.
+
+`lib/main.dart` was living in that gap — the app's own entrypoint, executed by
+nothing, invisible to every report. It is covered now (`test/main_test.dart`)
+and this check is what stops the next one taking its place: it compares
+`git ls-files lib/**.dart` against the `SF:` records and fails on anything
+missing. Two files are allowlisted in the script, each with its reason, because
+they are abstract declarations with nothing to instrument — and the allowlist is
+checked in the other direction too, so an entry that starts appearing in a report
+is an error rather than a silent exemption.
+
+What it cannot see is stated in the script's header: a file that is on the
+allowlist, grows executable code, and is *still* imported by no test stays
+exempt. Keep the list short.
+
 #### Rust coverage
 
 ```bash
