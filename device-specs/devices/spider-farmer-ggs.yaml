@@ -7,6 +7,7 @@ device:
   manufacturer: "Spider Farmer"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "light"
   notes: >
     BLE grow light controller for Spider Farmer LED grow lights.
     Marketed as requiring a cloud app but actually uses a simple local

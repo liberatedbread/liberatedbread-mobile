@@ -20,6 +20,7 @@ device:
   manufacturer: "Acme Corp"
   manufacturer_status: "abandoned"
   protocol: "ble"
+  category: "light"
   identification:
     # How to identify this device during BLE scanning
     local_name_prefix: "ACME_"
@@ -88,10 +89,50 @@ entities:
 | `manufacturer` | Yes | Original manufacturer name |
 | `manufacturer_status` | Yes | One of: `abandoned`, `shutdown`, `unsupported`, `active` |
 | `protocol` | Yes | Primary protocol: `ble`, `wifi`, `zigbee`, `zwave`, `obd2` |
+| `category` | Yes | Broad device class from a closed vocabulary — see [The `category` vocabulary](#the-category-vocabulary) |
+| `type` | No | Free-text device class, e.g. `smart-scale`. `reference-*` marks a published-protocol reference |
 | `notes` | No | Free-text notes about the device |
 | `identification` | No | How to auto-discover during scanning |
 | `discovery` | No | Machine-readable discovery methods and identity keys |
 | `setup` | No | One-time provisioning, factory reset and rebinding |
+
+### The `category` vocabulary
+
+`category` and `type` both name the device class. `type` is free text for a
+human — `smart-scale`, `ebike-controller` — and you should make it as precise
+as you like. `category` is a closed vocabulary for a program, it is required,
+and a value outside the list below is a validation error:
+
+| | | | | |
+|---|---|---|---|---|
+| `appliance` | `camera` | `climate` | `display` | `energy` |
+| `fitness` | `health` | `hub` | `irrigation` | `light` |
+| `lock` | `motor` | `printer` | `reference` | `robot` |
+| `scale` | `sensor` | `speaker` | `switch` | `tool` |
+| `tracker` | `tv` | `vehicle` | `wearable` | `other` |
+
+The closed list is the point. Downstream consumers branch on this field — the
+mobile app picks the icon it draws beside each scan result from it — so the
+three specs that would otherwise say `smart-scale`, `kitchen-scale` and
+`body-composition-scale` have to agree on one word. A typo'd or invented
+category is indistinguishable at the consumer from a device nobody ever
+documented: both come out as an anonymous radio icon, which is exactly what
+the field exists to prevent.
+
+Choose the word someone would use from across the room, not the most precise
+one available:
+
+- an LED strip controller is a `light`; an LED matrix panel is a `display`
+- an e-bike mid-drive is a `motor`; a car's diagnostic connector is `vehicle`
+- a BBQ probe is a `sensor`, whatever the kitchen has to do with it
+- a bridge or gateway you talk to *instead of* the device is a `hub`
+
+Two cases are not judgement calls. Reference specs — the ones whose `type`
+starts with `reference-` — take `category: reference`, and the schema rejects a
+file where the two fields disagree, in either direction: a device may no more
+claim `category: reference` than a reference may claim `light`. And `other` is for a device the vocabulary
+genuinely cannot describe: treat reaching for it as a prompt to propose a new
+value in `schema.json`, not as a place to leave the device.
 
 ### `identification` (optional)
 
@@ -660,7 +701,7 @@ and prints a `PASS`/`FAIL` line per file with the failing JSON path on error.
 
 `device-specs/index.json` is a generated manifest that lets consumers enumerate
 specs automatically instead of hardcoding a file list. It is a JSON array,
-sorted by path, of `{ name, path, protocol, manufacturer, manufacturer_status,
+sorted by path, of `{ name, path, protocol, category, manufacturer, manufacturer_status,
 helpful_urls (if set), helpful_videos (if set), protocol_handler (if set),
 schema_version }`. Absent helpful-reference fields are omitted rather than
 emitted as empty arrays. Regenerate it with:

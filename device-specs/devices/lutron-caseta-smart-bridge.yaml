@@ -7,6 +7,7 @@ device:
   manufacturer: "Lutron"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "hub"
   transport: "tls-json"
   notes: >
     Lutron Caseta Smart Bridge 2 advertises multiple local services. LEAP on

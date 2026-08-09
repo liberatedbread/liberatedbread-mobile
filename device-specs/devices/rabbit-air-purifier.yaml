@@ -45,6 +45,7 @@ device:
       (BLE-assisted / AP-mode) is NOT published and was only partially
       recovered from the Rabbit Air 2 app binary.
   protocol: "wifi"
+  category: "climate"
   transport: "udp"
   notes: >
     Rabbit Air's Wi-Fi-enabled purifiers speak an encrypted JSON-over-UDP LAN

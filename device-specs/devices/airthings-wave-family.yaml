@@ -10,6 +10,7 @@ device:
   manufacturer: "Airthings ASA"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "sensor"
   notes: >
     Family of BLE air quality monitors: Wave (radon), Wave Plus (radon + CO₂ +
     VOC + pressure), Wave Mini (temp/humidity/mold risk), Wave Gen 2, View Plus

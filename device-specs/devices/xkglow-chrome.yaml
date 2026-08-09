@@ -15,6 +15,7 @@ device:
   manufacturer: "XKGlow"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "light"
   notes: >
     BLE motorcycle LED controller from XKGlow. Single custom GATT service
     with 7 characteristics (the 8th UUID in the app's attribute table is

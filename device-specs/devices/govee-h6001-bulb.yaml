@@ -10,6 +10,7 @@ device:
   manufacturer: "Govee (Shenzhen Intellirocks Tech / iHoment)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "light"
   notes: >
     BLE-only smart bulb from Govee's legacy bulb family (H6001, H6005;
     H6101/H6104 are sibling classes with a different GATT profile).

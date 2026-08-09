@@ -11,6 +11,7 @@ device:
   manufacturer: "OBD Solutions LLC (ScanTool.net)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "vehicle"
   notes: >
     Dual-mode Bluetooth OBD-II adapter on an STN chipset (STN2255 on original
     units — out of production per OBDLink FRPM rev F §3.1; STN2256 on current

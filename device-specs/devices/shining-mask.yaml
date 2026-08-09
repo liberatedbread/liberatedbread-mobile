@@ -7,6 +7,7 @@ device:
   manufacturer: "Shenzhen Shining Bright Technology"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "display"
   notes: >
     LED face mask with 2074 RGB LEDs, 16-pixel-tall display.
     All commands to the Command characteristic are AES-128 ECB encrypted with the
