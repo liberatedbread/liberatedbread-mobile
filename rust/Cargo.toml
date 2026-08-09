@@ -29,7 +29,7 @@ name = "liberated_bread_core"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
 
 [dependencies]
-flutter_rust_bridge = "=2.9.0"
+flutter_rust_bridge = "=2.12.0"
 serde = { version = "1", features = ["derive"] }
 # Spec `commands` and `parameters` are YAML mappings whose *declaration order*
 # is meaningful — it is the order the spec author wants the controls listed.
