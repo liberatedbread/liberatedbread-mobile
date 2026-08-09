@@ -31,6 +31,11 @@
 #   * A file whose tests are ALL excluded by --exclude-tags=e2e (today:
 #     e2e_walkthrough_test.dart, which needs scripts/e2e_shot_server.py on the
 #     host) must be SKIPPED, not failed.
+#   * A @Tags(['bluez']) file is DEFERRED, not skipped: it needs a virtual
+#     BlueZ stack around it, so it runs in a second pass at the bottom of this
+#     script, wrapped in scripts/linux-virtual-ble.sh. Running it in this loop
+#     would fail for want of an org.bluez to talk to, and that failure would
+#     read as an app bug rather than a missing harness.
 #
 # The e2e case gets two layers because the first attempt at it got burned. The
 # primary check reads the @Tags(['e2e']) annotation out of the file, which is
@@ -82,9 +87,13 @@ fi
 
 # Read the file-level annotation the exclusion acts on. Newlines are folded
 # first because `dart format` wraps a multi-entry @Tags across lines.
-is_e2e_file() {
+#
+# Takes the tag as an argument because there are now two: `e2e` (needs
+# scripts/e2e_shot_server.py on the host) and `bluez` (needs the virtual BlueZ
+# stack, which is started separately below).
+has_file_tag() {
   tr '\n' ' ' < "$1" \
-    | grep -qE "@Tags[[:space:]]*\([[:space:]]*(const[[:space:]]*)?(<[^>]*>[[:space:]]*)?\[[^]]*['\"]e2e['\"]"
+    | grep -qE "@Tags[[:space:]]*\([[:space:]]*(const[[:space:]]*)?(<[^>]*>[[:space:]]*)?\[[^]]*['\"]$2['\"]"
 }
 
 if [ -n "${LB_LINUX_TEST_FILES:-}" ]; then
@@ -96,6 +105,7 @@ fi
 
 status=0
 ran=0
+bluez_targets=()
 
 for t in "${targets[@]}"; do
   echo "::group::$t"
@@ -106,8 +116,18 @@ for t in "${targets[@]}"; do
     continue
   fi
 
-  if is_e2e_file "$t"; then
+  if has_file_tag "$t" e2e; then
     echo "SKIP  $t (file-level @Tags(['e2e']) — excluded by --exclude-tags=e2e)"
+    echo "::endgroup::"
+    continue
+  fi
+
+  if has_file_tag "$t" bluez; then
+    # Not skipped, deferred: it runs below, wrapped in the virtual BlueZ stack.
+    # Running it here would fail for want of an org.bluez to talk to, and that
+    # failure would read as an app bug rather than a missing harness.
+    echo "DEFER $t (file-level @Tags(['bluez']) — run under scripts/linux-virtual-ble.sh below)"
+    bluez_targets+=("$t")
     echo "::endgroup::"
     continue
   fi
@@ -115,13 +135,13 @@ for t in "${targets[@]}"; do
   log="$(mktemp)"
   if xvfb-run -a flutter test "$t" \
        -d linux \
-       --exclude-tags=e2e \
+       --exclude-tags=e2e,bluez \
        --timeout "$TEST_TIMEOUT" \
        --dart-define=LIBERATED_BREAD_MOCK=true 2>&1 | tee "$log"; then
     echo "PASS  $t"
     ran=$((ran + 1))
   elif grep -qE 'No tests ran\.|No tests match the requested tag selectors' "$log"; then
-    echo "SKIP  $t (every test in it is excluded by --exclude-tags=e2e)"
+    echo "SKIP  $t (every test in it is excluded by --exclude-tags=e2e,bluez)"
   else
     echo "::error file=$t::Integration test failed on the Linux desktop."
     status=1
@@ -130,6 +150,39 @@ for t in "${targets[@]}"; do
   rm -f "$log"
   echo "::endgroup::"
 done
+
+# ── phase two: the suites that need a virtual BlueZ stack ───────────────────
+#
+# These are the only tests anywhere that drive flutter_blue_plus_linux itself.
+# Everything else on this platform runs in mock mode, so the BlueZ/D-Bus
+# translation — the object tree becoming a GATT tree, StartNotify's CCCD
+# confirmation that never arrives, "Not paired" standing in for ATT 0x05 — was
+# compiled but never executed. scripts/linux-virtual-ble.sh supplies the stack;
+# see its header for why it is a private D-Bus rather than a kernel vhci.
+#
+# Same one-invocation-per-file rule as above, and the same reason.
+#
+# Guarded on the count rather than expanding a possibly-empty array: bash 3.2
+# (still what macOS ships) treats "${arr[@]}" on an empty array as an unbound
+# variable under `set -u`.
+if [ "${#bluez_targets[@]}" -gt 0 ]; then
+  for t in "${bluez_targets[@]}"; do
+    echo "::group::$t (virtual BlueZ)"
+    if ./scripts/linux-virtual-ble.sh \
+         xvfb-run -a flutter test "$t" \
+           -d linux \
+           --tags=bluez \
+           --timeout "$TEST_TIMEOUT" \
+           --dart-define=LIBERATED_BREAD_MOCK=true; then
+      echo "PASS  $t"
+    else
+      echo "::error file=$t::Integration test failed against the virtual BlueZ stack."
+      status=1
+    fi
+    ran=$((ran + 1))
+    echo "::endgroup::"
+  done
+fi
 
 # A loop that skipped everything is a green step that tested nothing, which is
 # how a renamed directory or an over-eager skip rule would hide. Refuse it.

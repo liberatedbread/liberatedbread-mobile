@@ -190,7 +190,7 @@ env:
   #   libsecret-1-dev   flutter_secure_storage_linux (HA token storage)
   #   libjsoncpp-dev    pulled in by the CMake/plugin toolchain
   #   xvfb              virtual X server, so the app can actually RUN in CI
-  LINUX_DESKTOP_PACKAGES: 'clang cmake libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config xvfb'
+  LINUX_DESKTOP_PACKAGES: 'clang cmake dbus libgtk-3-dev libjsoncpp-dev liblzma-dev libsecret-1-dev ninja-build pkg-config python3-dbus-next xvfb'
 
 jobs:
   # The `flutter` job used to be one 1m45s serial chain — format, analyze,

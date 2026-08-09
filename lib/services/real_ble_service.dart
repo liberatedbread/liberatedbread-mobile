@@ -162,16 +162,36 @@ const _attPairingErrorCodes = {0x05, 0x08, 0x0F};
 /// Extracted as a pure top-level function so the classification can be
 /// unit-tested without a real Bluetooth adapter.
 bool isPairingRequiredError(Object error) {
-  if (error is! FlutterBluePlusException) return false;
-  if (error.platform == ErrorPlatform.fbp) return false;
-  if (_attPairingErrorCodes.contains(error.code)) return true;
-  // BlueZ answers over D-Bus with a name rather than an ATT code — the code
-  // arrives as 0 or null and the description carries the meaning.
-  final description = error.description?.toLowerCase() ?? '';
-  return description.contains('not paired') ||
-      description.contains('insufficient authentication') ||
-      description.contains('insufficient encryption') ||
-      description.contains('not authorized');
+  if (error is FlutterBluePlusException) {
+    if (error.platform == ErrorPlatform.fbp) return false;
+    if (_attPairingErrorCodes.contains(error.code)) return true;
+    // BlueZ answers over D-Bus with a name rather than an ATT code — the code
+    // arrives as 0 or null and the description carries the meaning.
+    return _namesPairing(error.description);
+  }
+  // Not every failure arrives wrapped. flutter_blue_plus_linux converts a
+  // failed READ into a BmCharacteristicData with an error string (which becomes
+  // a FlutterBluePlusException above), but it lets the D-Bus exception from
+  // StartNotify propagate as-is — so a peripheral refusing a subscription for
+  // lack of pairing reaches us as a raw DBusMethodResponseException. Matching
+  // the phrase rather than the type keeps package:dbus out of this package's
+  // dependencies for the sake of one `is` check.
+  return _namesPairing(error.toString());
+}
+
+/// Whether [text] is a stack saying, in words, that the link must be paired.
+///
+/// The phrases are the D-Bus/BlueZ renderings; every numeric platform is
+/// handled by the ATT codes above. Matched narrowly on purpose: BlueZ also
+/// raises `org.bluez.Error.NotPermitted` for an ordinary write to a read-only
+/// characteristic, so the error NAME alone would send users to pair a device
+/// over something pairing cannot fix.
+bool _namesPairing(String? text) {
+  final lower = text?.toLowerCase() ?? '';
+  return lower.contains('not paired') ||
+      lower.contains('insufficient authentication') ||
+      lower.contains('insufficient encryption') ||
+      lower.contains('not authorized');
 }
 
 /// Decide whether a write should be sent WITHOUT a response, given a
@@ -665,10 +685,14 @@ class RealBleService implements BleService {
   /// refusal immediately puts the guidance on screen while the dialog is up,
   /// and the user's retry finds a bonded link.
   Future<T> _pairingAware<T>(String deviceId, Future<T> Function() operation) {
-    return operation().onError<FlutterBluePlusException>((error, stack) {
+    // Catches Object, not FlutterBluePlusException: on Linux a refused
+    // subscription arrives as a raw D-Bus exception (see
+    // [isPairingRequiredError]), and narrowing the catch would let exactly that
+    // case through untranslated.
+    return operation().onError<Object>((error, stack) {
       if (!isPairingRequiredError(error)) throw error;
-      Log.ble.warning('$deviceId refused ${error.function}: the link is not '
-          'paired (code ${error.code}, ${error.description})');
+      Log.ble.warning('$deviceId refused an operation: the link is not '
+          'paired ($error)');
       if (Platform.isAndroid) {
         unawaited(
           BluetoothDevice.fromId(deviceId).createBond().catchError((Object e) {
