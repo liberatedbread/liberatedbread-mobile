@@ -429,10 +429,15 @@ jobs:
       # real seconds for multicast datagrams. They have a job of their own — see
       # scripts/ci-netdisco-tests.sh for why they are not part of this one.
       - run: flutter test --coverage --exclude-tags=netdisco
+      # Flagged, because this is no longer the only job that uploads: the
+      # network-discovery job sends the coverage for the suites this run
+      # EXCLUDES. Codecov merges both reports for the commit; the flags are so a
+      # pull-request comment can say which run moved.
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: coverage/lcov.info
+          flags: unit
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
@@ -478,6 +483,22 @@ jobs:
       # names it too.
       - name: Run discovery tests against emulated network devices
         run: ./scripts/ci-netdisco-tests.sh
+      # This job is the only place RealNetworkScanService runs, and the job that
+      # uploads coverage is the one that excludes it — so its lines were being
+      # measured here and then discarded. Same commit, measured: 108/169 lines
+      # in the uploaded report, 164/169 here. The best-tested service in the
+      # project was reading as one of the worst, and improving these tests moved
+      # the number not at all.
+      #
+      # Codecov merges reports per commit, so two partial uploads are the
+      # supported shape rather than a workaround.
+      - name: Upload discovery coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/netdisco-lcov.info
+          flags: netdisco
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   rust:
     name: Rust (test + clippy + fmt)
