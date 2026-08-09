@@ -373,4 +373,42 @@ void main() {
 
     expect(api.registeredSensors.single.name, startsWith('AA:BB '));
   });
+
+  // A flush is an in-flight HTTP call, and the provider that owns the status
+  // notifier is disposed whenever its ProviderScope goes — the user leaving
+  // the app, or a screen being torn down. The flush then finishes and reports
+  // its outcome into a disposed ChangeNotifier, which ASSERTS in debug builds.
+  // Found by the full-stack app test, which mounts and unmounts the real app;
+  // the stack it produced named the framework, not this race.
+  group('status updates after disposal', () {
+    test('a successful flush that lands after disposal is dropped, not thrown',
+        () async {
+      final api = FakeHaApiClient()
+        ..registerDeviceDelay = const Duration(milliseconds: 50);
+      final forwarder = _forwarder(api);
+
+      final flush = forwarder.onDecodedValues(
+          deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      forwarder.status.dispose();
+
+      await flush;
+      expect(api.stateUpdates, isNotEmpty,
+          reason: 'the send itself still completes; only the notification is '
+              'dropped');
+    });
+
+    test('a failed flush that lands after disposal is dropped, not thrown',
+        () async {
+      final api = FakeHaApiClient()
+        ..registerDeviceDelay = const Duration(milliseconds: 50)
+        ..updateError = StateError('server down');
+      final forwarder = _forwarder(api);
+
+      final flush = forwarder.onDecodedValues(
+          deviceId: 'd', specChar: _statusChar, values: [_brightness(10)]);
+      forwarder.status.dispose();
+
+      await flush;
+    });
+  });
 }

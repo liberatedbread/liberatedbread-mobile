@@ -131,6 +131,21 @@ void main() {
     _prefs = await SharedPreferences.getInstance();
   });
 
+  /// Give the test surface room for the whole scan screen.
+  ///
+  /// The default 800x600 is smaller than a phone, and the scan screen spends
+  /// most of it on chrome before the first device row: radar, headline,
+  /// subhead, then a section header. In a lazily-built ListView a row below the
+  /// fold is never CONSTRUCTED, so `find.text` cannot see it and the failure
+  /// reads as "the device was never discovered" — which is the one thing it is
+  /// not. Assert on a viewport that would actually show the list.
+  void useTallSurface(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1000, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+  }
+
   Widget app() => ProviderScope(
         // Only SharedPreferences, which main() resolves before runApp.
         // bleServiceProvider is deliberately left alone: it builds a real
@@ -143,6 +158,7 @@ void main() {
       (tester) async {
     ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Living_Room'));
 
+    useTallSurface(tester);
     await _scenario(tester, () async {
       await tester.pumpWidget(app());
       await _pumpAWhile(tester, rounds: 4);
@@ -181,6 +197,7 @@ void main() {
     final bulb =
         ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Living_Room'));
 
+    useTallSurface(tester);
     await _scenario(tester, () async {
       await tester.pumpWidget(app());
       await _pumpAWhile(tester, rounds: 4);
@@ -270,6 +287,7 @@ void main() {
       'on', (tester) async {
     ble.add(sensor(id: _lockId, requiresPairing: true));
 
+    useTallSurface(tester);
     await _scenario(tester, () async {
       await tester.pumpWidget(app());
       await _pumpAWhile(tester, rounds: 4);
@@ -296,6 +314,7 @@ void main() {
       (tester) async {
     ble.add(sensor(id: _bulbId, requiresPairing: false));
 
+    useTallSurface(tester);
     await _scenario(tester, () async {
       await tester.pumpWidget(app());
       await _pumpAWhile(tester, rounds: 4);
@@ -316,6 +335,7 @@ void main() {
       (tester) async {
     ble.adapterState = EmulatedAdapterState.off;
 
+    useTallSurface(tester);
     await _scenario(tester, () async {
       await tester.pumpWidget(app());
       await _pumpAWhile(tester, rounds: 4);
@@ -332,6 +352,7 @@ void main() {
       (tester) async {
     ble.adapterState = EmulatedAdapterState.unauthorized;
 
+    useTallSurface(tester);
     await _scenario(tester, () async {
       await tester.pumpWidget(app());
       await _pumpAWhile(tester, rounds: 4);
