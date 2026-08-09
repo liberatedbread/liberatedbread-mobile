@@ -48,6 +48,7 @@ services:
                 type: "uint8"
                 min: 0
                 max: 100
+                unit: "%"   # what the number means — see "Number semantics" below
 
       - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
         name: "Status"
@@ -210,6 +211,68 @@ devices: [`docs/protocols/device-setup.md`](../docs/protocols/device-setup.md).
 | `commands` | No | Named commands for writable characteristics |
 | `format` | No | Binary format for readable/notifiable characteristics |
 
+### Number semantics — what a numeric value *means*
+
+`type`, `min` and `max` say how wide a number is; they do not say what it
+**is**. Anywhere a spec carries a numeric wire value — a command parameter, a
+characteristic `format` field, a `bus` message field, a `payload_formats`
+field — it can also carry the shared number-semantics vocabulary
+(`$defs/number_semantics` in `schema.json`):
+
+| Field | Meaning |
+|-------|---------|
+| `unit` | Unit of the **decoded** value: `"C"`, `"F"`, `"%"`, `"km/h"`, `"ms"`. States what is on the wire, not what the device displays. |
+| `scale` | `value = raw × scale (+ value_offset)`. Absent means 1. |
+| `value_offset` | Additive term applied after `scale`. Absent means 0. Covers the ubiquitous `x − 40`-style scalings that a bare multiplier silently drops. |
+| `unit_source` | `fixed` (default) or `device_setting` — whether the wire unit is a constant of the protocol or follows a device setting. |
+| `unit_reference` | Where a client learns the active unit. Required with `device_setting`. |
+| `unit_values` | Map from that setting's raw values to units, e.g. `{0x46: "F", default: "C"}`. |
+| `values` | Code table for numbers that are really enumerated codes: `{0: "low", 1: "medium", 2: "high"}`. |
+
+The transform is deliberately linear so command parameters can be **encoded**
+by inverting it — `raw = round((value − value_offset) / scale)`. The OBD
+blocks keep their free-form decode `formula` for non-linear read-only
+scalings; a formula cannot be run backwards, which is exactly why it is not
+used here.
+
+Temperature devices are the motivating case, because C-vs-F comes in two
+genuinely different shapes that must not be conflated:
+
+```yaml
+# Ember Mug: the wire unit is FIXED. Temperatures are always centi-°C;
+# the separate C/F characteristic changes only what the mug displays.
+format:
+  - offset: 0
+    length: 2
+    name: "target_temp_raw"
+    type: "uint16"
+    scale: 0.01
+    unit: "C"
+
+# Inkbird iBBQ: the wire unit FOLLOWS A DEVICE SETTING. The same raw 165
+# means 165 °C or 165 °F depending on state — query before decoding.
+unit_source: "device_setting"
+unit_reference: "get_temp_unit (command 04; response prefix 03/04)"
+unit_values:
+  0x46: "F"       # unit byte is ASCII 'F'
+  default: "C"
+```
+
+Two conventions to keep straight:
+
+- **`min`/`max` on a command parameter stay raw.** They bound the byte the
+  template emits; the real-world bound is `min × scale + value_offset`. On
+  entities it is the other way around — see below.
+- **`value_offset` earns its keep on offset scalings.** The Gerbing heat
+  controller's temperature is the worked example: one raw byte with
+  `value = raw × 0.5 + 85` (°F, inferred) — a decode that `scale` alone
+  cannot express.
+
+Worked examples in the tree: `devices/ember-mug.yaml` (fixed wire unit +
+display-unit select, `values` code tables), `devices/inkbird-bbq-thermometer.yaml`
+(device-setting units), `devices/gerbing-thermogauge.yaml` (`value_offset`),
+`devices/wemo-devices.yaml` (`payload_formats` units).
+
 ### Advanced opcodes
 
 Any command may set `advanced: true` with an `advanced_reason` string. This marks an
@@ -254,7 +317,12 @@ write_parameter:
 
 ### `entities` (optional, array)
 
-Maps device capabilities to Home Assistant entity types. See the example spec for details.
+Maps device capabilities to Home Assistant entity types. See the example spec
+for details. A `number` entity may carry `min`, `max` and `step` — stated in
+the entity's `unit`, i.e. **after** the bound field's `scale`/`value_offset`
+are applied, because they describe the control a user sees rather than the
+byte on the wire. Record the device's real resolution in `step` where known,
+not a cosmetic rounding.
 
 ## OBD-II devices (`obd`)
 

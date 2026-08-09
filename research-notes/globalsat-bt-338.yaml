@@ -1,0 +1,49 @@
+# Globalsat BT-338 / BT-359 Bluetooth GPS Receivers — Device Spec (research note)
+# Company alive (LoRa/IoT pivot) but receivers discontinued; NO companion app ever existed
+
+device:
+  id: globalsat-bt-338
+  name: Globalsat BT-338 / BT-359 Bluetooth GPS Receiver
+  manufacturer: GlobalSat WorldCom Corp. (Taiwan) — alive, pivoted to LoRa/IoT; receivers discontinued
+  also_covers:
+    - Globalsat BT-359 / BT-359W
+    - Globalsat BT-821
+    - Globalsat BC-337 (CompactFlash sibling, same SiRF III + NMEA)
+    - Globalsat SD-502 (SDIO sibling)
+  category: gps_receiver
+  safety_class: NONE
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+
+bluetooth_classic:
+  profiles: [SPP]
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+  pairing_pin: "0000"  # explicit in BT-359 FCC user manual
+  bluetooth_version: "1.2/2.0"
+  notes: >
+    Plain NMEA-over-SPP receiver. Pair PIN 0000, rfcomm bind, point gpsd at
+    the rfcomm device. No vendor config, app, account, or cloud ever existed.
+    SiRFstarIII boots in NMEA mode; SiRF binary mode available in-band via
+    the public $PSRF100 sentence (standard SiRF mechanism, gpsd gpsctl).
+
+protocol:
+  live_position:
+    chipset: SiRFstarIII
+    format: NMEA 0183 (GGA, GSA, GSV, RMC @ 1 Hz)
+    binary_mode: SiRF binary, switchable via $PSRF100 (public SiRF spec)
+    tools: [gpsd, any NMEA parser]
+  logging: none  # receiver-only, no flash log
+
+status:
+  android_app_existed: false  # no app on any platform, ever
+  apk_acquired: false
+  apk_needed: false
+  protocol_recovered: true  # nothing to recover — public NMEA + public SiRF binary
+  hci_snoop_needed: false
+  cloud_dependency: none
+  references:
+    - https://fcc.report/FCC-ID/RID-BT359/664057.pdf
+    - https://easygo.fi/bt338b_ds_ug.pdf
+    - https://www.globalsat.com.tw/en/

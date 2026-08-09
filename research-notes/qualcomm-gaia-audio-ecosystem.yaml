@@ -1,0 +1,82 @@
+# Qualcomm GAIA audio ecosystem — Spec (research draft)
+# GAIA = Generic Application Interface Architecture (CSR -> Qualcomm)
+# Reference source: Qualcomm GAIA Control sample app (KunYi/droid_gaia_ctrl,
+#   com.qualcomm.qti.gaiacontrol v3.3.0.28) — full gaialibrary + vmupgradelibrary
+# UUID sighting list: cweiske.de/tagebuch/bluetooth-gaia.htm
+
+device:
+  id: qualcomm-gaia-audio-ecosystem
+  name: Qualcomm GAIA-based audio devices (CSR86xx / QCC30xx / QCC51xx)
+  manufacturer: multiple (Qualcomm licensees)
+  category: audio_ecosystem
+  safety_class: LOW  # DFU writes carry brick risk; audio devices otherwise benign
+  rating: confirmed  # protocol/transport; per-device command tables vary
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  cloud_dependency: none_inherent  # vendor apps may bolt on accounts (see Nura note)
+  notes: >
+    GAIA is Qualcomm's standard sideband control + DFU channel. On
+    Android/desktop it runs over BR/EDR RFCOMM; on iOS over a BLE GATT
+    service (iOS cannot do SPP). When a vendor app disappears, the GAIA
+    channel on the device remains.
+
+bluetooth_classic:
+  spp_uuids:
+    - uuid: "00001107-d102-11e1-9b23-00025b00a5a5"
+      role: gaia_control_channel_bredr
+  ble_alternate:
+    service_uuid: "00001100-d102-11e1-9b23-00025b00a5a5"  # reported; iOS path
+  discovery: 'SDP scan / `bluetoothctl info`: presence of 1107-d102 UUID = GAIA device'
+
+protocol:
+  name: GAIA
+  framing:
+    source: GaiaPacketBREDR.java (Qualcomm sample)
+    layout:
+      offset0: SOF (0xFF)
+      offset1: version
+      offset2: flags (bit0 = checksum present)
+      offset3: payload length
+      offset4: vendor id (2 bytes LE; Qualcomm = 0x000A)
+      offset6: command id (2 bytes)
+      offset8: payload
+      trailer: optional checksum (when flags bit0 set)
+    constants: {MAX_PACKET: 270, MAX_PAYLOAD: 254, FLAG_CHECK_MASK: 0x01}
+  command_model: >
+    15-bit command space + notification top bit; responses echo command with
+    status. Standard GAIA commands (API version, battery/RSSI, DFU/vmupgrade)
+    common across devices; vendors add proprietary ranges (EQ/ANC/TWS/buttons).
+  dfu: vmupgradelibrary implements DFU over GAIA (brick-risk; document carefully)
+
+known_devices:
+  confirmed_gaia_uuid:
+    - Libratone Zipp (speaker)
+    - KEF MUO (speaker)
+    - OnePlus Buds / Buds Z2
+    - Microsoft Surface Earbuds (discontinued; app retired)
+  documented_in_this_repo:
+    - nuraphone (GAIA + per-device AES key layer)
+    - nuheara-iqbuds (existing note)
+  long_tail: CSR8670/8675 and QCC300x no-name speakers/receivers/earbuds with vanished vendor apps
+
+open_source_clients:
+  - KunYi/droid_gaia_ctrl            # Qualcomm official GAIA Control sample (reference impl)
+  - qiu-yongheng/GAIAControl         # BLE GAIA debug tool
+  - Liberations/Flutter-GAIAControl  # Flutter GAIA OTA port
+  - MarcoLimaSistemas/GAIAEqualizerReactNative  # GAIA EQ over BT Classic
+  - krishnakorambil-11/Sennheiser-Accentum-SmartControlPlus-Windows  # Windows GAIA client
+  - pubglite55/SpaceTravel-Protocol  # Moondrop Space Travel GAIA V3 full RE (BLE)
+  - CallumCarmicheal/Nura-Windows, jamesy0ung/opennura  # Nura GAIA+AES (see nuraphone note)
+
+status:
+  apk_acquired: false         # ecosystem note; no single APK (Qualcomm sample is open source)
+  apk_decompiled: false
+  uuids_recovered: true       # GAIA BR/EDR UUID; BLE variant reported
+  protocol_recovered: true    # framing from public Qualcomm sample source
+  community_re: true
+  hci_snoop_needed: false
+  open_questions:
+    - GAIA V2 vs V3 differences across chip generations
+    - which QCC51xx devices dropped RFCOMM for BLE-only GAIA

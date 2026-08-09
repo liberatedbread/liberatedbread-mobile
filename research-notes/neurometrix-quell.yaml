@@ -1,0 +1,138 @@
+# NeuroMetrix Quell / Quell 2.0 — Research Spec
+# Static analysis of com.neurometrix.quell v3.1.6 (Quell Relief App)
+# APK source: apkeep (apk-pure), downloaded 2026-08-04
+# XAPK SHA-256: 4dc9b79c21db5afb7d08a3b106e1c4e9aeb78f6e1d71858d6ab96038a7f1d5f3
+# Base APK SHA-256: 833d840963fe8ce00809afd9a66a74178cd6beddae67842d78937600f16d59a7
+
+device:
+  id: neurometrix-quell
+  name: NeuroMetrix Quell / Quell 2.0 wearable TENS
+  manufacturer: NeuroMetrix (subsidiary of electroCore since 2025-05)
+  category: medical_therapy_tens
+  safety_class: MEDIUM  # Active nerve stimulation; OTC wellness device
+
+transport:
+  type: ble
+  local_only: true  # Therapy control is local BLE; cloud account optional for sync
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — likely "Quell..."; scan filter uses service UUID
+    service_uuids:
+      - "75000d1f-1000-40f7-8204-ee627068ec88"  # deviceReporting = quellAdvertisedServiceUuid()
+
+  services:
+    - uuid: "75000d1f-1000-40f7-8204-ee627068ec88"
+      name: device_reporting
+      characteristics:
+        - { uuid: "75000d1f-1001-40f7-8204-ee627068ec88", name: device_status, note: "battery, therapy elapsed, on-skin, stim intensity, device state" }
+        - { uuid: "75000d1f-1008-40f7-8204-ee627068ec88", name: device_status2 }
+        - { uuid: "75000d1f-1002-40f7-8204-ee627068ec88", name: device_usage }
+        - { uuid: "75000d1f-1003-40f7-8204-ee627068ec88", name: sleep_bedtime }
+        - { uuid: "75000d1f-1004-40f7-8204-ee627068ec88", name: sleep_efficiency }
+        - { uuid: "75000d1f-1005-40f7-8204-ee627068ec88", name: days_since_first_use }
+        - { uuid: "75000d1f-1006-40f7-8204-ee627068ec88", name: total_time_on_skin }
+        - { uuid: "75000d1f-1007-40f7-8204-ee627068ec88", name: total_therapy_time }
+    - uuid: "75000d1f-1100-40f7-8204-ee627068ec88"
+      name: usage
+      characteristics:
+        - { uuid: "75000d1f-1101-40f7-8204-ee627068ec88", name: wear }
+        - { uuid: "75000d1f-1102-40f7-8204-ee627068ec88", name: usage }
+        - { uuid: "75000d1f-1103-40f7-8204-ee627068ec88", name: night_sessions }
+    - uuid: "75000d1f-1200-40f7-8204-ee627068ec88"
+      name: sleep
+      characteristics:
+        - { uuid: "75000d1f-1201-40f7-8204-ee627068ec88", name: total_sleep_time }
+        - { uuid: "75000d1f-1210-40f7-8204-ee627068ec88", name: total_sleep_time2 }
+        - { uuid: "75000d1f-1202-40f7-8204-ee627068ec88", name: time_on_front }
+        - { uuid: "75000d1f-1203-40f7-8204-ee627068ec88", name: time_on_back }
+        - { uuid: "75000d1f-1204-40f7-8204-ee627068ec88", name: periodic_leg_movement1 }
+        - { uuid: "75000d1f-1205-40f7-8204-ee627068ec88", name: out_of_bed_count1 }
+        - { uuid: "75000d1f-1207-40f7-8204-ee627068ec88", name: position_changes }
+        - { uuid: "75000d1f-1208-40f7-8204-ee627068ec88", name: time_on_right }
+        - { uuid: "75000d1f-1209-40f7-8204-ee627068ec88", name: time_on_left }
+        - { uuid: "75000d1f-120a-40f7-8204-ee627068ec88", name: periodic_leg_movement2 }
+        - { uuid: "75000d1f-120b-40f7-8204-ee627068ec88", name: out_of_bed_count2 }
+        - { uuid: "75000d1f-120c-40f7-8204-ee627068ec88", name: total_sleep_period_start }
+        - { uuid: "75000d1f-120d-40f7-8204-ee627068ec88", name: total_sleep_period_end }
+        - { uuid: "75000d1f-120e-40f7-8204-ee627068ec88", name: therapy_time }
+        - { uuid: "75000d1f-120f-40f7-8204-ee627068ec88", name: time_in_bed }
+        - { uuid: "75000d1f-1211-40f7-8204-ee627068ec88", name: wake_after_sleep_onset }
+        - { uuid: "75000d1f-1212-40f7-8204-ee627068ec88", name: time_in_bed_start }
+        - { uuid: "75000d1f-1213-40f7-8204-ee627068ec88", name: time_in_bed_end }
+        - { uuid: "75000d1f-1214-40f7-8204-ee627068ec88", name: sleep_status }
+    - uuid: "75000d1f-1300-40f7-8204-ee627068ec88"
+      name: activity
+      characteristics:
+        - { uuid: "75000d1f-1301-40f7-8204-ee627068ec88", name: steps_by_64 }
+        - { uuid: "75000d1f-1302-40f7-8204-ee627068ec88", name: walk_duration }
+        - { uuid: "75000d1f-1303-40f7-8204-ee627068ec88", name: stride_duration }
+        - { uuid: "75000d1f-1304-40f7-8204-ee627068ec88", name: stride_variability }
+        - { uuid: "75000d1f-1305-40f7-8204-ee627068ec88", name: minimum_cov }
+    - uuid: "75000d1f-2000-40f7-8204-ee627068ec88"
+      name: app_service
+      characteristics:
+        - { uuid: "75000d1f-2001-40f7-8204-ee627068ec88", name: time_sync, properties: [write] }
+        - { uuid: "75000d1f-2002-40f7-8204-ee627068ec88", name: settings, properties: [write] }
+        - { uuid: "75000d1f-2003-40f7-8204-ee627068ec88", name: time_sync_nano, properties: [write] }
+    - uuid: "75000d1f-3000-40f7-8204-ee627068ec88"
+      name: data_transceiver
+      characteristics:
+        - { uuid: "75000d1f-3001-40f7-8204-ee627068ec88", name: rx_data, properties: [write] }
+        - { uuid: "75000d1f-3002-40f7-8204-ee627068ec88", name: tx_data, properties: [notify] }
+    - uuid: "75000d1f-4000-40f7-8204-ee627068ec88"
+      name: app_control
+      characteristics:
+        - uuid: "75000d1f-4001-40f7-8204-ee627068ec88"
+          name: app_control_write
+          description: Virtual-button command channel; write 32-bit command value
+          properties: [write]
+    - uuid: "75000d1f-5000-40f7-8204-ee627068ec88"
+      name: device_trace
+      characteristics:
+        - { uuid: "75000d1f-5001-40f7-8204-ee627068ec88", name: trace_data }
+        - { uuid: "75000d1f-5002-40f7-8204-ee627068ec88", name: trace_data2 }
+    - uuid: "75000d1f-6000-40f7-8204-ee627068ec88"
+      name: ota_service  # Custom OTA, NOT Nordic DFU
+      characteristics:
+        - { uuid: "75000d1f-6001-40f7-8204-ee627068ec88", name: ota_control }
+        - { uuid: "75000d1f-6002-40f7-8204-ee627068ec88", name: ota_data }
+        - { uuid: "75000d1f-6003-40f7-8204-ee627068ec88", name: ota_checksums }
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information  # 2A29/2A24/2A25/2A27/2A26/2A28 referenced
+
+protocol:
+  note: >
+    Command channel is the app_control characteristic: app writes a 32-bit
+    "virtual button" value (VirtualButtonCommandWriter). Wire byte order TBD
+    (ByteUnpacker bit-packing) — LE and BE encodings both listed below; verify
+    with HCI snoop. Status/history arrive as notifications; per-characteristic
+    translators exist in com.neurometrix.quell.bluetooth.translators.
+  app_control_commands:  # uint32; hex / LE bytes / BE bytes
+    start_therapy:          { hex: "0x3801f66f", le: 6ff60138, be: 3801f66f }
+    stop_therapy:           { hex: "0x9500ae5d", le: 5dae0095, be: 9500ae5d }
+    increase_intensity:     { hex: "0x2003288d", le: 8d280320, be: 2003288d }
+    decrease_intensity:     { hex: "0x98023e4e", le: 4e3e0298, be: 98023e4e }
+    lights_out:             { hex: "0xa0020202", le: 020202a0, be: a0020202 }
+    wake_up:                { hex: "0xa0030303", le: 030303a0, be: a0030303 }
+    temporary_high_dose:    { hex: "0xa0040404", le: 040404a0, be: a0040404 }
+    temporary_low_dose:     { hex: "0xa0050505", le: 050505a0, be: a0050505 }
+    start_calibration:      { hex: "0x23ad164f", le: 4f16ad23, be: 23ad164f }
+    sensation_felt:         { hex: "0x543d6066", le: 66603d54, be: 543d6066 }
+    halt_calibration:       { hex: "0x428a9631", le: 31968a42, be: 428a9631 }
+    heartbeat:              { hex: "0xbead0044", le: 4400adbe, be: bead0044 }
+    sensitivity_pattern:    { hex: "0xa0060606", le: 060606a0, be: a0060606 }
+    toes_up_device_on_right: { hex: "0xa0010100", le: 000101a0, be: a0010100 }
+    toes_up_device_on_left:  { hex: "0xa0010101", le: 010101a0, be: a0010101 }
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true       # Full GATT table from BluetoothCommon.java
+  commands_recovered: true    # Full virtual-button command set recovered
+  protocol_recovered: partial # Command byte order + pairing model TBD
+  hci_snoop_needed: true
+  cloud_required: false       # Account optional; therapy control local (verify offline launch)
+  abandonment: legacy Quell 2.0 discontinued (vendor support page); NeuroMetrix acquired by electroCore 2025-05-05

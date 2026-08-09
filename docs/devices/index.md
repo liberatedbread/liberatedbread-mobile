@@ -44,6 +44,9 @@ spec's `device.setup` block; the patterns are explained in
 | [ProGlow Motorcycle LED](proglow-motorcycle-led.md) | BLE | Spec Available | None needed | ProGlow |
 | [SeeBlue Motorcycle LED](seeblue-motorcycle-led.md) | BLE | Spec Available | None needed | SeeBlue |
 | [SmartDawn Smart Lights](smartdawn-smart-lights.md) | BLE (Wi-Fi variants) | In Progress | None needed | Hangzhou Daniao / SmartDawn |
+| [KingSmith WalkingPad](kingsmith-walkingpad.md) | BLE | Complete | None needed | KingSmith Fitness (Xiaomi ecosystem) |
+| [Kwikset Kevo](kwikset-kevo.md) | BLE (lock is central) | In Progress | BLE tap-to-enroll (medium) | Kwikset / ASSA ABLOY (UniKey) |
+| [Schlage Smart Locks](schlage-smart-locks.md) | BLE (uWeave; WiFi is cloud-relay only) | Complete | BLE SPAKE2 pairing, printed programming code (medium) | Schlage / Allegion |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
@@ -55,7 +58,9 @@ spec's `device.setup` block; the patterns are explained in
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Uncaptured (low) | Rachio |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
+| [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |
 | [OBD-II Bluetooth Adapters](obd2-bluetooth-adapter.md) | BLE + Bluetooth Classic | Complete | Pairing (medium) | Generic / ScanTool / Vgate |
+| [OBDLink MX+](obdlink-mx-plus.md) | BLE + Bluetooth Classic | In Progress | Button pairing (medium) | OBD Solutions / ScanTool |
 | [Triumph Tiger 900](triumph-tiger-900.md) | OBD-II (CAN) | In Progress | None needed | Triumph Motorcycles |
 | [BMW Motorcycle Diagnostics](bmw-motorcycle-diagnostics.md) | OBD-II (BMW D-CAN) | In Progress | None needed | BMW Motorrad |
 | [Fardriver ND-series Motor Controller](fardriver-controller.md) | BLE | Research | None needed | Nanjing Fardriver |
@@ -64,6 +69,7 @@ spec's `device.setup` block; the patterns are explained in
 | [Bosch Performance Line CX Gen4](bosch-ebike-cx-gen4.md) | CAN | Research | None needed | Bosch eBike Systems |
 | [NIU Electric Scooter](niu-escooter.md) | Cloud HTTP + BLE | Research | Cloud account only (low) | Niu Technologies |
 | [WLED Addressable LED Controller](wled-controller.md) | WiFi | Complete | SoftAP portal (medium) | WLED project (open firmware) |
+| [Rabbit Air Purifiers](rabbit-air-purifier.md) | WiFi (UDP 9009) | Complete | BLE-assisted / SoftAP via vendor app (medium) | Rabbit Air (vendor publishes the LAN library) |
 
 ## Not everything here was liberated
 

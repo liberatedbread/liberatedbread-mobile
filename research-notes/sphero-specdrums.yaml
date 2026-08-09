@@ -1,0 +1,68 @@
+# Sphero Specdrums (SD01WR rings) — Device Spec (research note)
+# Apps delisted Aug 2024 (MIX from Play+App Store, Edu from App Store) — orphaned by Sphero.
+# APK: com.sphero.specdrumsmix v1.2.2 via apkeep (apk-pure), 2026-08-04
+
+device:
+  id: sphero-specdrums
+  name: Sphero Specdrums (app-enabled musical rings, SD01WR)
+  manufacturer: Sphero (product orphaned; apps delisted 2024-08)
+  category: musical_instrument_toy
+  safety_class: NONE
+
+transport:
+  type: ble  # BLE 4.0; custom GATT profile + standard BLE-MIDI mode
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: ["Specdrums", "SD01"]  # speculative — confirm with a scan
+    service_uuids: []  # TBD — app discovers UUIDs at runtime; nothing hardcoded statically
+
+  services:
+    - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+      name: ble_midi_service
+      description: >
+        Standard BLE MIDI mode (vendor-documented: rings work with "any music
+        software that accepts Bluetooth MIDI, such as GarageBand and Ableton
+        Live"). Color tap -> mapped note. Mode enable/persistence TBD.
+      characteristics:
+        - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+          name: ble_midi_io
+          properties: [notify, write, write_no_response]
+
+  custom_profile:
+    note: >
+      MIX/Edu apps use Sphero's generic BLE stack (com.sphero.platform.BtLe)
+      with runtime service discovery — no ring-specific UUIDs recoverable in a
+      triage static pass. Custom profile carries raw color/tap events, ring LED
+      control, battery, and MIDI-mode config. One nRF Connect / HCI-snoop
+      session with a live ring will enumerate it.
+
+protocol:
+  note: >
+    Two usable layers: (1) standard BLE-MIDI note output — keeps rings useful
+    with zero Sphero software; (2) custom GATT profile used by the MIX app for
+    raw sensor events and ring control — format TBD, needs live capture.
+  reference_implementations: []  # no public RE of the ring protocol found
+
+companion_apps:
+  - name: Specdrums MIX
+    package_id: com.sphero.specdrumsmix
+    version_fetched: "1.2.2 (final; delisted 2024-08)"
+    apk_sha256: "0f242655139bf0d0b8ea204e38df55c5edd08f0de3265d034ffe68a77ed4d822"
+    apk_source: apkeep (apk-pure), bare APK 100 MB
+    jadx: partial decompile OK (workspace/static/specdrums/); runtime UUID discovery
+  - name: Specdrums Edu
+    package_id: null  # not investigated
+
+cloud_dependency:
+  none: true  # sounds bundled/downloaded in-app; delisted apps are the risk, not a server
+
+status:
+  company_status: product_abandoned  # Sphero alive; product+apps orphaned 2024-08
+  apk_acquired: true
+  apk_decompiled: true   # triage pass only
+  uuids_recovered: false # custom profile UUIDs NOT statically present — runtime discovery
+  protocol_recovered: false
+  hci_snoop_needed: true # one live session with a ring resolves the custom profile
+  rating: confirmed  # abandonment + BLE-MIDI path confirmed; custom protocol = hypothesis pending capture
