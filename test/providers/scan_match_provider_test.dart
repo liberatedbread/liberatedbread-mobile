@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart' show Icons;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
@@ -19,6 +21,7 @@ final _spec = DeviceSpecDto(
   manufacturer: 'Acme',
   manufacturerStatus: 'abandoned',
   protocol: 'ble',
+  category: 'light',
   localNamePrefixes: const ['ACME_'],
   serviceUuids: const [_svcUuid],
   companyIds: Uint16List.fromList(const [961]),
@@ -39,12 +42,14 @@ ScanMatch _match(
   MatchConfidence confidence, {
   String deviceName = 'Example Smart Bulb',
   String manufacturer = 'Acme',
+  String? category = 'light',
   int specIndex = 0,
 }) =>
     ScanMatch(
       specIndex: specIndex,
       deviceName: deviceName,
       manufacturer: manufacturer,
+      category: category,
       confidence: confidence,
       matchedByNamePrefix: false,
       matchedServiceUuids: const [],
@@ -88,6 +93,8 @@ void main() {
 
       expect(identities, hasLength(1));
       expect(identities.single.deviceName, 'Example Smart Bulb');
+      expect(identities.single.category, 'light',
+          reason: 'the icon a row draws comes from here');
       expect(identities.single.localNamePrefixes, const ['ACME_']);
       expect(identities.single.serviceUuids, const [_svcUuid]);
       expect(identities.single.companyIds, const [961]);
@@ -337,6 +344,73 @@ void main() {
 
       expect(ranked.other, hasLength(1));
       expect(ranked.other.single.guess, isNull);
+    });
+  });
+
+  group('ScanGuess.category', () {
+    test('comes from the best match', () {
+      final guess = ScanGuess.fromMatches([_match(MatchConfidence.strong)])!;
+      expect(guess.category, DeviceCategory.light);
+      expect(guess.iconOr(unknownDeviceIcon), DeviceCategory.light.icon);
+    });
+
+    test('survives a tie when every tied match agrees', () {
+      // Which of a vendor's ten lights this is may be unknowable from an
+      // advertisement; that it is a light is not.
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.possible, deviceName: 'Bulb A'),
+        _match(MatchConfidence.possible, deviceName: 'Bulb B'),
+      ])!;
+      expect(guess.namesAProduct, isFalse);
+      expect(guess.category, DeviceCategory.light,
+          reason: 'agreement is a lower bar than naming the product');
+    });
+
+    test('is dropped when the tied matches disagree', () {
+      // A shared OUI can tie a plant sensor and a body scale. Drawing the
+      // first one's icon would be the same confident guess as naming it.
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.possible, category: 'sensor'),
+        _match(MatchConfidence.possible, category: 'scale'),
+      ])!;
+      expect(guess.category, isNull);
+      expect(guess.iconOr(unknownDeviceIcon), unknownDeviceIcon);
+    });
+
+    test('a trailing weaker match does not dilute a confident one', () {
+      // Mirrors how `otherMatches` counts only ties at the best confidence: a
+      // Strong match is not made ambiguous by a Possible one behind it.
+      final guess = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, category: 'light'),
+        _match(MatchConfidence.possible, category: 'scale'),
+      ])!;
+      expect(guess.category, DeviceCategory.light);
+    });
+
+    test('a spec with no category falls back to the tab\'s own glyph', () {
+      final guess = ScanGuess.fromMatches(
+          [_match(MatchConfidence.strong, category: null)])!;
+      expect(guess.category, isNull);
+      expect(guess.iconOr(unknownDeviceIcon), unknownDeviceIcon);
+      // Support is a fact about the catalogue; the icon is the bonus.
+      expect(guess.namesAProduct, isTrue);
+    });
+
+    test('a category this build has not met is treated as absent', () {
+      // The vocabulary grows upstream first and arrives here as vendored data.
+      // An unknown value costs the icon, never the match.
+      final guess = ScanGuess.fromMatches(
+          [_match(MatchConfidence.strong, category: 'teleporter')])!;
+      expect(guess.category, isNull);
+      expect(guess.deviceName, 'Example Smart Bulb');
+    });
+
+    test('iconOr uses the caller\'s fallback, not a global one', () {
+      // The Wi-Fi tab's anonymous device is a router glyph, not a Bluetooth
+      // one — there is no radio to draw.
+      final guess = ScanGuess.fromMatches(
+          [_match(MatchConfidence.strong, category: null)])!;
+      expect(guess.iconOr(Icons.router_outlined), Icons.router_outlined);
     });
   });
 }

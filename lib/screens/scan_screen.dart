@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../core/constants.dart';
+import '../core/device_category.dart';
 import '../core/error_text.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
@@ -220,6 +221,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           device.isConnectable ? _signalLabel(device.rssi) : 'Not connectable',
       detail: '${device.rssi} dBm',
       rssi: device.rssi,
+      icon: entry.guess?.iconOr(unknownDeviceIcon) ?? unknownDeviceIcon,
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
       // Only worth saying for a device the badge could not place. Once the

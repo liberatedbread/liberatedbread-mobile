@@ -55,6 +55,18 @@ heading.
 
 ### Fixed
 
+- **Discovered GATT UUIDs were written in a form no spec could match.**
+  `discoverServices` rendered each UUID with `Guid.toString()`, which is
+  `Guid.str` — and that abbreviates a Bluetooth-base UUID to its 16-bit short
+  form, so the example bulb's control service came back as `fff0`. Specs always
+  write UUIDs out in full, so on real hardware every standard-base service UUID
+  handed to the matcher was one that could not match the spec describing it,
+  and the device fell back to raw GATT controls for no visible reason. Both
+  `discoverServices` and the characteristic lookup now use `str128`, matching
+  what the scan path already did and putting the whole app in one UUID
+  vocabulary. (Mock mode emits 128-bit UUIDs, which is why nothing in CI ever
+  caught it.)
+
 - **iOS could never have discovered a Wi-Fi device.** Since iOS 14 an app may
   not touch a multicast address over a raw socket without
   `com.apple.developer.networking.multicast`, and there was no entitlements
@@ -95,6 +107,41 @@ heading.
   manifest, both plists and both entitlements files.
 
 ### Added
+
+- **Every scan row says what kind of device it is.** The scan list already
+  ranked results and badged them — "Ember Mug", "Likely supported", "Possibly
+  Xiaomi" — but every row was drawn with the same Bluetooth glyph, so the list
+  read as one shape repeated down the screen with the differences in small
+  text. Rows now carry a device-type icon: light, display, sensor, motor,
+  switch, lock, TV, printer, hub, vehicle, scale, and so on.
+
+  The class comes from `device.category` in the spec catalogue, which
+  `SpecIdentityDto` and `ScanMatch` now carry alongside the manufacturer, so
+  adding a device or correcting its class stays a data-only refresh with no
+  app change. That field is defined and populated upstream in protocol-specs;
+  everything here reads it and degrades to the generic glyph where a spec
+  states none, so the icons light up on the next `./scripts/update-specs.sh`
+  rather than needing this and the catalogue to land together.
+
+  The icon only ever comes from a matched spec — never from a heuristic over
+  the advertised name — so a row whose icon is not the tab's generic glyph is
+  one the catalogue actually placed. That is the same rule the badge already
+  follows, and it is why "LEDBlue-A1B2C3" is left anonymous despite reading
+  like a light: a guess drawn in the same glyph as a real match is a claim
+  with its evidence stripped off, and `DeviceDescription` already says the
+  true version of that.
+
+  A category survives a tie when every tied match agrees on one, which is a
+  lower bar than `namesAProduct` on purpose: a shared OUI cannot say which of
+  a vendor's ten lights this is, and can still say "light". Where the tied
+  matches disagree — a Xiaomi OUI covering a plant sensor and a body scale —
+  the icon drops back to the generic one, the same way `label` drops back to
+  "Possibly supported" when the manufacturers disagree.
+
+  The connected-device screen now names its automatically-matched spec and
+  device type as well. A user-*chosen* spec already had its own banner; an
+  automatic match had nothing, so the typed controls simply appeared and the
+  user was left to infer what the app had decided.
 
 - **The device screen says who made the thing, and shows its address.** The
   IEEE and SIG registries have been vendored and searched for a while, but the

@@ -28,6 +28,12 @@ pub struct DeviceSpecDto {
     pub manufacturer: String,
     pub manufacturer_status: String,
     pub protocol: String,
+    /// Broad device class from the spec schema's closed vocabulary (`light`,
+    /// `display`, `sensor`, `motor`, `switch`, `tv`, …), which the app maps to
+    /// the icon it draws for the device. Carried across as the raw string so a
+    /// category added upstream after this build still reaches Dart, which
+    /// decides what to do with a value it does not recognise.
+    pub category: Option<String>,
     pub notes: Option<String>,
     /// Every BLE local name prefix this device family advertises under, in
     /// spec order. Plural because a family sold as several rebadged models has
@@ -401,6 +407,13 @@ pub struct NetworkDeviceDto {
 pub struct SpecIdentityDto {
     pub device_name: String,
     pub manufacturer: String,
+    /// Broad device class, carried so a caller can say what kind of thing a
+    /// scan result is without fetching the whole spec back. Alongside
+    /// `manufacturer` rather than behind `spec_index` because it is answering
+    /// the same question that field does — who/what is this — and a caller
+    /// that has to index back into its own list to draw an icon will sooner or
+    /// later index into a stale one.
+    pub category: Option<String>,
     pub local_name_prefixes: Vec<String>,
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
@@ -422,6 +435,9 @@ pub struct ScanMatch {
     pub spec_index: u32,
     pub device_name: String,
     pub manufacturer: String,
+    /// The matched spec's device class, copied through from
+    /// [`SpecIdentityDto::category`]. `None` when the spec states none.
+    pub category: Option<String>,
     pub confidence: MatchConfidence,
     pub matched_by_name_prefix: bool,
     /// Matched advertised service UUIDs, lowercased.
@@ -476,6 +492,7 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
         Self {
             device_name: spec.device_name.clone(),
             manufacturer: spec.manufacturer.clone(),
+            category: spec.category.clone(),
             local_name_prefixes: spec.local_name_prefixes.clone(),
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
@@ -496,6 +513,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             manufacturer: spec.device.manufacturer.clone(),
             manufacturer_status: spec.device.manufacturer_status.to_string(),
             protocol: spec.device.protocol.to_string(),
+            category: spec.device.category.clone(),
             notes: spec.device.notes.clone(),
             local_name_prefixes: ident
                 .map(Identification::local_name_prefixes)
@@ -1387,6 +1405,7 @@ fn rank_matches(
                 spec_index: index as u32,
                 device_name: identity.device_name.clone(),
                 manufacturer: identity.manufacturer.clone(),
+                category: identity.category.clone(),
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,
                 matched_service_uuids,
@@ -2014,6 +2033,7 @@ device:
   manufacturer: "Test"
   manufacturer_status: "abandoned"
   protocol: "ble"
+  category: "light"
   identification:
     local_name_prefix: "TEST_"
     service_uuids:
@@ -2036,6 +2056,37 @@ services:
 
     fn scan_identity() -> SpecIdentityDto {
         SpecIdentityDto::from(&load_device_spec(SCAN_YAML.into()).unwrap())
+    }
+
+    #[test]
+    fn scan_identity_carries_the_spec_category() {
+        assert_eq!(scan_identity().category.as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn a_scan_match_reports_the_matched_spec_category() {
+        // The caller draws the device's icon from this. Reaching back through
+        // `spec_index` would work too, right up until the catalogue the index
+        // refers to is not the one the caller still has.
+        let mut device = anonymous_device();
+        device.name = "TEST_thing".into();
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].category.as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn a_spec_with_no_category_still_matches() {
+        // Categories arrived after the catalogue did. A spec pack cached by an
+        // older build must still rank and still be usable — it just has no
+        // icon to offer.
+        let mut identity = scan_identity();
+        identity.category = None;
+        let mut device = anonymous_device();
+        device.name = "TEST_thing".into();
+        let matches = match_scanned_device(vec![identity], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].category, None);
     }
 
     /// The scan identity with its one OUI re-rated. Lets a test say which tier
