@@ -31,12 +31,23 @@ void main() {
   late final bool rustReady;
   late final String yaml;
   late final DeviceSpecDto spec;
+  late final String gerbingYaml;
+  late final DeviceSpecDto gerbing;
 
+  // Every spec is parsed here, never inside a test body. `loadDeviceSpec`
+  // crosses into Rust on a background isolate, and the widget-test binding's
+  // fake clock does not advance for it — an await on one inside a test hangs
+  // until the ten-minute timeout rather than resolving.
   setUpAll(() async {
     rustReady = await initHostRustLib();
     yaml = await rootBundle.loadString(
         'vendor/protocol-specs/device-specs/devices/airthings-wave-family.yaml');
-    if (rustReady) spec = await codec.loadDeviceSpec(yaml);
+    gerbingYaml = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/gerbing-thermogauge.yaml');
+    if (rustReady) {
+      spec = await codec.loadDeviceSpec(yaml);
+      gerbing = await codec.loadDeviceSpec(gerbingYaml);
+    }
   });
 
   testWidgets('renders a vendored spec\'s temperature in degrees, not counts',
@@ -103,5 +114,59 @@ void main() {
     // "cannot be decoded", which is honest but useless. For this device the
     // whole set should be live.
     expect(spec.entities.every((e) => e.hasFormat), isTrue);
+  });
+
+  testWidgets('renders an OFFSET scaling from a vendored spec, not raw counts',
+      (tester) async {
+    // The Airthings case above is a pure multiplier, which is the half of the
+    // transform the card always applied. This one is the half it dropped:
+    // gerbing-thermogauge declares `scale: 0.5, value_offset: 85` on its
+    // temperature field, and the offset went missing between the codec and
+    // the screen. A raw 100 rendered as "50.0" — wrong by the entire offset,
+    // and wrong in the direction that still looks like a temperature, so
+    // nothing about the reading said it was broken.
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+
+    const service = 'ab06bd90-cc16-11e4-8830-0800200c9a66';
+    const tempChar = 'ab06bd91-cc16-11e4-8830-0800200c9a66';
+    final entity =
+        gerbing.entities.firstWhere((e) => e.name == 'Temperature 1');
+    expect(entity.stateCharacteristic, tempChar);
+
+    final widget = ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(
+          FakeBleService(readValues: const {
+            tempChar: [100],
+          }),
+        ),
+        specCodecProvider.overrideWithValue(codec),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: EntitySensorCard(
+            deviceId: 'd',
+            serviceUuid: service,
+            entity: entity,
+            specYaml: gerbingYaml,
+          ),
+        ),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(widget);
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
+    await tester.pump();
+
+    // 100 * 0.5 + 85 = 135.
+    expect(find.text('135.0'), findsOneWidget);
+    expect(find.text('50.0'), findsNothing, reason: 'the offset was dropped');
+    expect(find.text('100'), findsNothing, reason: 'the raw count leaked');
+    expect(find.text('°F'), findsOneWidget);
   });
 }
