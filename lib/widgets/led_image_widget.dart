@@ -374,10 +374,6 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           frameIndex: _frameSequence,
           maxPayloadPerWrite: payloadPerWrite,
         );
-    // Continue from the plan's next index, not += 1: a frame spanning several
-    // wire packets consumes that many sequence numbers, and re-using them on
-    // the next frame corrupts fragment reassembly on the device.
-    _frameSequence = plan.nextFrameIndex;
     for (final write in plan.writes) {
       // Each write names its own characteristic: the doodle flow opens the
       // session on the command channel and streams pixels on the bulk one.
@@ -388,12 +384,25 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         write.bytes,
       );
     }
+    // Advance ONLY after every write lands, not before: if a write throws
+    // mid-frame the session may not have opened, so the sequence must stay put
+    // and the retry re-send frame 0 (which re-opens the session). Continue from
+    // the plan's next index, not += 1 — a frame spanning several wire packets
+    // consumes that many sequence numbers, and re-using them on the next frame
+    // corrupts fragment reassembly on the device.
+    _frameSequence = plan.nextFrameIndex;
   }
 
   Future<void> _sendCurrentFrame() async {
     setState(() {
       _sending = true;
       _error = null;
+      // Start every discrete send at frame 0 so it re-opens the doodle session
+      // (ui_end_sync + doodle_start). Without this, a send after a BLE reconnect
+      // — or after a prior send failed partway — would carry frame_index > 0,
+      // skip the session-open, and silently render nothing on a device no
+      // longer in doodle mode.
+      _frameSequence = 0;
     });
     try {
       await _enqueueSend(_current, await _resolvePayloadPerWrite());
@@ -431,6 +440,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     setState(() {
       _streaming = true;
       _error = null;
+      // Open the doodle session on this stream's first frame — and re-open it
+      // for a stream restarted after a reconnect — by starting from frame 0.
+      _frameSequence = 0;
       // The local preview advances _current on its own timer; left running
       // it would fight the stream loop's advance (with 2 frames the net is
       // zero — the device would receive the same frame forever).
