@@ -32,7 +32,12 @@
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>Liberated Bread needs Bluetooth to communicate with your IoT devices.</string>
+	<!-- Shown verbatim in the macOS 15 local-network prompt, so it has to name
+	     both reasons the app asks. It used to mention only Home Assistant,
+	     which left a user who hit the prompt by tapping Scan reading an
+	     explanation about a server they may not even use. Kept in step with
+	     the same key in ios/Runner/Info.plist. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Liberated Bread connects to your Home Assistant server on your local network.</string>
+	<string>Liberated Bread finds IoT devices on your Wi-Fi network, and connects to your Home Assistant server.</string>
 </dict>
 </plist>

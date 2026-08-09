@@ -55,6 +55,37 @@ heading.
 
 ### Fixed
 
+- **iOS could never have discovered a Wi-Fi device.** Since iOS 14 an app may
+  not touch a multicast address over a raw socket without
+  `com.apple.developer.networking.multicast`, and there was no entitlements
+  file in `ios/` at all. `NSBonjourServices` does not substitute for it: that
+  key covers mDNS done through the Bonjour APIs, where `mDNSResponder`
+  multicasts on the app's behalf, and this app uses neither — `multicast_dns`
+  binds UDP 5353 and joins 224.0.0.251 itself, and the SSDP half sends
+  M-SEARCH to 239.255.255.250 from its own socket. Both were blocked.
+
+  Nothing said so. The sockets bound, the queries went out, the OS dropped
+  them, and `scanFailureFor()` read the silence exactly as designed and told
+  the user their Local Network permission might be off — pointing at a toggle
+  that was already on.
+
+  `ios/Runner/Runner.entitlements` now declares it and all three app build
+  configurations reference it. Apple grants this entitlement by manual request
+  rather than a checkbox, so signed device builds fail at signing until the
+  request is approved and the provisioning profile reissued;
+  `docs/ios-from-linux.md` covers what to file and what breaks meanwhile.
+  Simulator builds, including all of CI, are unaffected — they do not sign.
+
+- **macOS release builds lost half the Wi-Fi scan.**
+  `com.apple.security.network.server` was in `DebugProfile.entitlements` but
+  not `Release.entitlements`, on the reading that it belonged to the Dart VM
+  service. Under the App Sandbox it is also what permits binding a listening
+  socket, which is what `multicast_dns` does to join 224.0.0.251 on port 5353.
+  So mDNS worked in `flutter run -d macos` and threw in a release build, which
+  then discovered only what SSDP happened to find. The macOS local-network
+  usage string also described only Home Assistant, though the prompt now
+  fires when a user taps Scan.
+
 - **A `--` inside an XML comment broke the Android manifest.** XML forbids it —
   it is the first half of the comment terminator — and the manifest merger fails
   the whole build with "Error parsing AndroidManifest.xml" and no line number.
