@@ -641,6 +641,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_manufacturer = <String>::sse_decode(deserializer);
         let mut var_manufacturerStatus = <String>::sse_decode(deserializer);
         let mut var_protocol = <String>::sse_decode(deserializer);
+        let mut var_category = <Option<String>>::sse_decode(deserializer);
         let mut var_notes = <Option<String>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
@@ -659,6 +660,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             manufacturer: var_manufacturer,
             manufacturer_status: var_manufacturerStatus,
             protocol: var_protocol,
+            category: var_category,
             notes: var_notes,
             local_name_prefixes: var_localNamePrefixes,
             service_uuids: var_serviceUuids,
@@ -1376,6 +1378,7 @@ impl SseDecode for crate::api::device_api::ScanMatch {
         let mut var_specIndex = <u32>::sse_decode(deserializer);
         let mut var_deviceName = <String>::sse_decode(deserializer);
         let mut var_manufacturer = <String>::sse_decode(deserializer);
+        let mut var_category = <Option<String>>::sse_decode(deserializer);
         let mut var_confidence =
             <crate::api::device_api::MatchConfidence>::sse_decode(deserializer);
         let mut var_matchedByNamePrefix = <bool>::sse_decode(deserializer);
@@ -1388,6 +1391,7 @@ impl SseDecode for crate::api::device_api::ScanMatch {
             spec_index: var_specIndex,
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
+            category: var_category,
             confidence: var_confidence,
             matched_by_name_prefix: var_matchedByNamePrefix,
             matched_service_uuids: var_matchedServiceUuids,
@@ -1434,6 +1438,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_deviceName = <String>::sse_decode(deserializer);
         let mut var_manufacturer = <String>::sse_decode(deserializer);
+        let mut var_category = <Option<String>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
         let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
@@ -1445,6 +1450,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
         return crate::api::device_api::SpecIdentityDto {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
+            category: var_category,
             local_name_prefixes: var_localNamePrefixes,
             service_uuids: var_serviceUuids,
             company_ids: var_companyIds,
@@ -1648,6 +1654,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.manufacturer.into_into_dart().into_dart(),
             self.manufacturer_status.into_into_dart().into_dart(),
             self.protocol.into_into_dart().into_dart(),
+            self.category.into_into_dart().into_dart(),
             self.notes.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
@@ -2026,6 +2033,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
             self.spec_index.into_into_dart().into_dart(),
             self.device_name.into_into_dart().into_dart(),
             self.manufacturer.into_into_dart().into_dart(),
+            self.category.into_into_dart().into_dart(),
             self.confidence.into_into_dart().into_dart(),
             self.matched_by_name_prefix.into_into_dart().into_dart(),
             self.matched_service_uuids.into_into_dart().into_dart(),
@@ -2098,6 +2106,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
         [
             self.device_name.into_into_dart().into_dart(),
             self.manufacturer.into_into_dart().into_dart(),
+            self.category.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
             self.company_ids.into_into_dart().into_dart(),
@@ -2199,6 +2208,7 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <String>::sse_encode(self.manufacturer, serializer);
         <String>::sse_encode(self.manufacturer_status, serializer);
         <String>::sse_encode(self.protocol, serializer);
+        <Option<String>>::sse_encode(self.category, serializer);
         <Option<String>>::sse_encode(self.notes, serializer);
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
@@ -2740,6 +2750,7 @@ impl SseEncode for crate::api::device_api::ScanMatch {
         <u32>::sse_encode(self.spec_index, serializer);
         <String>::sse_encode(self.device_name, serializer);
         <String>::sse_encode(self.manufacturer, serializer);
+        <Option<String>>::sse_encode(self.category, serializer);
         <crate::api::device_api::MatchConfidence>::sse_encode(self.confidence, serializer);
         <bool>::sse_encode(self.matched_by_name_prefix, serializer);
         <Vec<String>>::sse_encode(self.matched_service_uuids, serializer);
@@ -2779,6 +2790,7 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.device_name, serializer);
         <String>::sse_encode(self.manufacturer, serializer);
+        <Option<String>>::sse_encode(self.category, serializer);
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<u16>>::sse_encode(self.company_ids, serializer);

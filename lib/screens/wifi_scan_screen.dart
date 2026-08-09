@@ -262,7 +262,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       subtitle: _transportLabel(device),
       detail:
           device.port == null ? device.host : '${device.host}:${device.port}',
-      icon: Icons.router_outlined,
+      icon: entry.guess?.iconOr(Icons.router_outlined) ?? Icons.router_outlined,
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
       // Same rule as the BLE tab, and for the same reason: it is naming a

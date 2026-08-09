@@ -44,7 +44,9 @@ decoding characteristic values, and implementing standard Bluetooth profiles.
 
 ## Features
 
-- Scan for nearby BLE devices
+- Scan for nearby BLE devices, ranked by how well the catalogue recognises them
+  and labelled with what kind of device each one is (light, sensor, motor,
+  switch, display, TV, lock, …)
 - Connect and browse GATT services/characteristics
 - Read/write characteristic values with hex display
 - Standard BLE profile support (Battery Service, Device Information)
