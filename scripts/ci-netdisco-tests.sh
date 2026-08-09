@@ -23,17 +23,36 @@
 # So the tests carry @Tags(['netdisco']), the ordinary runs exclude that tag,
 # and this script — its own CI job — is what opts in.
 #
+# WHY IT COLLECTS COVERAGE, AND INTO ITS OWN FILE
+#
+# This job is the ONLY place RealNetworkScanService executes, and the run that
+# uploads coverage — the unit-tests job — is the one that excludes it. Measured
+# on the same commit: that file is 108/169 lines (63.9%) in the uploaded report
+# and 164/169 (97.0%) here. Fifty-six covered lines were being thrown away, so
+# the best-tested service in the project read as the worst, a change to it
+# looked like it was adding uncovered code, and improving these tests moved the
+# number not at all.
+#
+# --coverage-path keeps it out of coverage/lcov.info: on CI these are separate
+# runners and could not collide, but this script is meant to be runnable on a
+# laptop, where clobbering the unit run's report would be a surprise. Codecov
+# merges the two uploads for a commit, which is why two partial reports are
+# fine — see the flags in .github/workflows/ci.yml and codecov.yml.
+#
 # Usage:
 #   ./scripts/ci-netdisco-tests.sh
 #
 # Environment:
 #   LB_TEST_TIMEOUT   Per-test timeout passed to `flutter test` (default 120s).
+#   LB_COVERAGE_PATH  Where to write the lcov report
+#                     (default coverage/netdisco-lcov.info).
 
 set -uo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)" || exit 1
 
 TEST_TIMEOUT="${LB_TEST_TIMEOUT:-120s}"
+COVERAGE_PATH="${LB_COVERAGE_PATH:-coverage/netdisco-lcov.info}"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "::error::python3 is not installed; scripts/net_virtual_device.py is what the emulated devices run on." >&2
@@ -45,7 +64,8 @@ trap 'rm -f "$log"' EXIT
 
 # The whole suite, filtered by tag, rather than a hardcoded file list: a new
 # netdisco-tagged suite is then picked up without editing this script.
-flutter test --tags=netdisco --timeout "$TEST_TIMEOUT" 2>&1 | tee "$log"
+flutter test --tags=netdisco --timeout "$TEST_TIMEOUT" \
+  --coverage --coverage-path "$COVERAGE_PATH" 2>&1 | tee "$log"
 status="${PIPESTATUS[0]}"
 
 # A tag typo, a renamed file, or an annotation that stopped parsing all produce
@@ -53,6 +73,15 @@ status="${PIPESTATUS[0]}"
 # for exactly one suite, and "it passed" has to mean that suite ran.
 if grep -qE 'No tests ran\.|No tests match the requested tag selectors' "$log"; then
   echo "::error::No netdisco-tagged test ran. The tag, the file, or the @Tags annotation moved." >&2
+  exit 1
+fi
+
+# A passing run that produced no report uploads nothing, and Codecov's project
+# status would then compare a report missing this job's lines against a base
+# that had them — a coverage "drop" with no change behind it. Say so here
+# rather than leaving it to be inferred from a percentage.
+if [ "$status" -eq 0 ] && [ ! -s "$COVERAGE_PATH" ]; then
+  echo "::error::The suite passed but ${COVERAGE_PATH} is missing or empty, so this job's coverage would not be uploaded." >&2
   exit 1
 fi
 

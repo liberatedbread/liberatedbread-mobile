@@ -55,6 +55,35 @@ heading.
 
 ### Fixed
 
+- **`MockNetworkScanService.stopScan()` did not stop the scan.** The same bug
+  that was fixed in `RealNetworkScanService`, still present in the mock: the
+  stop flag was read only at the top of the enumeration loop, so a stop during
+  a sleep still yielded the device that sleep was waiting for, and the sleep
+  *after* the loop never read it at all — the stream stayed open for a quarter
+  of the scan window (two seconds at the default) after the scan was told to
+  stop, so a UI that re-enables its button on stream close sat there saying
+  "scanning". Every wait now races the stop, as the real service's does. This
+  is the class that runs in demo mode and in every mock-mode integration suite,
+  and it had 0 of 17 lines covered, which is how it survived the first fix.
+
+- **The `network-discovery` job's coverage was collected nowhere.** The job that
+  uploads coverage is the one that excludes the netdisco suites, so
+  `lib/services/real_network_scan_service.dart` reported 108/169 lines while
+  that job was covering 164/169 of it. Fifty-six lines on the service with the
+  most elaborate harness in the repo counted as untested, a change to it looked
+  like it was adding uncovered code, and improving those tests moved the number
+  not at all. The job now writes `coverage/netdisco-lcov.info` and uploads it
+  under a `netdisco` flag; Codecov merges the two reports.
+
+- **`scripts/test.sh` ran `flutter test` without the environment it thought it
+  was setting.** The two `LD_LIBRARY_PATH`/`DYLD_FALLBACK_LIBRARY_PATH`
+  assignments ended in a line continuation that ran into a *comment*, so bash
+  read them as a command of their own — setting a pair of shell variables
+  nothing exported — and then ran `flutter test` unprefixed. The suites passed
+  regardless, which is the tell: `test/helpers/host_rust_lib.dart` opens the
+  library by relative path precisely because macOS strips `DYLD_*`. Both
+  variables are gone rather than repaired; neither was ever what made it work.
+
 - **Discovered GATT UUIDs were written in a form no spec could match.**
   `discoverServices` rendered each UUID with `Guid.toString()`, which is
   `Guid.str` — and that abbreviates a Bluetooth-base UUID to its 16-bit short
@@ -107,6 +136,80 @@ heading.
   manifest, both plists and both entitlements files.
 
 ### Added
+
+- **A file no test imports can no longer hide from the coverage number.**
+  `flutter test --coverage` instruments only what a test reaches, so an
+  unreferenced library is absent from the report rather than reported as zero —
+  and therefore absent from the denominator, which means adding an entirely
+  untested file to `lib/` moved coverage by nothing at all.
+  `scripts/ci-coverage-audit.sh` compares the tracked `lib/` files against the
+  report and fails on anything missing, in the `unit-tests` job and in
+  `scripts/test.sh`. Two abstract-only files are allowlisted with their
+  reasons, and the allowlist is checked in both directions.
+
+  `lib/main.dart` was the file living in that gap — the app's own entrypoint,
+  executed by nothing. `test/main_test.dart` now covers it, including the
+  documented contract that a failed `RustLib.init` is logged loudly and does
+  not stop the app.
+
+- **`RealSpecCodec`'s untested half.** Four of its methods —
+  `matchNetworkDevice`, `identifyStandardProfiles`, `encodeEntityValue`,
+  `encodeImageFrame` — had never been executed, because every widget test
+  drives the fake instead. They are thin pass-throughs to generated FFI
+  functions, which is exactly the code that looks too boring to test and then
+  transposes two adjacent int arguments. 57.9% to 100%.
+
+- **The Rust crate's coverage is measured.** Roughly a third of the
+  hand-written code in this project — the spec parser, the codec, the protocol
+  dispatch, the mock simulator — was tested and never counted, so the reported
+  figure was the Dart half only and a change that moved Rust coverage moved the
+  number not at all. A `rust-coverage` job runs `cargo llvm-cov` and uploads
+  under a `rust` flag, which Codecov merges with the two Dart reports. The
+  first measurement: **95.6%** on hand-written code.
+  `rust/src/frb_generated.rs` is ignored, on the argument already made for
+  `lib/src/rust/**` — 1917 generated lines that `cargo test` covers 0.0% of,
+  because the crate's own tests never cross the FFI boundary that file exists
+  to implement. Left in, it reports the same crate as 72.0%.
+
+  The job is deliberately separate from `rust` and gates nothing: that one is
+  what the four native jobs wait on, and it keeps a plain `cargo test`.
+
+- **The FFI tests rebuild the Rust core themselves.** Both ways of getting this
+  wrong were silent: with no host build the suites `markTestSkipped` and the run
+  is green with a quietly smaller test count, and with a *stale* one they do not
+  even skip — they load the `.so` from before the edit, pass, and report on code
+  that no longer exists. `test/helpers/host_rust_lib.dart` now reads cargo's own
+  dep-info file (every source that went into the artifact, `include_str!`d
+  vendor registries included) and runs `cargo build` when any of them is newer,
+  so `flutter test` after editing `rust/src/` tests the edit. A warm target
+  directory means no cargo run at all. `LIBERATED_BREAD_NO_RUST_BUILD=1` opts
+  out; an explicit `LIBERATED_BREAD_RUST_LIB` is never rebuilt.
+
+- **`scripts/ensure-rust-lib.sh`**, the one definition of "the host Rust library
+  is built" — used by `scripts/test.sh`, the Claude Code session hook and CI's
+  `unit-tests` job, which each had their own spelling of it. It asserts the
+  artifact rather than trusting cargo's exit code: dropping `cdylib` from
+  `rust/Cargo.toml`'s `crate-type`, or renaming the package, builds green while
+  removing the one file every FFI-backed test opens by path.
+
+- **CI now enforces the pins and lockfiles it documents.**
+  `./scripts/ci-versions.sh --strict` runs in the gate job, so renaming a key in
+  `ci.yml`'s `env:` block fails the pull request that does it instead of quietly
+  sending every dev machine back to a hardcoded fallback. `cargo --locked` and
+  `flutter pub get --enforce-lockfile` stop CI from silently resolving around a
+  lockfile that was not updated. `scripts/ci-shellcheck.sh` additionally checks
+  each script is executable and declares an interpreter — a 644 script fails
+  with `Permission denied` inside whichever job invokes it, which for the
+  emulator suite is forty minutes in.
+
+- **`.github/dependabot.yml`** for the ten actions the workflows pin by major
+  tag, plus the Rust crate; grouped into one pull request per ecosystem per
+  week. Pub is deliberately excluded — `pubspec.lock` is pinned against a
+  specific Flutter SDK, so those bumps follow a Flutter bump, by hand.
+
+- **`workflow_dispatch` on `ci.yml`**, so a run can be started by hand on a
+  branch with no pull request open — the only way to see whether a toolchain
+  bump survives the four native jobs was previously to open one.
 
 - **Every scan row says what kind of device it is.** The scan list already
   ranked results and badged them — "Ember Mug", "Likely supported", "Possibly
