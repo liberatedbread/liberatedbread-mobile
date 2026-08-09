@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/decoded_number.dart';
 import '../core/error_text.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
@@ -67,43 +68,49 @@ class EntityLiveValue {
   DecodedValueDto? fieldNamed(String name) =>
       decoded.where((d) => d.name == name).firstOrNull;
 
-  /// The reading rendered for display, applying the spec's scale when it
-  /// declares one.
+  /// The reading rendered for display, through the spec's full number
+  /// semantics.
   ///
   /// Devices commonly report fixed-point integers — Ember's mug sends
-  /// centidegrees, so a raw 5320 is 53.2 °C. The multiplier lives in the
-  /// spec, in either of two places, both in real use: on the entity as
-  /// `state_mapping.scale` (ember-mug), or on the format field itself
-  /// (airthings-wave-family, xiaomi-miflora). The entity wins when both are
-  /// present: it describes this specific reading rather than the field's
-  /// general encoding. They must never compound — two multiplications would
-  /// be silently wrong rather than visibly broken.
+  /// centidegrees, so a raw 5320 is 53.2 °C — and just as commonly an offset
+  /// one, like Gerbing's `raw * 0.5 + 85` °F. Both halves of that transform,
+  /// plus the `values:` code table that turns an enumerated raw into a word,
+  /// live in [labelledTextOf] so this card, the GATT browser, the setpoint
+  /// control and the Home Assistant forwarder cannot disagree about what one
+  /// characteristic read means.
+  ///
+  /// The entity's `state_mapping.scale` is passed as an override rather than
+  /// a fallback: see [decodedNumberOf] for why it replaces the field's
+  /// transform instead of compounding with it.
   String? get display {
     final value = primary;
     if (value == null) return null;
-    final scale = entity.valueScale ?? value.scale;
-    if (scale == null) return value.display;
+    return labelledTextOf(value, scaleOverride: entity.valueScale);
+  }
 
-    final raw = value.intValue ?? value.uintValue;
-    if (raw == null) return value.display;
-
-    final scaled = raw * scale;
-    // Show as many decimals as the scale implies rather than a fixed 2: a
-    // scale of 0.01 wants 2 places, 0.1 wants 1, and an integral scale none.
-    final decimals = scale >= 1
-        ? 0
-        : scale
-            .toString()
-            .split('.')
-            .last
-            .replaceAll(RegExp(r'0+$'), '')
-            .length;
-    return scaled.toStringAsFixed(decimals);
+  /// The reading as a number in decoded units, for controls that seed from
+  /// device state rather than render text. Null when the field is not numeric.
+  double? get decodedNumber {
+    final value = primary;
+    if (value == null) return null;
+    return decodedNumberOf(value, scaleOverride: entity.valueScale);
   }
 
   /// The unit to render beside [display]: the entity's own, or the format
-  /// field's when the entity does not name one.
-  String? get unit => entity.unit ?? primary?.unit;
+  /// field's when the entity does not name one — and neither when the spec
+  /// says the unit follows a device setting (see [unitOf]).
+  String? get unit {
+    final value = primary;
+    if (value == null) return entity.unit;
+    return unitOf(value, entityUnit: entity.unit);
+  }
+
+  /// Whether the bound field's unit is a device setting rather than a
+  /// constant of the protocol, so a UI must not present [unit] as fact.
+  bool get unitIsDeviceSetting {
+    final value = primary;
+    return value != null && unitFollowsDeviceSetting(value);
+  }
 
   /// Whether the entity currently reads as "on", by the spec's own rules.
   ///
