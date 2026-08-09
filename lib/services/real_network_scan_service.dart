@@ -296,8 +296,20 @@ class RealNetworkScanService implements NetworkScanService {
           Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
         }));
       }
-      // Give the fired-off resolutions the other half of the window.
-      await Future<void>.delayed(phase);
+      // Give the fired-off resolutions the other half of the window — but wake
+      // early if the scan is stopped.
+      //
+      // Unconditionally sleeping here made `stopScan()` a lie: the transports
+      // shut down at once, but this half stayed parked, so `Future.wait` below
+      // did not complete and the app-facing stream did not CLOSE for up to half
+      // the scan window (thirty seconds at a one-minute timeout). A caller that
+      // waits for the stream to end before re-enabling its button — which is
+      // what "stop scanning" looks like from the UI — waits that long for a
+      // scan that already stopped.
+      await Future.any([
+        Future<void>.delayed(phase),
+        session.whenStopped,
+      ]);
       // No separate "heard during resolve" state: a resolution only ever
       // starts after the enumeration loop has already received a record, so
       // `heard` is necessarily true by then.
@@ -471,11 +483,21 @@ class _ScanSession {
   MDnsClient? mdns;
   RawDatagramSocket? ssdpSocket;
 
+  final Completer<void> _stopped = Completer<void>();
+
+  /// Completes when [stop] is called, so a wait can be cut short rather than
+  /// only checked at its ends. The flag alone cannot do that: a transport
+  /// parked in a delay never looks at it.
+  Future<void> get whenStopped => _stopped.future;
+
   void stop() {
     stopped = true;
     mdns?.stop();
     mdns = null;
     ssdpSocket?.close();
     ssdpSocket = null;
+    // Guarded: every path out of a scan calls this, and cancel-then-finish
+    // calls it twice.
+    if (!_stopped.isCompleted) _stopped.complete();
   }
 }
