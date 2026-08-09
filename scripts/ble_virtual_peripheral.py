@@ -50,7 +50,7 @@ import os
 import sys
 
 try:
-    from dbus_next import BusType, DBusError, PropertyAccess, Variant
+    from dbus_next import BusType, DBusError, PropertyAccess
     from dbus_next.aio import MessageBus
     from dbus_next.service import ServiceInterface, dbus_property, method
 except ImportError:  # pragma: no cover - the wrapper script checks for this
