@@ -29,9 +29,15 @@ no second machine, no router and no privileges. The mDNS socket sets
 SO_REUSEPORT because package:multicast_dns binds 5353 the same way; without it
 the second binder loses.
 
-Usage (normally through scripts/virtual-net-device.sh):
-    python3 scripts/net_virtual_device.py --ready-file /tmp/ready
+There is no wrapper script: the tests that need this start it themselves (see
+test/services/real_network_scan_service_live_test.dart) and wait on --ready-file
+rather than on a sleep. Run it by hand to watch a scan happen against the real
+app — `./scripts/run-linux.sh` in another terminal — or to try a scenario out.
+
+Usage:
+    python3 scripts/net_virtual_device.py --verbose
     python3 scripts/net_virtual_device.py --scenario my-devices.json
+    python3 scripts/net_virtual_device.py --ready-file /tmp/ready --seconds 30
 """
 
 from __future__ import annotations
