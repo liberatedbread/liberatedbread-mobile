@@ -318,7 +318,18 @@ Note the asset path: `pubspec.yaml` bundles the registries from the subtree
 directly. Nothing is copied into `assets/` any more — the vendored subtree is
 the single source of truth for both the registries and the device specs, so
 there is no second copy to go stale and no sync step to forget. Refreshing the
-catalogue is `git subtree pull`.
+catalogue is `./scripts/update-specs.sh`, which does the `git subtree pull` and
+then asserts that every path `pubspec.yaml` bundles actually arrived — a pull
+that drops one is otherwise invisible until a device fails to be named at
+runtime. It takes a ref, and `--from` takes any remote (including a local
+checkout), so a spec change can be pulled from the branch it is still being
+written on:
+
+```sh
+./scripts/update-specs.sh                    # main, canonical remote
+./scripts/update-specs.sh some-branch
+./scripts/update-specs.sh some-branch --from ../liberatedbread-protocol-specs
+```
 
 **Ranking**: a scan in a populated building is mostly other people's earbuds,
 so the list does not sort on signal strength alone. Each device's advertisement
