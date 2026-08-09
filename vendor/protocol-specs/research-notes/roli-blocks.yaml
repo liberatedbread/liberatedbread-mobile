@@ -1,0 +1,72 @@
+# ROLI Blocks (Lightpad/Seaboard/Live/Loop/Touch) + Seaboard RISE — Device Spec (research note)
+# Company: ROLI Ltd (administration 2021) -> Luminary ROLI Ltd; second insolvency
+# notice filed by TriplePoint July 2026 (The Times, 2026-07-10). AT-RISK NOW.
+
+device:
+  id: roli-blocks
+  name: ROLI Blocks family + Seaboard RISE (MPE controllers)
+  manufacturer: ROLI Ltd / Luminary ROLI Ltd (London) — at-risk (2nd insolvency pending, July 2026)
+  category: musical_instrument
+  safety_class: NONE
+
+transport:
+  type: ble  # BLE MIDI for playing; custom ROLI protocol on top for topology/LED/touch
+  local_only: true  # for play + LED/touch control; firmware/config tooling is cloud-gated
+
+ble:
+  advertising:
+    name_patterns: ["Lightpad BLOCK", "Seaboard BLOCK", "LIVE BLOCK", "LOOP BLOCK", "TOUCH BLOCK", "RISE"]
+    service_uuids: ["03b80e5a-ede8-4b33-a751-6ce34ec4c700"]  # standard BLE MIDI
+
+  services:
+    - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+      name: ble_midi_service
+      description: >
+        Standard BLE MIDI. Playing data is plain MIDI/MPE. ROLI additionally
+        tunnels its Blocks control protocol (topology packets, LED program
+        upload, touch event config) as vendor messages over the same link —
+        fully implemented in the open-source JUCE module juce_blocks_basics.
+      characteristics:
+        - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+          name: ble_midi_io
+          properties: [notify, write, write_no_response]
+
+protocol:
+  note: >
+    Two layers: (1) standard BLE-MIDI carrying note/MPE data — works with any
+    host, no ROLI software; (2) ROLI Blocks control protocol for topology,
+    LED framebuffer/Littlefoot program upload, and touch configuration,
+    documented in source at modules/juce_blocks_basics in
+    github.com/juce-framework/JUCE (Block, TopologySource, Littlefoot
+    remote/bytecode classes). ROLI Dashboard (desktop) is the official config
+    tool but is distributed via the account-gated ROLI Connect hub.
+  reference_implementations:
+    - github.com/juce-framework/JUCE (modules/juce_blocks_basics)  # official open source
+    - github.com/WeAreROLI/BLOCKS-SDK  # original BLOCKS SDK (archived mirror)
+
+cloud_dependency:
+  playing_and_local_control: none
+  firmware_updates: ROLI Connect account + server download (DIES with company)
+  dashboard_install: ROLI Connect account-gated (DIES with company)
+  mitigation: >
+    Archive standalone Blocks .syx firmware files from support.roli.com and
+    ROLI Dashboard/Connect installers while the site is up.
+
+companion_apps:
+  - name: ROLI Dashboard / ROLI Connect
+    platform: desktop (macOS/Windows)  # no Android config app for Blocks
+    package_id: null
+  - name: "ROLI Learn (Piano M / LUMI companion — adjacent, not Blocks)"
+    package_id: com.roli.lumi
+    version_fetched: "1.38.1 (latest listed by apkeep on apk-pure, 2026-08-04)"
+    apk_sha256: "c787d883ba1c64d9296bcc45056ea64842894b028869344b23727713b7fc25f4"
+    apk_source: apkeep (apk-pure), XAPK 246 MB
+
+status:
+  company_status: at_risk_imminent  # notice of intention to appoint administrators, July 2026
+  apk_acquired: true   # com.roli.lumi (adjacent app; Blocks config never had an Android app)
+  apk_decompiled: false
+  uuids_recovered: true  # standard BLE MIDI; Blocks control protocol public in JUCE source
+  protocol_recovered: true  # via official open-source juce_blocks_basics
+  hci_snoop_needed: false
+  rating: confirmed

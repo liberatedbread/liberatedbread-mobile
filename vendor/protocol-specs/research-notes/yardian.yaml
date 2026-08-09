@@ -1,0 +1,47 @@
+# Aeon Matrix Yardian / Yardian Pro — Device Spec (research note)
+# Company ACTIVE (2026-08). Local REST control, but token requires one-time cloud account.
+
+device:
+  id: yardian
+  name: Aeon Matrix Yardian / Yardian Pro smart sprinkler controller
+  manufacturer: Aeon Matrix — active
+  category: irrigation_controller
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true  # control path; token acquisition needs vendor cloud account
+  note: >
+    Local REST API on the controller (used by HA core integration 'yardian',
+    local_polling, via pyyardian). Access token is obtained from the Yardian
+    app, which requires a cloud account — one-time cloud dependency.
+
+lan:
+  discovery:
+    protocol: none_documented   # user supplies host IP
+  control:
+    protocol: https
+    auth: access token from Yardian app (device settings)
+    note: exact endpoint schema in pyyardian / HA core integration source
+
+protocol:
+  commands:
+    zone_start: documented in pyyardian (start irrigation, N minutes)
+    zone_stop: documented
+    stop_all: documented
+    status: watering / standby / freeze-prevent sensors
+
+status:
+  apk_acquired: false   # local path already integrated; RE target would be token exchange
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false
+  confidence: confirmed
+  liberation_gap: >
+    New-device onboarding and token recovery depend on the vendor cloud;
+    no documented offline provisioning workaround.
+  references:
+    - home-assistant.io/integrations/yardian
+    - yardian.com

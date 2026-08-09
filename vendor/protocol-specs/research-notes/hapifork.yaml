@@ -1,0 +1,42 @@
+# HAPIfork — Device Spec (research note)
+# Hapilabs defunct (~2015+); app removed from Google Play (per soft112)
+# APK: NOT acquired (all package-id guesses missed on apkeep/apk-pure, 2026-08-03)
+
+device:
+  id: hapifork
+  name: HAPIfork Bluetooth Smart Fork
+  manufacturer: Hapilabs (Paris) — defunct
+  category: smart_utensil
+  safety_class: LOW  # eating-pace coaching; no actuation beyond vibration
+
+transport:
+  type: ble
+  local_only: true
+  note: >
+    BLE 4.0 sync of meal stats (also micro-USB). Haptic "eat slower" feedback
+    is fully autonomous on-device; BLE/app only handle stats upload, so local
+    BLE value is limited to data read-out.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — needs unit
+    service_uuids: []  # TBD
+  services: []
+
+protocol:
+  note: >
+    No public RE, no fetchable APK. Fallback: GATT enumeration with a BLE
+    scanner; USB sync protocol may be an easier target than BLE.
+  commands:
+    stats_read: TBD
+
+status:
+  apk_acquired: false
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: false
+  cloud_dead: true
+  references:
+    - engadget.com/2013-04-17-hapifork-kickstarter-campaign-hands-on.html
+    - hapifork.soft112.com/hapifork-alternatives.html (app removed from Play)

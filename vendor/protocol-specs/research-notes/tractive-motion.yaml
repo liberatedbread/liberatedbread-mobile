@@ -1,0 +1,80 @@
+# Tractive MOTION — Device Spec (research note)
+# Static triage of com.tractive.android.motion (APKPure via apkeep)
+# APK SHA-256: 704b44ea1b81672df0ffe9113dfd000eaefd3dd54b23d90ff94e9db75205548b
+
+device:
+  id: tractive-motion
+  name: Tractive MOTION pet activity tracker
+  manufacturer: Tractive GmbH (company alive; MOTION product line discontinued ~2017, app delisted)
+  category: pet_activity_tracker
+  safety_class: LOW  # Wellness/activity data only, not veterinary diagnostics
+
+transport:
+  type: ble
+  local_only: true  # Pod-to-phone sync is pure BLE; stock app cloud is for account/history only
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — MOTION_DEVICE constant seen; actual adv name not extracted
+    service_uuids: []  # TBD
+
+  # Custom MOTION data service
+  services:
+    - uuid: "69af0002-f994-3a57-749b-0e0aad3fca18"
+      name: motion_data_service
+      description: Custom Tractive MOTION data service (activity sync)
+      characteristics:
+        - uuid: "69af0003-f994-3a57-749b-0e0aad3fca18"
+          name: motion_char_1
+          description: Role TBD (likely data/notify)
+        - uuid: "69af0004-f994-3a57-749b-0e0aad3fca18"
+          name: motion_char_2
+          description: Role TBD (likely command/write)
+
+  alternate_services:
+    - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      name: nordic_uart_service
+      description: Nordic UART present in app (may be DFU-path only)
+      characteristics:
+        - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_rx
+        - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_tx
+        - uuid: "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_char_4
+          description: Role TBD
+    - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+      name: ffe0_family
+      description: FFE1–FFE4 referenced; role TBD
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+
+cloud:
+  note: >
+    Stock app talks to graph.tractive.com / cdn.tractive.com / channel.tractive.com
+    and has login flows; account likely required for history/graphs in the stock app.
+    Hardware needs no cloud: activity is stored on-pod and synced over BLE.
+  endpoints: [graph.tractive.com, cdn.tractive.com, channel.tractive.com]
+
+protocol:
+  note: >
+    Dedicated BLE layer: com.tractive.android.motion.ble.MotionClientAPI.
+    MOTION_DATA_SERVICE / MOTION_DFU_SERVICE / MOTION_HARDWARE_ID constants seen.
+    Frame format for activity sync TBD — jadx on MotionClientAPI or HCI snoop.
+  commands:
+    activity_sync: TBD
+    clock_set: TBD
+    firmware_update: Nordic DFU expected (MOTION_DFU_SERVICE constant)
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # dex strings triage only
+  uuids_recovered: true
+  protocol_recovered: false
+  hci_snoop_needed: true
+  prior_art: none found (2026-08-03)
+  app_version: "2.3.0"  # latest on APKPure

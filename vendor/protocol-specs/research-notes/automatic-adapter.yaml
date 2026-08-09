@@ -1,0 +1,55 @@
+# Automatic Link / Pro driving adapter — research note
+# Cloud shut down 2020-05-28 (SiriusXM announcement, dated press coverage).
+# App delisted from Play but APK still fetchable via apk-pure (verified 2026-08-04).
+
+device:
+  id: automatic-adapter
+  name: Automatic Link (gen 1/2) / Automatic Pro driving + trip adapter
+  manufacturer: Automatic Labs (defunct; SiriusXM shut it down 2020-05-28)
+  category: vehicle_trip_adapter
+  safety_class: LOW  # read-only OBD-II diagnostics/trip logging; no control path documented
+
+transport:
+  type: bluetooth_classic_rfcomm   # NOT BLE GATT on the phone link
+  local_only: false  # link is local, but all app features were cloud-processed; local protocol unproven
+
+bluetooth:
+  rfcomm:
+    - uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      name: spp
+    - uuid: "22f419c0-b3b6-11e4-a2ad-0002a5d5c51b"
+      name: automatic_custom_channel
+      description: Custom SDP/RFCOMM UUID from BluetoothProvider.java
+  auth:
+    note: >
+      com/automatic/util/Utils.java computes HMAC-SHA1 keyed with ASCII string
+      "d1ce1c12-c8c3-45d1-b621-cb70e6aff2fb" — likely adapter session auth or
+      message integrity; recovered from APK.
+
+protocol:
+  note: >
+    No ELM327 AT-command strings found in triage; app bundles the proprietary
+    "milesense" OBD state-machine library (com/milesense). Adapter application
+    protocol is undocumented; no prior community RE located. Full RE possible
+    from the APK (jadx tree in workspace/static/automatic) or a live RFCOMM
+    capture, but overlaps existing generic ELM327 dongle coverage.
+  references:
+    - https://9to5mac.com/2020/05/01/automatic-labs-shutting-down/
+    - https://thebanksreport.com/dealers/siriusxm-owned-connected-vehicle-platform-automatic-labs-to-shut-down/
+
+status:
+  apk_acquired: true
+  apk_decompiled: true     # triage-level (jadx), not full RE
+  uuids_recovered: true    # RFCOMM UUIDs + HMAC key material
+  protocol_recovered: false
+  hci_snoop_needed: true   # RFCOMM capture from a live Link would shortcut RE
+  cloud_dependency: full   # app was cloud-processed end to end; servers dead since 2020-05-28
+  feasibility: unproven_hard
+
+apk:
+  - package: com.automatic
+    version: 1.14.2
+    version_code: 54908
+    sha256: 9374f4556b003a618c2a804115b215449a391c47aa944f4cb26aadae5bee5425
+    source: apkeep apk-pure
+    note: delisted from Google Play; apk-pure still serves it

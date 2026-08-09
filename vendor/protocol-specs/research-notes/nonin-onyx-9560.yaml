@@ -1,0 +1,52 @@
+# Nonin Onyx II 9560 — Device Spec (research note)
+# Sources: Nonin OEM Bluetooth Specification (numed.co.uk mirror),
+# Medaval manual, MDPI diagnostics review, HealthVault shutdown (2019-11-20)
+
+device:
+  id: nonin-onyx-9560
+  name: Nonin Onyx II Model 9560 Bluetooth fingertip pulse oximeter
+  manufacturer: Nonin Medical (company active; product discontinued)
+  category: medical_sensor
+  safety_class: LOW  # spot-check SpO2/PR; indicative only
+
+transport:
+  type: bluetooth_classic
+  profiles: [spp, hdp]
+  local_only: true
+  spp:
+    uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    note: >
+      Vendor-documented framed binary protocol (Nonin 9560 OEM
+      Specification PDF). Streams SpO2/PR plus status; store-and-forward
+      access to last 20 spot readings. Byte layout not reproduced here —
+      read the vendor OEM spec directly.
+  hdp:
+    note: >
+      Bluetooth Health Device Profile with IEEE 11073-20601 oximeter
+      specialization (Continua Version One certified). Interoperable with
+      open 11073 manager stacks (github.com/signove/antidote on BlueZ).
+    standards:
+      - IEEE 11073-20601
+      - IEEE 11073-10404 (pulse oximeter specialization)
+      - Continua Version One Design Guidelines
+
+protocol:
+  expected_measurements:
+    - spO2_percent
+    - pulse_rate_bpm
+    - plethysmograph_status
+  memory: 20 spot readings (store-and-forward)
+
+cloud_status:
+  cloud_required: false
+  dead_cloud: >
+    Microsoft HealthVault (optional certification target) shut down
+    2019-11-20. Device itself never required any cloud account.
+
+status:
+  apk_acquired: false     # no companion app ever existed (OEM device)
+  apk_decompiled: false
+  uuids_recovered: true   # standard SPP + HDP service records
+  protocol_recovered: true  # vendor-published OEM spec + IEEE 11073 standards
+  hci_snoop_needed: false
+  rating: confirmed

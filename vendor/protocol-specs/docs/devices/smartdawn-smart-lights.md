@@ -65,9 +65,11 @@ pixel width/height, group, vendor and run-mode flags.
 | `01010074-...-077119514e44` | DDP Notify | Command responses, state pushes |
 | `02020074-...-077119514e44` | BIN Write | Bulk uploads (effects, animations, layouts) |
 | `02010074-...-077119514e44` | BIN Notify | Bulk-channel responses/progress |
-| `27923001-...-077119514e44` | Uploader | Firmware upload (OTA flow) |
+| `27923001-2072-...-077119514e44` | Uploader | Firmware upload (OTA flow) |
 
-(All characteristic UUIDs share the `1972-1925-3022-077119514e44` base.)
+(All characteristic UUIDs except the Uploader share the
+`1972-1925-3022-077119514e44` base; the Uploader's second group is `2072`
+— confirmed in `BleUtils5` and SuperPix's `BleUtils3`.)
 
 ### Transport framing
 
@@ -80,8 +82,10 @@ prefixed with a 4-byte fragment header:
 | 0 | 1 | Message serial (u8, per logical packet) |
 | 1 | 1 | Total fragment count |
 | 2 | 1 | Fragments remaining after this one (down to 0) |
-| 3 | 1 | 0x00 |
+| 3 | 1 | Channel tag: `0x00` on DDP; on BIN a buffer type — 1=TUTU_DOODLE, 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN |
 | 4 | MTU−4 | Payload chunk |
+
+Writes use `WRITE_TYPE_NO_RESPONSE` (BleUtils5 sets write type 2).
 
 ### Commands
 
@@ -110,11 +114,14 @@ Core message types (full table in the YAML spec):
 | 2507 / 2508 | playlist loop / single play | none |
 | 2509 | M_SET_BRIGHTNESS | SimpleMessage {i1} |
 | 2514 / 2515 | power on / off | none |
-| 2523 | M_SET_PLAY_SPEED | SimpleMessage {i1} |
+| 2523 | M_SET_PLAYSPEED | SimpleMessage {i1} |
 | 2598 / 2599 | factory reset / reboot | none |
 | 2601 / 2603 / 2628 | palette / color mode / color ext | protobuf |
 | 2604 / 2605 / 2606 | play next / prev / specific effect | effect ref for 2606 |
 | 2611 / 2612 | music mode start / stop | – |
+| 2650 / 2651 | device-mic music mode start / stop | none |
+| 2701 / 2702 | doodle (live pixel session) start / end | SimpleMessage {i1,i2} |
+| 237 | M_DEV_SHOW_PIXEL (single-pixel preview) | SimpleMessage {i1,i2} |
 | 2104 | get running status | none |
 | 2901–2933 | install/remove effects, apps, animations, layouts; firmware update | – |
 
@@ -124,24 +131,38 @@ effects/width/height), `M_POWER_STATUS_NOTIFY` (2105), `M_PLAY_INFO_NOTIFY`
 
 ### Image / animation frames (pixel push)
 
-The platform's display surface is a raster buffer: the app's draw,
-photo-to-light and music modes stream **standard DDP packets** with datatype
-`DISPLAY` (0x01) to the DDP Write characteristic. Each packet carries pixel
-bytes at a byte `offset` into the display buffer with `psize` length (header
-layout in the table above); a frame larger than one packet is sent as
-multiple packets at increasing offsets. Following the DDP convention the
-platform derives from, the PUSH flag (0x01) on the final packet latches the
-assembled buffer onto the LEDs — an inference from the header semantics, not
-yet confirmed by capture. Animations are streamed: repeat the frame push at
-the desired rate. Per-model resolution (width × height) comes from the
-manufacturer-data record and `M_DEVICE_INFO_NOTIFY` (mt=2103).
+**Confirmed live path (v1.2.4):** the app's draw / photo-to-light modes push
+pixels over the **BIN channel**, not the DDP channel. `M_DOODLE_START`
+(mt=2701, SimpleMessage {i1:1, i2:1}) opens the session; the canvas is then
+sent as buffer arrays whose fragment-header tag byte is `TUTU_DOODLE` (1)
+for incremental strokes or `TUTU_RESTORE` (4) for a full-canvas redraw
+(`TUTU_ERASE` = 2 clears). The buffer payload is a palette-indexed raster
+chunked at ~200 bytes: a 3-byte header `[x][y][colorCount ≤ 16]`, the RGB
+palette (3 bytes/color), then per-pixel palette indices. `M_DOODLE_END`
+(mt=2702) closes the session; `M_DOODLE_SCROLL` (mt=2715) scrolls it.
+`M_DEV_SHOW_PIXEL` (mt=237) previews single pixels while drawing. Music
+mode either starts the controller's own mic (`M_START_DEVICE_MIC`,
+mt=2650) or, for phone-mic mode, computes FFT on the phone and drives
+effect selection.
+
+**Dormant encoder:** every Daniao H5 bundle checked (SmartDawn 1.2.4,
+SuperPix 4.4.1, legacy SmartPixels) also ships `mkOrginDdp`, an encoder
+for standard DDP DISPLAY packets (datatype 0x01, flag 0xE1, offset-ordered
+fragments into a raster buffer) — but it has **no call sites** in any of
+them. Treat DISPLAY-packet streaming as a legacy/dormant capability until
+an on-air capture shows it in use; likewise the "PUSH flag latches the
+frame" convention is inference from the header semantics, not confirmed.
+
+**Stored animations:** multi-frame sequences install over the BIN channel
+via `M_START_INSTALL_ANIMATION` / `M_INSTALL_ANIMATION_PACKET` /
+`M_END_INSTALL_ANIMATION` (mt 2918–2920), from `p2p.proto`.
 
 Machine-readable capability: the YAML spec declares
-`features: [image_upload]` (rgb888, device-reported resolution, animation via
-streaming) and `protocol_handler: "daniao_ddp"` for clients that implement
-the fragment framing + DDP packet encoder. Stored multi-frame effects also
-exist via the BIN-channel install flow (mt 29xx) but are not yet mapped well
-enough to encode.
+`features: [image_upload]` (rgb888, device-reported resolution, animation
+via the BIN install flow) and `protocol_handler: "daniao_ddp"` for clients
+that implement the fragment framing + packet encoders. Per-model
+resolution (width × height) comes from the manufacturer-data record and
+`M_DEVICE_INFO_NOTIFY` (mt=2103).
 
 ### Wi-Fi path (platform feature)
 
@@ -152,9 +173,14 @@ SmartDawn SKUs ship Wi-Fi.
 
 ## Tools Used
 
-- [x] jadx / apktool decompile of official SmartDawn.apk v1.2.4
+- [x] jadx / apktool decompile of official SmartDawn.apk v1.2.4 (re-verified
+  2026-08-08 against the vendor-CDN download, sha256 `58aaf3d6…ca07aa`;
+  cross-checked with SuperPix `com.daniaokeji.cs` 4.4.1 and legacy
+  SmartPixels decompiles)
 - [x] H5 bundle analysis (assets/HTML — independent JS reimplementation)
-- [ ] Live BLE capture (not yet — see gaps below)
+- [x] Bundled protobuf schema `assets/HTML/p2p.proto` — authoritative
+  message-type numbers and payload shapes
+- [ ] Live BLE capture (not yet — see `research-notes/smartdawn-curtain-capture-plan.md`)
 
 ## References
 
