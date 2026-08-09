@@ -85,6 +85,97 @@ A BLE device with an encrypted command channel has an `initialization` block
 and a `setup` block saying `required: false`. Those are not in tension: there
 is nothing to provision, but every connection still needs a handshake.
 
+### `identification` — what a scanner sees before connecting
+
+`device.discovery` says how to go looking. `device.identification` is the
+narrower question a scanner asks of every advertisement it receives, thousands
+of times a minute, before it has connected to anything: *is this one of ours?*
+
+```yaml
+device:
+  identification:
+    local_name_prefix: "Ember"          # BLE advertised name
+    service_uuids: [...]                # advertised GATT service UUIDs
+    manufacturer_data:
+      company_id: 961                   # decimal, AD type 0xFF header
+      company_id_hex: "0x03C1"          # same value, for readers
+      # Only the same vendor's other allocations — 224 "Google" and 398
+      # "Google LLC" are the shape this key is for. Never an SoC vendor's ID
+      # (89 Nordic, 741 Espressif): thousands of unrelated products ship those
+      # in their advertisement, and listing one claims every last one of them.
+      additional_company_ids: [398]     # older firmware, rebadged models
+    mac_prefixes:                       # IEEE OUI, most-significant octet first
+      - prefix: "00:17:88"
+        confidence: "medium"            # low (default) | medium | high
+        notes: "Philips Lighting's own block, but it covers their whole catalogue."
+      - "C4:7C:8D"                      # bare string == confidence: low
+    mdns_service_type: "_hue._tcp.local."   # WiFi
+    ssid_prefix: "..."                      # WiFi, AP mode
+    default_port: 80                        # WiFi
+```
+
+Everything here should also be derivable from `discovery`, which carries the
+evidence and the payload-level matching rules. The duplication is deliberate:
+`identification` is the part a consumer can act on cheaply, and it is what the
+mobile app's spec matcher reads.
+
+**The four BLE signals are not equally strong, and a consumer should not treat
+them as if they were:**
+
+| Signal | Strength | Why |
+|---|---|---|
+| `service_uuids` | Strongest | A vendor-allocated 128-bit UUID in an advertisement is close to proof |
+| `local_name_prefix` | Strong | Distinctive prefixes rarely collide, but users rename devices and some vendors ship a generic default |
+| `manufacturer_data.company_id` | Medium | Identifies an advertisement shape, not a vendor — squatting is rampant (see `shining-glasses`, whose 21076 is just "TR" in little-endian) |
+| `mac_prefixes` | Weakest | An OUI belongs to a vendor, not a product |
+
+`mac_prefixes` earns its place by ranking rather than by deciding. An OUI never
+justifies claiming a device is supported — `C4:7C:8D` matches every Xiaomi
+radio ever built, not just the plant monitor — but an otherwise-anonymous
+device carrying a known vendor's OUI is worth putting above one carrying an
+unknown OUI in a list a human has to read. Two further limits are worth knowing
+before relying on it: Apple platforms never expose it at all (CoreBluetooth
+hands out a per-host UUID in place of the hardware address), and any device
+using BLE privacy mode advertises a rotating random address with no OUI in it.
+
+Record prefixes and company IDs that a source actually documents or that we
+actually observed. Do not fill `mac_prefixes` in by looking the vendor's name
+up in the IEEE registry: the registry says which OUIs a company holds, not
+which one this product shipped with.
+
+#### `mac_prefixes` entries carry their own confidence
+
+Not every OUI is weak in the same way, and a spec that says so lets a consumer
+rank them apart instead of flattening the lot. An entry is either a bare string
+or a map:
+
+```yaml
+mac_prefixes:
+  - "C4:7C:8D"                      # bare string, treated as confidence: low
+  - prefix: "00:17:88"
+    confidence: "medium"
+    notes: >
+      Free text. Say how you established this, so the next person can disagree
+      with you on the evidence rather than on the verdict.
+```
+
+| `confidence` | Means | A consumer should |
+|---|---|---|
+| `low` (default) | The block is shared: subdivided into MA-M/MA-S slices held by unrelated companies, or belonging to a radio module vendor rather than the product's maker | Rank on it, never promote on it |
+| `medium` | The block really is this manufacturer's, but covers their whole catalogue — "something this vendor made", not "this device" | Rank on it, and let it corroborate another signal |
+| `high` | The block is this device family's and effectively nothing else's | Treat as evidence in its own right |
+
+The default is `low` because that is what an unchecked block is worth, and
+omitting the field is not a claim about it. Reach for `high` only with evidence
+in `notes`; it is rare, and getting it wrong turns a hint into a confident lie.
+
+`C4:7C:8D` (Mi Flora) is the worked example of `low`: IEEE subdivided it into
+fifteen 28-bit assignments held by unrelated companies, and the one Mi Flora
+comes from is `C4:7C:8D:6x`. A whole-octet prefix cannot express that, so it
+also matches the other fourteen vendors. `00:17:88` (Hue) is the worked example
+of `medium` — genuinely Philips Lighting's, and on their lamps and switches
+too, not just bridges.
+
 ### `openness` — did we have to recover this?
 
 `manufacturer_status` says what the vendor is doing. `openness` says something
