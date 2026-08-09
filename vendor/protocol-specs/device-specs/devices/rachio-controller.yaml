@@ -23,7 +23,9 @@ device:
     Controller uses Matter/Thread — the vendor is migrating new products away
     from HomeKit.
   identification:
-    mdns_service_type: "_hap._tcp.local."
+    # No mdns_service_type. HomeKit accessories all advertise `_hap._tcp` — hundreds of unrelated
+    # products. It says the device speaks HomeKit, not that it is this one.
+    # The `discovery` block below still records it.
     default_port: 80
     identity_keys:
       primary: "hap_id"
