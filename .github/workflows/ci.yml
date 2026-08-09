@@ -365,13 +365,59 @@ jobs:
             echo "$untracked"
             exit 1
           fi
-      - run: flutter test --coverage
+      # --exclude-tags=netdisco: those suites bind ports 5353 and 1900 and wait
+      # real seconds for multicast datagrams. They have a job of their own — see
+      # scripts/ci-netdisco-tests.sh for why they are not part of this one.
+      - run: flutter test --coverage --exclude-tags=netdisco
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           files: coverage/lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  network-discovery:
+    name: Local-network discovery (emulated mDNS + SSDP devices)
+    runs-on: ubuntu-latest
+    # Minutes, not tens of minutes. There is no native build here at all: the
+    # code under test is `dart:io` sockets and package:multicast_dns, both of
+    # which run on the host Dart VM, so this needs Flutter and python3 and
+    # nothing else — no Rust toolchain, no NDK, no emulator, no GTK.
+    timeout-minutes: 15
+    # Its own job rather than another step in unit-tests, deliberately. These
+    # suites bind ports 5353 and 1900 and then WAIT — several seconds per scan
+    # window, for real multicast datagrams. Folded into the unit-test job they
+    # would push a suite that finishes in about a minute towards the point
+    # where a slow runner starts tripping timeouts, and a hang in a UDP listen
+    # would take the coverage upload down with it. Separate, the blast radius
+    # is this job.
+    #
+    # scripts/ci-netdisco-tests.sh is the whole step; it also refuses to pass
+    # when the tag selector matched nothing, which is the way this could
+    # silently stop testing anything.
+    needs: [analyze]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            .dart_tool
+          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-
+      - run: flutter pub get
+      # The runner image has no mDNS responder running, so 5353 is free. Said
+      # out loud because it is the one environmental assumption this job makes,
+      # and the failure it produces ("could not open the multicast sockets")
+      # names it too.
+      - name: Run discovery tests against emulated network devices
+        run: ./scripts/ci-netdisco-tests.sh
 
   rust:
     name: Rust (test + clippy + fmt)

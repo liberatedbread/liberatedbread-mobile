@@ -175,12 +175,17 @@ void main() {
           reason: 'the emulated advertisement should reach the device list');
 
       await tester.tap(find.text('ACME_Living_Room'));
-      await _pumpUntil(tester, find.text('Battery Service'));
+      await _pumpUntil(
+          tester, find.text('0000180f-0000-1000-8000-00805f9b34fb'));
 
-      // Discovery mapped the GATT tree into the UI. "Battery Service" (rather
-      // than a bare "Service") is the well-known-UUID lookup succeeding, which
-      // it cannot do when discovery reports the short-form UUID.
-      expect(find.text('Battery Service'), findsOneWidget);
+      // Discovery mapped the GATT tree into the UI. The service card's subtitle
+      // is the exact UUID, and its title is "Battery Service" rather than a
+      // bare "Service" — the well-known-UUID lookup succeeding, which it cannot
+      // do when discovery reports the short-form spelling. Counted with
+      // findsWidgets because the same name is also a badge on the scan row
+      // behind this route.
+      expect(find.text('0000180f-0000-1000-8000-00805f9b34fb'), findsOneWidget);
+      expect(find.text('Battery Service'), findsWidgets);
     });
   });
 
