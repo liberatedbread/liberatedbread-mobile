@@ -79,9 +79,11 @@ device:
 
   identification:
     mdns_service_type: "_wled._tcp.local."
-    mdns_service_types:
-      - "_wled._tcp.local."
-      - "_http._tcp.local."
+    # WLED also answers _http._tcp, and that is deliberately not recorded as an
+    # identification signal: every web-serving device on the network answers it,
+    # so matching on it would claim each of them might be a WLED controller.
+    # _wled._tcp is the vendor-specific one, and it is the one that identifies.
+    # The discovery block below still documents both.
     hostname_pattern: "wled-XXXXXX"
     hostname_notes: >
       Default mDNS name is "wled-" plus the last six hex characters of the

@@ -312,3 +312,112 @@ def test_empty_local_name_prefix_is_never_used(specs):
         assert identification.get("local_name_prefix", "x") != "", (
             f"{device_id}: local_name_prefix is empty — omit the key instead"
         )
+        for prefix in identification.get("local_name_prefixes", []):
+            assert prefix != "", (
+                f"{device_id}: local_name_prefixes contains an empty string — "
+                "drop the entry instead"
+            )
+
+
+def test_mac_prefixes_are_usable_ouis(specs):
+    """A prefix shorter than three octets ranks a sixteenth of all hardware.
+
+    Consumers reject these anyway, so a spec carrying one is silently doing
+    nothing rather than doing what its author intended.
+
+    Counted in hex digits rather than octets, because IEEE's MA-M and MA-S
+    blocks are 28 and 36 bits — `C4:7C:8D:6` is a legitimate prefix whose last
+    group is a single nibble, and the consumer's own rule is 6..=10 digits.
+    """
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification", {})
+        for entry in identification.get("mac_prefixes", []):
+            prefix = entry if isinstance(entry, str) else entry["prefix"]
+            groups = prefix.replace("-", ":").split(":")
+            assert all(1 <= len(g) <= 2 and _is_hex(g) for g in groups), (
+                f"{device_id}: mac_prefix {prefix!r} is not colon-separated hex"
+            )
+            # Only the final group may be a nibble; a short group in the middle
+            # is a typo that would silently shift every digit after it.
+            assert all(len(g) == 2 for g in groups[:-1]), (
+                f"{device_id}: mac_prefix {prefix!r} has a half-octet before "
+                "the end — only the last group may be a single hex digit"
+            )
+            digits = len(prefix.replace("-", "").replace(":", ""))
+            assert 6 <= digits <= 10, (
+                f"{device_id}: mac_prefix {prefix!r} is {digits} hex digits; "
+                "an OUI is 24 (MA-L) to 36 (MA-S) bits, i.e. 6 to 10 digits"
+            )
+
+
+def test_high_confidence_mac_prefixes_show_their_working(specs):
+    """`high` says a block is this device family's and effectively nothing
+    else's. That is a claim about the world, not a default, so it has to name
+    the evidence — otherwise the strongest rating is also the cheapest to
+    write, which is exactly backwards.
+    """
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification", {})
+        for entry in identification.get("mac_prefixes", []):
+            if isinstance(entry, str) or entry.get("confidence") != "high":
+                continue
+            assert entry.get("notes", "").strip(), (
+                f"{device_id}: mac_prefix {entry['prefix']!r} is rated high "
+                "confidence with no notes — say how you established that"
+            )
+
+
+def _is_hex(octet: str) -> bool:
+    return all(c in "0123456789abcdefABCDEF" for c in octet)
+
+
+# `identification` sweeps unrecognised keys into an extensions map rather than
+# rejecting them, which is what lets vendor-specific discovery hints live there.
+# The cost is that a near-miss on a schema key is not an error, it is a silent
+# no-op: consumers read the name they know and never see the value. Roku carried
+# `ssdp_search_target` for exactly this reason, and its one unambiguous SSDP
+# target -- `roku:ecp` -- reached no consumer at all.
+#
+# `local_name_prefixes` used to be on this list and is not any more: it is a
+# schema key now, because inkbird-bbq-thermometer ships under eight rebadged
+# names and renaming it to the singular would have dropped seven of them.
+IDENTIFICATION_NEAR_MISSES = {
+    "ssdp_search_target": "ssdp_search_targets",
+    "service_uuid": "service_uuids",
+    "mac_prefix": "mac_prefixes",
+    "mdns_service_types": "mdns_service_type",
+}
+
+
+def test_identification_keys_are_not_near_misses(specs):
+    """A singular/plural slip on an identification key is silently ignored."""
+    for device_id, spec in specs.items():
+        identification = spec["device"].get("identification", {})
+        for wrong, right in IDENTIFICATION_NEAR_MISSES.items():
+            assert wrong not in identification, (
+                f"{device_id}: identification.{wrong} is not a schema key and is "
+                f"silently ignored by consumers — use {right}"
+            )
+
+
+def test_near_miss_targets_are_real_schema_keys() -> None:
+    """The table must point at keys the schema declares.
+
+    Otherwise it does the opposite of its job: an author trips the assertion,
+    renames their key as instructed, and lands on another key no consumer
+    reads — which is exactly how `ssdp_search_target` became
+    `ssdp_search_targets` while still reaching nothing.
+    """
+    import json
+
+    schema = json.loads((REPO_ROOT / "device-specs" / "schema.json").read_text())
+    declared = set(
+        schema["properties"]["device"]["properties"]["identification"][
+            "properties"
+        ]
+    )
+    for wrong, right in IDENTIFICATION_NEAR_MISSES.items():
+        assert right in declared, (
+            f"near-miss table sends {wrong!r} to {right!r}, which schema.json "
+            "does not declare under device.identification"
+        )
