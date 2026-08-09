@@ -541,12 +541,16 @@ class _ServiceCard extends StatelessWidget {
   }
 
   String _serviceDisplayName(String uuid) {
-    // Well-known BLE service names.
-    final lower = normalizeUuid(uuid);
-    if (lower.startsWith('0000180f')) return 'Battery Service';
-    if (lower.startsWith('00001800')) return 'Generic Access';
-    if (lower.startsWith('00001801')) return 'Generic Attribute';
-    if (lower.startsWith('0000181a')) return 'Environmental Sensing';
-    return 'Service';
+    // Well-known BLE service names, matched on the short assigned number:
+    // normalizeUuid folds SIG-base UUIDs down to it, so both the spec's
+    // 128-bit spelling and flutter_blue_plus's short form land here as
+    // e.g. '180f'.
+    return switch (normalizeUuid(uuid)) {
+      '180f' => 'Battery Service',
+      '1800' => 'Generic Access',
+      '1801' => 'Generic Attribute',
+      '181a' => 'Environmental Sensing',
+      _ => 'Service',
+    };
   }
 }

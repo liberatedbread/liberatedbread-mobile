@@ -3,12 +3,28 @@
 
 // Helpers for rendering typed device-spec controls and decoded values.
 
+/// Initialisms that plain sentence-casing would render as words. Kept here so
+/// every surface spells a command the same way — a label that reads "Blink
+/// LED" on one screen and "Blink led" on another looks like two commands.
+const Map<String, String> _initialisms = {
+  'led': 'LED',
+  'rgb': 'RGB',
+  'uuid': 'UUID',
+  'mtu': 'MTU',
+  'id': 'ID',
+};
+
 /// Turn a spec identifier like `set_brightness` into a human label
-/// `Set brightness`.
+/// `Set brightness`, fixing up initialisms (`blink_led` → `Blink LED`).
 String humanizeName(String raw) {
-  final cleaned = raw.replaceAll(RegExp(r'[_\-]+'), ' ').trim();
-  if (cleaned.isEmpty) return raw;
-  return cleaned[0].toUpperCase() + cleaned.substring(1);
+  final words = raw
+      .split(RegExp(r'[_\-\s]+'))
+      .where((w) => w.isNotEmpty)
+      .map((w) => _initialisms[w.toLowerCase()] ?? w)
+      .toList();
+  if (words.isEmpty) return raw;
+  final joined = words.join(' ');
+  return joined[0].toUpperCase() + joined.substring(1);
 }
 
 /// Inclusive numeric range for a spec value type. Honors the explicit bounds

@@ -201,12 +201,15 @@ class MockBleService implements BleService {
   // Dart fallback defaults used when the Rust library is unavailable.
   // These intentionally match `rust/src/mock/simulator.rs` output for the
   // example-bulb spec so both code paths produce the same bytes.
+  /// Keys are run through [normalizeUuid] so they match however a lookup
+  /// spells the UUID (the specs' 128-bit form here, a stack's short form
+  /// elsewhere); the literals stay in the readable full form.
   static final Map<String, List<int>> _defaults = {
     // power=on, brightness=80, r=255, g=180, b=50
     '0000fff2-0000-1000-8000-00805f9b34fb': [1, 80, 255, 180, 50],
     // battery=85%
     '00002a19-0000-1000-8000-00805f9b34fb': [85],
-  };
+  }.map((uuid, value) => MapEntry(normalizeUuid(uuid), value));
 
   @override
   Future<bool> requestPermissions() async => true;
@@ -386,6 +389,35 @@ class MockBleService implements BleService {
     // is 512) so bulk features like image upload exercise their chunking at a
     // realistic size instead of the 23-byte floor.
     return 512;
+  }
+
+  /// Reads served so far, per device. Drives the simulated wander from a
+  /// counter rather than the wall clock: `DateTime.now()` is not the widget
+  /// tests' fake clock, so a clock-driven value would be unassertable and
+  /// flaky, and it would make demo output differ run to run.
+  final Map<String, int> _rssiReadCounts = {};
+
+  /// Deterministic jitter, kept off the shared [_random] so reading RSSI
+  /// cannot shift the scan results drawn from that seeded stream.
+  final _rssiRandom = Random(1337);
+
+  @override
+  Future<int> readRssi(String deviceId) async {
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    if (!(_connected[deviceId] ?? false)) {
+      throw StateError('Not connected to $deviceId');
+    }
+    // A slow approach/retreat cycle (16 reads per period, ±9 dBm) plus
+    // per-read jitter, so the Find Device view demonstrably reacts in demo
+    // mode instead of pinning to one value.
+    final reads = _rssiReadCounts.update(
+      deviceId,
+      (n) => n + 1,
+      ifAbsent: () => 0,
+    );
+    final base = _defFor(deviceId).rssi;
+    final phase = reads / 16 * 2 * pi;
+    return (base + sin(phase) * 9).round() + _rssiRandom.nextInt(5) - 2;
   }
 
   @override
