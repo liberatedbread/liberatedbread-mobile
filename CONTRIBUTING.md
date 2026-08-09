@@ -93,6 +93,36 @@ It needs `dbus` and `python3-dbus-next` (both in `LINUX_DESKTOP_PACKAGES`, so
 `@Tags(['bluez'])`, which keeps them out of the device jobs and tells
 `scripts/ci-linux-tests.sh` to run them wrapped.
 
+## Testing local-network discovery without a network
+
+Half the catalogue is Wi-Fi hardware, and `RealNetworkScanService` finds it the
+way the hardware expects: a DNS-SD meta-query over mDNS and an SSDP M-SEARCH.
+Neither has a plugin seam to substitute — they are `dart:io` sockets and
+`package:multicast_dns` — so the only way to run that code is to put something
+on the wire that answers.
+
+`scripts/net_virtual_device.py` is that: an mDNS/DNS-SD and SSDP responder for a
+scenario of emulated devices, stdlib only. Both sides join their multicast group
+over the loopback path, so it needs no second machine, no router and no
+privileges. The bundled scenario is one device answering on both transports (a
+Hue bridge — the coalescing case) and one that is SSDP-only (a Wemo plug — the
+reason both transports run).
+
+```bash
+# Watch a scan happen, with every answered query logged
+python3 scripts/net_virtual_device.py --verbose &
+./scripts/run-linux.sh          # or: flutter test --tags=netdisco
+
+# What CI runs
+./scripts/ci-netdisco-tests.sh
+```
+
+These suites are tagged `@Tags(['netdisco'])` and are **excluded from
+`flutter test`**, with a CI job of their own. Two reasons, both in
+`scripts/ci-netdisco-tests.sh`: they bind ports 5353 and 1900, which a machine
+running `avahi-daemon` or `systemd-resolved` cannot spare, and a scan window is
+seconds of waiting for real datagrams rather than frames of a fake clock.
+
 ## Code Style
 
 - Follow the [Effective Dart](https://dart.dev/effective-dart) guidelines

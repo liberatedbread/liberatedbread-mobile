@@ -91,12 +91,17 @@ void main() {
         reason: 'BlueZ discovery should surface the virtual peripheral');
 
     await tester.tap(find.text('ACME_Living_Room'));
-    await pumpUntil(tester, find.text('Battery Service'));
+    await pumpUntil(tester, find.text('0000180f-0000-1000-8000-00805f9b34fb'));
 
     // The GATT tree came from BlueZ's D-Bus object tree, through
-    // flutter_blue_plus_linux, through RealBleService. Naming the service means
-    // the UUID survived that round trip in a form the app recognizes.
-    expect(find.text('Battery Service'), findsOneWidget);
+    // flutter_blue_plus_linux, through RealBleService. Asserting on the service
+    // card's UUID subtitle rather than its "Battery Service" title: the title
+    // is also a badge on the scan row behind this route, so counting titles
+    // counts the wrong things. The 128-bit spelling is the stronger claim
+    // anyway — BlueZ hands over whatever form it likes.
+    expect(find.text('0000180f-0000-1000-8000-00805f9b34fb'), findsOneWidget);
+    expect(find.text('Battery Service'), findsWidgets,
+        reason: 'the well-known-UUID lookup recognized it');
 
     // 0x55 is 85, the battery level the virtual peripheral holds.
     await pumpUntil(tester, find.textContaining('55'));
