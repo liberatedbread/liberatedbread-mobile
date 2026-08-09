@@ -211,7 +211,8 @@ void main() {
       await tester.tap(find.text('ACME_Living_Room'));
       await _pumpUntil(tester, find.text('Control Service'));
 
-      // Both labels come from assets/device_specs/example-bulb.yaml, reached by
+      // Both labels come from the example bulb spec in the vendored
+      // catalogue (device-specs/examples/example-bulb.yaml), reached by
       // matching the device's advertised name prefix together with its
       // discovered service UUIDs. Nothing in the app knows what an ACME bulb is.
       expect(find.text('Control Service'), findsOneWidget,

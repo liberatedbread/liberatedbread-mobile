@@ -74,7 +74,8 @@ typedef EmulatedBondState = BmBondStateEnum;
 class EmulatedUuids {
   EmulatedUuids._();
 
-  /// Vendor control service, matching assets/device_specs/example-bulb.yaml.
+  /// Vendor control service, matching the example bulb spec
+  /// (vendor/protocol-specs/device-specs/examples/example-bulb.yaml).
   static const controlService = '0000fff0-0000-1000-8000-00805f9b34fb';
 
   /// Command characteristic: write-without-response only, as most real BLE
