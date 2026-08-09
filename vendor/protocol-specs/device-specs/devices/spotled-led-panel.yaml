@@ -7,6 +7,7 @@ device:
   manufacturer: "Host No.4 Technology (Chengdu) Co., Ltd."
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "display"
   notes: >
     OEM full-color LED matrix panels driven by the SPOTLED app (Android package
     com.led.spotled; iOS bundleId com.sunday.led, App Store id 1564039607),

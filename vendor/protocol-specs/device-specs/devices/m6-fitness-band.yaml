@@ -20,6 +20,7 @@ device:
   manufacturer: "Unknown (AliExpress generic / Mi Band clone)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "fitness"
   notes: >
     The M6 Smart Fitness Band is a ~$6 Mi Band clone sold on AliExpress.
     Hardware (rbaron.net teardown): Telink TLSR8232 SoC (16 kB SRAM, 512 kB

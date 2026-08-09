@@ -10,7 +10,7 @@ device:
   name: "Nuki Smart Lock"
   manufacturer: "Nuki Home Solutions GmbH"
   manufacturer_status: "active"
-  category: "smart_lock"
+  category: "lock"
   type: "electronic_door_lock"
   protocol: "ble"
   transport: "ble-gatt"

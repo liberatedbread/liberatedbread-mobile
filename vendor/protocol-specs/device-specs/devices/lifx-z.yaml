@@ -7,6 +7,7 @@ device:
   manufacturer: "LIFX"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "light"
   transport: "udp"
   notes: >
     LIFX Z LED strips support the LIFX binary LAN protocol over UDP port 56700

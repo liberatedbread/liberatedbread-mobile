@@ -34,6 +34,7 @@ for specs that changed.
       "name": "AdMore Light Bar Pro",
       "manufacturer": "AdMore Lighting Inc.",
       "protocol": "ble",
+      "category": "light",
       "status": "active",
       "helpful_urls": [
         {
@@ -50,6 +51,7 @@ for specs that changed.
       "name": "CHEF iQ Sense",
       "manufacturer": "CHEF iQ (Chefman)",
       "protocol": "ble",
+      "category": "sensor",
       "status": "unsupported",
       "updated_at": "2026-03-12T01:11:51+00:00",
       "url": "/api/v1/devices/chef-iq-sense.json",
@@ -75,6 +77,7 @@ Each device entry:
 | `name` | string | Human-readable device name |
 | `manufacturer` | string | Original manufacturer |
 | `protocol` | string | Primary protocol (`ble`, `wifi`, `zigbee`, `zwave`, `obd2`, `uart`, `can`) |
+| `category` | string | Broad device class from the schema's closed vocabulary (`light`, `display`, `sensor`, `motor`, `switch`, `tv`, … — see [Reading a Device Spec](spec-format.md)). `protocol` says whether you can reach the device; `category` says what it is |
 | `status` | string | Manufacturer support status (`active`, `abandoned`, `shutdown`, `unsupported`) |
 | `openness` | string | Whether the protocol was published or recovered (`open_by_design`, `documented_api`, `undocumented`, `hostile`); defaults to `undocumented` when the spec is silent |
 | `helpful_urls` | array | Optional top-level human references from the source spec; omitted when absent |

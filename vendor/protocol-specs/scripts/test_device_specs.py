@@ -11,10 +11,13 @@ to look. Every failure here is a spec that would surprise them.
 
 from __future__ import annotations
 
+import copy
+import json
 from pathlib import Path
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEVICES_DIR = REPO_ROOT / "device-specs" / "devices"
@@ -45,6 +48,23 @@ PASSPHRASE_PROTECTION = {
     "not_applicable",
 }
 NO_PROVISIONING_TYPES = {"none", "ble_direct"}
+
+
+def _schema() -> dict:
+    """schema.json, parsed. Shared by the vocabulary and constraint tests."""
+    return json.loads(
+        (REPO_ROOT / "device-specs" / "schema.json").read_text(encoding="utf-8")
+    )
+
+
+def schema_categories() -> set[str]:
+    """The `device.category` enum, read from schema.json.
+
+    Read rather than restated so the vocabulary has exactly one definition:
+    a copy here would let the schema and the tests drift apart, and the tests
+    would keep passing while doing it.
+    """
+    return set(_schema()["properties"]["device"]["properties"]["category"]["enum"])
 
 
 def load(path: Path) -> dict:
@@ -421,3 +441,99 @@ def test_near_miss_targets_are_real_schema_keys() -> None:
             f"near-miss table sends {wrong!r} to {right!r}, which schema.json "
             "does not declare under device.identification"
         )
+
+
+def test_category_is_from_the_closed_vocabulary(specs):
+    """Every spec states a category, spelled the way the schema spells it.
+
+    The schema enforces this too, so this test exists for the failure message:
+    a jsonschema enum error names the offending value and 25 alternatives with
+    no hint about which is meant, and this is the place a spec author is
+    already looking when they add a device.
+    """
+    allowed = schema_categories()
+    for device_id, spec in specs.items():
+        category = spec["device"].get("category")
+        assert category, (
+            f"{device_id}: device.category is missing — pick one of "
+            f"{sorted(allowed)}"
+        )
+        assert category in allowed, (
+            f"{device_id}: device.category '{category}' is not in the "
+            f"vocabulary {sorted(allowed)}. Reuse an existing value if one is "
+            "even roughly right; propose a new one in schema.json if none is."
+        )
+
+
+def test_reference_specs_are_categorised_as_references(specs):
+    """`type: reference-*` and `category: reference` must agree.
+
+    They say the same thing, and the schema keys the access-surface exemption
+    off `type`. A file that is a reference by one field and a device by the
+    other would be exempted from documenting an access surface and then drawn
+    in the app's device list as though it were hardware.
+    """
+    for device_id, spec in specs.items():
+        device = spec["device"]
+        by_type = is_reference(spec)
+        by_category = device.get("category") == "reference"
+        assert by_type == by_category, (
+            f"{device_id}: type={device.get('type')!r} and "
+            f"category={device.get('category')!r} disagree about whether this "
+            "file documents a device or a published protocol"
+        )
+
+
+def test_the_schema_itself_rejects_a_reference_mismatch():
+    """The rule above must hold for consumers who never run these tests.
+
+    `test_reference_specs_are_categorised_as_references` only sees specs
+    checked into this repository. schema.json is published, and a standalone
+    consumer validating against it should not be able to publish real hardware
+    as a protocol reference — or a protocol reference as hardware. So the
+    constraint lives in the schema and this pins both directions of it.
+    """
+    validator = Draft202012Validator(_schema())
+
+    def errors(doc) -> int:
+        return len(list(validator.iter_errors(doc)))
+
+    device = load(DEVICES_DIR / "admore-light-bar.yaml")
+    reference = load(DEVICES_DIR / "obd2-pid-reference.yaml")
+
+    assert errors(device) == 0, "the unmodified fixtures must be valid"
+    assert errors(reference) == 0
+
+    claims_reference = copy.deepcopy(device)
+    claims_reference["device"]["category"] = "reference"
+    assert errors(claims_reference), (
+        "a device with an ordinary type may not claim category: reference"
+    )
+
+    # …including one that states no `type` at all, which is most of them.
+    no_type = copy.deepcopy(claims_reference)
+    no_type["device"].pop("type", None)
+    assert errors(no_type), (
+        "a spec with no type may not claim category: reference either"
+    )
+
+    claims_device = copy.deepcopy(reference)
+    claims_device["device"]["category"] = "vehicle"
+    assert errors(claims_device), (
+        "a reference- type may not claim a device category"
+    )
+
+
+def test_every_vocabulary_value_is_reachable(specs):
+    """No category may be retired by deleting the last spec that used it.
+
+    A value nobody uses is not automatically wrong — the vocabulary leads the
+    catalogue on purpose, so 'camera' can exist before the first camera does.
+    But an unused value that nobody *remembers* is how a vocabulary rots, so
+    this test names them rather than failing: the list in the output is the
+    review prompt.
+    """
+    used = {spec["device"].get("category") for spec in specs.values()}
+    unused = sorted(schema_categories() - used)
+    print(f"categories with no spec yet: {unused or 'none'}")
+    assert used <= schema_categories()

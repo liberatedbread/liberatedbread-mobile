@@ -13,6 +13,7 @@ device:
   manufacturer: "Frigidaire (Electrolux)"
   manufacturer_status: "unsupported"
   protocol: "wifi"
+  category: "climate"
   notes: >
     WiFi-connected portable AC units controlled via the Frigidaire app
     (Electrolux platform). Covers FHPC series (8K BTU) and FHPH series

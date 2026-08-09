@@ -7,6 +7,7 @@ device:
   manufacturer: "Bosch eBike Systems"
   manufacturer_status: "active"
   protocol: "can"
+  category: "motor"
   notes: >
     The most closed mainstream e-bike system, and the one that most often stops
     an independent repair. Fault detail, component pairing and firmware updates

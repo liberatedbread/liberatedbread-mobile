@@ -31,6 +31,7 @@ def minimal_valid_spec() -> dict:
             "manufacturer": "Example",
             "manufacturer_status": "unsupported",
             "protocol": "ble",
+            "category": "light",
         },
         "services": [
             {
@@ -169,6 +170,7 @@ def test_manifest_structure(monkeypatch):
         assert "name" in entry
         assert "manufacturer" in entry
         assert "protocol" in entry
+        assert "category" in entry
         assert "status" in entry
         assert "updated_at" in entry
         assert entry["updated_at"] == generated_at  # forced fallback
@@ -292,10 +294,15 @@ def test_per_device_json():
         # list and claim to mirror it, which meant every new transport (bus,
         # cloud) failed a test that was only ever out of date. The rule lives in
         # the top-level allOf as the `else` of the reference-spec exemption.
+        # `else` is a schema, and `true`/`false` are legal schemas — the
+        # category/reference-consistency clause uses a bare `true` for its
+        # else. Filter to the object form before reading `anyOf` out of it,
+        # rather than assuming every clause is shaped like the transport one.
         transports = [
             required
             for clause in schema["allOf"]
-            for branch in clause.get("else", {}).get("anyOf", [])
+            if isinstance(clause.get("else"), dict)
+            for branch in clause["else"].get("anyOf", [])
             for required in branch.get("required", [])
         ]
         assert transports, "schema declares no transport blocks"

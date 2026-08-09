@@ -29,6 +29,7 @@ device:
   manufacturer: "Subaru Corporation"
   manufacturer_status: "active"
   protocol: "obd2"
+  category: "vehicle"
   notes: >
     Subaru uses SSM (Subaru Select Monitor), a proprietary diagnostic protocol
     layered on top of either ISO 9141-2 K-line (2002–2007) or ISO 15765-4 CAN

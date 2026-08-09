@@ -44,6 +44,7 @@ def ble_spec(characteristic: dict) -> dict:
             "manufacturer": "Test",
             "manufacturer_status": "abandoned",
             "protocol": "ble",
+            "category": "sensor",
         },
         "services": [
             {
@@ -170,6 +171,7 @@ def test_bus_field_gains_value_offset(validator):
             "manufacturer": "Test",
             "manufacturer_status": "active",
             "protocol": "uart",
+            "category": "motor",
         },
         "bus": {
             "link": {"type": "uart", "baud": 9600},

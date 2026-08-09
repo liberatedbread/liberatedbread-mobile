@@ -29,6 +29,7 @@ device:
   openness:
     status: "undocumented"
   protocol: "ble"
+  category: "fitness"
   notes: >
     KingSmith's foldable walking pads / under-desk treadmills (WalkingPad A1,
     A1 Pro, R1, R1 Pro, R2, C2, X21, MC21, Z1 and OEM variants) are controlled

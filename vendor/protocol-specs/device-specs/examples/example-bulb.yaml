@@ -8,6 +8,7 @@ device:
   manufacturer: "Acme Corp"
   manufacturer_status: "abandoned"  # abandoned | shutdown | unsupported
   protocol: "ble"
+  category: "light"
   notes: "This is an example spec for documentation purposes."
   identification:
     local_name_prefix: "ACME_"
