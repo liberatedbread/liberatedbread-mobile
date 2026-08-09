@@ -59,4 +59,35 @@ status=$?
 if [ "$status" -eq 0 ]; then
   echo "All shell scripts pass shellcheck."
 fi
-exit "$status"
+
+# ── the mode bit, which shellcheck has no opinion about ─────────────────────
+#
+# Every one of these is invoked as `./scripts/<name>.sh` — from ci.yml, from
+# scripts/test.sh, from the session hook. A file committed without its execute
+# bit (git tracks mode, and `git add` of a file created by a redirect keeps 644)
+# fails that invocation with "Permission denied", and it does so INSIDE the job
+# that runs it: a missing +x on scripts/ci-emulator-tests.sh is discovered
+# forty minutes into the emulator job, not here. It is a one-line `chmod +x`
+# fix and a full CI cycle to learn about, which is exactly the trade this
+# repo's cheap gate job exists to avoid.
+#
+# The shebang goes with it: `./script` on a file without one is handed to the
+# caller's shell, so a bash-only script silently runs under dash on Ubuntu.
+mode_status=0
+for f in "${targets[@]}"; do
+  if [ ! -x "$f" ]; then
+    echo "::error file=$f::$f is not executable. It is invoked as ./$f, which fails with Permission denied. Fix with: chmod +x $f && git update-index --chmod=+x $f" >&2
+    mode_status=1
+  fi
+  if ! head -n 1 "$f" | grep -q '^#!'; then
+    echo "::error file=$f::$f has no #! line. Executed directly it runs under whatever shell the caller happens to use — dash on the Ubuntu runners, which has no pipefail and no [[ ]]. Add '#!/usr/bin/env bash'." >&2
+    mode_status=1
+  fi
+done
+
+if [ "$mode_status" -eq 0 ]; then
+  echo "All shell scripts are executable and declare an interpreter."
+fi
+
+[ "$status" -eq 0 ] || exit "$status"
+exit "$mode_status"

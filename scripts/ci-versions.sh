@@ -125,6 +125,11 @@ _ci_env_list() {
   printf '%s' "$raw" | tr ',' ' '
 }
 
+# How many values this load could not read and had to fall back on. Every
+# fallback is already announced on stderr; the count is what lets `--strict`
+# turn "announced" into "enforced" — see the bottom of this file.
+CI_VERSIONS_FALLBACKS=0
+
 # Assign $1=$3 if $3 is non-empty, else fall back to $2 and say so.
 _ci_set() {
   local var="$1" fallback="$2" parsed="$3"
@@ -132,11 +137,13 @@ _ci_set() {
     printf -v "$var" '%s' "$parsed"
   else
     printf -v "$var" '%s' "$fallback"
+    CI_VERSIONS_FALLBACKS=$((CI_VERSIONS_FALLBACKS + 1))
     _ci_warn "could not read $var from ${CI_WORKFLOW}; using fallback '$fallback'"
   fi
 }
 
 ci_versions_load() {
+  CI_VERSIONS_FALLBACKS=0
   if [ ! -r "$CI_WORKFLOW" ]; then
     _ci_warn "workflow not readable at ${CI_WORKFLOW}; using fallbacks for everything"
   fi
@@ -184,8 +191,28 @@ ci_versions_print() {
 }
 
 # Sourced: define the variables. Executed: print them.
+#
+# `--strict` additionally FAILS on any fallback. The fallbacks exist so that a
+# parse miss degrades to a slightly stale pin rather than an exploding setup
+# script, and the miss is reported on stderr so it gets fixed — but nothing was
+# reading that stderr. Renaming a key in ci.yml's env block therefore had no
+# visible consequence at all: CI kept using its own `env:` values while every
+# dev machine and Claude Code session silently provisioned from a hardcoded
+# default further and further behind. `--strict` is what the workflow's own gate
+# job runs, so the rename fails in the pull request that makes it.
 if [ "${BASH_SOURCE[0]:-}" = "${0}" ]; then
+  strict=0
+  for arg in "$@"; do
+    case "$arg" in
+      --strict) strict=1 ;;
+      *) _ci_warn "unknown argument '$arg'"; exit 2 ;;
+    esac
+  done
   ci_versions_print
+  if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_FALLBACKS" -gt 0 ]; then
+    echo "::error file=.github/workflows/ci.yml::${CI_VERSIONS_FALLBACKS} pinned value(s) could not be read out of this workflow's top-level env: block (each is named on stderr above), so scripts/setup.sh and .claude/hooks/session-start.sh would provision dev environments from stale hardcoded defaults while CI used the real ones. Add the key back to that env: block, or update the reader in scripts/ci-versions.sh." >&2
+    exit 1
+  fi
 else
   ci_versions_load
 fi
