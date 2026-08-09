@@ -48,10 +48,29 @@ device:
     containers; an md5-verified BSB002 1978074000 image is archived in the
     verification research dir (research/hue-bridge/firmware/).
   identification:
+    mac_prefixes:
+      - prefix: "00:17:88"
+        confidence: "medium"
+        notes: >
+          Philips Lighting BV's own block, carried by the BSB001/BSB002
+          bridges (see the live probe under `examples` below). Not subdivided
+          and not a chip vendor's, so an address in it really is Philips
+          hardware -- but Philips put it on lamps, switches and sensors too,
+          so it means "something Philips made", not "a bridge".
+      - prefix: "C4:29:96"
+        confidence: "medium"
+        notes: >
+          Signify B.V., seen on the 2025 Bridge Pro (BSB003). Same caveat: the
+          block is the company's whole output, not this product.
     mdns_service_type: "_hue._tcp.local."
-    ssdp_search_targets:
-      - "upnp:rootdevice"
-      - "urn:schemas-upnp-org:device:Basic:1"
+    # No ssdp_search_targets. The bridge answers `upnp:rootdevice` and
+    # `urn:schemas-upnp-org:device:Basic:1`, but so does every router, printer,
+    # NAS and smart TV on the link — they are the generic UPnP announcements,
+    # not Philips identifiers. Declaring them here made every UPnP root device
+    # on the network match this spec and get badged "Philips Hue Bridge".
+    # The `discovery` block below still documents them, because they ARE how
+    # you find the bridge; they just cannot say that what you found is one.
+    # `_hue._tcp` (above) is the identifying signal.
     default_port: 80
     # Port note: the v1 HTTP API below still answers on 80 (2026-07 live
     # probe), but Signify has announced HTTP retirement on the gen-2 bridge,

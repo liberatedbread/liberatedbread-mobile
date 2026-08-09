@@ -230,6 +230,19 @@ device:
       in_place_supported: false
       requires_factory_reset: false
       notes: "Moving between Z-Wave networks is exclude-then-include; no cloud account or vendor backend is involved on the new network."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Z-Wave home ID and node ID, assigned by the controller at inclusion"
+        - "S0/S2 network key material, on variants that include securely"
+      issued_to_client:
+        - "Node ID, assigned on successful inclusion"
+      notes: >
+        No WiFi passphrase crosses any link this spec documents: the devices
+        are Z-Wave and are onboarded by controller inclusion (`hub_pairing`),
+        not by handing network credentials to the device. Whatever WiFi the
+        Home Control Central Unit itself uses is the hub's own provisioning
+        and is out of scope here.
 
 zwave:
   manufacturer_id: "0x0175"

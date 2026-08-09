@@ -280,6 +280,139 @@ the registry.
 
 ---
 
+### P10 — Multi-byte command parameters that encode one number { #p10 }
+
+**Problem.** `$defs/number_semantics` made a numeric value's meaning
+machine-readable, and deliberately kept the transform linear so a command
+parameter can be **encoded** by inverting it. That works when one parameter
+carries the whole number. It does not when a device splits the number across
+several byte-wide parameters, which is the normal shape for any 16-bit value
+sent over a byte-oriented template. Nothing in the schema says those parameters
+belong together, or which end is which, so a consumer that wants to set the
+value has to be told in prose — and prose is exactly what the number-semantics
+work removed everywhere else.
+
+**Evidence.** `ember-mug.yaml`'s `set_target_temp` is the worked case:
+
+```yaml
+template: ["{temp_low}", "{temp_high}"]
+parameters:
+  temp_low:
+    type: uint8
+    description: >
+      Low byte of the little-endian uint16 target in centi-°C. The pair
+      encodes round(target_c * 100): 56.5 C -> 5650 -> temp_low 0x12,
+      temp_high 0x16.
+```
+
+Everything a client needs is in that sentence and none of it is in a field.
+The matching `format` block one level up *is* fully machine-readable
+(`target_temp_raw`, `uint16`, `scale: 0.01`), so the mug's target temperature
+can be read generically and written only by hand — the asymmetry
+number-semantics set out to fix. The same shape recurs wherever a template is a
+byte list: `ibbq-meat-thermo.yaml`'s `set_target_temp` splits two probe
+thresholds across four bytes (`low_lo`/`low_hi`/`high_lo`/`high_hi`), and
+`idotmatrix.yaml`'s `set_password` splits one value across three.
+
+A consumer is already blocked on this, which is what distinguishes it from the
+other proposals in this section: the Flutter+Rust app resolves a `number`
+entity's setpoint to a sendable command only when exactly one parameter is
+un-defaulted, and deliberately refuses the Ember case rather than guess a byte
+order. Guessing wrong writes 0x1216 instead of 0x1612 — 46.6 °C asked for,
+56.5 °C delivered, on a heater.
+
+**Proposal.** An optional `encodes` block on a command, declaring that some of
+its parameters jointly carry one number:
+
+```yaml
+set_target_temp:
+  description: "Set target temperature"
+  template: ["{temp_low}", "{temp_high}"]
+  parameters:
+    temp_low:  { type: uint8 }
+    temp_high: { type: uint8 }
+  encodes:
+    # Significance order, least-significant FIRST. The list is the byte
+    # order, so there is no separate `byte_order` key to disagree with it.
+    parameters: ["temp_low", "temp_high"]
+    type: "uint16"     # width and signedness of the assembled value
+    unit: "C"          # ...plus the rest of $defs/number_semantics
+    scale: 0.01
+```
+
+Encoding is then fully determined, in the same terms the schema already uses:
+
+```
+raw   = round((value - value_offset) / scale)      # number_semantics, inverted
+byte0 = raw        & 0xFF   -> parameters[0]
+byte1 = (raw >> 8) & 0xFF   -> parameters[1]
+...
+```
+
+Listing the parameters in significance order rather than adding a `byte_order`
+enum is the deliberate choice: a list and an enum can contradict each other,
+and the contradiction is silent and catastrophic. One ordered list cannot.
+`encodes.parameters` is also independent of `template` order, so a device that
+interleaves the bytes with other protocol filler still describes itself
+correctly.
+
+Reusing `$defs/number_semantics` on the block means `unit`, `scale`,
+`value_offset` and `values` all mean exactly what they already mean elsewhere;
+`encodes` adds only `parameters` and `type`.
+
+**Compatibility.** Additive and inert. No existing spec has an `encodes` block,
+so nothing changes until one is written; a consumer that ignores it behaves
+exactly as today. Validation should require that every name in
+`encodes.parameters` is a declared parameter of the same command, that each is
+an integer type, and that their widths sum to the width of `encodes.type` —
+all checkable at load time, which turns a whole class of silent
+wrong-temperature bugs into a spec error.
+
+**Effort.** Small schema, small validator. The consumer work is real but
+bounded: assemble on encode, and the existing `format` block already handles
+the decode direction. Backfilling `ember-mug`, `ibbq-meat-thermo` and
+`idotmatrix` would move three known devices from prose to reproducible.
+### P11 — Plural `local_name_prefix` { #p11 }
+
+**Status: landed.** `local_name_prefixes` is in `schema.json`, and the mobile
+matcher reads the singular and plural keys together, so a match on any one of
+them carries the weight a `local_name_prefix` match always did. Kept here as the
+worked reasoning; the rest of this section is written as it was proposed.
+
+**Problem.** `device.identification.local_name_prefix` holds exactly one string,
+but a device family that ships under several rebadged names has several. There is
+nowhere to put the rest, so the ones that do not fit are unmatched at scan time —
+the cheapest, earliest identification signal, missing for exactly the families
+most likely to be mislabelled.
+
+**Evidence.** `inkbird-bbq-thermometer` advertises under eight names (`BG-BT1X`,
+`IBBQ-4BW`, `BBQ-4BW`, `IBT-4XS`, `IBT-2X`, `IBT-24S`, `IBT-26S`, `Inkbird@`) with
+no shared prefix. Its spec carries `local_name_prefixes:` — plural, and not a
+schema key, so `identification` sweeps it into extensions and no consumer reads
+it. All eight names are in the `discovery` block, which consumers do not execute,
+so today the family has no working name signal at all. `admore` hits the same
+wall from the other side, declaring `local_name_dfu` and `local_name_armband*`
+as separate extension keys.
+
+**Proposal.** Accept either form on the same key, the way `mac_prefixes` accepts
+either a bare string or a map:
+
+```yaml
+identification:
+  local_name_prefix: "Ember"              # unchanged, still valid
+  # or
+  local_name_prefixes: ["IBT-", "IBBQ-", "BG-BT1X", "Inkbird@"]
+```
+
+A match on any one of them means what a match on the single prefix means today,
+so the confidence rules do not change.
+
+**Compatibility.** Additive. Consumers reading only `local_name_prefix` keep
+working; specs using the plural form gain matching they do not have now.
+
+**Effort.** Small schema, small consumer work — the matcher already loops over
+`service_uuids` and `mac_prefixes` the same way.
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -379,6 +512,8 @@ this page classifiable.
 | [P4](#p4) | Bit-field decoding | Medium | Low | With consumer |
 | [P5](#p5) | Symmetric BLE command responses | High | Low | With consumer |
 | [P6](#p6) | First-class advertisement payloads | High | Medium | With consumer |
+| [P10](#p10) | Multi-byte command parameters | High | Low | With consumer — one is blocked today |
+| [P11](#p11) | Plural `local_name_prefix` | Medium | Very low | **Landed** |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |
@@ -388,3 +523,8 @@ standard-shaped parts of a protocol (checksums, SIG characteristics, open beacon
 formats) in terms of published standards instead of local prose, so more of every
 spec is reproducible from the file. That is the same lever `test_wemo_spec.py`
 already pulls, applied to the parts of a spec that are currently prose-only.
+
+**P10 is the same lever pointed at the write direction.** Number semantics made
+reading a value reproducible from the file; a device that splits that value
+across byte parameters is still readable and no longer writable without prose,
+which is the one place the asymmetry now shows.
