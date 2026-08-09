@@ -209,3 +209,285 @@ fn dart_loader_does_not_hardcode_spec_filenames() {
          adding a device must stay a spec refresh, not a Dart edit"
     );
 }
+
+/// The control bindings the flagship devices resolve from the real catalogue,
+/// end-to-end through the DTO path the app consumes.
+///
+/// Each case pins behaviour a card depends on: govee's plug is command-only
+/// (no state characteristic at all) and must still cross the FFI; elk-bledom
+/// gets brightness and color but must NOT get a power toggle (its on/off
+/// command's `cmd` byte is un-defaulted and the spec itself calls it
+/// ambiguous); switchbot's prefixed commands resolve through the suffix
+/// fallback; ember's LED packs brightness into its color command.
+#[test]
+fn vendored_specs_resolve_expected_control_actions() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let load = |file: &str| {
+        let path = assets_dir().join(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"))
+    };
+
+    let roles = |dto: &liberated_bread_core::api::device_api::EntityDto| -> Vec<String> {
+        dto.actions.iter().map(|a| a.role.clone()).collect()
+    };
+
+    // govee-h5080: a stateless switch riding on payload.bytes commands.
+    let govee = load("govee-h5080-plug.yaml");
+    let plug = govee
+        .entities
+        .iter()
+        .find(|e| e.name == "Plug Outlet")
+        .expect("the plug's command-only switch entity must cross the FFI");
+    assert_eq!(plug.state_characteristic, None);
+    assert_eq!(roles(plug), vec!["turn_on", "turn_off"]);
+
+    // elk-bledom: brightness (bounded 0..100 by the spec) and color resolve;
+    // power must not.
+    let elk = load("elk-bledom-led-strip.yaml");
+    let strip = elk
+        .entities
+        .iter()
+        .find(|e| e.name == "LED Strip")
+        .expect("elk-bledom declares an LED Strip light");
+    assert_eq!(roles(strip), vec!["set_brightness", "set_color"]);
+    let brightness = &strip.actions[0];
+    assert_eq!(brightness.command_name, Some("set_brightness".to_string()));
+    assert_eq!((brightness.min, brightness.max), (Some(0.0), Some(100.0)));
+    assert_eq!(
+        strip.actions[1].command_name,
+        Some("set_rgb_color".to_string())
+    );
+
+    // switchbot: no role map; bot_* names resolve via the suffix fallback,
+    // and press resolves alongside the toggle pair.
+    let switchbot = load("switchbot-ble.yaml");
+    let bot = switchbot
+        .entities
+        .iter()
+        .find(|e| e.name == "Bot Press")
+        .expect("switchbot declares a Bot Press switch");
+    assert_eq!(roles(bot), vec!["turn_on", "turn_off", "press"]);
+    assert_eq!(bot.actions[0].command_name, Some("bot_turn_on".to_string()));
+    assert_eq!(bot.actions[2].command_name, Some("bot_press".to_string()));
+
+    // ember: the LED's color command carries brightness as a user param, and
+    // the state mapping names the decoded color fields.
+    let ember = load("ember-mug.yaml");
+    let led = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "LED")
+        .expect("ember declares an LED light");
+    assert_eq!(roles(led), vec!["set_color"]);
+    assert_eq!(
+        led.actions[0].user_params,
+        vec!["red", "green", "blue", "brightness"]
+    );
+    assert_eq!(led.color_red_field.as_deref(), Some("red"));
+    assert_eq!(led.brightness_field.as_deref(), Some("brightness"));
+
+    // ember's temperature-control switch: no sendable commands (the role map
+    // is prose), but it still crosses on the strength of its state binding,
+    // with the on_when: nonzero rule intact.
+    let temp_control = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "Temperature Control")
+        .expect("ember declares a Temperature Control switch");
+    assert!(temp_control.actions.is_empty());
+    assert!(temp_control.on_when_nonzero);
+    assert!(temp_control.state_characteristic.is_some());
+
+    // ember's charging base: the binary_sensor on-mapping crosses intact.
+    let charging = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "Charging Base")
+        .expect("ember declares a Charging Base binary_sensor");
+    assert_eq!(charging.on_value, Some(1));
+
+    // example-bulb: the reference spec resolves the full role set, and its
+    // light state mapping (is_on/brightness/color_rgb) crosses intact.
+    let bulb = load("example-bulb.yaml");
+    let light = bulb
+        .entities
+        .iter()
+        .find(|e| e.name == "Bulb")
+        .expect("example-bulb declares a Bulb light");
+    assert_eq!(
+        roles(light),
+        vec!["turn_on", "turn_off", "set_brightness", "set_color"]
+    );
+    assert_eq!(light.is_on_field.as_deref(), Some("power_state"));
+    assert_eq!(light.color_green_field.as_deref(), Some("green"));
+}
+
+/// Setpoint resolution against the real catalogue, end to end through the
+/// encode path a card actually calls.
+///
+/// Gerbing is the worked example the whole `set_value` role exists for: no
+/// commands anywhere in its spec, but each heat channel nominates a writable
+/// characteristic with a single `uint8` percentage field, so a value the user
+/// picks becomes one byte on the right characteristic. Ember is the honest
+/// negative: its centi-°C target is split across two byte parameters whose
+/// order lives only in prose, so it must resolve nothing rather than write a
+/// wildly wrong temperature.
+#[test]
+fn vendored_specs_resolve_expected_setpoints() {
+    use liberated_bread_core::api::device_api::{encode_entity_value, load_device_spec};
+
+    let read = |file: &str| {
+        let path = assets_dir().join(file);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    };
+
+    // ── Gerbing: direct write, bounds in decoded units ─────────────────────
+    let yaml = read("gerbing-thermogauge.yaml");
+    let gerbing = load_device_spec(yaml.clone()).expect("gerbing should load");
+    let heat = gerbing
+        .entities
+        .iter()
+        .find(|e| e.name == "Heat Level 1")
+        .expect("gerbing declares Heat Level 1");
+    assert_eq!(
+        heat.actions.len(),
+        1,
+        "the heat channel resolves exactly one setpoint action"
+    );
+    assert_eq!(heat.actions[0].role, "set_value");
+    assert_eq!(
+        heat.actions[0].command_name, None,
+        "gerbing has no commands; this is a direct write"
+    );
+    assert_eq!(
+        (heat.setpoint_min, heat.setpoint_max, heat.setpoint_step),
+        (Some(0.0), Some(100.0), Some(1.0))
+    );
+
+    let write =
+        encode_entity_value(yaml.clone(), "Heat Level 1".into(), 60.0).expect("60% should encode");
+    assert_eq!(write.bytes, vec![60], "raw byte IS the percentage here");
+    assert_eq!(
+        write.characteristic_uuid,
+        "90759319-1668-44da-9ef3-492d593bd1e5"
+    );
+    // The two channels are distinct characteristics; a card must not send
+    // channel 2's value to channel 1.
+    let write2 = encode_entity_value(yaml.clone(), "Heat Level 2".into(), 60.0)
+        .expect("channel 2 should encode");
+    assert_ne!(write.characteristic_uuid, write2.characteristic_uuid);
+
+    // Out-of-range values fail loudly rather than wrapping to a byte.
+    assert!(
+        encode_entity_value(yaml, "Heat Level 1".into(), 300.0).is_err(),
+        "300% must not silently wrap into a u8"
+    );
+
+    // ── Ember: the two-byte split must NOT be guessed at ───────────────────
+    let yaml = read("ember-mug.yaml");
+    let ember = load_device_spec(yaml.clone()).expect("ember should load");
+    let target = ember
+        .entities
+        .iter()
+        .find(|e| e.name == "Target Temperature")
+        .expect("ember declares Target Temperature");
+    assert!(
+        target.actions.is_empty(),
+        "temp_low/temp_high ordering is prose-only; resolving it would be a guess"
+    );
+    // The entity's own declared bounds still cross, so a read-only setpoint
+    // still knows what range the device accepts.
+    assert_eq!(
+        (target.setpoint_min, target.setpoint_max),
+        (Some(49.0), Some(63.0))
+    );
+    assert!(encode_entity_value(yaml, "Target Temperature".into(), 55.0).is_err());
+}
+
+/// The number-semantics vocabulary the subtree refresh brought in must reach
+/// the decode path, or Gerbing's thermometer reads 85 degrees cold and
+/// Ember's liquid state stays an opaque integer.
+#[test]
+fn vendored_specs_decode_with_offsets_and_value_tables() {
+    use liberated_bread_core::api::device_api::decode_value;
+
+    let read = |file: &str| {
+        let path = assets_dir().join(file);
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
+    };
+
+    // Gerbing channel 1: value = raw * 0.5 + 85 (°F). Raw 100 is 135 °F.
+    let decoded = decode_value(
+        Some(read("gerbing-thermogauge.yaml")),
+        None,
+        "ab06bd91-cc16-11e4-8830-0800200c9a66".into(),
+        vec![100],
+    )
+    .expect("temperature should decode");
+    let temp = &decoded[0];
+    assert_eq!(temp.uint_value, Some(100), "decoding stays lossless");
+    assert_eq!(temp.scale, Some(0.5));
+    assert_eq!(
+        temp.value_offset,
+        Some(85.0),
+        "without the offset this reading is 85 degrees wrong"
+    );
+
+    // Ember liquid state 5 is "heating", not 5.
+    let decoded = decode_value(
+        Some(read("ember-mug.yaml")),
+        None,
+        "fc540008-236c-4c94-8fa9-944a3e5353fa".into(),
+        vec![5],
+    )
+    .expect("liquid state should decode");
+    assert_eq!(decoded[0].value_label.as_deref(), Some("heating"));
+}
+
+/// A characteristic that encrypts or frames its payloads must resolve no
+/// control actions, however sendable the command itself looks.
+///
+/// The encoding gate asks whether a *command* can be encoded; these specs put
+/// the obstacle one level up, on the characteristic. shining-mask wraps every
+/// write in AES-128-ECB and coolledx length-prefixes, escapes and delimits
+/// its frames — neither transform is implemented here, so a slider built on
+/// them would write plaintext or unwrapped bytes the device silently drops.
+/// Rendering a control that cannot work is worse than rendering none.
+///
+/// In each spec below the only command-bearing characteristic is the one
+/// carrying the transform, so nothing in the spec should resolve an action.
+/// An entity left with neither actions nor readable state is dropped from the
+/// DTO entirely, so "absent" is as good an answer as "present with none".
+#[test]
+fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let cases = [
+        ("shining-mask.yaml", "AES-128-ECB"),
+        ("shining-glasses.yaml", "AES-128-ECB"),
+        ("magic-display.yaml", "AES-128-ECB"),
+        ("coolledx-led-sign.yaml", "length-prefix framing"),
+        ("autobaba-led-backpack.yaml", "framing"),
+        ("nyan-bt-image-controller.yaml", "framing"),
+        ("pax-vape.yaml", "OFB encryption"),
+    ];
+
+    for (file, transform) in cases {
+        let path = assets_dir().join(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let dto = load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"));
+        for entity in &dto.entities {
+            assert!(
+                entity.actions.is_empty(),
+                "{file}: '{}' resolved {:?}, but its writes need {transform}, \
+                 which this crate does not implement",
+                entity.name,
+                entity.actions.iter().map(|a| &a.role).collect::<Vec<_>>()
+            );
+        }
+    }
+}

@@ -371,6 +371,48 @@ Reading it in implementation order:
 If you find yourself needing a source outside that file to finish an
 implementation, that is a bug worth filing.
 
+## Numbers: units, scaling and C-vs-F
+
+A numeric wire value carries more than a width. Command `parameters`,
+characteristic `format` fields, `bus` message fields and `payload_formats`
+fields share one vocabulary (`$defs/number_semantics` in `schema.json`) for
+saying what the number *means*:
+
+```yaml
+- offset: 0
+  length: 2
+  name: "target_temp_raw"
+  type: "uint16"
+  scale: 0.01        # value = raw × scale + value_offset
+  unit: "C"          # unit of the DECODED value — what is on the wire
+```
+
+The transform is linear on purpose: it runs backwards, so the same declaration
+that decodes a reading also encodes a command parameter
+(`raw = round((value − value_offset) / scale)`). Enumerated numbers carry a
+`values` code table instead (`{0: "low", 1: "medium", 2: "high"}`). Raw
+`min`/`max` on a parameter bound the bytes; `min`/`max`/`step` on a `number`
+entity describe the decoded control.
+
+**`unit` answers C-vs-F — but read `unit_source` before trusting it**,
+because temperature devices come in two shapes that look alike and decode
+differently:
+
+| Shape | `unit_source` | Example | What a client does |
+|---|---|---|---|
+| Wire unit is a protocol constant; any C/F toggle is display-only | `fixed` (default) | Ember Mug: always centi-°C on the wire; `fc540004` changes the mug's screen, nothing else | Decode with `scale`/`unit` and never look back |
+| Wire unit follows a device setting | `device_setting` | Inkbird iBBQ: the same raw 165 is 165 °C or 165 °F depending on state | Read the setting named in `unit_reference`, map it through `unit_values`, only then decode |
+
+Getting the second case wrong is not an error you notice: every reading stays
+plausible and is simply in the wrong unit. That is why `unit_source:
+device_setting` requires a `unit_reference` — "it depends" without "on what"
+would document the trap without the exit.
+
+Worked examples: `ember-mug.yaml` (fixed wire unit, display-unit select,
+`values` tables), `inkbird-bbq-thermometer.yaml` (device-setting units),
+`gerbing-thermogauge.yaml` (`value = raw × 0.5 + 85` — the `value_offset`
+case), `wemo-devices.yaml` (mW / mW·min `payload_formats` columns).
+
 ## Validating a spec
 
 ```bash

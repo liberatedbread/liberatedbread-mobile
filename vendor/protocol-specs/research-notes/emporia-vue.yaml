@@ -1,0 +1,51 @@
+# Emporia Vue Gen 2 / Gen 3 — stock DUD + reflash rescue (research note)
+# Stock firmware: cloud-only (MQTT/TLS to AWS), no LAN API — REJECTED as-shipped
+# Rescue: ESP32 inside -> emporia-vue-local ESPHome fork via UART reflash -> fully local
+# Verified 2026-08-07
+
+device:
+  id: emporia-vue
+  name: Emporia Vue Gen 2 / Gen 3 Home Energy Monitor (2-3 mains + 16 branch CTs)
+  manufacturer: Emporia Energy — active
+  category: energy_monitor
+  safety_class: MEDIUM  # panel install across phases; flash disconnected from mains
+
+transport:
+  type: wifi
+  local_only: false     # as shipped — becomes true ONLY after ESPHome reflash
+  note: >
+    Factory firmware is cloud-only with no LAN API (HA emporia_vue =
+    cloud_polling via pyemvue). Rescue: UART-reflash the ESP32 with the
+    emporia-vue-local ESPHome fork (Vue 2 mature; Vue 3 via variant: vue3,
+    rough edges). Post-flash: ESPHome native API + MQTT, fully local, OTA.
+
+lan:
+  control:
+    stock: none (cloud-only; MITM out of scope)
+    reflashed:
+      protocol: esphome-native-api + mqtt
+      note: standard ESPHome; measurement MCU read over I2C by emporia_vue component
+
+protocol:
+  note: >
+    Nothing to RE on the wire for stock (vendor TLS cloud). The real protocol
+    work is on-board: ESP32 <-> measurement MCU over I2C, implemented in the
+    fork (esphome/components/emporia_vue). KiCad reversing docs exist for Vue 2.
+  commands:
+    stock: n/a
+    reflashed: per-CT power/energy sensors via ESPHome
+
+status:
+  apk_acquired: false    # pointless — app is a cloud client
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true   # on-board I2C protocol, via community firmware source
+  rating: confirmed-rescue   # stock = rejected; reflash path = confirmed
+  cloud_dead: false          # company active; cloud is mandatory on stock firmware
+  references:
+    - github.com/emporia-vue-local/esphome (fork; Vue2 + variant: vue3)
+    - github.com/emporia-vue-local/emporia-vue2-reversing (KiCad schematics)
+    - g3gg0.de/emporia-vue-2-custom-firmware (2023-06-09)
+    - gist.github.com/flaviut/93a1212c7b165c7674693a45ad52c512 (setup gist, updated 2025-07)
+    - community.home-assistant.io/t/emporia-vue/178737 ("factory firmware only connects to the cloud", 2022-07)
+    - github.com/emporia-vue-local/esphome/discussions/306, /367 (Vue 3 configs, 2024-08/2025-11)

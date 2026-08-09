@@ -228,6 +228,13 @@ pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     if command.value.is_some() || command.template.is_some() {
         return None;
     }
+    // `encoding: bytes` + `payload.bytes` is a fixed byte write in a
+    // different envelope (govee specs), so it is encodable; the same
+    // encoding with a missing or malformed payload is not — there is
+    // nothing to send.
+    if command.payload_bytes().is_some() {
+        return None;
+    }
     if let Some(enc) = command.encoding.as_deref() {
         return Some(enc.to_string());
     }
@@ -246,6 +253,9 @@ pub fn encode_command(
 ) -> Result<Vec<u8>, ProtocolError> {
     if let Some(ref value) = command.value {
         return Ok(value.clone());
+    }
+    if let Some(bytes) = command.payload_bytes() {
+        return Ok(bytes);
     }
 
     // Commands with setting_id or encoding need typed-control handlers
@@ -267,15 +277,22 @@ pub fn encode_command(
         match element {
             TemplateElement::Byte(b) => bytes.push(*b),
             TemplateElement::Param(name) => {
+                let def = param_defs.and_then(|d| d.params.get(name.as_str()));
+                // A caller-supplied value wins; otherwise the spec's declared
+                // default fills in. This is what lets a high-level control
+                // (brightness slider, color picker) send only the parameters
+                // it owns while protocol bytes like `seq`/`flag` come from
+                // the spec.
                 let val = params
                     .get(name.as_str())
+                    .copied()
+                    .or_else(|| def.and_then(|d| d.default).map(|v| v as f64))
                     .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
-                let def = param_defs.and_then(|d| d.params.get(name.as_str()));
                 if let Some(def) = def {
-                    validate_param_range(name, *val, def)?;
+                    validate_param_range(name, val, def)?;
                 }
                 let param_type = def.map(|d| &d.value_type).unwrap_or(&ValueType::Uint8);
-                let typed = coerce_param(*val, param_type, name)?;
+                let typed = coerce_param(val, param_type, name)?;
                 append_typed(&mut bytes, typed);
             }
         }
@@ -371,6 +388,19 @@ pub(crate) fn coerce_param(
     }
 }
 
+/// Encode one numeric value as the little-endian bytes of `ty`.
+///
+/// The direct-write counterpart of [`encode_command`]: a `number` entity
+/// whose spec nominates a writable characteristic with a single-field format
+/// has no command to place its bytes, so the value *is* the payload. Range
+/// and integrality are checked exactly as a template parameter's would be, so
+/// an out-of-range setpoint fails here rather than on the wire.
+pub fn encode_scalar(value: f64, ty: &ValueType, name: &str) -> Result<Vec<u8>, ProtocolError> {
+    let mut bytes = Vec::new();
+    append_typed(&mut bytes, coerce_param(value, ty, name)?);
+    Ok(bytes)
+}
+
 fn append_typed(bytes: &mut Vec<u8>, val: TypedParam) {
     match val {
         TypedParam::U8(v) => bytes.push(v),
@@ -394,9 +424,7 @@ mod tests {
             value_type,
             min,
             max,
-            allowed: None,
-            labels: None,
-            notes: None,
+            ..Default::default()
         }
     }
 
@@ -418,9 +446,7 @@ mod tests {
             length: 1,
             name: "power".into(),
             field_type: ValueType::Bool,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(&[1], &field).unwrap(),
@@ -439,9 +465,7 @@ mod tests {
             length: 1,
             name: "brightness".into(),
             field_type: ValueType::Uint8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(&[0x00, 0x64], &field).unwrap(),
@@ -456,9 +480,7 @@ mod tests {
             length: 2,
             name: "value".into(),
             field_type: ValueType::Uint16,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // 0x0100 in little-endian = 256
         assert_eq!(
@@ -475,27 +497,21 @@ mod tests {
                 length: 1,
                 name: "power_state".into(),
                 field_type: ValueType::Bool,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
             FormatField {
                 offset: 1,
                 length: 1,
                 name: "brightness".into(),
                 field_type: ValueType::Uint8,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
             FormatField {
                 offset: 2,
                 length: 1,
                 name: "red".into(),
                 field_type: ValueType::Uint8,
-                mock_default: None,
-                scale: None,
-                unit: None,
+                ..Default::default()
             },
         ];
         let bytes = &[1, 80, 255];
@@ -517,9 +533,7 @@ mod tests {
             length: 1,
             name: "temp".into(),
             field_type: ValueType::Int8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // -10 as i8 = 0xF6
         assert_eq!(
@@ -536,9 +550,7 @@ mod tests {
             length: 2,
             name: "temp".into(),
             field_type: ValueType::Int16,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // -1000 as i16 in LE = [0x18, 0xFC]
         assert_eq!(
@@ -554,9 +566,7 @@ mod tests {
             length: 3,
             name: "payload".into(),
             field_type: ValueType::Bytes,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(&[0xDE, 0xAD, 0xBE], &field).unwrap(),
@@ -571,9 +581,7 @@ mod tests {
             length: 5,
             name: "label".into(),
             field_type: ValueType::String,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert_eq!(
             decode_field(b"hello", &field).unwrap(),
@@ -593,9 +601,7 @@ mod tests {
             length: 1,
             name: "boom".into(),
             field_type: ValueType::Uint8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         match decode_field(&[0u8; 4], &field) {
             Err(ProtocolError::FieldOffsetOverflow { offset, length }) => {
@@ -613,9 +619,7 @@ mod tests {
             length: 3,
             name: "data".into(),
             field_type: ValueType::Uint8,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         assert!(decode_field(&[0x00, 0x01], &field).is_err());
     }
@@ -883,9 +887,7 @@ mod tests {
             length: 4,
             name: "value".into(),
             field_type: ValueType::Uint32,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // 0xFFFFFFFF LE = 4294967295
         assert_eq!(
@@ -990,6 +992,117 @@ mod tests {
         }
     }
 
+    /// govee's fixed-command envelope: `encoding: bytes` + `payload.bytes` is
+    /// the same information as `value:`, and must encode identically.
+    #[test]
+    fn encode_payload_bytes_command_returns_fixed_bytes() {
+        let mut cmd = bare_cmd();
+        cmd.encoding = Some("bytes".into());
+        cmd.payload = Some(serde_yaml::from_str("{bytes: [51, 1, 255, 205]}").unwrap());
+
+        assert_eq!(
+            unsupported_encoding_kind(&cmd),
+            None,
+            "a well-formed payload.bytes command is encodable"
+        );
+        assert_eq!(
+            encode_command(&cmd, &HashMap::new()).unwrap(),
+            vec![51, 1, 255, 205]
+        );
+    }
+
+    /// A malformed `payload.bytes` must stay unsupported, not send a
+    /// truncated or reinterpreted write. Table over the ways it goes wrong:
+    /// no payload at all (obd2's `encoding: bytes` commands), a payload
+    /// without `bytes`, an empty list, and entries outside 0..=255.
+    #[test]
+    fn malformed_payload_bytes_stays_unsupported() {
+        let cases: Vec<(&str, Option<&str>)> = vec![
+            ("no payload", None),
+            ("payload without bytes key", Some("{ascii: ATZ}")),
+            ("empty bytes list", Some("{bytes: []}")),
+            ("byte out of range", Some("{bytes: [51, 300]}")),
+            ("non-integer byte", Some("{bytes: [51, hi]}")),
+        ];
+        for (label, payload) in cases {
+            let mut cmd = bare_cmd();
+            cmd.encoding = Some("bytes".into());
+            cmd.payload = payload.map(|p| serde_yaml::from_str(p).unwrap());
+            assert_eq!(
+                unsupported_encoding_kind(&cmd).as_deref(),
+                Some("bytes"),
+                "{label}: must stay unsupported"
+            );
+            match encode_command(&cmd, &HashMap::new()) {
+                Err(ProtocolError::UnsupportedCommandEncoding(kind)) => {
+                    assert_eq!(kind, "bytes", "{label}");
+                }
+                other => panic!("{label}: expected UnsupportedCommandEncoding, got {other:?}"),
+            }
+        }
+    }
+
+    /// elk-bledom's template shape: protocol bytes (`seq`, `flag`) carry
+    /// spec-declared defaults, so a caller owning only `brightness` can send.
+    fn defaulted_cmd() -> Command {
+        Command {
+            description: "brightness with defaulted protocol bytes".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x7E),
+                TemplateElement::Param("seq".into()),
+                TemplateElement::Param("brightness".into()),
+                TemplateElement::Param("flag".into()),
+                TemplateElement::Byte(0xEF),
+            ]),
+            parameters: Some(pset([
+                ("seq", {
+                    let mut p = param(ValueType::Uint8, None, None);
+                    p.default = Some(0);
+                    p
+                }),
+                ("brightness", param(ValueType::Uint8, Some(0), Some(100))),
+                ("flag", {
+                    let mut p = param(ValueType::Uint8, None, None);
+                    p.default = Some(16);
+                    p
+                }),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+        }
+    }
+
+    #[test]
+    fn encode_template_fills_missing_params_from_declared_defaults() {
+        let params = HashMap::from([("brightness".to_string(), 42.0)]);
+        assert_eq!(
+            encode_command(&defaulted_cmd(), &params).unwrap(),
+            vec![0x7E, 0x00, 42, 16, 0xEF]
+        );
+    }
+
+    #[test]
+    fn encode_caller_value_overrides_declared_default() {
+        let params = HashMap::from([("brightness".to_string(), 42.0), ("flag".to_string(), 1.0)]);
+        assert_eq!(
+            encode_command(&defaulted_cmd(), &params).unwrap(),
+            vec![0x7E, 0x00, 42, 1, 0xEF]
+        );
+    }
+
+    #[test]
+    fn encode_undefaulted_missing_param_still_errors() {
+        // `brightness` has no default, so omitting it keeps failing loudly —
+        // defaults must not paper over genuinely missing input.
+        let params = HashMap::from([("flag".to_string(), 1.0)]);
+        match encode_command(&defaulted_cmd(), &params) {
+            Err(ProtocolError::ParameterMissing(name)) => assert_eq!(name, "brightness"),
+            other => panic!("expected ParameterMissing, got {other:?}"),
+        }
+    }
+
     #[test]
     fn encode_missing_parameter_returns_parameter_missing() {
         // brightness_cmd's template references "n"; supply nothing.
@@ -1067,9 +1180,7 @@ mod tests {
             length: 1,
             name: "bad".into(),
             field_type: ValueType::Uint16,
-            mock_default: None,
-            scale: None,
-            unit: None,
+            ..Default::default()
         };
         // The buffer is plenty long; the *declared field* is what's too
         // short, so needed/got are slice-relative.

@@ -1,0 +1,90 @@
+# FlowMotion ONE — Device Research Note
+# APK source: apkeep (apk-pure), fetched 2026-08-03
+# XAPK SHA-256: 958371fb1a78c3481bec586b87f5b5a54e204517d76b5dda2483a48142fdf830
+
+device:
+  id: flowmotion-one
+  name: FlowMotion ONE smartphone gimbal
+  manufacturer: FlowMotion Technologies AS, Oslo (bankrupt ~2019-07)
+  category: camera_accessory  # motorized gimbal stabilizer
+  safety_class: LOW  # small motors; pinch/balance caution only
+
+transport:
+  type: ble
+  local_only: true  # no cloud in control path; HTTP only for analytics/crash reporting
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "FlowMotion"/"FM ONE" speculative
+    service_uuids: []  # TBD — FLOWMOTION service UUID likely advertised
+
+  services:
+    - uuid: "b11c0001-672a-8dab-f442-a0dab5063a98"
+      name: flowmotion_service
+      description: Main gimbal control service (UUID pattern B11C%04X-672A-8DAB-F442-A0DAB5063A98)
+      characteristics:
+        - uuid: "b11c0002-672a-8dab-f442-a0dab5063a98"
+          name: state
+        - uuid: "b11c0003-672a-8dab-f442-a0dab5063a98"
+          name: system_event
+        - uuid: "b11c0004-672a-8dab-f442-a0dab5063a98"
+          name: system_logger
+        - uuid: "b11c0005-672a-8dab-f442-a0dab5063a98"
+          name: recording_state
+        - uuid: "b11c0006-672a-8dab-f442-a0dab5063a98"
+          name: joystick
+        - uuid: "b11c0007-672a-8dab-f442-a0dab5063a98"
+          name: button_event
+        - uuid: "b11c0008-672a-8dab-f442-a0dab5063a98"
+          name: balancing
+        - uuid: "b11c0009-672a-8dab-f442-a0dab5063a98"
+          name: bootloader_version
+        - uuid: "b11c0101-672a-8dab-f442-a0dab5063a98"
+          name: stabilization_mode
+        - uuid: "b11c0102-672a-8dab-f442-a0dab5063a98"
+          name: virtual_joystick
+        - uuid: "b11c0103-672a-8dab-f442-a0dab5063a98"
+          name: on_mode_change
+        - uuid: "b11c0104-672a-8dab-f442-a0dab5063a98"
+          name: orientation
+        - uuid: "b11c0110-672a-8dab-f442-a0dab5063a98"
+          name: camera_base_attitude
+        - uuid: "b11c0111-672a-8dab-f442-a0dab5063a98"
+          name: time_lapse_points
+        - uuid: "b11c0112-672a-8dab-f442-a0dab5063a98"
+          name: time_lapse_point_details
+        - uuid: "b11c0113-672a-8dab-f442-a0dab5063a98"
+          name: panorama
+    - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+      name: nordic_secure_dfu
+
+  standard_services:
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery
+      characteristics: ["00002a19-0000-1000-8000-00805f9b34fb"]
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+      characteristics:
+        - "00002a25-0000-1000-8000-00805f9b34fb"  # serial
+        - "00002a26-0000-1000-8000-00805f9b34fb"  # fw rev
+        - "00002a28-0000-1000-8000-00805f9b34fb"  # sw rev
+
+protocol:
+  note: >
+    Message types are kotlinx.serialization classes in
+    co.flowmotion.bluetooth.protocol (GimbalMode, StabilizationMode, Joystick,
+    VirtualJoystick, TimeLapsePoint, PanoramaPoint, DeviceState, BalanceState,
+    RecordingState, SystemEvent, Vec3D...) grouped under FMControlEndpoint,
+    FMSystemEndpoint, FMDeviceInfoEndpoint, FMBatteryEndpoint. Custom "@Packed"
+    binary framing (SerializerExtKt) — exact wire format TBD but fully recoverable
+    by decompile; no obfuscation on the protocol module.
+  cloud_required: false
+
+status:
+  apk_acquired: true   # co.flowmotion.android.flowmotion v1.4.1.release (vc 25), XAPK
+  apk_decompiled: true
+  uuids_recovered: true   # complete service/characteristic map
+  protocol_recovered: partial  # message inventory yes; @Packed wire framing TBD
+  hci_snoop_needed: false  # decompile likely suffices; capture only to confirm
+  prior_art: none_found
+  company_status: bankrupt; no refunds/shipments per CEO letter (CineD 2019-07-01)

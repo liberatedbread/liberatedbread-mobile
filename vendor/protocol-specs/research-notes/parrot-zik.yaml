@@ -1,0 +1,67 @@
+# Parrot Zik (1 / 2.0 / 3) — Device Spec (research draft)
+# Sources: static analysis of com.parrot.zik2 v1.91 (jadx, apk-pure via apkeep)
+# APK SHA-256: 567bffc99603cef2362c7e25772c73b7d20eac983cdf8eba2997604dee9dc729
+# Community RE: github.com/lainwir3d/Zik_Manager, github.com/devmil/parrot-zik-2-supercharge
+
+device:
+  id: parrot-zik
+  name: Parrot Zik / Zik 2.0 / Zik 3 (wireless ANC headphones)
+  manufacturer: Parrot SA (France) — consumer audio line abandoned; company now B2B drones
+  category: audio_headphones
+  safety_class: LOW  # consumer audio; hearing-damage caveat only
+  rating: confirmed
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  cloud_dependency: optional  # artist/producer EQ presets were server-hosted; all settings local
+  notes: >
+    RFCOMM/SPP control channel alongside A2DP (audio) + HFP (calls).
+    Insecure RFCOMM socket, no PIN beyond standard pairing.
+    App connects to whichever device already has A2DP up.
+
+bluetooth_classic:
+  profiles: [a2dp_sink, hfp, avrcp, spp_vendor]
+  spp_uuids:
+    - uuid: "8b6814d3-6ce7-4498-9700-9312c1711f63"
+      device: zik_2.0
+      role: control_channel
+    - uuid: "8b6814d3-6ce7-4498-9700-9312c1711f64"
+      device: zik_3
+      role: control_channel
+    # Zik 1 UUID TBD — in Zik_Manager source; pattern suggests ...1f62
+  discovery: "resolve RFCOMM channel via SDP for the above UUIDs; fallback: try each UUID with insecure socket"
+  session: "open with 3-byte header (len=3, type=0x00) before sending data messages"
+
+protocol:
+  framing:
+    header: "2-byte big-endian length (payload_len + 3) + 1-byte type"
+    types:
+      0x00: open_session
+      0x80: data
+    multipart_responses: x/y fragment counters reassembled by client
+    firmware_upload: binary packets with pktType (0x35 OK / 0x22 NAK / 0x33 KO / 0x3A no-check) and 2-byte pktId
+  payload_format: ascii_text
+  request_syntax: >
+    'GET /api/<path>' or 'GET /api/<path>?<args>' — note even set operations
+    use the GET verb, e.g. GET /api/audio/noise_control/enabled/set?value=true
+  representative_endpoints:
+    battery: /api/system/battery/get
+    firmware_version: /api/software/version/get
+    friendly_name: /api/bluetooth/friendlyname/get|set
+    anc: /api/audio/noise_control/enabled/get|set, /api/audio/noise_control/get|set, /api/audio/noise_control/auto_nc/set
+    equalizer: /api/audio/equalizer/enabled/get|set, /api/audio/thumb_equalizer/value/*, /api/audio/param_equalizer/value/set
+    presets: /api/audio/preset/activate|save|remove|clear_all|current/get  # /download was cloud
+    spatializer: /api/audio/sound_effect/enabled|angle|room_size/get|set
+    misc: /api/system/head_detection/enabled/set, /api/system/auto_power_off/*, /api/system/flight_mode/get, /api/audio/source/get, /api/audio/track/metadata/get
+  endpoint_count: ~60 in ZikAPI.java
+
+status:
+  apk_acquired: true            # com.parrot.zik2 v1.91 from apk-pure
+  apk_decompiled: true          # jadx, unobfuscated
+  uuids_recovered: true         # SPP UUIDs for Zik 2.0 and Zik 3
+  protocol_recovered: true      # framing + full /api table from DEX; matches community RE
+  community_re: true            # Zik_Manager (Qt, 1/2.0/3), parrot-zik-2-supercharge
+  hci_snoop_needed: false       # validation capture still recommended for response schemas
+  live_device_validation: false # not tested against hardware in this pass
+  firmware_note: OTA-over-SPP firmware update implemented in app; images were cloud-hosted (likely dead); brick risk — document only

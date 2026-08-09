@@ -1,0 +1,79 @@
+# Pacif-i Smart Pacifier (BlueMaestro) — Research Note
+# Orphaned product (app frozen since 2016-03-01, delisted); vendor BlueMaestro still alive
+# APK source: apkeep (APKPure mirror), com.pacifi.app v1.14 (versionCode 15)
+# APK SHA-256: e453b933f1f6c19dbdfc22e99dbfacaa45d8eddc7f742727cfa3e35d199f327d
+# Older gen: com.bluemaestro.pacifi, SHA-256 485508cb20664745d8229aee5f5afa5ff0ec838a75187748f88e8392d496c212
+
+device:
+  id: pacifi-smart-pacifier
+  name: Pacif-i Smart Pacifier (BLE temperature pacifier)
+  manufacturer: BlueMaestro Ltd (UK; company alive, product line discontinued)
+  category: baby_thermometer
+  safety_class: MEDIUM  # infant temperature informs fever/medication decisions; verbatim values only
+
+transport:
+  type: ble
+  local_only: true  # no cloud anywhere: passive advertisements + optional GATT connection
+
+ble:
+  advertising:
+    name_patterns: []  # complete local name in AD type 0x09; prefix TBD ("Pacif-i" likely)
+    manufacturer_data:
+      company_id: "0x0133"  # BlueMaestro; on-air bytes 33 01
+      model_byte: "0xA0"    # Pacif-i
+      format: >
+        AD type 0xFF manufacturer payload: [33 01] [A0] [opcode] [value int16 LE].
+        opcode 0x00 => temperature = value/10.0 degC.
+        opcode != 0x00 => value is the 16-bit pairing security key.
+    service_uuids: []
+
+  services:
+    - uuid: "20655000-02F3-4F75-848F-323AC2A6AF8A"
+      name: pacifi_service
+      description: Custom Pacif-i control service
+      characteristics:
+        - uuid: "20655001-02F3-4F75-848F-323AC2A6AF8A"
+          name: pacifi_control
+          description: >
+            4-byte write [code_lo, code_hi, cmd, 0x00]; code = security key
+            from advertisement. cmd: 0x00=ACTIVATE, 0xFF=CONFIRM_PAIR,
+            0x01=FIND (buzzer).
+          properties: [write]
+
+  standard_services:
+    - uuid: "00001809-0000-1000-8000-00805f9b34fb"
+      name: health_thermometer
+      note: present in app UUID table; streaming on 0x2A1C unconfirmed
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+
+protocol:
+  note: >
+    Core function is connectionless: temperature rides in every BLE
+    advertisement in the BlueMaestro manufacturer format (same family as
+    Tempo Disc / Pebble, already decoded by Home Assistant ble_monitor).
+    Connected mode adds pairing confirmation and the find-me buzzer.
+    History/medication logs live on the phone with PDF/CSV export.
+  expected_measurements:
+    - temperature_c (x0.1 resolution)
+    - battery_level
+    - rssi_proximity
+  references:
+    - https://custom-components.github.io/ble_monitor/by_brand  # BlueMaestro advert parsers
+
+cloud:
+  status: none_required
+  evidence: >
+    App has no account, no sync, no network dependency for device data.
+    Abandonment risk is app rot only (v1.14, March 2016), which a local
+    open client eliminates entirely.
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true
+  protocol_recovered: true  # advertisement decode + control writes from static analysis
+  hci_snoop_needed: false
+  rating: confirmed

@@ -1,0 +1,70 @@
+# Generic FTMS Walking Pads (incl. Mobvoi Home Walking Pad) — Device Spec (research)
+# No APK needed: standard Bluetooth FTMS. Worked example: Mobvoi Home Walking Pad
+# ("Mobvoi TM Fit", app com.mobvoi.aitreadmill "TicSports"), documented 2026-06-24.
+
+device:
+  id: generic-ftms-walking-pad
+  name: Generic FTMS Walking Pad (Mobvoi Home Walking Pad and similar)
+  manufacturer: Various (Mobvoi for the documented unit)
+  category: treadmill_walking_pad
+  safety_class: MEDIUM  # motorised moving belt, unauthenticated standard protocol
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns:
+      - "Mobvoi TM Fit"  # documented unit (reported)
+    service_uuids:
+      - "00001826-0000-1000-8000-00805f9b34fb"  # Fitness Machine Service
+
+  services:
+    - uuid: "00001826-0000-1000-8000-00805f9b34fb"
+      name: fitness_machine_service
+      description: Standard Bluetooth FTMS
+      characteristics:
+        - uuid: "00002ad9-0000-1000-8000-00805f9b34fb"
+          name: control_point
+          description: >
+            Fitness Machine Control Point. write-without-response + indicate
+            (gatttool: --char-write, NOT --char-write-req). Opcodes on the
+            documented unit: 01 request control, 07 start/resume,
+            08 01 stop, 08 02 pause, 03 <lo hi> set speed (0.01 km/h LE).
+            NOTE: SIG-standard Set Target Speed opcode is 0x02 (confirmed on
+            KingSmith MC-21); the Mobvoi writeup documents 0x03 — treat as
+            per-firmware, try 0x02 first.
+          properties: [write_no_response, indicate]
+        - uuid: "00002acd-0000-1000-8000-00805f9b34fb"
+          name: treadmill_data
+          description: Treadmill Data notifications (speed, distance, duration)
+          properties: [notify]
+
+protocol:
+  note: >
+    Standards-compliant FTMS — no reverse engineering required. Working
+    production setup (Linux + gatttool/Python + Home Assistant) documented
+    2026-06-24 for the Mobvoi unit, in daily use since 2026-01. Start
+    sequence quirk: set target speed first, then start, then re-assert speed;
+    prepend stop (08 01) to reset stale session state. Pad advertises only
+    1-2 minutes after power-on; BLE handshake takes 5-6 s.
+  commands:
+    request_control: "01"
+    start_resume: "07"
+    stop: "08 01"
+    pause: "08 02"
+    set_speed: "03 <lo> <hi> (0.01 km/h LE; SIG standard opcode is 02 — see note)"
+
+cloud:
+  app_requires_account: false
+  vendor: n/a for control (TicSports app optional)
+  risk: none for local control; FTMS is a SIG standard
+
+status:
+  apk_acquired: false  # not needed; TicSports (com.mobvoi.aitreadmill) identified but unfetched
+  apk_decompiled: false
+  uuids_recovered: true   # standard FTMS UUIDs, confirmed on documented unit
+  protocol_recovered: true  # reported working (single documented unit)
+  hci_snoop_needed: false
+  reference: ivanmorgillo.com 2026-06-24 writeup; github.com/hamen/tapirulan-home-assistant

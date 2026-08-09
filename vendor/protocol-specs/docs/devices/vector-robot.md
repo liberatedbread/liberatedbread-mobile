@@ -2,14 +2,15 @@
 
 > **Status**: Research — protocol fully documented, local-first tools available
 > **Protocol**: Wi-Fi (gRPC + protobuf over TLS) + BLE (CLAD + NaCl encryption)
-> **Manufacturer**: Anki (2016–2019) → Digital Dream Labs (2019–present)
-> **Manufacturer Status**: Active but cloud-reliant; community local replacements exist
+> **Manufacturer**: Anki (2016–2019) → Digital Dream Labs (2019–~2023)
+> **Manufacturer Status**: Effectively defunct but still billing — OTA/firmware servers fail DNS (tested 2026-07-31), while anki.bot continues to sell $11.99/mo or $99.99/yr subscriptions; community local replacements (wire-pod, WireOS) are the supported path
 
 ## Overview
 
 Vector is a small AI-powered companion robot with an expressive face display,
-treads, a lift arm, and a 4-microphone array. Originally from Anki, now maintained
-by Digital Dream Labs (DDL). The protocol is fully open: Apache 2.0 licensed `.proto`
+treads, a lift arm, and a 4-microphone array. Originally from Anki, later sold
+by Digital Dream Labs (DDL), now effectively abandoned by the vendor (see
+Vendor context below). The protocol is fully open: Apache 2.0 licensed `.proto`
 files, open-source BLE protocol implementation, and a community-maintained local
 voice server replacement (wire-pod).
 
@@ -51,7 +52,7 @@ Vector uses a **dual-stack** protocol:
 ### 2. BLE RTS Protocol (onboarding/setup/recovery)
 
 - **Serialization**: CLAD (Compact Language for Anki Devices) — tag-length-value, little-endian
-- **Encryption**: NaCl/libsodium (Curve25519 key exchange + secretbox after handshake)
+- **Encryption**: libsodium — Curve25519 key exchange (`crypto_kx`), PIN mixed into session keys, XChaCha20-Poly1305 session cipher after the handshake
 - **Protocol versions**: v2, v3, v4, v5 (backward compatible)
 - **Source**: [digital-dream-labs/vector-bluetooth](https://github.com/digital-dream-labs/vector-bluetooth)
 
@@ -74,7 +75,7 @@ Advertised name pattern: `Vector-XXXX` (4 alphanumeric chars from ESN).
 5. CLIENT → ROBOT:  RtsChallengeSuccessMessage (empty — crypto established)
 ```
 
-After handshake, all messages are encrypted with NaCl/libsodium secretbox.
+After handshake, all messages are encrypted with XChaCha20-Poly1305.
 
 ### BLE Message Catalog (RTS v2–v5)
 
@@ -140,7 +141,7 @@ NORMAL OPERATION (subsequent connections):
 7. Open BehaviorControl stream for motor control
 ```
 
-### gRPC Service: ExternalInterface (48 RPCs)
+### gRPC Service: ExternalInterface (69 RPCs)
 
 Complete catalog from `external_interface.proto`. All listed with their REST gateway
 endpoints where available.
@@ -292,6 +293,85 @@ Vector's cloud services are voice-processing-only and replaceable:
 | **TMS** | Token management service | wire-pod |
 | **vector-cloud** | Cloud services orchestration | [digital-dream-labs/vector-cloud](https://github.com/digital-dream-labs/vector-cloud) |
 
+## Local Voice Server: wire-pod (the current path)
+
+[wire-pod](https://github.com/kercre123/wire-pod) is a mature, MIT-licensed
+local server built on DDL's open-sourced vector-cloud. It restores voice
+commands ("Hey Vector" intents) on **any Vector 1.0 or 2.0 — including
+regular production robots — with no DDL subscription** (778 GitHub stars,
+actively maintained as of 2026-08-04). Speech recognition runs locally
+(Vosk by default); no audio needs to leave the LAN.
+
+### What it replaces
+
+- **chipper** — voice intent processing, locally via Vosk (or a configured remote STT)
+- **TMS** — issues the onboarding session token / `client_token_guid` locally
+- **jdocs** — settings/state document store
+- Web UI for bot setup, settings, and customization (served on port 8080)
+
+### Installers
+
+Packaged installers ship from the separate
+[kercre123/WirePod releases](https://github.com/kercre123/WirePod/releases)
+repo (v1.2.18, 2026-05-10):
+
+- **Windows 10/11**: `WirePodInstaller-*.exe` (SmartScreen "Run Anyway" expected — unsigned)
+- **macOS 11+**: `WirePod-*.dmg` (unidentified-developer approval required)
+- **Debian/Ubuntu**: `wirepod_*-*.deb` for amd64, arm64, armhf (arm64 required for Raspberry Pi 5)
+- **Android 4.4+**: `WirePod-*.apk` (unknown-sources + Play Protect bypass; early-stage but full-featured)
+- **Docker compose** and source build (`setup.sh`) also supported
+
+### Production-robot flow (per the [installation wiki](https://github.com/kercre123/wire-pod/wiki/Installation))
+
+1. Put Vector on the charger, hold the backpack button ~15 s into
+   **recovery mode** (shows `anki.com/v` / `ddl.io/v`; keeps user data).
+2. In **Chrome/Chromium with Web Bluetooth**, open
+   [wpsetup.keriganc.com](https://wpsetup.keriganc.com/) and pair with the robot.
+3. The page flashes DDL's **production-signed Escape-Pod-compatible "ep"
+   firmware** OTA (free — no Escape Pod purchase; firmware string ends in
+   `ep`). Works from any starting firmware version.
+4. **Clear user data** via the diagnostics menu (double-press button,
+   lift/wheel navigation to CLEAR USER DATA → CONFIRM) — technically
+   optional but strongly recommended; skipping it causes "weird behavior".
+5. **Authenticate** against the local wire-pod instance (via the same web
+   page or, on some builds, wire-pod's inbuilt BLE): ACTIVATE, then save
+   settings. The wiki warns this step commonly needs several retries
+   (~20 s apart).
+
+OSKR/dev-unlocked bots skip the firmware flash entirely and can alternatively
+run the fully open [WireOS](https://github.com/os-vector/wire-os).
+
+### Remaining friction points
+
+- Web Bluetooth is Chrome/Chromium-only; some builds need
+  `chrome://flags` → "experimental web platform features", and Linux users
+  may need the system Bluetooth panel actively discovering while pairing.
+- All packaged installers are unsigned: SmartScreen, macOS Gatekeeper,
+  Android unknown-sources and Play Protect warnings are part of the
+  documented flow.
+- The authentication step is flaky by the wiki's own admission and may need
+  repeated attempts; "Error logging in. The bot is likely unable to
+  communicate with your wire-pod instance" is usually a router/NAT issue.
+- The original companion app (`com.anki.victor`) is effectively gone:
+  APKPure still lists the package id but serves zero versions, and
+  APKMirror/APKCombo have no copy (checked 2026-08-04). The Web Bluetooth
+  setup pages are the de facto onboarding client now.
+- Only one wire-pod instance per network, and no other host may be named
+  `escapepod` (mDNS hostname collision).
+
+### Vendor context (why this path matters)
+
+- DDL still charges **$11.99/month or $99.99/year per robot** for the
+  Vector AI Subscription (voice commands, ChatGPT connectivity) —
+  [support.anki.bot article 344](https://support.anki.bot/article/344-all-about-memberships),
+  [anki.bot product page](https://anki.bot/products/vector-robot), verified 2026-08-04.
+- In **September 2024** the Pennsylvania Attorney General
+  [sued Digital Dream Labs and CEO Jacob Hanchar](https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf)
+  over more than **$4M in unfulfilled robot orders** (~14,000 orders,
+  Nov 2020–Jan 2024, mostly unfulfilled). Allegations, not a final
+  adjudication — but official OTA servers no longer resolve (tested
+  2026-07-31), so wire-pod/WireOS are the only update path regardless.
+
 ## Tools Used
 
 - [x] Source proto files (Apache 2.0 licensed, from `anki/vector-python-sdk`)
@@ -340,7 +420,10 @@ python scripts/vector_status.py 192.168.1.42 \
 - [digital-dream-labs/vector-cloud](https://github.com/digital-dream-labs/vector-cloud) — Cloud services (★37)
 - [digital-dream-labs/vector-web-setup](https://github.com/digital-dream-labs/vector-web-setup) — Web BLE onboarding (★79)
 - [digital-dream-labs/escape-pod-extension](https://github.com/digital-dream-labs/escape-pod-extension) — Plugin protocol (★33)
-- [kercre123/wire-pod](https://github.com/kercre123/wire-pod) — Community local chipper replacement (★770)
+- [kercre123/wire-pod](https://github.com/kercre123/wire-pod) — Local voice server (chipper/TMS/jdocs replacement) for production and unlocked robots (★778, MIT, 2026-08-04)
+- [kercre123/WirePod releases](https://github.com/kercre123/WirePod/releases) — Packaged wire-pod installers: Windows .exe, macOS .dmg, Debian/Ubuntu .deb, Android .apk (v1.2.18)
+- [wire-pod installation wiki](https://github.com/kercre123/wire-pod/wiki/Installation) — Production-bot recovery-mode + Web Bluetooth + ep-firmware flow
+- [os-vector/wire-os](https://github.com/os-vector/wire-os) — Open firmware for unlocked (OSKR/dev) robots
 - [codaris/Anki.Vector.SDK](https://github.com/codaris/Anki.Vector.SDK) — .NET SDK (★92)
 - [developer.anki.com/vector/docs/](https://developer.anki.com/vector/docs/) — Official SDK docs (archived)
 - [Protocol target spec](https://github.com/PigsCanFlyLabs/opengreeniot-protocol-docs/blob/main/targets/vector-robot.md) — Full RE target spec

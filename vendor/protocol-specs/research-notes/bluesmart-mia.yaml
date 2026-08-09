@@ -1,0 +1,89 @@
+# BlueSmart mia Smart Bottle Sleeve — Research Note
+# Company defunct: bluesmartmia.com squatted by SEO spam (verified 2026-08-04)
+# APK source: apkeep (APKPure mirror), com.bluesmart.mia v3.6.3 (versionCode 363)
+# APK SHA-256: 6a736d060999e957af5040669e578157a00c06b4cc4158464b219fabf531cd64
+
+device:
+  id: bluesmart-mia
+  name: BlueSmart mia / mia 2 Smart Bottle Sleeve (intake, temperature, angle, timer)
+  manufacturer: BlueSmart Technology Corp. (Hong Kong; defunct — NOT the luggage company)
+  category: baby_feeding_monitor
+  safety_class: LOW  # read-only feeding telemetry; temperature alerts advisory, verbatim values
+
+transport:
+  type: ble
+  local_only: true  # all device reads/writes are plain GATT; cloud only for account/history sync
+
+ble:
+  advertising:
+    name_patterns: ["mia-*"]  # SN derived from advertised name via ByteUtils.getMiaSn()
+    service_uuids: []  # TBD — scan filter not recovered; name prefix is the signal
+
+  services:
+    - uuid: "0000ffa0-0000-1000-8000-00805f9b34fb"
+      name: device_status_service
+      description: Main service (Constants.SERVICE_DEVICE_STATUS)
+      characteristics:
+        - uuid: "0000ffa1-0000-1000-8000-00805f9b34fb"
+          name: exception_sn_read
+          description: Read during pairing/scan flow (exception/SN)
+          properties: [read]
+        - uuid: "0000ffa2-0000-1000-8000-00805f9b34fb"
+          name: system_time
+          description: Write current time, uint32 LE seconds
+          properties: [write]
+        - uuid: "0000ffa3-0000-1000-8000-00805f9b34fb"
+          name: battery
+          description: Battery level read (Constants.SERVICE_DEVICE_BATTERY)
+          properties: [read]
+        - uuid: "0000ffa4-0000-1000-8000-00805f9b34fb"
+          name: calibration_k
+          description: Calibration/"K" value read
+          properties: [read]
+        - uuid: "0000ffa9-0000-1000-8000-00805f9b34fb"
+          name: timezone
+          description: Write GMT offset, uint32 LE (hours x 3600)
+          properties: [write]
+    - uuid: "0000ffd0-0000-1000-8000-00805f9b34fb"
+      name: feeding_data_service
+      description: mia2 feeding records (Constants.mBabyService)
+      characteristics:
+        - uuid: "0000ffd1-0000-1000-8000-00805f9b34fb"
+          name: feed_ffd1
+        - uuid: "0000ffd2-0000-1000-8000-00805f9b34fb"
+          name: feed_ffd2
+        - uuid: "0000ffd3-0000-1000-8000-00805f9b34fb"
+          name: feed_ffd3
+        - uuid: "0000ffd4-0000-1000-8000-00805f9b34fb"
+          name: feed_main
+          description: mBabyCharacteristic — main feeding data channel; frame format TBD
+          properties: [read, notify]
+        - uuid: "0000ffd5-0000-1000-8000-00805f9b34fb"
+          name: feed_aux
+
+  ota_services:
+    - uuid: "f000ffc0-0451-4000-b000-000000000000"
+      name: ti_oad
+      description: TI Over-Air Download (mia2 firmware update; ffc1/ffc2/ffc5 chars)
+
+protocol:
+  note: >
+    On connect the app writes system time (ffa2) and timezone (ffa9),
+    reads battery (ffa3) and calibration (ffa4), then pulls feeding
+    records from the ffd0 service and uploads them to the cloud. All GATT
+    operations are local; only account/history sync is cloud-dependent.
+    Feeding-record payload encoding (weight/temperature/angle/duration)
+    not yet decoded — see DaemonService parsing code or one HCI snoop.
+  expected_measurements:
+    - milk_intake_ml (load-cell estimate)
+    - milk_temperature
+    - bottle_angle
+    - feeding_duration
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true  # full GATT table from Constants.java
+  protocol_recovered: false  # feeding frame format TBD
+  hci_snoop_needed: true
+  rating: confirmed  # local GATT connectability confirmed statically; payload RE remains

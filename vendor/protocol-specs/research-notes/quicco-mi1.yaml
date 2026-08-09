@@ -1,0 +1,58 @@
+# Quicco Sound mi.1 / mi.1 II / mi.1 Cable — Device Spec (research note)
+# BLE MIDI retrofit adapters; brand dormant/at-risk (hypothesis — no filing found).
+# Nothing to RE: standard BLE MIDI peripheral by design.
+
+device:
+  id: quicco-mi1
+  name: Quicco Sound mi.1 / mi.1 II / mi.1 Cable (BLE MIDI retrofit adapters)
+  manufacturer: QUICCO SOUND (Hamamatsu, Japan) — dormant/at-risk (unconfirmed)
+  category: musical_instrument_accessory
+  safety_class: NONE
+
+transport:
+  type: ble  # standard BLE MIDI
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: ["mi.1"]  # per product docs; confirm with a scan
+    service_uuids: ["03b80e5a-ede8-4b33-a751-6ce34ec4c700"]  # standard BLE MIDI
+
+  services:
+    - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+      name: ble_midi_service
+      description: >
+        Standard BLE MIDI peripheral bridging DIN-5 MIDI to BLE. Pairs with any
+        BLE-MIDI host (iOS/macOS/Windows/Android) with no vendor app or account.
+        Independently corroborated by third-party tool support lists
+        (MIDIberry/BT2Reaper, CME WIDI interoperability notes).
+      characteristics:
+        - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+          name: ble_midi_io
+          properties: [notify, write, write_no_response]
+
+protocol:
+  note: >
+    Fully standard BLE-MIDI framing; the wire protocol IS the public spec, so
+    local control requires zero reverse engineering. Vendor value-add was only
+    firmware tuning (latency/timestamps) via the mi.1 connect app.
+  reference_implementations:
+    - any BLE-MIDI host stack  # by design
+
+companion_apps:
+  - name: mi.1 connect
+    platform: iOS (believed)  # Android package unverified / not found on mirrors
+    package_id: null
+    role: firmware updates + mode config only
+
+cloud_dependency:
+  none: true  # firmware-update path dies with the company; devices keep working
+
+status:
+  company_status: at_risk_unconfirmed  # dormant venture; site alive 2026-08-04, content ~2021
+  apk_acquired: false  # no Android app located
+  apk_decompiled: false
+  uuids_recovered: true  # standard BLE MIDI UUIDs
+  protocol_recovered: true  # trivially — public BLE-MIDI spec
+  hci_snoop_needed: false
+  rating: hypothesis  # company health unverified; local feasibility confirmed

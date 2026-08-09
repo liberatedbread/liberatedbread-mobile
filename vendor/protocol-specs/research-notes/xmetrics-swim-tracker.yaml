@@ -1,0 +1,48 @@
+# Xmetrics Swim Tracker — Research Note
+# Sources: dated press coverage + live checks (no APK obtained)
+
+device:
+  id: xmetrics-swim-tracker
+  name: Xmetrics / Xmetrics Pro swim tracker
+  manufacturer: Xmetrics SRL (Milan, Italy)
+  category: swim_fitness_sensor
+  safety_class: LOW
+
+transport:
+  type: ble
+  local_only: true  # hypothesis: BT4.0-era phone sync; real-time audio feedback is on-device
+  caveat: unverified — app unavailable, no protocol documentation exists
+
+abandonment:
+  product_status: discontinued
+  evidence:
+    - "Listed as discontinued: https://360swim.com/blog/swimming-wearable-xmetrics"
+    - "xmetrics.it is a frozen WordPress site: homepage last modified 2020-03-03, zero posts via wp-json (verified 2026-08-07); intermittently returns HTTP 520"
+    - "Android app absent from Google Play search (verified 2026-08-07)"
+    - "Crunchbase 'Active' status is stale: https://www.crunchbase.com/organization/xmetrics-empowering-performance"
+  manufacturer_status: dormant  # legal entity may exist; no product activity since ~2020
+
+ble:
+  advertising:
+    name_patterns: []  # TBD
+    service_uuids: []  # TBD
+  services: []  # TBD — needs hardware enumeration or app binary
+  notes: >
+    Bluetooth phone sync per 2014 launch coverage (SwimSwam, Daily Burn).
+    On-device audio feedback means core function is phone-free; only workout
+    extraction/history depends on the (now unavailable) app.
+
+protocol:
+  note: TBD  # no public documentation, no community RE found
+
+status:
+  rating: hypothesis  # death well-supported; BLE local-control feasibility unverified
+  apk_acquired: false  # package id unknown; apkeep/apk-pure misses on 6 guessed ids
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  cloud_dependency: unknown
+  next_step: >
+    Locate an APK/IPA (old devices, Italian forums) or buy a used unit and enumerate
+    GATT with nRF Connect; until then this stays a research stub.
