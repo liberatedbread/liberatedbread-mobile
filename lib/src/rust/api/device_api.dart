@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -790,14 +790,38 @@ class ImageUploadDto {
           defaultFrameIntervalMs == other.defaultFrameIntervalMs;
 }
 
+/// One BLE write of an image frame: the bytes and the characteristic they go
+/// to. Per-write targets because the doodle flow spans channels (session-open
+/// on the command characteristic, pixels on the bulk one).
+class ImageWriteDto {
+  final String characteristicUuid;
+  final Uint8List bytes;
+
+  const ImageWriteDto({
+    required this.characteristicUuid,
+    required this.bytes,
+  });
+
+  @override
+  int get hashCode => characteristicUuid.hashCode ^ bytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ImageWriteDto &&
+          runtimeType == other.runtimeType &&
+          characteristicUuid == other.characteristicUuid &&
+          bytes == other.bytes;
+}
+
 /// The BLE writes that push one image frame to a device, in send order.
 class ImageWritePlanDto {
+  /// The GATT service every write's characteristic belongs to.
   final String serviceUuid;
-  final String characteristicUuid;
 
-  /// Ordered write payloads. The caller sends them back-to-back on the
+  /// Ordered writes. The caller sends them back-to-back, each to its own
   /// characteristic; ordering is part of the protocol (fragment reassembly).
-  final List<Uint8List> writes;
+  final List<ImageWriteDto> writes;
 
   /// The frame index to pass for the NEXT frame. A frame spanning P wire
   /// packets consumes P sequence numbers, so advancing by 1 would make the
@@ -807,17 +831,13 @@ class ImageWritePlanDto {
 
   const ImageWritePlanDto({
     required this.serviceUuid,
-    required this.characteristicUuid,
     required this.writes,
     required this.nextFrameIndex,
   });
 
   @override
   int get hashCode =>
-      serviceUuid.hashCode ^
-      characteristicUuid.hashCode ^
-      writes.hashCode ^
-      nextFrameIndex.hashCode;
+      serviceUuid.hashCode ^ writes.hashCode ^ nextFrameIndex.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -825,7 +845,6 @@ class ImageWritePlanDto {
       other is ImageWritePlanDto &&
           runtimeType == other.runtimeType &&
           serviceUuid == other.serviceUuid &&
-          characteristicUuid == other.characteristicUuid &&
           writes == other.writes &&
           nextFrameIndex == other.nextFrameIndex;
 }
