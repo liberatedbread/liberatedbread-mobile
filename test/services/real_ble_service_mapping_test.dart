@@ -457,7 +457,35 @@ void main() {
       expect(isPairingRequiredError(native(133, 'GATT_ERROR')), isFalse);
     });
 
-    test('ignores anything that is not a flutter_blue_plus exception', () {
+    // flutter_blue_plus_linux converts a failed READ into a
+    // BmCharacteristicData with an error string, which flutter_blue_plus turns
+    // into the exception above — but it lets the D-Bus exception from
+    // StartNotify propagate untouched. So a refused SUBSCRIPTION arrives as
+    // something this function has never heard of, carrying its meaning only in
+    // its text.
+    test('recognizes a raw D-Bus refusal that never became an fbp exception',
+        () {
+      expect(
+        isPairingRequiredError(
+            Exception('DBusMethodResponseException: org.bluez.Error.'
+                'NotPermitted: Not paired')),
+        isTrue,
+      );
+    });
+
+    // Narrow on purpose: BlueZ raises org.bluez.Error.NotPermitted for an
+    // ordinary write to a read-only characteristic too, and answering that with
+    // "go and pair this device" sends the user after something pairing cannot
+    // fix.
+    test('does not claim every NotPermitted is about pairing', () {
+      expect(
+        isPairingRequiredError(
+            Exception('org.bluez.Error.NotPermitted: Write not permitted')),
+        isFalse,
+      );
+    });
+
+    test('ignores an unrelated error', () {
       expect(isPairingRequiredError(StateError('boom')), isFalse);
     });
   });

@@ -34,18 +34,33 @@ import 'platform_config_reader.dart';
 const String _aggregate = 'integration_test/ci_all_test.dart';
 const String _dir = 'integration_test';
 
-/// Matches a file-level `@Tags([...])` carrying `e2e`, tolerantly.
+/// Tags that mean "this suite cannot run on a device", each with the reason a
+/// failure message should give.
+///
+/// A file-level `@Tags` annotation is read from the ENTRYPOINT file only, so
+/// `--exclude-tags` cannot filter a tagged suite out of an import. Anything
+/// listed here therefore stays out of the aggregate entirely — being imported
+/// is what would make it run.
+const Map<String, String> _hostOnlyTags = {
+  'e2e': 'it needs scripts/e2e_shot_server.py reachable on 127.0.0.1, which on '
+      'an emulator is the emulator itself',
+  'bluez': 'it needs the virtual BlueZ stack scripts/linux-virtual-ble.sh '
+      'starts, which exists only on the Linux desktop target',
+};
+
+/// Matches a file-level `@Tags([...])` carrying [tag], tolerantly.
 ///
 /// Deliberately looser than the `grep -qE "@Tags\(\[.*'e2e'.*\]\)"` it replaces,
 /// which accepted exactly one spelling. `dart format` wraps a two-entry
 /// annotation across lines, and `@Tags(const <String>['e2e'])` is equally
 /// valid — both slipped past the old single-line, single-quote pattern, and a
-/// miss was not harmless: it made CI demand that an e2e file be imported into
-/// the aggregate, i.e. instruct the developer to break the device jobs.
-final RegExp _e2eTag = RegExp(
-  r'@Tags\s*\(\s*(?:const\s*)?(?:<[^>]*>\s*)?\[[^\]]*[' "'" r'"]e2e[' "'" r'"]',
-  dotAll: true,
-);
+/// miss was not harmless: it made CI demand that a host-only file be imported
+/// into the aggregate, i.e. instruct the developer to break the device jobs.
+RegExp _fileTag(String tag) => RegExp(
+      '@Tags\\s*\\(\\s*(?:const\\s*)?(?:<[^>]*>\\s*)?'
+      '\\[[^\\]]*[\'"]${RegExp.escape(tag)}[\'"]',
+      dotAll: true,
+    );
 
 /// `import '<file>' as <prefix>;` — anchored, so a mention in prose or a
 /// commented-out import cannot pass for a real one.
@@ -77,16 +92,21 @@ void main() {
             'or this audit is silently checking nothing.');
   });
 
-  bool isE2e(String basename) => _e2eTag.hasMatch(
-        stripCommentsKeepingStrings(
-          readRepoFile('$_dir/$basename',
-              consequence: 'It was listed in $_dir/ a moment ago.'),
-        ),
-      );
+  /// The host-only tag [basename] carries, or null when it is device-safe.
+  String? hostOnlyTagOf(String basename) {
+    final source = stripCommentsKeepingStrings(
+      readRepoFile('$_dir/$basename',
+          consequence: 'It was listed in $_dir/ a moment ago.'),
+    );
+    for (final tag in _hostOnlyTags.keys) {
+      if (_fileTag(tag).hasMatch(source)) return tag;
+    }
+    return null;
+  }
 
   test('every mock-safe suite is imported AND run by the aggregate', () {
     for (final name in suites) {
-      if (isE2e(name)) continue;
+      if (hostOnlyTagOf(name) != null) continue;
       final match = _importOf(name).firstMatch(aggregate);
       expect(
         match,
@@ -134,7 +154,7 @@ void main() {
     final leavesRustAlone = <String>[];
 
     for (final name in suites) {
-      if (isE2e(name)) continue;
+      if (hostOnlyTagOf(name) != null) continue;
       final source = stripCommentsKeepingStrings(
         readRepoFile('$_dir/$name',
             consequence: 'It was listed in $_dir/ a moment ago.'),
@@ -193,18 +213,19 @@ void main() {
     );
   });
 
-  test('no e2e-tagged suite is imported by the aggregate', () {
+  test('no host-only suite is imported by the aggregate', () {
     for (final name in suites) {
-      if (!isE2e(name)) continue;
+      final tag = hostOnlyTagOf(name);
+      if (tag == null) continue;
       expect(
         _importOf(name).hasMatch(aggregate),
         isFalse,
-        reason: '$_dir/$name is tagged e2e but is imported by $_aggregate. '
+        reason: '$_dir/$name is tagged $tag but is imported by $_aggregate. '
             'A FILE-level @Tags annotation is read from the entrypoint file '
             'only, so --exclude-tags cannot filter it out of an import — the '
             'suite would actually run on the emulator and the simulator, where '
-            'the host-side scripts/e2e_shot_server.py it needs is unreachable. '
-            'e2e suites stay out of CI by not being imported here.',
+            '${_hostOnlyTags[tag]}. Host-only suites stay out of the device '
+            'jobs by not being imported here.',
       );
     }
   });
