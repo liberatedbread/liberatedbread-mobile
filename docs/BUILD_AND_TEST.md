@@ -489,25 +489,49 @@ Integration tests under `integration_test/` need a connected device or emulator:
 
 `test/services/mock_ble_service_rust_test.dart` exercises the Rust mock API
 through flutter_rust_bridge. Unlike a normal `flutter test`, the host-target
-Rust library has to be built and discoverable at runtime — `flutter test` runs
-on your machine, not a device, so it dynamically loads the desktop build of the
-Rust core. From the repo root:
+Rust library has to exist at runtime — `flutter test` runs on your machine, not
+a device, so it dynamically loads the desktop build of the Rust core.
+
+You do not have to remember to build it:
 
 ```bash
-(cd rust && cargo build)
-LD_LIBRARY_PATH=$PWD/rust/target/debug flutter test test/services/mock_ble_service_rust_test.dart
+flutter test test/services/mock_ble_service_rust_test.dart
 ```
 
-On macOS, `DYLD_FALLBACK_LIBRARY_PATH` does **not** work: the Flutter SDK's
-`dart` binary uses the hardened runtime, and the loader strips `DYLD_*` from
-such processes. Instead, `test/helpers/host_rust_lib.dart` opens
-`rust/target/debug/<lib>` (then `release/`) by relative path, or the explicit
-path in `LIBERATED_BREAD_RUST_LIB` — so on macOS just building the crate is
-enough.
+`test/helpers/host_rust_lib.dart` reads cargo's dep-info file
+(`rust/target/debug/libliberated_bread_core.d`) — the list of every source that
+went into the artifact, `include_str!`d vendor files included — and runs
+`cargo build` when any of them is newer than the library, or when there is no
+library at all. A warm, up-to-date target directory means no cargo run at all;
+a cold one costs the build once per test process.
 
-`scripts/test.sh` wires this automatically. If the library fails to load the
-tests self-skip via `markTestSkipped` so CI on fresh clones doesn't see a hard
-failure.
+**Why the helper does this rather than leaving it to you.** Both failure modes
+here are silent. With no build, the suites `markTestSkipped` and the run is
+green with a quietly smaller test count. With a *stale* build they do not even
+skip: they load the `.so` from before your edit, pass, and report on code that
+no longer exists. `scripts/test.sh` and CI always build first, but they are not
+where a change gets iterated on.
+
+Opt out with `LIBERATED_BREAD_NO_RUST_BUILD=1`, or point
+`LIBERATED_BREAD_RUST_LIB` at an artifact you built yourself (which is treated
+as "the caller owns this file" and never rebuilt). To build it explicitly:
+
+```bash
+./scripts/ensure-rust-lib.sh              # debug, and asserts the cdylib landed
+./scripts/ensure-rust-lib.sh --release
+./scripts/ensure-rust-lib.sh --print-path
+```
+
+That script is what `scripts/test.sh`, the Claude Code session hook and CI's
+`unit-tests` job all run, and it checks the artifact rather than trusting
+cargo's exit code: dropping `cdylib` from `rust/Cargo.toml`'s `crate-type`, or
+renaming the package, still builds green while removing the one file every
+FFI-backed test opens by path.
+
+No `LD_LIBRARY_PATH` is involved. On macOS `DYLD_FALLBACK_LIBRARY_PATH` does
+**not** work at all: the Flutter SDK's `dart` binary uses the hardened runtime,
+and the loader strips `DYLD_*` from such processes. The helper opens
+`rust/target/debug/<lib>` (then `release/`) by relative path instead.
 
 ### E2E screenshot walkthrough
 
@@ -976,6 +1000,15 @@ nothing. `scripts/ci-shellcheck.sh` closes that, in the `analyze` job and in
 JSON into `python3 - <<'PY'`, where the heredoc overrides the pipe — so
 `pick_simulator` had never once worked.
 
+It also checks two things shellcheck has no opinion about: that every script is
+**executable** and that it declares an **interpreter**. Both are invisible in a
+diff and expensive to learn about anywhere else — git tracks the mode bit, and
+a script committed 644 fails with `Permission denied` at the moment CI invokes
+it, which for `scripts/ci-emulator-tests.sh` is forty minutes into the emulator
+job. A missing `#!` is quieter still: executed directly, the file is handed to
+the caller's shell, which on the Ubuntu runners is dash — no `pipefail`, no
+`[[ ]]`.
+
 There is a second workflow, `.github/workflows/ios-adhoc.yml`, triggered
 manually to produce a signed ad-hoc IPA. It pins no toolchain versions of its
 own: a step sources `scripts/ci-versions.sh` and feeds the Flutter version and
@@ -983,11 +1016,45 @@ iOS Rust targets it reads out of `ci.yml` into the setup actions, so the
 shipped IPA is always built with the SDK the rest of CI tested. Because that
 read happens after checkout, building an old ref uses that ref's pins.
 
+### The pins and the lockfiles are checked, not just written down
+
+Three checks exist because the thing they guard fails *silently* — the run stays
+green and the damage shows up somewhere else, later.
+
+**`./scripts/ci-versions.sh --strict`**, in the `analyze` job. `ci.yml`'s
+top-level `env:` block is the toolchain source of truth for dev environments:
+`scripts/setup.sh` and `.claude/hooks/session-start.sh` provision from whatever
+that script reads out of it. The script is deliberately forgiving — a key it
+cannot find degrades to a hardcoded fallback and a line on stderr — which meant
+renaming a key had *no observable effect at all*. CI kept interpolating its own
+`env:` values and passed; every laptop and every Claude Code session started
+quietly provisioning from a default drifting further behind with each bump, and
+the symptom arrived months later as "works in CI, not on my machine".
+`--strict` turns each of those stderr lines into a failed gate, in the pull
+request that renames the key.
+
+**`cargo --locked`**, on the `rust` job's clippy and test steps. Without it
+cargo silently *rewrites* `rust/Cargo.lock` in the runner's checkout when it
+disagrees with `Cargo.toml`, so a dependency bump that forgets the lockfile
+passes CI against a resolution that exists on that one runner and nowhere else.
+
+**`flutter pub get --enforce-lockfile`**, in the `analyze` job only — the same
+hole on the Dart side. One job asking is enough; the others need the packages,
+not a second copy of the assertion, and a native build re-runs pub itself.
+
+`.github/dependabot.yml` covers the remaining moving part: the ten third-party
+actions the workflows pin by major tag. A major tag is a moving target right up
+until it stops moving (`actions/upload-artifact@v3` was switched off outright),
+and nothing else in this repo watches for that. Grouped into one pull request
+per ecosystem per week. Pub is deliberately excluded — `pubspec.lock` is pinned
+against a specific Flutter SDK, so bumps follow a Flutter bump, by hand.
+
 ### Running CI locally
 
 `scripts/test.sh` mirrors the `analyze`, `unit-tests` and `rust` jobs,
-including the FRB binding drift check and the shellcheck pass (each skipped
-with a warning when the tool it needs isn't installed):
+including the FRB binding drift check, the shellcheck pass and the
+`ci-versions.sh --strict` pin check (the first two skipped with a warning when
+the tool they need isn't installed):
 
 ```bash
 ./scripts/test.sh
@@ -997,7 +1064,7 @@ Exits non-zero on the first failure.
 
 ### Codecov
 
-Coverage uploads use `codecov/codecov-action@v4`. Set a `CODECOV_TOKEN` repo
+Coverage uploads use `codecov/codecov-action@v5`. Set a `CODECOV_TOKEN` repo
 secret if your fork is private; public repos don't need one.
 
 `codecov.yml` makes the policy explicit, where before it was whatever Codecov's
