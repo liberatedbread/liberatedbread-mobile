@@ -80,8 +80,8 @@ void main() {
     test('a non-numeric field has no number', () {
       expect(decodedNumberOf(_field(valueType: 'string', stringValue: 'eco')),
           isNull);
-      expect(decodedNumberOf(_field(valueType: 'bool', boolValue: true)),
-          isNull);
+      expect(
+          decodedNumberOf(_field(valueType: 'bool', boolValue: true)), isNull);
     });
   });
 
@@ -128,7 +128,8 @@ void main() {
 
     test('falls back to the codec rendering for a non-numeric field', () {
       expect(
-        decodedTextOf(_field(valueType: 'bool', boolValue: true, display: 'on')),
+        decodedTextOf(
+            _field(valueType: 'bool', boolValue: true, display: 'on')),
         'on',
       );
       expect(

@@ -257,8 +257,8 @@ void main() {
           unitSource: 'device_setting',
         ),
       );
-      expect(find.text('Probe 1: 165 (unit set on the device)'),
-          findsOneWidget);
+      expect(
+          find.text('Probe 1: 165 (unit set on the device)'), findsOneWidget);
     });
 
     testWidgets('a bool still reads as on/off, not 1', (tester) async {

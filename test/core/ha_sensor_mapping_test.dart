@@ -267,12 +267,14 @@ void main() {
     test('an untransformed field still sends an int, not a double', () {
       // 85 reads better than 85.0 in HA, and this is the common case: 69 of
       // the 92 bundled format fields declare no number semantics at all.
-      expect(map(const DecodedValueDto(
-        name: 'brightness',
-        valueType: 'uint',
-        display: '80',
-        uintValue: 80,
-      )).state, isA<int>().having((s) => s, 'value', 80));
+      expect(
+          map(const DecodedValueDto(
+            name: 'brightness',
+            valueType: 'uint',
+            display: '80',
+            uintValue: 80,
+          )).state,
+          isA<int>().having((s) => s, 'value', 80));
     });
 
     test('a transform with decimals does not leak float error', () {
