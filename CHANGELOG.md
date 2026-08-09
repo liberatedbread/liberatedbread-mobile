@@ -137,6 +137,21 @@ heading.
 
 ### Added
 
+- **The Rust crate's coverage is measured.** Roughly a third of the
+  hand-written code in this project — the spec parser, the codec, the protocol
+  dispatch, the mock simulator — was tested and never counted, so the reported
+  figure was the Dart half only and a change that moved Rust coverage moved the
+  number not at all. A `rust-coverage` job runs `cargo llvm-cov` and uploads
+  under a `rust` flag, which Codecov merges with the two Dart reports. The
+  first measurement: **95.6%** on hand-written code.
+  `rust/src/frb_generated.rs` is ignored, on the argument already made for
+  `lib/src/rust/**` — 1917 generated lines that `cargo test` covers 0.0% of,
+  because the crate's own tests never cross the FFI boundary that file exists
+  to implement. Left in, it reports the same crate as 72.0%.
+
+  The job is deliberately separate from `rust` and gates nothing: that one is
+  what the four native jobs wait on, and it keeps a plain `cargo test`.
+
 - **The FFI tests rebuild the Rust core themselves.** Both ways of getting this
   wrong were silent: with no host build the suites `markTestSkipped` and the run
   is green with a quietly smaller test count, and with a *stale* one they do not

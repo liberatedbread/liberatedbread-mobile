@@ -183,6 +183,12 @@ env:
   # ── Everything else the setup scripts provision ────────────────────────────
   JAVA_VERSION: '17'
   FRB_VERSION: '2.9.0'
+  # cargo-llvm-cov, for the rust-coverage job. Pinned rather than floating for
+  # the same reason everything else here is: a coverage tool that changes what
+  # it counts between runs turns "the number moved" into a question about the
+  # tool. Built from source on a cache miss (~70s) by
+  # scripts/ci-install-llvm-cov.sh, exactly like the FRB codegen.
+  LLVM_COV_VERSION: '0.8.7'
   # Comma-separated: the shape dtolnay/rust-toolchain's `targets:` input wants.
   # Android keeps all four even though no CI job builds every one, because a dev
   # machine provisioned from this list should be able to build any ABI.
@@ -525,6 +531,67 @@ jobs:
       # --locked makes that disagreement the error it already was.
       - run: cargo clippy --all-targets --all-features --locked -- -D warnings
       - run: cargo test --all-features --locked
+
+  # Deliberately NOT part of the `rust` job above, and deliberately gating
+  # nothing.
+  #
+  # That job is the gate for android-build, android-integration, ios-build and
+  # linux-desktop — two of which are multi-GB native builds and one of which
+  # bills at 10x. Folding coverage into it would put a `cargo install` and a
+  # second, instrumented build of the crate in front of all four, so a slow or
+  # broken coverage tool would hold up the entire native matrix. It also would
+  # not reuse a single object file: llvm-cov compiles with instrumentation into
+  # its own target directory, so it is a fresh build either way.
+  #
+  # Separate and ungated, it runs concurrently with everything, costs one cheap
+  # ubuntu runner, and its worst failure is a red check on the run rather than
+  # four expensive jobs waiting. The `rust` job keeps a plain `cargo test` as
+  # its gate — the thing four other jobs depend on stays unentangled with a
+  # coverage tool. The duplicated test run is the price, and on this crate that
+  # is about twenty seconds.
+  rust-coverage:
+    name: Rust (coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # What does the instrumenting. cargo-llvm-cov without it fails on a
+          # missing llvm-profdata, which names neither the component nor how to
+          # get it.
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          # cache-bin: false for the same reason unit-tests sets it — see the
+          # note there. The one binary this job installs has its own cache
+          # below, keyed on the pinned version over a path of exactly one file,
+          # so there is no half-saved state a cancelled run can leave behind.
+          cache-bin: false
+      - name: Cache the cargo-llvm-cov binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: llvm-cov-${{ runner.os }}-${{ env.LLVM_COV_VERSION }}
+      # The script installs the pinned tool (skipping the ~70s build when the
+      # cache restored it), runs the suite under instrumentation, rewrites the
+      # absolute paths llvm-cov emits into repo-relative ones, and refuses to
+      # pass having produced an empty report — which is the way this could
+      # silently go back to uploading nothing.
+      - name: Measure Rust coverage
+        run: ./scripts/ci-rust-coverage.sh
+      # rust/src/frb_generated.rs is excluded in codecov.yml, not here: 1917
+      # generated lines at 0.0% take the crate from 95.6% to a reported 72.0%,
+      # and the argument for dropping them is the one already made in that file
+      # for lib/src/rust/** — the Dart half of the same generated pair.
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/rust-lcov.info
+          flags: rust
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   android-build:
     name: Android build smoke (debug + release APK, contents verified)

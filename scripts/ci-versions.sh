@@ -48,6 +48,7 @@
 #   CI_CMAKE_VERSION          Android SDK CMake (Flutter's Gradle plugin needs it)
 #   CI_JAVA_VERSION           JDK major version Gradle runs on
 #   CI_FRB_VERSION            flutter_rust_bridge_codegen
+#   CI_LLVM_COV_VERSION       cargo-llvm-cov (the rust-coverage job's tool)
 #   CI_RUST_ANDROID_TARGETS   space-separated rustup targets for Android
 #   CI_RUST_IOS_TARGETS       space-separated rustup targets for iOS
 #   CI_EMULATOR_API           API level of the AVD CI boots
@@ -155,6 +156,7 @@ ci_versions_load() {
   _ci_set CI_CMAKE_VERSION '3.22.1' "$(_ci_env ANDROID_CMAKE || true)"
   _ci_set CI_JAVA_VERSION '17' "$(_ci_env JAVA_VERSION || true)"
   _ci_set CI_FRB_VERSION '2.9.0' "$(_ci_env FRB_VERSION || true)"
+  _ci_set CI_LLVM_COV_VERSION '0.8.7' "$(_ci_env LLVM_COV_VERSION || true)"
 
   _ci_set CI_RUST_ANDROID_TARGETS \
     'aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android' \
@@ -182,7 +184,7 @@ ci_versions_print() {
   ci_versions_load
   local v
   for v in CI_FLUTTER_VERSION CI_NDK_VERSION CI_ANDROID_API CI_BUILD_TOOLS_VERSION \
-           CI_CMAKE_VERSION CI_JAVA_VERSION CI_FRB_VERSION \
+           CI_CMAKE_VERSION CI_JAVA_VERSION CI_FRB_VERSION CI_LLVM_COV_VERSION \
            CI_RUST_ANDROID_TARGETS CI_RUST_IOS_TARGETS \
            CI_EMULATOR_API CI_EMULATOR_TARGET CI_EMULATOR_ARCH CI_EMULATOR_PROFILE \
            CI_EMULATOR_SYSTEM_IMAGE CI_LINUX_DESKTOP_PACKAGES; do

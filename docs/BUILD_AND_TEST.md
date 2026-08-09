@@ -1085,6 +1085,56 @@ defaults happened to be:
   lines are covered and never fails. Making new code blocking is a policy call;
   flip `informational` to `false` to enforce it.
 
+#### Three uploads, one report
+
+Codecov merges every report for a commit, so each job sends a partial one under
+its own flag:
+
+| flag | job | what only it covers |
+| --- | --- | --- |
+| `unit` | `unit-tests` | `flutter test --coverage --exclude-tags=netdisco` |
+| `netdisco` | `network-discovery` | the suites that run excludes — the only place `RealNetworkScanService` executes |
+| `rust` | `rust-coverage` | the crate, via `cargo llvm-cov` |
+
+Both of the latter two exist because their code was being tested and then not
+counted. `real_network_scan_service.dart` measured 108/169 lines in the uploaded
+report while the netdisco job was covering 164/169 of it. And the whole of
+`rust/` — roughly a third of the hand-written code in the project — was measured
+by nothing at all, so the reported figure was the Dart half only and a change
+that moved Rust coverage moved the number not at all.
+
+`carryforward` is deliberately unset. All three jobs run on every commit, so a
+missing flag means an upload failed, and the number *should* move rather than
+quietly reusing the last one.
+
+#### Rust coverage
+
+```bash
+./scripts/ci-rust-coverage.sh          # coverage/rust-lcov.info
+```
+
+It installs the pinned `cargo-llvm-cov` (`scripts/ci-install-llvm-cov.sh`, the
+sibling of `ci-install-frb.sh` and cached the same way), runs the suite under
+instrumentation, and rewrites the absolute paths llvm-cov emits into
+repo-relative ones — Codecov's path fixing usually maps them itself, and
+"usually" applied to a heuristic means the day it does not, the report silently
+covers nothing and the number just drops. It refuses to pass having produced an
+empty report, for the same reason.
+
+`rust/src/frb_generated.rs` is ignored in `codecov.yml`, and it is the same
+argument as `lib/src/rust/**` above: 1917 generated lines that `cargo test`
+covers 0.0% of, because the crate's own tests never cross the FFI boundary that
+file exists to implement — the Dart side does. Left in, it takes a crate whose
+hand-written code measures **95.6%** to a reported **72.0%**.
+
+The `rust-coverage` job is separate from the `rust` job and gates nothing. That
+job is what android-build, android-integration, ios-build and linux-desktop wait
+on, and putting a `cargo install` plus a second instrumented build in front of
+all four — two multi-GB native builds and one billing at 10x — to measure
+something is the wrong trade. It would not share a single object file either:
+llvm-cov compiles with instrumentation into its own target directory. The
+duplicated test run costs about twenty seconds on a cheap runner, in parallel.
+
 ---
 
 ## Troubleshooting
