@@ -530,3 +530,34 @@ fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
         }
     }
 }
+
+/// The real vendored SmartDawn spec must encode a doodle image frame end to
+/// end. This is the regression guard the hand-written daniao unit tests could
+/// not be: a stripped test spec once hid that the shipped `doodle_start`
+/// template ended in an unencodable `{payload}` param, which broke every image
+/// send on real hardware while the unit tests stayed green.
+#[test]
+fn smartdawn_spec_encodes_a_doodle_frame() {
+    use liberated_bread_core::api::device_api::encode_image_frame;
+
+    let yaml = fs::read_to_string(spec_path("smartdawn-smart-lights.yaml"))
+        .expect("smartdawn spec should be readable");
+    // 20x20 two-colour canvas at frame 0: opens the session (ui_end_sync +
+    // doodle_start, both resolved FROM the spec's command templates) then
+    // streams a TUTU_RESTORE chunk.
+    let mut rgb = vec![0u8; 20 * 20 * 3];
+    for i in (0..rgb.len()).step_by(3) {
+        rgb[i] = 0x10; // one non-black colour so there are two palette entries
+    }
+    let plan = encode_image_frame(yaml, 20, 20, rgb, 0, 509)
+        .expect("the real smartdawn spec must encode a doodle frame");
+    assert!(
+        plan.writes.len() >= 3,
+        "frame 0 = ui_end_sync + doodle_start + >=1 chunk"
+    );
+    // The session-open writes go to the DDP command characteristic.
+    assert_eq!(
+        plan.writes[0].characteristic_uuid,
+        "01020074-1972-1925-3022-077119514e44"
+    );
+}
