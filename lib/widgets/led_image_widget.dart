@@ -11,6 +11,7 @@ import '../core/log.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'led_designs.dart';
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
@@ -307,6 +308,35 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     });
   }
 
+  /// Load a ready-made design onto the canvas, replacing the current frames.
+  ///
+  /// The design is generated for the current canvas size, so its frames drop in
+  /// without a resize. A multi-frame (animation) design switches to animation
+  /// mode when the device supports it, and otherwise loads only its first frame
+  /// as a static image. Sequence resets to 0 so the next send re-opens the
+  /// doodle session.
+  void _loadDesign(LedDesign design) {
+    final asAnimation = design.animation && _spec.animation;
+    var frames = design.frames;
+    final maxFrames = _spec.maxFrames;
+    if (maxFrames != null && frames.length > maxFrames) {
+      frames = frames.sublist(0, maxFrames);
+    }
+    setState(() {
+      _stopPreview();
+      _error = null;
+      _animationMode = asAnimation;
+      _frames
+        ..clear()
+        ..addAll(
+          (asAnimation ? frames : frames.take(1)).map(Uint8List.fromList),
+        );
+      _current = 0;
+      _frameSequence = 0;
+      _paintRevision++;
+    });
+  }
+
   /// Usable bytes per BLE write, resolved once per send/stream — the MTU is
   /// fixed for the life of the connection, so re-querying it per frame would
   /// only add an async hop inside the frame budget. An unreported MTU shows
@@ -572,6 +602,27 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             _PaletteRow(
               selected: _selectedColor,
               onSelected: (i) => setState(() => _selectedColor = i),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: PopupMenuButton<LedDesign>(
+                enabled: !_streaming && !_sending,
+                onSelected: _loadDesign,
+                itemBuilder: (context) => [
+                  for (final d in defaultDesigns(_width, _height))
+                    PopupMenuItem(
+                      value: d,
+                      child: Text(d.animation ? '${d.name} (animation)' : d.name),
+                    ),
+                ],
+                // A plain Chip (no onPressed) so the PopupMenuButton owns the
+                // tap; the button's `enabled` gates it while busy.
+                child: const Chip(
+                  avatar: Icon(Icons.palette_outlined, size: 18),
+                  label: Text('Designs'),
+                ),
+              ),
             ),
             if (_animationMode) ...[
               const SizedBox(height: 12),
