@@ -64,8 +64,9 @@ except ImportError:  # pragma: no cover - the wrapper script checks for this
 ADAPTER_PATH = '/org/bluez/hci0'
 ADAPTER_ADDRESS = '00:11:22:33:44:55'
 
-# Matches assets/device_specs/example-bulb.yaml, and test/fakes/emulated_ble.dart
-# with it, so a scenario reads the same whichever emulator is running it.
+# Matches vendor/protocol-specs/device-specs/examples/example-bulb.yaml, and
+# test/fakes/emulated_ble.dart with it, so a scenario reads the same whichever
+# emulator is running it.
 CONTROL_SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb'
 CONTROL_COMMAND = '0000fff1-0000-1000-8000-00805f9b34fb'
 CONTROL_STATE = '0000fff2-0000-1000-8000-00805f9b34fb'
