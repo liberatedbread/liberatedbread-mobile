@@ -400,4 +400,65 @@ void main() {
       );
     });
   });
+
+  group('isPairingRequiredError', () {
+    FlutterBluePlusException native(int? code, [String? description]) =>
+        FlutterBluePlusException(
+            ErrorPlatform.android, 'readCharacteristic', code, description);
+
+    test('recognizes insufficient authentication (ATT 0x05)', () {
+      expect(
+          isPairingRequiredError(native(5, 'GATT_INSUFFICIENT_AUTHENTICATION')),
+          isTrue);
+    });
+
+    test('recognizes insufficient authorization (ATT 0x08)', () {
+      expect(isPairingRequiredError(native(8)), isTrue);
+    });
+
+    test('recognizes insufficient encryption (ATT 0x0F)', () {
+      expect(isPairingRequiredError(native(15)), isTrue);
+    });
+
+    test('recognizes BlueZ, which reports a name rather than an ATT code', () {
+      expect(
+        isPairingRequiredError(FlutterBluePlusException(
+            ErrorPlatform.linux, 'readCharacteristic', 0, 'Not paired')),
+        isTrue,
+      );
+      expect(
+        isPairingRequiredError(FlutterBluePlusException(ErrorPlatform.linux,
+            'writeCharacteristic', null, 'Insufficient Authentication')),
+        isTrue,
+      );
+    });
+
+    // The trap this guards: FlutterBluePlusException.code is an ATT code only
+    // for NATIVE errors. For flutter_blue_plus's own errors it indexes
+    // FbpErrorCode, where 5 is removeBondFailed and 8 is
+    // characteristicNotFound — reading those as ATT codes would tell the user
+    // to pair a device because a characteristic was missing.
+    test('does NOT treat flutter_blue_plus own error codes as ATT codes', () {
+      for (final code in [
+        FbpErrorCode.removeBondFailed.index,
+        FbpErrorCode.characteristicNotFound.index,
+        FbpErrorCode.serviceNotFound.index,
+      ]) {
+        expect(
+          isPairingRequiredError(FlutterBluePlusException(
+              ErrorPlatform.fbp, 'readCharacteristic', code, 'internal')),
+          isFalse,
+          reason: 'FbpErrorCode $code is not an ATT code',
+        );
+      }
+    });
+
+    test('ignores an ordinary GATT failure', () {
+      expect(isPairingRequiredError(native(133, 'GATT_ERROR')), isFalse);
+    });
+
+    test('ignores anything that is not a flutter_blue_plus exception', () {
+      expect(isPairingRequiredError(StateError('boom')), isFalse);
+    });
+  });
 }
