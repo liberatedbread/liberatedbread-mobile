@@ -11,7 +11,21 @@ import 'network_scan_service.dart';
 /// purpose, so the Wi-Fi list exercises every rung of the confidence ladder
 /// without needing a Hue bridge on the desk.
 class MockNetworkScanService implements NetworkScanService {
-  bool _stopped = false;
+  /// Completes when [stopScan] is called, so every wait below can wake early.
+  ///
+  /// A plain `bool` checked between sleeps is what this was, and it made
+  /// `stopScan()` a lie in the same way the real service's did before it was
+  /// fixed (see the `Future.any` in `real_network_scan_service.dart`): the flag
+  /// was read at the TOP of the loop, so a stop arriving during a sleep was not
+  /// noticed until that sleep ended, and the sleep AFTER the loop did not read
+  /// it at all — the stream stayed open for a quarter of the scan window
+  /// (two seconds at the default) after the scan had been told to stop. A
+  /// caller that waits for the stream to close before re-enabling its button —
+  /// which is what "stop scanning" looks like from the UI — waited it out.
+  ///
+  /// Demo mode is the only place this class runs, but demo mode is what the
+  /// screenshots, the walkthrough and every mock-mode integration test drive.
+  Completer<void> _stop = Completer<void>();
 
   /// Deliberately varied:
   ///  - a bridge announcing a vendor mDNS service type (strong),
@@ -63,15 +77,25 @@ class MockNetworkScanService implements NetworkScanService {
   Stream<NetworkDevice> scan({
     Duration timeout = const Duration(seconds: 8),
   }) async* {
-    _stopped = false;
+    _stop = Completer<void>();
     for (final device in _devices) {
-      if (_stopped) return;
-      await Future<void>.delayed(const Duration(milliseconds: 350));
+      if (await _sleepOrStop(const Duration(milliseconds: 350))) return;
       yield device;
     }
-    await Future<void>.delayed(timeout ~/ 4);
+    // The tail is what makes the list look like it is still searching after
+    // the last device arrives, which is the whole point of a demo scan — but
+    // it races the stop like every other wait here.
+    await _sleepOrStop(timeout ~/ 4);
+  }
+
+  /// Waits [d], or until the scan is stopped. True when it was stopped.
+  Future<bool> _sleepOrStop(Duration d) async {
+    await Future.any([Future<void>.delayed(d), _stop.future]);
+    return _stop.isCompleted;
   }
 
   @override
-  Future<void> stopScan() async => _stopped = true;
+  Future<void> stopScan() async {
+    if (!_stop.isCompleted) _stop.complete();
+  }
 }

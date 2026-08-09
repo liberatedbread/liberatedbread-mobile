@@ -4,9 +4,12 @@
 // Exercises the real flutter_rust_bridge path through [RealSpecCodec] against
 // the bundled example spec. Requires the host-target Rust library (cargo build
 // + LD_LIBRARY_PATH, same as CI); the group is skipped if it isn't loaded.
+import 'dart:typed_data' show Uint16List;
+
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../helpers/host_rust_lib.dart';
 
@@ -118,5 +121,155 @@ void main() {
     );
     expect(matches, isNotEmpty);
     expect(matches.first.matchedByNamePrefix, isTrue);
+  });
+
+  // ── the pass-throughs that nothing was calling ────────────────────────────
+  //
+  // Four of RealSpecCodec's methods had never been executed — 8 of its 19 lines
+  // — because every widget test drives FakeSpecCodec instead, and the widgets
+  // are where these are called from. Each is "a thin pass-through to the
+  // generated FFI function", which is exactly the kind of code that looks too
+  // boring to test and then transposes two arguments: `width`/`height` and
+  // `frameIndex`/`maxPayloadPerWrite` are adjacent ints, and a swap compiles.
+  //
+  // These deliberately do NOT re-test the Rust behaviour — rust/tests and the
+  // crate's own unit tests own that, and cargo llvm-cov now measures it. What
+  // they pin is that the Dart side names its arguments correctly on the way in
+  // and hands back what came out.
+
+  test('matchNetworkDevice reaches the network matcher', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // Built by hand rather than read from a spec: the point is the argument
+    // wiring, and an identity written here says exactly which field is
+    // expected to do the matching.
+    final identity = SpecIdentityDto(
+      deviceName: 'Philips Hue Bridge',
+      manufacturer: 'Signify',
+      localNamePrefixes: const [],
+      serviceUuids: const [],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: '_hue._tcp.local.',
+      ssdpSearchTargets: const [],
+      defaultPort: 80,
+    );
+    const device = NetworkDeviceDto(
+      name: 'Philips Hue',
+      hostname: 'Philips-hue.local',
+      serviceTypes: ['_hue._tcp.local'],
+      ssdpTargets: [],
+      port: 443,
+    );
+
+    final matches = await codec.matchNetworkDevice(
+      identities: [identity],
+      device: device,
+    );
+
+    expect(matches, isNotEmpty,
+        reason: 'the advertised mDNS service type is the identity it matches');
+    expect(matches.first.specIndex, 0,
+        reason: 'the index has to point back into the list that was passed in');
+    expect(matches.first.deviceName, 'Philips Hue Bridge');
+  });
+
+  test('identifyStandardProfiles names a well-known service', () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    final profiles = await codec.identifyStandardProfiles(
+      const ['0000180f-0000-1000-8000-00805f9b34fb'],
+    );
+
+    expect(profiles, hasLength(1));
+    expect(profiles.single.serviceUuid, '0000180f-0000-1000-8000-00805f9b34fb');
+    expect(profiles.single.profileName, contains('Battery'));
+  });
+
+  test('encodeEntityValue sends the value to the entity that owns it',
+      () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    // Gerbing is the direct-write setpoint: the raw byte IS the percentage, so
+    // a mis-passed argument shows up as a wrong number rather than as a
+    // plausible-looking blob.
+    final gerbing = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/gerbing-thermogauge.yaml');
+
+    final write = await codec.encodeEntityValue(
+      specYaml: gerbing,
+      entityName: 'Heat Level 1',
+      value: 60,
+    );
+    expect(write.bytes, orderedEquals(<int>[60]));
+
+    // Channel 2 is a different characteristic, and sending channel 2's value to
+    // channel 1 is the failure a swapped entity name would produce.
+    final other = await codec.encodeEntityValue(
+      specYaml: gerbing,
+      entityName: 'Heat Level 2',
+      value: 60,
+    );
+    expect(other.characteristicUuid, isNot(write.characteristicUuid));
+  });
+
+  test('encodeImageFrame keeps width, height and the frame index apart',
+      () async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+    final display = await rootBundle.loadString(
+        'vendor/protocol-specs/device-specs/devices/smartdawn-smart-lights.yaml');
+
+    // Each of the four numeric arguments is checked by something it alone can
+    // move. They are adjacent ints in the signature, and a transposition
+    // compiles.
+    //
+    // 40x34 RGB888 at the 20-byte payload floor is two DDP packets, so the
+    // frame index must come back advanced by two — 5 -> 7. Advancing by one
+    // would make the next frame's first packet collide with this frame's
+    // second, which corrupts reassembly on the device. (`writes` is the
+    // FRAGMENT count, which is much larger; it is the packet count that the
+    // serial is drawn from.)
+    final plan = await codec.encodeImageFrame(
+      specYaml: display,
+      width: 40,
+      height: 34,
+      rgb: List<int>.filled(40 * 34 * 3, 0xAB),
+      frameIndex: 5,
+      maxPayloadPerWrite: 20,
+    );
+
+    expect(plan.nextFrameIndex, 7, reason: 'frameIndex reached the encoder');
+    expect(plan.writes, isNotEmpty);
+    expect(
+      plan.writes.every((w) => w.length <= 20),
+      isTrue,
+      reason: 'no BLE write may exceed maxPayloadPerWrite, which is how that '
+          'argument proves it arrived',
+    );
+    expect(plan.characteristicUuid, isNotEmpty);
+
+    // And width/height: the encoder rejects a pixel buffer that is not
+    // width x height x 3, so a swapped or dropped dimension cannot pass
+    // unnoticed.
+    await expectLater(
+      codec.encodeImageFrame(
+        specYaml: display,
+        width: 40,
+        height: 34,
+        rgb: List<int>.filled(40 * 33 * 3, 0xAB),
+        frameIndex: 0,
+        maxPayloadPerWrite: 20,
+      ),
+      throwsA(anything),
+    );
   });
 }

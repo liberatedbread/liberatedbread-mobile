@@ -1,0 +1,57 @@
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Keep the things CI itself depends on from rotting quietly.
+#
+# WHY ACTIONS ARE THE POINT
+#
+# .github/workflows/ pins ten third-party actions by major tag. A major tag is
+# a moving target that stops moving: `actions/upload-artifact@v3` was turned off
+# outright, and the runs that depended on it did not degrade — they failed, all
+# at once, on a day nobody chose. Nothing in this repo watches for that, and
+# `flutter analyze` has no opinion about YAML. A weekly pull request that bumps
+# the tags is the cheapest possible watch.
+#
+# WHAT IS DELIBERATELY NOT HERE
+#
+#   * pub. pubspec.lock is committed and the app is pinned against a specific
+#     Flutter SDK; `flutter pub outdated` currently lists 62 packages held back
+#     by constraints, so a dependabot run would open a wall of pull requests
+#     that all fail resolution for the same reason. Dependency bumps here follow
+#     a Flutter bump, by hand.
+#   * The Flutter, NDK, Android SDK and flutter_rust_bridge pins. Those live in
+#     ci.yml's env: block (see the header there) and moving them moves every
+#     developer environment with them, which is not a bot's decision.
+#
+# Grouped and capped so this is one reviewable pull request per ecosystem per
+# week rather than a queue that nobody reads, which is how these usually end up
+# being switched off.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci'
+
+  # The Rust crate. Small dependency set, a committed Cargo.lock, and the `rust`
+  # job runs fmt + clippy + tests with --locked — so a bump either passes those
+  # or says exactly what broke, which is the ideal shape for an automated pull
+  # request. flutter_rust_bridge is pinned with `=2.9.0` against ci.yml's
+  # FRB_VERSION and cannot move without the codegen moving too; the `=` in
+  # Cargo.toml is what stops a bot from trying.
+  - package-ecosystem: cargo
+    directory: /rust
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    groups:
+      cargo:
+        patterns: ['*']
+    commit-message:
+      prefix: 'rust'

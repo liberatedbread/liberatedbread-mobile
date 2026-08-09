@@ -305,19 +305,26 @@ flutter_rust_bridge_codegen generate
 ```
 
 For `flutter test` to exercise the Rust path, the host-target library must be
-built and discoverable. From the repo root:
+built. **This happens on its own** — `test/helpers/host_rust_lib.dart` compares
+the built library against cargo's own record of what went into it and runs
+`cargo build` when it is missing or out of date, so editing `rust/src/` and
+re-running the tests tests the edit:
 
 ```bash
-(cd rust && cargo build)
-export LD_LIBRARY_PATH=$PWD/rust/target/debug
 flutter test
+./scripts/ensure-rust-lib.sh   # or build it yourself, ahead of time
 ```
 
-On macOS, don't bother with the `DYLD_*` equivalents — the Flutter SDK's
-`dart` binary uses the hardened runtime, which strips them. Instead the test
-helper (`test/helpers/host_rust_lib.dart`) loads `rust/target/debug/<lib>` by
-relative path (or the path in `LIBERATED_BREAD_RUST_LIB`), so building is
-enough. `scripts/test.sh` handles all of this automatically.
+That is not a convenience. These suites `markTestSkipped` when the library will
+not load, so *no* build and a *stale* build both used to report green — the
+first with a quietly smaller suite, the second by testing the previous version
+of the Rust code. Set `LIBERATED_BREAD_NO_RUST_BUILD=1` to opt out, or point
+`LIBERATED_BREAD_RUST_LIB` at an artifact you built yourself.
+
+No `LD_LIBRARY_PATH` is needed, and on macOS the `DYLD_*` equivalents do not
+work at all — the Flutter SDK's `dart` binary uses the hardened runtime, which
+strips them. The helper loads `rust/target/debug/<lib>` by relative path
+instead, so building is the whole requirement.
 
 ## Project Structure
 
