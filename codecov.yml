@@ -34,6 +34,31 @@ ignore:
   - "**/*.g.dart"           # any future build_runner output
   - "**/*.freezed.dart"
 
+# TWO UPLOADS, ONE REPORT
+#
+# `unit` is the unit-tests job (`flutter test --coverage --exclude-tags=
+# netdisco`); `netdisco` is the network-discovery job, which runs the suites
+# that other one excludes — the only place RealNetworkScanService executes.
+# Codecov merges both for the commit, so each is a partial report on purpose.
+#
+# That merge is the point. Before it, the excluded suites' coverage was
+# collected nowhere and the uploaded report showed
+# lib/services/real_network_scan_service.dart at 108/169 lines while the
+# netdisco job was actually covering 164/169 of it. Fifty-six lines, on the
+# service with the most elaborate test harness in the repo (emulated mDNS and
+# SSDP responders on the real multicast groups), counted as untested.
+#
+# carryforward is deliberately NOT set: both jobs run on every commit, so a
+# missing flag means an upload failed and the number SHOULD move rather than
+# quietly reusing the last one.
+flags:
+  unit:
+    paths:
+      - lib/
+  netdisco:
+    paths:
+      - lib/
+
 coverage:
   status:
     # Blocks a cliff, tolerates noise. `auto` compares against the base commit
