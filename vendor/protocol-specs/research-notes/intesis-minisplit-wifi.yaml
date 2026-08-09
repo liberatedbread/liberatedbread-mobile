@@ -1,0 +1,71 @@
+# Intesis Wi-Fi Mini-Split Gateways — Device Spec (research note)
+# Intesis = HMS Networks (active). WMP line = documented local TCP API;
+# IntesisHome consumer modules = local HTTP API killed by 2025 firmware.
+
+device:
+  id: intesis-minisplit-wifi
+  name: Intesis IntesisBox WMP gateways + IntesisHome IS-IR-WIFI-1 / Airconwithme Wi-Fi modules (Fujitsu/Mitsubishi/Daikin/Toshiba/LG/Panasonic/Samsung/Hitachi mini-splits)
+  manufacturer: Intesis — HMS Networks (acquired 2016; active)
+  category: hvac_minisplit_gateway
+  safety_class: MEDIUM  # HVAC actuator; public default creds on WMP
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Two generations. IntesisBox WMP gateways: vendor-documented ASCII
+    protocol over TCP 3310, no cloud at any stage. IntesisHome consumer
+    modules (IS-IR-WIFI-1, INWFI*): undocumented local HTTP API on port 80
+    worked until a 2025 firmware update removed the local web server
+    (EU RED compliance, per HMS support) and forced AC Cloud; units kept
+    on pre-2025 firmware (WAN blocked) retain local control.
+
+lan:
+  discovery:
+    protocol: udp-broadcast
+    port: 3310       # WMP DISCOVER frames
+  control_wmp:
+    protocol: tcp-ascii
+    port: 3310
+    auth: LOGIN command; users admin/operator; default password admin
+    framing: line-based ASCII
+    examples:
+      login: 'LOGIN:<user>:<pass>'
+      get: 'GET,<id>,<function>'
+      set: 'SET,<id>,<function>,<value>'
+      async_push: 'CHN,<id>,<function>,<value>'
+    functions: [ONOFF, MODE, SETPTEMP, AMBTEMP, FANSP, VANEUD, VANELR, ERRSTATUS, ERRCODE]
+    mode_enum: {AUTO, HEAT, DRY, FAN, COOL}
+    reference: HMS "WMP Protocol Specification" PDF (hms-networks.com)
+  control_intesishome_legacy:
+    protocol: http-json
+    port: 80
+    auth: http-basic
+    note: pre-2025 firmware only; disabled by 2025 RED-compliance update
+
+protocol:
+  note: >
+    WMP is vendor-published and implemented by openHAB, Domoticz,
+    jnimmo/hass-intesishome and pyintesishome (local mode). IntesisHome
+    port-80 JSON API was community-RE'd only; treat as legacy/frozen.
+  commands:
+    power: 'SET,1,ONOFF,ON|OFF'
+    mode: 'SET,1,MODE,COOL'
+    setpoint: 'SET,1,SETPTEMP,<deci-degC>'  # e.g. 220 = 22.0 C
+    fan: 'SET,1,FANSP,<n|AUTO>'
+    read_all: 'GET,1,*'
+
+status:
+  rating: confirmed   # WMP vendor-documented; IntesisHome local community-confirmed but firmware-frozen
+  apk_acquired: false # IntesisHome app delisted/rebranded; not needed for WMP
+  apk_decompiled: false
+  protocol_recovered: true
+  cloud_dead: false   # vendor active; strategy shift TO cloud on consumer line
+  warnings:
+    - 2025 firmware removes local HTTP on IntesisHome modules — block updates / keep old firmware
+    - default WMP credentials are public — change password
+  references:
+    - github.com/jnimmo/hass-intesishome (accessed 2026-08-07)
+    - community.home-assistant.io/t/intesishome-stop-working-after-update/873343 (2025-04/08)
+    - github.com/domoticz/domoticz/issues/4193 (2020-05-31)
+    - hms-networks.com/software-and-tools/intesis-ac-cloud-control (2024-09-20)
