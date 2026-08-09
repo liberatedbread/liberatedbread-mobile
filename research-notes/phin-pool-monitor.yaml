@@ -1,0 +1,117 @@
+# pHin Smart Pool/Spa Monitor — Device Spec (research note)
+# Static analysis of com.connectedyard.phin v4.0.1 (base APK from XAPK)
+# APK source: apkeep (apk-pure)
+# XAPK SHA-256: 9c6b7945c9cd950212670511092d6e9d368aa5e31490200eecb8e4af09596119
+
+device:
+  id: phin-pool-monitor
+  name: pHin Smart Water Monitor (pool & hot tub)
+  manufacturer: ConnectedYard Inc. (acquired by Hayward 2018; discontinued 2021-12-20)
+  category: water_quality_monitor
+  safety_class: LOW  # Advisory water-chemistry readings; no medical use, no actuators
+
+transport:
+  type: ble
+  local_only: true
+  cloud_required: false
+  note: >
+    Floater broadcasts sensor data in BLE advertisements; app builds monitor
+    state directly from scan records (no pairing seen in scan path).
+    Bridge GATT service exists for Wi-Fi provisioning (BLE-only step).
+    Cloud used only for account/history/dosing recommendations — now defunct.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — scan filter uses service UUID fe63
+    service_uuids:
+      - "0000fe63-0000-1000-8000-00805f9b34fb"  # 16-bit 0xFE63; also seen as fffffe63-
+    payload_note: >
+      Advertisement bytes parsed into five packed 32-bit fields plus an 8-byte
+      calibration record (bit-packed, values scaled /10). Mapping to
+      pH/ORP/temp TBD — HCI snoop needed.
+
+  services:
+    - uuid: "0000fe63-0000-1000-8000-00805f9b34fb"
+      name: phin_monitor_advertised_service
+      description: 16-bit service UUID used in scan filter / advertisements
+    - uuid: "32061527-76fd-4996-952b-2a1be2cb9450"
+      name: phin_monitor_service
+      description: Likely pHin monitor GATT service (referenced in a3/c.java)
+      characteristics:
+        - uuid: "3206152c-76fd-4996-952b-2a1be2cb9450"
+          name: monitor_char_g
+          description: Monitor characteristic (field G in PhinMonitor.java)
+        - uuid: "32061523-76fd-4996-952b-2a1be2cb9450"
+          name: monitor_char_2
+          description: Referenced characteristic (purpose TBD)
+    - uuid: "c92c815e-a812-4b99-896e-87cd27720000"
+      name: phin_bridge_service
+      description: pHin Wi-Fi bridge service (provisioning/status)
+      characteristics:
+        - uuid: "c92c815e-a812-4b99-896e-87cd2772000b"
+          name: bridge_char_0b
+        - uuid: "c92c815e-a812-4b99-896e-87cd27720012"
+          name: bridge_char_12
+        - uuid: "c92c815e-a812-4b99-896e-87cd27720014"
+          name: bridge_char_14
+        - uuid: "c92c815e-a812-4b99-896e-87cd27720013"
+          name: bridge_char_13
+        - uuid: "c92c815e-a812-4b99-896e-87cd27720015"
+          name: bridge_char_15
+        - uuid: "c92c815e-a812-4b99-896e-87cd27720016"
+          name: bridge_char_16
+        - uuid: "c92c815e-a812-4b99-896e-87cd2772000f"
+          name: bridge_char_0f
+        - uuid: "c92c815e-a812-4b99-896e-87cd27720010"
+          name: bridge_char_10
+        - uuid: "c92c815e-a812-4b99-896e-87cd2772000c"
+          name: bridge_char_0c
+        - uuid: "c92c815e-a812-4b99-896e-87cd2772000d"
+          name: bridge_char_0d
+        - uuid: "c92c815e-a812-4b99-896e-87cd2772000e"
+          name: bridge_char_0e
+        - uuid: "c92c815e-a812-4b99-896e-87cd27720011"
+          name: bridge_char_11
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+    - uuid: "00002902-0000-1000-8000-00805f9b34fb"
+      name: cccd
+
+protocol:
+  note: >
+    Foreground PhinBleService scans (RxJava-based BLE layer, obfuscated a3/b3/w2).
+    Monitor object constructed from advertisement byte[] (b3/b.java): five 32-bit
+    packed values at offsets 0/4/8/12/16; flag bits in byte 24 of first field;
+    calibration via 8-byte records with bit-packed fields (7-bit and 8-bit lanes,
+    some scaled /10 — looks like electrode mV values).
+    Nordic DFU service present for firmware updates.
+  expected_measurements:
+    - ph
+    - orp_sanitizer_mv
+    - water_temperature_c
+    - battery_status
+  commands:
+    read_current_values: TBD  # likely passive advert sniff or read on 3206152c
+    bridge_wifi_provision: TBD  # writes on c92c815e-... characteristics
+
+third_party_support:
+  note: >
+    iopool app (com.iopool, still maintained) added pHin hardware support after
+    the 2021 shutdown ("link your pHin device to the iopool app"); its binary
+    contains pHin's 3206152C characteristic and fe63 service UUIDs.
+  references:
+    - https://iopool.com/blogs/connected-objects/phin-alternative  # 2022-12-16
+    - https://community.home-assistant.io/t/phin-smart-pool-monitor/191533
+    - https://community.hubitat.com/t/smart-pool-monitor-phin/44654?page=2
+
+status:
+  company_status: dead  # service discontinued 2021-12-20; app/site gone by 2022-12
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true
+  protocol_recovered: false  # advert byte layout partially parsed; semantics TBD
+  hci_snoop_needed: true
+  difficulty: medium
+  confidence: confirmed  # shutdown confirmed by multiple dated sources

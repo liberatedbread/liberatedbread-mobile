@@ -1,0 +1,62 @@
+# ChefSteps/Breville Joule (CS10001, Joule Turbo) — research note
+# Company: ChefSteps acquired by Breville 2019-07; legacy app retired,
+#          Joule moved to Breville+/Sage+ apps (alive as of 2026-08).
+# Local path: BLE protobuf control, no pairing PIN, no account (confirmed).
+# WiFi side: cloud-only (outbound HTTPS/WebSocket, no open ports) — DUD.
+
+device:
+  id: joule-sous-vide
+  name: ChefSteps Joule / Breville Joule Turbo sous vide circulator
+  manufacturer: ChefSteps (Breville Group since 2019)
+  category: kitchen_appliance   # immersion circulator
+  safety_class: MEDIUM  # 1100 W immersion heater; water-level/overheat sensors only
+
+transport:
+  type: wifi+ble
+  local_only: true   # control plane is local BLE; WiFi radio has no LAN API
+  note: >
+    BLE is fully local (no PIN, no account) and covers all control.
+    WiFi is outbound-only to the Breville cloud (HTTPS + WebSocket, same
+    protobuf payloads); no open ports on the device, no local WiFi API.
+    Joule Turbo (2023) drops WiFi entirely (BLE-only).
+
+ble:
+  pairing: none          # no PIN/security requirement (JouleUWP)
+  encoding: protobuf     # base.proto (control/status), remote.proto (cloud wrapper)
+  gatt_uuids: TBD        # not documented in JouleUWP — needs one HCI snoop
+  model: >
+    Device runs one "program" at a time: setPoint, cookTime, delayedStart,
+    holdingTemperature. Status frames carry bath temp, heater temp, board
+    temps, pump RPM.
+
+lan:
+  control: none          # no local WiFi API (port scan: closed; cloud WebSocket only)
+  firmware: >
+    Device accepts TFTP firmware download from any LAN host with sha256
+    check and (per JouleUWP) no signature verification.
+
+protocol:
+  note: >
+    Protobuf message definitions ship inside the official app assets
+    (base.proto, remote.proto) and were republished with decompiled app
+    source in JouleUWP release jouleapp.zip. Third-party clients exist
+    (JouleUWP, sameer/joule-ha, HA-Joule custom component).
+  commands:
+    start_program: documented (protobuf; fields per JouleUWP)
+    stop_program: documented
+    status_stream: documented (temp, RPM, board temps)
+
+status:
+  apk_acquired: false    # legacy app delisted; decompiled source republished by community instead
+  apk_decompiled: true   # community-published decompile + proto files (JouleUWP releases)
+  uuids_recovered: false # BLE GATT UUIDs not yet documented — HCI snoop gap
+  protocol_recovered: true  # protobuf layer fully documented; BLE framing layer partial
+  hci_snoop_needed: true    # to pin GATT UUIDs + BLE stream framing
+  cloud_dead: false      # Breville+/Sage+ cloud alive as of 2026-08
+  rating: confirmed      # multiple independent community implementations
+  references:
+    - github.com/mitchcapper/JouleUWP/blob/master/JOULE_PROTOCOL.md (2016, repo active 2026-02)
+    - github.com/sameer/joule-ha
+    - community.home-assistant.io/t/chefsteps-joule-and-home-assistant/34370
+    - thespoon.tech/developing-breville-acquires-chefsteps-maker-of-the-joule-sous-vide/ (2019-07-17)
+    - chefsteps.com/update-app (Breville+ migration, live 2026-08)

@@ -1,0 +1,43 @@
+# UREVO Walking Pads — Device Spec (research)
+# APK: com.urevo.app v3.6.22 (26042201), APKPure XAPK via apkeep, 2026-08-04
+# XAPK SHA-256: c446b0200ffb27e7bed720293dab5ad4bbe79d9008635673b363239821a4ab63
+
+device:
+  id: urevo-walking-pad
+  name: UREVO Walking Pad family (SpaceWalk E3S/E4, Strol 2E Pro, CyberPad)
+  manufacturer: UREVO (UREVO WELLNESS US CO., LTD)
+  category: treadmill_walking_pad
+  safety_class: MEDIUM  # motorised moving belt
+
+transport:
+  type: ble
+  local_only: true  # app<->pad link is BLE; vendor cloud only for account/stats sync
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — likely "UREVO*"; confirm with scan
+    service_uuids: []  # TBD — possibly standard FTMS 0x1826 (hypothesis), else custom
+  services: []  # TBD
+
+protocol:
+  note: >
+    No public protocol RE located. APK is native (7 DEX, no Flutter) and was
+    fetched, so a focused jadx pass should yield UUIDs and command frames; a
+    triage string pass did not surface full 128-bit UUIDs (likely assembled
+    from 16-bit shorts or obfuscated). If the pads speak standard FTMS
+    (0x1826 + Control Point 0x2AD9), generic clients like qdomyos-zwift's
+    FTMS path or simple bleak scripts already work — untested hypothesis.
+  commands: TBD
+
+cloud:
+  app_requires_account: unknown
+  vendor: UREVO app cloud (stats, programs)
+  risk: app delisting/abandonment strands programs+stats; physical remote keeps basic control
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # triage string pass only
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  reference: none found (no QZ driver, no HA integration as of 2026-08-04)

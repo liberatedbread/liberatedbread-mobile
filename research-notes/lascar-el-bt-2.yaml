@@ -1,0 +1,66 @@
+# Lascar EL-BT-2 — Device Spec
+# Generated from static analysis of com.LascarElectronics.EasyLogBT (EasyLog BT v1.30)
+# APK source: apkeep (apk-pure)
+# APK SHA-256: c8c01d3b427efbef6aa158b88477f2e3da146b9134b6e0b88d15704931581893
+
+device:
+  id: lascar-el-bt-2
+  name: Lascar EasyLog EL-BT-2 Bluetooth Temperature/Humidity Data Logger
+  manufacturer: Lascar Electronics
+  category: environmental_data_logger
+  safety_class: LOW  # Indicative environmental readings only
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  profiles: [SPP]
+
+bluetooth_classic:
+  radio: Class 2 (~10 m)
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+  pairing:
+    pin_protected: true
+    default_pin: "1234"  # 4-digit device PIN, changeable via SP,<pin> command
+  discovery:
+    name_patterns: []  # TBD — logger name is user-set (20 chars)
+
+protocol:
+  note: >
+    Plain-text slash commands over SPP. Host writes command string, logger
+    replies with payload. Config state is an 85-byte binary block with a
+    reflected CRC-16 (init 0xFFFF, CCITT/Kermit-style). Firmware updates are
+    Motorola SREC pushed in 32-byte frames after a fixed CTBL header.
+  commands:
+    - command: "/RC"
+      description: Request 85-byte config block from logger
+    - command: "/BL"
+      description: Begin logging; host sends config block; ACK byte 0x0B
+    - command: "/EL"
+      description: End logging; logger returns config block
+    - command: "/GD"
+      description: Download logged readings (framing TBD — needs live capture)
+    - command: "/WH"
+      description: Firmware update start; followed by header FF FF FF FF 43 54 42 4C ...
+    - command: "/WF"
+      description: Firmware frame; 32-byte chunks of firmware.srec
+    - command: "/RS"
+      description: Reset logger after firmware update
+    - command: "SP,<pin>"
+      description: Set 4-digit device PIN (default 1234)
+  config_block:
+    size_bytes: 85
+    fields: [logger_name(20), serial(9), fw_version(5), sample_rate,
+             temp/rh high/low alarms, delayed_start, rtc, min/max values,
+             ch1/ch2 slope+offset calibration, battery_level]
+    crc: crc16_reflected_init_0xFFFF
+  firmware_header_hex: "FFFFFFFF4354424C00BF0100E60E0000"
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true   # SPP service UUID confirmed in DEX
+  protocol_recovered: partial  # Command set + config block known; /GD data framing TBD
+  hci_snoop_needed: true  # for logged-data record format
+  product_status: discontinued  # per Lascar's own EasyLog BT page (accessed 2026-08)
+  cloud_dependency: none
+  reference: manufacturer datasheet + app static analysis (no known community RE)

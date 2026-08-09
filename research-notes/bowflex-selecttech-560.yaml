@@ -1,0 +1,88 @@
+# BowFlex SelectTech 560 Smart Dumbbells — Device Spec (research note)
+# From static analysis of com.veuxlabs.titan.android v2.1.1 (Veux Labs "Titan" app for Nautilus/BowFlex)
+# APK source: apkeep (apk-pure), fetched 2026-08-07; delisted from Google Play (404)
+# XAPK SHA-256: b6a7b64df55d1e6bd9c1358133166e8e622a1e9f314c05bdf6d031a4c6d2274f (complete re-fetch; first download was truncated)
+
+device:
+  id: bowflex-selecttech-560
+  name: BowFlex SelectTech 560 Smart Dumbbells (pair)
+  manufacturer: BowFlex / Nautilus (app by Veux Labs); brand now owned by Johnson Health Tech
+  category: smart_strength_equipment
+  safety_class: LOW  # no BLE actuation; weight selected by mechanical dial; BLE is read/config only
+
+transport:
+  type: ble
+  local_only: true  # app is logging/coaching only; dumbbell works standalone with on-handle LCD
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "ST560"/"Titan" speculative; scan filter not analyzed
+    service_uuids: []  # TBD
+
+  services:
+    - uuid: "47b4f720-b4b1-11e3-821e-0002a5d5c51b"
+      name: titan_service
+      description: Primary dumbbell service (per BLEGattAttributes.java)
+      characteristics:
+        - uuid: "4681cb20-b4ad-11e3-af3b-0002a5d5c51b"
+          name: titan_app_command
+          description: App-to-dumbbell command channel (byte format TBD)
+        - uuid: "a5f644a0-b863-11e3-ac47-0002a5d5c51b"
+          name: titan_battery_level
+        - uuid: "41447ab0-063a-11e5-a6c0-1697f925ec7b"
+          name: titan_challenge_key
+          description: Different UUID base; likely pairing handshake — needs HCI snoop
+        - uuid: "710977a0-b4ab-11e3-8a05-0002a5d5c51b"
+          name: titan_countdown
+        - uuid: "84800c20-b4a3-11e3-980b-0002a5d5c51b"
+          name: titan_event
+        - uuid: "0a63cec0-b4aa-11e3-8f5c-0002a5d5c51b"
+          name: titan_idle_timeout
+        - uuid: "032b9de0-f591-11e3-97fd-0002a5d5c51b"
+          name: titan_play_sound
+        - uuid: "a80dea40-b4a3-11e3-87e0-0002a5d5c51b"
+          name: titan_position
+        - uuid: "96aaed20-b4a3-11e3-b47d-0002a5d5c51b"
+          name: titan_rep_count
+        - uuid: "bbc70c60-b4a3-11e3-b08f-0002a5d5c51b"
+          name: titan_selected_weight
+        - uuid: "62f864a0-b4ab-11e3-bf54-0002a5d5c51b"
+          name: titan_set_start_countdown
+        - uuid: "8d2f9b40-f8c5-11e3-b162-0002a5d5c51b"
+          name: titan_sleep_timeout
+        - uuid: "e725d040-b4a7-11e3-a0ee-0002a5d5c51b"
+          name: titan_sound_state
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+    - uuid: "0000180d-0000-1000-8000-00805f9b34fb"
+      name: heart_rate
+      note: App also supports HR monitors (2a37 measurement)
+
+protocol:
+  note: >
+    Full named GATT table recovered unobfuscated from BLEGattAttributes.java.
+    App commands, events, rep counts, and selected weight all ride the TITAN
+    service. Encoding (byte layout) TBD — one HCI snoop session should pin it
+    down. TITAN_CHALLENGE_KEY suggests a pairing step that must be replicated.
+  commands:
+    app_command: TBD  # 4681cb20 char
+    rep_count: TBD    # notify on 96aaed20 expected
+    selected_weight: TBD  # bbc70c60
+
+abandonment:
+  product_discontinued: true  # bowflex.ca product page, accessed 2026-08-07
+  company_event: "BowFlex Inc Chapter 11 on 2024-03-04; assets sold to Johnson Health Tech ($37.5M)"
+  app_delisted: true  # com.veuxlabs.titan.android 404 on Play, verified 2026-08-07
+  sources:
+    - https://barbend.com/bowflex-files-for-chapter-11-bankruptcy/
+    - https://www.tomsguide.com/wellness/fitness/bowflex-has-filed-for-bankruptcy-should-you-still-buy-its-home-workout-equipment
+    - https://www.bowflex.ca/en-ca/product/560/100581.html
+
+status:
+  apk_acquired: true   # apkeep apk-pure, 2026-08-07
+  apk_decompiled: true # jadx; BLEGattAttributes.java readable
+  uuids_recovered: true
+  protocol_recovered: false  # byte formats TBD — needs HCI snoop
+  hci_snoop_needed: true

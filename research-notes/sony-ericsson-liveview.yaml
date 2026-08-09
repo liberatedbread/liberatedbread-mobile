@@ -1,0 +1,51 @@
+# Sony Ericsson LiveView MN800 — Device Spec (research note)
+# Line abandoned 2012 (Sony Ericsson -> Sony Mobile); app last v1.0.A.0.23.
+# Fully RE'd 2011-2012 (XDA); maintained driver in Gadgetbridge. 100% local SPP.
+
+device:
+  id: sony-ericsson-liveview
+  name: Sony Ericsson LiveView MN800
+  manufacturer: Sony Ericsson (JV dissolved into Sony Mobile, 2012-02)
+  category: smartwatch_companion_display
+  safety_class: LOW
+  models:
+    - mn800   # only LiveView model; 128x128 OLED, 4 buttons + touch edges, vibrate, LED
+
+transport:
+  type: bluetooth_classic
+  profile: spp
+  local_only: true
+  rfcomm:
+    service_uuid: "00001101-0000-1000-8000-00805F9B34FB"  # standard SPP UUID (JERRY_UUID)
+    source: >
+      com/sonyericsson/extras/liveview/btdisplay/JerryBTManager.java:364 +
+      JerryDisplayService.java (jadx, app v1.0.A.0.23)
+    note: >
+      Phone connects as RFCOMM client over standard SPP. Pairing is ordinary
+      BT 2.1 SSP. No cloud anywhere in the data path.
+
+protocol:
+  note: >
+    Small binary frames over the SPP stream: 1-byte message ID + length +
+    payload. Phone->watch: time/date, display text and bitmaps, menu/plugin
+    items, LED, vibrate, status. Watch->phone: button presses, capabilities,
+    acks. Fully mapped by the 2011-2012 XDA reverse-engineering effort and
+    available as working code in Gadgetbridge's LiveView driver.
+  reference_implementations:
+    - codeberg.org/Freeyourgadget/Gadgetbridge   # current, maintained
+    - github.com/AriX/iLiveView                  # iOS proof-of-concept
+  display:
+    resolution: 128x128
+    type: OLED
+
+cloud_status:
+  cloud_required: false  # pre-cloud device; never had a server dependency
+
+status:
+  apk_acquired: true      # com.sonyericsson.extras.liveview 1.0.A.0.23 (apkeep/APKPure)
+  apk_sha256: "2481e9687cdf13519d9f976d7cbfa2a43a059ad60843be7934ab871aea1572c0"
+  apk_decompiled: true
+  uuids_recovered: true   # SPP 1101 confirmed in official app
+  protocol_recovered: true  # community RE 2011-2012 + Gadgetbridge driver
+  hci_snoop_needed: false
+  rating: confirmed

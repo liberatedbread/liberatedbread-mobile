@@ -111,6 +111,54 @@
       "description": "How much weight this fact carries. 'confirmed' = observed in our own capture or read back from the device; 'reported' = stated by vendor/community documentation but not reproduced here; 'hypothesis' = inferred and not yet tested. Anything not 'confirmed' must not be executed against a vehicle without review.",
       "default": "hypothesis"
     },
+    "number_semantics": {
+      "$comment": "Shared vocabulary for what a numeric wire value MEANS, composed via allOf into every place a spec carries one: BLE command `parameters`, BLE characteristic `format` fields, `bus` message fields, and `payload_formats` fields. The OBD blocks keep their own `unit`/`scale`/`formula` trio because a decode-only `formula` can express non-linear scalings — but a formula cannot be run backwards, and command parameters must be ENCODED, so this block is deliberately linear (value = raw * scale + value_offset) and therefore invertible. A number whose meaning cannot be stated in these terms gets the linear part here and the rest in prose.",
+      "type": "object",
+      "allOf": [
+        {
+          "$comment": "A unit that follows a device setting is only decodable if the spec says where to learn the setting; without that, 'device_setting' is a warning with no exit.",
+          "if": {
+            "properties": { "unit_source": { "const": "device_setting" } },
+            "required": ["unit_source"]
+          },
+          "then": { "required": ["unit_reference"] }
+        }
+      ],
+      "properties": {
+        "unit": {
+          "type": "string",
+          "description": "Unit of the DECODED value, after `scale` and `value_offset` are applied: 'C', 'F', '%', 'km/h', 'rpm', 'ms'. This states what is ON THE WIRE, not what the device happens to display — the Ember Mug always encodes centi-degrees C even when its screen shows Fahrenheit, so its temperature fields say 'C' and the display preference is a separate characteristic. Omit for dimensionless values (a raw brightness step, an enumerated code)."
+        },
+        "scale": {
+          "type": "number",
+          "description": "Multiplier applied to the raw value to get `unit`: value = raw * scale (+ `value_offset`). Absent means 1. Same convention as the OBD blocks' `scale`. For a command parameter the client encodes by inverting: raw = round((value - value_offset) / scale)."
+        },
+        "value_offset": {
+          "type": "number",
+          "description": "Additive term applied after `scale`: value = raw * scale + value_offset. Absent means 0. Named value_offset because bare `offset` already means a byte position in `format` and `bus` fields. Present because most real scalings carry an offset — the automotive 'x - 40' idiom, or the Gerbing heat controller's temperature (value = raw * 0.5 + 85 in F) — and reducing such a conversion to a bare multiplier silently drops the offset and yields a wrong reading."
+        },
+        "unit_source": {
+          "type": "string",
+          "enum": ["fixed", "device_setting"],
+          "default": "fixed",
+          "description": "Whether the wire unit is a constant of the protocol ('fixed', the default) or follows a device setting ('device_setting'). Both patterns are common in temperature devices and confusing them corrupts every reading: the Ember Mug is 'fixed' (always centi-C; its C/F characteristic changes only the display), while the Inkbird iBBQ transmits raw numbers in whichever unit the device is currently set to — the same raw 165 means 165 C or 165 F depending on state, so a client must check before decoding. When 'device_setting', name where the active unit is learned in `unit_reference`, map the setting's values in `unit_values`, and use `unit` (if present) for the device's out-of-box default."
+        },
+        "unit_reference": {
+          "type": "string",
+          "description": "Where a client learns the active unit when `unit_source` is 'device_setting': the name of the `format` field, command or message that carries it, qualified as 'characteristic_uuid.field_name' or 'message_name.field_name' where a bare name would be ambiguous. Required with unit_source 'device_setting'."
+        },
+        "unit_values": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Map from the referenced unit-setting's raw value to the unit then in force, e.g. {0: 'C', 1: 'F'}. The key 'default' covers every unlisted value — the Inkbird unit byte means F when 0x46 (ASCII 'F') and C for anything else, which is {0x46: 'F', default: 'C'}."
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Meaning of each raw value, for numbers that are really enumerated codes: {0: 'standby', 1: 'empty', 2: 'filling'}. The machine-readable sibling of the free-text `encoding` on `bus` fields and the `values` table in `payload_formats`. A field carrying `values` is a code table — `unit` and `scale` rarely apply, and a consumer should render the labels rather than the number."
+        }
+      }
+    },
     "helpful_reference": {
       "type": "object",
       "required": ["title", "url"],
@@ -244,10 +292,11 @@
           "description": { "type": "string" },
           "fields": {
             "type": "array",
-            "description": "Positional or named fields within the payload.",
+            "description": "Positional or named fields within the payload. Numeric fields may carry the shared number-semantics vocabulary (`unit`, `scale`, `value_offset`, …) — an InsightParams power column is milliwatts, and that belongs in data rather than prose.",
             "items": {
               "type": "object",
               "required": ["name"],
+              "allOf": [{ "$ref": "#/$defs/number_semantics" }],
               "properties": {
                 "index": { "type": "integer", "minimum": 0, "description": "Position, for delimited payloads." },
                 "name": { "type": "string" },
@@ -992,6 +1041,30 @@
             "type": "string",
             "enum": ["1bit-bitmap", "gif", "rgb565", "rgb888", "png"],
             "description": "Binary format the device expects for uploaded assets."
+          },
+          "resolution_source": {
+            "type": "string",
+            "enum": ["fixed", "device_reported"],
+            "description": "Whether max_width/max_height are the panel's actual size ('fixed') or platform upper bounds with the real per-model resolution reported by the device at runtime ('device_reported'). Clients should let the user set the canvas size for device_reported panels they have not yet queried."
+          },
+          "animation": {
+            "type": "boolean",
+            "description": "Whether the device accepts multi-frame sequences (animations), not just a single static image (for image_upload)."
+          },
+          "max_frames": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum frames per uploaded animation, when the device stores sequences and the limit is known."
+          },
+          "min_frame_interval_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Fastest supported frame interval in milliseconds — the lower bound for animation-rate controls."
+          },
+          "default_frame_interval_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Frame interval a client should default its animation-rate control to."
           }
         }
       }
@@ -1134,17 +1207,24 @@
                         "additionalProperties": {
                           "type": "object",
                           "required": ["type"],
+                          "allOf": [{ "$ref": "#/$defs/number_semantics" }],
                           "properties": {
                             "type": {
                               "type": "string",
                               "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
                               "description": "Parameter value type. NOTE: int32/uint32 are accepted for devices such as the AdMore Light Bar (protobuf setvalue fields) but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
                             },
+                            "description": {
+                              "type": "string",
+                              "description": "What this parameter means — the sentence that stops the next reader guessing. State the real-world quantity here even when the shared number-semantics fields cannot carry it alone, e.g. a uint16 value split across two uint8 template slots, where each byte parameter should say which half it is."
+                            },
                             "min": {
-                              "type": "integer"
+                              "type": "integer",
+                              "description": "Minimum RAW wire value. Stated in raw terms because it bounds the bytes the template emits; the real-world bound is min * scale + value_offset."
                             },
                             "max": {
-                              "type": "integer"
+                              "type": "integer",
+                              "description": "Maximum RAW wire value, in the same raw terms as `min`."
                             }
                           }
                         }
@@ -1157,6 +1237,7 @@
                   "items": {
                     "type": "object",
                     "required": ["offset", "length", "name", "type"],
+                    "allOf": [{ "$ref": "#/$defs/number_semantics" }],
                     "properties": {
                       "offset": {
                         "type": "integer",
@@ -1173,10 +1254,14 @@
                         "type": "string",
                         "enum": ["bool", "uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
                         "description": "Field value type. NOTE: int32/uint32 are accepted here for parity with the parameter enum but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
+                      },
+                      "notes": {
+                        "type": "string",
+                        "description": "Per-field caveats that the structured fields cannot carry — a display rounding the app applies on top of the linear decode, an inferred rather than confirmed unit, a valid subrange."
                       }
                     }
                   },
-                  "description": "Binary format of readable/notifiable characteristic values."
+                  "description": "Binary format of readable/notifiable characteristic values. Each field may also carry the shared number-semantics vocabulary — `unit`, `scale`, `value_offset`, `unit_source`/`unit_reference`/`unit_values`, `values` — saying what the number means (see $defs/number_semantics)."
                 }
               }
             }
@@ -1231,6 +1316,7 @@
                       "type": "array",
                       "items": {}
                     },
+                    "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so there is no scale to declare — but C-vs-F still needs stating, and `min`/`max` here are read in this unit." },
                     "min": { "type": "number" },
                     "max": { "type": "number" }
                   }
@@ -1253,7 +1339,8 @@
                   "properties": {
                     "name": { "type": "string" },
                     "type": { "type": "string" },
-                    "description": { "type": "string" }
+                    "description": { "type": "string" },
+                    "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
                   }
                 }
               }
@@ -1310,7 +1397,8 @@
                   "properties": {
                     "name": { "type": "string" },
                     "type": { "type": "string" },
-                    "description": { "type": "string" }
+                    "description": { "type": "string" },
+                    "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
                   }
                 }
               }
@@ -1841,6 +1929,8 @@
                 "items": {
                   "type": "object",
                   "required": ["offset", "name"],
+                  "allOf": [{ "$ref": "#/$defs/number_semantics" }],
+                  "$comment": "`unit` and `scale` live in $defs/number_semantics, shared with BLE `format` fields and command `parameters`, which also adds `value_offset`, `unit_source`/`unit_reference`/`unit_values` and machine-readable `values` here.",
                   "properties": {
                     "offset": { "type": "integer", "minimum": 0 },
                     "length": { "type": "integer", "minimum": 1, "default": 1 },
@@ -1853,11 +1943,6 @@
                       "type": "string",
                       "enum": ["little", "big"],
                       "default": "little"
-                    },
-                    "unit": { "type": "string" },
-                    "scale": {
-                      "type": "number",
-                      "description": "Multiplier applied to the raw value to get `unit`."
                     },
                     "encoding": {
                       "type": "string",
@@ -1913,7 +1998,21 @@
             "type": "string"
           },
           "unit": {
-            "type": "string"
+            "type": "string",
+            "description": "Display unit for the entity's state ('C', '%', 'km/h'). Must agree with what the bound characteristic field or command parameter declares AFTER its scale/value_offset are applied — the entity layer describes decoded values, never raw bytes. When the bound field's unit_source is 'device_setting' there is no single true value here; state the out-of-box default and let the consumer follow the field's `unit_reference`."
+          },
+          "min": {
+            "type": "number",
+            "description": "Smallest settable value, for platform 'number' controls — in the entity's `unit`, i.e. after the bound field's scale/value_offset, because this describes the control a user sees rather than the byte on the wire."
+          },
+          "max": {
+            "type": "number",
+            "description": "Largest settable value for a 'number' control, in the same decoded terms as `min`."
+          },
+          "step": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Control granularity for a 'number' control, in `unit` terms. Record the device's real resolution where known, not a cosmetic rounding — the difference decides whether the UI can express every state the device can hold."
           },
           "features": {
             "type": "array",
