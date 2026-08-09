@@ -55,12 +55,15 @@ Future<void> _scrollAndTap(WidgetTester tester, Finder finder) async {
 
 void main() {
   group('writePayloadForMtu', () {
-    test('floors at the spec-safe 20 bytes for unknown/minimum MTUs', () {
-      expect(writePayloadForMtu(23), 20);
-      expect(writePayloadForMtu(0), 20);
+    test('treats the uninformative default MTU as unknown -> optimistic 512', () {
+      // 23 (and below) means the backend never reported the negotiated MTU
+      // (e.g. flutter_blue_plus_linux); assume the requested 512 rather than a
+      // 20-byte floor the image protocol can never use.
+      expect(writePayloadForMtu(23), 509);
+      expect(writePayloadForMtu(0), 509);
     });
 
-    test('uses the negotiated MTU minus the 3-byte ATT header', () {
+    test('uses a real negotiated MTU minus the 3-byte ATT header', () {
       expect(writePayloadForMtu(512), 509);
       expect(writePayloadForMtu(247), 244);
     });
@@ -192,8 +195,9 @@ void main() {
         reason: 'painted pixel must not stay black');
     expect(call.rgb.sublist(3), everyElement(0),
         reason: 'unpainted pixels stay black');
-    // ...sized for the fake's 23-byte MTU...
-    expect(call.maxPayloadPerWrite, 20);
+    // ...sized optimistically because the fake reports the uninformative
+    // 23-byte default (treated as unknown -> the requested 512)...
+    expect(call.maxPayloadPerWrite, 509);
     // ...and both plan writes went to the plan's service/characteristic.
     expect(ble.writes, hasLength(2));
     expect(ble.writes[0].charUuid, 'chr-uuid');

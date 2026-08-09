@@ -15,11 +15,21 @@ import 'led_designs.dart';
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
-/// Payload is MTU minus the 3-byte ATT write header, floored at the BLE 4.0
-/// minimum of 20 (an unreported MTU comes through as 23) and capped at 512 —
-/// the largest attribute value BLE permits, and what vendors' own apps
-/// request. Pure so the sizing is unit-testable.
-int writePayloadForMtu(int mtu) => (mtu - 3).clamp(20, 512);
+/// Payload is MTU minus the 3-byte ATT write header, capped at 512 (the largest
+/// attribute value BLE permits, and what vendors' own apps request).
+///
+/// A reported MTU of the 23-byte BLE default is treated as UNKNOWN, not as a
+/// genuine 23-byte link: flutter_blue_plus_linux never updates `mtuNow` from the
+/// value BlueZ actually negotiates (enabling notifications already exchanged a
+/// larger MTU over D-Bus), and `requestMtu` is Android-only. The fragmented
+/// image protocol cannot work at MTU 23 in any case — each chunk must fit one
+/// write — so when the report is uninformative we assume the app's requested
+/// 512. If the link really is tiny the write simply fails, no worse than the
+/// old hard floor. Pure so the sizing is unit-testable.
+int writePayloadForMtu(int mtu) {
+  final effective = mtu <= 23 ? 512 : mtu;
+  return (effective - 3).clamp(20, 512);
+}
 
 /// Copy an RGB888 frame onto a new canvas size, preserving the overlapping
 /// region (anchored top-left) and filling new area with black.
