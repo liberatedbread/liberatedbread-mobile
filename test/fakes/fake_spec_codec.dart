@@ -63,6 +63,11 @@ class FakeSpecCodec implements SpecCodec {
 
   final List<
       ({
+        // Recorded because it is snapshotted at enqueue time alongside the
+        // geometry: a send that carries one frame's dimensions and another
+        // spec's YAML is the failure the snapshot exists to prevent, and it
+        // is invisible unless the pairing is observable here.
+        String specYaml,
         int width,
         int height,
         List<int> rgb,
@@ -183,6 +188,7 @@ class FakeSpecCodec implements SpecCodec {
     required int maxPayloadPerWrite,
   }) async {
     encodeImageCalls.add((
+      specYaml: specYaml,
       width: width,
       height: height,
       rgb: List.of(rgb),

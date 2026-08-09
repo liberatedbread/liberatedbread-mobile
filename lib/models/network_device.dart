@@ -137,12 +137,27 @@ class NetworkDevice {
   int get hashCode => host.hashCode;
 
   /// Whether two sightings say the same thing about what the device is —
-  /// everything matching reads, and nothing that merely changes with time.
+  /// everything matching reads or the row renders, and nothing that merely
+  /// changes with time.
+  ///
+  /// `sources` and `server` are in here because the UI shows them: the
+  /// transport label is derived from `sources`, and the details sheet prints
+  /// `server`. They were left out on the grounds that neither is *identity*,
+  /// which is true and was the wrong test — the coalescer uses this to decide
+  /// whether the row needs redrawing, so anything visible belongs. A device
+  /// already known over mDNS that then answered SSDP with a `SERVER` header
+  /// and no `ST`/`NT` (which the header parser deliberately tolerates) merged
+  /// correctly in the map and then reported "nothing changed", leaving the row
+  /// labelled "mDNS" for the rest of the scan.
+  ///
+  /// `discoveredAt` stays out: it is the one field that moves on its own.
   bool hasSameIdentity(NetworkDevice other) =>
       other.host == host &&
       other.name == name &&
       other.hostname == hostname &&
       other.port == port &&
+      other.server == server &&
+      setEquals(other.sources, sources) &&
       listEquals(other.serviceTypes, serviceTypes) &&
       listEquals(other.ssdpTargets, ssdpTargets) &&
       mapEquals(other.txt, txt);
