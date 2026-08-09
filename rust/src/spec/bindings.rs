@@ -21,6 +21,21 @@ use super::types::{
 };
 use crate::codec::types::unsupported_encoding_kind;
 
+/// Whether a characteristic's payloads must pass through a byte transform
+/// this crate does not implement, making any raw write to it wrong on the
+/// wire.
+///
+/// `encryption` (shining-mask's AES-128-ECB, pax's OFB) and `framing`
+/// (coolledx's length prefix, escaping and delimiters) are parsed and
+/// preserved but never executed — see [`Characteristic`]. Encoding a template
+/// for such a characteristic produces plaintext or unwrapped bytes the device
+/// rejects, so the honest answer is that the control does not resolve yet.
+/// Without this check the encoding gate only asks whether the *command* is
+/// encodable, and a spec whose transform lives one level up slips through.
+fn needs_unimplemented_transform(characteristic: &Characteristic) -> bool {
+    characteristic.encryption.is_some() || characteristic.framing.is_some()
+}
+
 /// One resolved control action: the command to send for a role, and which
 /// parameters the UI supplies when sending it.
 #[derive(Debug)]
@@ -217,7 +232,8 @@ fn qualify_set_value<'a>(
     name: &'a str,
     command: &'a Command,
 ) -> Option<ResolvedAction<'a>> {
-    if unsupported_encoding_kind(command).is_some() {
+    if needs_unimplemented_transform(characteristic) || unsupported_encoding_kind(command).is_some()
+    {
         return None;
     }
     // A fixed byte sequence cannot carry a value the user picked.
@@ -267,6 +283,11 @@ fn resolve_direct_write<'a>(
     let uuid = entity.command_characteristic.as_deref()?;
     let (service, characteristic) =
         spec.find_characteristic_where(uuid, |c| c.format.as_ref().is_some_and(|f| f.len() == 1))?;
+    // Same gate as the command path: a raw value written to a characteristic
+    // that encrypts or frames its payloads lands as the wrong bytes.
+    if needs_unimplemented_transform(characteristic) {
+        return None;
+    }
     let writable = characteristic
         .properties
         .contains(&CharacteristicProperty::Write)
@@ -498,8 +519,11 @@ fn qualify<'a>(
     name: &'a str,
     command: &'a Command,
 ) -> Option<ResolvedAction<'a>> {
-    // JSON/protobuf/TLV commands can't be encoded at all yet.
-    if unsupported_encoding_kind(command).is_some() {
+    // JSON/protobuf/TLV commands can't be encoded at all yet, and neither can
+    // any command on a characteristic whose bytes must be transformed on the
+    // way out.
+    if needs_unimplemented_transform(characteristic) || unsupported_encoding_kind(command).is_some()
+    {
         return None;
     }
 
@@ -1259,6 +1283,77 @@ entities:
             value_offset: 5.0,
         };
         assert_eq!(transform.encode(10.0), None);
+    }
+
+    /// A characteristic-level transform disqualifies every command on it,
+    /// even one whose own bytes are perfectly encodable. The obstacle lives a
+    /// level above the command, which is exactly the case the command-level
+    /// encoding gate cannot see.
+    #[test]
+    fn characteristic_transforms_disqualify_otherwise_sendable_commands() {
+        for transform in [
+            "encryption:\n          algorithm: aes-128-ecb",
+            "framing:\n          length_prefix: true",
+        ] {
+            let spec = spec_with(
+                r#"
+  - name: Mask Display
+    platform: light
+    commands:
+      set_brightness: set_brightness
+"#,
+                &format!(
+                    r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Command
+        properties: [write]
+        {transform}
+        commands:
+          set_brightness:
+            description: Brightness
+            template: [6, "{{brightness}}"]
+            parameters:
+              brightness: {{type: uint8, min: 0, max: 255}}
+"#
+                ),
+            );
+            assert!(
+                actions_for(&spec).is_empty(),
+                "a command on a {transform:?} characteristic must not resolve"
+            );
+        }
+    }
+
+    /// The same gate applies to a direct write: the value would land as the
+    /// wrong bytes just as surely as a command would.
+    #[test]
+    fn characteristic_transforms_disqualify_direct_writes() {
+        let spec = spec_with(
+            r#"
+  - name: Heat Level
+    platform: number
+    command_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+"#,
+            r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Command
+        properties: [read, write]
+        encryption:
+          algorithm: "aes-128-ecb"
+        format:
+          - offset: 0
+            length: 1
+            name: heat_percent
+            type: uint8
+"#,
+        );
+        assert!(actions_for(&spec).is_empty());
     }
 
     /// Sensors and unknown platforms resolve nothing — their rendering is

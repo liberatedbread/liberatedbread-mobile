@@ -446,3 +446,48 @@ fn vendored_specs_decode_with_offsets_and_value_tables() {
     .expect("liquid state should decode");
     assert_eq!(decoded[0].value_label.as_deref(), Some("heating"));
 }
+
+/// A characteristic that encrypts or frames its payloads must resolve no
+/// control actions, however sendable the command itself looks.
+///
+/// The encoding gate asks whether a *command* can be encoded; these specs put
+/// the obstacle one level up, on the characteristic. shining-mask wraps every
+/// write in AES-128-ECB and coolledx length-prefixes, escapes and delimits
+/// its frames — neither transform is implemented here, so a slider built on
+/// them would write plaintext or unwrapped bytes the device silently drops.
+/// Rendering a control that cannot work is worse than rendering none.
+///
+/// In each spec below the only command-bearing characteristic is the one
+/// carrying the transform, so nothing in the spec should resolve an action.
+/// An entity left with neither actions nor readable state is dropped from the
+/// DTO entirely, so "absent" is as good an answer as "present with none".
+#[test]
+fn characteristics_needing_unimplemented_transforms_resolve_no_actions() {
+    use liberated_bread_core::api::device_api::load_device_spec;
+
+    let cases = [
+        ("shining-mask.yaml", "AES-128-ECB"),
+        ("shining-glasses.yaml", "AES-128-ECB"),
+        ("magic-display.yaml", "AES-128-ECB"),
+        ("coolledx-led-sign.yaml", "length-prefix framing"),
+        ("autobaba-led-backpack.yaml", "framing"),
+        ("nyan-bt-image-controller.yaml", "framing"),
+        ("pax-vape.yaml", "OFB encryption"),
+    ];
+
+    for (file, transform) in cases {
+        let path = assets_dir().join(file);
+        let yaml =
+            fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+        let dto = load_device_spec(yaml).unwrap_or_else(|e| panic!("{file} should load: {e}"));
+        for entity in &dto.entities {
+            assert!(
+                entity.actions.is_empty(),
+                "{file}: '{}' resolved {:?}, but its writes need {transform}, \
+                 which this crate does not implement",
+                entity.name,
+                entity.actions.iter().map(|a| &a.role).collect::<Vec<_>>()
+            );
+        }
+    }
+}
