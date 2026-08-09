@@ -264,13 +264,23 @@ class RealNetworkScanService implements NetworkScanService {
     // out (it only closes early if every responder falls silent), and the
     // grace period for the resolutions was added on top of it.
     final phase = timeout ~/ 2;
+    // `Stream.timeout` is an INACTIVITY timeout: every event resets it. On a
+    // link where responders keep answering the meta-query inside the window —
+    // which is what a busy network looks like — it never fires, the enumeration
+    // never closes, `Future.wait` below never completes, and the scan stream
+    // stays open forever with the spinner up and the button disabled. The
+    // SSDP half has always had an absolute deadline for this reason; this one
+    // did not, and the phase comment above claimed a budget it was not
+    // keeping. Keep both: inactivity ends a quiet scan early, the deadline
+    // bounds a chatty one.
+    final deadline = DateTime.now().add(phase);
     try {
       await for (final PtrResourceRecord type in client
           .lookup<PtrResourceRecord>(
               ResourceRecordQuery.serverPointer(_serviceEnumerationQuery))
           .timeout(phase, onTimeout: (sink) => sink.close())) {
         heard = true;
-        if (session.stopped) break;
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
         // Once per type, not once per announcement. The meta-query is answered
         // by every responder on the link, so a common type like _http._tcp
         // arrives once per device; without this each arrival started another

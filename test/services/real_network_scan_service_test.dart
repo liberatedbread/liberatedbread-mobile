@@ -18,6 +18,7 @@ NetworkDevice _device({
   List<String> serviceTypes = const [],
   List<String> ssdpTargets = const [],
   Map<String, String> txt = const {},
+  String? server,
   NetworkDiscoverySource source = NetworkDiscoverySource.mdns,
 }) =>
     NetworkDevice(
@@ -28,6 +29,7 @@ NetworkDevice _device({
       serviceTypes: serviceTypes,
       ssdpTargets: ssdpTargets,
       txt: txt,
+      server: server,
       sources: {source},
       discoveredAt: DateTime(2026),
     );
@@ -163,6 +165,29 @@ void main() {
         NetworkDiscoverySource.mdns,
         NetworkDiscoverySource.ssdp,
       });
+    });
+
+    test('a second transport re-emits even when it adds no identifier', () {
+      // The row's transport label comes from `sources`, so a device already
+      // known over mDNS that answers SSDP has to redraw — even when the reply
+      // carries no ST/NT and therefore adds no search target. The merge was
+      // always stored correctly; it was the "nothing changed" verdict that
+      // left the row reading "mDNS" for the rest of the scan.
+      final coalescer = NetworkScanCoalescer();
+      coalescer.next(_device(serviceTypes: const ['_hue._tcp.local']));
+      final updated = coalescer.next(_device(
+        serviceTypes: const ['_hue._tcp.local'],
+        server: 'Unspecified, UPnP/1.0, Unspecified',
+        source: NetworkDiscoverySource.ssdp,
+      ));
+
+      expect(updated, isNotNull,
+          reason: 'gaining a transport is a visible change');
+      expect(updated!.sources, {
+        NetworkDiscoverySource.mdns,
+        NetworkDiscoverySource.ssdp,
+      });
+      expect(updated.server, 'Unspecified, UPnP/1.0, Unspecified');
     });
 
     test('a newly-learned service type re-emits', () {

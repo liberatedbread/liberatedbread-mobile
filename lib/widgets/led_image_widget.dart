@@ -343,8 +343,15 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final rgb = _frames[index];
     final width = _width;
     final height = _height;
-    final send =
-        _sendTail.then((_) => _sendFrame(rgb, width, height, payloadPerWrite));
+    // The spec YAML is part of the same snapshot, and leaving it out undid the
+    // rest: `didUpdateWidget` resets the canvas when the spec changes, so a
+    // send queued before the swap carried the OLD dimensions into
+    // `widget.specYaml` read after it — the pre-swap geometry encoded against
+    // the post-swap spec, which is exactly the sheared image this snapshot
+    // exists to prevent, arrived at from the other direction.
+    final specYaml = widget.specYaml;
+    final send = _sendTail
+        .then((_) => _sendFrame(rgb, width, height, specYaml, payloadPerWrite));
     // Callers observe failures through `send`; the tail itself must swallow
     // them or every later send would rethrow a stale error.
     _sendTail = send.then((_) {}, onError: (_) {});
@@ -355,11 +362,12 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     Uint8List rgb,
     int width,
     int height,
+    String specYaml,
     int payloadPerWrite,
   ) async {
     final ble = ref.read(bleServiceProvider);
     final plan = await ref.read(specCodecProvider).encodeImageFrame(
-          specYaml: widget.specYaml,
+          specYaml: specYaml,
           width: width,
           height: height,
           rgb: rgb,
