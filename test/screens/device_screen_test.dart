@@ -12,6 +12,8 @@ import 'package:liberated_bread_mobile/providers/ha_provider.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
+import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
+import 'package:liberated_bread_mobile/services/number_registry.dart';
 
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,12 +46,33 @@ final _device = IoTDevice(
 /// successful connect, so the store must be wired the same way `main()` does.
 late SharedPreferences _prefs;
 
-Widget _wrap(FakeBleService fake) => ProviderScope(
+String _table(Map<String, String> rows) {
+  final keys = rows.keys.toList()..sort();
+  return keys.map((k) => '$k\t${rows[k]}\n').join();
+}
+
+/// Just enough registry to resolve the addresses these tests use. Built here
+/// rather than read from the vendored TSVs so the assertions do not move when
+/// IEEE reassigns something.
+final _registry = NumberRegistry(
+  addressBlocks: [
+    RegistryTable.parse(_table({'B894D9': 'Texas Instruments'}), keyWidth: 6),
+  ],
+  companyIds:
+      RegistryTable.parse(_table({'00961': 'Ember Technologies'}), keyWidth: 5),
+  serviceUuids:
+      RegistryTable.parse(_table({'180f': 'Battery Service'}), keyWidth: 4),
+);
+
+Widget _wrap(FakeBleService fake, {IoTDevice? device}) => ProviderScope(
       overrides: [
         bleServiceProvider.overrideWithValue(fake),
         sharedPreferencesProvider.overrideWithValue(_prefs),
+        // Without this the provider indexes the real vendored registry off
+        // rootBundle, so an assertion here would depend on IEEE's data.
+        numberRegistryProvider.overrideWith((ref) async => _registry),
       ],
-      child: MaterialApp(home: DeviceScreen(device: _device)),
+      child: MaterialApp(home: DeviceScreen(device: device ?? _device)),
     );
 
 void main() {
@@ -192,5 +215,75 @@ void main() {
     expect(find.text('Device disconnected'), findsOneWidget);
     expect(find.text('Reconnect'), findsOneWidget);
     expect(find.text('Battery Service'), findsNothing);
+  });
+
+  group('identity rows', () {
+    IoTDevice deviceWith({
+      String id = 'B8:94:D9:11:22:33',
+      List<int> companyIds = const [],
+    }) =>
+        IoTDevice(
+          id: id,
+          name: 'ACME_A',
+          rssi: -40,
+          isConnectable: true,
+          discoveredAt: DateTime(2026),
+          companyIds: companyIds,
+        );
+
+    Future<void> pumpReady(WidgetTester tester, IoTDevice device) async {
+      await tester.pumpWidget(_wrap(
+        FakeBleService(servicesToReturn: const [
+          BleDiscoveredService(
+              uuid: '0000180f-0000-1000-8000-00805f9b34fb',
+              characteristics: []),
+        ]),
+        device: device,
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shows the address and the block that owns it', (tester) async {
+      await pumpReady(tester, deviceWith());
+
+      expect(find.text('Address'), findsOneWidget);
+      expect(find.text('B8:94:D9:11:22:33'), findsOneWidget);
+      expect(find.text('Address block'), findsOneWidget);
+      expect(find.text('Texas Instruments'), findsOneWidget);
+    });
+
+    testWidgets('keeps the advertised company distinct from the block',
+        (tester) async {
+      // The Caseta bridge in miniature: the address block is the radio
+      // module's vendor and the company ID is the product's. Collapsing them
+      // into one "manufacturer" line would report Texas Instruments as the
+      // maker of an Ember device.
+      await pumpReady(tester, deviceWith(companyIds: const [961]));
+
+      expect(find.text('Advertises as'), findsOneWidget);
+      expect(find.text('Ember Technologies'), findsOneWidget);
+      expect(find.text('Address block'), findsOneWidget);
+      expect(find.text('Texas Instruments'), findsOneWidget);
+    });
+
+    testWidgets('an unassigned block contributes no row', (tester) async {
+      await pumpReady(tester, deviceWith(id: 'FF:FF:FF:11:22:33'));
+
+      expect(find.text('Address'), findsOneWidget);
+      expect(find.text('Address block'), findsNothing);
+    });
+
+    testWidgets('a CoreBluetooth UUID is not offered as an address',
+        (tester) async {
+      // Apple platforms substitute a per-host UUID for the hardware address.
+      // It is not a MAC, so there is no block to look up and nothing to show —
+      // printing the UUID under "Address" would invite a registry lookup that
+      // can only ever be wrong.
+      await pumpReady(
+          tester, deviceWith(id: 'C47C8DAB-1234-5678-9ABC-DEF012345678'));
+
+      expect(find.text('Address'), findsNothing);
+      expect(find.text('Address block'), findsNothing);
+    });
   });
 }

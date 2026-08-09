@@ -329,6 +329,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 if (device.port != null) _detailRow('Port', '${device.port}'),
                 if (device.hostname != null)
                   _detailRow('Hostname', device.hostname!),
+                // The MAC the block below was looked up from. Shown next to
+                // it, not instead of it: `Address` above is the IP, which DHCP
+                // reassigns, while this one is the hardware and does not move.
+                // Without it the "Address block" row cites a source the sheet
+                // never displays.
+                if (device.advertisedMac != null)
+                  _detailRow('MAC', device.advertisedMac!),
                 if (vendor != null) _detailRow('Address block', vendor),
                 if (device.serviceTypes.isNotEmpty)
                   _detailRow('mDNS', device.serviceTypes.join('\n')),

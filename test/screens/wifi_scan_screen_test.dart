@@ -10,7 +10,9 @@ import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/network_scan_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
 import 'package:liberated_bread_mobile/screens/wifi_scan_screen.dart';
+import 'package:liberated_bread_mobile/services/number_registry.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
@@ -68,6 +70,7 @@ NetworkDevice _device({
   String? hostname,
   int? port,
   List<String> serviceTypes = const [],
+  Map<String, String> txt = const {},
   NetworkDiscoverySource source = NetworkDiscoverySource.mdns,
 }) =>
     NetworkDevice(
@@ -76,9 +79,25 @@ NetworkDevice _device({
       hostname: hostname,
       port: port,
       serviceTypes: serviceTypes,
+      txt: txt,
       sources: {source},
       discoveredAt: DateTime(2026),
     );
+
+String _table(Map<String, String> rows) {
+  final keys = rows.keys.toList()..sort();
+  return keys.map((k) => '$k\t${rows[k]}\n').join();
+}
+
+/// Enough registry to name one block. Built here rather than read from the
+/// vendored TSVs so the assertion does not move when IEEE reassigns anything.
+final _registry = NumberRegistry(
+  addressBlocks: [
+    RegistryTable.parse(_table({'001788': 'Philips Lighting BV'}), keyWidth: 6),
+  ],
+  companyIds: RegistryTable.empty,
+  serviceUuids: RegistryTable.empty,
+);
 
 Widget _wrap(
   _FakeNetworkScanService service, {
@@ -87,6 +106,7 @@ Widget _wrap(
     ProviderScope(
       overrides: [
         networkScanServiceProvider.overrideWithValue(service),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
         deviceSpecsProvider.overrideWith((ref) => {'hue.yaml': 'yaml'}),
         specCodecProvider.overrideWithValue(
           FakeSpecCodec(spec: _spec, networkMatches: matchFor),
@@ -241,5 +261,33 @@ void main() {
     expect(find.text('Hostname'), findsOneWidget);
     expect(find.text('Philips-hue.local'), findsOneWidget);
     expect(find.text('mDNS'), findsWidgets);
+  });
+
+  testWidgets('the details sheet cites the MAC its vendor came from',
+      (tester) async {
+    // A Hue bridge publishes `bridgeid` as an EUI-64 — the 48-bit address with
+    // FFFE spliced in — so this also proves the sheet shows the recovered
+    // address rather than the raw TXT value.
+    final service = _FakeNetworkScanService(devices: [
+      _device(
+        name: 'Philips Hue',
+        txt: const {'bridgeid': '001788FFFE213C4D'},
+      ),
+    ]);
+    await tester.pumpWidget(_wrap(service, matchFor: (_) => const []));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Philips Hue'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('MAC'), findsOneWidget);
+    expect(find.text('00:17:88:21:3C:4D'), findsOneWidget);
+    // And the block it resolves to, so the sheet shows both the evidence and
+    // the conclusion drawn from it. `findsWidgets` because the tile behind the
+    // sheet already carries the vendor in its description; the label is what
+    // is unique to the sheet.
+    expect(find.text('Address block'), findsOneWidget);
+    expect(find.text('Philips Lighting BV'), findsWidgets);
   });
 }
