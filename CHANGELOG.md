@@ -65,6 +65,34 @@ heading.
 
 ### Added
 
+- **The device screen says who made the thing, and shows its address.** The
+  IEEE and SIG registries have been vendored and searched for a while, but the
+  BLE detail screen never read them: it showed a name, a status dot and a
+  service count, and the MAC only by accident, when a device had no name and
+  the title fell back to `Unknown (<id>)`. It now carries the address and what
+  the registries make of it, and the Wi-Fi details sheet gained the `MAC` row
+  its existing `Address block` row was silently drawing its conclusion from.
+
+  The two sources stay separate rows rather than collapsing into one
+  "manufacturer" line, because they answer different questions: a company ID
+  is something the device put in its own advertisement, while an address block
+  names whoever bought the block — frequently the radio module's vendor, which
+  is why the Lutron Caséta bridge resolves to Texas Instruments. Labelling
+  them apart ("Advertises as" / "Address block") is what makes showing the
+  registry safe at all. Nothing new looks anything up: this is
+  `describeWith` + `DeviceDescription`, already used by the scan list.
+
+  On Apple platforms both rows are simply absent — CoreBluetooth substitutes a
+  per-host UUID for the hardware address, so there is no address to show and no
+  block to look up, and printing the UUID under "Address" would invite exactly
+  the lookup that cannot work.
+- **`scripts/update-specs.sh`** — refreshing the vendored specs is a script
+  now, not a remembered `git subtree pull`. It takes a ref, and `--from` takes
+  any remote including a local checkout, so a spec change can be pulled from
+  the branch it is still being written on. Afterwards it asserts that every
+  path `pubspec.yaml` bundles actually arrived: a pull that drops
+  `registries/ieee-oui36.tsv` fails nothing at build time, it just makes the
+  app quietly stop naming vendors.
 - **Bottom ad banner on the scan screen** — a small dismissible house-ad bar
   pointing at the new liberatedbread.com/shop/ affiliate page (dead devices
   cheap, WeMos boards, liberation gear). Content comes from
