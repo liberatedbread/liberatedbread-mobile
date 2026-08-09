@@ -102,7 +102,8 @@ String decodedTextOf(DecodedValueDto value, {double? scaleOverride}) {
   if (decoded == null) return value.display;
   final decimals = scaleOverride != null
       ? decimalsForTransform(scale: scaleOverride)
-      : decimalsForTransform(scale: value.scale, valueOffset: value.valueOffset);
+      : decimalsForTransform(
+          scale: value.scale, valueOffset: value.valueOffset);
   return decoded.toStringAsFixed(decimals);
 }
 
