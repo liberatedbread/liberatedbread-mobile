@@ -2,7 +2,7 @@ device:
   name: ThermoPro TempSpike / TP9xx BBQ Thermometer
   manufacturer: ThermoPro (Adsmart)
   model: TP9012, TP920, TP940, TP960/962/968 (TempSpike), TP980, TP426 (plain BLE GATT series)
-  category: kitchen
+  category: sensor
   type: bbq-thermometer
   transport: ble_gatt
   protocol: ble

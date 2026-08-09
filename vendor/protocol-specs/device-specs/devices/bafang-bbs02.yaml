@@ -7,6 +7,7 @@ device:
   manufacturer: "Suzhou Bafang Electric Motor Science-Technology"
   manufacturer_status: "active"
   protocol: "uart"
+  category: "motor"
   notes: >
     36-48 V mid-drive conversion kit sharing a controller architecture and
     configuration protocol with the BBS01 and BBSHD. No radio and no official

@@ -8,6 +8,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `device.category` — a **required** field carrying a broad device class from a
+  closed 25-value vocabulary (`light`, `display`, `sensor`, `motor`, `switch`,
+  `lock`, `tv`, `printer`, `climate`, `hub`, `vehicle`, `scale`, …). It is the
+  field a program branches on, where free-form `device.type` is the field a
+  person reads: the mobile app picks the icon it draws beside a scan result
+  from `category`, so a device without one is drawn as an anonymous Bluetooth
+  address — the same as a device nobody has documented at all. That is why the
+  vocabulary is closed and the field is required rather than optional; an
+  invented value degrades to the generic icon exactly like a missing one, so
+  the schema rejects it instead. Backfilled across all 78 specs, and published
+  in both machine indexes (`device-specs/index.json` and the JSON API
+  manifest) so a consumer can categorise the catalogue without fetching a
+  single spec. Reference specs take `category: reference`, and the schema
+  enforces that this agrees with a `reference-` `type` in both directions — a
+  device may no more claim `category: reference` than a reference may claim
+  `light`, so a standalone consumer validating against the published schema
+  cannot publish real hardware as a protocol reference. Locked down by
+  `scripts/test_device_specs.py`, which reads the vocabulary out of
+  `schema.json` rather than restating it; documented in
+  `device-specs/README.md` and `docs/api/spec-format.md`
+
+### Changed
+
+- The nine specs that already carried an ad-hoc `category` now use the
+  controlled vocabulary: `smart_lock` → `lock` (Kevo, Nuki, Schlage),
+  `automotive` → `reference` on the three published-protocol references
+  (SAE J1979, ISO 14229, ISO 15765-2), `environmental` → `sensor`
+  (SensorPush), `kitchen` → `sensor` (ThermoPro TempSpike). Nothing consumed
+  those values — the mobile Rust parser swept `category` into `extensions`
+  unread — and the four spellings for what turned out to be three classes are
+  the drift the closed vocabulary exists to stop
+
 - Number semantics in the device-spec schema (`$defs/number_semantics`): every
   numeric wire value — BLE command `parameters`, characteristic `format`
   fields, `bus` message fields, `payload_formats` fields — can now say what it

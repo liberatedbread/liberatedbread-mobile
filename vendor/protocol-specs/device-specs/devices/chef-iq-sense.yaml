@@ -7,6 +7,7 @@ device:
   manufacturer: "Chefman / Chef iQ"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "sensor"
   notes: >
     Smart thermometer hub (CQ60) with wireless probes and ESP32-WROVER-E chipset.
     Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi for cloud (AWS IoT MQTT).

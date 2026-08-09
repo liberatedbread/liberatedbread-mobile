@@ -7,6 +7,7 @@ device:
   manufacturer: "Juntong Technology"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "display"
   notes: >
     The most common unbranded BLE LED sign platform: car rear-window, bike, backpack,
     badge and banner signs sold with no brand name, only a screenshot of the

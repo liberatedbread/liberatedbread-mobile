@@ -19,6 +19,7 @@ device:
   manufacturer: "Belkin"
   manufacturer_status: "shutdown"
   protocol: "wifi"
+  category: "switch"
   transport: "upnp"
   notes: >
     ALL Wemo devices are discovered via SSDP (Simple Service Discovery

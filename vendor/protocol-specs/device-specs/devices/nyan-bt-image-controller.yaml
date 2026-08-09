@@ -7,6 +7,7 @@ device:
   manufacturer: "NYAN GEAR / LOY SPACE / popled.cn"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "display"
   notes: >
     BLE-only variant of the LOY SPACE protocol (identical to AUTOBABA LED Backpack).
     Vendor-confirmed white-label reskin of the LOY SPACE platform with BLE-only

@@ -2,7 +2,7 @@ device:
   name: ISO 15765-2 CAN Transport Layer (ISO-TP) Reference
   manufacturer: ISO
   model: ISO 15765-2:2016 (all addressing modes, all frame types; withdrawn 2024-04-05, replaced by ISO 15765-2:2024 — frame formats unchanged in substance)
-  category: automotive
+  category: reference
   type: reference-transport-protocol
   transport: can
   # Schema `protocol` has no member for a standards document. ISO-TP is a CAN

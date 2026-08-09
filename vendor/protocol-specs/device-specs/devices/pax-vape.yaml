@@ -23,6 +23,7 @@ device:
   manufacturer: "PAX Labs"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "appliance"
   notes: >
     Supports PAX 3, PAX Era, PAX Era Pro. AES-128-OFB encryption applies to the
     Era and PAX 3; the Era Pro uses a more sophisticated protocol with nonces,
