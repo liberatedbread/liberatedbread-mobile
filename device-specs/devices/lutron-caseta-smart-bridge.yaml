@@ -15,6 +15,13 @@ device:
     bridge identity including MACADDR, firmware CODEVER, system type, and
     device class. HomeKit HAP is separately advertised on port 4548.
   identification:
+    # Deliberately NO mac_prefixes. The bridge captured below reports
+    # b8:94:d9:aa:bb:cc in its _lutron._tcp MACADDR record, but B8:94:D9 is
+    # assigned to Texas Instruments -- it identifies the radio module inside the
+    # bridge, not Lutron. Listing it would flag every TI-radio device on the
+    # network as possibly a Caseta bridge. Lutron's own OUI is 00:0F:E7, but we
+    # have never observed a Caseta bridge using it, and guessing from the
+    # registry is exactly what the schema tells you not to do.
     mdns_service_type: "_leap._tcp.local."
     default_port: 8081
     identity_keys:

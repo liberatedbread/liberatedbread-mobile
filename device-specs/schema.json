@@ -105,6 +105,12 @@
         "verification": { "$ref": "#/$defs/verification" }
       }
     },
+    "mac_prefix_confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "default": "low",
+      "description": "How much of this block belongs to this device, and therefore how much weight a consumer may put on an address matching it. An OUI identifies whoever bought the block, so the honest answer is usually not 'high'.\n\n'low' (the default, and what a bare string prefix means): the block is shared. Either IEEE subdivided it into MA-M/MA-S assignments held by unrelated companies -- C4:7C:8D covers fifteen -- or the address comes off a third-party radio module, so the block names a chip vendor rather than this product. A consumer should rank on it and nothing else.\n\n'medium': the block genuinely belongs to this manufacturer, but covers their whole catalogue. Seeing it means 'something this vendor made', not 'this device'.\n\n'high': the block is used by this device family and effectively nothing else -- a small vendor with a single product line, or an assignment observed only on this hardware. Rare, and it needs evidence in `notes`; the failure mode of guessing here is an app telling somebody it found a device they do not own."
+    },
     "verification": {
       "type": "string",
       "enum": ["confirmed", "reported", "hypothesis"],
@@ -416,16 +422,83 @@
         },
         "identification": {
           "type": "object",
-          "description": "How to identify this device during scanning.",
+          "description": "How to identify this device during scanning. This is the canonical machine-readable summary of the signals a scanner can see BEFORE connecting: local name, advertised service UUIDs, manufacturer-data company ID and MAC OUI. `device.discovery` carries the full evidence and the payload-level matching rules; anything here should also be derivable from there. Kept separate because a scanner needs a cheap answer to \"is this thing worth showing the user?\" on every advertisement, and the signals differ sharply in strength -- see `mac_prefixes`.",
           "properties": {
             "local_name_prefix": {
               "type": "string",
-              "description": "BLE advertisement local name prefix."
+              "description": "BLE advertisement local name prefix. Use `local_name_prefixes` instead when the family ships under several names."
+            },
+            "local_name_prefixes": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "description": "Every BLE local name prefix this device family advertises under, for families sold as several rebadged models with no shared prefix (inkbird-bbq-thermometer ships under eight). A match on any one of them means exactly what a `local_name_prefix` match means -- these are alternatives, not a conjunction. May be used together with `local_name_prefix`, in which case a consumer treats the union."
             },
             "service_uuids": {
               "type": "array",
               "items": { "$ref": "#/$defs/uuid" },
               "description": "BLE service UUIDs advertised by the device."
+            },
+            "manufacturer_data": {
+              "type": "object",
+              "description": "BLE manufacturer-specific advertisement data (AD type 0xFF). Recorded here so a scanner can recognise a device that advertises no usable local name and no service UUID -- common on sensors that broadcast their readings and never expect a connection. Payload layout, byte offsets and prefix patterns belong in `device.discovery`; this block only carries the identifying company ID(s) plus whatever free-form description helps a reader.",
+              "properties": {
+                "company_id": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65535,
+                  "description": "Bluetooth SIG company identifier in the manufacturer-data header, as a decimal integer (e.g. 961 for Ember). Note that vendors frequently squat on an ID they do not own -- shining-glasses advertises 21076 because 0x5254 spells 'TR' little-endian -- so a company ID says 'this advertisement looks like the one we documented', not 'this is that vendor'."
+                },
+                "company_id_hex": {
+                  "type": "string",
+                  "pattern": "^0x[0-9A-Fa-f]{1,4}$",
+                  "description": "The same value written in hex, e.g. '0x03C1'. Redundant with `company_id` and purely for readers -- sources almost always quote the hex form. When both are present they must agree."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Free-form note on how the ID was established and which firmware uses which -- e.g. whether the value is a real SIG assignment or a squatted one. The analogous `discovery.methods[].ble.manufacturer_data` block declares the same key."
+                },
+                "additional_company_ids": {
+                  "type": "array",
+                  "items": { "type": "integer", "minimum": 0, "maximum": 65535 },
+                  "description": "Further company IDs the same device family advertises, e.g. older firmware or a rebadged model. Govee's H5075 uses 0xEC88 while the H5177 uses 0x0001; SwitchBot moved from 0x0059 to 0x0969. A scanner should treat every ID here as equivalent to `company_id`."
+                }
+              }
+            },
+            "mac_prefixes": {
+              "type": "array",
+              "description": "IEEE OUI prefixes seen on this device's BLE/WiFi MAC address, most-significant octet first, e.g. 'C4:7C:8D'. THIS IS THE WEAKEST IDENTIFYING SIGNAL IN THE BLOCK and must never be used alone to claim a device is supported: an OUI is assigned to a vendor, not a product, so C4:7C:8D matches every Xiaomi radio ever built and not just the plant monitor. Its value is ranking -- an unnamed device with a known vendor OUI is worth showing a user above an unnamed device with an unknown one. Note also that it is unavailable on Apple platforms, where CoreBluetooth hands out a per-host UUID instead of the hardware address, and that BLE privacy-mode devices advertise a random address with no OUI at all. Record only prefixes actually observed or documented by a cited source; do not fill these in from an OUI lookup of the vendor name. Prefixes need not stop on an octet boundary: IEEE also assigns 28-bit MA-M ('C4:7C:8D:6') and 36-bit MA-S ('C4:7C:8D:6A:1') blocks, and a longer prefix is what lets a device inside a subdivided range name its actual vendor instead of the fifteen unrelated ones sharing the octet.",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){2,3}([:-][0-9A-Fa-f])?$|^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){4}$",
+                    "description": "A bare prefix, which means `confidence: low` -- the safe reading, and the right one for a prefix nobody has checked."
+                  },
+                  {
+                    "type": "object",
+                    "required": ["prefix"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "prefix": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){2,3}([:-][0-9A-Fa-f])?$|^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){4}$"
+                      },
+                      "confidence": { "$ref": "#/$defs/mac_prefix_confidence" },
+                      "notes": {
+                        "type": "string",
+                        "description": "Why the confidence is what it is -- who else is in the block, or how exclusivity was established. A confidence with no reasoning behind it is a guess wearing a label."
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "ssdp_search_targets": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "description": "SSDP/UPnP search targets this device answers to, e.g. `urn:Belkin:device:controllee:1`. The only way to find hardware with no meaningful mDNS presence. Declare vendor-specific targets only: generic UPnP boilerplate like `upnp:rootdevice` is answered by every router, printer and NAS on the link, so a consumer must treat it as a ranking hint rather than an identification -- the same caveat `mac_prefixes` carries."
             },
             "mdns_service_type": {
               "type": "string",

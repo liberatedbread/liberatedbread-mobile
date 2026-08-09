@@ -189,6 +189,14 @@ device:
           control. See the top-level `cloud` block for what stays
           cloud-dependent.
         verified: false
+        cloud:
+          local_alternative: >
+            Yes, and it is the primary path: the `ble_provisioning` method
+            above onboards the lock with nothing but the printed programming
+            code, after which every owner function runs over the encrypted
+            uWeave GATT channel. See `local_access` (status: native) for the
+            covered surface. This cloud_account step is additive, for remote
+            access on WiFi models.
     factory_reset:
       applicable: true
       confidence: "medium"
@@ -199,6 +207,34 @@ device:
         must be re-paired afterwards. The physical button sequence is
         documented by Schlage per model and is not reproduced here — consult
         the vendor manual for the specific lock.
+      procedures:
+        - name: "Protocol reset over BLE (documented here)"
+          steps:
+            - action: >
+                Pair or resume a session as an owner, then send the
+                `factory_reset` command — {1:8, 2:2, 16:{0:3, 1:3}} — on the
+                uWeave GATT channel.
+              actor: "client"
+              notes: >
+                Flagged `advanced` in the command table: it clears access
+                codes, paired credentials and configuration.
+            - action: >
+                Re-pair with the printed programming code before the lock can
+                be used again.
+              actor: "user"
+              notes: >
+                Recovery is physical — open the lock and read the programming
+                code off the label.
+        - name: "Vendor button sequence (per model, not reproduced here)"
+          steps:
+            - action: >
+                Follow the reset sequence in the Schlage manual for the
+                specific lock model.
+              actor: "user"
+              notes: >
+                Listed so the physical path is not mistaken for absent; the
+                per-model steps are vendor documentation and are deliberately
+                not guessed at here.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
