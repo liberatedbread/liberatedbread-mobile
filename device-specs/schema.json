@@ -1359,8 +1359,8 @@
                           "properties": {
                             "type": {
                               "type": "string",
-                              "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
-                              "description": "Parameter value type. NOTE: int32/uint32 are accepted for devices such as the AdMore Light Bar (protobuf setvalue fields) but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
+                              "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "varint", "bytes", "string"],
+                              "description": "Parameter value type. `varint` is a protobuf base-128 varint (LEB128, unsigned): variable width, used for protobuf command fields whose value can exceed 127 (e.g. SmartDawn brightness 0-255). int32/uint32/varint are all consumed by the mobile Rust encoder."
                             },
                             "description": {
                               "type": "string",
