@@ -105,8 +105,7 @@ void main() {
     // specs are bundled straight out of the vendored subtree now, and a
     // hardcoded path here would keep asserting an asset directory that no
     // longer exists.
-    final yaml =
-        await rootBundle.loadString(specAssetPath(fallbackSpecPath));
+    final yaml = await rootBundle.loadString(specAssetPath(fallbackSpecPath));
     final spec = await loadDeviceSpec(yaml: yaml);
     expect(spec.deviceName, 'Example Smart Bulb');
     expect(spec.localNamePrefixes, contains('ACME_'));
