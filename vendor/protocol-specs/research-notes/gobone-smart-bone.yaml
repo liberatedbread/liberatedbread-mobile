@@ -1,0 +1,68 @@
+# PulsePet GoBone — Device Spec (research note)
+# Static triage of com.pulsepet.gobone (APKPure via apkeep)
+# APK SHA-256: 892008f4141c6f717f73cba9ea74acca8954725d016b355e3fab8a8db83b04b2
+
+device:
+  id: gobone-smart-bone
+  name: PulsePet GoBone app-enabled smart bone
+  manufacturer: PulsePet Inc. (defunct — domain parked/for-sale as of 2026-08)
+  category: pet_toy
+  safety_class: LOW  # Chew toy; supervise pets
+
+transport:
+  type: ble
+  local_only: true  # No Wi-Fi on toy; Firebase/Google Fit only for optional activity history
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — scan filter not yet extracted
+    service_uuids: []  # TBD
+
+  # GoBone control service = standard Nordic UART
+  services:
+    - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      name: gobone_service
+      description: GOBONE_SERVICE_UUID — Nordic UART service (control channel)
+      characteristics:
+        - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          name: gobone_rx
+          description: GOBONE_RX_CHARACTERISTIC_UUID — write commands to toy
+          properties: [write, write_no_response]
+        - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          name: gobone_tx
+          description: GOBONE_TX_CHARACTERISTIC_UUID — notifications from toy
+          properties: [notify]
+
+  standard_services:
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+      characteristics:
+        - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+          name: battery_level
+
+  dfu:
+    - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+      name: nordic_secure_dfu_buttonless
+
+  pairing:
+    note: App includes dedicated BLE bonding flow (com.pulsepet.gobone.controller.bonding.Bonding) — expect pairing required.
+
+protocol:
+  note: >
+    Native, unobfuscated Java app. BLE layer is a Nordic BleManager subclass
+    (GoBoneBLEManager) with named UUID constants. Command payload format TBD —
+    a focused jadx read of GoBoneBLEManager should recover drive/auto-play
+    command frames without hardware.
+  commands:
+    drive: TBD
+    autoplay_config: TBD
+    firmware_update: Nordic Secure DFU (buttonless, 0xFE59)
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # dex strings triage only; unobfuscated — full decompile is easy
+  uuids_recovered: true
+  protocol_recovered: false
+  hci_snoop_needed: false  # likely recoverable from bytecode alone
+  prior_art: none found (2026-08-03)
+  app_version: "1.3.13"  # latest on APKPure

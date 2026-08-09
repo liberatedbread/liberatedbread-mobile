@@ -66,6 +66,18 @@ class RealSpecCodec implements SpecCodec {
       rust.identifyStandardProfiles(serviceUuids: serviceUuids);
 
   @override
+  Future<EntityWriteDto> encodeEntityValue({
+    required String specYaml,
+    required String entityName,
+    required double value,
+  }) =>
+      rust.encodeEntityValue(
+        specYaml: specYaml,
+        entityName: entityName,
+        value: value,
+      );
+
+  @override
   Future<ImageWritePlanDto> encodeImageFrame({
     required String specYaml,
     required int width,

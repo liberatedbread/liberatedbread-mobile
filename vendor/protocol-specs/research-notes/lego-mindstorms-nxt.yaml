@@ -1,0 +1,55 @@
+# LEGO MINDSTORMS NXT — Research Note
+# No companion APK needed: vendor-published Bluetooth Developer Kit; control primarily PC-based
+
+device:
+  id: lego-mindstorms-nxt
+  name: LEGO MINDSTORMS NXT / NXT 2.0 (8547)
+  manufacturer: LEGO Group (active; NXT line discontinued 2013, software support ended)
+  category: toy_robot
+  safety_class: NONE
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+
+bluetooth_classic:
+  profile: SPP
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+  rfcomm_channel: 1
+  pairing: legacy PIN "1234"
+  alternate_transports: [usb]   # identical telegram protocol over USB HID-ish bulk endpoints
+
+protocol:
+  note: >
+    Vendor-published: LEGO MINDSTORMS NXT Bluetooth Developer Kit with
+    Appendix 1 (communication protocol) and Appendix 2 (direct commands).
+    Every telegram is framed with a 2-byte little-endian length (not counting
+    the length bytes themselves), followed by type byte + command byte + payload.
+  telegram_types:
+    "0x00": direct command, reply required
+    "0x80": direct command, no reply
+    "0x01": system command, reply required
+    "0x81": system command, no reply
+    "0x02": reply telegram (echoed command byte, status byte, payload; 0x00 = success)
+  example_opcodes:   # indicative — transcribe full table from Appendix 2 when writing spec
+    "0x00": STARTPROGRAM
+    "0x03": PLAYTONE
+    "0x04": SETOUTPUTSTATE (motor port, power, mode, regulation)
+    "0x05": SETINPUTMODE (sensor port config)
+    "0x07": GETINPUTVALUES
+    "0x0B": GETBATTERYLEVEL
+    "0x0F": LSWRITE (I2C, e.g. ultrasonic)
+    "0x10": LSREAD
+    "0x88": GETFIRMWAREVERSION (system command)
+  references:
+    - xatlantis.ch/doc/nxt/LEGO MINDSTORMS NXT Bluetooth Developer Kit.pdf  # vendor doc mirror
+    - github.com/nathankleyn/lego-nxt     # Ruby client, BT + USB
+    - nxt-python / leJOS NXJ              # mature open-source stacks
+
+status:
+  apk_acquired: false           # official MINDdroid app (com.lego.minddroid) delisted; not needed
+  apk_decompiled: false
+  uuids_recovered: true         # standard SPP; vendor-documented
+  protocol_recovered: true      # vendor-published Appendices 1+2
+  hci_snoop_needed: false
+  cloud_dependency: none

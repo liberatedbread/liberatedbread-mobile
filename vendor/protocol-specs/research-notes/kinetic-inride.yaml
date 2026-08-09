@@ -1,0 +1,70 @@
+# Kurt Kinetic inRide / Smart Trainers — Structured Note
+# APK source: apkeep (apk-pure); com.kinetic.fit 1.4.23 (final)
+
+device:
+  id: kinetic-inride
+  name: Kurt Kinetic inRide power sensor + Kinetic Smart trainers (R1 etc.)
+  manufacturer: Kurt Kinetic (Kurt Manufacturing)
+  category: bike_trainer_power
+  safety_class: MEDIUM  # controllable resistance trainer — validate commands before ERG writes
+
+transport:
+  type: ble
+  local_only: true
+  note: >
+    inRide broadcasts power over BLE; third-party apps (TrainerRoad, Zwift) pair
+    directly with no Kinetic account. Kinetic Fit app adds workout sync cloud
+    (optional). Kinetic's own apps discontinued per official support site.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "inRide"-derived per generation
+    service_uuids: []  # TBD
+
+  services:
+    - uuid: "00001818-0000-1000-8000-00805f9b34fb"
+      name: cycling_power_service
+      description: >
+        Standard CPS — inRide pairs with TrainerRoad/Zwift as a generic BLE power
+        meter (per TrainerRoad support docs). Generation differences reported
+        (v1/v2/v3); confirm per-unit with scan.
+      confidence: high
+    - uuid: "00001826-0000-1000-8000-00805f9b34fb"
+      name: fitness_machine_service
+      description: FTMS literal present in Kinetic Fit dex — smart trainer control path
+    - uuid: "e9410100-b434-446b-b5cc-36592fc4c724"
+      name: kinetic_custom_service
+      description: >
+        Custom Kinetic family; characteristic literals e9410100-e9410104, e9410200-
+        e9410204, e9410300-e9410304 recovered. Likely proprietary trainer
+        control/telemetry (R1). Opcode map TBD.
+      confirmed: false
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+    - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+      name: nordic_secure_dfu
+      note: Referenced in dex — Nordic Secure DFU for firmware updates
+
+protocol:
+  note: >
+    inRide computes power from a calibrated fluid-trainer power curve in the pod.
+    Standard BLE path needs no RE. Custom e9410xxx service opcodes need jadx of
+    InRideSensor.java / InRide2Service.kt or HCI snoop.
+  expected_measurements:
+    - power_watts
+    - cadence_rpm
+    - speed (trainer models)
+
+status:
+  apk_acquired: true
+  apk_decompiled: false
+  uuids_recovered: partial
+  protocol_recovered: standard_profiles_usable  # CPS path works without any RE
+  hci_snoop_needed: false  # only for the custom control service
+  cloud_status: app_discontinued  # official support: inRide app "discontinued and unavailable online"
+  sources:
+    - https://www.kurtkinetic.com/support-sub/hc/en-us/articles/360008888632-Which-generation-inRide-sensor-do-I-have-
+    - https://support.trainerroad.com/hc/en-us/articles/201377324-Kurt-Kinetic-inRide-Power-Meter
+    - https://www.dcrainmaker.com/2012/12/kinetic-inride-bluetooth-smart-power-meter-accessory-in-depth-review.html

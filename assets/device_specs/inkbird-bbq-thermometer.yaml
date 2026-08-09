@@ -157,6 +157,16 @@ services:
           type: "binary"
           byte_order: "little_endian"
           encoding: "s16le"
+          # Applies to every temperature field below (schema number-semantics
+          # vocabulary, stated once here rather than per field): the wire unit
+          # is not a constant of the protocol — raw values arrive in whichever
+          # unit the device is currently set to, so raw 165 is 165 °C or
+          # 165 °F depending on state. Query before decoding.
+          unit_source: "device_setting"
+          unit_reference: "get_temp_unit (write 04000000000000 to 0000ff02; unit arrives on 0000ff03 as response prefix 03/04)"
+          unit_values:
+            0x46: "F"
+            default: "C"
           fields:
             - name: "probe_1_temp"
               bytes: [0, 1]
@@ -436,7 +446,14 @@ advertising:
 data_format:
   temperature:
     encoding: "s16le"
-    unit: "device_setting"
+    # Formerly the improvised `unit: "device_setting"`; now the schema's
+    # number-semantics vocabulary. No out-of-box default unit is claimed
+    # because none has been established — query rather than assume.
+    unit_source: "device_setting"
+    unit_reference: "get_temp_unit (command 04 on 0000ff02, response prefix 03/04 on 0000ff03)"
+    unit_values:
+      0x46: "F"
+      default: "C"
     fault_values: [0x7ffe, 0x7fff, 0x8000]
     error_strings:
       disconnected: "- -"

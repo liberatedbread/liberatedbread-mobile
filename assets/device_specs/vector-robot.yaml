@@ -17,12 +17,29 @@ device:
     Apache 2.0 and documents the ExternalInterface service. DDL is widely
     reported defunct since ~2023 and all official OTA/firmware servers fail
     DNS (tested 2026-07-31), so robots can no longer pull official OTAs; the
-    anki.bot support portal remains online. Latest official firmware is
+    anki.bot support portal remains online and still sells Vector AI
+    subscriptions ($11.99/mo or $99.99/yr per robot, verified 2026-08-04 via
+    anki.bot and support.anki.bot article 344). Latest official firmware is
     2.0.1.6076 (Vector 2.0 + Gen 1, 2022-09-26); 1.8.1.6051 was the last
-    Gen-1 production build. The actively maintained community path is wire-pod
-    plus WireOS (os-vector/wire-os, 3.0.1.32 at verification time) for
-    unlocked robots; DDL open-sourced vector-cloud (MIT) and
-    vector-bluetooth before disappearing.
+    Gen-1 production build. The dominant community path is wire-pod
+    (kercre123/wire-pod, MIT, 778 stars at verification 2026-08-04), a full
+    local voice server built on DDL's open-sourced vector-cloud that restores
+    voice commands on production Vector 1.0/2.0 robots with no DDL
+    subscription; production robots take a recovery-mode detour (Web
+    Bluetooth flash of DDL's production-signed Escape-Pod-compatible "ep"
+    firmware, then a user-data reset, then local authentication). Packaged
+    installers ship from the separate kercre123/WirePod releases repo
+    (v1.2.18, 2026-05-10: Windows .exe, macOS .dmg, Debian/Ubuntu .deb for
+    amd64/arm64/armhf, Android .apk). For unlocked (OSKR/dev) robots, WireOS
+    (os-vector/wire-os, 3.0.1.32 at verification time) is the fully open
+    firmware option. DDL open-sourced vector-cloud (MIT) and
+    vector-bluetooth before disappearing. In September 2024 the Pennsylvania
+    AG sued DDL and its CEO over more than $4M in unfulfilled robot orders
+    (~14,000 orders Nov 2020-Jan 2024; allegations, not adjudicated). The
+    original companion app (com.anki.victor) is no longer fetchable: APKPure
+    lists the package id with zero downloadable versions, and APKMirror and
+    APKCombo have no copy (checked 2026-08-04) — the Web Bluetooth setup
+    pages are the practical onboarding route now.
   identification:
     mdns_service_type: "_ankivector._tcp.local."
     default_port: 443
@@ -236,13 +253,25 @@ helpful_urls:
     description: "Actively maintained open firmware for unlocked (OSKR/dev) robots; 3.0.1.32 at verification time. The only fully supported path now that official OTA servers are dead."
   - title: "wire-pod"
     url: "https://github.com/kercre123/wire-pod"
-    description: "Community replacement for the cloud GUID/token step, built on DDL's open-sourced vector-cloud."
+    description: "MIT-licensed local voice server (chipper/TMS/jdocs replacement) built on DDL's open-sourced vector-cloud. Restores voice commands on production Vector 1.0/2.0 with no DDL subscription and issues the onboarding GUID/token locally. 778 stars at verification 2026-08-04."
+  - title: "wire-pod installation wiki"
+    url: "https://github.com/kercre123/wire-pod/wiki/Installation"
+    description: "The production-bot flow: recovery mode (hold backpack button ~15 s), Web Bluetooth pairing in Chrome at wpsetup.keriganc.com, flash of DDL's production-signed Escape-Pod-compatible 'ep' firmware (no Escape Pod purchase needed), clear user data, then authenticate against the local wire-pod instance."
+  - title: "WirePod releases (packaged installers)"
+    url: "https://github.com/kercre123/WirePod/releases"
+    description: "Separate releases repo shipping v1.2.18 (2026-05-10): WirePodInstaller .exe for Windows, .dmg for macOS 11+, .deb for amd64/arm64/armhf Debian/Ubuntu, .apk for Android. Installers are unsigned: SmartScreen, unidentified-developer, unknown-sources and Play Protect warnings are expected."
+  - title: "vector-wirepod-setup web page"
+    url: "https://wpsetup.keriganc.com/"
+    description: "Chrome/Chromium Web Bluetooth page that serves both recovery-mode firmware flashes and robot authentication. The Escape-Pod-compatible 'ep' firmware it applies is a DDL production-signed OTA delivered through this page, not a separately distributed image."
   - title: "DDL vector-cloud"
     url: "https://github.com/digital-dream-labs/vector-cloud"
     description: "DDL's MIT-licensed robot cloud/gateway server, open-sourced alongside vector-bluetooth before the company went dark."
   - title: "DDL support portal"
     url: "https://support.anki.bot/"
-    description: "Still online; articles 383/384 document Firmware Recovery Mode vs Clear User Data, article 108 the firmware changelog."
+    description: "Still online; articles 383/384 document Firmware Recovery Mode vs Clear User Data, article 108 the firmware changelog, article 344 the $11.99/mo or $99.99/yr membership pricing."
+  - title: "PA AG complaint against Digital Dream Labs"
+    url: "https://www.attorneygeneral.gov/wp-content/uploads/2024/09/DDL-Combined-Complaint-for-FIling-1.pdf"
+    description: "September 2024 Court of Common Pleas filing: PA AG Henry v. Digital Dream Labs and CEO Hanchar over unfulfilled prepaid robot orders (>$4M in sales, ~14,000 orders Nov 2020-Jan 2024 per the AG's announcement)."
 
 http_endpoints:
   - method: "POST"
@@ -542,3 +571,56 @@ entities:
     state_topic: "/v1/version_state"
     state_mapping:
       value: "os_version"
+
+cloud:
+  required: false
+  vendor_service: "DDL Vector AI Subscription (chipper voice processing, TMS token service, jdocs)"
+  failure_mode: >
+    Without a paid membership the robot loses cloud-processed voice commands
+    ("Hey Vector" intents) and ChatGPT connectivity; DDL also gates the
+    onboarding token exchange behind its account system. Local gRPC control
+    is unaffected once a GUID has been issued. As of 2026-07-31 the official
+    OTA/firmware hosts fail DNS entirely, while anki.bot continues to bill
+    subscriptions ($11.99/mo or $99.99/yr per robot, verified 2026-08-04).
+  notes: >
+    Every cloud-dependent function has a local replacement: wire-pod
+    substitutes for chipper (voice intents), TMS (token/GUID issuance) and
+    jdocs (settings storage), so `required` is false for an owner willing to
+    run it.
+  auth:
+    type: "other"
+    notes: >
+      Robot-to-cloud auth uses the client_token_guid issued at onboarding;
+      the subscription is an account-level entitlement checked server-side.
+      wire-pod issues the GUID locally and never contacts DDL.
+    verification: "reported"
+
+local_access:
+  status: "native"
+  summary: >
+    Vector speaks gRPC over TLS on the LAN as shipped; the only vendor-cloud
+    steps were voice-intent processing and the onboarding token exchange,
+    and wire-pod replaces both. For production robots the wire-pod path
+    requires one firmware detour: boot recovery mode, pair over Web
+    Bluetooth in Chrome, and accept DDL's production-signed
+    Escape-Pod-compatible "ep" OTA (free, no Escape Pod purchase), then
+    clear user data and authenticate against the local wire-pod instance.
+    Unlocked (OSKR/dev) robots can instead run the fully open WireOS.
+  covers:
+    - "full gRPC ExternalInterface control (69 RPCs) and REST gateway on the LAN"
+    - "voice commands via local wire-pod (Vosk STT by default; no audio leaves the LAN unless a remote STT/LLM plugin is configured)"
+    - "onboarding, re-provisioning and GUID issuance without any vendor account"
+    - "firmware freedom on unlocked robots via WireOS"
+  not_covered:
+    - "DDL's ChatGPT integration and any future cloud-only features — tied to the paid membership"
+    - "official OTA updates — the vendor OTA hosts no longer resolve; wire-pod/WireOS are the update path"
+  notes: >
+    Remaining friction on the production path, per the wire-pod wiki:
+    Chrome/Chromium-only Web Bluetooth (chrome://flags experimental
+    features on some builds; Linux may need the Bluetooth panel actively
+    discovering), unsigned installers (SmartScreen, unidentified macOS
+    developer, Android unknown-sources/Play Protect), and an authentication
+    step that the wiki itself warns may need several ~20-second-spaced
+    retries. The original companion app com.anki.victor is no longer
+    fetchable from APKPure, APKMirror or APKCombo (checked 2026-08-04), so
+    the Web Bluetooth pages are the de facto onboarding client.

@@ -1,0 +1,57 @@
+# Ambient Weather WS-2902B/C/D, WS-2000, WS-5000 — Device Spec (research note)
+# Local path: vendor "Custom Server" push (since ~2021-04 firmware) in
+# Ambient Weather or Wunderground GET format to any LAN host. Push-only.
+# Fine Offset clones — wire formats match Ecowitt gateways.
+# Sources checked 2026-08-07: HA community thread 299180 (2021-04),
+# wxforum.net WS-5000 custom server thread, matthewwall/weewx-interceptor.
+
+device:
+  id: ambient-weather-ws2xxx
+  name: Ambient Weather WS-2902B/C/D, WS-2000, WS-5000 (+ ObserverIP WS-0900-IP)
+  manufacturer: Ambient Weather (Nielsen-Kellerman) / Fine Offset hardware
+  category: weather_station
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Consoles push readings to a user-configured LAN custom server via HTTP
+    GET (protocol type "Ambient Weather" or "Wunderground"; host, port, path,
+    interval configurable via awnet app or console menu). No pull API on the
+    stations. ObserverIP hub additionally serves livedata.htm on port 80.
+
+lan:
+  control:
+    - protocol: http-push
+      direction: device -> user LAN host
+      formats:
+        - ambient_weather  # GET /path?MAC=..&dateutc=..&tempf=..&humidity=..&windspeedmph=..&baromin=..&rainin=..&solarradiation=..&UV=..
+        - wunderground     # classic WU PWS GET format
+      config: awnet app (com.ambientweather.awnet) or console Settings > Weather Server > Customized
+    - protocol: http
+      port: 80
+      device: ObserverIP (WS-0900-IP/WS-1400-IP) only
+      endpoints:
+        - GET /livedata.htm  # scrapeable HTML table of current readings
+
+protocol:
+  note: >
+    Identical wire formats to Ecowitt/Fine Offset custom-server uploads.
+    Derived metrics (dew point, feels-like, last-rain) are computed by
+    ambientweather.net, NOT included in local push — receivers must compute.
+  commands:
+    receive_data: run an HTTP listener; point console custom server at it
+
+status:
+  apk_acquired: false    # n/a — community-documented, matches Ecowitt formats
+  apk_decompiled: false
+  uuids_recovered: false # n/a
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false      # active company; cloud optional
+  rating: confirmed
+  references:
+    - community.home-assistant.io/t/ambient-weather-available-locally-now-integration-anyone/299180
+    - wxforum.net/index.php?topic=41253.0 (WS-5000 local logging / custom server)
+    - github.com/matthewwall/weewx-interceptor

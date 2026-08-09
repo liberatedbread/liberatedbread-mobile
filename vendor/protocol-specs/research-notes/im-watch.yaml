@@ -1,0 +1,48 @@
+# i'm Watch — Device Spec (research note)
+# i'm S.p.A. defunct (domain parked, verified 2026-08-07; GitHub silent since 2013).
+# Watch is full Android 2.x; HFP/A2DP audio works locally forever; smart
+# tethering layer died with the vendor cloud. Partial-feasibility note.
+
+device:
+  id: im-watch
+  name: i'm Watch (2011)
+  manufacturer: i'm S.p.A. (Italy; defunct ~2015-2017, exact date unverified)
+  category: smartwatch
+  safety_class: LOW
+  models:
+    - im-watch   # single model; 1.54" 240x240 touchscreen, speaker+mic, Android 2.x
+
+transport:
+  type: bluetooth_classic
+  profile: hfp + a2dp + proprietary-spp
+  local_only: true
+  rfcomm:
+    note: >
+      Standard HFP/A2DP handsfree pairing works with any phone, no app, no
+      cloud — calls and audio are fully local forever. The smart tethering
+      layer (notifications/email/weather) used a proprietary SPP service;
+      vendor published watch-side Bluetooth APIs (github.com/imspa/
+      imWatch-Bluetooth, 2013) but no community client exists.
+
+protocol:
+  note: >
+    No recovered wire protocol. RE starting points: vendor's own Bluetooth API
+    repo (imspa/imWatch-Bluetooth) and the watch's Android 2.x base (adb /
+    firmware dump). Phone-side app was iOS-first; Android companion package
+    unverified and not found on APK mirrors.
+  reference_implementations:
+    - github.com/imspa/imWatch-Bluetooth   # official, abandoned 2013
+
+cloud_status:
+  cloud_required: true   # for the DEAD smart features only (i'market, weather, social)
+  note: >
+    HFP/A2DP audio path never needed cloud. Everything "smart" went through
+    i'm's services and is unrecoverable without greenfield RE of the SPP layer.
+
+status:
+  apk_acquired: false    # no fetchable Android companion app identified
+  apk_decompiled: false
+  uuids_recovered: false # SPP UUID would come from imWatch-Bluetooth docs or firmware dump
+  protocol_recovered: false
+  hci_snoop_needed: true
+  rating: hypothesis     # partial local feasibility confirmed (audio); smart-layer RE unstarted

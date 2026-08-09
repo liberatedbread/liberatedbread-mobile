@@ -143,4 +143,14 @@ pub enum SpecError {
         min: i64,
         max: i64,
     },
+
+    #[error(
+        "parameter '{parameter_name}' declares default {value}, outside its effective bounds {min}..={max}; every send relying on the default would fail encoding"
+    )]
+    DefaultOutsideBounds {
+        parameter_name: String,
+        value: i64,
+        min: i64,
+        max: i64,
+    },
 }
