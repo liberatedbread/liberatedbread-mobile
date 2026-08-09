@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Re-runnable by hand, on any branch. Two things needed it: a red job whose
+  # cause was a third-party server having a bad minute (the reason
+  # scripts/ci-retry.sh exists), and a toolchain bump on a branch with no pull
+  # request open yet — where the only way to see whether the four native jobs
+  # survive it was to open one. GitHub's "Re-run jobs" button covers the first
+  # case only for a run that already exists.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -199,9 +206,12 @@ jobs:
   # the native builds actually need before it is worth starting them.
   #
   #   analyze     is the GATE, and nothing else. Format, analyze, shellcheck,
-  #               and the iOS retry self-test — "is this code coherent?" — in
-  #               about 45 seconds. No Rust toolchain, no cargo build, no
-  #               codegen. The four native jobs wait on this and on `rust`.
+  #               the iOS retry self-test, and the two checks that keep this
+  #               file's own claims true (the lockfile is authoritative; the
+  #               pins below are still readable by the setup scripts) — "is this
+  #               code coherent?" — in about 45 seconds. No Rust toolchain, no
+  #               cargo build, no codegen. The four native jobs wait on this and
+  #               on `rust`.
   #   unit-tests  runs CONCURRENTLY with the native jobs: the host Rust build,
   #               the FRB binding drift check and the Dart test suite. A failure
   #               still fails the run; it just no longer holds a 3-minute Linux
@@ -244,15 +254,32 @@ jobs:
       # here compiles: `dart format` and `flutter analyze` are static, and the
       # generated bindings they read are committed. Dropping them takes the
       # 1.6 GB cargo restore off the gate as well as the build.
+      #
+      # FLUTTER_VERSION is in the cache key — here and in the two other jobs
+      # that cache pub — because `.dart_tool/` is not SDK-agnostic:
+      # package_config.json records the SDK root and the language version it
+      # resolved against. pubspec.lock alone as the key meant a Flutter bump
+      # restored the previous SDK's snapshot into the new one, which is a
+      # confusing class of failure to debug for the sake of a key that costs
+      # one interpolation. The restore-keys prefix moves with it, so a bump
+      # starts cold once rather than inheriting the old SDK's tree.
       - name: Cache pub
         uses: actions/cache@v4
         with:
           path: |
             ~/.pub-cache
             .dart_tool
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: pub-${{ runner.os }}-
-      - run: flutter pub get
+          key: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
+      # --enforce-lockfile HERE and nowhere else, on purpose: this is the checks
+      # job, and one job asking the question is enough. Without it `pub get`
+      # quietly RESOLVES AND REWRITES pubspec.lock in the runner's checkout when
+      # it disagrees with pubspec.yaml, so a dependency bump that forgets the
+      # lockfile goes green against versions that exist on no other machine —
+      # the Dart half of the same hole `cargo --locked` closes in the rust job.
+      # The other jobs keep a plain `pub get`: they need the packages, not a
+      # second copy of the assertion, and a native build re-runs pub itself.
+      - run: flutter pub get --enforce-lockfile
       # Not `dart format .` — that walks build/ and reformats cargokit's
       # vendored build_tool_runner.dart, then fails because it changed
       # something. This job never hit it (it runs before anything is built) but
@@ -275,6 +302,21 @@ jobs:
       # is meant to survive.
       - name: Self-test the iOS retry logic
         run: ./scripts/ci-ios-tests-selftest.sh
+      # The header of this file says every pinned version lives in one `env:`
+      # block and that scripts/ci-versions.sh reads it. Nothing enforced the
+      # second half. That script is deliberately forgiving — a key it cannot
+      # find degrades to a hardcoded fallback and a line on stderr — so renaming
+      # or removing a key here has NO visible effect: CI keeps interpolating its
+      # own env values and passes, while scripts/setup.sh and
+      # .claude/hooks/session-start.sh quietly start provisioning dev machines
+      # from defaults that drift further behind with every bump. The symptom
+      # arrives months later as "works in CI, not on my laptop".
+      #
+      # --strict turns each of those stderr lines into a failure, in the gate,
+      # in the pull request that renames the key. Costs milliseconds; it is one
+      # awk pass over one file.
+      - name: Check the toolchain pins are still readable by the setup scripts
+        run: ./scripts/ci-versions.sh --strict
 
   unit-tests:
     name: Flutter (unit + widget tests, coverage)
@@ -317,13 +359,9 @@ jobs:
           path: |
             ~/.pub-cache
             .dart_tool
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: pub-${{ runner.os }}-
+          key: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
       - run: flutter pub get
-      - name: Build host Rust library for FRB
-        run: cd rust && cargo build
-      - name: Export LD_LIBRARY_PATH for tests
-        run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
       # One file, keyed on the one thing that changes it. Building the codegen
       # is ~90s, and the key — OS plus pinned version, over a path of exactly
       # one binary — either restores something correct or restores nothing.
@@ -365,12 +403,34 @@ jobs:
             echo "$untracked"
             exit 1
           fi
+      # AFTER the codegen check, not before it, and the order is load-bearing.
+      # `generate` rewrites rust/src/frb_generated.rs, which is an input to the
+      # crate — build first and the library is immediately older than its own
+      # sources, so the next thing to ask "is this current?" says no. That used
+      # to be nobody; it is now test/helpers/host_rust_lib.dart, which rebuilds
+      # when it finds a stale artifact and would do so from inside the test run
+      # below, once per test file. Generating first also means the library is
+      # built from the bindings this job actually verified.
+      # scripts/test.sh does the same two steps in the same order.
+      #
+      # Through the script rather than `cd rust && cargo build`, because a zero
+      # exit from cargo does not promise the cdylib exists — drop `cdylib` from
+      # rust/Cargo.toml's crate-type, or rename the package, and the build is
+      # still green while the one file these tests open by path is gone. They
+      # SKIP when it is missing, so that regression would land as a green run
+      # with a quietly smaller suite. scripts/ensure-rust-lib.sh asserts the
+      # artifact, and is the same command scripts/test.sh and the Claude Code
+      # session hook run.
+      - name: Build host Rust library for FRB
+        run: ./scripts/ensure-rust-lib.sh
+      - name: Export LD_LIBRARY_PATH for tests
+        run: echo "LD_LIBRARY_PATH=${{ github.workspace }}/rust/target/debug" >> $GITHUB_ENV
       # --exclude-tags=netdisco: those suites bind ports 5353 and 1900 and wait
       # real seconds for multicast datagrams. They have a job of their own — see
       # scripts/ci-netdisco-tests.sh for why they are not part of this one.
       - run: flutter test --coverage --exclude-tags=netdisco
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: coverage/lcov.info
           fail_ci_if_error: false
@@ -409,8 +469,8 @@ jobs:
           path: |
             ~/.pub-cache
             .dart_tool
-          key: pub-${{ runner.os }}-${{ hashFiles('pubspec.lock') }}
-          restore-keys: pub-${{ runner.os }}-
+          key: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
       - run: flutter pub get
       # The runner image has no mDNS responder running, so 5353 is free. Said
       # out loud because it is the one environmental assumption this job makes,
@@ -435,8 +495,15 @@ jobs:
         with:
           workspaces: rust
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo test --all-features
+      # --locked on both compiling steps. rust/Cargo.lock is committed for the
+      # same reproducibility reason pubspec.lock is, and without this flag cargo
+      # silently UPDATES it in the runner's checkout whenever it disagrees with
+      # Cargo.toml — so a pull request that bumps a dependency and forgets the
+      # lockfile passes CI against resolved versions that exist nowhere but that
+      # one runner, and every developer afterwards builds something else.
+      # --locked makes that disagreement the error it already was.
+      - run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - run: cargo test --all-features --locked
 
   android-build:
     name: Android build smoke (debug + release APK, contents verified)

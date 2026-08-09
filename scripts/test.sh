@@ -77,6 +77,13 @@ cd "$PROJECT_DIR"
 
 # CI runs pub get before format/analyze/test; without it a fresh clone or a
 # dependency bump fails here with a confusing "Target of URI doesn't exist".
+# Cheap, and it is what this script provisioned itself from a moment ago: if
+# ci.yml's env: block has stopped being readable, THIS run is already using the
+# stale fallback pins, and so is every other dev environment. CI's gate job runs
+# the same command.
+log "ci-versions.sh --strict (toolchain pins still readable from ci.yml?)"
+./scripts/ci-versions.sh --strict > /dev/null
+
 log "flutter pub get"
 flutter pub get
 
@@ -105,18 +112,32 @@ fi
 log "ci-ios-tests.sh self-test"
 ./scripts/ci-ios-tests-selftest.sh
 
-log "cargo build (host Rust lib for FRB)"
-(cd rust && cargo build)
-
+# BEFORE the build, not after. `generate` rewrites rust/src/frb_generated.rs,
+# which is an input to the crate — running it second leaves the freshly built
+# library looking older than its own sources, so the next thing to ask "is this
+# up to date?" (test/helpers/host_rust_lib.dart, and cargo itself) answers no
+# and rebuilds work that was just done. Generating first also means the library
+# below is built from the bindings this run actually checked.
 log "flutter_rust_bridge_codegen generate (bindings up to date?)"
 check_frb_bindings
 
-log "flutter test --coverage --exclude-tags=netdisco"
-LD_LIBRARY_PATH="$PROJECT_DIR/rust/target/debug:${LD_LIBRARY_PATH:-}" \
-DYLD_FALLBACK_LIBRARY_PATH="$PROJECT_DIR/rust/target/debug:${DYLD_FALLBACK_LIBRARY_PATH:-}" \
+log "host Rust library (FFI-backed tests load it by path)"
+./scripts/ensure-rust-lib.sh
+
 # --exclude-tags=netdisco mirrors CI: those suites bind ports 5353 and 1900 for
 # real multicast, which a machine running avahi-daemon or systemd-resolved
 # cannot spare. Run them with ./scripts/ci-netdisco-tests.sh.
+#
+# No LD_LIBRARY_PATH/DYLD_FALLBACK_LIBRARY_PATH here, and their absence is the
+# fix rather than an omission. They used to be set on this command and never
+# reached it: the line continuation ran into a comment, so bash read the two
+# assignments as a command of their own — setting a pair of shell variables
+# nothing exported — and then ran `flutter test` as a separate, unprefixed
+# command. The suites passed anyway, which is the tell: test/helpers/
+# host_rust_lib.dart opens rust/target/debug/<lib> by relative path precisely
+# because the macOS hardened runtime strips DYLD_* from the `dart` binary, so
+# neither variable was ever what made this work.
+log "flutter test --coverage --exclude-tags=netdisco"
 flutter test --coverage --exclude-tags=netdisco
 
 log "cargo fmt --all -- --check"

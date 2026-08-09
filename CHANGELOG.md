@@ -55,6 +55,15 @@ heading.
 
 ### Fixed
 
+- **`scripts/test.sh` ran `flutter test` without the environment it thought it
+  was setting.** The two `LD_LIBRARY_PATH`/`DYLD_FALLBACK_LIBRARY_PATH`
+  assignments ended in a line continuation that ran into a *comment*, so bash
+  read them as a command of their own — setting a pair of shell variables
+  nothing exported — and then ran `flutter test` unprefixed. The suites passed
+  regardless, which is the tell: `test/helpers/host_rust_lib.dart` opens the
+  library by relative path precisely because macOS strips `DYLD_*`. Both
+  variables are gone rather than repaired; neither was ever what made it work.
+
 - **Discovered GATT UUIDs were written in a form no spec could match.**
   `discoverServices` rendered each UUID with `Guid.toString()`, which is
   `Guid.str` — and that abbreviates a Bluetooth-base UUID to its 16-bit short
@@ -107,6 +116,43 @@ heading.
   manifest, both plists and both entitlements files.
 
 ### Added
+
+- **The FFI tests rebuild the Rust core themselves.** Both ways of getting this
+  wrong were silent: with no host build the suites `markTestSkipped` and the run
+  is green with a quietly smaller test count, and with a *stale* one they do not
+  even skip — they load the `.so` from before the edit, pass, and report on code
+  that no longer exists. `test/helpers/host_rust_lib.dart` now reads cargo's own
+  dep-info file (every source that went into the artifact, `include_str!`d
+  vendor registries included) and runs `cargo build` when any of them is newer,
+  so `flutter test` after editing `rust/src/` tests the edit. A warm target
+  directory means no cargo run at all. `LIBERATED_BREAD_NO_RUST_BUILD=1` opts
+  out; an explicit `LIBERATED_BREAD_RUST_LIB` is never rebuilt.
+
+- **`scripts/ensure-rust-lib.sh`**, the one definition of "the host Rust library
+  is built" — used by `scripts/test.sh`, the Claude Code session hook and CI's
+  `unit-tests` job, which each had their own spelling of it. It asserts the
+  artifact rather than trusting cargo's exit code: dropping `cdylib` from
+  `rust/Cargo.toml`'s `crate-type`, or renaming the package, builds green while
+  removing the one file every FFI-backed test opens by path.
+
+- **CI now enforces the pins and lockfiles it documents.**
+  `./scripts/ci-versions.sh --strict` runs in the gate job, so renaming a key in
+  `ci.yml`'s `env:` block fails the pull request that does it instead of quietly
+  sending every dev machine back to a hardcoded fallback. `cargo --locked` and
+  `flutter pub get --enforce-lockfile` stop CI from silently resolving around a
+  lockfile that was not updated. `scripts/ci-shellcheck.sh` additionally checks
+  each script is executable and declares an interpreter — a 644 script fails
+  with `Permission denied` inside whichever job invokes it, which for the
+  emulator suite is forty minutes in.
+
+- **`.github/dependabot.yml`** for the ten actions the workflows pin by major
+  tag, plus the Rust crate; grouped into one pull request per ecosystem per
+  week. Pub is deliberately excluded — `pubspec.lock` is pinned against a
+  specific Flutter SDK, so those bumps follow a Flutter bump, by hand.
+
+- **`workflow_dispatch` on `ci.yml`**, so a run can be started by hand on a
+  branch with no pull request open — the only way to see whether a toolchain
+  bump survives the four native jobs was previously to open one.
 
 - **Every scan row says what kind of device it is.** The scan list already
   ranked results and badged them — "Ember Mug", "Likely supported", "Possibly
