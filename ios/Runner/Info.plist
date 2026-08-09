@@ -74,6 +74,7 @@
 		<string>_airplay._tcp</string>
 		<string>_dyson_mqtt._tcp</string>
 		<string>_ankivector._tcp</string>
+		<string>_rabbitair._udp</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

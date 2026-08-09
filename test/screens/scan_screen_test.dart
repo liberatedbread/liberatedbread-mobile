@@ -128,6 +128,16 @@ void main() {
 
     testWidgets('recognised devices get their own section, above the rest',
         (tester) async {
+      // This asserts on the relative vertical positions of both section
+      // headers, so both have to be laid out at once. The list is lazy and the
+      // docked ad bar takes a slice of the viewport, which on the default test
+      // surface leaves the second header unbuilt — and scrolling to it would
+      // unbuild the first. A taller window is the honest fix: the ordering
+      // rule under test has nothing to do with how much of it fits on screen.
+      tester.view.physicalSize = const Size(1200, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
       final fake = FakeBleService(devicesToEmit: [
         // The unknown device has the far better signal, so ordering can only
         // come from what the catalogue knows.
