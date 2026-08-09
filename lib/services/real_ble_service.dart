@@ -490,10 +490,18 @@ class RealBleService implements BleService {
     final device = BluetoothDevice.fromId(deviceId);
     await device.connect(timeout: const Duration(seconds: 15));
     Log.ble.info('connected to $deviceId');
-    // The MTU decides the usable write payload (ATT MTU - 3), which
-    // fragmented protocols (e.g. SmartDawn's DDP framing) depend on. fbp
-    // requests 512 on Android during connect; other platforms negotiate on
-    // their own and may just report the 23-byte default here.
+    // The MTU decides the usable write payload (ATT MTU - 3). This is not a
+    // nicety: SmartDawn's BIN (TUTU) channel does NOT reassemble fragments, so
+    // each image chunk (up to ~200 B) must fit in a single write — which needs
+    // a large MTU. Explicitly request 512 (Android honors it; Apple platforms
+    // negotiate the max on their own and treat this as a no-op). Best-effort: a
+    // failure just leaves the default, which the image encoder then rejects
+    // loudly rather than painting a partial frame.
+    try {
+      await device.requestMtu(512);
+    } catch (e) {
+      Log.ble.debug('requestMtu(512) not honored for $deviceId: $e');
+    }
     Log.ble.debug('mtu for $deviceId: ${device.mtuNow}');
   }
 

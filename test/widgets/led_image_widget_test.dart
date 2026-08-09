@@ -153,10 +153,11 @@ void main() {
     final codec = FakeSpecCodec(
       imagePlan: ImageWritePlanDto(
         serviceUuid: 'svc-uuid',
-        characteristicUuid: 'chr-uuid',
         writes: [
-          Uint8List.fromList([1, 2]),
-          Uint8List.fromList([3, 4]),
+          ImageWriteDto(
+              characteristicUuid: 'chr-uuid', bytes: Uint8List.fromList([1, 2])),
+          ImageWriteDto(
+              characteristicUuid: 'chr-uuid', bytes: Uint8List.fromList([3, 4])),
         ],
         nextFrameIndex: 2,
       ),
@@ -249,10 +250,9 @@ void main() {
     final codec = FakeSpecCodec(
       imagePlan: ImageWritePlanDto(
         serviceUuid: 's',
-        characteristicUuid: 'c',
         writes: [
-          Uint8List.fromList([1]),
-          Uint8List.fromList([2]),
+          ImageWriteDto(characteristicUuid: 'c', bytes: Uint8List.fromList([1])),
+          ImageWriteDto(characteristicUuid: 'c', bytes: Uint8List.fromList([2])),
         ],
         nextFrameIndex: 1,
       ),

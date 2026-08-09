@@ -379,11 +379,13 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // the next frame corrupts fragment reassembly on the device.
     _frameSequence = plan.nextFrameIndex;
     for (final write in plan.writes) {
+      // Each write names its own characteristic: the doodle flow opens the
+      // session on the command channel and streams pixels on the bulk one.
       await ble.writeCharacteristic(
         widget.deviceId,
         plan.serviceUuid,
-        plan.characteristicUuid,
-        write,
+        write.characteristicUuid,
+        write.bytes,
       );
     }
   }

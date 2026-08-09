@@ -1,80 +1,145 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 //
-//! Pixel-frame encoder for Hangzhou Daniao's "DDP" BLE platform — the stack
-//! behind SmartDawn / SuperPix / SmartPixel addressable-RGB lights.
+//! Image/animation-frame encoder for Hangzhou Daniao's "DDP" BLE platform —
+//! the stack behind SmartDawn / SuperPix / SmartPixel addressable-RGB lights.
 //!
-//! Byte layouts come from the SmartDawn device spec
-//! (`smartdawn-smart-lights.yaml`), which maps them from two independent
-//! encoders inside the vendor app (decompiled Java and the bundled H5
-//! JavaScript):
+//! SPEC-DRIVEN: every byte-level fact (message types, channel tags, the
+//! fragment framing, and which characteristic each write targets) is resolved
+//! from the device spec (`smartdawn-smart-lights.yaml`) at encode time — this
+//! module only carries the pixel ALGORITHM the spec cannot express
+//! declaratively (palette-indexed run-length encoding) and the handler's
+//! knowledge of WHICH commands open a doodle session. The message-type bytes
+//! for those commands come from the spec's command templates, not from
+//! constants here.
 //!
-//! - **Standard DDP packet** (pixel data): 10-byte header
-//!   `[flag][sn u8][datatype][target][offset u32 BE][psize u16 BE]` followed
-//!   by `psize` payload bytes. `datatype` 0x01 = DISPLAY, `target` 0x01 (what
-//!   the app writes), flag bit 0x01 = PUSH. Payload bytes are raster pixel
-//!   data at `offset` into the device's display buffer.
-//! - **BLE fragment framing**: every logical packet is split into writes of
-//!   at most the payload MTU, each prefixed with
-//!   `[message serial u8][total fragments u8][fragments remaining u8][0x00]`;
-//!   reassembly keys on the first three bytes.
+//! THE LIVE-VERIFIED PATH (JY25CUT curtain, unit DN0B88, 2026-08-08 — renders
+//! full images, sequential images, and ~5fps animation):
 //!
-//! Following the DDP convention (the header shape matches WLED/xLights DDP,
-//! which this platform derives from), PUSH is set only on the *final* packet
-//! of a frame, telling the controller to latch the assembled buffer onto the
-//! LEDs. Not yet verified by live capture — flagged in the spec's confidence
-//! notes.
+//! 1. **Session open** (once, frame 0, on the DDP command characteristic —
+//!    the `daniao_fragment` char with `channel_tag: 0`): the spec's
+//!    `ui_end_sync` command (M_UI_END_SYNC, mt 2411) to suspend UI-mirror
+//!    playback, then `doodle_start` (M_DOODLE_START, mt 2701). NOT
+//!    `M_DEV_START` (mt 235) — that is the developer/raw-pixel mode and it
+//!    BLANKS the doodle canvas.
+//! 2. **Per frame** (on the BIN bulk characteristic — the `daniao_fragment`
+//!    char with no fixed `channel_tag`): the canvas as one or more
+//!    `TUTU_RESTORE` (buffer tag 4) chunks. Each chunk MUST fit in a single
+//!    BLE write: the device does NOT reassemble BIN fragments (a split chunk
+//!    renders only its first strand), so a large negotiated ATT MTU is
+//!    required — the app requests 512.
 //!
-//! The encoder is stateless: callers pass a `frame_index` and sequence
-//! numbers derive from it, so streaming N frames produces distinct serials
-//! without shared state across the FFI boundary.
+//! Chunk format (ported from the vendor H5 bundle's `TuTu.sendRecoveData`):
+//! header `[start_x][start_y][palette_count]` + `palette_count` RGB triplets
+//! (first ≤16 distinct colors in row-major scan order), then a COLUMN-MAJOR
+//! run-length stream of palette indices — a run < 16 is one byte
+//! `(index << 4) | run_len`; a longer run is `(index << 4)` then count bytes
+//! (`0xFF` per full 127, then the remainder). A chunk is flushed at ~200
+//! bytes; the next chunk's header carries the (x, y) where its data resumes.
+//!
+//! The encoder is stateless: callers pass a `frame_index` and fragment serials
+//! derive from it, so streaming N frames produces distinct serials without
+//! shared state across the FFI boundary.
 
-use super::EncodedFrame;
+use super::{EncodedFrame, EncodedWrite};
+use crate::codec::types::encode_command;
 use crate::error::ProtocolError;
+use crate::spec::types::{Characteristic, CharacteristicProperty, DeviceSpec};
+use serde::Deserialize;
+use std::collections::HashMap;
 
 /// `protocol_handler` name this module implements (see the device spec's
 /// top-level `protocol_handler` key).
 pub const HANDLER_NAME: &str = "daniao_ddp";
 
-/// The platform's single custom GATT service.
+/// The platform's single custom GATT service (also declared in the spec).
 pub const SERVICE_UUID: &str = "00000074-1972-1925-3022-077119514e44";
 
-/// DDP Write characteristic — command/pixel channel, fragmented writes.
-pub const DDP_WRITE_UUID: &str = "01020074-1972-1925-3022-077119514e44";
-
-const DDP_HEADER_LEN: usize = 10;
+/// Named fragment scheme this handler understands (spec `framing.scheme`).
+const FRAGMENT_SCHEME: &str = "daniao_fragment";
 const FRAG_HEADER_LEN: usize = 4;
-const FLAG_PUSH: u8 = 0x01;
-const DATATYPE_DISPLAY: u8 = 0x01;
-const TARGET_APP: u8 = 0x01;
-const MAX_PSIZE: usize = u16::MAX as usize;
-const MAX_FRAGMENTS: usize = u8::MAX as usize;
-/// A packet's serial is a u8 derived from `frame_index + i`, so one frame can
-/// consume at most 256 distinct serials. A 257th packet would repeat the
-/// first packet's serial mid-frame and corrupt reassembly on the device
-/// rather than fail cleanly, so oversized frames are rejected up front.
-const MAX_PACKETS_PER_FRAME: usize = 256;
-
+const MAX_PALETTE: usize = 16;
+/// Chunk flush threshold from the vendor encoder: header + pixel bytes < 200.
+const CHUNK_LIMIT: usize = 200;
 /// The BLE 4.0 minimum ATT payload (MTU 23 - 3). The vendor app requests MTU
-/// 512 and falls back to this; anything smaller is not a plausible link and
-/// almost certainly a caller bug.
+/// 512; a chunk that cannot fit one write over the negotiated MTU is rejected.
 const MIN_PAYLOAD_PER_WRITE: usize = 20;
 
-/// Encode one RGB frame into the ordered BLE writes that push it to the
-/// display, targeting [`DDP_WRITE_UUID`].
+/// BIN buffer-type tag for a full-canvas redraw (spec's BIN Write notes:
+/// 1=TUTU_DOODLE, 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN). Not a fixed
+/// `channel_tag` in the spec because the bulk channel picks its tag per
+/// transfer; this handler pushes full canvases, hence RESTORE.
+const TAG_TUTU_RESTORE: u8 = 0x04;
+
+/// Command names, resolved from the spec's command templates, that open a
+/// doodle/pixel session. Their message-type bytes live in the spec, not here.
+const SESSION_OPEN_COMMANDS: &[&str] = &["ui_end_sync", "doodle_start"];
+
+/// The `framing` block of a characteristic, deserialized from the spec's
+/// opaque value on demand (the shared `Characteristic` type keeps it untyped
+/// because most devices have no framing).
+#[derive(Debug, Deserialize)]
+struct Framing {
+    scheme: Option<String>,
+    channel_tag: Option<u8>,
+}
+
+fn framing_of(c: &Characteristic) -> Option<Framing> {
+    c.framing
+        .as_ref()
+        .and_then(|v| serde_yaml::from_value(v.clone()).ok())
+}
+
+fn is_writable(c: &Characteristic) -> bool {
+    c.properties.iter().any(|p| {
+        matches!(
+            p,
+            CharacteristicProperty::Write | CharacteristicProperty::WriteWithoutResponse
+        )
+    })
+}
+
+/// Resolve a `daniao_fragment` characteristic from the spec by its channel tag:
+/// the command channel is `channel_tag: 0`; the bulk channel omits it.
+fn resolve_char<'a>(
+    spec: &'a DeviceSpec,
+    want_command_channel: bool,
+) -> Option<(&'a Characteristic, u8)> {
+    for service in &spec.services {
+        for c in &service.characteristics {
+            if !is_writable(c) {
+                continue;
+            }
+            let Some(f) = framing_of(c) else { continue };
+            if f.scheme.as_deref() != Some(FRAGMENT_SCHEME) {
+                continue;
+            }
+            match (want_command_channel, f.channel_tag) {
+                (true, Some(0)) => return Some((c, 0)),
+                (false, None) => return Some((c, TAG_TUTU_RESTORE)),
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+/// Encode one RGB frame as the ordered BLE writes of the doodle flow, driven
+/// by `spec`.
 ///
-/// `rgb` is row-major RGB888, so its length must be `width * height * 3`
-/// (color-order quirks like GRB strips are the controller's concern — the
-/// wire format is the app's canvas order). `max_payload_per_write` is the
-/// usable bytes per BLE write (negotiated ATT MTU minus 3; 20 when unknown).
+/// `rgb` is row-major RGB888 (`width * height * 3` bytes) using at most 16
+/// distinct colors — the palette limit; more is an error rather than a silent
+/// quantization, so what the device shows matches what the caller previewed.
+/// `max_payload_per_write` is the usable bytes per BLE write (negotiated ATT
+/// MTU minus 3; 20 when unknown).
 ///
-/// Frames larger than one DDP packet can carry (`u16` psize, and at most 255
-/// fragments per packet) are split into multiple packets at increasing
-/// buffer offsets; only the last packet carries PUSH. The returned
-/// [`EncodedFrame::packets`] is how many sequence numbers were consumed —
-/// callers MUST advance `frame_index` by it (not by 1) so the next frame's
-/// serials don't collide with this one's.
-pub fn encode_display_frame(
+/// When `frame_index` is 0 the plan opens the doodle session first (the spec's
+/// `ui_end_sync` then `doodle_start` commands on the DDP characteristic);
+/// later frames send only their pixel chunks. The returned
+/// [`EncodedFrame::packets`] counts logical packets (and therefore fragment
+/// serials) consumed — callers MUST advance `frame_index` by it.
+pub fn encode_doodle_frame(
+    spec: &DeviceSpec,
     rgb: &[u8],
     width: u32,
     height: u32,
@@ -84,7 +149,7 @@ pub fn encode_display_frame(
     let expected = (width as usize)
         .checked_mul(height as usize)
         .and_then(|px| px.checked_mul(3))
-        .ok_or(ProtocolError::ImageDimensionsInvalid {
+        .ok_or_else(|| ProtocolError::ImageDimensionsInvalid {
             reason: format!("{width}x{height} overflows the pixel buffer size"),
         })?;
     if expected == 0 {
@@ -109,209 +174,349 @@ pub fn encode_display_frame(
         });
     }
 
-    // A DDP packet must reassemble from at most 255 fragments of
-    // (payload - 4) bytes, and psize is u16 — whichever is tighter bounds the
-    // pixel bytes one packet may carry.
+    // Resolve the two channels from the spec's framing declarations.
+    let (command_char, command_tag) = resolve_char(spec, true).ok_or_else(|| {
+        ProtocolError::ImageUploadUnsupported {
+            reason: "spec has no daniao_fragment command characteristic (channel_tag: 0)"
+                .to_string(),
+        }
+    })?;
+    let (bulk_char, bulk_tag) = resolve_char(spec, false).ok_or_else(|| {
+        ProtocolError::ImageUploadUnsupported {
+            reason: "spec has no daniao_fragment bulk characteristic (no channel_tag)".to_string(),
+        }
+    })?;
+
+    let chunks = encode_tutu_restore(rgb, width as usize, height as usize)?;
+
     let frag_capacity = max_payload_per_write - FRAG_HEADER_LEN;
-    let max_packet_pixels = MAX_PSIZE.min(frag_capacity * MAX_FRAGMENTS - DDP_HEADER_LEN);
 
-    let packets: Vec<&[u8]> = rgb.chunks(max_packet_pixels).collect();
-    if packets.len() > MAX_PACKETS_PER_FRAME {
-        return Err(ProtocolError::ImageDimensionsInvalid {
-            reason: format!(
-                "{width}x{height} at {max_payload_per_write} bytes per write \
-                 needs {} DDP packets; the u8 packet serial allows at most \
-                 {MAX_PACKETS_PER_FRAME} per frame",
-                packets.len()
-            ),
-        });
+    // The device honors ONLY the first BLE write of a BIN transfer, so every
+    // TUTU chunk must fit one write. Fail loudly rather than paint a partial
+    // image if the MTU is too small.
+    if let Some(biggest) = chunks.iter().map(Vec::len).max() {
+        if biggest > frag_capacity {
+            return Err(ProtocolError::ImageDimensionsInvalid {
+                reason: format!(
+                    "a TUTU chunk is {biggest} B but only {frag_capacity} B fit in one BLE \
+                     write, and the device does not reassemble BIN fragments — raise the ATT \
+                     MTU (need >= {} bytes) before pushing images",
+                    biggest + FRAG_HEADER_LEN + 3
+                ),
+            });
+        }
     }
+
+    let mut serial = frame_index;
     let mut writes = Vec::new();
-    for (i, chunk) in packets.iter().enumerate() {
-        let offset = i * max_packet_pixels;
-        let last = i == packets.len() - 1;
-        // One sequence number per DDP packet. Derived from the frame index,
-        // which the caller advances by the returned packet count — that
-        // contract is what keeps serials distinct across frames when one
-        // frame spans several packets.
-        let sn = (frame_index as usize + i) as u8;
 
-        let mut packet = Vec::with_capacity(DDP_HEADER_LEN + chunk.len());
-        packet.push(if last { FLAG_PUSH } else { 0x00 });
-        packet.push(sn);
-        packet.push(DATATYPE_DISPLAY);
-        packet.push(TARGET_APP);
-        packet.extend_from_slice(&(offset as u32).to_be_bytes());
-        packet.extend_from_slice(&(chunk.len() as u16).to_be_bytes());
-        packet.extend_from_slice(chunk);
+    // One logical packet -> one or more BLE writes sharing a serial, with the
+    // 4-byte daniao_fragment header and a remaining-count walking to 0.
+    let mut push_framed = |packet: &[u8], char_uuid: &str, tag: u8, serial: &mut u32| {
+        let s = *serial as u8;
+        *serial = serial.wrapping_add(1);
+        let parts: Vec<&[u8]> = packet.chunks(frag_capacity).collect();
+        let total = parts.len().max(1);
+        for (i, part) in parts.iter().enumerate() {
+            let mut bytes = Vec::with_capacity(FRAG_HEADER_LEN + part.len());
+            bytes.extend_from_slice(&[s, total as u8, (total - 1 - i) as u8, tag]);
+            bytes.extend_from_slice(part);
+            writes.push(EncodedWrite {
+                characteristic_uuid: char_uuid.to_string(),
+                bytes,
+            });
+        }
+    };
 
-        fragment_packet(&packet, sn, frag_capacity, &mut writes);
+    if frame_index == 0 {
+        let commands = command_char
+            .commands
+            .as_ref()
+            .ok_or_else(|| ProtocolError::NoCommands {
+                uuid: command_char.uuid.clone(),
+            })?;
+        for name in SESSION_OPEN_COMMANDS {
+            let command = commands
+                .get(*name)
+                .ok_or_else(|| ProtocolError::CommandNotFound {
+                    uuid: command_char.uuid.clone(),
+                    command: (*name).to_string(),
+                })?;
+            let packet = encode_command(command, &HashMap::new())?;
+            push_framed(&packet, &command_char.uuid, command_tag, &mut serial);
+        }
     }
-    Ok(EncodedFrame {
-        writes,
-        packets: packets.len() as u32,
-    })
+
+    for chunk in &chunks {
+        push_framed(chunk, &bulk_char.uuid, bulk_tag, &mut serial);
+    }
+
+    let packets = serial.wrapping_sub(frame_index);
+    Ok(EncodedFrame { writes, packets })
 }
 
-/// Split one logical packet into BLE writes carrying the 4-byte fragment
-/// header. `serial` identifies the packet; the remaining-count walks down to
-/// zero on the final fragment, which is how the receiver knows to reassemble.
-fn fragment_packet(packet: &[u8], serial: u8, frag_capacity: usize, out: &mut Vec<Vec<u8>>) {
-    let chunks: Vec<&[u8]> = packet.chunks(frag_capacity).collect();
-    let total = chunks.len();
-    debug_assert!(total <= MAX_FRAGMENTS, "packet sizing must bound fragments");
-    for (i, chunk) in chunks.iter().enumerate() {
-        let mut write = Vec::with_capacity(FRAG_HEADER_LEN + chunk.len());
-        write.push(serial);
-        write.push(total as u8);
-        write.push((total - 1 - i) as u8);
-        write.push(0x00);
-        write.extend_from_slice(chunk);
-        out.push(write);
+/// Port of the vendor H5 `sendRecoveData` chunk builder — see the module docs
+/// for the format. Returns the ordered `TUTU_RESTORE` chunk payloads.
+fn encode_tutu_restore(
+    rgb: &[u8],
+    width: usize,
+    height: usize,
+) -> Result<Vec<Vec<u8>>, ProtocolError> {
+    // Palette: first ≤16 distinct colors in row-major scan order.
+    let mut palette: Vec<[u8; 3]> = Vec::new();
+    let mut index_of = HashMap::new();
+    for px in rgb.chunks_exact(3) {
+        let color = [px[0], px[1], px[2]];
+        if let std::collections::hash_map::Entry::Vacant(slot) = index_of.entry(color) {
+            if palette.len() >= MAX_PALETTE {
+                return Err(ProtocolError::ImageDimensionsInvalid {
+                    reason: format!(
+                        "image uses more than {MAX_PALETTE} distinct colors; the TUTU doodle \
+                         format is palette-indexed — reduce the color count"
+                    ),
+                });
+            }
+            slot.insert(palette.len() as u8);
+            palette.push(color);
+        }
     }
+
+    let header = |x: u8, y: u8| -> Vec<u8> {
+        let mut h = vec![x, y, palette.len() as u8];
+        for c in &palette {
+            h.extend_from_slice(c);
+        }
+        h
+    };
+    let header_len = header(0, 0).len();
+
+    let mut chunks: Vec<Vec<u8>> = Vec::new();
+    let mut tokens: Vec<u8> = Vec::new();
+    let mut cur: Option<u8> = None;
+    let mut run: usize = 0;
+    let mut chunk_start = (0u8, 0u8);
+    let mut run_start = (0u8, 0u8);
+
+    fn emit_run(tokens: &mut Vec<u8>, index: u8, run: usize) {
+        let first = index << 4;
+        if run < 16 {
+            tokens.push(first | run as u8);
+        } else {
+            tokens.push(first);
+            let mut r = run;
+            while r > 0 {
+                if r >= 127 {
+                    tokens.push(255);
+                } else {
+                    tokens.push(r as u8);
+                    break;
+                }
+                r -= 127;
+            }
+        }
+    }
+
+    // Column-major traversal, exactly like the vendor encoder.
+    for x in 0..width {
+        for y in 0..height {
+            if header_len + tokens.len() >= CHUNK_LIMIT {
+                let mut chunk = header(chunk_start.0, chunk_start.1);
+                chunk.append(&mut tokens);
+                chunks.push(chunk);
+                chunk_start = run_start;
+            }
+            let idx = index_of[&[
+                rgb[(y * width + x) * 3],
+                rgb[(y * width + x) * 3 + 1],
+                rgb[(y * width + x) * 3 + 2],
+            ]];
+            match cur {
+                None => {
+                    cur = Some(idx);
+                    run = 1;
+                }
+                Some(c) if c != idx => {
+                    run_start = (x as u8, y as u8);
+                    emit_run(&mut tokens, c, run);
+                    cur = Some(idx);
+                    run = 1;
+                }
+                Some(_) => run += 1,
+            }
+        }
+    }
+    if let Some(c) = cur {
+        emit_run(&mut tokens, c, run);
+    }
+    let mut chunk = header(chunk_start.0, chunk_start.1);
+    chunk.append(&mut tokens);
+    chunks.push(chunk);
+    Ok(chunks)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spec::parser::parse_device_spec;
 
-    /// Reassemble fragments back into logical packets — the inverse of
-    /// [`fragment_packet`], used to make round-trip assertions readable.
-    fn reassemble(writes: &[Vec<u8>]) -> Vec<Vec<u8>> {
-        let mut packets: Vec<Vec<u8>> = Vec::new();
-        let mut current: Vec<u8> = Vec::new();
-        for write in writes {
-            let (header, payload) = write.split_at(FRAG_HEADER_LEN);
-            assert_eq!(header[3], 0x00, "fragment header byte 3 is reserved");
-            current.extend_from_slice(payload);
-            if header[2] == 0 {
-                packets.push(std::mem::take(&mut current));
+    const SPEC_YAML: &str = r#"
+device:
+  name: "SmartDawn"
+  manufacturer: "Daniao"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "light"
+  identification:
+    local_name_prefix: "DN"
+    service_uuids: ["00000074-1972-1925-3022-077119514e44"]
+protocol_handler: "daniao_ddp"
+services:
+  - uuid: "00000074-1972-1925-3022-077119514e44"
+    name: "Daniao DDP Service"
+    characteristics:
+      - uuid: "01020074-1972-1925-3022-077119514e44"
+        name: "DDP Write"
+        properties: ["write", "write_without_response"]
+        framing: { scheme: "daniao_fragment", channel_tag: 0 }
+        commands:
+          ui_end_sync:
+            description: "suspend UI mirror"
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+          doodle_start:
+            description: "open doodle"
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x8D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+      - uuid: "02020074-1972-1925-3022-077119514e44"
+        name: "BIN Write"
+        properties: ["write", "write_without_response"]
+        framing: { scheme: "daniao_fragment" }
+"#;
+
+    fn spec() -> DeviceSpec {
+        parse_device_spec(SPEC_YAML).unwrap()
+    }
+
+    const DDP: &str = "01020074-1972-1925-3022-077119514e44";
+    const BIN: &str = "02020074-1972-1925-3022-077119514e44";
+
+    /// A 2x2 RGB canvas of two colors: red, green / green, red.
+    fn tiny() -> Vec<u8> {
+        vec![255, 0, 0, 0, 255, 0, 0, 255, 0, 255, 0, 0]
+    }
+
+    /// A 20x20 trans flag (5 horizontal stripes) for realistic chunk sizes.
+    fn trans_flag() -> Vec<u8> {
+        let rows = [
+            [0x5B, 0xCE, 0xFA],
+            [0xF5, 0xA9, 0xB8],
+            [0xFF, 0xFF, 0xFF],
+            [0xF5, 0xA9, 0xB8],
+            [0x5B, 0xCE, 0xFA],
+        ];
+        let mut px = Vec::new();
+        for y in 0..20 {
+            let c = rows[y / 4];
+            for _ in 0..20 {
+                px.extend_from_slice(&c);
             }
         }
-        assert!(current.is_empty(), "trailing unterminated fragment");
-        packets
+        px
     }
 
     #[test]
-    fn single_pixel_single_write_golden_bytes() {
-        let frame = encode_display_frame(&[0xFF, 0x00, 0x7F], 1, 1, 0, 20).unwrap();
-        assert_eq!(frame.packets, 1);
-        assert_eq!(
-            frame.writes,
-            vec![vec![
-                0x00, 0x01, 0x00, 0x00, // fragment: serial 0, 1 total, 0 remaining
-                0x01, 0x00, 0x01, 0x01, // DDP: PUSH, sn 0, DISPLAY, target 1
-                0x00, 0x00, 0x00, 0x00, // offset 0
-                0x00, 0x03, // psize 3
-                0xFF, 0x00, 0x7F, // the pixel
-            ]],
-        );
+    fn first_frame_opens_session_from_spec_then_streams_chunks() {
+        let frame = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 0, 509).unwrap();
+        // 2 session commands + 1 chunk = 3 logical packets/serials.
+        assert_eq!(frame.packets, 3);
+        let w = &frame.writes;
+        // ui_end_sync then doodle_start on the DDP char, tag 0, mt from spec.
+        assert_eq!(w[0].characteristic_uuid, DDP);
+        assert_eq!(&w[0].bytes[..4], &[0, 1, 0, 0]);
+        assert_eq!(&w[0].bytes[10..12], &[0x09, 0x6B]); // mt 2411 (UI_END_SYNC)
+        assert_eq!(w[1].characteristic_uuid, DDP);
+        assert_eq!(&w[1].bytes[..4], &[1, 1, 0, 0]);
+        assert_eq!(&w[1].bytes[10..12], &[0x0A, 0x8D]); // mt 2701 (DOODLE_START)
+        // Then the pixel chunk on the BIN char, tag 4, single write.
+        assert_eq!(w[2].characteristic_uuid, BIN);
+        assert_eq!(&w[2].bytes[..4], &[2, 1, 0, TAG_TUTU_RESTORE]);
     }
 
     #[test]
-    fn packet_larger_than_one_write_fragments_with_countdown() {
-        // 2x2 frame = 12 pixel bytes + 10 header = 22 > 16 usable -> 2 writes.
-        let rgb: Vec<u8> = (0..12).collect();
-        let frame = encode_display_frame(&rgb, 2, 2, 5, 20).unwrap();
-        assert_eq!(frame.packets, 1, "one logical packet, two fragments");
-        let writes = frame.writes;
-        assert_eq!(writes.len(), 2);
-        // Both fragments carry the same serial (the frame index), the total,
-        // and a remaining-count that walks 1 -> 0.
-        assert_eq!(&writes[0][..4], &[5, 2, 1, 0]);
-        assert_eq!(&writes[1][..4], &[5, 2, 0, 0]);
-        assert_eq!(writes[0].len(), 20);
-        assert_eq!(writes[1].len(), 4 + (22 - 16));
-
-        let packets = reassemble(&writes);
-        assert_eq!(packets.len(), 1);
-        assert_eq!(packets[0][0], FLAG_PUSH);
-        assert_eq!(packets[0][1], 5); // sn = frame index
-        assert_eq!(&packets[0][8..10], &[0x00, 12]); // psize
-        assert_eq!(&packets[0][10..], rgb.as_slice());
+    fn later_frames_skip_session_open_and_stream_on_bin() {
+        let frame = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 5, 509).unwrap();
+        assert_eq!(frame.packets, 1, "one chunk, no session packets");
+        assert_eq!(frame.writes.len(), 1);
+        assert_eq!(frame.writes[0].characteristic_uuid, BIN);
+        assert_eq!(&frame.writes[0].bytes[..4], &[5, 1, 0, TAG_TUTU_RESTORE]);
     }
 
     #[test]
-    fn large_frame_splits_into_offset_packets_push_on_last() {
-        // With payload 20, one packet carries at most 16*255-10 = 4070 pixel
-        // bytes. 40x34 RGB = 4080 bytes -> two DDP packets.
-        let (w, h) = (40u32, 34u32);
-        let rgb = vec![0xAB; (w * h * 3) as usize];
-        let frame = encode_display_frame(&rgb, w, h, 7, 20).unwrap();
-        assert_eq!(frame.packets, 2, "callers must advance frame_index by 2");
-
-        let packets = reassemble(&frame.writes);
-        assert_eq!(packets.len(), 2);
-
-        // First packet: no PUSH, offset 0, full capacity.
-        assert_eq!(packets[0][0], 0x00);
-        assert_eq!(packets[0][1], 7);
-        assert_eq!(&packets[0][4..8], &0u32.to_be_bytes());
-        assert_eq!(&packets[0][8..10], &4070u16.to_be_bytes());
-
-        // Second packet: PUSH latches the frame, offset continues, sn steps.
-        assert_eq!(packets[1][0], FLAG_PUSH);
-        assert_eq!(packets[1][1], 8);
-        assert_eq!(&packets[1][4..8], &4070u32.to_be_bytes());
-        assert_eq!(&packets[1][8..10], &10u16.to_be_bytes());
-
-        let body: Vec<u8> = packets
-            .iter()
-            .flat_map(|p| p[DDP_HEADER_LEN..].to_vec())
-            .collect();
-        assert_eq!(body, rgb);
+    fn chunk_too_big_for_one_write_is_rejected() {
+        // The device honors only the first BLE write of a BIN transfer, so a
+        // chunk that cannot fit one write is a hard error, not a partial paint.
+        let err = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 5, 20).unwrap_err();
+        match err {
+            ProtocolError::ImageDimensionsInvalid { reason } => {
+                assert!(reason.contains("does not reassemble"), "got: {reason}");
+            }
+            other => panic!("expected ImageDimensionsInvalid, got {other:?}"),
+        }
     }
 
     #[test]
-    fn larger_mtu_shrinks_write_count() {
-        let rgb = vec![0x11; 16 * 16 * 3];
-        let small = encode_display_frame(&rgb, 16, 16, 0, 20).unwrap();
-        let large = encode_display_frame(&rgb, 16, 16, 0, 509).unwrap();
-        assert!(large.writes.len() < small.writes.len());
-        // 768 + 10 = 778 bytes at 505 usable payload -> 2 writes.
-        assert_eq!(large.writes.len(), 2);
-        assert_eq!(reassemble(&small.writes), reassemble(&large.writes));
+    fn tiny_canvas_round_trips_palette_and_runs() {
+        let frame = encode_doodle_frame(&spec(), &tiny(), 2, 2, 5, 509).unwrap();
+        let chunk = &frame.writes[0].bytes[4..];
+        // header: start (0,0), 2 colors, then RGB of red, green.
+        assert_eq!(&chunk[..3], &[0, 0, 2]);
+        assert_eq!(&chunk[3..9], &[255, 0, 0, 0, 255, 0]);
     }
 
     #[test]
-    fn frame_index_drives_serials_and_wraps() {
-        let rgb = [0u8; 3];
-        let w255 = encode_display_frame(&rgb, 1, 1, 255, 20).unwrap();
-        assert_eq!(w255.writes[0][0], 255);
-        let w256 = encode_display_frame(&rgb, 1, 1, 256, 20).unwrap();
-        assert_eq!(w256.writes[0][0], 0, "serial wraps at u8");
+    fn too_many_colors_is_rejected() {
+        // 17 distinct colors in a 1x17 canvas exceeds the 16-entry palette.
+        let mut rgb = Vec::new();
+        for i in 0..17u8 {
+            rgb.extend_from_slice(&[i, 0, 0]);
+        }
+        let err = encode_doodle_frame(&spec(), &rgb, 17, 1, 0, 509).unwrap_err();
+        assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
     }
 
     #[test]
     fn wrong_buffer_length_is_rejected() {
-        let err = encode_display_frame(&[0u8; 5], 2, 2, 0, 20).unwrap_err();
-        assert!(err.to_string().contains("needs 12"), "got: {err}");
+        let err = encode_doodle_frame(&spec(), &[0; 5], 2, 2, 0, 509).unwrap_err();
+        assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
     }
 
     #[test]
-    fn zero_dimensions_are_rejected() {
-        assert!(encode_display_frame(&[], 0, 4, 0, 20).is_err());
-        assert!(encode_display_frame(&[], 4, 0, 0, 20).is_err());
+    fn missing_session_command_in_spec_errors() {
+        // A spec whose DDP char lacks the session-open commands must fail
+        // clearly, not silently skip opening the session.
+        let yaml = SPEC_YAML.replace("ui_end_sync:", "not_the_command:");
+        let s = parse_device_spec(&yaml).unwrap();
+        let err = encode_doodle_frame(&s, &tiny(), 2, 2, 0, 509).unwrap_err();
+        assert!(matches!(err, ProtocolError::CommandNotFound { .. }));
     }
 
     #[test]
-    fn tiny_payload_budget_is_rejected() {
-        let err = encode_display_frame(&[0u8; 3], 1, 1, 0, 8).unwrap_err();
-        assert!(err.to_string().contains("BLE minimum"), "got: {err}");
-    }
-
-    #[test]
-    fn overflowing_dimensions_are_rejected() {
-        assert!(encode_display_frame(&[], u32::MAX, u32::MAX, 0, 20).is_err());
-    }
-
-    #[test]
-    fn frames_needing_more_serials_than_u8_holds_are_rejected() {
-        // 600x600 RGB888 at the 20-byte floor is 1_080_000 bytes, splitting
-        // into ceil(1_080_000 / 4070) = 266 DDP packets — past the 256
-        // distinct u8 serials one frame may consume.
-        let rgb = vec![0u8; 600 * 600 * 3];
-        let err = encode_display_frame(&rgb, 600, 600, 0, 20).unwrap_err();
-        assert!(err.to_string().contains("DDP packets"), "got: {err}");
+    fn long_runs_use_extension_bytes() {
+        // A solid 20x20 canvas: one 400-pixel run -> (0<<4) then 255,255,255,19.
+        let rgb = vec![0x11u8; 20 * 20 * 3];
+        let chunks = encode_tutu_restore(&rgb, 20, 20).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(&chunks[0][..6], &[0, 0, 1, 0x11, 0x11, 0x11]);
+        assert_eq!(&chunks[0][6..], &[0x00, 255, 255, 255, 19]);
     }
 }
