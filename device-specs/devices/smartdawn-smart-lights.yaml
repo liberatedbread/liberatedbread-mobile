@@ -527,15 +527,16 @@ services:
               (2026-08-08). Pixel data then flows as TUTU-tagged buffer
               arrays on the BIN Write characteristic (see its notes).
               M_DOODLE_END = 2702 exists but the app never sends it;
-              M_DOODLE_SCROLL = 2715.
-            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x8D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+              M_DOODLE_SCROLL = 2715. The wire payload is EMPTY (header only,
+              len=20), so the template carries no protobuf body — matching the
+              live-verified send.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x8D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
               cid: { type: "uint32", endianness: "big", default: 0 }
               osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
-              payload: { type: "bytes", description: "SimpleMessage {i1:1, i2:1} protobuf" }
           dev_start:
             description: >
               Enter the developer/layout RAW-pixel mode. M_DEV_START (mt=235),
