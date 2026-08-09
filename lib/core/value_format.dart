@@ -56,12 +56,50 @@ String humanizeName(String raw) {
   return (min: resolvedMin, max: resolvedMax);
 }
 
+/// Most discrete stops a slider is given before it reads better as a
+/// continuous one. Also a ceiling on what a spec can ask the UI to build: a
+/// `uint32` setpoint stepped by 1 would otherwise request 4.3 billion
+/// divisions.
+const int maxSliderDivisions = 255;
+
 /// Slider divisions for an integer range, or null for a degenerate range or one
-/// wide enough (> 255 steps) that a continuous slider reads better.
-int? divisionsFor(double min, double max) {
-  final span = (max - min).round();
-  if (span <= 0 || span > 255) return null;
-  return span;
+/// wide enough that a continuous slider reads better.
+int? divisionsFor(double min, double max) => divisionsForStep(min, max, 1);
+
+/// Slider divisions for `min..max` in increments of [step] — the device's real
+/// resolution, so the control can only land on values it can actually hold.
+///
+/// Null for a degenerate range, a non-positive step, or a stop count past
+/// [maxSliderDivisions]; the caller then gets a continuous slider, which is
+/// the honest rendering when the steps are finer than the screen.
+int? divisionsForStep(double min, double max, double step) {
+  if (!step.isFinite || step <= 0) return null;
+  final span = max - min;
+  if (!span.isFinite || span <= 0) return null;
+  final count = (span / step).round();
+  if (count <= 0 || count > maxSliderDivisions) return null;
+  return count;
+}
+
+/// A well-ordered `[min, max]` for a setpoint slider, or null when the spec
+/// does not bound the value usably.
+///
+/// Specs load from arbitrary remote pack URLs and the Rust parser validates
+/// command *parameter* bounds, not entity `min`/`max` — so an inverted or
+/// degenerate pair reaches the UI intact. It must not reach `Slider`, whose
+/// `min <= max` is an assert, or `num.clamp`, which throws on an inverted
+/// range. Returning null drops the caller to its unbounded control instead,
+/// which says "we cannot draw a range for this" rather than crashing the
+/// panel. Same philosophy as [rangeFor], one layer up.
+///
+/// An inverted pair is not only a hostile-spec case: an entity may declare
+/// `min` alone in decoded units while the fallback `max` comes from the bound
+/// field's raw type range mapped through a scale below 1, which lands the two
+/// on opposite sides.
+({double min, double max})? setpointRange(double? min, double? max) {
+  if (min == null || max == null) return null;
+  if (!min.isFinite || !max.isFinite || min >= max) return null;
+  return (min: min, max: max);
 }
 
 /// Whether [valueType] is a numeric spec type a slider can honestly input.

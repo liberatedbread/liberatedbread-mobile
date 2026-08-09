@@ -211,6 +211,100 @@ void main() {
     expect(find.textContaining('49'), findsOneWidget);
   });
 
+  group('bounds a spec cannot make a range out of', () {
+    /// A writable setpoint with whatever bounds a case wants to try.
+    EntityDto boundedEntity({double? min, double? max, double? step}) =>
+        EntityDto(
+          name: 'Heat Level 1',
+          platform: 'number',
+          unit: '%',
+          stateCharacteristic: _stateChar,
+          canNotify: false,
+          hasFormat: true,
+          valueField: 'heat_percent',
+          onWhenNonzero: false,
+          actions: [_setValue()],
+          setpointMin: min,
+          setpointMax: max,
+          setpointStep: step,
+        );
+
+    testWidgets('inverted bounds fall back to steppers instead of throwing',
+        (tester) async {
+      // `Slider` asserts min <= max and `num.clamp` throws on an inverted
+      // range, so this used to take the whole device panel down. Specs load
+      // from arbitrary remote pack URLs and the Rust parser validates command
+      // PARAMETER bounds, not entity min/max — and an entity declaring `min`
+      // alone can invert on its own, when the fallback `max` comes from the
+      // bound field's raw range mapped through a scale below 1.
+      await tester.pumpWidget(_wrap(
+        boundedEntity(min: 100, max: 2.55),
+        codec: _codecReading(40),
+        ble: FakeBleService(),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Slider), findsNothing);
+      expect(find.text('Set'), findsOneWidget,
+          reason: 'the unbounded stepper control is the honest fallback');
+    });
+
+    testWidgets('zero-width bounds fall back too', (tester) async {
+      await tester.pumpWidget(_wrap(
+        boundedEntity(min: 50, max: 50),
+        codec: _codecReading(40),
+        ble: FakeBleService(),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(Slider), findsNothing);
+    });
+
+    testWidgets('a read-only entity with inverted bounds states nothing',
+        (tester) async {
+      // The "Accepts 100–2.55" line would be the same nonsense in prose.
+      const entity = EntityDto(
+        name: 'Target',
+        platform: 'number',
+        unit: '%',
+        stateCharacteristic: _stateChar,
+        canNotify: false,
+        hasFormat: true,
+        valueField: 'heat_percent',
+        onWhenNonzero: false,
+        actions: [],
+        setpointMin: 100,
+        setpointMax: 2.55,
+      );
+      await tester.pumpWidget(
+        _wrap(entity, codec: _codecReading(40), ble: FakeBleService()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('does not describe how to set it yet'),
+          findsNothing);
+    });
+
+    testWidgets('a range finer than the screen becomes a continuous slider',
+        (tester) async {
+      // A uint32 direct-write setpoint stepped by 1 asks for 4.3 billion
+      // discrete stops. Divisions are capped rather than handed through.
+      await tester.pumpWidget(_wrap(
+        boundedEntity(min: 0, max: 4294967295, step: 1),
+        codec: _codecReading(40),
+        ble: FakeBleService(),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final slider = tester.widget<Slider>(find.byType(Slider));
+      expect(slider.divisions, isNull);
+    });
+  });
+
   testWidgets('a write-only setpoint says the current value is unknown',
       (tester) async {
     final entity = EntityDto(
