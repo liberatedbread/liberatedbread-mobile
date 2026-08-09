@@ -836,6 +836,34 @@ pub struct Parameter {
     /// Free-form documentation about the parameter.
     #[serde(default)]
     pub notes: Option<String>,
+    /// Byte order for multi-byte parameters. Defaults to little-endian when
+    /// absent; protocols with big-endian headers (e.g. Daniao DNX) declare it.
+    #[serde(default)]
+    pub endianness: Option<Endianness>,
+    /// Transport role the ENCODER fills, rather than the caller: `sequence`
+    /// (a message serial) and `packet_length` (the total encoded length). This
+    /// is what lets a spec declare header fields the client computes without
+    /// the caller having to.
+    #[serde(default)]
+    pub auto: Option<AutoRole>,
+}
+
+/// Byte order for a multi-byte [`Parameter`] / template field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Endianness {
+    Little,
+    Big,
+}
+
+/// A transport field the encoder fills in rather than the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoRole {
+    /// The total encoded packet length in bytes.
+    PacketLength,
+    /// A per-message sequence number (0 unless a stateful caller supplies one).
+    Sequence,
 }
 
 /// Same rationale as [`FormatField`]'s: only `type` is load-bearing, and the
@@ -855,6 +883,8 @@ impl Default for Parameter {
             value_offset: None,
             unit: None,
             notes: None,
+            endianness: None,
+            auto: None,
         }
     }
 }

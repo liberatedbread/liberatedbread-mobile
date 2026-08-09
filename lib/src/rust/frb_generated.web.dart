@@ -98,6 +98,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageUploadDto dco_decode_image_upload_dto(dynamic raw);
 
   @protected
+  ImageWriteDto dco_decode_image_write_dto(dynamic raw);
+
+  @protected
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw);
 
   @protected
@@ -125,7 +128,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw);
 
   @protected
-  List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
+  List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
 
   @protected
   List<MacPrefixDto> dco_decode_list_mac_prefix_dto(dynamic raw);
@@ -329,6 +332,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageUploadDto sse_decode_image_upload_dto(SseDeserializer deserializer);
 
   @protected
+  ImageWriteDto sse_decode_image_write_dto(SseDeserializer deserializer);
+
+  @protected
   ImageWritePlanDto sse_decode_image_write_plan_dto(
       SseDeserializer deserializer);
 
@@ -362,7 +368,7 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
-  List<Uint8List> sse_decode_list_list_prim_u_8_strict(
+  List<ImageWriteDto> sse_decode_list_image_write_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -584,6 +590,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       ImageUploadDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_image_write_dto(ImageWriteDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_image_write_plan_dto(
       ImageWritePlanDto self, SseSerializer serializer);
 
@@ -619,8 +628,8 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<FormatFieldDto> self, SseSerializer serializer);
 
   @protected
-  void sse_encode_list_list_prim_u_8_strict(
-      List<Uint8List> self, SseSerializer serializer);
+  void sse_encode_list_image_write_dto(
+      List<ImageWriteDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_mac_prefix_dto(

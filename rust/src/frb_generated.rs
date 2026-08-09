@@ -826,16 +826,26 @@ impl SseDecode for crate::api::device_api::ImageUploadDto {
     }
 }
 
+impl SseDecode for crate::api::device_api::ImageWriteDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_characteristicUuid = <String>::sse_decode(deserializer);
+        let mut var_bytes = <Vec<u8>>::sse_decode(deserializer);
+        return crate::api::device_api::ImageWriteDto {
+            characteristic_uuid: var_characteristicUuid,
+            bytes: var_bytes,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::ImageWritePlanDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_serviceUuid = <String>::sse_decode(deserializer);
-        let mut var_characteristicUuid = <String>::sse_decode(deserializer);
-        let mut var_writes = <Vec<Vec<u8>>>::sse_decode(deserializer);
+        let mut var_writes = <Vec<crate::api::device_api::ImageWriteDto>>::sse_decode(deserializer);
         let mut var_nextFrameIndex = <u32>::sse_decode(deserializer);
         return crate::api::device_api::ImageWritePlanDto {
             service_uuid: var_serviceUuid,
-            characteristic_uuid: var_characteristicUuid,
             writes: var_writes,
             next_frame_index: var_nextFrameIndex,
         };
@@ -952,13 +962,15 @@ impl SseDecode for Vec<crate::api::device_api::FormatFieldDto> {
     }
 }
 
-impl SseDecode for Vec<Vec<u8>> {
+impl SseDecode for Vec<crate::api::device_api::ImageWriteDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut len_ = <i32>::sse_decode(deserializer);
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
-            ans_.push(<Vec<u8>>::sse_decode(deserializer));
+            ans_.push(<crate::api::device_api::ImageWriteDto>::sse_decode(
+                deserializer,
+            ));
         }
         return ans_;
     }
@@ -1821,11 +1833,31 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ImageUploadDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageWriteDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.characteristic_uuid.into_into_dart().into_dart(),
+            self.bytes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::ImageWriteDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ImageWriteDto>
+    for crate::api::device_api::ImageWriteDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::ImageWriteDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageWritePlanDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
             self.service_uuid.into_into_dart().into_dart(),
-            self.characteristic_uuid.into_into_dart().into_dart(),
             self.writes.into_into_dart().into_dart(),
             self.next_frame_index.into_into_dart().into_dart(),
         ]
@@ -2318,12 +2350,19 @@ impl SseEncode for crate::api::device_api::ImageUploadDto {
     }
 }
 
+impl SseEncode for crate::api::device_api::ImageWriteDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.characteristic_uuid, serializer);
+        <Vec<u8>>::sse_encode(self.bytes, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::ImageWritePlanDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.service_uuid, serializer);
-        <String>::sse_encode(self.characteristic_uuid, serializer);
-        <Vec<Vec<u8>>>::sse_encode(self.writes, serializer);
+        <Vec<crate::api::device_api::ImageWriteDto>>::sse_encode(self.writes, serializer);
         <u32>::sse_encode(self.next_frame_index, serializer);
     }
 }
@@ -2408,12 +2447,12 @@ impl SseEncode for Vec<crate::api::device_api::FormatFieldDto> {
     }
 }
 
-impl SseEncode for Vec<Vec<u8>> {
+impl SseEncode for Vec<crate::api::device_api::ImageWriteDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
-            <Vec<u8>>::sse_encode(item, serializer);
+            <crate::api::device_api::ImageWriteDto>::sse_encode(item, serializer);
         }
     }
 }

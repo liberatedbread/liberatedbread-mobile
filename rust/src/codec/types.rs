@@ -4,7 +4,9 @@
 //! Byte-level encoding and decoding for BLE characteristic values.
 
 use crate::error::ProtocolError;
-use crate::spec::types::{Command, FormatField, Parameter, TemplateElement, ValueType};
+use crate::spec::types::{
+    AutoRole, Command, Endianness, FormatField, Parameter, TemplateElement, ValueType,
+};
 use std::collections::HashMap;
 
 /// Format bytes as a hex string with the given separator.
@@ -272,32 +274,79 @@ pub fn encode_command(
         .ok_or(ProtocolError::EmptyCommand)?;
     let param_defs = command.parameters.as_ref();
 
+    // First pass: the packet's total encoded length, needed to fill any
+    // `auto: packet_length` transport field. Fixed-width parameters contribute
+    // their type's width; variable-width ones (bytes/string) contribute 0 here,
+    // which is moot — they cannot be supplied through the f64 param map and fail
+    // the encode below anyway.
+    let total_len: usize = template
+        .iter()
+        .map(|element| match element {
+            TemplateElement::Byte(_) => 1,
+            TemplateElement::Param(name) => param_defs
+                .and_then(|d| d.params.get(name.as_str()))
+                .map(|d| &d.value_type)
+                .unwrap_or(&ValueType::Uint8)
+                .fixed_byte_size()
+                .unwrap_or(0),
+        })
+        .sum();
+
     let mut bytes = Vec::new();
     for element in template {
         match element {
             TemplateElement::Byte(b) => bytes.push(*b),
             TemplateElement::Param(name) => {
                 let def = param_defs.and_then(|d| d.params.get(name.as_str()));
-                // A caller-supplied value wins; otherwise the spec's declared
-                // default fills in. This is what lets a high-level control
-                // (brightness slider, color picker) send only the parameters
-                // it owns while protocol bytes like `seq`/`flag` come from
-                // the spec.
-                let val = params
-                    .get(name.as_str())
-                    .copied()
-                    .or_else(|| def.and_then(|d| d.default).map(|v| v as f64))
-                    .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
+                // Resolution order: auto roles are the encoder's (a supplied
+                // packet_length is ignored — it can only be redundant or wrong;
+                // a supplied sequence is honored so stateful callers can
+                // increment); otherwise a supplied value wins, then the spec's
+                // default, then the parameter is genuinely missing. The
+                // supplied-then-default fallback is what lets a high-level
+                // control (brightness slider, color picker) send only the
+                // parameters it owns while protocol bytes like `seq`/`flag`
+                // come from the spec.
+                let val = match def.and_then(|d| d.auto) {
+                    Some(AutoRole::PacketLength) => total_len as f64,
+                    Some(AutoRole::Sequence) => params.get(name.as_str()).copied().unwrap_or(0.0),
+                    None => match params.get(name.as_str()) {
+                        Some(v) => *v,
+                        None => def
+                            .and_then(|d| d.default)
+                            .map(|d| d as f64)
+                            .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?,
+                    },
+                };
                 if let Some(def) = def {
                     validate_param_range(name, val, def)?;
                 }
                 let param_type = def.map(|d| &d.value_type).unwrap_or(&ValueType::Uint8);
                 let typed = coerce_param(val, param_type, name)?;
-                append_typed(&mut bytes, typed);
+                let big_endian = matches!(def.and_then(|d| d.endianness), Some(Endianness::Big));
+                append_typed(&mut bytes, typed, big_endian);
             }
         }
     }
     Ok(bytes)
+}
+
+/// The low byte of a command's `auto: sequence` parameter as resolved by
+/// [`encode_command`] (supplied value, else 0), or 0 when the command declares
+/// none. Fragment framings reuse it as the packet serial so the serial tracks
+/// the message counter when a stateful caller supplies one.
+pub fn sequence_low_byte(command: &Command, params: &HashMap<String, f64>) -> u8 {
+    command
+        .parameters
+        .as_ref()
+        .and_then(|defs| {
+            defs.params
+                .iter()
+                .find(|(_, def)| def.auto == Some(AutoRole::Sequence))
+                .map(|(name, _)| params.get(name.as_str()).copied().unwrap_or(0.0))
+        })
+        .map(|v| (v as i64 & 0xFF) as u8)
+        .unwrap_or(0)
 }
 
 /// Validate that `val` is within `[def.min, def.max]` if either bound is set.
@@ -397,18 +446,29 @@ pub(crate) fn coerce_param(
 /// an out-of-range setpoint fails here rather than on the wire.
 pub fn encode_scalar(value: f64, ty: &ValueType, name: &str) -> Result<Vec<u8>, ProtocolError> {
     let mut bytes = Vec::new();
-    append_typed(&mut bytes, coerce_param(value, ty, name)?);
+    // Setpoint scalars have no endianness declaration of their own; keep the
+    // established little-endian behavior for multi-byte widths.
+    append_typed(&mut bytes, coerce_param(value, ty, name)?, false);
     Ok(bytes)
 }
 
-fn append_typed(bytes: &mut Vec<u8>, val: TypedParam) {
+fn append_typed(bytes: &mut Vec<u8>, val: TypedParam, big_endian: bool) {
+    macro_rules! push {
+        ($v:expr) => {
+            if big_endian {
+                bytes.extend_from_slice(&$v.to_be_bytes())
+            } else {
+                bytes.extend_from_slice(&$v.to_le_bytes())
+            }
+        };
+    }
     match val {
         TypedParam::U8(v) => bytes.push(v),
         TypedParam::I8(v) => bytes.push(v as u8),
-        TypedParam::U16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
-        TypedParam::I16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
-        TypedParam::U32(v) => bytes.extend_from_slice(&v.to_le_bytes()),
-        TypedParam::I32(v) => bytes.extend_from_slice(&v.to_le_bytes()),
+        TypedParam::U16(v) => push!(v),
+        TypedParam::I16(v) => push!(v),
+        TypedParam::U32(v) => push!(v),
+        TypedParam::I32(v) => push!(v),
     }
 }
 
