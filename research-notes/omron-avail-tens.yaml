@@ -1,0 +1,46 @@
+# Omron Avail PM601 — Research Spec (stub — APK not yet acquired)
+# Researched 2026-08-04. Companion app: "OMRON TENS" (iOS id1225437437;
+# Android package id UNKNOWN — app pulled from Play, not on APK mirrors).
+
+device:
+  id: omron-avail-tens
+  name: Omron Avail Wireless Dual Channel TENS (PM601)
+  manufacturer: Omron Healthcare (company alive; product line discontinued ~2021-2022)
+  category: medical_therapy_tens
+  safety_class: MEDIUM  # Active electrical stimulator
+
+transport:
+  type: ble
+  local_only: true  # Manual shows direct app pairing; no account/cloud documented
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "Avail" / "OMRON" speculative
+    service_uuids: []  # TBD — needs APK or HCI capture
+  services: []         # TBD
+
+protocol:
+  note: >
+    Hypothesis only. Dual-channel TENS + microcurrent, 5 body modes,
+    4-5 massage modes, 20 intensity levels, all set over BLE from the
+    OMRON TENS app. Expect custom GATT service with per-channel mode/intensity
+    command characteristic(s) and status notify. Confirm via APK static pass
+    or HCI snoop from the iOS app (id1225437437) if Android APK stays lost.
+  features:
+    channels: 2
+    body_modes: [lower_back, shoulder, joint, arm, foot]
+    massage_modes: [steady, knead, tap, acupuncture_like, microcurrent]
+    intensity_levels: 20
+
+status:
+  apk_acquired: false   # Android APK not found on APKPure/Aptoide; package id unknown
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  cloud_required: false
+  abandonment: product discontinued (owner reports + delisted); Android app unavailable as of 2026-08
+  next_actions:
+    - Recover package id via Wayback capture of Play listing, then re-try mirrors
+    - Extract APK from an owner device
+    - Fallback: HCI-snoop the iOS app

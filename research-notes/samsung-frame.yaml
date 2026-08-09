@@ -1,0 +1,66 @@
+# Samsung The Frame — Device Spec (research note)
+# Company alive; local Tizen API incl. Art Mode channel — no cloud needed at any step
+
+device:
+  id: samsung-frame
+  name: Samsung The Frame (all generations 2017+; art-mode Tizen TVs)
+  manufacturer: Samsung Electronics
+  category: art_display
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Standard Samsung Tizen local API. Pairing is an on-TV Allow/Deny prompt,
+    fully local; the SmartThings cloud app is optional and never required.
+    Wake-on-LAN needed to wake the TV SoC from standby.
+
+lan:
+  discovery:
+    ssdp: urn:samsung.com:device:RemoteControlReceiver:1
+    mdns: true   # newer firmware
+  device_info:
+    url: http://<tv-ip>:8001/api/v2/
+    note: model name, OS version, TokenAuthSupport flag; 8002/HTTPS on 2018+
+  control:
+    protocol: websocket
+    ports:
+      - 8001    # ws://  2016-2017 models, no token
+      - 8002    # wss:// 2018+ models, pairing token persisted client-side
+    channel: /api/v2/channels/samsung.remote.control
+    auth: on-TV allow/deny prompt at first connect; token then reused
+  art_mode:
+    channel: com.samsung.art-app   # sub-channel over same websocket
+    reference: github.com/xchwarze/samsung-tv-ws-api (samsungtvws, tv.art())
+
+protocol:
+  note: >
+    Remote-control channel carries base64-wrapped JSON key events; the art-app
+    channel carries JSON-RPC-ish art commands. Implemented end-to-end in
+    samsungtvws (Python).
+  commands:
+    art_list: art.get_art_list()
+    art_select: art.set_artwork(content_id)
+    art_upload: art.upload(file)      # JPEG/PNG; 2021+ models
+    art_delete: art.delete(content_id)
+    art_current: art.get_current()
+    art_brightness: art.set_brightness(v)
+    art_slideshow: art.set_slideshow_status(interval, shuffle, category)
+    art_matte_filter: art.set_matte() / art.set_photo_filter()
+    key_events: KEY_POWER, KEY_SOURCE, etc. via remote-control channel
+    wake_from_standby: WoL magic packet to TV MAC
+
+status:
+  apk_acquired: false     # n/a — SmartThings app not needed for local API
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE
+  protocol_recovered: true   # mature open-source implementations
+  hci_snoop_needed: false
+  cloud_dead: false
+  rating: confirmed       # vendor-adjacent: documented-by-implementation, widely used
+  references:
+    - github.com/xchwarze/samsung-tv-ws-api (samsungtvws — art mode reference impl)
+    - github.com/TheFab21/ha-samsungtv-smart (HA art-mode integration)
+    - Home Assistant core integration: samsungtv
+    - jonsully.net/blog/samsung-frame-art-api (2024-11-23)

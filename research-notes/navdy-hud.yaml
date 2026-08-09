@@ -1,0 +1,50 @@
+# Navdy HUD — research note
+# Navdy Inc. bankrupt Dec 2017; cloud dead Jan 2018 (dated press + owner
+# reports). Active hacker community keeps units alive: patched Android app,
+# fastboot ROMs, offline-map workaround, decompiled on-device APKs all public.
+
+device:
+  id: navdy-hud
+  name: Navdy head-up display (HUD + Dial)
+  manufacturer: Navdy Inc. (defunct Dec 2017)
+  category: vehicle_hud
+  safety_class: LOW  # display + read-only OBD; no vehicle write path documented
+
+transport:
+  type: bluetooth_classic_rfcomm   # phone<->display; plus wired OBD-II and USB ADB/fastboot
+  local_only: true                 # after community patches; stock app was cloud-dependent
+
+bluetooth:
+  rfcomm:
+    - uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      name: spp
+      note: SPP-family socket assumed; exact UUID(s) not yet distilled from source
+  note: >
+    Phone<->display link is Bluetooth Classic. Display also exposes
+    ADB/fastboot over micro-USB (hold power on plug-in, red LED) and contains
+    an STN1110 OBD chip on the wired vehicle cable — NavdyOBD app talks to it
+    directly, so the unit is reusable as a standard STN11xx OBD adapter.
+
+protocol:
+  note: >
+    Phone<->display application protocol not yet spec'd, but complete jadx
+    sources of the display's Hud.apk and Obd.apk are published
+    (gitlab forks navdy-display-Hud-java / navdy-display-Obd-java), and a
+    working patched phone app exists (DexPatcher port, package
+    com.alelec.navdyclient, based on stock app 1.3.1718). Greenfield
+    distillation, no fundamental RE blocker.
+  references:
+    - https://navdy-hackers.github.io/
+    - https://github.com/Navdy-Hackers
+    - https://xdaforums.com/t/mod-dev-navdy-display-hud.3784638
+    - https://gitlab.com/alelec/navdy   # display-rom, client port, tools
+    - https://gitlab.com/loushaoke/NavdyOBD
+
+status:
+  apk_acquired: false    # stock app delisted; not on apk-pure (tried 2026-08-04)
+  apk_alternative: "patched rebuilds via gitlab alelec_navdy_client releases"
+  protocol_recovered: partial   # on-device sources public; wire spec not yet written
+  hci_snoop_needed: false
+  cloud_dependency: formerly_full_now_none  # stock app needed Navdy cloud + dead
+                                             # Google/HERE keys; community builds remove this
+  feasibility: confirmed_moderate

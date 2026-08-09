@@ -1,0 +1,63 @@
+# Bluesmart One / Series 2 — Research Note
+# Cloud status: company shut down 2018-05-01, assets sold to Travelpro
+# APK: NOT fetchable from any mirror tried (verified 2026-08-03)
+
+device:
+  id: bluesmart-one
+  name: Bluesmart One / Bluesmart Series 2 smart suitcase
+  manufacturer: Bluesmart (defunct; IP sold to Travelpro 2018-05)
+  category: smart_luggage
+  safety_class: LOW  # TSA key override on the lock; failed RE cannot lock owners out
+
+transport:
+  type: ble
+  local_only: true  # lock/scale/proximity are app<->case BLE; GPS+account were cloud
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — no unit scanned; "Bluesmart" prefix speculative
+    service_uuids: []  # TBD — needs nRF Connect scan of a live case
+
+  services: []  # No UUIDs recovered — no APK available for static analysis
+
+protocol:
+  note: >
+    Greenfield. App-driven BLE functions: remote lock/unlock (motorized
+    TSA lock), digital scale readout, battery status, proximity
+    (separation) alerts. Cloud was used for account, GPS/3G location
+    reports, trip sync. Unknown whether unlock authorization is fully
+    on-device after pairing or depends on a server-issued credential —
+    this is the key question for local resurrection.
+  commands:
+    lock: TBD
+    unlock: TBD
+    weight_read: TBD
+    battery_status: TBD
+
+cloud_dependence:
+  initial_setup: unknown  # likely account creation required in app (2015-2018 era)
+  lock_unlock: ble_local (hypothesis — pairing was phone-direct)
+  gps_tracking: cloud (dead)
+  scale: ble_local (hypothesis)
+
+abandonment:
+  shutdown_date: "2018-05-01"
+  reason: US airline ban on non-removable lithium batteries in smart luggage (2018-01-15)
+  sources:
+    - https://techcrunch.com/2018/05/01/bluesmart-sells-assets-to-travelpro-following-smart-luggage-ban/
+    - https://www.engadget.com/2018-05-01-bluesmart-smart-luggage-shutting-down.html
+  apps_delisted: true  # Play 404 + Apple Search API empty, verified 2026-08-03
+
+status:
+  apk_acquired: false
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  apk_notes: >
+    Package id unconfirmed (com.bluesmart / com.bluesmart.one /
+    com.bluesmart.app all dead). apkeep/apk-pure, APKPure, APKCombo,
+    Aptoide all negative (2026-08-03). App was still on Play in 2021 per
+    Sailfish OS forum; delisted since. Recovery = adb pull from an owner
+    handset or private mirror. Raises RE difficulty significantly.
+  difficulty: high  # no APK, no prior community RE; needs hardware + enrolled-phone capture

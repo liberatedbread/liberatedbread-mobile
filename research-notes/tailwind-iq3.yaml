@@ -1,0 +1,59 @@
+# Tailwind iQ3 — Device Spec (research note)
+# Vendor ACTIVE (gotailwind.com reachable 2026-08-07; iQ3 2.0/2.1 current).
+# Official local API (fw >= 10.10): POST http://<ip>/json, TOKEN header with
+# 6-digit local control key. HA core integration tailwind (local_polling);
+# reference client python-gotailwind is vendor-sponsored.
+
+device:
+  id: tailwind-iq3
+  name: Tailwind iQ3 (1st gen / 2.0 / 2.1) smart garage door controller
+  manufacturer: Tailwind (gotailwind.com)
+  category: garage_door_controller
+  safety_class: MEDIUM  # LAN API can actuate door; device lockout/disabled states respected by clients
+
+transport:
+  type: wifi
+  local_only: true  # control plane; see caveat below
+  note: >
+    Official local JSON-over-HTTP API, firmware >= 10.10. One-time caveat:
+    onboarding + retrieval of the 6-digit local control key happens in the
+    Tailwind app, which requires a vendor cloud account. After key
+    extraction, control is fully local; existing setups survive cloud loss,
+    new provisioning would not (no documented key-recovery path without
+    the app).
+
+lan:
+  discovery:
+    mdns: zeroconf (HA tailwind integration auto-discovers)
+  control:
+    protocol: http
+    endpoint: POST http://<device-ip>/json
+    auth: "TOKEN header carrying the 6-digit local control key"
+
+protocol:
+  note: >
+    JSON request bodies; envelope shapes in frenck/python-gotailwind
+    models.py: TailwindDeviceStatusRequest, TailwindDoorOperationRequest
+    (data.value.index + data.value.operation open|close), IdentifyRequest,
+    LEDBrightnessRequest. Client waits/ polls door state after operate.
+  commands:
+    status: POST /json (device status request)
+    door_status: POST /json (door index lookup from status)
+    open: POST /json {"data":{"value":{"index":N,"operation":"open"}}}
+    close: POST /json {"data":{"value":{"index":N,"operation":"close"}}}
+    identify: POST /json (flash/beep)
+    led_brightness: POST /json (data.value.brightness)
+
+status:
+  apk_acquired: false   # not needed — vendor-documented local API
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false
+  rating: confirmed
+  references:
+    - github.com/frenck/python-gotailwind (vendor-sponsored reference client)
+    - home-assistant.io/integrations/tailwind/ (local_polling; fw >= 10.10)
+    - community.home-assistant.io/t/2024-1-happy-automating/665947 (2024-01-03, fw 10.10 rollout)
+    - gotailwind.com/pages/what-does-tailwind-work-with (local API statement)

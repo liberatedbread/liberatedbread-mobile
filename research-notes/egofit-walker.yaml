@@ -1,0 +1,41 @@
+# Egofit Walker (M1/M1T) — Device Spec (research)
+# App: io.egofit.app ("Egofit", Google Play) — APK NOT acquired (APKPure fetch failed x2, 2026-08-04)
+
+device:
+  id: egofit-walker
+  name: Egofit Walker Pro / Walker Plus (M1, M1T)
+  manufacturer: Egofit
+  category: treadmill_walking_pad
+  safety_class: MEDIUM  # motorised moving belt; deck criticised as short (workwhilewalking 2023)
+
+transport:
+  type: ble
+  local_only: true  # review evidence: app works with fake email, no account gate on BLE path
+
+ble:
+  advertising:
+    name_patterns: []  # TBD
+    service_uuids: []  # TBD
+  services: []  # TBD
+
+protocol:
+  note: >
+    Unresearched protocol. Companion app confirmed to control start/stop/
+    speed and programmed workouts over BLE (Terence Eden review 2023-08-08)
+    without a cloud account, so the BLE channel is likely self-contained.
+    No prior community RE found. APK unavailable from APKPure — next step is
+    google-play fetch with credentials, adb pull, or HCI snoop on hardware.
+  commands: TBD
+
+cloud:
+  app_requires_account: false  # reported: fake email accepted
+  vendor: Egofit app (stats + social leaderboard)
+  risk: small vendor; app abandonment plausible; remote keeps basic control
+
+status:
+  apk_acquired: false  # io.egofit.app not on APKPure; needs Play fetch or adb pull
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  reference: none found

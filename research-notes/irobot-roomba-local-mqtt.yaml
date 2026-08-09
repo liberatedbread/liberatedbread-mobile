@@ -1,0 +1,56 @@
+# iRobot Roomba WiFi models — Device Spec (research note)
+# Local TLS MQTT broker on the robot (TCP 8883), BLID+password auth,
+# password extractable locally without any cloud account. iRobot Chapter 11
+# 2025-12-14; acquired by Picea Robotics, completed 2026-01-23.
+
+device:
+  id: irobot-roomba-local-mqtt
+  name: iRobot Roomba 690/890/960/980, e5/e6, i3-i8, j7/j9, s9 (+ Braava jet m6)
+  manufacturer: iRobot (Picea-owned since 2026-01)
+  category: robot_vacuum
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Robot runs its own MQTT broker (TLS, TCP 8883). Credentials: username =
+    BLID, password = per-device secret, retrievable locally by holding the
+    Home button and connecting with dorita980/roombapy — no iRobot account
+    needed. Only one local client connection at a time.
+
+lan:
+  discovery:
+    method: udp_broadcast   # UDP 5678 robot announcement (BLID, IP, MAC, model); mDNS 5353 also observed
+  control:
+    protocol: mqtts
+    port: 8883
+    auth: "username=BLID, password=per-device (local button-press extraction)"
+    note: single-client limit; use non-continuous polling (HA default) to coexist with the app
+
+protocol:
+  note: >
+    Community reference: koalazak/dorita980 (Node), rest980 (REST wrapper),
+    pschmitt/roombapy (Python; powers HA core roomba, iot_class
+    local_polling). Commands as JSON on cmd topic (start/pause/stop/dock);
+    full state published on shadow topics. 2025+ models (Roomba 105 family,
+    "V4 protocol") refuse local MQTT — dud for local control.
+  commands:
+    start: '{"command":"start"}'
+    pause: '{"command":"pause"}'
+    stop: '{"command":"stop"}'
+    dock: '{"command":"dock"}'
+    state: shadow topic publish (batPct, cleanMissionStatus, bin, maps on j/i/s)
+
+status:
+  apk_acquired: false   # com.irobot.home not fetched; protocol covered by dorita980/roombapy
+  protocol_recovered: true
+  rating: confirmed            # 690-s9 generation
+  rating_caveat: 2025+ models (105/205/405...) actively refuse local MQTT — cloud-only
+  cloud_dead: false            # iRobot alive under Picea (Chapter 11 exited 2026-01-23)
+  cloud_bootstrap: none        # local password extraction is account-free
+  references:
+    - github.com/koalazak/dorita980 + rest980
+    - github.com/pschmitt/roombapy; home-assistant.io/integrations/roomba (local_polling)
+    - community.home-assistant.io Roomba 105 V4 thread (2026-04; connection refused on 8883)
+    - prnewswire iRobot RSA announcement (2025-12-14); irobot.com emergence notice (2026-01-23)

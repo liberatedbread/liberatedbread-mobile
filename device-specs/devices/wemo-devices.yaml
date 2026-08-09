@@ -1291,15 +1291,19 @@ payload_formats:
         description: "Unix timestamp of the last state change."
       - index: 2
         name: "onfor_seconds"
+        unit: "seconds"
         description: "Seconds the load has been on during the current run."
       - index: 3
         name: "ontoday_seconds"
+        unit: "seconds"
         description: "Seconds on today."
       - index: 4
         name: "ontotal_seconds"
+        unit: "seconds"
         description: "Seconds on over the measurement period."
       - index: 5
         name: "timeperiod"
+        unit: "seconds"
         description: "Length of the measurement period in seconds (commonly 1209600 = 14 days)."
       - index: 6
         name: "wifipower"
@@ -1309,15 +1313,19 @@ payload_formats:
           wrong data rather than as an error.
       - index: 7
         name: "currentpower_mw"
+        unit: "mW"
         description: "Instantaneous power draw in milliwatts."
       - index: 8
         name: "todaymw"
+        unit: "mW·min"
         description: "Energy used today, in milliwatt-minutes."
       - index: 9
         name: "totalmw"
+        unit: "mW·min"
         description: "Energy used over the measurement period, in milliwatt-minutes."
       - index: 10
         name: "powerthreshold"
+        unit: "mW"
         description: "Standby detection threshold in milliwatts."
     example: "8|1700000000|100|200|300|1209600|8000|18500|1200|9900|8000"
   MetaInfo:

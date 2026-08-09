@@ -1,0 +1,66 @@
+# Ninebot/Segway E-Scooters — Research Note
+# App: com.ninebot.segway (Segway-Ninebot, v6.9.x)
+# XAPK source: apkeep (apk-pure)
+# XAPK SHA-256: 00fe6167ad4facc95d933d44a33c8220b5d218046ff7c1d4ab148d89abfde63e
+
+device:
+  id: ninebot-segway-scooter
+  name: Ninebot/Segway e-scooters (ES1-4, E22/25/45, F-series, D-series, Max G30, T15) + Ninebot S/miniPRO
+  manufacturer: Ninebot / Segway (vendor ACTIVE as of 2026-08 — cloud-at-risk, not abandoned)
+  category: electric_scooter
+  safety_class: HIGH  # vehicle; speed/motor writes and firmware flashing are safety-relevant
+
+transport:
+  type: ble
+  local_only: true  # local control proven by ScooterHacking Utility (Web Bluetooth build exists)
+  cloud_needed_for:
+    - initial_activation_of_new_scooter  # server round-trip; offline bypass unconfirmed
+    - firmware_image_download            # mirrored at firmware.scooterhacking.org
+
+ble:
+  advertising:
+    name_patterns: []  # TBD per model (e.g. "Ninebot"/"Segway" prefixes speculative)
+    service_uuids: []  # TBD per model
+
+  # From prior art (irmo.de teardown, ScooterHacking docs) — NOT recovered from APK;
+  # base APK carries only a 208KB classes.dex loader stub, bulk code is native/dynamic.
+  services:
+    - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      name: nordic_uart_service
+      description: UART bridge carrying the Ninebot/Xiaomi serial register protocol
+      confidence: prior_art_reported
+      characteristics:
+        - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_rx
+          description: write commands to scooter
+          properties: [write, write_no_response]
+        - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_tx
+          description: notifications from scooter
+          properties: [notify]
+
+protocol:
+  note: >
+    Ninebot/Xiaomi shared serial protocol (register read/write frames with CRC16)
+    tunneled over Nordic UART. Pairing involves a per-session random exchange
+    (G30: "BLE random 0x5B" handshake per ScooterHacking issue tracker).
+    Firmware images are encrypted; NinebotCrypto protocol publicly implemented
+    (github.com/scooterhacking, by majsi). Register maps per model live in the
+    ScooterHacking wiki and SHFW/SHU sources.
+  commands:
+    lock_unlock: register write (encoding in SHU sources)
+    speed_mode: register write
+    telemetry: register reads (battery, speed, ESC temp)
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # packed/dynamic-loading app; cheap static pass found no UUIDs
+  uuids_recovered: false # from APK; NUS UUIDs above are prior-art-reported
+  protocol_recovered: true  # via community: ScooterHacking Utility + NinebotCrypto
+  hci_snoop_needed: false # community captures exist; per-model confirm still useful
+  reference:
+    - wiki.scooterhacking.org (shutility, per-model guides)
+    - github.com/scooterhacking org (NinebotCrypto, firmware mirror)
+    - github.com/lekrsu/shfw-walkthrough (SHFW custom firmware for G30)
+    - irmo.de/2023/11/08/e-scooter-bluetooth-hacking (NUS transport teardown)
+    - files.scooterhacking.org/apps/ninebot/v5 (old app APK archive)

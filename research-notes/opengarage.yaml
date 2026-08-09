@@ -1,0 +1,59 @@
+# OpenGarage — Device Spec (research note)
+# Open hardware/firmware (OpenThings / rayshobby). Vendor ACTIVE
+# (opengarage.io reachable 2026-08-07). Vendor-documented local REST API;
+# optional Blynk cloud is bypassable entirely. No companion APK (web UI).
+
+device:
+  id: opengarage
+  name: OpenGarage open-source WiFi garage door controller
+  manufacturer: OpenThings (rayshobby.net)
+  category: garage_door_controller
+  safety_class: MEDIUM  # relay pulse actuates door; default device key is public — change it
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    ESP8266 open-hardware board. Local REST GET API on port 80 documented
+    by the vendor per firmware release; also MQTT support in firmware.
+    Blynk cloud is optional (remote app/notifications) and never required.
+    Provisioning is local via device AP + embedded web UI (192.168.100.1).
+
+lan:
+  discovery:
+    ap_mode: "device AP; embedded web UI at 192.168.100.1"
+    note: no mDNS; static/DHCP IP; HA opengarage integration takes host directly
+  control:
+    protocol: http
+    auth: shared device key (query param dkey); factory default "opendoor"
+
+protocol:
+  endpoints:
+    "GET /jc": JSON status — door (0 closed/1 open), dist (cm), vehicle, rcnt, fwv
+    "GET /jo": JSON options (thresholds, key, MQTT settings)
+    "GET /ja": JSON all (status + options)
+    "GET /cc?dkey=K&click=1": toggle relay pulse
+    "GET /cc?dkey=K&open=1": open only (no-op if open)
+    "GET /cc?dkey=K&close=1": close only (no-op if closed)
+    "GET /cc?dkey=K&reboot=1": reboot
+    "GET /cc?dkey=K&apmode=1": return to provisioning AP mode
+    "GET /db": history log (CSV)
+  note: >
+    Wire format verified from pyOpenGarage source and the HA opengarage
+    integration (iot_class local_polling), 2026-08-07. Vendor API PDFs are
+    published on the OpenGarage GitHub alongside firmware releases.
+
+status:
+  apk_acquired: false   # n/a — no companion APK; web UI / Blynk only
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false     # Blynk cloud optional; device never requires it
+  rating: confirmed
+  references:
+    - opengarage.io (product + firmware + API docs)
+    - github.com/Danielhiversen/pyOpenGarage (endpoint/client verification)
+    - home-assistant.io/integrations/opengarage/ (local_polling)
+    - doc.jeedom.com/en_US/howtoadvance/utilisation.opengarage (default dkey "opendoor")
+    - opengarage.io/forums/topic/mqtt-and-og/ (2016-10, MQTT support)

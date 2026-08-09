@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Number semantics in the device-spec schema (`$defs/number_semantics`): every
+  numeric wire value — BLE command `parameters`, characteristic `format`
+  fields, `bus` message fields, `payload_formats` fields — can now say what it
+  *means*: a `unit`, an invertible linear transform (`scale` /
+  `value_offset`), a `values` code table, and the C-vs-F machinery
+  (`unit_source: fixed | device_setting` with a required `unit_reference` and
+  a `unit_values` map) for devices such as the Inkbird iBBQ that transmit
+  temperatures in whichever unit they are currently set to. Command
+  parameters also gained `description`, `number` entities gained
+  `min`/`max`/`step` in decoded terms, and HTTP/MQTT payload fields gained
+  `unit`. Backfilled as worked examples: Ember Mug (fixed centi-°C wire unit
+  vs display-only C/F characteristic, plus `values` tables for liquid state,
+  volume and push events), Gerbing ThermoGauge (`value = raw × 0.5 + 85` °F —
+  the `value_offset` case), Inkbird iBBQ (device-setting units), Wemo
+  InsightParams (mW / mW·min columns). Contract-tested by
+  `scripts/test_schema_number_semantics.py`; documented in
+  `device-specs/README.md` and `docs/api/spec-format.md`
+
 - `docs/protocols/standards-and-references.md` — the published standards this
   registry does or should cite instead of re-deriving them: Bluetooth SIG
   Assigned Numbers, the GATT Specification Supplement, the Base-UUID shorthand

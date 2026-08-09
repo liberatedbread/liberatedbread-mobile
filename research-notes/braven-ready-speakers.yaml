@@ -1,0 +1,54 @@
+# Braven BRV "Ready" speakers — Device Spec (research draft)
+# Sources: static analysis of com.braven.bravenoutdoor v1.0.4 (jadx, apk-pure via apkeep)
+# APK SHA-256: ff3fa88fda567e69775efcd41a08f14065562004c150607bb504f490efa441d6
+# Brand: Braven -> Incipio -> ZAGG (2019); ZAGG discontinued the brand; legacy support via ZAGG Care
+
+device:
+  id: braven-ready-speakers
+  name: Braven BRV Ready Elite / Active / Prime (outdoor Bluetooth speakers)
+  manufacturer: Braven (brand discontinued by ZAGG)
+  category: audio_speaker
+  safety_class: LOW
+  rating: confirmed
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  cloud_dependency: none  # app has dead social-media tabs only; settings control is local
+  notes: >
+    CSR86xx-class GAIA device. App connects via GAIA SDP UUID with standard
+    SPP fallback. Ships vmupgradelibrary (GAIA DFU); DFU images may have been
+    server-hosted (likely gone) — settings control unaffected.
+
+bluetooth_classic:
+  profiles: [a2dp_sink, hfp, avrcp, gaia_spp]
+  spp_uuids:
+    - uuid: "00001107-d102-11e1-9b23-00025b00a5a5"  # GAIA
+      role: control_channel_primary
+    - uuid: "00001101-0000-1000-8000-00805f9b34fb"  # standard SPP fallback
+      role: control_channel_fallback
+  chipset: CSR86xx family (GAIA + VM upgrade)
+
+protocol:
+  name: Qualcomm GAIA
+  framing_reference: research-notes/qualcomm-gaia-audio-ecosystem.yaml
+  app_package: com.braven.gaia.library (GaiaLink)
+  features_observed:
+    - speaker_settings (SpeakerFragment)
+    - rename_speaker (ChangeNameDialog)
+    - eq_audio_control (per Play listing)
+    - remote_power_off / smart_lock (per ZAGG manual)
+    - firmware_dfu (UpdateVMFragment + vmupgradelibrary)
+  braven_command_table: not_yet_mapped  # one focused DEX pass needed
+
+status:
+  apk_acquired: true
+  apk_decompiled: true        # jadx; clean unobfuscated Java
+  uuids_recovered: true       # GAIA + SPP UUIDs
+  protocol_recovered: partial # transport + framing known (GAIA); Braven command IDs not yet extracted
+  community_re: false         # no known prior RE of Braven GAIA commands
+  hci_snoop_needed: false     # static extraction should suffice
+  live_device_validation: false
+  open_questions:
+    - full Ready-series model list supported by the app
+    - whether pre-Ready Braven models (BRV-X/XXL) have any app control (believed none)

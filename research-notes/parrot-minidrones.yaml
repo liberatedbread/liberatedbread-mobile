@@ -1,0 +1,69 @@
+# Parrot BLE Minidrones — Research Note
+# Companion app APK source: apkeep (APKPure)
+# XAPK SHA-256: af098b8e37d3e43c799131abc223fd2349f00823d949fafa649f19c2cf2c2519
+
+device:
+  id: parrot-minidrones
+  name: Parrot Minidrones (Rolling Spider, Airborne Night/Cargo, Hydrofoil, Mambo, Swing)
+  manufacturer: Parrot SA (company active; toy minidrone line discontinued ~2019)
+  category: toy_drone
+  safety_class: LOW  # toy-class props; preserve PCMD link-loss motor cutout
+
+transport:
+  type: ble
+  local_only: true
+  note: Wi-Fi RTP used only for Mambo FPV camera; control is BLE.
+
+ble:
+  advertising:
+    name_patterns: ["RS_", "Mars", "Marshall", "SWING", "Mambo", "Hydrofoil", "Delos"]
+    service_uuids: ["9a66fa00-0800-9191-11e4-012d1540cb8e"]
+
+  # GATT layout from community RE (node-rolling-spider, pyparrot);
+  # constants live in FreeFlight's native libARController (not visible in DEX strings)
+  services:
+    - uuid: "9a66fa00-0800-9191-11e4-012d1540cb8e"
+      name: parrot_minidrone_service
+      description: Parrot minidrone command service (prior art)
+      characteristics:
+        - uuid: "9a66fa0a-0800-9191-11e4-012d1540cb8e"
+          name: send_no_ack
+          description: PCMD / flight commands, no acknowledgement
+          properties: [write_no_response]
+        - uuid: "9a66fa0b-0800-9191-11e4-012d1540cb8e"
+          name: send_with_ack
+          description: Commands requiring ack (takeoff, flips, settings)
+          properties: [write]
+        - uuid: "9a66fa0c-0800-9191-11e4-012d1540cb8e"
+          name: receive_no_ack
+          description: Telemetry/battery notifications
+          properties: [notify]
+        - uuid: "9a66fa21-0800-9191-11e4-012d1540cb8e"
+          name: handshake_counter
+          description: Session counter read/write during connect handshake
+          properties: [read, write]
+  legacy_profile:
+    note: >
+      FreeFlight 3 v5.2.7 DEX also carries a 00001010..1019-d102-11e1-9b23-00025b00a5a5
+      profile family (older Parrot BLE products e.g. Flower Power era). Role for
+      minidrones unverified; 9a66faXX family is the proven control path.
+
+protocol:
+  note: >
+    Frame-based binary protocol: buffer types (with/without ack), sequence counters,
+    command IDs generated from Parrot's published libARCommands XML (SDK 3).
+    Handshake: read counter on fa21, write back +1, enable notifications, then
+    PCMD keepalive stream required or drone cuts motors (failsafe).
+  references:
+    - github.com/voodootikigod/node-rolling-spider   # BLE RE, Rolling Spider/Airborne
+    - github.com/amymcgovern/pyparrot                # Mambo/Swing BLE+WiFi, Python
+    - Parrot libARCommands XML (official SDK 3 command definitions)
+
+status:
+  apk_acquired: true          # com.parrot.freeflight3 5.2.7 (50207201) XAPK via apkeep apk-pure
+  apk_decompiled: false       # native-protocol app; DEX sweep confirmed minidrone support strings only
+  uuids_recovered: partial    # 9a66faXX family from prior art; legacy d102 family from DEX
+  protocol_recovered: true    # via prior art (node-rolling-spider, pyparrot, libARCommands)
+  hci_snoop_needed: false     # optional: per-model capability/verify pass
+  cloud_dependency: none      # Parrot Academy/log sync optional and dead; flight is local
+  note: FreeFlight Mini (com.parrot.freeflightmini) not on APKPure; Aptoide mirror only. FreeFlight 3 covers all BLE minidrones.
