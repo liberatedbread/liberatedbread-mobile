@@ -1,0 +1,70 @@
+# Radio Thermostat CT30/CT50/CT80 (3M Filtrete 3M-50) — Device Spec (research note)
+# Cloud/app killed 2023-05-15 (EnergyHub/Alarm.com); local HTTP API is the rescue
+
+device:
+  id: radio-thermostat-ct50-ct80
+  name: Radio Thermostat CT30 / CT50 / CT80 / 3M Filtrete 3M-50 (USNAP Wi-Fi module)
+  manufacturer: Radio Thermostat Company of America — folded into EnergyHub (Alarm.com subsidiary); consumer cloud discontinued 2023-05-15
+  category: thermostat_hvac
+  safety_class: MEDIUM  # HVAC actuator; API has NO auth (CVE-2013-4860, CVE-2018-11315)
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Plain HTTP JSON REST API on port 80, no authentication. Works fully
+    with the vendor cloud dead; the local API never depended on it.
+    Initial Wi-Fi provisioning of a fresh unit was app/cloud-assisted;
+    local re-join via module provisioning mode / POST /sys/network is
+    possible but under-documented.
+
+lan:
+  discovery:
+    protocol: none   # no SSDP/mDNS documented; DHCP reservation or ARP scan
+  control:
+    protocol: http
+    port: 80
+    auth: none       # by design; isolate on IoT VLAN
+    endpoints:
+      - GET  /tstat            -> full state (temp, tmode, setpoints, fmode, hold, override)
+      - POST /tstat            <- {"tmode":0-3,"t_heat":F,"t_cool":F,"a_heat":F,"a_cool":F,"fmode":0-2,"hold":0-1}
+      - GET  /tstat/temp|model|version|humidity
+      - POST /tstat/led        <- {"energy_led":0|1|2|4}  (off/green/yellow/red)
+      - POST /tstat/uma        <- {"line":0,"message":"text"}  (CT80 user display)
+      - GET  /sys, /sys/network, /sys/system (handler list), /sys/name
+      - POST /sys/command      <- {"command":"reboot"}
+      - GET  /cloud            -> exposes cloud key (post-shutdown: inert)
+    enums:
+      tmode: {0: off, 1: heat, 2: cool, 3: auto}
+      fmode: {0: auto, 1: circulate, 2: on}
+      hold/override: {0: disabled, 1: enabled}
+    quirks: >
+      One write per request; t_heat/t_cool are temporary setpoints,
+      a_heat/a_cool are absolute program setpoints (set with matching tmode).
+      Verified on CT50 fw 1.04.84 / API v113.
+
+protocol:
+  note: >
+    Vendor-published "Wi-Fi API" PDF (mirrored at lowpowerlab.com, 2015);
+    independent endpoint cookbook at brannondorsey/radio-thermostat.
+    Clients: HA core radiotherm integration (python radiotherm lib),
+    openHAB binding, Hubitat driver.
+  commands:
+    set_mode: 'POST /tstat {"tmode":N}'
+    set_temp_heat: 'POST /tstat {"tmode":1,"t_heat":F}'
+    set_temp_cool: 'POST /tstat {"tmode":2,"t_cool":F}'
+    set_fan: 'POST /tstat {"fmode":N}'
+    read_state: 'GET /tstat'
+
+status:
+  rating: confirmed   # vendor doc + HA/openHAB/Hubitat implementations
+  apk_acquired: false # app delisted; not on Play/APKPure via apkeep (2026-08-07)
+  apk_decompiled: false
+  protocol_recovered: true
+  cloud_dead: true    # app+cloud discontinued 2023-05-15; radiothermostat.com 404
+  references:
+    - community.hubitat.com/t/radio-thermostat-mobile-app/108118 (2022-12-21 shutdown email)
+    - github.com/brannondorsey/radio-thermostat (2018-04-01)
+    - home-assistant.io/integrations/radiotherm
+    - openhab.org/addons/bindings/radiothermostat
+    - CVE-2013-4860, CVE-2018-11315

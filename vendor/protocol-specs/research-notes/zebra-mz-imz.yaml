@@ -1,0 +1,56 @@
+# Zebra MZ 220/320 + iMZ220/iMZ320 — Device Spec (research note)
+# No companion app; protocol is public vendor documentation (CPCL / ZPL II).
+
+device:
+  id: zebra-mz-imz
+  name: Zebra MZ 220 / MZ 320 / iMZ220 / iMZ320 mobile receipt printers
+  manufacturer: Zebra Technologies
+  category: portable_receipt_printer
+  safety_class: LOW
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  alternates: [usb, wifi_optional]
+
+bluetooth_classic:
+  profile: spp  # iMZ adds MFi for iOS
+  pairing:
+    pin: null  # Zebra KB: mobile printers (except EM220) ship with no PIN
+    fallbacks: ["0000", "1111"]  # older firmware
+    friendly_name: printer serial number (default)
+  discovery:
+    name_patterns: ["^[0-9A-Z]{8,}$"]  # serial-number default names; TBD refine
+
+protocol:
+  note: >
+    Fully public line-printer languages over the SPP byte stream.
+    No reverse engineering required; vendor programming guides are the
+    authoritative spec.
+  languages:
+    - name: CPCL
+      native: true
+      doc: Zebra CPCL Programming Guide (public PDF)
+    - name: ZPL II
+      native: false  # iMZ + later MZ firmware
+      doc: ZPL II Programming Guide (public PDF)
+    - name: SGD
+      purpose: configuration (set/get/do, e.g. bluetooth name, power save)
+  example_linux: |
+    rfcomm bind /dev/rfcomm0 <MAC>
+    printf '! 0 200 200 210 1\nTEXT 4 0 0 0 HELLO\nFORM\nPRINT\n' > /dev/rfcomm0
+
+status:
+  apk_acquired: false  # N/A
+  apk_decompiled: false
+  protocol_recovered: true   # public vendor docs
+  hci_snoop_needed: false
+  cloud_dependency: none
+  manufacturer_status: >
+    Zebra alive; MZ discontinued 2013-11-29, entire MZ/iMZ family now
+    End Of Service Life (no Zebra service/support). Third-party
+    batteries/parts still available.
+  references:
+    - https://support.zebra.com/article/Meaning-of-LED-s-on-the-MZ-and-iMZ-series-mobile-printers
+    - https://support.zebra.com/article/What-is-the-default-bluetooth-PIN
+    - https://www.bcpmedia.com.au/discontinued-zebra-products/

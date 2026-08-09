@@ -1,0 +1,65 @@
+# Gametel Bluetooth Gamepad (Fructel AB) — Device Spec
+# APK source: apkeep (apk-pure), com.fructel.gametel v1.5.3
+# APK SHA-256: 7bf4de4072158c2118a86c1f7053d30d44a18d76fd582c298a6b30772ecd9cbe
+# Company defunct (site/catalog/firmware endpoints dead; last press 2013)
+
+device:
+  id: gametel-gamepad
+  name: Gametel Bluetooth Gamepad
+  manufacturer: Fructel AB (Sweden, defunct)
+  category: gamepad_input
+  safety_class: NONE
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  cloud_dependency_note: >
+    App's game catalog and firmware-update URLs are dead — cosmetic only.
+    Gamepad is fully usable as standard BT Classic HID with no app/account.
+
+bluetooth_classic:
+  profiles: [hid, spp]
+  sdp_services:
+    - uuid16: "0x1124"
+      name: human_interface_device
+      description: Standard HID gamepad/keyboard mode (iCade-compat mode on iOS); no app needed
+  spp:
+    - uuid: "6ae94aad-1f69-4499-9791-e5bc1dbfbbd3"
+      name: gametel_vendor_channel
+      description: Vendor RFCOMM channel (service name "Gametel") for app<->pad management
+  pairing:
+    notes: >
+      App selects behaviour by SDP record: HID uuid -> standard input mode,
+      GAMETEL uuid -> vendor channel.
+
+protocol:
+  transport: rfcomm_vendor
+  framing:
+    stx: 0x02
+    etx: 0x03
+    escape: "0x1B followed by byte XOR 0x20 (escapes 0x02/0x03/0x1B)"
+    rx_buffer: 100
+  packet_types:
+    1: command   # host -> pad
+    2: response
+    3: report    # pad -> host
+  commands:      # byte after type
+    16: remove_link_key   # 1-byte payload
+    17: ping
+    19: send_report       # payload: report id
+    20: get_mac
+  reports:
+    16: feature_report    # payload layout not yet decoded (likely key mapping/config)
+    17: button_report
+    18: status_report     # 1 byte; bit1 = battery low
+  note: >
+    Framing and command set recovered from com.fructel.gametel v1.5.3 DEX.
+    Sufficient for a clean-room management client (ping/status/MAC/link-key).
+    FeatureReport payload needs one HCI snoop or further DEX tracing.
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true
+  protocol_recovered: partial   # framing + commands + reports; FeatureReport layout TBD
+  hci_snoop_needed: true        # only for FeatureReport; basic use needs nothing

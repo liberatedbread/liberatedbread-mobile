@@ -1,0 +1,45 @@
+# DeerRun / SupeRun Walking Pads (PitPat app) — Device Spec (research)
+# APK: com.linzi.sport v4.21.00 (42100002), APKPure XAPK via apkeep, 2026-08-04
+# XAPK SHA-256: 895a563270d267ae8f6caa1b2f8943430ee74a645ccc501d0f40d38074a6866e
+
+device:
+  id: deerrun-superun-pitpat
+  name: DeerRun / SupeRun Walking Pad (PitPat platform)
+  manufacturer: DeerRun / SupeRun (app by Joyfit Inc.)
+  category: treadmill_walking_pad
+  safety_class: MEDIUM  # motorised moving belt; speed commands affect a person in motion
+
+transport:
+  type: ble
+  local_only: true  # pad<->phone link is BLE; app logic is cloud-heavy but not required by the radio
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — likely DeerRun/PitPat-branded; confirm with scan or QZ driver
+    service_uuids: []  # TBD — NOT standard FTMS (QZ needed a custom driver)
+  services: []  # TBD — port from qdomyos-zwift src/devices/deeruntreadmill or HCI snoop
+
+protocol:
+  note: >
+    BLE command protocol not yet statically recovered. Open-source prior art:
+    qdomyos-zwift has a dedicated deeruntreadmill device driver, proving the
+    protocol is documented in open code. QZ issue #3589 (2025-08) shows a
+    PitPat-T01 connecting (belt powers on) but speed control failing on that
+    firmware revision — expect per-firmware quirks. The PitPat app
+    (com.linzi.sport, v4.21.00) is native, 11 DEX; a triage string pass found
+    only the standard Bluetooth assigned-numbers table, so the BLE layer is
+    obfuscated or in native libraries.
+  commands: TBD
+
+cloud:
+  app_requires_account: effectively_yes  # reviews: pad unusable without app sign-in flows
+  vendor: PitPat / Joyfit Inc. (races, rewards, AI coach, stats sync)
+  risk: platform shutdown or paywall expansion strands app-dependent features; pad hardware unaffected
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # triage string pass only; obfuscated/native BLE layer
+  uuids_recovered: false
+  protocol_recovered: false  # partial via QZ deeruntreadmill (open source)
+  hci_snoop_needed: true
+  reference: github.com/cagnulein/qdomyos-zwift (src/devices/deeruntreadmill, issue #3589)

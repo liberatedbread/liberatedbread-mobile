@@ -1,0 +1,57 @@
+# Neurio W1-HEM (Generac PWRview) — Device Spec (research note)
+# ABANDONED: Generac ended W1-HEM + PWRview app support 2025-03-10; app pulled from stores
+# Local path: vendor-documented unauthenticated JSON endpoint /current-sample
+
+device:
+  id: neurio-w1-hem
+  name: Neurio W1-HEM / Generac PWRview Home Energy Monitor
+  manufacturer: Neurio Technology (acquired by Generac 2019) — support ended 2025-03-10
+  category: energy_monitor
+  safety_class: MEDIUM  # CTs + voltage taps inside breaker panel; measurement-only
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Sensor serves JSON over plain HTTP on the LAN with no auth. Works with WAN
+    blocked; the discontinued PWRview app and api.neur.io cloud were only ever
+    needed for the app UI, disaggregation and remote dashboards — not for
+    local data. Initial Wi-Fi provisioning via on-device setup AP/web pages.
+
+lan:
+  discovery:
+    method: dhcp-scan  # no documented mDNS; find IP via DHCP lease / arp scan
+  control:
+    protocol: http
+    port: 80
+    auth: none
+
+protocol:
+  note: >
+    Single documented read endpoint returning a full snapshot: per-channel
+    import/export energy (watt-seconds), real power (W), reactive power (VAR),
+    voltage (V), plus raw per-CT readings (4 CTs). ~1 Hz update rate.
+  endpoints:
+    current_sample: "GET /current-sample → {sensorId, timestamp, channels[], cts[]}"
+  channel_types:
+    - PHASE_A_CONSUMPTION
+    - PHASE_B_CONSUMPTION
+    - PHASE_C_CONSUMPTION
+    - NET
+    - GENERATION
+    - CONSUMPTION
+    - SUBMETER
+
+status:
+  apk_acquired: false    # not needed — vendor-documented local API; app is dead anyway
+  apk_decompiled: false
+  uuids_recovered: false # n/a — no BLE
+  protocol_recovered: true   # vendor-documented (api-docs.neur.io "Sensor Local Access")
+  rating: confirmed
+  cloud_dead: true       # PWRview app + support discontinued 2025-03-10
+  references:
+    - api-docs.neur.io (section "Sensor Local Access")
+    - support.generac.com/s/topic/0TO5f000001KWfyGAG/pwrview (EOL 2025-03-10)
+    - cleanenergy.generac.com/s/article/Which-PWRview-App-Should-I-Download
+    - community.home-assistant.io/t/support-for-local-neurio-power-sensor/69946 (2018-09-23)
+    - community.hubitat.com/t/project-neurio-pwrview-home-energy-monitor-driver/74453 (2021-06-16)

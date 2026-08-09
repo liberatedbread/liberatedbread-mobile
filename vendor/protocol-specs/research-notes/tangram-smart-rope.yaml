@@ -1,0 +1,68 @@
+# Tangram Smart Rope — Structured Note
+# APK source: apkeep (apk-pure); com.tangramfactory.smartrope 1.4.92 (final) XAPK
+
+device:
+  id: tangram-smart-rope
+  name: Tangram Smart Rope (LED / Pure / Rookie)
+  manufacturer: Tangram Factory Inc.
+  category: fitness_sensor
+  safety_class: LOW
+
+transport:
+  type: ble
+  local_only: true
+  note: >
+    Jump counting runs in the handle; rope streams counts over Nordic UART BLE.
+    Company alive but apps show a network-required-at-startup pattern (iOS reviews)
+    — cloud-at-risk. Local UART client removes the dependency entirely.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — likely "Smart Rope"/"SmartRope"-prefixed
+    service_uuids: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]  # presumed; confirm with scan
+
+  services:
+    - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      name: nordic_uart_service
+      description: Standard Nordic UART serial bridge (all three UUIDs recovered from dex)
+      characteristics:
+        - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_rx
+          description: Write commands to rope
+          properties: [write, write_no_response]
+        - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_tx
+          description: Notifications from rope (jump events, battery)
+          properties: [notify]
+
+  alternate_services:
+    - uuid: "00001530-1212-efde-1523-785feabcd123"
+      name: nordic_legacy_dfu
+      description: Nordic legacy DFU service literal in dex
+    - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+      name: nordic_secure_dfu
+      description: Secure DFU also referenced
+
+protocol:
+  note: >
+    Clean protocol classes in app (SmartRopeInterface, SmartropeRecord). Frame format
+    for jump events / LED config / battery TBD — expected simple; HCI snoop or jadx
+    of SmartRopeInterface should finish it quickly.
+  expected_measurements:
+    - jump_count
+    - workout_duration
+    - calories_estimate
+    - battery_level
+    - led_display_config (LED model)
+
+status:
+  apk_acquired: true
+  apk_decompiled: false
+  uuids_recovered: true  # full UART service
+  protocol_recovered: false  # frame format TBD
+  hci_snoop_needed: true
+  cloud_status: at_risk  # company alive; apps unmaintained + network-required reports
+  sources:
+    - https://tangramfactory.com/smartrope/en/
+    - https://smart-gym-pro.appstor.io/
+    - https://www.vcbeathealth.com/entity/188927
