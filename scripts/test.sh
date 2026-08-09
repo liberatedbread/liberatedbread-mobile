@@ -111,10 +111,13 @@ log "cargo build (host Rust lib for FRB)"
 log "flutter_rust_bridge_codegen generate (bindings up to date?)"
 check_frb_bindings
 
-log "flutter test --coverage"
+log "flutter test --coverage --exclude-tags=netdisco"
 LD_LIBRARY_PATH="$PROJECT_DIR/rust/target/debug:${LD_LIBRARY_PATH:-}" \
 DYLD_FALLBACK_LIBRARY_PATH="$PROJECT_DIR/rust/target/debug:${DYLD_FALLBACK_LIBRARY_PATH:-}" \
-flutter test --coverage
+# --exclude-tags=netdisco mirrors CI: those suites bind ports 5353 and 1900 for
+# real multicast, which a machine running avahi-daemon or systemd-resolved
+# cannot spare. Run them with ./scripts/ci-netdisco-tests.sh.
+flutter test --coverage --exclude-tags=netdisco
 
 log "cargo fmt --all -- --check"
 (cd rust && cargo fmt --all -- --check)
