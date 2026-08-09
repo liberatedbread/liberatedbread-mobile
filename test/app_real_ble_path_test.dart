@@ -256,7 +256,7 @@ void main() {
           characteristics: [
             EmulatedCharacteristic(
               uuid: '7b2c0002-4f1a-4a3e-9b6d-2f8a1c5e0d31',
-              value: const [0x2a],
+              value: const [0xab, 0xcd],
               canRead: true,
             ),
           ],
@@ -303,9 +303,11 @@ void main() {
       await _pumpUntil(tester, find.text('Open Sensor'));
       await tester.tap(find.text('Open Sensor'));
 
-      // 0x2a, straight off the peripheral, rendered as hex by the raw browser.
-      await _pumpUntil(tester, find.textContaining('2a'));
-      expect(find.textContaining('2a'), findsWidgets);
+      // The peripheral's two bytes, straight off the wire and rendered as hex
+      // by the raw browser. Chosen not to collide with any digits in the UUIDs
+      // on the same screen.
+      await _pumpUntil(tester, find.textContaining('ab cd'));
+      expect(find.textContaining('ab cd'), findsWidgets);
       expect(find.textContaining('needs to be paired'), findsNothing);
     });
   });
