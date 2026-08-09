@@ -10,6 +10,7 @@ Enumerates every VALID device spec (validated against schema.json, reusing
       "name":                <device.name>,
       "path":                <repo-relative path to the YAML>,
       "protocol":            <device.protocol>,
+      "category":            <device.category>,
       "manufacturer":        <device.manufacturer>,
       "manufacturer_status": <device.manufacturer_status>,
       "openness":            <device.openness.status, present only if set>,
@@ -70,6 +71,7 @@ def build_entry(path, doc: dict, version: str) -> dict:
         "name": device.get("name"),
         "path": path.relative_to(REPO_ROOT).as_posix(),
         "protocol": device.get("protocol"),
+        "category": device.get("category"),
         "manufacturer": device.get("manufacturer"),
         "manufacturer_status": device.get("manufacturer_status"),
     }

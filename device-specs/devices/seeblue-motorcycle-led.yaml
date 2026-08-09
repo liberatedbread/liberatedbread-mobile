@@ -7,6 +7,7 @@ device:
   manufacturer: "Seeblue / LEDGlow"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "light"
   notes: >
     White-label BLE module used by LEDGlow Motorcycle, LEDGlow V2, and other
     Seeblue-powered brands. SEEBlue transport envelope: [0x95, len, index,

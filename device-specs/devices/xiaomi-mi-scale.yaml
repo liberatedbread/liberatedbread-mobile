@@ -7,6 +7,7 @@ device:
   manufacturer: "Xiaomi / Huami"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "scale"
   notes: >
     Xiaomi Mi Scale v1 and v2 body composition scales. v1 is weight-only;
     v2 adds impedance measurement for body composition (body fat, muscle,

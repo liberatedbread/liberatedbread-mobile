@@ -15,6 +15,7 @@ device:
   manufacturer: "GYDE (Gerbing Heated Clothing)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "wearable"
   model: "coreheat7"
   notes: >
     BLE controller for Gerbing heated clothing. Supports dual-channel

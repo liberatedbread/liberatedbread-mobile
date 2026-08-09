@@ -185,6 +185,12 @@ def build_manifest(
             "name": device.get("name", spec.id),
             "manufacturer": device.get("manufacturer", ""),
             "protocol": device.get("protocol", ""),
+            # Broad device class from the schema's closed vocabulary — what a
+            # consumer branches on to decide which icon to draw. Published
+            # alongside `protocol` because the pair answers the two questions
+            # an API client asks before fetching the spec itself: can I reach
+            # this, and what is it?
+            "category": device.get("category", ""),
             "status": device.get("manufacturer_status", ""),
             # Whether the protocol was published or had to be recovered. The
             # schema default applies when a spec is silent, so an unstated

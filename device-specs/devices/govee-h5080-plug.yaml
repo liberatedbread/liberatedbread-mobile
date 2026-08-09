@@ -11,6 +11,7 @@ device:
   manufacturer: "Govee (Shenzhen Intellirocks Tech / iHoment)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "switch"
   notes: >
     WiFi + BLE smart plug family from Govee. Local BLE control uses the
     classic Govee 20-byte binary packet — [2-byte command][17-byte
