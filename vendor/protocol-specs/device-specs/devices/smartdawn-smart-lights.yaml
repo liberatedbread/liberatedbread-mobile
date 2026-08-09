@@ -356,12 +356,13 @@ services:
           set_brightness:
             description: >
               Set brightness. M_SET_BRIGHTNESS (mt=2509) with protobuf
-              SimpleMessage {i1: brightness} payload. The payload is spelled
-              out in the template as the two literal bytes [0x08,
-              brightness]: 0x08 is the protobuf tag for field 1 (i1,
-              varint), and a varint encodes as the raw byte itself for
-              values <= 127 — which covers the whole 0-100 range (the
-              vendor app's slider range).
+              SimpleMessage {i1: brightness} payload: 0x08 is the protobuf tag
+              for field 1 (i1), followed by the value as a protobuf varint.
+              The device's range is 1-255 (the vendor app's slider), so the
+              value MUST be a varint — 1-127 encode as a single byte, 128-255
+              as two. VERIFIED live 2026-08-08: sweeping 1..255 stepped the
+              panel across the full range. `len` is auto-computed and accounts
+              for the varint width.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCD, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{brightness}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
@@ -369,7 +370,7 @@ services:
               cid: { type: "uint32", endianness: "big", default: 0 }
               osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
-              brightness: { type: "uint8", min: 0, max: 100, unit: "%", description: "Brightness percentage; encoded as a single-byte protobuf varint (valid because max <= 127)." }
+              brightness: { type: "varint", min: 1, max: 255, description: "Brightness level 1-255; encoded as a protobuf varint (1 byte for <=127, 2 bytes above)." }
           play_next:
             description: "Next effect. M_PLAY_NEXT (mt=2604), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2C, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
