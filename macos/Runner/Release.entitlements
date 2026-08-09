@@ -4,6 +4,21 @@
 <dict>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- Not just for the Dart VM service, which is why it is here and not only
+	     in DebugProfile.entitlements. Under the App Sandbox this is what lets
+	     the app BIND a listening socket, and the mDNS half of the Wi-Fi scan
+	     does exactly that: `multicast_dns` binds UDP 5353 and joins
+	     224.0.0.251 rather than going through Bonjour. Without it that bind
+	     throws, mDNS reports `failed`, and a release build discovers only what
+	     SSDP happens to find. When SSDP also finds nothing, scanFailureFor()
+	     reads the silence as a denied local-network permission and says so.
+
+	     The SSDP half is unaffected: it binds an ephemeral port and receives
+	     unicast replies to its own M-SEARCH, which network.client already
+	     covers. So the symptom is a release-only, transport-specific hole,
+	     invisible in `flutter run -d macos`. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.device.bluetooth</key>

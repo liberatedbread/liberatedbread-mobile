@@ -6,12 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
+import '../providers/device_description_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
+import '../core/log.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
@@ -74,16 +76,30 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // list devices the user actually paired with, not everything that ever
       // appeared in a scan. Fire-and-forget — a preferences write failure must
       // not take down a live connection.
-      unawaited(
-        ref
-            .read(savedDevicesProvider.notifier)
-            .touch(
-              id: widget.device.id,
-              name: widget.device.displayName,
-              seenAt: DateTime.now(),
-            )
-            .catchError((Object _) {}),
-      );
+      //
+      // The try/catch is what makes that true. `catchError` only covers the
+      // returned future, and the first `ref.read` here builds the notifier,
+      // which reads the store synchronously — so an unreadable store throws
+      // *before* there is a future to attach to, straight out into the connect
+      // path's own catch, and the user sees a connection that worked reported
+      // as one that failed.
+      try {
+        unawaited(
+          ref
+              .read(savedDevicesProvider.notifier)
+              .touch(
+                id: widget.device.id,
+                name: widget.device.displayName,
+                seenAt: DateTime.now(),
+              )
+              .catchError((Object _) {}),
+        );
+      } catch (e) {
+        Log.ble.warning(
+          'could not record ${widget.device.id} in saved devices',
+          error: e,
+        );
+      }
       _watchConnection();
       setState(() => _state = _ScreenState.discovering);
 
@@ -263,6 +279,13 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           children: [
             _ConnectedHeader(
               name: widget.device.displayName,
+              device: widget.device,
+              // The registry is indexed once for the app's lifetime and this
+              // returns DeviceDescription.none until it is, so the header
+              // renders immediately and gains its identity rows a frame later
+              // rather than holding the whole screen on an asset load.
+              description: describeWith(
+                  ref.watch(numberRegistryProvider), widget.device),
               serviceCount: _services.length,
               onDisconnect: () async {
                 await _cleanupConnection();
@@ -290,14 +313,40 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
 /// controls; disconnecting meant backing out of the screen.
 class _ConnectedHeader extends StatelessWidget {
   final String name;
+  final IoTDevice device;
+  final DeviceDescription description;
   final int serviceCount;
   final Future<void> Function() onDisconnect;
 
   const _ConnectedHeader({
     required this.name,
+    required this.device,
+    required this.description,
     required this.serviceCount,
     required this.onDisconnect,
   });
+
+  /// Identity rows, in descending order of how much each is worth.
+  ///
+  /// Deliberately NOT collapsed into one "manufacturer" line. The two sources
+  /// answer different questions and only one of them is about the product: a
+  /// company ID is something this device put in its own advertisement, while
+  /// an address block names whoever bought the block — frequently the radio
+  /// module's vendor rather than the product's, which is why the Caséta
+  /// bridge's address resolves to Texas Instruments. Labelling them apart is
+  /// the whole reason the registry is safe to show at all.
+  ///
+  /// Empty when nothing resolved, which is the normal case on Apple platforms:
+  /// CoreBluetooth substitutes a per-host UUID for the address, so there is no
+  /// block to look up and `macAddress` is null.
+  List<({String label, String value})> get _identity => [
+        if (device.macAddress != null)
+          (label: 'Address', value: device.macAddress!),
+        for (final company in description.companies.take(1))
+          (label: 'Advertises as', value: company),
+        if (description.addressVendor != null)
+          (label: 'Address block', value: description.addressVendor!),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -354,6 +403,36 @@ class _ConnectedHeader extends StatelessWidget {
                     ),
                   ],
                 ),
+                for (final row in _identity) ...[
+                  const SizedBox(height: 3),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 92,
+                        child: Text(
+                          row.label,
+                          style: text.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant.withValues(
+                              alpha: 0.75,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        // Selectable: an address is a thing people copy into a
+                        // bug report or another tool, and the whole point of
+                        // showing it is that it can be acted on.
+                        child: SelectableText(
+                          row.value,
+                          style: text.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                          maxLines: 2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),

@@ -6,14 +6,16 @@
 
 use std::collections::HashMap;
 
+use flutter_rust_bridge::frb;
+
 use crate::codec::types::DecodedValue;
 use crate::protocol::dispatch::select_protocol;
 use crate::protocol::profiles;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField, Parameter,
-    Service,
+    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField,
+    Identification, MacPrefix, MacPrefixConfidence, Parameter, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
@@ -27,8 +29,28 @@ pub struct DeviceSpecDto {
     pub manufacturer_status: String,
     pub protocol: String,
     pub notes: Option<String>,
-    pub local_name_prefix: Option<String>,
+    /// Every BLE local name prefix this device family advertises under, in
+    /// spec order. Plural because a family sold as several rebadged models has
+    /// several -- the Inkbird thermometer ships under eight names with no
+    /// shared prefix. Empty when the spec declares none.
+    pub local_name_prefixes: Vec<String>,
     pub service_uuids: Vec<String>,
+    /// Bluetooth SIG company IDs this device family advertises in its
+    /// manufacturer-specific data, primary first. Empty when the spec declares
+    /// none.
+    pub company_ids: Vec<u16>,
+    /// IEEE OUI prefixes seen on this device's MAC address, e.g. `C4:7C:8D`.
+    /// Empty when the spec declares none. See [`MatchConfidence`] for why these
+    /// only ever rank a device rather than identify one, and
+    /// [`MacPrefixConfidence`] for how much any one of them is worth.
+    pub mac_prefixes: Vec<MacPrefixDto>,
+    /// mDNS/DNS-SD service type this device announces itself under, e.g.
+    /// `_hue._tcp`. The network counterpart of a vendor service UUID.
+    pub mdns_service_type: Option<String>,
+    /// SSDP/UPnP search targets this device answers to.
+    pub ssdp_search_targets: Vec<String>,
+    /// Default TCP port for the device's local API.
+    pub default_port: Option<u16>,
     pub services: Vec<ServiceDto>,
     /// Declared sensor/control surfaces that resolve to a real characteristic,
     /// in spec order. This is what lets the app render named readings with
@@ -277,6 +299,141 @@ pub struct MatchResult {
     /// The advertised service UUIDs (lowercased) that intersect with the
     /// spec's identification. Empty when no UUIDs matched.
     pub matched_service_uuids: Vec<String>,
+    /// How much this match is worth. See [`MatchConfidence`].
+    pub confidence: MatchConfidence,
+}
+
+/// How much weight a match carries.
+///
+/// The four things a scanner can see about a BLE device before it connects are
+/// not equally telling, and collapsing them into one boolean is what makes a
+/// device list either miss real devices or confidently mislabel them. Ordered
+/// weakest to strongest so callers can compare and sort directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MatchConfidence {
+    /// Only the MAC OUI matched. An OUI is assigned to a vendor, not a product
+    /// — `C4:7C:8D` is every Xiaomi radio ever built, not just the plant
+    /// monitor — so this is a hint worth ranking on and nothing more. Never
+    /// bind a spec's characteristics to a device on this alone.
+    Possible,
+    /// The local name prefix matched, or a manufacturer-data company ID did.
+    /// Both are good evidence and neither is proof: users rename devices, and
+    /// vendors routinely squat on company IDs they were never assigned.
+    Likely,
+    /// An advertised service UUID matched, or two or more of the weaker signals
+    /// agreed. A vendor-allocated 128-bit UUID in an advertisement is about as
+    /// close to proof as pre-connect scanning gets.
+    Strong,
+}
+
+/// One MAC prefix a spec declares, and how much of the block is really this
+/// device's.
+///
+/// Two prefixes of the same length are not worth the same thing. `C4:7C:8D` is
+/// an IEEE Registration Authority block that fifteen unrelated companies hold
+/// 28-bit slices of, while `00:17:88` is Philips Lighting's own. Both are three
+/// octets; only one of them tells you anything. Carrying the spec author's
+/// verdict alongside the prefix is what lets the matcher rank them differently
+/// instead of treating every OUI as equally weak — or, worse, equally strong.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MacPrefixDto {
+    /// The prefix as the spec wrote it, e.g. `C4:7C:8D`.
+    pub prefix: String,
+    pub confidence: MacPrefixConfidence,
+}
+
+impl From<&MacPrefix> for MacPrefixDto {
+    fn from(prefix: &MacPrefix) -> Self {
+        Self {
+            prefix: prefix.prefix().to_string(),
+            confidence: prefix.confidence(),
+        }
+    }
+}
+
+/// What a scanner saw about one device, before connecting to it.
+#[derive(Debug, Clone)]
+pub struct ScannedDeviceDto {
+    /// Advertised local name. Empty when the device advertises none.
+    pub name: String,
+    /// Service UUIDs carried in the advertisement — NOT the GATT services
+    /// discovered after connecting, which is a much richer list.
+    pub service_uuids: Vec<String>,
+    /// Company IDs from the manufacturer-specific data (AD type 0xFF). A
+    /// device may advertise several records.
+    pub company_ids: Vec<u16>,
+    /// The hardware address, when the platform reports one.
+    ///
+    /// `None` on Apple platforms: CoreBluetooth substitutes a per-host UUID for
+    /// the address, so there is no OUI to read. Also useless — though not
+    /// absent — for a peripheral in BLE privacy mode, which advertises a
+    /// rotating random address that matches no OUI.
+    pub mac_address: Option<String>,
+}
+
+/// What a scanner saw about one device on the local network.
+///
+/// The Wi-Fi counterpart of [`ScannedDeviceDto`]. Separate because the signals
+/// genuinely differ: there is no RSSI, no manufacturer data, and the address is
+/// a DHCP lease rather than a hardware identity.
+#[derive(Debug, Clone)]
+pub struct NetworkDeviceDto {
+    /// Service instance name (mDNS) or friendly name (SSDP). Empty when the
+    /// device advertised none.
+    pub name: String,
+    /// Hostname the device claims, e.g. `Lutron-083e013d.local`.
+    pub hostname: Option<String>,
+    /// mDNS/DNS-SD service types it advertises.
+    pub service_types: Vec<String>,
+    /// SSDP search targets it answered to.
+    pub ssdp_targets: Vec<String>,
+    /// Port the advertised service listens on.
+    pub port: Option<u16>,
+}
+
+/// The identifying fields of a spec, without the services, characteristics and
+/// entities that make a [`DeviceSpecDto`] large.
+///
+/// Exists so the scan path can ask about the whole catalogue on every newly
+/// seen device without pushing the full catalogue across the FFI boundary each
+/// time. Dart builds these once from its parsed specs and reuses them.
+#[derive(Debug, Clone)]
+pub struct SpecIdentityDto {
+    pub device_name: String,
+    pub manufacturer: String,
+    pub local_name_prefixes: Vec<String>,
+    pub service_uuids: Vec<String>,
+    pub company_ids: Vec<u16>,
+    pub mac_prefixes: Vec<MacPrefixDto>,
+    /// mDNS service type, for the Wi-Fi scan path. Absent on a BLE-only spec.
+    pub mdns_service_type: Option<String>,
+    /// SSDP search targets, for the Wi-Fi scan path.
+    pub ssdp_search_targets: Vec<String>,
+    /// Default TCP port. The weakest network signal by far -- port 80 says
+    /// nothing -- so it only ever ranks, never identifies.
+    pub default_port: Option<u16>,
+}
+
+/// One spec that a scanned device might be, and why we think so.
+#[derive(Debug, Clone)]
+pub struct ScanMatch {
+    /// Position of the matched identity in the list that was passed in, so the
+    /// caller can recover the full spec it built the identity from.
+    pub spec_index: u32,
+    pub device_name: String,
+    pub manufacturer: String,
+    pub confidence: MatchConfidence,
+    pub matched_by_name_prefix: bool,
+    /// Matched advertised service UUIDs, lowercased.
+    pub matched_service_uuids: Vec<String>,
+    pub matched_company_ids: Vec<u16>,
+    /// The spec MAC prefix that the device's address starts with, as the spec
+    /// wrote it, with the spec's verdict on how much that block is worth.
+    /// `None` when the address did not match (or was not available).
+    pub matched_mac_prefix: Option<MacPrefixDto>,
+    /// mDNS service types and SSDP search targets that matched, on the Wi-Fi
+    /// path. Always empty for a BLE match.
+    pub matched_service_types: Vec<String>,
 }
 
 // ── Conversions from internal types ─────────────────────────────────────────
@@ -314,6 +471,22 @@ fn image_upload_dto(spec: &DeviceSpec) -> Option<ImageUploadDto> {
     })
 }
 
+impl From<&DeviceSpecDto> for SpecIdentityDto {
+    fn from(spec: &DeviceSpecDto) -> Self {
+        Self {
+            device_name: spec.device_name.clone(),
+            manufacturer: spec.manufacturer.clone(),
+            local_name_prefixes: spec.local_name_prefixes.clone(),
+            service_uuids: spec.service_uuids.clone(),
+            company_ids: spec.company_ids.clone(),
+            mac_prefixes: spec.mac_prefixes.clone(),
+            mdns_service_type: spec.mdns_service_type.clone(),
+            ssdp_search_targets: spec.ssdp_search_targets.clone(),
+            default_port: spec.default_port,
+        }
+    }
+}
+
 impl From<&DeviceSpec> for DeviceSpecDto {
     fn from(spec: &DeviceSpec) -> Self {
         let ident = spec.device.identification.as_ref();
@@ -324,10 +497,22 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             manufacturer_status: spec.device.manufacturer_status.to_string(),
             protocol: spec.device.protocol.to_string(),
             notes: spec.device.notes.clone(),
-            local_name_prefix: ident.and_then(|i| i.local_name_prefix.clone()),
+            local_name_prefixes: ident
+                .map(Identification::local_name_prefixes)
+                .unwrap_or_default(),
             service_uuids: ident
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
+            company_ids: ident.map(Identification::company_ids).unwrap_or_default(),
+            mac_prefixes: ident
+                .and_then(|i| i.mac_prefixes.as_ref())
+                .map(|prefixes| prefixes.iter().map(MacPrefixDto::from).collect())
+                .unwrap_or_default(),
+            mdns_service_type: ident.and_then(|i| i.mdns_service_type.clone()),
+            ssdp_search_targets: ident
+                .and_then(|i| i.ssdp_search_targets.clone())
+                .unwrap_or_default(),
+            default_port: ident.and_then(|i| i.default_port),
             services: spec.services.iter().map(ServiceDto::from).collect(),
             // Only entities with something real behind them cross the FFI
             // boundary: a resolvable state characteristic, at least one
@@ -675,7 +860,455 @@ pub fn encode_entity_value(
     })
 }
 
-/// Find every spec matching a scanned device, with the reasons it matched.
+/// The axes on which one spec identity matched one observation. Every field is
+/// empty/false when nothing matched at all.
+///
+/// `frb(ignore)` because this is internal bookkeeping between the two public
+/// matchers: without it flutter_rust_bridge sees a struct in an `api` module
+/// and generates Dart bindings that reach for its private fields.
+#[frb(ignore)]
+#[derive(Default)]
+struct MatchAxes {
+    by_name_prefix: bool,
+    /// Strong tier: a vendor-allocated identifier the device volunteered.
+    /// Only UUIDs [`is_sig_assigned_service`] rejects land here.
+    service_uuids: Vec<String>,
+    /// The BLE counterpart of [`shared_service_types`](Self::shared_service_types):
+    /// services the Bluetooth SIG defined for everyone, which say what a device
+    /// can do and never who made it. Reported, never promoting.
+    shared_service_uuids: Vec<String>,
+    /// Strong tier, network side: mDNS service types and SSDP search targets
+    /// that identify a vendor. Only ones [`is_shared_service_type`] rejects
+    /// land here.
+    service_types: Vec<String>,
+    /// The network counterpart of a low-confidence OUI: identifiers a whole
+    /// category of hardware answers to, like `upnp:rootdevice` or `_hap._tcp`.
+    /// Reported so the caller can say what matched, but never promoting.
+    shared_service_types: Vec<String>,
+    /// Likely tier.
+    company_ids: Vec<u16>,
+    /// Identifies a vendor, not a product — except where the spec says
+    /// otherwise. Worth what its [`MacPrefixConfidence`] says it is.
+    mac_prefix: Option<MacPrefixDto>,
+    // There is deliberately no port axis. A matched `default_port` used to sit
+    // here and count towards `is_empty`, which made it *admitting*: the two
+    // specs whose only network signal is a port claimed every host answering on
+    // it, so any router admin page or NAS on the link came back "Possibly
+    // Rachio". A port is not a weak identifier, it is not an identifier —
+    // nothing about port 80 distinguishes one listener from the next. The
+    // declaration still gates a spec into the network path (see
+    // [`match_network_axes`]) so its name prefix gets a hearing; it just cannot
+    // be the evidence itself.
+}
+
+impl MatchAxes {
+    fn is_empty(&self) -> bool {
+        !self.by_name_prefix
+            && self.service_uuids.is_empty()
+            && self.shared_service_uuids.is_empty()
+            && self.service_types.is_empty()
+            && self.shared_service_types.is_empty()
+            && self.company_ids.is_empty()
+            && self.mac_prefix.is_none()
+    }
+
+    /// Every network identifier that matched, shared ones last. What the UI
+    /// reports; the confidence rule reads the two lists separately.
+    fn all_service_types(&self) -> Vec<String> {
+        let mut all = self.service_types.clone();
+        all.extend(self.shared_service_types.iter().cloned());
+        all
+    }
+
+    /// The same, for BLE service UUIDs. A user asking why a device was flagged
+    /// wants to see every UUID that matched, including the standard ones — it
+    /// is only the confidence verdict that has to tell them apart.
+    fn all_service_uuids(&self) -> Vec<String> {
+        let mut all = self.service_uuids.clone();
+        all.extend(self.shared_service_uuids.iter().cloned());
+        all
+    }
+
+    /// How much the matched OUI is worth, or `Low` when none matched. `Low` is
+    /// also what an unannotated prefix is worth, so the two are deliberately
+    /// indistinguishable here: neither one may promote a match on its own.
+    fn mac_prefix_confidence(&self) -> MacPrefixConfidence {
+        self.mac_prefix
+            .as_ref()
+            .map(|p| p.confidence)
+            .unwrap_or_default()
+    }
+
+    /// How many distinct axes agreed. Used to promote a pile of weak signals:
+    /// a name prefix on its own is ordinary, a name prefix on a device whose
+    /// OUI also belongs to that vendor is not.
+    ///
+    /// Three axes deliberately do not count, because each can match by
+    /// coincidence rather than by design, and letting one be half of an
+    /// "everything agrees" verdict is exactly how a scanner ends up confidently
+    /// naming the wrong product:
+    ///
+    /// - a low-confidence OUI (a block IEEE subdivided among fifteen companies,
+    ///   or a radio module vendor's block carried by every product using the
+    ///   chip);
+    /// - a SIG-assigned service UUID (0x180F Battery, 0x181A Environmental
+    ///   Sensing — services the specification defines for everyone, so matching
+    ///   one says what the device does and nothing about who built it);
+    /// - a shared service type or search target (`upnp:rootdevice` is answered
+    ///   by every router, printer and NAS on the link);
+    ///
+    /// A default port does not appear at all — not because it cannot promote,
+    /// but because it is not an axis; see the note on [`MatchAxes`].
+    fn agreeing(&self) -> usize {
+        usize::from(self.by_name_prefix)
+            + usize::from(!self.service_uuids.is_empty())
+            + usize::from(!self.service_types.is_empty())
+            + usize::from(!self.company_ids.is_empty())
+            + usize::from(self.mac_prefix_confidence() >= MacPrefixConfidence::Medium)
+    }
+
+    fn confidence(&self) -> MatchConfidence {
+        // Both lists here are only the vendor-specific half. A match on
+        // `_hue._tcp` is proof-shaped, a match on `upnp:rootdevice` is not, and
+        // before that split every UPnP root device on the link was reported as
+        // a Strong "Philips Hue Bridge". A SIG-assigned UUID is the same thing
+        // one axis over: 0x181A is the Environmental Sensing service every
+        // thermometer on the market exposes, and matching it was reporting each
+        // of them as a Strong "Xiaomi LYWSD03MMC".
+        if !self.service_uuids.is_empty() || !self.service_types.is_empty() || self.agreeing() >= 2
+        {
+            MatchConfidence::Strong
+        } else if self.by_name_prefix
+            || !self.company_ids.is_empty()
+            // A block a spec author checked and found to be this device family's
+            // and effectively nothing else's is evidence in its own right —
+            // the same standing as a local name, which users can rename anyway.
+            || self.mac_prefix_confidence() >= MacPrefixConfidence::High
+        {
+            MatchConfidence::Likely
+        } else {
+            MatchConfidence::Possible
+        }
+    }
+}
+
+/// Reduce a MAC address to its bare lowercase hex digits, or `None` when the
+/// string is not one.
+///
+/// The length check is what keeps Apple platforms out: CoreBluetooth reports a
+/// per-host UUID in place of the address, and a UUID's hex digits strip to 32
+/// rather than 12. Without it, every iOS device would be compared against the
+/// OUI list as though its address meant something.
+fn normalize_mac(raw: &str) -> Option<String> {
+    strip_hex(raw).filter(|hex| hex.len() == 12)
+}
+
+/// Reduce a spec's MAC prefix to bare lowercase hex digits, or `None` when it
+/// is not a usable 3-to-5-octet OUI. Deliberately stricter than "any hex":
+/// a one-octet prefix would match a sixteenth of all hardware.
+fn normalize_mac_prefix(raw: &str) -> Option<String> {
+    strip_hex(raw).filter(|hex| (6..=10).contains(&hex.len()))
+}
+
+/// Drop `:`/`-` separators and lowercase, or `None` when what remains is not
+/// pure hex. The shared step of both MAC normalizers; the length rule is what
+/// distinguishes an address from a prefix, so it stays at each call site.
+fn strip_hex(raw: &str) -> Option<String> {
+    let hex: String = raw
+        .chars()
+        .filter(|c| *c != ':' && *c != '-')
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
+    hex.chars().all(|c| c.is_ascii_hexdigit()).then_some(hex)
+}
+
+/// Whether `value` starts with `prefix`, ASCII-case-insensitively.
+///
+/// The one prefix test both matchers use. Case-insensitive because BLE local
+/// names and DNS names are ASCII and vendors are not consistent about casing
+/// across firmware revisions (SmartDawn units advertise DN*-style names and the
+/// vendor app itself filters them case-insensitively) — and DNS names are
+/// case-insensitive by definition anyway. `get(..len)` rather than slicing so a
+/// multi-byte value can't panic mid-char; a `None` there cannot equal an ASCII
+/// prefix.
+///
+/// An empty prefix is treated as absent, not as a wildcard: an empty prefix
+/// matches every name, so a spec carrying `local_name_prefix: ""` would
+/// otherwise claim every scanned device.
+fn name_has_prefix(value: &str, prefix: &str) -> bool {
+    !prefix.is_empty()
+        && value
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
+/// Compare one spec identity against one observation. The single place the
+/// matching rules live — both public matchers go through it, so the post-connect
+/// path and the scan path can never disagree about what "matched" means.
+/// `device_mac` is the device's address already through [`normalize_mac`],
+/// computed once by the caller: this runs per identity, and re-normalizing the
+/// same address ~70 times per scanned device is the kind of waste a scan tick
+/// notices.
+fn match_axes(
+    identity: &SpecIdentityDto,
+    device: &ScannedDeviceDto,
+    device_mac: Option<&str>,
+) -> MatchAxes {
+    // Any prefix matching is a match: the list holds the names one family ships
+    // under, not names a device must carry all of.
+    let by_name_prefix = identity
+        .local_name_prefixes
+        .iter()
+        .any(|prefix| name_has_prefix(&device.name, prefix));
+
+    // Return the lowercased intersection. Matches the docstring's contract and
+    // gives Dart callers a predictable casing. We only allocate the lowercased
+    // copy when a spec UUID actually matches; the per-element compare uses
+    // `eq_ignore_ascii_case`.
+    // Split as they are collected, on the same principle as the network side's
+    // shared search targets: a UUID the SIG allocated identifies a capability
+    // that any vendor may implement, so it belongs in the report but not in the
+    // promotion rule.
+    let mut service_uuids: Vec<String> = Vec::new();
+    let mut shared_service_uuids: Vec<String> = Vec::new();
+    for spec_uuid in &identity.service_uuids {
+        let matched = device
+            .service_uuids
+            .iter()
+            .any(|adv| adv.eq_ignore_ascii_case(spec_uuid));
+        if !matched {
+            continue;
+        }
+        let lowered = spec_uuid.to_ascii_lowercase();
+        if is_sig_assigned_service(spec_uuid) {
+            shared_service_uuids.push(lowered);
+        } else {
+            service_uuids.push(lowered);
+        }
+    }
+
+    let company_ids: Vec<u16> = identity
+        .company_ids
+        .iter()
+        .copied()
+        .filter(|id| device.company_ids.contains(id))
+        .collect();
+
+    let mac_prefix = device_mac.and_then(|address| {
+        // Best-first rather than first-declared: a spec listing both a
+        // vetted block and a shared one should be judged on the vetted one
+        // when the address is in it, regardless of declaration order.
+        identity
+            .mac_prefixes
+            .iter()
+            .filter(|entry| {
+                normalize_mac_prefix(&entry.prefix)
+                    .is_some_and(|normalized| address.starts_with(&normalized))
+            })
+            // `min_by_key` on the reversed key rather than `max_by_key`:
+            // both pick the best, but only this one keeps the first of
+            // several equally-good prefixes, so declaration order still
+            // breaks ties deterministically.
+            .min_by_key(|entry| std::cmp::Reverse(entry.confidence))
+            .cloned()
+    });
+
+    MatchAxes {
+        by_name_prefix,
+        service_uuids,
+        shared_service_uuids,
+        company_ids,
+        mac_prefix,
+        ..MatchAxes::default()
+    }
+}
+
+/// The Bluetooth SIG's GATT service registry, as vendored by the specs repo:
+/// one `<short-uuid>\t<name>` line per assignment, sorted.
+///
+/// Compiled in rather than loaded, because this is consulted inside the match
+/// loop and the answer can never depend on runtime state. Dart reads the same
+/// file as an asset for its *naming* lookups; here only the key set matters.
+const SIG_SERVICE_UUIDS: &str =
+    include_str!("../../../vendor/protocol-specs/registries/bluetooth-service-uuids.tsv");
+
+/// Whether `uuid` is a service the Bluetooth SIG defined, rather than one a
+/// vendor allocated for its own product.
+///
+/// The BLE half of the rule [`is_shared_service_type`] states for the network.
+/// A SIG service is a *capability*: 0x180F means the device reports a battery
+/// level, 0x181A that it reports environmental readings, 0x1802 that it can be
+/// told to beep. Every vendor implementing that capability advertises the same
+/// UUID, so a spec declaring one is describing what its device does — useful to
+/// report, worthless as proof of what it is. Left unsplit, three specs in the
+/// catalogue turned it into a confident lie: any thermometer exposing 0x181A
+/// was a Strong "Xiaomi LYWSD03MMC", any scale exposing 0x181D a Strong
+/// "Xiaomi Mi Scale", any tag exposing 0x1802 a Strong "iTag BLE Key Finder".
+///
+/// Membership of the SIG registry is the test, not membership of the base UUID
+/// range: 0xFFF0-0xFFFF sit in that range and are the unassigned values cheap
+/// modules squat on, which are weak for a different reason (collision, not
+/// standardisation) and are still the only identifier those devices have.
+fn is_sig_assigned_service(uuid: &str) -> bool {
+    let short = crate::protocol::profiles::normalize_uuid(uuid);
+    // Only the 16-bit forms can be SIG assignments; anything else cannot
+    // collide with a registry key, and skipping them keeps the scan short.
+    if short.len() > 4 {
+        return false;
+    }
+    let padded = format!("{:0>4}", short);
+    SIG_SERVICE_UUIDS
+        .lines()
+        .any(|line| line.split('\t').next() == Some(padded.as_str()))
+}
+
+/// Compare one spec identity against one device seen on the local network.
+///
+/// Deliberately the same [`MatchAxes`] and therefore the same confidence rule
+/// as the BLE path: an mDNS service type or an SSDP search target is a
+/// vendor-specific identifier the device volunteered, which is the network
+/// equivalent of a vendor service UUID. A declared `default_port` gates a spec
+/// into this path but never becomes evidence within it -- port 80 tells you
+/// nothing about who is listening on it.
+/// `device_types` is `device.service_types` already through
+/// [`normalize_service_type`], computed once by the caller for the same reason
+/// [`match_axes`] takes the MAC pre-normalized: this runs per identity.
+fn match_network_axes(
+    identity: &SpecIdentityDto,
+    device: &NetworkDeviceDto,
+    device_types: &[String],
+) -> MatchAxes {
+    // A spec that declares nothing about the network cannot match a host on it.
+    // Without this, any BLE spec whose local_name_prefix happened to prefix an
+    // mDNS instance name would surface on the Wi-Fi tab -- the network analogue
+    // of treating an empty prefix as a wildcard. The name prefix is a
+    // corroborating signal here, never an admitting one.
+    let declares_mdns = identity
+        .mdns_service_type
+        .as_ref()
+        .is_some_and(|t| !t.is_empty());
+    if !declares_mdns && identity.ssdp_search_targets.is_empty() && identity.default_port.is_none()
+    {
+        return MatchAxes::default();
+    }
+
+    let mut service_types: Vec<String> = Vec::new();
+    let mut shared_service_types: Vec<String> = Vec::new();
+    // Sorted into the bucket its genericness earns: a vendor's own type proves
+    // a lot, one a whole category answers to proves nothing on its own.
+    let mut record = |declared: &str, normalized: &str| {
+        if is_shared_service_type(normalized) {
+            shared_service_types.push(declared.to_string());
+        } else {
+            service_types.push(declared.to_string());
+        }
+    };
+
+    if let Some(declared) = identity
+        .mdns_service_type
+        .as_ref()
+        .filter(|t| !t.is_empty())
+    {
+        // Specs write `_hue._tcp.local.`, `_hue._tcp.local` and `_hue._tcp`
+        // interchangeably, and so do devices. Compare on the trimmed stem so a
+        // trailing-dot difference is not a missed device.
+        let wanted = normalize_service_type(declared);
+        if device_types.contains(&wanted) {
+            record(declared, &wanted);
+        }
+    }
+    for target in &identity.ssdp_search_targets {
+        if device
+            .ssdp_targets
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(target))
+        {
+            record(target, &normalize_service_type(target));
+        }
+    }
+
+    // The spec's local name prefixes do double duty here: on the network side a
+    // device's instance name or hostname is what carries the vendor's branding
+    // (`Lutron-083e013d.local`), the same way a BLE local name does.
+    let by_name_prefix = identity.local_name_prefixes.iter().any(|prefix| {
+        name_has_prefix(&device.name, prefix)
+            || device
+                .hostname
+                .as_deref()
+                .is_some_and(|h| name_has_prefix(h, prefix))
+    });
+
+    MatchAxes {
+        by_name_prefix,
+        service_types,
+        shared_service_types,
+        ..MatchAxes::default()
+    }
+}
+
+/// Whether a network identifier is answered by a whole category of hardware
+/// rather than by one vendor's product.
+///
+/// The network counterpart of [`MacPrefixConfidence::Low`], and it exists for
+/// the same reason: an identifier that many unrelated devices volunteer ranks a
+/// device, it does not name one. Without this, a spec declaring
+/// `upnp:rootdevice` matched every router, printer and NAS on the link at the
+/// top confidence tier, and the Wi-Fi tab badged them with that spec's product
+/// name.
+///
+/// A fixed list rather than a spec-declared flag, deliberately: these are
+/// published, standard identifiers whose generic-ness is a property of the
+/// protocol and not of any one device, so it should not be restated (or
+/// forgotten) per spec. Compared on the [`normalize_service_type`] stem, so
+/// `_hap._tcp.local.` and `_hap._tcp` are the same entry.
+fn is_shared_service_type(normalized: &str) -> bool {
+    matches!(
+        normalized,
+        // UPnP boilerplate: the root-device and basic-device announcements
+        // every SSDP responder sends, plus the wildcard search target.
+        "upnp:rootdevice"
+            | "ssdp:all"
+            | "urn:schemas-upnp-org:device:basic:1"
+            // Whole-ecosystem DNS-SD types. HomeKit and AirPlay in particular
+            // cover hundreds of unrelated products.
+            | "_hap._tcp"
+            | "_airplay._tcp"
+            | "_raop._tcp"
+            | "_companion-link._tcp"
+            | "_googlecast._tcp"
+            // "It speaks HTTP" and "it is a printer" are categories, not
+            // products.
+            | "_http._tcp"
+            | "_https._tcp"
+            | "_ipp._tcp"
+            | "_ipps._tcp"
+            | "_printer._tcp"
+            | "_pdl-datastream._tcp"
+            | "_workstation._tcp"
+            | "_device-info._tcp"
+            | "_services._dns-sd._udp"
+    )
+}
+
+/// Reduce a DNS-SD service type to a comparable stem: lowercase, no trailing
+/// dot, no `.local` suffix.
+fn normalize_service_type(raw: &str) -> String {
+    let lower = raw.trim().trim_end_matches('.').to_ascii_lowercase();
+    lower
+        .strip_suffix(".local")
+        .map(str::to_owned)
+        .unwrap_or(lower)
+}
+
+/// Find every spec matching a device we are already talking to, with the
+/// reasons it matched.
+///
+/// This is the post-connect path: `advertised_service_uuids` is expected to
+/// carry the GATT services actually discovered on the device, which is a far
+/// richer list than anything an advertisement fits in. For ranking devices
+/// during a scan, use [`match_scanned_device`] instead — it takes the weaker
+/// pre-connect signals too, and does not need the whole catalogue pushed across
+/// the FFI boundary.
 ///
 /// Returns `vec![]` when nothing matches. A spec matches when:
 /// - its `local_name_prefix` is a prefix of `device_name`, **or**
@@ -687,54 +1320,114 @@ pub fn match_device_to_spec(
     device_name: String,
     advertised_service_uuids: Vec<String>,
 ) -> Vec<MatchResult> {
+    let device = ScannedDeviceDto {
+        name: device_name,
+        service_uuids: advertised_service_uuids,
+        // Neither is observable on this path — it runs against a connected
+        // device, where the advertisement is long gone.
+        company_ids: Vec::new(),
+        mac_address: None,
+    };
     specs
         .into_iter()
         .filter_map(|spec| {
-            // An empty prefix is treated as absent, not as a wildcard: an
-            // empty prefix matches every name, so a spec carrying
-            // `local_name_prefix: ""` would otherwise claim every scanned
-            // device.
-            //
-            // ASCII-case-insensitive, like the UUID axis below: BLE local
-            // names for these devices are ASCII, and vendors are not
-            // consistent about casing across firmware revisions (SmartDawn
-            // units advertise DN*-style names and the vendor app itself
-            // filters them case-insensitively). `get(..len)` rather than
-            // slicing so a multi-byte device name can't panic mid-char — a
-            // None there cannot equal an ASCII prefix anyway.
-            let name_match = spec.local_name_prefix.as_ref().is_some_and(|prefix| {
-                !prefix.is_empty()
-                    && device_name
-                        .get(..prefix.len())
-                        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
-            });
-
-            // Return the lowercased intersection. Matches the docstring's
-            // contract and gives Dart callers a predictable casing. We
-            // only allocate the lowercased copy when a spec UUID actually
-            // matches; the per-element compare uses `eq_ignore_ascii_case`.
-            let matched_service_uuids: Vec<String> = spec
-                .service_uuids
-                .iter()
-                .filter(|spec_uuid| {
-                    advertised_service_uuids
-                        .iter()
-                        .any(|adv| adv.eq_ignore_ascii_case(spec_uuid))
-                })
-                .map(|spec_uuid| spec_uuid.to_ascii_lowercase())
-                .collect();
-
-            if name_match || !matched_service_uuids.is_empty() {
-                Some(MatchResult {
-                    spec,
-                    matched_by_name_prefix: name_match,
-                    matched_service_uuids,
-                })
-            } else {
-                None
-            }
+            let axes = match_axes(&SpecIdentityDto::from(&spec), &device, None);
+            // Built before the struct moves the axes apart.
+            let matched_service_uuids = axes.all_service_uuids();
+            (!axes.is_empty()).then(|| MatchResult {
+                spec,
+                matched_by_name_prefix: axes.by_name_prefix,
+                confidence: axes.confidence(),
+                matched_service_uuids,
+            })
         })
         .collect()
+}
+
+/// Rank the catalogue against a single device found on the local network, best
+/// match first.
+///
+/// The Wi-Fi counterpart of [`match_scanned_device`], sharing its confidence
+/// rule so a "Likely supported" badge means the same thing on both tabs.
+/// Returns `vec![]` when nothing matches.
+pub fn match_network_device(
+    identities: Vec<SpecIdentityDto>,
+    device: NetworkDeviceDto,
+) -> Vec<ScanMatch> {
+    // Normalized once here, not per identity — see match_network_axes.
+    let device_types: Vec<String> = device
+        .service_types
+        .iter()
+        .map(|t| normalize_service_type(t))
+        .collect();
+    rank_matches(&identities, |identity| {
+        match_network_axes(identity, &device, &device_types)
+    })
+}
+
+/// The shared tail of both scan matchers: run the axes function over the
+/// catalogue, keep what matched, and sort best-first — confidence, then how
+/// many volunteered identifiers (service UUIDs on BLE, service types on the
+/// network; each path only ever populates its own) agreed, then spec order so
+/// the result is stable for a given catalogue rather than depending on sort
+/// implementation details.
+fn rank_matches(
+    identities: &[SpecIdentityDto],
+    axes_for: impl Fn(&SpecIdentityDto) -> MatchAxes,
+) -> Vec<ScanMatch> {
+    let mut matches: Vec<ScanMatch> = identities
+        .iter()
+        .enumerate()
+        .filter_map(|(index, identity)| {
+            let axes = axes_for(identity);
+            // Built before the struct moves the axes apart.
+            let matched_service_types = axes.all_service_types();
+            let matched_service_uuids = axes.all_service_uuids();
+            (!axes.is_empty()).then(|| ScanMatch {
+                spec_index: index as u32,
+                device_name: identity.device_name.clone(),
+                manufacturer: identity.manufacturer.clone(),
+                confidence: axes.confidence(),
+                matched_by_name_prefix: axes.by_name_prefix,
+                matched_service_uuids,
+                matched_company_ids: axes.company_ids,
+                matched_mac_prefix: axes.mac_prefix,
+                matched_service_types,
+            })
+        })
+        .collect();
+
+    matches.sort_by(|a, b| {
+        let volunteered =
+            |m: &ScanMatch| m.matched_service_uuids.len() + m.matched_service_types.len();
+        b.confidence
+            .cmp(&a.confidence)
+            .then(volunteered(b).cmp(&volunteered(a)))
+            .then(a.spec_index.cmp(&b.spec_index))
+    });
+    matches
+}
+
+/// Rank the catalogue against a single device seen during a scan, best match
+/// first.
+///
+/// Takes identities rather than whole specs because this runs per newly-seen
+/// device during a scan: sending 70-odd fully parsed specs across the FFI
+/// boundary each time would cost far more than the matching itself.
+///
+/// Returns `vec![]` when nothing matches. Read `confidence` before doing
+/// anything with a result — a [`MatchConfidence::Possible`] match is one shared
+/// OUI and says only that the device is worth a human's attention, not that the
+/// spec describes it.
+pub fn match_scanned_device(
+    identities: Vec<SpecIdentityDto>,
+    device: ScannedDeviceDto,
+) -> Vec<ScanMatch> {
+    // Normalized once here, not per identity — see match_axes.
+    let device_mac = device.mac_address.as_deref().and_then(normalize_mac);
+    rank_matches(&identities, |identity| {
+        match_axes(identity, &device, device_mac.as_deref())
+    })
 }
 
 /// Encode a named command into bytes for a BLE write.
@@ -1051,7 +1744,7 @@ services:
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("rust crate should have a parent repo dir")
-            .join("assets/device_specs/example-bulb.yaml");
+            .join("vendor/protocol-specs/device-specs/examples/example-bulb.yaml");
         let yaml = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
 
@@ -1294,7 +1987,7 @@ services: []
         // `"x".starts_with("")` is true, so an empty prefix would otherwise
         // claim every scanned device; it must behave like an absent prefix.
         let mut dto = load_device_spec(TEST_YAML.into()).unwrap();
-        dto.local_name_prefix = Some(String::new());
+        dto.local_name_prefixes = vec![String::new()];
         dto.service_uuids.clear(); // no UUID axis either
         let results = match_device_to_spec(vec![dto], "AnyDeviceAtAll".into(), vec![]);
         assert!(
@@ -1309,6 +2002,755 @@ services: []
         let b = load_device_spec(TEST_YAML.into()).unwrap();
         let results = match_device_to_spec(vec![a, b], "TEST_xx".into(), vec![]);
         assert_eq!(results.len(), 2);
+    }
+
+    // ── Pre-connect (scan) matching ─────────────────────────────────────────
+
+    /// A spec that declares all four identification axes, so each test can pick
+    /// exactly the one it means to exercise.
+    const SCAN_YAML: &str = r#"
+device:
+  name: "Test Scanner Bulb"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+  identification:
+    local_name_prefix: "TEST_"
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+    manufacturer_data:
+      company_id: 961
+      company_id_hex: "0x03C1"
+      additional_company_ids: [89]
+      description: "Descriptive keys here must not break the parse."
+    mac_prefixes:
+      - "C4:7C:8D"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+"#;
+
+    fn scan_identity() -> SpecIdentityDto {
+        SpecIdentityDto::from(&load_device_spec(SCAN_YAML.into()).unwrap())
+    }
+
+    /// The scan identity with its one OUI re-rated. Lets a test say which tier
+    /// of block it is exercising without restating the whole spec.
+    fn scan_identity_with_oui(confidence: MacPrefixConfidence) -> SpecIdentityDto {
+        let mut identity = scan_identity();
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "C4:7C:8D".into(),
+            confidence,
+        }];
+        identity
+    }
+
+    /// A device that matches on no axis at all; tests opt into one field at a
+    /// time from here.
+    fn anonymous_device() -> ScannedDeviceDto {
+        ScannedDeviceDto {
+            name: "Anonymous".into(),
+            service_uuids: vec![],
+            company_ids: vec![],
+            mac_address: None,
+        }
+    }
+
+    /// The scan identity with its vendor UUID swapped for a SIG-assigned one.
+    /// `181a` is Environmental Sensing — what xiaomi-lywsd03mmc really declares.
+    fn scan_identity_with_sig_uuid() -> SpecIdentityDto {
+        let mut identity = scan_identity();
+        identity.service_uuids = vec!["0000181a-0000-1000-8000-00805f9b34fb".into()];
+        identity
+    }
+
+    #[test]
+    fn a_sig_assigned_service_uuid_alone_is_only_possible() {
+        // Every thermometer on the market exposes Environmental Sensing; it
+        // says the device reports a temperature, not who built it. While it
+        // ranked as a vendor UUID, each of them came back Strong and was badged
+        // "Xiaomi LYWSD03MMC".
+        let device = ScannedDeviceDto {
+            service_uuids: vec!["0000181A-0000-1000-8000-00805F9B34FB".into()],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity_with_sig_uuid()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+        assert_eq!(
+            matches[0].matched_service_uuids,
+            vec!["0000181a-0000-1000-8000-00805f9b34fb"],
+            "still reported — the user asked what matched, and it did"
+        );
+    }
+
+    #[test]
+    fn a_sig_assigned_service_uuid_does_not_promote_a_name_prefix() {
+        // The other half of the rule: a shared identifier cannot be one of the
+        // two agreeing axes either, or the promotion sneaks back in.
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            service_uuids: vec!["0000181a-0000-1000-8000-00805f9b34fb".into()],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity_with_sig_uuid()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+    }
+
+    #[test]
+    fn a_vendor_service_uuid_is_still_strong() {
+        // The control. 0xfff0 sits inside the base UUID range but the SIG never
+        // assigned it, so it is a squatted vendor value — weak against
+        // collision, but still the only identifier such a device has, and the
+        // strongest thing it volunteers.
+        let device = ScannedDeviceDto {
+            service_uuids: vec!["0000fff0-0000-1000-8000-00805f9b34fb".into()],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn the_sig_registry_answers_in_every_uuid_spelling() {
+        // Specs write these three ways interchangeably; a miss in any spelling
+        // silently restores the Strong verdict for that spec alone.
+        for spelling in [
+            "181a",
+            "0000181A-0000-1000-8000-00805F9B34FB",
+            "0000181a-0000-1000-8000-00805f9b34fb",
+        ] {
+            assert!(is_sig_assigned_service(spelling), "{spelling}");
+        }
+        // Padding matters: 0x1800 is Generic Access, and normalize_uuid hands
+        // back "1800" — but a two-digit assignment would come back stripped.
+        assert!(is_sig_assigned_service("1800"));
+        // Not assignments: the squatted range, and a full vendor UUID.
+        assert!(!is_sig_assigned_service("fff0"));
+        assert!(!is_sig_assigned_service(
+            "0000fff0-0000-1000-8000-00805f9b34fb"
+        ));
+        assert!(!is_sig_assigned_service(
+            "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+        ));
+    }
+
+    #[test]
+    fn identification_axes_reach_the_dto() {
+        let dto = load_device_spec(SCAN_YAML.into()).unwrap();
+        assert_eq!(dto.company_ids, vec![961, 89]);
+        assert_eq!(
+            dto.mac_prefixes,
+            vec![MacPrefixDto {
+                prefix: "C4:7C:8D".to_string(),
+                // A bare string says nothing about the block, and a block
+                // nobody has checked has to be assumed to be a shared one.
+                confidence: MacPrefixConfidence::Low,
+            }]
+        );
+    }
+
+    #[test]
+    fn every_declared_local_name_prefix_matches() {
+        // The Inkbird case: one family, eight rebadged names, no shared prefix.
+        // Each is an alternative, so a device carrying any one of them is a
+        // match, and the singular and plural keys are read together.
+        let yaml = SCAN_YAML.replace(
+            "    local_name_prefix: \"TEST_\"",
+            concat!(
+                "    local_name_prefix: \"TEST_\"\n",
+                "    local_name_prefixes: [\"IBT-\", \"IBBQ-\", \"TEST_\"]",
+            ),
+        );
+        let identity = SpecIdentityDto::from(&load_device_spec(yaml).unwrap());
+        assert_eq!(
+            identity.local_name_prefixes,
+            vec!["TEST_", "IBT-", "IBBQ-"],
+            "singular first, then the plural entries, with the repeat dropped"
+        );
+
+        for name in ["TEST_Kitchen", "IBT-4XS", "IBBQ-4BW"] {
+            let matches = match_scanned_device(
+                vec![identity.clone()],
+                ScannedDeviceDto {
+                    name: name.into(),
+                    ..anonymous_device()
+                },
+            );
+            assert_eq!(
+                matches.len(),
+                1,
+                "{name} should have matched on one of the declared prefixes"
+            );
+            assert!(matches[0].matched_by_name_prefix, "{name}");
+        }
+
+        assert!(
+            match_scanned_device(
+                vec![identity],
+                ScannedDeviceDto {
+                    name: "SomethingElse".into(),
+                    ..anonymous_device()
+                }
+            )
+            .is_empty(),
+            "a name matching none of them is still not a match"
+        );
+    }
+
+    #[test]
+    fn a_detailed_mac_prefix_entry_carries_its_verdict() {
+        // The other half of the schema's `oneOf`: a map with the spec author's
+        // finding on it, plus the free-text `notes` that finding lives in.
+        let yaml = SCAN_YAML.replace(
+            "      - \"C4:7C:8D\"",
+            concat!(
+                "      - prefix: \"C4:7C:8D\"\n",
+                "        confidence: \"high\"\n",
+                "        notes: \"Unknown keys here must not break the parse.\"\n",
+            ),
+        );
+        let dto = load_device_spec(yaml).unwrap();
+        assert_eq!(
+            dto.mac_prefixes,
+            vec![MacPrefixDto {
+                prefix: "C4:7C:8D".to_string(),
+                confidence: MacPrefixConfidence::High,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_detailed_mac_prefix_entry_defaults_to_low() {
+        // Writing the map form without a verdict is not a claim of confidence.
+        let yaml = SCAN_YAML.replace(
+            "      - \"C4:7C:8D\"",
+            "      - prefix: \"C4:7C:8D\"\n        notes: \"Nobody has checked this block.\"\n",
+        );
+        let dto = load_device_spec(yaml).unwrap();
+        assert_eq!(
+            dto.mac_prefixes[0].confidence,
+            MacPrefixConfidence::Low,
+            "an unstated verdict is the pessimistic one"
+        );
+    }
+
+    #[test]
+    fn duplicate_company_ids_are_collapsed() {
+        // A spec repeating its primary ID under additional_company_ids must not
+        // make the device look like it agreed on two separate signals.
+        let yaml = SCAN_YAML.replace(
+            "additional_company_ids: [89]",
+            "additional_company_ids: [961]",
+        );
+        let dto = load_device_spec(yaml).unwrap();
+        assert_eq!(dto.company_ids, vec![961]);
+    }
+
+    #[test]
+    fn service_uuid_alone_is_strong() {
+        let device = ScannedDeviceDto {
+            // Uppercase on purpose: advertised UUID casing varies by platform.
+            service_uuids: vec!["0000FFF0-0000-1000-8000-00805F9B34FB".into()],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(
+            matches[0].matched_service_uuids,
+            vec!["0000fff0-0000-1000-8000-00805f9b34fb".to_string()]
+        );
+    }
+
+    #[test]
+    fn name_prefix_alone_is_likely() {
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+        assert!(matches[0].matched_by_name_prefix);
+    }
+
+    #[test]
+    fn company_id_alone_is_likely() {
+        let device = ScannedDeviceDto {
+            company_ids: vec![89],
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+        assert_eq!(matches[0].matched_company_ids, vec![89]);
+    }
+
+    #[test]
+    fn mac_prefix_alone_is_only_possible() {
+        // The whole point of the weakest tier: an OUI is a vendor, not a
+        // product, so this must never be promoted into a claim of support.
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:11:22:33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+        let matched = matches[0].matched_mac_prefix.as_ref().unwrap();
+        assert_eq!(matched.prefix, "C4:7C:8D");
+        assert_eq!(matched.confidence, MacPrefixConfidence::Low);
+    }
+
+    #[test]
+    fn a_medium_confidence_oui_alone_is_still_only_possible() {
+        // "Something Philips made" is not "a Philips bridge". A block being
+        // genuinely the manufacturer's does not make it this product's.
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:11:22:33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(
+            vec![scan_identity_with_oui(MacPrefixConfidence::Medium)],
+            device,
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+    }
+
+    #[test]
+    fn a_high_confidence_oui_alone_is_likely() {
+        // A block a spec author checked and found to be this family's and
+        // nothing else's is evidence in its own right — the same standing as a
+        // local name, which users can rename anyway.
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:11:22:33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(
+            vec![scan_identity_with_oui(MacPrefixConfidence::High)],
+            device,
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+    }
+
+    #[test]
+    fn a_low_confidence_oui_does_not_promote_a_name_prefix() {
+        // The regression this whole flag exists for. C4:7C:8D is an IEEE
+        // Registration Authority block subdivided among fifteen companies, so
+        // a device sitting in it agreeing with a name prefix is one signal
+        // plus a coincidence, not two signals agreeing.
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            mac_address: Some("C4-7C-8D-11-22-33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![scan_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+        assert!(
+            matches[0].matched_mac_prefix.is_some(),
+            "the prefix still matched and is still reported — it just does not vote"
+        );
+    }
+
+    #[test]
+    fn two_weak_axes_agreeing_are_strong() {
+        // A block that really is the vendor's, on a device also carrying the
+        // vendor's name prefix: two independent signals, so this is the pile
+        // of weak evidence that the promotion rule exists for.
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            mac_address: Some("C4-7C-8D-11-22-33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(
+            vec![scan_identity_with_oui(MacPrefixConfidence::Medium)],
+            device,
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn the_best_matching_prefix_wins() {
+        // A spec may list a shared block and a vetted one. Which entry the
+        // address lands in decides the verdict, not which was written first.
+        let mut identity = scan_identity();
+        identity.mac_prefixes = vec![
+            MacPrefixDto {
+                prefix: "C4:7C:8D".into(),
+                confidence: MacPrefixConfidence::Low,
+            },
+            MacPrefixDto {
+                prefix: "C4:7C:8D:6".into(),
+                confidence: MacPrefixConfidence::High,
+            },
+        ];
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:6a:22:33".into()),
+            ..anonymous_device()
+        };
+        let matches = match_scanned_device(vec![identity], device);
+        assert_eq!(
+            matches[0].matched_mac_prefix.as_ref().unwrap().prefix,
+            "C4:7C:8D:6"
+        );
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+    }
+
+    #[test]
+    fn a_core_bluetooth_uuid_is_not_read_as_a_mac() {
+        // Apple platforms hand out a per-host UUID in place of the address.
+        // Its hex digits must never be prefix-compared against an OUI list.
+        let device = ScannedDeviceDto {
+            mac_address: Some("C47C8DAB-1234-5678-9ABC-DEF012345678".into()),
+            ..anonymous_device()
+        };
+        assert!(match_scanned_device(vec![scan_identity()], device).is_empty());
+    }
+
+    #[test]
+    fn a_one_octet_mac_prefix_is_ignored() {
+        // A single octet matches a sixteenth of all hardware, so a spec that
+        // somehow carries one must match nothing rather than everything. Rated
+        // `high` on purpose: a confidence flag is the spec author's opinion of
+        // a block, and no opinion makes one octet a block.
+        let mut identity = scan_identity();
+        identity.mac_prefixes = vec![MacPrefixDto {
+            prefix: "C4".into(),
+            confidence: MacPrefixConfidence::High,
+        }];
+        let device = ScannedDeviceDto {
+            mac_address: Some("c4:7c:8d:11:22:33".into()),
+            ..anonymous_device()
+        };
+        assert!(match_scanned_device(vec![identity], device).is_empty());
+    }
+
+    #[test]
+    fn scan_matches_come_back_best_first() {
+        let strong = scan_identity();
+        let mut weak = scan_identity();
+        weak.device_name = "Weak".into();
+        weak.service_uuids.clear();
+        weak.local_name_prefixes = vec![];
+        weak.company_ids = vec![];
+
+        let device = ScannedDeviceDto {
+            name: "TEST_Kitchen".into(),
+            service_uuids: vec!["0000fff0-0000-1000-8000-00805f9b34fb".into()],
+            company_ids: vec![],
+            mac_address: Some("c4:7c:8d:11:22:33".into()),
+        };
+        // Weak is passed FIRST, so ordering can only come from confidence.
+        let matches = match_scanned_device(vec![weak, strong], device);
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].device_name, "Test Scanner Bulb");
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[0].spec_index, 1, "spec_index must index the input");
+        assert_eq!(matches[1].confidence, MatchConfidence::Possible);
+    }
+
+    #[test]
+    fn scan_match_no_results() {
+        assert!(match_scanned_device(vec![scan_identity()], anonymous_device()).is_empty());
+    }
+
+    // ── Local-network matching ──────────────────────────────────────────────
+
+    const NETWORK_YAML: &str = r#"
+device:
+  name: "Test Bridge"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "wifi"
+  identification:
+    local_name_prefix: "TestBridge-"
+    mdns_service_type: "_testbridge._tcp.local."
+    ssdp_search_targets:
+      - "urn:test:device:bridge:1"
+    default_port: 8081
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Root"
+"#;
+
+    impl SpecIdentityDto {
+        /// Drop the name axis so a test can isolate the network identifiers.
+        fn local_name_prefix_clear(&mut self) {
+            self.local_name_prefixes.clear();
+        }
+    }
+
+    fn network_identity() -> SpecIdentityDto {
+        SpecIdentityDto::from(&load_device_spec(NETWORK_YAML.into()).unwrap())
+    }
+
+    fn anonymous_host() -> NetworkDeviceDto {
+        NetworkDeviceDto {
+            name: String::new(),
+            hostname: None,
+            service_types: vec![],
+            ssdp_targets: vec![],
+            port: None,
+        }
+    }
+
+    #[test]
+    fn network_identity_axes_reach_the_dto() {
+        let dto = load_device_spec(NETWORK_YAML.into()).unwrap();
+        assert_eq!(
+            dto.mdns_service_type.as_deref(),
+            Some("_testbridge._tcp.local.")
+        );
+        assert_eq!(dto.ssdp_search_targets, vec!["urn:test:device:bridge:1"]);
+        assert_eq!(dto.default_port, Some(8081));
+    }
+
+    #[test]
+    fn an_mdns_service_type_alone_is_strong() {
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[0].matched_service_types.len(), 1);
+    }
+
+    #[test]
+    fn a_trailing_dot_is_not_a_missed_device() {
+        // Specs and devices both write `_x._tcp`, `_x._tcp.local` and
+        // `_x._tcp.local.` interchangeably.
+        for advertised in ["_testbridge._tcp", "_TestBridge._TCP.local."] {
+            let device = NetworkDeviceDto {
+                service_types: vec![advertised.into()],
+                ..anonymous_host()
+            };
+            let matches = match_network_device(vec![network_identity()], device);
+            assert_eq!(matches.len(), 1, "{advertised} should have matched");
+        }
+    }
+
+    #[test]
+    fn an_ssdp_search_target_alone_is_strong() {
+        let device = NetworkDeviceDto {
+            ssdp_targets: vec!["urn:test:device:bridge:1".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn a_hostname_prefix_alone_is_likely() {
+        // Network devices carry their branding in the hostname rather than in
+        // any advertised "name" field.
+        let device = NetworkDeviceDto {
+            hostname: Some("TestBridge-083e013d.local".into()),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+        assert!(matches[0].matched_by_name_prefix);
+    }
+
+    #[test]
+    fn a_default_port_alone_matches_nothing() {
+        // Port 8081 is not evidence of anything much, and port 80 is evidence
+        // of nothing at all — so a port on its own does not admit a match. Two
+        // specs in the catalogue declare a port and nothing else, and while the
+        // port was admitting they claimed every host answering on it: any
+        // router admin page came back "Possibly Rachio".
+        let mut identity = network_identity();
+        identity.mdns_service_type = None;
+        identity.ssdp_search_targets = vec![];
+        identity.local_name_prefixes = vec![];
+
+        let device = NetworkDeviceDto {
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert!(
+            matches.is_empty(),
+            "a matched port is not evidence of anything"
+        );
+    }
+
+    #[test]
+    fn a_network_match_reports_no_ble_axes() {
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert!(matches[0].matched_service_uuids.is_empty());
+        assert!(matches[0].matched_company_ids.is_empty());
+        assert!(matches[0].matched_mac_prefix.is_none());
+    }
+
+    #[test]
+    fn a_ble_only_spec_matches_no_network_device() {
+        // scan_identity() has no mdns/ssdp/port, so it must never claim a host.
+        let device = NetworkDeviceDto {
+            name: "TEST_Kitchen".into(),
+            service_types: vec!["_testbridge._tcp.local".into()],
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![scan_identity()], device);
+        assert!(
+            matches.is_empty(),
+            "a BLE spec's local_name_prefix must not be enough on its own here"
+        );
+    }
+
+    #[test]
+    fn a_shared_search_target_alone_is_only_possible() {
+        // The regression this whole split exists for. hue-bridge.yaml declares
+        // `upnp:rootdevice`, and the Wi-Fi scan's M-SEARCH uses `ST: ssdp:all`,
+        // which every UPnP responder answers with exactly that. Before this,
+        // the router, the printer and the NAS were each reported Strong and
+        // badged "Philips Hue Bridge".
+        let mut identity = network_identity();
+        identity.mdns_service_type = None;
+        identity.ssdp_search_targets = vec!["upnp:rootdevice".into()];
+        identity.local_name_prefix_clear();
+
+        let device = NetworkDeviceDto {
+            ssdp_targets: vec!["upnp:rootdevice".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches.len(), 1, "it still ranks — it just cannot claim");
+        assert_eq!(matches[0].confidence, MatchConfidence::Possible);
+        assert_eq!(
+            matches[0].matched_service_types,
+            vec!["upnp:rootdevice".to_string()],
+            "still reported, so the UI can say what matched"
+        );
+    }
+
+    #[test]
+    fn a_shared_mdns_type_alone_is_only_possible() {
+        // roku-ecp declares `_airplay._tcp`, lifx-z and rachio declare
+        // `_hap._tcp`. An Apple TV is not a Roku; a HomeKit plug is not a
+        // sprinkler controller.
+        for shared in ["_airplay._tcp.local.", "_hap._tcp.local."] {
+            let mut identity = network_identity();
+            identity.mdns_service_type = Some(shared.into());
+            identity.ssdp_search_targets = vec![];
+            identity.local_name_prefix_clear();
+
+            let device = NetworkDeviceDto {
+                service_types: vec![shared.into()],
+                ..anonymous_host()
+            };
+            let matches = match_network_device(vec![identity], device);
+            assert_eq!(
+                matches[0].confidence,
+                MatchConfidence::Possible,
+                "{shared} is answered by a whole ecosystem"
+            );
+        }
+    }
+
+    #[test]
+    fn a_vendor_specific_mdns_type_is_still_strong() {
+        // The other half of the contract: splitting shared identifiers out must
+        // not weaken a real one. `_testbridge._tcp` belongs to one product.
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![network_identity()], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+    }
+
+    #[test]
+    fn a_shared_type_still_corroborates_a_real_signal() {
+        // A shared identifier is not evidence on its own, but it does not
+        // subtract either: the vendor-specific type still carries the match.
+        let mut identity = network_identity();
+        identity.ssdp_search_targets = vec!["upnp:rootdevice".into()];
+
+        let device = NetworkDeviceDto {
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ssdp_targets: vec!["upnp:rootdevice".into()],
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(
+            matches[0].matched_service_types.len(),
+            2,
+            "both are reported even though only one of them ranks"
+        );
+    }
+
+    #[test]
+    fn a_default_port_does_not_promote_a_name_prefix() {
+        // Port 80 says nothing about who is listening, which the DTO's own doc
+        // comment states — so it must not be half of a "two signals agree"
+        // promotion, for the same reason a shared block is not.
+        let mut identity = network_identity();
+        identity.mdns_service_type = None;
+        identity.ssdp_search_targets = vec![];
+
+        let device = NetworkDeviceDto {
+            hostname: Some("TestBridge-1.local".into()),
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![identity], device);
+        assert_eq!(matches[0].confidence, MatchConfidence::Likely);
+    }
+
+    #[test]
+    fn network_matches_come_back_best_first() {
+        // Weak matches on its shared search target alone, which ranks but never
+        // promotes; the full identity matches on its own mDNS type.
+        let mut weak = network_identity();
+        weak.device_name = "Weak".into();
+        weak.mdns_service_type = None;
+        weak.ssdp_search_targets = vec!["upnp:rootdevice".into()];
+        weak.local_name_prefixes = vec![];
+
+        let device = NetworkDeviceDto {
+            hostname: Some("TestBridge-1.local".into()),
+            service_types: vec!["_testbridge._tcp.local".into()],
+            ssdp_targets: vec!["upnp:rootdevice".into()],
+            port: Some(8081),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![weak, network_identity()], device);
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].device_name, "Test Bridge");
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[1].confidence, MatchConfidence::Possible);
+    }
+
+    #[test]
+    fn network_match_no_results() {
+        assert!(match_network_device(vec![network_identity()], anonymous_host()).is_empty());
+    }
+
+    #[test]
+    fn post_connect_matches_carry_confidence() {
+        // The two matchers share one core, so the post-connect path reports the
+        // same confidence vocabulary as the scan path.
+        let dto = load_device_spec(TEST_YAML.into()).unwrap();
+        let results = match_device_to_spec(
+            vec![dto],
+            "Unknown".into(),
+            vec!["0000fff0-0000-1000-8000-00805f9b34fb".into()],
+        );
+        assert_eq!(results[0].confidence, MatchConfidence::Strong);
     }
 
     #[test]

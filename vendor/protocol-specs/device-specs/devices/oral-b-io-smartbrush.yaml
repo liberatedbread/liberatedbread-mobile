@@ -8,7 +8,9 @@ device:
   # 'gatt' is not a schema protocol; GATT is the attribute protocol carried over
   # BLE, and the services/characteristics below already say the access is GATT.
   protocol: ble
-  manufacturer_id: "0xDC00"
+  # The SIG-assigned company ID, decoded — not the `DC 00` byte pair as it
+  # appears little-endian on the wire. 0xDC00 (56320) is unassigned.
+  manufacturer_id: "0x00DC"
   # P&G still ships the iO line; the protocol is simply closed. Per the schema's
   # own guidance that is 'active', not a bespoke 'production'.
   manufacturer_status: active
@@ -16,7 +18,8 @@ device:
     Extracted from com.pg.oralb.oralbapp v10.x (211MB APK, decompiled via jadx).
     Uses A0F0XXXX-5047-4D53-8208-4F72616C2D42 UUID scheme where XXXX is a
     16-bit short UUID. Suffix "4F72616C2D42" decodes to "Oral-B" in ASCII.
-    Manufacturer ID 0xDC00 = Procter & Gamble (byte 2=-36/decimal, byte 3=0).
+    Manufacturer ID 0x00DC (220) = Procter & Gamble; the advertisement carries
+    it little-endian, so the wire bytes read DC 00.
     Protocol versions V001 through V009 across brush generations.
     Discovery uses manufacturer-specific advertisement data (app filters:
     brush >= 5 bytes, charger >= 10; the full brush advertisement is 15 bytes).
@@ -29,12 +32,26 @@ device:
     GBL files, legacy SONOS images are TI CC2640 binaries; current firmware is
     E-Platform V82 and iO4/iO5 V36.
 
+  # No local name prefix and no advertised service UUID: as the setup notes
+  # below say, a scanner filtering on services never sees this brush at all.
+  # The manufacturer-data company ID is the only pre-connect signal there is.
+  identification:
+    manufacturer_data:
+      company_id: 220
+      company_id_hex: "0x00DC"
+      description: >
+        Procter & Gamble (SIG-assigned 220). The advertisement carries the ID
+        little-endian, so the wire bytes read `DC 00` — this field is the
+        DECODED value, which is what a scanner compares against, not the bytes
+        in advertisement order. Both device classes advertise under it: brush
+        payloads are 15 bytes (the app accepts >= 5), chargers >= 10.
+
   setup:
     required: false
     confidence: medium
     notes: >
       The brush needs no provisioning. It advertises manufacturer-specific data
-      under P&G's manufacturer ID (0xDC00) whenever it is switched on, and
+      under P&G's manufacturer ID (0x00DC) whenever it is switched on, and
       exposes its state and control characteristics to any client that connects.
       The Oral-B app's account is for storing brushing history in P&G's cloud;
       the brush is not bound to it.
@@ -56,7 +73,7 @@ device:
             actor: user
           - action: >
               Scan for manufacturer-specific advertisement data under
-              manufacturer ID 0xDC00. The app's brush filter needs at least 5
+              manufacturer ID 0x00DC. The app's brush filter needs at least 5
               payload bytes (charger filter 10); the full brush advertisement
               is 15 bytes.
             actor: client

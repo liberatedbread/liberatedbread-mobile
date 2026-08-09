@@ -42,6 +42,8 @@
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:liberated_bread_mobile/providers/device_spec_provider.dart'
+    show fallbackSpecPath, specAssetPath;
 import 'package:liberated_bread_mobile/services/mock_ble_service.dart';
 import 'package:liberated_bread_mobile/src/rust/api/device_api.dart'
     show identifyStandardProfiles, loadDeviceSpec;
@@ -99,11 +101,14 @@ void main() {
     // rootBundle also proves the spec assets shipped in the package — on iOS
     // they live in Runner.app/flutter_assets, and an asset-declaration
     // regression in pubspec.yaml is invisible to every host test.
-    final yaml =
-        await rootBundle.loadString('assets/device_specs/example-bulb.yaml');
+    // Built from the provider's own constants rather than a literal: the
+    // specs are bundled straight out of the vendored subtree now, and a
+    // hardcoded path here would keep asserting an asset directory that no
+    // longer exists.
+    final yaml = await rootBundle.loadString(specAssetPath(fallbackSpecPath));
     final spec = await loadDeviceSpec(yaml: yaml);
     expect(spec.deviceName, 'Example Smart Bulb');
-    expect(spec.localNamePrefix, 'ACME_');
+    expect(spec.localNamePrefixes, contains('ACME_'));
     expect(spec.services, isNotEmpty);
   });
 }

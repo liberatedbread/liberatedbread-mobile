@@ -47,6 +47,20 @@ device:
     service_uuids:
       - "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
     local_name_prefix: "Wo"
+    manufacturer_data:
+      company_id: 2409
+      company_id_hex: "0x0969"
+      description: >
+        0x0969 on firmware v6.4+. Older firmware advertises under 0x0059 (89,
+        Nordic Semiconductor) and pySwitchbot also parses 0x02E5 (741,
+        Espressif) — both recorded here in prose and deliberately NOT in
+        `additional_company_ids`, which the schema defines as equivalent to
+        `company_id`. Those two are the SoC vendors' own assignments, carried
+        by default by an enormous population of unrelated Nordic- and
+        ESP32-based products; treating them as equivalent would badge every one
+        of them a SwitchBot. Same reasoning as govee-h5075-thermo's exclusion
+        of Nokia's 0x0001. A consumer that has already identified a SwitchBot
+        some other way may use them to parse the payload.
 
   discovery:
     methods:

@@ -15,6 +15,20 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [matchDeviceToSpec].
   final List<MatchResult> matches;
 
+  /// Returned by [matchScannedDevice]. Either a fixed list, or a function of
+  /// the observed device so one fake can answer differently per device — which
+  /// is what a scan-list ordering test needs.
+  final List<ScanMatch> Function(ScannedDeviceDto device)? scanMatches;
+
+  /// Every device [matchScannedDevice] was asked about, in call order.
+  final List<ScannedDeviceDto> scanMatchCalls = [];
+
+  /// Returned by [matchNetworkDevice], as a function of the observed host.
+  final List<ScanMatch> Function(NetworkDeviceDto device)? networkMatches;
+
+  /// Every host [matchNetworkDevice] was asked about, in call order.
+  final List<NetworkDeviceDto> networkMatchCalls = [];
+
   /// Returned by [encodeCommand].
   final Uint8List encoded;
 
@@ -49,6 +63,11 @@ class FakeSpecCodec implements SpecCodec {
 
   final List<
       ({
+        // Recorded because it is snapshotted at enqueue time alongside the
+        // geometry: a send that carries one frame's dimensions and another
+        // spec's YAML is the failure the snapshot exists to prevent, and it
+        // is invisible unless the pairing is observable here.
+        String specYaml,
         int width,
         int height,
         List<int> rgb,
@@ -59,6 +78,8 @@ class FakeSpecCodec implements SpecCodec {
   FakeSpecCodec({
     this.spec,
     this.matches = const [],
+    this.scanMatches,
+    this.networkMatches,
     Uint8List? encoded,
     this.decoded = const [],
     this.specByYaml,
@@ -88,6 +109,24 @@ class FakeSpecCodec implements SpecCodec {
     required List<String> advertisedServiceUuids,
   }) async =>
       matches;
+
+  @override
+  Future<List<ScanMatch>> matchScannedDevice({
+    required List<SpecIdentityDto> identities,
+    required ScannedDeviceDto device,
+  }) async {
+    scanMatchCalls.add(device);
+    return scanMatches?.call(device) ?? const [];
+  }
+
+  @override
+  Future<List<ScanMatch>> matchNetworkDevice({
+    required List<SpecIdentityDto> identities,
+    required NetworkDeviceDto device,
+  }) async {
+    networkMatchCalls.add(device);
+    return networkMatches?.call(device) ?? const [];
+  }
 
   @override
   Future<Uint8List> encodeCommand({
@@ -149,6 +188,7 @@ class FakeSpecCodec implements SpecCodec {
     required int maxPayloadPerWrite,
   }) async {
     encodeImageCalls.add((
+      specYaml: specYaml,
       width: width,
       height: height,
       rgb: List.of(rgb),

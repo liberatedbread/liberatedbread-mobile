@@ -344,15 +344,25 @@ jobs:
           # rather than on cargo's bookkeeping.
           ./scripts/ci-install-frb.sh
           flutter_rust_bridge_codegen generate
-          # `git diff --exit-code` catches edits to tracked generated files but
-          # is blind to brand-new (untracked) ones, so also fail on ANY pending
-          # change under the generated paths, echoing the status first so the
-          # failure is diagnosable. Keep in sync with scripts/test.sh.
-          git diff --exit-code lib/src/rust/ rust/src/frb_generated.rs
-          drift="$(git status --porcelain --untracked-files=all lib/src/rust rust/src/frb_generated.rs)"
-          if [ -n "$drift" ]; then
-            echo "FRB generated output is stale (modified or untracked files):"
-            echo "$drift"
+          # -I exempts exactly one hunk. flutter_rust_bridge writes a header
+          # comment listing the trait methods it declined to bind, and it takes
+          # those names from derive expansions -- `#[derive(Eq)]` reads as
+          # `assert_receiver_is_total_eq` under rustc 1.94 and
+          # `assert_fields_are_eq` under 1.97. Nothing in the bindings changes
+          # with it. This job floats on stable while the output is committed, so
+          # without the exemption a rustc release turns every open PR red for a
+          # comment. A hunk carrying anything else still fails, and so does a
+          # hunk that touches this comment alongside real drift.
+          git diff --exit-code \
+            -I '^// These function are ignored because they are on traits' \
+            lib/src/rust/ rust/src/frb_generated.rs
+          # `git diff` is blind to brand-new (untracked) files, so a first-ever
+          # generated file would pass the check above. Keep in sync with
+          # scripts/test.sh.
+          untracked="$(git status --porcelain --untracked-files=all lib/src/rust rust/src/frb_generated.rs | grep '^??' || true)"
+          if [ -n "$untracked" ]; then
+            echo "FRB generated files that are not committed:"
+            echo "$untracked"
             exit 1
           fi
       - run: flutter test --coverage

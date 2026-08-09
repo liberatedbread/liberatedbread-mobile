@@ -9,7 +9,7 @@
 //! the UI, where both look like a device with nothing to show.
 //!
 //! Run with `scripts/spec_coverage.sh`, or:
-//!     cargo run --example spec_coverage -- ../assets/device_specs
+//!     cargo run --example spec_coverage -- ../vendor/protocol-specs/device-specs/devices
 //!
 //! Uses the app's own parser, so the numbers are what the app will do rather
 //! than what a separate YAML reader thinks.
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = PathBuf::from(
         std::env::args()
             .nth(1)
-            .unwrap_or_else(|| "../assets/device_specs".to_string()),
+            .unwrap_or_else(|| "../vendor/protocol-specs/device-specs/devices".to_string()),
     );
 
     // BTreeMap so the report is stable between runs — directory order is not.

@@ -50,6 +50,31 @@ device:
     provisioning and control are unaffected, and pywemo remains actively
     maintained.
   identification:
+    # The flat key is the one a scanner reads. The nested `ssdp:` block below
+    # carries the full M-SEARCH recipe for the discovery layer; a consumer
+    # matching an SSDP response looks here, so a target present only in the
+    # nested block reaches nothing and the device ranks on its port alone.
+    ssdp_search_targets:
+      - "urn:Belkin:service:basicevent:1"
+      - "urn:Belkin:device:controllee:1"
+      - "urn:Belkin:device:socket:1"
+      - "urn:Belkin:device:insight:1"
+      - "urn:Belkin:device:lightswitch:1"
+      - "urn:Belkin:device:dimmer:1"
+      - "urn:Belkin:device:bridge:1"
+      - "urn:Belkin:device:Maker:1"
+      - "urn:Belkin:device:motion:1"
+      - "urn:Belkin:device:sensor:1"
+      - "urn:Belkin:device:outdoor:1"
+      # The Holmes/Mr. Coffee co-branded hardware in `variants` answers on its
+      # own device types, not on `controllee:1`. Leaving these out is what
+      # stranded nine documented models on a port-80 match.
+      - "urn:Belkin:device:coffeemaker:1"
+      - "urn:Belkin:device:crockpot:1"
+      - "urn:Belkin:device:purifier:1"
+      - "urn:Belkin:device:heater:1"
+      - "urn:Belkin:device:humidifier:1"
+      - "urn:Belkin:device:humidifierb:1"
     ssdp:
       multicast_group: "239.255.255.250"
       multicast_port: 1900
