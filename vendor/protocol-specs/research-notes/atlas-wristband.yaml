@@ -1,0 +1,62 @@
+# Atlas Wearables Wristband / Wristband 2 — research note
+# From static analysis of com.atlaswearables.ionic v2.3.16 (jadx + Cordova JS assets)
+# APK source: apkeep (apk-pure), 2026-08-07; delisted from Google Play (404)
+# SHA-256: 5ea64eab40ef8d2e2d99392cb3b2e70500d60a1fc1adaf7ebd51f0d2b9c56419
+
+device:
+  id: atlas-wristband
+  name: Atlas Wearables Wristband / Wristband 2
+  manufacturer: Atlas Wearables Inc (Austin, TX) — defunct (~2017; domain dead, apps delisted)
+  category: fitness_sensor  # strength-training tracker: IMU + optical HR, exercise recognition
+  safety_class: LOW  # read-only sensor; no actuation
+
+transport:
+  type: ble
+  local_only: true
+  note: >
+    Band tracks standalone; app adds exercise library, learn mode, sync, firmware.
+    BLE layer is the open-source Firefly Ice protocol (Firefly Design) — framing
+    recoverable from public source, not RE.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — app parses deviceName segments; segment[1] = device UUID
+    service_uuids:
+      - "577fb8b4-553e-4807-9779-8647481d49b3"  # Firefly Ice BLE service (scan + channel)
+  services:
+    - uuid: "577fb8b4-553e-4807-9779-8647481d49b3"
+      name: firefly_ice_service
+      description: >
+        Firefly Ice reliable-datagram BLE channel used for all Atlas RPCs
+        (device info, preferences, sync, learn mode, firmware update, restart).
+        See FDFireflyIceManager/FDFireflyIceChannelBLE in AWPlugin.java and the
+        public github.com/fireflydesign Firefly Ice implementation.
+  additional_uuids:
+    - uuid: "a327cf3c-f033-4a54-8b7f-03c56ba3203f"
+      name: unknown_js_uuid
+      source: assets/www JS
+      description: role TBD
+  app_architecture:
+    ui: Cordova/Ionic (assets/www; AWPlugin.js exposes awGetDeviceInfo, awSetPreferences, awFullSync, awFastSync, awSendLearn, awCancelLearn, awFirmwareUpdate, awRestartDevice)
+    hardware: dual-MCU — STM32 + nRF51822 (expectedSTMVersion / expectedNRFVersion)
+
+protocol:
+  note: >
+    Firefly Ice open protocol over BLE; Atlas-specific RPC semantics TBD by
+    reading the public Firefly Ice source plus the app's JS call sites. No
+    pairing auth observed at triage depth.
+
+abandonment:
+  company_defunct: true   # quiet since ~2017; atlaswearables.com unreachable 2026-08-07
+  app_delisted: true      # com.atlaswearables.ionic + .androidwear 404 on Play, 2026-08-07
+  sources:
+    - https://uk.pcmag.com/electronics/75189/atlas-wearables-wristband?p=1
+    - https://techcrunch.com/2016/07/06/atlas-wearables-hands-on/
+    - https://www.fitnesssyncer.com/support/atlas-wearables
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true   # primary service UUID confirmed in native + JS
+  protocol_recovered: partial  # protocol = open-source Firefly Ice; Atlas RPC semantics TBD
+  hci_snoop_needed: false      # source-available protocol; capture only for validation

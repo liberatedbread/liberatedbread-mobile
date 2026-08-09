@@ -1,0 +1,66 @@
+# Ulanzi TC001 (AWTRIX 3) — Device Spec (research note)
+# Vendor alive; stock firmware cloud/app-bound. Local path: AWTRIX 3 open firmware.
+
+device:
+  id: ulanzi-tc001
+  name: Ulanzi TC001 Smart Pixel Clock (32x8 ESP32 matrix)
+  manufacturer: Ulanzi — alive as of 2026-08-07
+  category: ambient_display
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true   # with AWTRIX 3 firmware; stock firmware is app/cloud-bound
+  note: >
+    Community firmware AWTRIX 3 (Blueforcer/awtrix3) flashes over USB-C via
+    browser WebSerial installer; afterwards control is LAN-only via HTTP REST
+    and/or MQTT, with on-device web UI. No account at any step.
+
+lan:
+  provisioning:
+    method: usb-webserial-flash + on-device/web-UI WiFi setup
+  control:
+    protocols:
+      http:
+        base: http://<ip>/api/
+        endpoints:
+          - POST /api/notify       # text + 8x8 icon/animation + RTTTL sound + duration
+          - POST /api/custom       # persistent custom app pages
+          - POST /api/power        # on/off
+          - POST /api/brightness
+          - POST /api/moodlight
+          - GET|POST /api/settings
+          - GET /api/stats
+          - GET /api/loop          # current app rotation
+      mqtt:
+        prefix: configurable (default awtrix)
+        topics:
+          - <prefix>/notify
+          - <prefix>/custom/<appname>
+          - <prefix>/power
+          - <prefix>/brightness
+          - <prefix>/settings
+          - <prefix>/stats         # status out; HA auto-discovery built in
+
+protocol:
+  note: >
+    Fully documented at blueforcer.github.io/awtrix3 (API MQTT/HTTP section).
+    Payloads JSON; icons by LaMetric icon ID or raw 8x8 RGB565 frame arrays.
+  commands:
+    notify: 'POST /api/notify  body: {"text":..., "icon":..., "duration":...}'
+    custom_app: POST /api/custom/<name>
+    power: 'POST /api/power  body: {"power": true|false}'
+    brightness: 'POST /api/brightness  body: {"brightness": 0-255}'
+
+status:
+  apk_acquired: false     # n/a — stock app irrelevant after reflash
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — WiFi device
+  protocol_recovered: true   # open-source firmware, documented API
+  hci_snoop_needed: false
+  cloud_dead: false
+  rating: confirmed       # community firmware, large user base, HA integration
+  references:
+    - github.com/Blueforcer/awtrix3 + blueforcer.github.io/awtrix3
+    - raspberry.tips Ulanzi TC001 + AWTRIX tutorial (2026-07-13)
+    - ulanzi.de AWTRIX 3 setup guide (2026-06-08)

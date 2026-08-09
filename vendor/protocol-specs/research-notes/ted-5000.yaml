@@ -1,0 +1,50 @@
+# TED 5000 (The Energy Detective) — Device Spec (research note)
+# ABANDONED product line (discontinued; "we no longer support this product" — Energy Inc., 2021)
+# Company alive (TED Pro line). Local path: vendor-documented XML API on the Gateway, no cloud ever needed
+
+device:
+  id: ted-5000
+  name: TED 5000 series (5000-G / 5000-C) home energy monitor
+  manufacturer: Energy Inc. (Charleston SC) — product discontinued; company active (TED Pro)
+  category: energy_monitor
+  safety_class: MEDIUM  # MTU clamps on service legs inside panel; measurement-only
+
+transport:
+  type: wifi-lan        # Gateway is Ethernet; MTU->Gateway hop is powerline (PLC), not WiFi
+  local_only: true
+  note: >
+    Gateway stores history and serves the Footprints web app plus a
+    vendor-documented XML API on the LAN. No cloud account ever required
+    (optional Google PowerMeter posting died 2011; units unaffected).
+    PLC hop reliability depends on house wiring — known weak point.
+
+lan:
+  discovery:
+    method: dhcp-scan
+  control:
+    protocol: http-xml
+    port: 80
+    auth: optional gateway admin password (stock default admin/1234)
+
+protocol:
+  note: >
+    Energy Inc. published a third-party "TED 5000 API" document. XML over
+    HTTP; LiveData for instant values, DashData for dashboard aggregates,
+    /history/* for recorded series per MTU.
+  endpoints:
+    live: "GET /api/LiveData.xml → per-MTU power (W), voltage, cumulative energy"
+    dash: "GET /api/DashData.xml?T=0&D=0&M=0 → averages, projections, cost"
+    history: "GET /history/hourlyhistory.xml?MTU=<n>&D=<d>&M=<m>&Y=<y> (daily/monthly variants)"
+
+status:
+  apk_acquired: false    # n/a — vendor UI was web-based; API documented
+  apk_decompiled: false
+  uuids_recovered: false # n/a — no BLE
+  protocol_recovered: true   # vendor-documented API + HA core implementation
+  rating: confirmed
+  cloud_dead: false      # never had a cloud dependency; product EOL instead
+  references:
+    - home-assistant.io/integrations/ted5000 (local_polling, LiveData.xml)
+    - community.home-assistant.io/t/support-for-extended-statistics-for-ted5000-power-sensor/330407 (2021-08-16, "no longer supported")
+    - itm.com/product/the-energy-detective-ted-5000 (discontinued listing)
+    - nuxx.net/blog/2011/02/02/the-energy-detective-ted-5000-g-teardown (PLC architecture)

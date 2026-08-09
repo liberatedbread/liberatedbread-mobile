@@ -1,0 +1,56 @@
+# Anki Overdrive — Research Note
+# Companion app APK source: apkeep (APKPure)
+# XAPK SHA-256: 656e548cc9b10790bc34b67b7e643d8df388d633566bf81a7f126581d824abe2
+
+device:
+  id: anki-overdrive
+  name: Anki Overdrive (incl. Fast & Furious Edition; protocol family covers Anki Drive)
+  manufacturer: Anki Inc. (defunct 2019-04; assets now Digital Dream Labs, dying)
+  category: toy_robot_racing
+  safety_class: NONE  # tabletop toy cars
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: []  # cars advertise model names; no fixed prefix confirmed — use service UUID scan
+    service_uuids: ["be15bee0-6186-407e-8381-0bd89c4d8df4"]
+
+  services:
+    - uuid: "be15bee0-6186-407e-8381-0bd89c4d8df4"
+      name: anki_drive_service
+      description: Anki vehicle service (confirmed in com.anki.overdrive v3.4.0 DEX + official drive-sdk)
+      characteristics:
+        - uuid: "be15bee1-6186-407e-8381-0bd89c4d8df4"
+          name: write
+          description: Command channel (speed, lane offset, lights, weapons, SDK mode enable)
+          properties: [write, write_no_response]
+        - uuid: "be15beef-6186-407e-8381-0bd89c4d8df4"
+          name: notify
+          description: Responses + asynchronous events (track position updates, battery, collisions)
+          properties: [read, notify]
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+
+protocol:
+  note: >
+    Binary message protocol documented by Anki's own open-source drive-sdk (C) and
+    multiple community implementations. Phone must send an SDK-mode enable message
+    before cars accept drive commands. Speed/lane/lights/commands on be15bee1;
+    localization (track piece id + offset) and telemetry stream back on be15beef.
+  references:
+    - github.com/anki/drive-sdk            # official, pre-collapse
+    - github.com/Aspern/anki-overdrive-api # Node/noble full spec impl
+    - github.com/xerodotc/overdrive-python
+    - github.com/super-anki/anki-sdk       # modern TypeScript
+    - github.com/dschwen/OpenOverdrive     # OSS Android app, maintained 2025
+
+status:
+  apk_acquired: true          # com.anki.overdrive 3.4.0 (1502) XAPK via apkeep apk-pure
+  apk_decompiled: false       # not needed — DEX string sweep confirmed UUIDs; protocol already public
+  uuids_recovered: true
+  protocol_recovered: true    # via official SDK + community (not our RE)
+  hci_snoop_needed: false     # optional: confirm F&F weapon opcodes on live hardware
+  cloud_dependency: none      # accounts/leaderboards only; gameplay fully local

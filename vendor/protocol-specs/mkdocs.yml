@@ -75,7 +75,10 @@ nav:
           - ProGlow Motorcycle LED: devices/proglow-motorcycle-led.md
           - SeeBlue Motorcycle LED: devices/seeblue-motorcycle-led.md
           - SmartDawn Smart Lights: devices/smartdawn-smart-lights.md
+          - KingSmith WalkingPad: devices/kingsmith-walkingpad.md
           - Fardriver Motor Controller: devices/fardriver-controller.md
+          - Kwikset Kevo Smart Lock: devices/kwikset-kevo.md
+          - Schlage Smart Locks: devices/schlage-smart-locks.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
@@ -91,8 +94,12 @@ nav:
           - Frigidaire Portable AC: devices/frigidaire-portable-ac.md
           - Frigidaire Window AC: devices/frigidaire-window-ac.md
           - WLED Addressable LED Controller: devices/wled-controller.md
+          - Rabbit Air Purifiers: devices/rabbit-air-purifier.md
+      - Z-Wave Devices:
+          - devolo Home Control: devices/devolo-home-control.md
       - Vehicle, OBD-II & Bus:
           - OBD-II Bluetooth Adapters: devices/obd2-bluetooth-adapter.md
+          - OBDLink MX+: devices/obdlink-mx-plus.md
           - Triumph Tiger 900: devices/triumph-tiger-900.md
           - BMW Motorcycle Diagnostics: devices/bmw-motorcycle-diagnostics.md
           - Bafang BBS02 Mid-Drive: devices/bafang-bbs02.md

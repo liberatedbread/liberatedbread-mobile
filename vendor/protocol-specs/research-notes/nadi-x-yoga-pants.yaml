@@ -1,0 +1,62 @@
+# Nadi X Smart Yoga Pants (Wearable X) — Research Note
+# Status: hypothesis — no app binary analyzed, no public GATT capture
+# Company: Wearable X / Wearable Experiments, Inc. — inactive ~2021 (Gherzi, 2026-05-04)
+
+device:
+  id: nadi-x-yoga-pants
+  name: Wearable X Nadi X Smart Yoga Pants (Pulse haptic module)
+  manufacturer: Wearable Experiments, Inc. (Wearable X)
+  category: smart_clothing_haptic
+  safety_class: LOW  # haptic vibration motors only; no medical claims
+
+transport:
+  type: ble
+  local_only: true  # haptic coaching is phone<->module; no cloud round-trip required for core function
+
+company_status:
+  status: inactive_since ~2021
+  evidence:
+    - "Gherzi smart-textiles review lists Wearable X as 'inactive ~2021' (2026-05-04): gherzi.de/bulletin/smart-textiles-four-decades-of-promise-funding-and-fractured-commercialisation/"
+    - "iOS app abandoned at v1.1 (2018-02-01) but still listed on App Store (verified 2026-08-04)"
+    - "Company pivoted to digital fashion (DRESSX AR collab, 2022)"
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — no public capture; "Nadi X" / "Pulse" speculative
+    service_uuids: []  # TBD — needs owner nRF Connect scan
+  services: []  # TBD — expect custom 128-bit GATT service: per-motor write characteristics + IMU notify stream
+  notes: >
+    Pulse module clips into a host plate behind the left knee (NCBI PMC7037315).
+    Sensors at hip/knee/ankle; haptic motors at the same sites. BLE per GadgetAny
+    and the NCBI smart electro-clothing review. No community RE exists.
+
+app:
+  android: null  # never released — archived wearablex.com (2019) links iTunes only; apkeep finds nothing
+  ios:
+    bundle_id: com.wearablex.nadix
+    app_store_id: 1314196363
+    version: "1.1"
+    last_updated: "2018-02-01"
+    still_listed: true  # verified via iTunes lookup API 2026-08-04
+    minimum_os: "10.0"
+
+protocol:
+  note: >
+    No public protocol information. Expected shape (hypothesis): app writes
+    vibration intensity/pattern per motor channel; module notifies IMU data for
+    pose detection (or pose computed on-module). Capture via BLE sniffer while
+    driving the stock iOS app.
+  expected_channels:
+    - haptic_motor_write  # hips, knees, ankles
+    - imu_data_notify
+    - battery_status?
+
+status:
+  apk_acquired: false   # no Android app exists
+  ipa_available: true   # still on App Store as of 2026-08-04 — archive before delisting
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true  # or iOS PacketLogger / BLE-proxy capture
+  difficulty: HIGH  # iOS-only binary + zero public captures; hardware-in-hand required
+  verdict: viable_hypothesis  # best rescuable target in the dead-smart-clothing set

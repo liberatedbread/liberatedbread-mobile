@@ -23,11 +23,17 @@ device:
     PROTOCOL: custom "DDP/DNX" stack, mapped from decompilation of the
     official SmartDawn.apk v1.2.4 (jadx: com.daniaokeji.libs.bluetooth.
     BleUtils5, com.daniaokeji.libs.udp.*) cross-checked against the app's
-    bundled H5 JavaScript (assets/HTML), which implements the same encoders
-    a second time. Commands are protobuf messages wrapped in a 20-byte
-    extended DDP header, fragmented into BLE writes carrying a 4-byte
-    fragment header. Simple commands (power, brightness) need no protobuf
-    beyond a single SimpleMessage {i1} value.
+    bundled H5 JavaScript (assets/HTML/assets/index-CL_jUmAY.js), which
+    implements the same encoders a second time, and the app's bundled
+    protobuf schema (assets/HTML/p2p.proto), which pins every message
+    type number and payload shape. Commands are protobuf messages wrapped
+    in a 20-byte extended DDP header, fragmented into BLE writes carrying
+    a 4-byte fragment header. Simple commands (power, brightness) need no
+    protobuf beyond a single SimpleMessage {i1} value. Re-verified against
+    the same APK on 2026-08-08 (sha256
+    58aaf3d6027c59aa5ab7876930fb16661d224d28220f58f227e35c2ddeca07aa,
+    fetched from the vendor's own CDN,
+    http://file.daniaokeji.com/download/SmartDawn.apk).
 
     DISCOVERY: advertised local name is 6-8 chars starting with "DN"
     (app-side filter, case-insensitive), and the custom service UUID
@@ -156,6 +162,9 @@ helpful_urls:
   - title: "SmartDawn on Google Play (com.daniaokeji.smartdawn)"
     url: "https://play.google.com/store/apps/details?id=com.daniaokeji.smartdawn"
     description: "Official companion app; v1.2.4 was the source of this protocol map (jadx decompile)."
+  - title: "Vendor-hosted SmartDawn APK (daniaokeji.com CDN)"
+    url: "http://file.daniaokeji.com/download/SmartDawn.apk"
+    description: "Direct download of the companion APK from the ODM's own server; v1.2.4 sha256 58aaf3d6027c59aa5ab7876930fb16661d224d28220f58f227e35c2ddeca07aa (fetched 2026-08-08, also matches the 2026-08-03 research-store copy)."
   - title: "Hangzhou Daniao Technology (ODM)"
     url: "https://daniaokeji.com/"
     description: "Platform vendor behind SmartDawn/SuperPix/SmartPixel apps and controllers."
@@ -178,12 +187,18 @@ features:
     max_width: 255
     max_height: 255
     resolution_source: "device_reported"
-    # The vendor app's draw / photo-to-light / music modes stream standard
-    # DDP DISPLAY packets (datatype 0x01) to the DDP write characteristic;
-    # animations are achieved by streaming frames at the desired rate.
-    # Stored multi-frame effects additionally exist via the BIN-channel
-    # install flow (mt 29xx), not yet mapped well enough to encode. No
-    # documented minimum frame interval — throughput is MTU-bound.
+    # The vendor app's draw / photo-to-light modes push pixels over the
+    # BIN channel, not the DDP channel: M_DOODLE_START (mt=2701) opens the
+    # session, then buffer arrays tagged TUTU_DOODLE (1) / TUTU_RESTORE
+    # (4) carry the canvas as ~200-byte chunks of a palette-indexed format
+    # (3-byte header [x][y][colorCount<=16] + RGB palette + per-pixel
+    # indices), and M_DOODLE_END (mt=2702) closes it. A DDP DISPLAY
+    # (datatype 0x01) streaming encoder also ships in the H5 bundle but is
+    # never called in v1.2.4 — dormant/legacy until a capture says
+    # otherwise. Stored multi-frame animations install via the BIN-channel
+    # flow M_START_INSTALL_ANIMATION / M_INSTALL_ANIMATION_PACKET /
+    # M_END_INSTALL_ANIMATION (mt 2918-2920). No documented minimum frame
+    # interval — throughput is MTU-bound.
     animation: true
 
 services:
@@ -199,8 +214,14 @@ services:
       into writes of at most the negotiated payload MTU (app requests ATT
       MTU 512, payload = MTU - 3, fallback 20). Every write carries a
       4-byte fragment header: [message serial u8] [total fragments u8]
-      [fragments remaining after this one u8, counts down to 0] [0x00],
-      followed by up to MTU-4 payload bytes. Reassembly keys on bytes 0-2.
+      [fragments remaining after this one u8, counts down to 0] [channel
+      tag u8], followed by up to MTU-4 payload bytes. Reassembly keys on
+      bytes 0-2. The tag byte is 0x00 on the DDP channel; on the BIN
+      channel it identifies the buffer type — 1=TUTU_DOODLE (live doodle/
+      photo pixels), 2=TUTU_ERASE, 4=TUTU_RESTORE (full-canvas redraw),
+      16=MUSIC_BIN — read from the H5 bundle's B3 enum and
+      BleUtils5.sendBinData. Writes use WRITE_TYPE_NO_RESPONSE
+      (BleUtils5 sets write type 2 on the DDP writer).
 
       EXTENDED (DNX) PACKET — the command format, 20-byte header:
       [0]=0xF0 (flag nibble 0xF, version 0), [1]=0x04 (from-role; app
@@ -219,7 +240,13 @@ services:
       (app writes 0x01), [4-7]=offset u32 BE, [8-9]=psize u16 BE.
       Note: the app's dead Java Header.getBytes() writes offset
       little-endian while both live encoders (JS and decode path) treat it
-      big-endian — BE is canonical.
+      big-endian — BE is canonical. CAVEAT: the encoder for these packets
+      (mkOrginDdp, flag 0xE1) ships in every Daniao H5 bundle checked
+      (SmartDawn 1.2.4, SuperPix 4.4.1, legacy SmartPixels) but has NO
+      call sites in any of them — the live pixel-push path in v1.2.4 is
+      the BIN-channel doodle flow described on the BIN Write
+      characteristic below. Treat DISPLAY-packet streaming as a dormant/
+      legacy capability until an on-air capture shows it in use.
 
       Command templates below cover the 20-byte extended header; "{sn}",
       "{len}", "{ts}" and "{payload}" are the variable parts. No-payload
@@ -380,6 +407,49 @@ services:
               osn: { type: "uint16", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes" }
+          device_mic_start:
+            description: >
+              Start the controller's own microphone music mode (the app's
+              "BOARD" music path sends this plus M_PLAY_EFFECT; phone-mic
+              mode processes FFT on the phone). M_START_DEVICE_MIC
+              (mt=2650); M_STOP_DEVICE_MIC = 2651, sensitivity get/set =
+              2654/2655. From p2p.proto + H5 call sites.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x5A, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16" }
+              len: { type: "uint16", default: 20 }
+              cid: { type: "uint32", default: 0 }
+              osn: { type: "uint16", default: 1 }
+              ts: { type: "uint8", default: 0 }
+          doodle_start:
+            description: >
+              Open a live draw/photo pixel session. M_DOODLE_START
+              (mt=2701) with SimpleMessage {i1, i2} (app sends {1,1});
+              pixel data then flows as TUTU-tagged buffer arrays on the
+              BIN Write characteristic (see its notes). M_DOODLE_END =
+              2702, M_DOODLE_SCROLL = 2715.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x85, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16" }
+              len: { type: "uint16" }
+              cid: { type: "uint32", default: 0 }
+              osn: { type: "uint16", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1:1, i2:1} protobuf" }
+          show_pixel:
+            description: >
+              Preview/erase single pixels while doodling.
+              M_DEV_SHOW_PIXEL (mt=237) with SimpleMessage {i1: pixel
+              index or point count, i2: packed color} — exact field
+              semantics from H5 call sites, medium confidence.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xED, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16" }
+              len: { type: "uint16" }
+              cid: { type: "uint32", default: 0 }
+              osn: { type: "uint16", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1, i2} protobuf" }
           reboot:
             description: "Reboot the controller. M_REBOOT (mt=2599), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x27, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
@@ -415,9 +485,17 @@ services:
         name: "BIN Write"
         properties: ["write"]
         notes: >
-          Bulk-data channel (same fragment framing) used to push effects,
-          animations, layouts and other file payloads — M_START_INSTALL_*
-          (mt 2901/2906/2915/2918/2921), *_PACKET, M_END_INSTALL_* flows.
+          Bulk-data channel (same fragment framing, with a nonzero buffer
+          tag in fragment-header byte 3). Two confirmed uses in v1.2.4:
+          (1) file installs — effects, animations, layouts and other file
+          payloads, M_START_INSTALL_* (mt 2901/2906/2915/2918/2921),
+          *_PACKET, M_END_INSTALL_* flows; (2) live pixel push for the
+          draw / photo-to-light modes — after M_DOODLE_START (mt=2701),
+          buffer arrays tagged TUTU_DOODLE (1) or TUTU_RESTORE (4) carry
+          the canvas as ~200-byte chunks of a palette-indexed format
+          ([x][y][colorCount<=16] + RGB palette + per-pixel indices;
+          TUTU_ERASE=2 clears). Tag 16 (MUSIC_BIN) is defined in the H5
+          bundle alongside these but no call site was found.
 
       - uuid: "02010074-1972-1925-3022-077119514e44"
         name: "BIN Notify"
@@ -433,8 +511,11 @@ services:
         notes: >
           Firmware-upload characteristic used by the OTA flow
           (M_START_UPDATE_FIRMWARE mt=2912, M_UPDATE_FIRMWARE_PACKET
-          mt=2913, M_END_UPDATE_FIRMWARE mt=2914). Firmware binaries are
-          fetched from https://daniaokeji.com/led/ota?<product,fw,...>
+          mt=2913, M_END_UPDATE_FIRMWARE mt=2914). Note the second UUID
+          group is 2072 — unlike every other characteristic here, it does
+          not share the 010x/020x-1972 pattern (confirmed in BleUtils5,
+          SmartDawn 1.2.4 and BleUtils3, SuperPix 4.4.1). Firmware
+          binaries are fetched from https://daniaokeji.com/led/ota?<product,fw,...>
           which returns {code, fw:{version, desc, date, url}}.
 
 entities:

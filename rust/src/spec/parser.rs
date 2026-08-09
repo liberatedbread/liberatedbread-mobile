@@ -185,10 +185,13 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
         // Reject rather than silently ignore an author's bound. `allowed`
         // gets the same treatment — its values are integers by schema, so on
         // a non-numeric parameter it cannot describe anything sendable.
+        // `default` likewise: the encoder would try to coerce it to an
+        // integer width and fail at send time.
         for (label, present) in [
             ("min", param.min.is_some()),
             ("max", param.max.is_some()),
             ("allowed", param.allowed.is_some()),
+            ("default", param.default.is_some()),
         ] {
             if present {
                 return Err(SpecError::BoundsOnNonNumericType {
@@ -200,7 +203,11 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
         }
         return Ok(());
     };
-    for (label, bound) in [("min", param.min), ("max", param.max)] {
+    for (label, bound) in [
+        ("min", param.min),
+        ("max", param.max),
+        ("default", param.default),
+    ] {
         let Some(value) = bound else { continue };
         if value < lo || value > hi {
             return Err(SpecError::ParameterRangeOutsideType {
@@ -239,6 +246,21 @@ fn validate_parameter(name: &str, param: &Parameter) -> Result<(), SpecError> {
                     max: hi_eff,
                 });
             }
+        }
+    }
+    // The default must satisfy the same effective bounds encode_command
+    // enforces per write, or every send relying on it would fail — and the
+    // failure would surface as a broken control, not a broken spec.
+    if let Some(default) = param.default {
+        let lo_eff = param.min.unwrap_or(lo);
+        let hi_eff = param.max.unwrap_or(hi);
+        if default < lo_eff || default > hi_eff {
+            return Err(SpecError::DefaultOutsideBounds {
+                parameter_name: name.to_string(),
+                value: default,
+                min: lo_eff,
+                max: hi_eff,
+            });
         }
     }
     Ok(())
@@ -657,6 +679,100 @@ services:
             }
             other => panic!("expected BoundsOnNonNumericType, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rejects_default_outside_effective_bounds() {
+        // The encoder trusts the default on every send that omits the
+        // parameter, so a default outside min/max would make every such send
+        // fail — surface it at load time instead.
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set_brightness:
+            description: x
+            template: [0x02, "{brightness}"]
+            parameters:
+              brightness:
+                type: uint8
+                max: 100
+                default: 200"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::DefaultOutsideBounds {
+                parameter_name,
+                value,
+                min,
+                max,
+            }) => {
+                assert_eq!(parameter_name, "brightness");
+                assert_eq!(value, 200);
+                assert_eq!(min, 0);
+                assert_eq!(max, 100);
+            }
+            other => panic!("expected DefaultOutsideBounds, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_default_outside_type_range() {
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{n}"]
+            parameters:
+              n:
+                type: uint8
+                default: 300"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::ParameterRangeOutsideType { bound, value, .. }) => {
+                assert_eq!(bound, "default");
+                assert_eq!(value, 300);
+            }
+            other => panic!("expected ParameterRangeOutsideType, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_default_on_string_parameter() {
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{s}"]
+            parameters:
+              s:
+                type: string
+                default: 1"#,
+        );
+        match parse_device_spec(&yaml) {
+            Err(SpecError::BoundsOnNonNumericType { bound, .. }) => {
+                assert_eq!(bound, "default");
+            }
+            other => panic!("expected BoundsOnNonNumericType, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_default_at_effective_bounds() {
+        let yaml = make_minimal_spec(
+            r#"        properties: ["write"]
+        commands:
+          set:
+            description: x
+            template: [0x01, "{n}"]
+            parameters:
+              n:
+                type: uint8
+                min: 10
+                max: 100
+                default: 10"#,
+        );
+        parse_device_spec(&yaml).expect("a default at the bound should parse");
     }
 
     #[test]

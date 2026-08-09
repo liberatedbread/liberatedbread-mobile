@@ -179,6 +179,20 @@ services:
           ValueUpdated, so notify is likely — but property bits are
           per-product firmware (see device notes) and need a Thermogauge
           GATT dump to confirm.
+        format:
+          - offset: 0
+            length: 1
+            name: "temp_raw"
+            type: "uint8"
+            scale: 0.5
+            value_offset: 85
+            unit: "°F"
+            notes: >
+              Linear decode is value = raw * 0.5 + 85; on top of that the
+              vendor app rounds UP to the next multiple of 5 for display
+              (ceil(value/5)*5). Units are inferred °F, not confirmed
+              (raw=0 -> 85, raw=142 ≈ 156, raw=255 -> 212.5 shown as 215).
+              TempControl mode is active while 60 <= raw < 142.
 
       - uuid: "ab06bd92-cc16-11e4-8830-0800200c9a66"
         name: "Temperature Channel 2"
@@ -186,6 +200,15 @@ services:
         notes: >
           Same format as Channel 1. Only active on dual-input devices.
           Same property-bits caveat as Channel 1.
+        format:
+          - offset: 0
+            length: 1
+            name: "temp_raw"
+            type: "uint8"
+            scale: 0.5
+            value_offset: 85
+            unit: "°F"
+            notes: "Same decode and inferred-°F caveat as Channel 1."
 
   - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
     name: "Battery Service"
@@ -216,6 +239,15 @@ services:
           Write + read-back usage proven statically; notify unconfirmed —
           on the sibling Snooz device this exact UUID is write-only
           (property bits are per-product firmware, see device notes).
+        format:
+          - offset: 0
+            length: 1
+            name: "heat_percent"
+            type: "uint8"
+            unit: "%"
+            notes: >
+              0-100; the app does not clamp above 100 and firmware behavior
+              there is untested — treat >100 as unsafe.
 
       - uuid: "80c37f00-cc16-11e4-8830-0800200c9a66"
         name: "Heat Channel 2"
@@ -224,6 +256,12 @@ services:
           Same format as Channel 1. Only active on dual-output devices.
           Same property-bits caveat as Channel 1 (on Snooz this UUID is
           read+notify — per-product firmware).
+        format:
+          - offset: 0
+            length: 1
+            name: "heat_percent"
+            type: "uint8"
+            unit: "%"
 
 payload_formats:
   DeviceType:
@@ -264,6 +302,7 @@ entities:
   - platform: "number"
     name: "Heat Level 1"
     icon: "mdi:heat-wave"
+    unit: "%"
     min: 0
     max: 100
     step: 1
@@ -273,6 +312,7 @@ entities:
   - platform: "number"
     name: "Heat Level 2"
     icon: "mdi:heat-wave"
+    unit: "%"
     min: 0
     max: 100
     step: 1

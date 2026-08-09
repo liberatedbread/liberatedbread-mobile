@@ -1,0 +1,73 @@
+# Artiphon Orba (1/2/3) — Device Spec (research note)
+# Company: Artiphon, Inc. — Chapter 7 liquidation 2025 (CONFIRMED DEAD)
+# Protocol fully RE'd: github.com/holofermes/orba-protocol (2026-06)
+
+device:
+  id: artiphon-orba
+  name: "Artiphon Orba (Orba 1 / Orba 2 / Orba 3; related: Chorda)"
+  manufacturer: Artiphon, Inc. (Nashville) — liquidated 2025
+  category: musical_instrument
+  safety_class: NONE  # synth/looper/MIDI controller, no hazardous actuation
+
+transport:
+  type: ble  # BLE MIDI; identical SysEx protocol also runs over USB-MIDI
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: ["Orba"]  # per user reports; confirm with a scan
+    service_uuids: ["03b80e5a-ede8-4b33-a751-6ce34ec4c700"]  # standard BLE MIDI
+
+  services:
+    - uuid: "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
+      name: ble_midi_service
+      description: Standard Apple/BLE MIDI service (MIDI I/O + vendor SysEx config)
+      characteristics:
+        - uuid: "7772e5db-3868-4112-a1a9-f2669d106bf3"
+          name: ble_midi_io
+          description: MIDI I/O characteristic (notify + write_without_response)
+          properties: [notify, write, write_no_response]
+
+protocol:
+  note: >
+    Standard BLE-MIDI framing (timestamped packets) wraps a conventional MIDI
+    stream. Playing data is plain MIDI/MPE (note, aftertouch, pitch bend, CC).
+    Device configuration (active part, tempo, preset/voicing registers, FX
+    params) is vendor SysEx (F0 00 02 03 ... F7) with a CRC; identical payload
+    over USB-MIDI and BLE-MIDI. Fully documented with register map and working
+    Python/JS reference implementations at github.com/holofermes/orba-protocol
+    (spec/SPEC.md), verified byte-identical against captured BLE traffic.
+  warning: >
+    Do NOT blind-scan SysEx register addresses — invalid reads can fault the
+    firmware and reboot the device. Use the documented register map.
+  reference_implementations:
+    - github.com/holofermes/orba-protocol   # spec + python + js (MIT/CC-BY)
+    - github.com/holofermes/orba-console    # single-file Web Bluetooth app
+    - github.com/subskybox/Orba             # Orba 1 preset/voicing tools
+    - github.com/Batninja/Orba-Preset-Editor
+
+companion_apps:
+  - name: "Orba (1) by Artiphon"
+    package_id: com.artiphon.orba
+    version_fetched: "0.15.36"   # latest listed on apk-pure, fetched 2026-08-04
+    apk_sha256: "78bd3b77b697ff446d047f3dda80ae7be96adeb3537cabaf91e3858e7ac2e670"
+    apk_source: apkeep (apk-pure), XAPK 85 MB
+    covers: Orba 1
+  - name: "Artiphon Connect"
+    package_id: null  # not found on apk-pure; iOS v1.0.670 known
+    covers: Orba 2 / Orba 3 / Chorda
+    note: Android package id unlocated — needs Play API fetch or adb pull
+
+cloud_dependency:
+  firmware_updates: orphaned (desktop app pulled from Artiphon servers)
+  content_packs: orphaned (Stem Songs / artist packs were cloud downloads)
+  core_play_config_midi: fully local, no account ever required
+
+status:
+  company_status: dead  # Chapter 7 liquidation 2025
+  apk_acquired: true    # com.artiphon.orba
+  apk_decompiled: false # not needed — protocol already RE'd and published
+  uuids_recovered: true # standard BLE MIDI UUIDs; nothing custom
+  protocol_recovered: true  # full SysEx register map RE'd by holofermes (2026-06)
+  hci_snoop_needed: false
+  rating: confirmed
