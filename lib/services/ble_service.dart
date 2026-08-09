@@ -107,4 +107,12 @@ abstract class BleService {
   /// 23 when the platform has not reported a negotiated value — sizing for 23
   /// is always safe, just slower.
   Future<int> mtu(String deviceId);
+
+  /// Read the current signal strength (RSSI, dBm) of a *connected* device.
+  ///
+  /// Drives the Find Device view's live proximity readout. Only valid while
+  /// connected — a connected peripheral stops advertising, so the connection
+  /// is the one place its RSSI can still be measured. Throws when the device
+  /// is not connected.
+  Future<int> readRssi(String deviceId);
 }
