@@ -61,6 +61,11 @@ const FRAG_HEADER_LEN: usize = 4;
 const MAX_PALETTE: usize = 16;
 /// Chunk flush threshold from the vendor encoder: header + pixel bytes < 200.
 const CHUNK_LIMIT: usize = 200;
+/// Maximum pixels in one emitted run. A longer solid region is split into
+/// consecutive same-colour runs (identical on the device) so a single run's
+/// tokens (<= 2 + ceil(MAX_RUN/127) bytes) can never bloat a chunk past a BLE
+/// write. Well above any real per-strand run, so the 20x20 curtain is unaffected.
+const MAX_RUN: usize = 1016; // 8 * 127 -> <= 10 token bytes per run
 /// The BLE 4.0 minimum ATT payload (MTU 23 - 3). The vendor app requests MTU
 /// 512; a chunk that cannot fit one write over the negotiated MTU is rejected.
 const MIN_PAYLOAD_PER_WRITE: usize = 20;
@@ -362,6 +367,18 @@ fn encode_tutu_restore(
                     cur = Some(idx);
                     run = 1;
                 }
+                // Cap the run length so one run can never emit a token blob big
+                // enough to overflow a chunk past a BLE write. A capped run is
+                // flushed and continued as a fresh SAME-colour run at this
+                // pixel — the decoder paints consecutive same-index runs
+                // identically, so the image is unchanged, but the between-run
+                // flush can now bound every chunk (a 256x256 solid would
+                // otherwise be one ~518-byte chunk no MTU can carry).
+                Some(c) if run >= MAX_RUN => {
+                    run_start = (x as u8, y as u8);
+                    emit_run(&mut tokens, c, run);
+                    run = 1;
+                }
                 Some(_) => run += 1,
             }
         }
@@ -574,5 +591,17 @@ services:
         }
         let err = encode_doodle_frame(&spec(), &rgb, w as u32, h as u32, 0, 509).unwrap_err();
         assert!(matches!(err, ProtocolError::ImageDimensionsInvalid { .. }));
+    }
+
+    #[test]
+    fn large_solid_canvas_encodes_with_every_chunk_fitting_one_write() {
+        // A 256x256 solid colour is one 65536-pixel run. Run-capping splits it
+        // into consecutive same-colour runs so no chunk overflows a BLE write
+        // (the old atomic-run encoder produced a ~518-byte chunk no MTU carries).
+        let rgb = vec![0x11u8; 256 * 256 * 3];
+        let frame = encode_doodle_frame(&spec(), &rgb, 256, 256, 0, 509).unwrap();
+        for w in &frame.writes {
+            assert!(w.bytes.len() <= 509, "every write fits the MTU payload");
+        }
     }
 }
