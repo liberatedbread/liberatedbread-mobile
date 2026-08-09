@@ -14,13 +14,15 @@
 # anything obvious. This upgrades it in place so `./scripts/run.sh` just works
 # after a bump, without a separate `./scripts/setup.sh` run.
 #
-# Deliberately narrow. It only ever replaces an SDK that actually lives under
-# FLUTTER_HOME — the one this project installed. A Flutter that comes from
-# Homebrew, Android Studio, the distro, or a hand-managed checkout elsewhere is
-# never touched (it is not ours to overwrite); we only warn about the mismatch,
-# exactly as scripts/setup.sh does. A failed download leaves the existing SDK
-# intact and the run continues, so being offline degrades to "slightly stale"
-# rather than "cannot run at all".
+# Deliberately narrow. It only ever replaces the SDK at the default,
+# project-managed location — $HOME/.flutter-sdk, the one scripts/setup.sh and
+# the session hook install. A Flutter from Homebrew, Android Studio, the distro,
+# a hand-managed checkout, or a caller-overridden FLUTTER_HOME is never touched:
+# the run scripts prepend FLUTTER_HOME to PATH, so path containment under an
+# arbitrary FLUTTER_HOME is NOT proof of ownership. For those we only warn about
+# the mismatch, exactly as scripts/setup.sh does. A failed download leaves the
+# existing SDK intact and the run continues, so being offline degrades to
+# "slightly stale" rather than "cannot run at all".
 #
 # Opt out with LB_FLUTTER_AUTO_UPGRADE=0 (e.g. when deliberately testing a
 # different Flutter). Sourced by the run scripts; also runnable on its own,
@@ -65,7 +67,7 @@ _fev_installed_version() {
 # failure (with the reason already reported).
 _fev_install() {
   local version="$1" home="$2"
-  local os archive url tmp
+  local os archive url parent stage backup
   os="$(uname -s)"
   case "$os" in
     Linux)
@@ -91,29 +93,68 @@ _fev_install() {
     return 1
   fi
 
-  tmp="$(mktemp -d)"
-  if ! curl -fSL -o "$tmp/$archive" "$url"; then
+  # Stage on the SAME filesystem as $home (a sibling temp dir), so the swap
+  # below is an atomic rename and never a cross-filesystem copy that could fail
+  # half-done on disk space or I/O — which, after the old SDK was removed, would
+  # leave FLUTTER_HOME empty.
+  parent="$(dirname "$home")"
+  if ! mkdir -p "$parent"; then
+    err "Cannot create ${parent} to install Flutter into."
+    return 1
+  fi
+  if ! stage="$(mktemp -d "$parent/.flutter-upgrade.XXXXXX")"; then
+    err "Cannot create a staging directory next to ${home}."
+    return 1
+  fi
+
+  if ! curl -fSL -o "$stage/$archive" "$url"; then
     err "Download of ${url} failed."
-    rm -rf "$tmp"
+    rm -rf "$stage"
     return 1
   fi
 
   local extracted=0
   case "$archive" in
-    *.tar.xz) tar xf "$tmp/$archive" -C "$tmp" && extracted=1 ;;
-    *.zip)    unzip -q "$tmp/$archive" -d "$tmp" && extracted=1 ;;
+    *.tar.xz) tar xf "$stage/$archive" -C "$stage" && extracted=1 ;;
+    *.zip)    unzip -q "$stage/$archive" -d "$stage" && extracted=1 ;;
   esac
-  if [ "$extracted" -ne 1 ] || [ ! -d "$tmp/flutter" ]; then
+  if [ "$extracted" -ne 1 ] || [ ! -d "$stage/flutter" ]; then
     err "Failed to extract the Flutter archive from ${archive}."
-    rm -rf "$tmp"
+    rm -rf "$stage"
     return 1
   fi
 
-  mkdir -p "$(dirname "$home")"
-  rm -rf "$home"
-  mv "$tmp/flutter" "$home"
-  rm -rf "$tmp"
+  # Swap, preserving the old SDK until the new one is actually in place: move
+  # the current SDK aside, move the new tree in, and only then drop the old. If
+  # the install move fails, restore the old SDK so a failed upgrade never leaves
+  # FLUTTER_HOME missing. Every mv here is a same-filesystem rename.
+  backup=""
+  if [ -e "$home" ]; then
+    backup="${home}.old.$$"
+    rm -rf "$backup"
+    if ! mv "$home" "$backup"; then
+      err "Could not move the existing SDK aside; leaving it untouched."
+      rm -rf "$stage"
+      return 1
+    fi
+  fi
+
+  if ! mv "$stage/flutter" "$home"; then
+    err "Could not move the new Flutter into place at ${home}."
+    if [ -n "$backup" ]; then
+      rm -rf "$home"
+      mv "$backup" "$home" || err "Failed to restore the previous SDK from ${backup}."
+    fi
+    rm -rf "$stage"
+    return 1
+  fi
+
+  # New SDK is in place. Record the version ONLY now — a stamp written before a
+  # successful swap could make a partial install look like a completed upgrade.
+  # Then reclaim the old tree and the staging dir.
   printf '%s\n' "$version" > "$home/$_fev_stamp_name"
+  [ -n "$backup" ] && rm -rf "$backup"
+  rm -rf "$stage"
 }
 
 # Ensure the Flutter that ./scripts/run*.sh will use is CI's pinned version,
@@ -123,6 +164,7 @@ _fev_install() {
 # warning, not an abort.
 flutter_ensure_ci_version() {
   local home="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
+  local default_home="$HOME/.flutter-sdk"
   local want="${CI_FLUTTER_VERSION:-}"
 
   if [ "${LB_FLUTTER_AUTO_UPGRADE:-1}" = "0" ]; then
@@ -133,29 +175,39 @@ flutter_ensure_ci_version() {
     return 0
   fi
 
-  # Which flutter would actually run? The run scripts put "$home/bin" first on
-  # PATH, so a resolved path under "$home" means we are on the repo-managed SDK.
-  # Anything else belongs to another installer and is left untouched.
-  local resolved="" home_real="$home"
+  # Resolve the paths we compare, following symlinks where possible.
+  local resolved="" home_real="$home" default_real="$default_home"
+  if command -v readlink >/dev/null 2>&1; then
+    home_real="$(readlink -f "$home" 2>/dev/null || echo "$home")"
+    default_real="$(readlink -f "$default_home" 2>/dev/null || echo "$default_home")"
+  fi
   if command -v flutter >/dev/null 2>&1; then
     resolved="$(command -v flutter)"
     if command -v readlink >/dev/null 2>&1; then
       resolved="$(readlink -f "$resolved" 2>/dev/null || echo "$resolved")"
-      home_real="$(readlink -f "$home" 2>/dev/null || echo "$home")"
     fi
   fi
 
+  # Ownership is established by LOCATION, not by PATH containment. We only ever
+  # replace the SDK at the default project-managed path ($HOME/.flutter-sdk),
+  # and only when the flutter that would actually run lives there. A caller who
+  # points FLUTTER_HOME at a hand-managed checkout keeps it: the run scripts
+  # prepend FLUTTER_HOME to PATH, so containment there is not proof it is ours
+  # to delete.
   local ours=false
-  case "$resolved" in
-    "$home_real"/*|"$home"/*) ours=true ;;
-  esac
+  if [ "$home_real" = "$default_real" ]; then
+    case "$resolved" in
+      "$home_real"/*|"$home"/*) ours=true ;;
+    esac
+  fi
 
   local installed
   installed="$(_fev_installed_version "$home" || true)"
 
   if [ "$ours" != "true" ]; then
-    # A Flutter from somewhere else is on PATH. Only nag when it differs from
-    # the pin — like scripts/setup.sh, we never touch an SDK we did not install.
+    # Some other Flutter is in charge — a custom FLUTTER_HOME, or one from
+    # Homebrew/Android Studio/the distro. Only nag when it differs from the pin;
+    # like scripts/setup.sh, we never touch an SDK we did not install.
     local cur="$installed"
     if [ -z "$cur" ] && [ -n "$resolved" ]; then
       cur="$(flutter --version --machine 2>/dev/null \
@@ -163,9 +215,13 @@ flutter_ensure_ci_version() {
         | sed 's/.*"\([^"]*\)"$/\1/' || true)"
     fi
     if [ -n "$cur" ] && [ "$cur" != "$want" ]; then
-      warn "Flutter ${cur} on your PATH (${resolved:-unknown}) is not CI's pinned ${want},"
-      warn "but it is not the repo-managed SDK at ${home}, so it is left alone."
-      warn "To use the pinned one: FLUTTER_HOME=\"\$HOME/.flutter-sdk\" ./scripts/setup.sh"
+      warn "Flutter ${cur} on your PATH (${resolved:-unknown}) is not CI's pinned ${want}."
+      if [ "$home_real" != "$default_real" ]; then
+        warn "FLUTTER_HOME is ${home}, not the project-managed ${default_home}, so it is left alone."
+      else
+        warn "It is not the project-managed SDK at ${default_home}, so it is left alone."
+      fi
+      warn "To use the pinned one: unset FLUTTER_HOME and run ./scripts/setup.sh."
     fi
     return 0
   fi
