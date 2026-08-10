@@ -250,7 +250,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # Full history, unlike every other job. The vendored-subtree check at the
+      # end of this job asks "has anything touched vendor/protocol-specs since
+      # the last `git subtree` merge", and the default depth-1 checkout has no
+      # squash commit to measure from — the check degrades to a warning and
+      # passes, which is the failure mode of a guard that looks like it ran.
+      # The whole repo is ~40 MB packed.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -323,6 +331,15 @@ jobs:
       # awk pass over one file.
       - name: Check the toolchain pins are still readable by the setup scripts
         run: ./scripts/ci-versions.sh --strict
+      # Both halves of this are invisible failures without a gate. pubspec.yaml
+      # bundles paths inside vendor/protocol-specs directly, and a missing
+      # asset is not a build error — it is a rootBundle exception at runtime on
+      # a path most tests never reach, so the app just stops naming vendors.
+      # And the subtree is vendored *unmodified*: an edit made here instead of
+      # upstream survives review looking like an ordinary spec change, then
+      # gets reverted by the next refresh. No network, no pull; see the script.
+      - name: Check the vendored protocol-specs subtree
+        run: ./scripts/update-specs.sh --check
 
   unit-tests:
     name: Flutter (unit + widget tests, coverage)
