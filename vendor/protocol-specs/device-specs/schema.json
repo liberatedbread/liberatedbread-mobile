@@ -1199,6 +1199,19 @@
             "type": "boolean",
             "description": "Whether the device accepts multi-frame sequences (animations), not just a single static image (for image_upload)."
           },
+          "channel_tag": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255,
+            "description": "Value of the framing scheme's channel-tag byte that THIS flow writes under, when the bulk characteristic cannot state one because its tag varies per transfer. SmartDawn's BIN channel carries four buffer types (1=TUTU_DOODLE, 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN) and an image upload is a full-canvas redraw, so this flow is 4. Read together with the characteristic's `framing.channel_tag`, which states a tag fixed for the channel itself."
+          },
+          "session_open": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Commands a client must send, IN THIS ORDER, before the first frame of an upload — named from this spec's own `commands`, so their bytes stay in the command templates and only the choreography lives here. SmartDawn's is `[ui_end_sync, doodle_start]`: the first suspends UI-mirror playback, the second opens the doodle session, and sending the wrong opener (M_DEV_START) blanks the canvas instead. Send once per upload, not once per frame. Omit when a device takes pixel data with no preamble.",
+            "$comment": "This is the one part of an upload flow a handler cannot derive: which commands and in what order is device-specific knowledge, where fragmentation and chunk sizing are properties the framing block already states. Without it a consumer has to hardcode the names, and a device whose opener differs needs a code change rather than a spec change."
+          },
           "max_frames": {
             "type": "integer",
             "minimum": 1,
