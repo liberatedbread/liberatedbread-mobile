@@ -370,8 +370,8 @@
         },
         "scheme": {
           "type": "string",
-          "enum": ["daniao_fragment"],
-          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
+          "enum": ["daniao_fragment", "seeblue_envelope"],
+          "description": "Named fragmentation scheme wrapping every logical packet written to (or notified by) this characteristic. `seeblue_envelope` (LEDGlow/SEEBlue motorcycle lighting): each write is [0x95][message_length u8][message_index u8][protocol_id u8][packet bytes][checksum u8], where message_length counts message_index through the last packet byte, message_index is a per-connection sequence number the client owns, protocol_id comes from the command's `protocol_id`, and the checksum is the 8-bit two's complement of message_length through the last packet byte. Protocol ids: 0x00 INTERNAL (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the device answers on this one), 0x03 BOOTLOADER (latent OTA: flashes an Intel HEX over BLE; no firmware HEX is public), 0x04 GENERIC, 0x10 LEDGlow snapshot and the v2 UI-change commands. `daniao_fragment` (Hangzhou Daniao DDP/DNX platform): each BLE write/notification carries a 4-byte header [packet serial u8][total fragments u8][fragments remaining after this one u8, counting down to 0][channel tag u8] followed by up to (ATT payload - 4) packet bytes; reassembly keys on the first three bytes, and a single-fragment packet is [serial, 0x01, 0x00, tag] + packet. The device honors only the first write of a bulk (tag != 0) transfer, so each such packet must fit one write. VERIFIED on hardware (JY25CUT curtain controller, 2026-08-08): the controller silently ignores unframed writes and answers framed ones."
         },
         "channel_tag": {
           "type": "integer",
@@ -1199,6 +1199,18 @@
             "type": "boolean",
             "description": "Whether the device accepts multi-frame sequences (animations), not just a single static image (for image_upload)."
           },
+          "channel_tag": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255,
+            "description": "Value of the framing scheme's channel-tag byte that THIS flow writes under, when the bulk characteristic cannot state one because its tag varies per transfer. SmartDawn's BIN channel carries four buffer types (1=TUTU_DOODLE, 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN) and an image upload is a full-canvas redraw, so this flow is 4. Read together with the characteristic's `framing.channel_tag`, which states a tag fixed for the channel itself."
+          },
+          "session_open": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Commands a client must send, IN THIS ORDER, before the first frame of an upload — named from this spec's own `commands`, so their bytes stay in the command templates and only the choreography lives here. SmartDawn's is `[ui_end_sync, doodle_start]`: the first suspends UI-mirror playback, the second opens the doodle session, and sending the wrong opener (M_DEV_START) blanks the canvas instead. Send once per upload, not once per frame. An EMPTY array states that this device takes pixel data with no preamble at all — which is a different claim from omitting the key, and the distinction is load-bearing: a consumer that implemented a device's flow before this key existed falls back to whatever opener it hardcoded when the key is absent, and would otherwise send that opener to a device that wants none. State it explicitly rather than leaving it to be inferred.",
+            "$comment": "This is the one part of an upload flow a handler cannot derive: which commands and in what order is device-specific knowledge, where fragmentation and chunk sizing are properties the framing block already states. Without it a consumer has to hardcode the names, and a device whose opener differs needs a code change rather than a spec change."
+          },
           "max_frames": {
             "type": "integer",
             "minimum": 1,
@@ -1290,6 +1302,16 @@
                             "advanced_reason": { "type": "string", "minLength": 1 }
                           }
                         }
+                      },
+                      {
+                        "$comment": "A locate action is offered as a one-tap button with no confirmation -- that is the whole point of it. An advanced command is one a user must not trip into. A command cannot be both, and the combination is exactly the authoring slip worth catching: `flash_firmware` reads as a locator to anything matching on names.",
+                        "if": {
+                          "properties": { "advanced": { "const": true } },
+                          "required": ["advanced"]
+                        },
+                        "then": {
+                          "not": { "required": ["locate"] }
+                        }
                       }
                     ],
                     "properties": {
@@ -1305,6 +1327,62 @@
                       "verification": {
                         "$ref": "#/$defs/verification",
                         "description": "How much weight this command's byte sequence carries. Same vocabulary the OBD blocks use, so confidence is machine-readable rather than buried in prose. Orthogonal to `advanced`: this says how sure we are the command works, `advanced` says what happens when it does."
+                      },
+                      "protocol_id": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "Which of the framing scheme's protocols this command's packet is sent under, when the characteristic declares a `framing.scheme` that carries one (seeblue_envelope byte 3). Part of the envelope, not of the packet: it is why the command's `template` does not contain it."
+                      },
+                      "command_id": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "The command's opcode within its `protocol_id`, where the scheme numbers them. Documentation of the packet's first byte, which the `template` still emits -- stating it separately is what lets a reader match this command against the vendor's own numbering."
+                      },
+                      "ui_id": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "For a UI-change command, the vendor's control identifier the packet addresses."
+                      },
+                      "ui_id_range": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "description": "Inclusive [first, last] `ui_id` bounds for a command that stands for a whole band of controls rather than one, so the id travels as a parameter."
+                      },
+                      "ui_id_min": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255,
+                        "description": "Lower bound of an open-ended `ui_id` band, where the upper end is not known."
+                      },
+                      "setting_id": {
+                        "type": "string",
+                        "description": "Symbolic setting/enum identifier for a protobuf-style command that names what it sets rather than emitting raw bytes (AdMore's light bar). NOTE: declarative -- a consumer needs a protobuf handler for the device to send one, and the mobile encoder reports such a command as unencodable rather than guessing at bytes."
+                      },
+                      "fixed_length": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Total bytes on the wire for a command whose frame is a fixed width regardless of payload, so the encoder pads to it. ProGlow's colour packets are always 20 bytes with the unused RGB triples zero-filled."
+                      },
+                      "packet_layout": {
+                        "type": "object",
+                        "description": "Byte-by-byte description of the frame, keyed by offset. Documentation for a reader checking a capture against the spec, not an encoding instruction -- `template` is what a client executes, and the two must agree.",
+                        "additionalProperties": { "type": "string" },
+                        "propertyNames": { "pattern": "^[0-9]+$" }
+                      },
+                      "observed": {
+                        "type": "boolean",
+                        "description": "True when this command was seen on the wire during capture, as opposed to being read out of a decompiled app. Narrower than `verification`, which rates the whole byte sequence."
+                      },
+                      "locate": {
+                        "type": "string",
+                        "enum": ["sound", "flash", "both"],
+                        "description": "Declares this command a locator -- 'make the device noticeable so I can find it' -- and says by which modality: 'sound' for a beep or buzzer, 'flash' for an LED, 'both' when the device does whichever it has. It is the spec-command analogue of the SIG Immediate Alert service (0x1802), for the many devices that implement the same idea with a vendor opcode instead. State it ONLY for a command whose entire effect is to be noticeable and which stops on its own or on user action: not for one that configures an alert (`set_alarm`, `set_flash_count`), reads one back (`get_alarm_mode`), silences one (`silence_alarm`), or changes any persistent setting. Without this key a consumer has nothing to go on but the command's name, and the names in this catalogue do not support that: `play_effect`, `set_mode` and `identify` all read as locators and none is one, while `flash_firmware` reads as one and must never be a tap away. A command marked `advanced` may not carry this key.",
+                        "$comment": "Advisory metadata: it does not change how the command is encoded. Sensible on a fixed `value` command; a consumer offering one-tap locate has no user to supply parameters, so a templated command carrying `locate` is only usable if every parameter has a default."
                       },
                       "advanced_reason": {
                         "type": "string",
@@ -1343,20 +1421,70 @@
                       },
                       "parameters": {
                         "type": "object",
-                        "description": "Command parameter definitions, keyed by parameter name. The reserved key `color_order` is not a parameter but declares RGB channel byte order for this command's color parameters.",
-                        "properties": {
-                          "color_order": {
-                            "type": "string",
-                            "enum": ["rgb", "rbg", "grb", "gbr", "brg", "bgr"],
-                            "default": "rgb",
-                            "description": "Byte order in which R/G/B channel values are emitted for this command (e.g. Shining Mask uses 'rbg'). Defaults to 'rgb'."
-                          }
-                        },
+                        "description": "Command parameter definitions, keyed by parameter name. Every key is a parameter: there are no reserved siblings. Channel byte order for a colour command is stated by the order the `template` names `{red}`/`{green}`/`{blue}`, which is where the bytes actually come from -- a device wanting GRB is written `template: [\"{green}\", \"{red}\", \"{blue}\"]`. A separate `color_order` key used to live here and was removed: it restated the template with no defined precedence, so a spec whose two statements disagreed had no correct reading.",
                         "additionalProperties": {
                           "type": "object",
                           "required": ["type"],
-                          "allOf": [{ "$ref": "#/$defs/number_semantics" }],
+                          "allOf": [
+                            { "$ref": "#/$defs/number_semantics" },
+                            {
+                              "$comment": "`min`/`max` bound a NUMBER. A `bytes` parameter is a run of octets with no numeric range, so a bound on one can only have meant its length -- which is what `min_length`/`max_length` say. Fardriver wrote `data: {type: bytes, min: 1, max: 26}` meaning 1-26 bytes; a consumer reading it as a value range rejected the parameter and lost the whole spec with it. Left legal, the two readings are indistinguishable and each is plausible.",
+                              "if": {
+                                "properties": { "type": { "const": "bytes" } },
+                                "required": ["type"]
+                              },
+                              "then": {
+                                "not": {
+                                  "anyOf": [
+                                    { "required": ["min"] },
+                                    { "required": ["max"] }
+                                  ]
+                                }
+                              }
+                            }
+                          ],
                           "properties": {
+                            "default": {
+                              "type": "number",
+                              "description": "Value a client sends when it supplies none itself, in RAW wire terms. This is what lets a high-level control send only the parameter it owns -- a brightness slider fills `{brightness}` and the protocol filler around it (`seq`, `flag`, a mode byte the command implies) comes from here. A parameter with no default and no caller value has nothing to encode, so the write fails rather than guessing."
+                            },
+                            "allowed": {
+                              "type": "array",
+                              "items": { "type": "integer" },
+                              "minItems": 1,
+                              "description": "The complete set of RAW values the device accepts, when it is a set rather than a range. A consumer offers a choice among these instead of a min..max control -- the difference between picking 'Channel 2' and hunting for 0x02 on a 0-255 slider. Use `min`/`max` when every value in between is meaningful."
+                            },
+                            "labels": {
+                              "type": "array",
+                              "items": { "type": "string" },
+                              "minItems": 1,
+                              "description": "Human-readable names for `allowed`, paired by index. Only meaningful alongside `allowed`, and the two lengths must match exactly: a consumer that finds them mismatched should keep the values and drop the labels rather than pair them off by position and mislabel a control."
+                            },
+                            "notes": {
+                              "type": "string",
+                              "description": "Per-parameter caveats the structured fields cannot carry."
+                            },
+                            "endianness": {
+                              "type": "string",
+                              "enum": ["little", "big"],
+                              "default": "little",
+                              "description": "Byte order this parameter's value is emitted in. Same key, enum and default as a `format` field's and a bus field's -- encode and decode ask one question and must not answer it two ways. Little is the default because it is what BLE overwhelmingly uses; a `big` parameter must say so, because a byte-swapped write is silently plausible rather than visibly broken."
+                            },
+                            "auto": {
+                              "type": "string",
+                              "enum": ["sequence", "packet_length", "checksum"],
+                              "description": "Marks a parameter the CLIENT derives rather than the user supplying: `sequence` is a per-connection message counter, `packet_length` the finished packet's own length, `checksum` a value computed over the rest. Declared as a parameter anyway so the template can name it and a serializer knows its width and byte order. A consumer must never present one as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects."
+                            },
+                            "min_length": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "description": "Fewest octets this `bytes` parameter may carry. The length vocabulary for `bytes`, where `min`/`max` are the value vocabulary for numbers -- state a fixed width as equal `min_length`/`max_length` (a two-byte CRC is 2 and 2)."
+                            },
+                            "max_length": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "description": "Most octets this `bytes` parameter may carry, in the same terms as `min_length`."
+                            },
                             "type": {
                               "type": "string",
                               "enum": ["uint8", "uint16", "int8", "int16", "int32", "uint32", "varint", "bytes", "string"],
@@ -1402,6 +1530,12 @@
                         "type": "string",
                         "enum": ["bool", "uint8", "uint16", "int8", "int16", "int32", "uint32", "bytes", "string"],
                         "description": "Field value type. NOTE: int32/uint32 are accepted here for parity with the parameter enum but the mobile Rust ValueType enum does NOT yet consume 32-bit integers; mobile support is a known gap."
+                      },
+                      "endianness": {
+                        "type": "string",
+                        "enum": ["little", "big"],
+                        "default": "little",
+                        "description": "Byte order of a multi-byte integer field. Same key, same enum and same default as a bus message field's `endianness` — a BLE characteristic and a CAN frame have the same question to answer, and answering it two ways would be a trap. Little-endian is the default because it is what BLE characteristics overwhelmingly use (the SIG's own profiles are little-endian throughout), so the specs that state it are confirming rather than overriding. A `big` field must say so: a byte-swapped decode is silently plausible — a big-endian 0x0100 reads as 1 rather than 256 — so nothing downstream can catch the mistake."
                       },
                       "notes": {
                         "type": "string",
@@ -2145,6 +2279,26 @@
           "device_class": {
             "type": "string"
           },
+          "icon": {
+            "type": "string",
+            "pattern": "^mdi:[a-z0-9-]+$",
+            "description": "Material Design Icons name for this entity, as 'mdi:heat-wave'. Only worth stating when `device_class` does not already imply the right picture: a consumer draws a thermostat for device_class 'temperature' without being told, but Gerbing's heat *level* is a percentage with no device_class that says 'this warms you up'. Advisory -- a consumer that does not ship the MDI set falls back to whatever it derives from `platform`/`device_class`, so an entity must not depend on the icon to be understandable."
+          },
+          "precision": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Display rounding for this entity's state, as the smallest increment worth showing (0.1 = one decimal, 1.0 = whole numbers). This is a PRESENTATION rule, not a decode rule: it never changes the value, only how many digits of it are honest to print. State it when the device reports more resolution than it actually has -- a field decoded with `scale: 0.01` renders as '10.00' unless something says the last digit is noise. Distinct from `step`, which is how finely a control may be *set*."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Free-form caveats about this entity that the structured keys cannot carry -- an unconfirmed scaling, a reading that is only valid in some device mode, a variant that lacks the sensor."
+          },
+          "variants": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Which of `device.variants` actually expose this entity, by name. Airthings' Wave Plus reports pressure and the Gen 1 does not, and one spec covers both -- without this a consumer draws a permanently blank tile on half the hardware. Omit when every variant has it.",
+            "minItems": 1
+          },
           "unit": {
             "type": "string",
             "description": "Display unit for the entity's state ('C', '%', 'km/h'). Must agree with what the bound characteristic field or command parameter declares AFTER its scale/value_offset are applied — the entity layer describes decoded values, never raw bytes. When the bound field's unit_source is 'device_setting' there is no single true value here; state the out-of-box default and let the consumer follow the field's `unit_reference`."
@@ -2162,6 +2316,19 @@
             "exclusiveMinimum": 0,
             "description": "Control granularity for a 'number' control, in `unit` terms. Record the device's real resolution where known, not a cosmetic rounding — the difference decides whether the UI can express every state the device can hold."
           },
+          "min_temp": {
+            "type": "number",
+            "description": "The `climate` platform's spelling of `min`, in the entity's `unit`. Climate entities use the temperature-named trio because that is what they are: Hotwired's heated gear declares its 0-10 heat level this way. Do not state both spellings on one entity."
+          },
+          "max_temp": {
+            "type": "number",
+            "description": "The `climate` platform's spelling of `max`, in the same decoded terms as `min_temp`."
+          },
+          "temp_step": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "The `climate` platform's spelling of `step`, in `unit` terms."
+          },
           "features": {
             "type": "array",
             "items": {
@@ -2169,7 +2336,24 @@
             }
           },
           "state_characteristic": {
-            "$ref": "#/$defs/uuid"
+            "$ref": "#/$defs/uuid",
+            "description": "GATT characteristic this entity reads its state from."
+          },
+          "command_characteristic": {
+            "$ref": "#/$defs/uuid",
+            "description": "GATT characteristic this entity's writes go to, when that is not `state_characteristic`. Spider Farmer's grow light reads and writes different handles. It is also the explicit permission a consumer needs to write a bare value to a characteristic rather than send a named command: naming it here is the spec author saying 'this entity's writes land here', which is why an entity that omits it gets no direct-write path at all."
+          },
+          "fallback_characteristic": {
+            "$ref": "#/$defs/uuid",
+            "description": "The `command_characteristic` of an older hardware revision covered by the same spec -- Hotwired's heated gear moved from the fee0 UUID family to ffb0 and both are still in the field. Try the primary first and fall back on a device that does not expose it. NOTE: declarative. A consumer that ignores this simply does not drive the older revision; it will not mis-drive the newer one."
+          },
+          "fallback_state_characteristic": {
+            "$ref": "#/$defs/uuid",
+            "description": "The `state_characteristic` of the same older revision `fallback_characteristic` describes."
+          },
+          "value_template": {
+            "type": "string",
+            "description": "Jinja2 expression extracting this entity's state from a raw characteristic value, in Home Assistant's template dialect, e.g. \"{{ value[3:4] | int(base=16) }}\". A last resort: it says where the bytes are in a form only an HA-shaped consumer can execute, so prefer a `format:` block on the characteristic plus `state_mapping`, which says the same thing structurally and every consumer can read. NOTE: declarative -- a consumer with no Jinja engine cannot render this entity, which is why the structured route is the one to reach for."
           },
           "state_field": {
             "type": "string",
@@ -2178,10 +2362,23 @@
           },
           "state_topic": {
             "type": "string",
-            "description": "MQTT topic or HTTP endpoint that provides entity state (for WiFi devices)."
+            "description": "MQTT topic or HTTP endpoint that provides entity state (for WiFi devices). Use this when the topic alone identifies the reading; when the state comes from an RPC-style call, use `state_endpoint`/`state_command`/`state_path` instead."
+          },
+          "state_endpoint": {
+            "type": "string",
+            "description": "HTTP endpoint the state call is made against, for WiFi devices whose API is one POST path carrying a named command rather than a REST resource per reading. Divoom's panels are the case: everything goes to `/divoom_api`, and `state_command` says which reading you asked for. The literal 'cloud' means the value is only obtainable from the vendor's cloud, not the device on the LAN -- a consumer with no cloud credentials should treat those entities as unavailable rather than broken."
+          },
+          "state_command": {
+            "type": "string",
+            "description": "Command name posted to `state_endpoint` to fetch this entity's state, e.g. 'Channel/GetOnOff'. Names a command in the spec's own `http_endpoints`/command vocabulary."
+          },
+          "state_path": {
+            "type": "string",
+            "description": "Where the reading sits inside the JSON `state_command` returns, in dotted path notation with numeric indices in brackets: 'DeviceList[0].DevicePrivateIP'. Omit when the response *is* the value."
           },
           "state_mapping": {
-            "type": "object"
+            "type": "object",
+            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
           },
           "commands": {
             "type": "object"

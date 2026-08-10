@@ -1,0 +1,72 @@
+// Copyright 2026 Pigs Can Fly Labs LLC
+// SPDX-License-Identifier: Apache-2.0
+//
+// Which glyph goes beside a spec-declared entity?
+
+import 'package:flutter/material.dart';
+
+import '../src/rust/api/device_api.dart';
+
+/// Material glyphs for the `mdi:` names the catalogue asks for.
+///
+/// The spec speaks Material Design Icons, which is Home Assistant's icon set
+/// and the one the whole upstream vocabulary is written against. This app
+/// ships Flutter's Material Icons and no MDI font, so the two have to be
+/// translated. That translation is the only thing this table does: the spec
+/// still decides *which* icon an entity gets, and this says what that icon
+/// looks like in the font we have.
+///
+/// It is deliberately not exhaustive — MDI has around 7,000 names and pulling
+/// in the font to cover them would be about 1 MB for a handful of entities. An
+/// unmapped name falls through to [_byDeviceClass], which is the same answer
+/// the app gave before the spec could ask for anything, so a new `icon:`
+/// upstream degrades to the old behaviour rather than to a blank.
+const Map<String, IconData> _mdiGlyphs = {
+  'mdi:heat-wave': Icons.waves,
+  'mdi:thermometer': Icons.thermostat,
+  'mdi:battery': Icons.battery_full,
+  'mdi:water-percent': Icons.water_drop_outlined,
+  'mdi:gauge': Icons.speed,
+  'mdi:lightbulb': Icons.lightbulb_outline,
+  'mdi:fan': Icons.air_outlined,
+  'mdi:power-plug': Icons.power_outlined,
+  'mdi:radiator': Icons.thermostat_auto,
+  'mdi:signal': Icons.signal_cellular_alt,
+};
+
+/// The fallback that predates entity icons: what a reading's `device_class`
+/// implies. Still the answer for the overwhelming majority of entities, since
+/// stating an icon is only worth it when the device class does not already
+/// say the right thing.
+IconData _byDeviceClass(String? deviceClass, IconData fallback) =>
+    switch (deviceClass) {
+      'temperature' => Icons.thermostat,
+      'battery' => Icons.battery_full,
+      'humidity' => Icons.water_drop_outlined,
+      'pressure' => Icons.speed,
+      'signal_strength' => Icons.signal_cellular_alt,
+      _ => fallback,
+    };
+
+/// The icon to draw for [entity].
+///
+/// Resolution order is the order of specificity: the spec's own `icon` wins
+/// because it is the author's statement about this exact entity, `device_class`
+/// answers next because it is a statement about the *kind* of reading, and
+/// [fallback] is the honest last resort.
+///
+/// [fallback] is the caller's "I know nothing about this one" glyph, and it
+/// differs by surface: a reading with nothing else to say for itself is a
+/// sensor, while a control with nothing else to say for itself is a knob. Only
+/// the last step varies — a spec that names an icon gets it on every card.
+///
+/// Never throws and never returns null: an icon is decoration, and losing a
+/// reading over one would be a poor trade.
+IconData entityIcon(EntityDto entity, {IconData fallback = Icons.sensors}) {
+  final declared = entity.icon?.trim().toLowerCase();
+  if (declared != null && declared.isNotEmpty) {
+    final glyph = _mdiGlyphs[declared];
+    if (glyph != null) return glyph;
+  }
+  return _byDeviceClass(entity.deviceClass, fallback);
+}

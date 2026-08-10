@@ -546,3 +546,34 @@ fn undeclared_characteristic_still_returns_none() {
         .find_writable_characteristic("0000dead-0000-1000-8000-00805f9b34fb")
         .is_none());
 }
+
+#[test]
+fn hotwired_climate_entity_resolves_a_sendable_action() {
+    // The entity exists to set the heat level and had nothing to send: its
+    // write characteristic carries an 8-byte frame, so there is no bare value
+    // to write, and the command that builds the frame lived in a top-level
+    // block no consumer reads. Both are fixed upstream; this pins that the
+    // action now resolves and that the level is the one parameter the UI
+    // supplies (status is spec-defaulted to ON).
+    let yaml = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("vendor/protocol-specs/device-specs/devices/hotwired-heated-gear.yaml"),
+    )
+    .expect("hotwired spec should be readable");
+    let spec = parse_device_spec(&yaml).expect("hotwired spec should parse");
+    let entity = spec
+        .entities
+        .iter()
+        .find(|e| e.name == "Heat Level")
+        .expect("the climate entity");
+    let actions = liberated_bread_core::spec::bindings::resolve_entity_actions(&spec, entity);
+    let set = actions
+        .iter()
+        .find(|a| a.role == "set_value")
+        .expect("the heat level must resolve a set_value action");
+    assert_eq!(set.command_name, Some("set_heat"));
+    assert_eq!(set.user_params, vec!["level"]);
+    assert_eq!((set.min, set.max), (Some(0), Some(10)));
+}

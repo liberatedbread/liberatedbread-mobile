@@ -610,8 +610,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   CommandDto dco_decode_command_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return CommandDto(
       name: dco_decode_String(arr[0]),
       description: dco_decode_String(arr[1]),
@@ -619,6 +619,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       isFixed: dco_decode_bool(arr[3]),
       isEncodable: dco_decode_bool(arr[4]),
       unsupportedEncoding: dco_decode_opt_String(arr[5]),
+      locate: dco_decode_opt_String(arr[6]),
     );
   }
 
@@ -691,29 +692,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   EntityDto dco_decode_entity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 20)
-      throw Exception('unexpected arr length: expect 20 but see ${arr.length}');
+    if (arr.length != 22)
+      throw Exception('unexpected arr length: expect 22 but see ${arr.length}');
     return EntityDto(
       name: dco_decode_String(arr[0]),
       platform: dco_decode_opt_String(arr[1]),
       deviceClass: dco_decode_opt_String(arr[2]),
-      unit: dco_decode_opt_String(arr[3]),
-      stateCharacteristic: dco_decode_opt_String(arr[4]),
-      canNotify: dco_decode_bool(arr[5]),
-      hasFormat: dco_decode_bool(arr[6]),
-      valueField: dco_decode_opt_String(arr[7]),
-      valueScale: dco_decode_opt_box_autoadd_f_64(arr[8]),
-      onValue: dco_decode_opt_box_autoadd_i_64(arr[9]),
-      onWhenNonzero: dco_decode_bool(arr[10]),
-      isOnField: dco_decode_opt_String(arr[11]),
-      brightnessField: dco_decode_opt_String(arr[12]),
-      colorRedField: dco_decode_opt_String(arr[13]),
-      colorGreenField: dco_decode_opt_String(arr[14]),
-      colorBlueField: dco_decode_opt_String(arr[15]),
-      actions: dco_decode_list_entity_action_dto(arr[16]),
-      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[17]),
-      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[18]),
-      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[19]),
+      icon: dco_decode_opt_String(arr[3]),
+      precision: dco_decode_opt_box_autoadd_f_64(arr[4]),
+      unit: dco_decode_opt_String(arr[5]),
+      stateCharacteristic: dco_decode_opt_String(arr[6]),
+      canNotify: dco_decode_bool(arr[7]),
+      hasFormat: dco_decode_bool(arr[8]),
+      valueField: dco_decode_opt_String(arr[9]),
+      valueScale: dco_decode_opt_box_autoadd_f_64(arr[10]),
+      onValue: dco_decode_opt_box_autoadd_i_64(arr[11]),
+      onWhenNonzero: dco_decode_bool(arr[12]),
+      isOnField: dco_decode_opt_String(arr[13]),
+      brightnessField: dco_decode_opt_String(arr[14]),
+      colorRedField: dco_decode_opt_String(arr[15]),
+      colorGreenField: dco_decode_opt_String(arr[16]),
+      colorBlueField: dco_decode_opt_String(arr[17]),
+      actions: dco_decode_list_entity_action_dto(arr[18]),
+      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[19]),
+      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[20]),
+      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[21]),
     );
   }
 
@@ -1319,13 +1322,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_isFixed = sse_decode_bool(deserializer);
     var var_isEncodable = sse_decode_bool(deserializer);
     var var_unsupportedEncoding = sse_decode_opt_String(deserializer);
+    var var_locate = sse_decode_opt_String(deserializer);
     return CommandDto(
         name: var_name,
         description: var_description,
         parameters: var_parameters,
         isFixed: var_isFixed,
         isEncodable: var_isEncodable,
-        unsupportedEncoding: var_unsupportedEncoding);
+        unsupportedEncoding: var_unsupportedEncoding,
+        locate: var_locate);
   }
 
   @protected
@@ -1423,6 +1428,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_name = sse_decode_String(deserializer);
     var var_platform = sse_decode_opt_String(deserializer);
     var var_deviceClass = sse_decode_opt_String(deserializer);
+    var var_icon = sse_decode_opt_String(deserializer);
+    var var_precision = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_unit = sse_decode_opt_String(deserializer);
     var var_stateCharacteristic = sse_decode_opt_String(deserializer);
     var var_canNotify = sse_decode_bool(deserializer);
@@ -1444,6 +1451,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         name: var_name,
         platform: var_platform,
         deviceClass: var_deviceClass,
+        icon: var_icon,
+        precision: var_precision,
         unit: var_unit,
         stateCharacteristic: var_stateCharacteristic,
         canNotify: var_canNotify,
@@ -2242,6 +2251,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.isFixed, serializer);
     sse_encode_bool(self.isEncodable, serializer);
     sse_encode_opt_String(self.unsupportedEncoding, serializer);
+    sse_encode_opt_String(self.locate, serializer);
   }
 
   @protected
@@ -2303,6 +2313,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.name, serializer);
     sse_encode_opt_String(self.platform, serializer);
     sse_encode_opt_String(self.deviceClass, serializer);
+    sse_encode_opt_String(self.icon, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.precision, serializer);
     sse_encode_opt_String(self.unit, serializer);
     sse_encode_opt_String(self.stateCharacteristic, serializer);
     sse_encode_bool(self.canNotify, serializer);
