@@ -230,6 +230,7 @@ services:
             verification: "reported"
           blink_led:
             description: "Blink device LED once."
+            locate: "flash"
             value: [0xFD, 0xFF]
             verification: "reported"
           serial_number_read:
