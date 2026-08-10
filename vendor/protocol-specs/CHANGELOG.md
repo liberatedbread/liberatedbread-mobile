@@ -31,6 +31,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   forbids `locate` on an `advanced` command in both directions — a locator is
   offered without confirmation, so it cannot also be a command a user needs
   protecting from
+- `features[].session_open` and `features[].channel_tag` on an `image_upload`
+  — the ordered commands a client sends before the first frame, named from the
+  spec's own `commands` so their bytes stay in the command templates and only
+  the choreography lives here, and the framing channel tag that flow writes
+  under when the bulk characteristic cannot state one because its tag varies
+  per transfer. This is the part of an upload a handler cannot derive:
+  fragmentation and chunk sizing are properties `framing` already states, but
+  which commands open a session is device knowledge. SmartDawn's is
+  `[ui_end_sync, doodle_start]` writing under TUTU_RESTORE (4), and the wrong
+  opener (`M_DEV_START`) blanks the canvas rather than failing — so a consumer
+  that hardcodes the names cannot be pointed at a sibling device on the same
+  platform without a code change. SmartDawn's BIN channel also states its
+  200-byte `framing.max_chunk_size`, which was documented in prose only
 - Command and parameter keys the catalogue was already using with nothing
   declaring them — several of them load-bearing. On a command: `setting_id`
   (which the mobile parser reads), `protocol_id` / `command_id` / `ui_id` /
