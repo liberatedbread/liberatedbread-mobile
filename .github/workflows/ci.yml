@@ -256,7 +256,7 @@ jobs:
       # squash commit to measure from — the check degrades to a warning and
       # passes, which is the failure mode of a guard that looks like it ran.
       # The whole repo is ~40 MB packed.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: subosito/flutter-action@v2
@@ -278,7 +278,7 @@ jobs:
       # one interpolation. The restore-keys prefix moves with it, so a bump
       # starts cold once rather than inheriting the old SDK's tree.
       - name: Cache pub
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pub-cache
@@ -346,7 +346,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -377,7 +377,7 @@ jobs:
           workspaces: rust
           cache-bin: false
       - name: Cache pub
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pub-cache
@@ -391,7 +391,7 @@ jobs:
       # There is no half-saved state a cancelled job can leave behind, which is
       # precisely how leaving this to rust-cache's ~/.cargo/bin snapshot failed.
       - name: Cache the FRB codegen binary
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/flutter_rust_bridge_codegen
           key: frb-codegen-${{ runner.os }}-${{ env.FRB_VERSION }}
@@ -468,7 +468,7 @@ jobs:
       # EXCLUDES. Codecov merges both reports for the commit; the flags are so a
       # pull-request comment can say which run moved.
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage/lcov.info
           flags: unit
@@ -496,14 +496,14 @@ jobs:
     # silently stop testing anything.
     needs: [analyze]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
       - name: Cache pub
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pub-cache
@@ -527,7 +527,7 @@ jobs:
       # Codecov merges reports per commit, so two partial uploads are the
       # supported shape rather than a workaround.
       - name: Upload discovery coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage/netdisco-lcov.info
           flags: netdisco
@@ -542,7 +542,7 @@ jobs:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -582,7 +582,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           # What does the instrumenting. cargo-llvm-cov without it fails on a
@@ -598,7 +598,7 @@ jobs:
           # so there is no half-saved state a cancelled run can leave behind.
           cache-bin: false
       - name: Cache the cargo-llvm-cov binary
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-llvm-cov
           key: llvm-cov-${{ runner.os }}-${{ env.LLVM_COV_VERSION }}
@@ -614,7 +614,7 @@ jobs:
       # and the argument for dropping them is the one already made in that file
       # for lib/src/rust/** — the Dart half of the same generated pair.
       - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: coverage/rust-lcov.info
           flags: rust
@@ -632,8 +632,8 @@ jobs:
     # not let the expensive native builds burn runner minutes.
     needs: [analyze, rust]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -662,7 +662,7 @@ jobs:
       # that Gradle no longer stops partway through to accept a licence and pull
       # a package over the network, where a blip fails the build in a place
       # nothing retries.
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v4
         with:
           packages: >-
             platform-tools
@@ -670,7 +670,7 @@ jobs:
             build-tools;${{ env.ANDROID_BUILD_TOOLS }}
             cmake;${{ env.ANDROID_CMAKE }}
             ndk;${{ env.FLUTTER_NDK_VERSION }}
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Write android/local.properties
         run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
@@ -707,7 +707,7 @@ jobs:
       # Uploaded before the release build so a release-only failure still leaves
       # the debug APK downloadable for triage.
       # Best-effort upload: continue-on-error (deliberate, survives artifact-quota hits) would neutralize if-no-files-found: error anyway, so warn.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: app-debug-mock.apk
@@ -781,8 +781,8 @@ jobs:
       matrix:
         api-level: [34]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
@@ -833,7 +833,7 @@ jobs:
       # above), setup-gradle touches only GRADLE_USER_HOME: it does not install
       # or replace platform-tools, so it cannot disturb the adb/emulator setup
       # that made setup-android unusable in this job.
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       # Warm up the native build BEFORE the emulator step.
       #
       # This step — not the --timeout flag further down — is what fixes the
@@ -935,7 +935,7 @@ jobs:
       # passing one.
       - name: Upload emulator logcat
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: emulator-logcat-api${{ matrix.api-level }}
           path: |
@@ -961,7 +961,7 @@ jobs:
     timeout-minutes: 60
     needs: [analyze, rust]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -1126,7 +1126,7 @@ jobs:
       # the step, ios-simulator-log-attemptN.txt each earlier one.
       - name: Upload simulator log and crash reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ios-simulator-diagnostics
           path: |
@@ -1185,7 +1185,7 @@ jobs:
     # must not burn runner minutes on a native build.
     needs: [analyze, rust]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
