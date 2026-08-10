@@ -8,6 +8,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `endianness` on BLE characteristic `format` fields — same key, same
+  `little`/`big` enum and same `little` default as a bus message field, which
+  is where it was already declared. Six BLE fields across `xiaomi-miflora` and
+  `pax-vape` had been stating it into a key nothing defined: the schema is
+  permissive so it validated, and every parser dropped it. Harmless only
+  because all six say `little`, which is what the decoders assume; a `big`
+  field would have decoded byte-swapped with nothing to catch it, since a
+  big-endian `0x0100` reads as 1 rather than 256 and both are plausible sensor
+  readings. `scripts/test_device_specs.py` now pins the two declarations to
+  each other so they cannot drift apart again
+- Command-level `locate` (`sound` | `flash` | `both`) — declares that a
+  command's whole effect is to make the device noticeable so a user can find
+  it, and by which modality. It is the spec-command analogue of the SIG
+  Immediate Alert service (0x1802) for the many devices that implement the
+  same idea with a vendor opcode. Without it a client has only the command's
+  name to go on, and the names in this catalogue do not support that: across
+  350 BLE commands, `play_effect`, `set_mode`, `identify` and `set_volume_low`
+  all read as locators and none is one, while `flash_firmware` reads as one
+  and must never be one tap away. Declared on the two commands that qualify
+  (`m6-fitness-band` `find_me`, `xiaomi-miflora` `blink_led`). The schema
+  forbids `locate` on an `advanced` command in both directions — a locator is
+  offered without confirmation, so it cannot also be a command a user needs
+  protecting from
+- Command and parameter keys the catalogue was already using with nothing
+  declaring them — several of them load-bearing. On a command: `setting_id`
+  (which the mobile parser reads), `protocol_id` / `command_id` / `ui_id` /
+  `ui_id_range` / `ui_id_min` (the framing-scheme selectors), `fixed_length`,
+  `packet_layout` and `observed`. On a parameter: `default` (89 uses, and the
+  thing that lets a control send only the parameter it owns), `allowed` /
+  `labels` (which a consumer turns into a picker instead of a raw slider),
+  `notes`, `endianness`, and `auto` for a value the client derives rather than
+  the user supplying — `sequence`, `packet_length`, `checksum`. `endianness`
+  on a parameter matters immediately: SmartDawn declares 88 of them `big`, and
+  a consumer assuming little-endian writes those two-byte fields byte-swapped
+  with nothing to notice
+- Entity keys the catalogue was already using with nothing declaring them:
+  `icon`, `precision`, `notes`, `variants`, `command_characteristic`,
+  `min_temp` / `max_temp` / `temp_step`, `fallback_characteristic` /
+  `fallback_state_characteristic`, `value_template`, and the RPC-style
+  `state_endpoint` / `state_command` / `state_path` trio Divoom's panels use.
+  `state_mapping` gains a description of the key set the catalogue actually
+  puts in it (role keys, `scale`, `on_when`/`on_value`, `options`/`states`,
+  bare-integer code tables) while staying open
+
 - `device.category` — a **required** field carrying a broad device class from a
   closed 25-value vocabulary (`light`, `display`, `sensor`, `motor`, `switch`,
   `lock`, `tv`, `printer`, `climate`, `hub`, `vehicle`, `scale`, …). It is the
@@ -29,8 +73,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `schema.json` rather than restating it; documented in
   `device-specs/README.md` and `docs/api/spec-format.md`
 
+### Fixed
+
+- **Two specs failed to parse outright, and each was a key saying something
+  the vocabulary did not define.** Both are now fixed, and both classes are
+  pinned by `scripts/test_device_specs.py` so they cannot come back quietly.
+  - `fardriver-controller` declared `data: {type: bytes, min: 1, max: 26}`,
+    meaning "1 to 26 bytes". `min`/`max` bound a *number* everywhere else, and
+    a run of octets has no numeric range, so a consumer reading it that way
+    rejected the parameter and lost the whole 500-line spec with it. `bytes`
+    parameters now use `min_length`/`max_length`, and the schema rejects
+    `min`/`max` on one — the two readings were indistinguishable and each was
+    plausible.
+  - `seeblue-motorcycle-led` spelled its transport envelope into nine command
+    templates as `{message_length}`/`{message_index}`/`{checksum}`
+    placeholders that no command declared and no client could fill, while the
+    packet a client could actually send sat in `payload_template`, which
+    nothing reads. Those bytes belong to the framing layer, so the
+    characteristic now declares `framing.scheme: seeblue_envelope` (new, beside
+    `daniao_fragment`) and every command's `template` is the packet alone —
+    which is what the framing contract already said it should be. A further 26
+    commands referenced parameters they never declared; those are declared now
+    too. The spec went from 0 usable commands to 36.
+
+### Removed
+
+- `parameters.color_order` — a per-command declaration of RGB channel byte
+  order, sitting beside a `template` that already emitted the channels in an
+  order. Two statements of one fact with no stated precedence, so a spec whose
+  two halves disagreed had no correct reading. All eight uses said `rgb` next
+  to a template already naming `{red}`/`{green}`/`{blue}` in that order, and
+  the schema's own example — "Shining Mask uses 'rbg'" — contradicted the
+  Shining Mask spec, which says `rgb` and cites three public implementations
+  for it. The template is the byte order: a device wanting GRB is written
+  `template: ["{green}", "{red}", "{blue}"]`
+
 ### Changed
 
+- Every key used in the blocks a client *executes* — `entities`,
+  characteristic `format:` fields, commands and their `parameters` — must now
+  be one `schema.json` declares, enforced by `scripts/test_device_specs.py`
+  against
+  the schema itself rather than a list of known slips, so an invented key
+  fails too. Permissiveness is there to let a spec record vendor detail the
+  vocabulary has no word for yet; in an executed block it means an invented
+  key is not an extension but a control that silently does nothing. This
+  generalises the existing `device.identification` near-miss check, which
+  caught the same defect one name at a time
+- `hotwired-heated-gear`'s entities now reach a consumer. Its climate entity
+  declared `write_characteristic`, which nothing reads — the vocabulary is
+  `command_characteristic` — so the entity that exists to set the heat level
+  had no write path at all. Its battery sensor's code table was under
+  `mapping` rather than `state_mapping`, and shaped as a list of single-key
+  maps rather than a map, so it reached nothing either
+- Four `format` fields in `airthings-wave-family` and `pax-vape` spelled their
+  per-field caveat `description`; the declared spelling is `notes`
+- `proglow-motorcycle-led` stated its channel bit masks in a bespoke
+  `channel_masks` table beside a `channel_mask` parameter declared as a plain
+  0-15 range. The vocabulary for "these exact values, with these names" is
+  `allowed` + `labels`, which a consumer renders as a picker — so the masks are
+  now reachable rather than being a table only a human could read
 - The nine specs that already carried an ad-hoc `category` now use the
   controlled vocabulary: `smart_lock` → `lock` (Kevo, Nuki, Schlage),
   `automotive` → `reference` on the three published-protocol references

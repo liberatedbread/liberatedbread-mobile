@@ -671,10 +671,37 @@ fields. In addition to the required fields above, `schema.json` formally
 defines several **optional** blocks for richer protocols — including
 characteristic-level `encryption` and `framing`, top-and-service-level
 `initialization` handshakes, `device.variants`, command-level `encoding` /
-`payload`, per-command `parameters.color_order`, top-level `features` and
-`protocol_handler`. See `schema.json` (the source of truth) for the exact
-shapes and enums. Some optional fields are declarative and require dedicated
-consumer-side code; those carry a `NOTE` in the schema `description`.
+`payload` / `locate`, top-level `features` and `protocol_handler`. See
+`schema.json` (the source of truth) for the exact shapes and enums. Some
+optional fields are declarative and require dedicated consumer-side code;
+those carry a `NOTE` in the schema `description`.
+
+### Permissive does not mean anything goes
+
+Permissiveness exists so a spec can record vendor detail the vocabulary has no
+word for yet. It is not licence to invent keys in the blocks a client
+*executes* — `entities`, characteristic `format:` fields, and command
+`parameters`. Consumers drop what they do not recognise, without complaint, so
+an invented key there is not an extension: it is a control that silently does
+nothing. An entity that says `write_characteristic` where the vocabulary says
+`command_characteristic` validates, reads correctly to a human, and cannot be
+written to by any client.
+
+`scripts/test_device_specs.py` enforces this: every key used in those three
+blocks must be one `schema.json` declares. If you need a key that does not
+exist, add it to the schema in the same change — that is the cheap half, and
+it is what makes the value reachable.
+
+Two keys were removed rather than declared, because each restated something
+the spec already said in a place that actually drives bytes:
+
+- `parameters.color_order` — the `template` already names `{red}`/`{green}`/
+  `{blue}` in the order they are emitted. A device wanting GRB is written
+  `template: ["{green}", "{red}", "{blue}"]`. All eight uses said `rgb` beside
+  a template already in R,G,B order, and nothing defined which won if they
+  disagreed.
+- `format` fields spelled `description` — `notes` says the same thing and is
+  the declared spelling.
 
 ## Schema Validation
 

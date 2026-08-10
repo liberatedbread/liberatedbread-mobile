@@ -203,7 +203,6 @@ services:
             description: "SP107E: Set static RGB color (cmd 0x0C — NOT 0x04; 0x04 is SET_RGB_SEQ color order and would reprogram the chip's RGB sequence)"
             template: ["{red}", "{green}", "{blue}", 0x0C]
             parameters:
-              color_order: "rgb"
               red:
                 type: "uint8"
                 min: 0
@@ -245,7 +244,6 @@ services:
             description: "SP110E: Set static RGB color (secondary source, verify)"
             template: ["{red}", "{green}", "{blue}", 0x1E]
             parameters:
-              color_order: "rgb"
               red:
                 type: "uint8"
                 min: 0
