@@ -55,4 +55,50 @@ void main() {
       expect(manager.count, equals(0));
     });
   });
+
+  group('ghost expiry across scans', () {
+    /// One full scan window in which only [seen] advertise.
+    void scanWith(List<String> seen) {
+      manager.beginScan();
+      for (final id in seen) {
+        manager.addOrUpdate(makeDevice(id: id));
+      }
+      manager.completeScan();
+    }
+
+    test('a device missing one scan survives — advertising is lossy', () {
+      scanWith(['keeper', 'flaky']);
+      scanWith(['keeper']);
+      expect(manager.getById('flaky'), isNotNull,
+          reason: 'one missed window must not evict a live device');
+    });
+
+    test('a device missing two consecutive scans is dropped', () {
+      scanWith(['keeper', 'ghost']);
+      scanWith(['keeper']);
+      scanWith(['keeper']);
+      expect(manager.getById('ghost'), isNull,
+          reason: 'two full windows with no advertisement is a ghost');
+      expect(manager.getById('keeper'), isNotNull);
+    });
+
+    test('reappearing resets the miss count', () {
+      scanWith(['blinky']);
+      scanWith([]); // miss 1
+      scanWith(['blinky']); // back — slate wiped
+      scanWith([]); // miss 1 again, not 2
+      expect(manager.getById('blinky'), isNotNull);
+      scanWith([]); // miss 2
+      expect(manager.getById('blinky'), isNull);
+    });
+
+    test('an aborted scan charges no misses', () {
+      scanWith(['keeper', 'ghost']);
+      // Two scans start but never complete (error / user navigated away):
+      // nothing learned, nothing dropped.
+      manager.beginScan();
+      manager.beginScan();
+      expect(manager.getById('ghost'), isNotNull);
+    });
+  });
 }

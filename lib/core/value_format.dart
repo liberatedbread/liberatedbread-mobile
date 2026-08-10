@@ -81,6 +81,21 @@ int? divisionsForStep(double min, double max, double step) {
   return count;
 }
 
+/// [value] snapped to the nearest `min + n * step`, clamped to `[min, max]`.
+///
+/// A slider under [maxSliderDivisions] stops snaps through its divisions; a
+/// wider range renders continuous, and without this its drag lands on values
+/// the device cannot hold — the card would label 523.4 while the write path
+/// rounds to 523, so the value shown and the value stored disagree. Snapping
+/// the drag keeps the display honest for any range width. Values that cannot
+/// be snapped (non-finite input or step) pass through unchanged.
+double snapToStep(double value, double min, double max, double step) {
+  if (!value.isFinite || !step.isFinite || step <= 0) return value;
+  if (!min.isFinite || !max.isFinite || max <= min) return value;
+  final snapped = min + ((value - min) / step).round() * step;
+  return snapped.clamp(min, max);
+}
+
 /// A well-ordered `[min, max]` for a setpoint slider, or null when the spec
 /// does not bound the value usably.
 ///

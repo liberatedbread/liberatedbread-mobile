@@ -503,12 +503,29 @@ class RealBleService implements BleService {
       Log.ble.debug('requestMtu(512) not honored for $deviceId: $e');
     }
     Log.ble.debug('mtu for $deviceId: ${device.mtuNow}');
+    // flutter_blue_plus_linux never updates mtuNow from the value BlueZ
+    // actually negotiates (enabling notifications already exchanged a larger
+    // MTU over D-Bus), so on Linux a report still stuck at the 23-byte
+    // default RIGHT AFTER CONNECTING means UNKNOWN, not tiny — flag the
+    // device so mtu() answers with the 512 this connect just requested
+    // (verified live against the JY25CUT curtain). Keyed on the post-connect
+    // observation rather than on the platform alone: a Linux backend that
+    // does report real values (the emulated test adapter today, a fixed
+    // flutter_blue_plus_linux tomorrow) is never flagged, and on Android a
+    // 23 is a real answer (requestMtu ran and was refused) that callers must
+    // size real writes for.
+    if (Platform.isLinux && device.mtuNow <= 23) {
+      _mtuUnknown.add(deviceId);
+    } else {
+      _mtuUnknown.remove(deviceId);
+    }
   }
 
   @override
   Future<void> disconnect(String deviceId) async {
     Log.ble.info('disconnecting from $deviceId');
     _servicesCache.remove(deviceId);
+    _mtuUnknown.remove(deviceId);
     final device = BluetoothDevice.fromId(deviceId);
     try {
       await device.disconnect();
@@ -785,9 +802,22 @@ class RealBleService implements BleService {
     return controller.stream;
   }
 
+  /// Devices whose connect left mtuNow at the 23-byte default on a platform
+  /// whose backend is known not to report the negotiated value (Linux/BlueZ)
+  /// — see the flagging logic in [connect]. For these, [mtu] answers with
+  /// the 512 the connect requested rather than the meaningless default.
+  final Set<String> _mtuUnknown = {};
+
   @override
-  Future<int> mtu(String deviceId) async =>
-      BluetoothDevice.fromId(deviceId).mtuNow;
+  Future<int> mtu(String deviceId) async {
+    final reported = BluetoothDevice.fromId(deviceId).mtuNow;
+    // The one platform quirk in what "reported" means lives here, next to
+    // the requestMtu call that owns the platform knowledge, so every caller
+    // sizing writes gets the same answer — see connect() for why a flagged
+    // device's stuck default reads as "the 512 we requested".
+    if (reported <= 23 && _mtuUnknown.contains(deviceId)) return 512;
+    return reported;
+  }
 
   /// Read the connection's RSSI, rejecting values that are a backend's
   /// stand-in for "no reading" rather than a signal strength.

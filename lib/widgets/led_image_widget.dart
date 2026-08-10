@@ -15,20 +15,90 @@ import 'led_designs.dart';
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
-/// Payload is MTU minus the 3-byte ATT write header, capped at 512 (the largest
-/// attribute value BLE permits, and what vendors' own apps request).
+/// Payload is MTU minus the 3-byte ATT write header, floored at the BLE 4.0
+/// minimum of 20 and capped at 512 (the largest attribute value BLE permits,
+/// and what vendors' own apps request).
 ///
-/// A reported MTU of the 23-byte BLE default is treated as UNKNOWN, not as a
-/// genuine 23-byte link: flutter_blue_plus_linux never updates `mtuNow` from the
-/// value BlueZ actually negotiates (enabling notifications already exchanged a
-/// larger MTU over D-Bus), and `requestMtu` is Android-only. The fragmented
-/// image protocol cannot work at MTU 23 in any case — each chunk must fit one
-/// write — so when the report is uninformative we assume the app's requested
-/// 512. If the link really is tiny the write simply fails, no worse than the
-/// old hard floor. Pure so the sizing is unit-testable.
-int writePayloadForMtu(int mtu) {
-  final effective = mtu <= 23 ? 512 : mtu;
-  return (effective - 3).clamp(20, 512);
+/// The reported MTU is trusted as-is. The one platform where the report lies
+/// (flutter_blue_plus_linux never updates `mtuNow` from what BlueZ actually
+/// negotiates) is corrected inside `RealBleService.mtu()`, next to the
+/// `requestMtu` call that owns that platform knowledge — so a genuine 23 from
+/// Android sizes to the 20-byte floor here and the image encoder rejects it
+/// with an actionable "raise the ATT MTU" message, instead of this helper
+/// assuming 512 and firing oversized writes at a link that cannot carry them.
+/// Pure so the sizing is unit-testable.
+int writePayloadForMtu(int mtu) => (mtu - 3).clamp(20, 512);
+
+/// The TUTU doodle format's palette ceiling (see the daniao encoder): a frame
+/// with more distinct colours than this cannot be sent at all.
+const int maxFrameColors = 16;
+
+/// Reduce [rgb] to at most [maxColors] distinct colours by keeping the
+/// most-used ones and remapping every dropped colour to its nearest kept
+/// neighbour (squared RGB distance).
+///
+/// The encoder REJECTS an over-palette frame rather than quantizing silently,
+/// so what the device shows always matches the preview — which means the
+/// preview itself must never exceed the palette. Every mutation that can push
+/// a frame past the limit (painting a 17th colour onto a 16-colour design,
+/// resize padding with black, loading a design) runs its result through this,
+/// so the canvas the user sees IS the canvas the device gets.
+///
+/// [protect], a packed 0xRRGGBB value, is always kept when present in the
+/// frame — the colour the user just painted must win over a least-used
+/// background colour, or strokes would visibly come out wrong.
+///
+/// Returns [rgb] unchanged (same identity) when it already fits, which is
+/// every frame outside the pathological cases. Pure for tests.
+Uint8List quantizeFrame(Uint8List rgb, {int? protect}) {
+  final counts = <int, int>{};
+  for (var i = 0; i + 2 < rgb.length; i += 3) {
+    final c = (rgb[i] << 16) | (rgb[i + 1] << 8) | rgb[i + 2];
+    counts[c] = (counts[c] ?? 0) + 1;
+  }
+  if (counts.length <= maxFrameColors) return rgb;
+
+  final byUse = counts.keys.toList()
+    ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+  final kept = <int>{};
+  if (protect != null && counts.containsKey(protect)) kept.add(protect);
+  for (final c in byUse) {
+    if (kept.length >= maxFrameColors) break;
+    kept.add(c);
+  }
+
+  int distance(int a, int b) {
+    final dr = ((a >> 16) & 0xFF) - ((b >> 16) & 0xFF);
+    final dg = ((a >> 8) & 0xFF) - ((b >> 8) & 0xFF);
+    final db = (a & 0xFF) - (b & 0xFF);
+    return dr * dr + dg * dg + db * db;
+  }
+
+  final remap = <int, int>{};
+  for (final c in counts.keys) {
+    if (kept.contains(c)) continue;
+    var best = kept.first;
+    var bestDist = distance(c, best);
+    for (final k in kept) {
+      final d = distance(c, k);
+      if (d < bestDist) {
+        best = k;
+        bestDist = d;
+      }
+    }
+    remap[c] = best;
+  }
+
+  final out = Uint8List.fromList(rgb);
+  for (var i = 0; i + 2 < out.length; i += 3) {
+    final c = (out[i] << 16) | (out[i + 1] << 8) | out[i + 2];
+    final to = remap[c];
+    if (to == null) continue;
+    out[i] = (to >> 16) & 0xFF;
+    out[i + 1] = (to >> 8) & 0xFF;
+    out[i + 2] = to & 0xFF;
+  }
+  return out;
 }
 
 /// Copy an RGB888 frame onto a new canvas size, preserving the overlapping
@@ -245,9 +315,19 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final index = (y * _width + x) * 3;
     final frame = _frames[_current];
     setState(() {
-      frame[index] = (color.r * 255).round();
-      frame[index + 1] = (color.g * 255).round();
-      frame[index + 2] = (color.b * 255).round();
+      final r = (color.r * 255).round();
+      final g = (color.g * 255).round();
+      final b = (color.b * 255).round();
+      frame[index] = r;
+      frame[index + 1] = g;
+      frame[index + 2] = b;
+      // Painting a 17th distinct colour onto a full-palette frame would make
+      // it unsendable (the TUTU encoder rejects rather than quantizes).
+      // Quantize with the brush colour protected: the stroke the user just
+      // made wins, and the least-used colour merges into its nearest
+      // neighbour — visible immediately, so preview and device stay equal.
+      final quantized = quantizeFrame(frame, protect: (r << 16) | (g << 8) | b);
+      if (!identical(quantized, frame)) _frames[_current] = quantized;
       _paintRevision++;
     });
   }
@@ -258,8 +338,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     if (newWidth == _width && newHeight == _height) return;
     setState(() {
       for (var i = 0; i < _frames.length; i++) {
-        _frames[i] =
-            resizeFrame(_frames[i], _width, _height, newWidth, newHeight);
+        // Growing pads with black, which on a frame already using 16 colours
+        // none of them black would be an unsendable 17th — protect the pad
+        // colour (off LEDs are the point of padding) and let a least-used
+        // colour merge instead.
+        _frames[i] = quantizeFrame(
+          resizeFrame(_frames[i], _width, _height, newWidth, newHeight),
+          protect: 0x000000,
+        );
       }
       _width = newWidth;
       _height = newHeight;
@@ -355,9 +441,12 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       _stopPreview();
       _error = null;
       _animationMode = asAnimation && frames.length > 1;
+      // Designs are built to fit the palette, but quantize defensively: a
+      // future design (or scaling artefact) that slipped past 16 colours
+      // must not produce a canvas that cannot be sent.
       _frames
         ..clear()
-        ..addAll(frames.map(Uint8List.fromList));
+        ..addAll(frames.map((f) => quantizeFrame(Uint8List.fromList(f))));
       _current = 0;
       _frameSequence = 0;
       _paintRevision++;
