@@ -2011,11 +2011,18 @@ services:
         // started at that index, sends only its chunk (1 serial) — advancing
         // by less would make its serial collide and corrupt reassembly.
         let img = vec![0xAB; 20 * 20 * 3];
-        let first = encode_image_frame(IMAGE_SPEC_YAML.into(), 20, 20, img.clone(), 0, 509).unwrap();
+        let first =
+            encode_image_frame(IMAGE_SPEC_YAML.into(), 20, 20, img.clone(), 0, 509).unwrap();
         assert_eq!(first.next_frame_index, 3);
-        let next =
-            encode_image_frame(IMAGE_SPEC_YAML.into(), 20, 20, img, first.next_frame_index, 509)
-                .unwrap();
+        let next = encode_image_frame(
+            IMAGE_SPEC_YAML.into(),
+            20,
+            20,
+            img,
+            first.next_frame_index,
+            509,
+        )
+        .unwrap();
         assert_eq!(next.writes.len(), 1, "later frames skip session open");
         assert_eq!(next.next_frame_index, 4);
     }
