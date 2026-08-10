@@ -587,8 +587,12 @@ fn the_vendored_smartdawn_spec_declares_its_own_upload_flow() {
         .iter()
         .find(|f| f.feature_type == "image_upload")
         .expect("smartdawn declares an image_upload feature");
+    let session_open = feature
+        .session_open
+        .as_ref()
+        .expect("smartdawn states its opener sequence rather than leaving it to a fallback");
     assert_eq!(
-        feature.session_open,
+        session_open.as_slice(),
         ["ui_end_sync", "doodle_start"],
         "the opener pair verified on hardware — M_DEV_START blanks the canvas"
     );
@@ -597,7 +601,7 @@ fn the_vendored_smartdawn_spec_declares_its_own_upload_flow() {
         Some(0x04),
         "an image upload is a full-canvas redraw, so it writes under TUTU_RESTORE"
     );
-    for name in &feature.session_open {
+    for name in session_open {
         assert!(
             spec.services
                 .iter()
@@ -729,4 +733,86 @@ fn vendored_specs_exercise_the_newly_honoured_keys() {
              tap, with no user to supply parameters"
         );
     }
+}
+
+/// Two specs this branch made parseable must not reach the UI as ordinary
+/// sendable commands.
+///
+/// Both were unreachable before — the specs did not parse at all — so making
+/// them load is exactly when the question arises. Neither can be encoded by
+/// this crate today, and the failure mode differs: seeblue's templates are the
+/// packet, with the SEEBlue envelope (header, length, sequence, protocol id,
+/// checksum) belonging to the characteristic, so raw bytes reach the device as
+/// a packet it will not answer. Fardriver's `data` is 1-26 raw octets, and the
+/// FFI carries parameters as f64, so there is no value to send at all.
+///
+/// The rule is the same either way: a command the encoder cannot produce must
+/// report itself unencodable rather than enabling a Send that fails — or worse,
+/// one that succeeds into malformed bytes.
+#[test]
+fn specs_this_branch_unlocked_do_not_offer_commands_that_cannot_encode() {
+    use liberated_bread_core::codec::types::unsupported_write_kind;
+
+    let read = |name: &str| {
+        parse_device_spec(&fs::read_to_string(spec_path(name)).expect("readable"))
+            .unwrap_or_else(|e| panic!("{name} should parse: {e:?}"))
+    };
+
+    // Every seeblue command sits behind the envelope, so none is sendable raw.
+    let seeblue = read("seeblue-motorcycle-led.yaml");
+    let mut checked = 0;
+    for service in &seeblue.services {
+        for characteristic in &service.characteristics {
+            let Some(commands) = characteristic.commands.as_ref() else {
+                continue;
+            };
+            for (name, command) in commands {
+                let reason = unsupported_write_kind(characteristic, command);
+                assert!(
+                    reason
+                        .as_deref()
+                        .is_some_and(|r| r.contains("seeblue_envelope")),
+                    "seeblue {name} must be gated by its characteristic's framing, got {reason:?}"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(
+        checked >= 30,
+        "expected seeblue's full command set, saw {checked}"
+    );
+
+    // Fardriver's frame carries a raw byte payload the FFI cannot express.
+    let fardriver = read("fardriver-controller.yaml");
+    let (_, characteristic) = fardriver
+        .find_writable_characteristic("0000ffe1-0000-1000-8000-00805f9b34fb")
+        .or_else(|| {
+            fardriver.services.iter().find_map(|s| {
+                s.characteristics
+                    .iter()
+                    .find(|c| {
+                        c.commands
+                            .as_ref()
+                            .is_some_and(|m| m.contains_key("write_parameter"))
+                    })
+                    .map(|c| (s, c))
+            })
+        })
+        .expect("fardriver declares write_parameter somewhere");
+    let command = &characteristic.commands.as_ref().unwrap()["write_parameter"];
+    let reason = unsupported_write_kind(characteristic, command);
+    assert!(
+        reason.as_deref().is_some_and(|r| r.contains("data")),
+        "write_parameter must name the byte parameter it cannot carry, got {reason:?}"
+    );
+
+    // The gate is not a blanket "nothing encodes": a plain templated command on
+    // an unframed characteristic is still offered.
+    let miflora = read("xiaomi-miflora.yaml");
+    let (_, blink_char) = miflora
+        .find_writable_characteristic("00001a00-0000-1000-8000-00805f9b34fb")
+        .expect("miflora's mode-change characteristic");
+    let blink = &blink_char.commands.as_ref().unwrap()["blink_led"];
+    assert_eq!(unsupported_write_kind(blink_char, blink), None);
 }

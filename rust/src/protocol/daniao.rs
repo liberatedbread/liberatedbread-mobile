@@ -302,13 +302,14 @@ pub fn encode_doodle_frame(
         // Which commands open a session, and in what order, is the spec's to
         // say — the bytes are already in their templates, and a sibling device
         // on this platform with a different opener should be a spec change.
-        let declared: Vec<String> = image_feature(spec)
-            .map(|f| f.session_open.clone())
-            .unwrap_or_default();
-        let session_open: Vec<&str> = if declared.is_empty() {
-            DEFAULT_SESSION_OPEN.to_vec()
-        } else {
-            declared.iter().map(String::as_str).collect()
+        // An absent key is "unspecified", so the pre-key default applies. An
+        // empty list is a statement — this device opens no session — and must
+        // not be turned back into the default, or a device that says it wants
+        // no preamble gets SmartDawn's.
+        let declared = image_feature(spec).and_then(|f| f.session_open.as_ref());
+        let session_open: Vec<&str> = match declared {
+            Some(names) => names.iter().map(String::as_str).collect(),
+            None => DEFAULT_SESSION_OPEN.to_vec(),
         };
         for name in session_open {
             let command = commands
@@ -622,6 +623,31 @@ mod tests {
                 "every chunk must respect the declared ceiling"
             );
         }
+    }
+
+    /// An empty `session_open` is a statement, not a missing one.
+    ///
+    /// The schema says an empty list means "this device takes pixel data with
+    /// no preamble". Reading it as the absent case would send SmartDawn's
+    /// openers to a device that said it wants none — and on this platform the
+    /// wrong opener is not a no-op, it blanks the canvas.
+    #[test]
+    fn an_empty_session_open_means_no_preamble_not_the_default() {
+        let none = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            "session_open: []",
+        );
+        let frame = encode_doodle_frame(&none, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert!(
+            frame.writes.iter().all(|w| w.characteristic_uuid == BIN),
+            "an explicit empty opener list must send pixels only, no DDP preamble"
+        );
+
+        // And it is genuinely distinct from the absent key, which still gets
+        // the pre-key default.
+        let absent = spec_with(r#"session_open: ["ui_end_sync", "doodle_start"]"#, "");
+        let frame = encode_doodle_frame(&absent, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(frame.writes[0].characteristic_uuid, DDP);
     }
 
     /// A spec pack written before these keys existed still encodes.

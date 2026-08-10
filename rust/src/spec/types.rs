@@ -86,8 +86,14 @@ pub struct Feature {
     /// `[ui_end_sync, doodle_start]`, and the wrong opener (`M_DEV_START`)
     /// blanks the canvas rather than failing — so a handler that hardcodes the
     /// names cannot be pointed at a sibling device without a code change.
+    ///
+    /// `Some(vec![])` and `None` are DIFFERENT and the difference is
+    /// load-bearing. An empty list says "this device takes pixel data with no
+    /// preamble"; an absent key says nothing, and a handler falls back to
+    /// whatever it hardcoded before the key existed. Collapsing the two would
+    /// send a legacy device's opener to a device that wants none.
     #[serde(default)]
-    pub session_open: Vec<String>,
+    pub session_open: Option<Vec<String>>,
     /// Value of the framing scheme's channel-tag byte this flow writes under,
     /// when the bulk characteristic cannot state one because its tag varies
     /// per transfer. SmartDawn's BIN channel carries four buffer types and an
@@ -1242,6 +1248,19 @@ impl ValueType {
     /// Inclusive `[min, max]` range that fits in this type, used to validate
     /// `Parameter.min`/`max` declarations at parse time. Returns `None` for
     /// variable-length types where bounds don't apply.
+    /// Whether `coerce_param` can turn an FFI `f64` into wire bytes of this
+    /// type.
+    ///
+    /// `bytes` and `string` cannot: the FFI carries parameters as
+    /// `HashMap<String, f64>`, and there is no number that means "these 26
+    /// octets". A template referencing one can never encode, which is why
+    /// `CommandDto` must report such a command unencodable rather than
+    /// offering a Send that fails on every press — the same rule the `Bool`
+    /// arm of `coerce_param` already exists to keep.
+    pub fn is_encodable_param(&self) -> bool {
+        !matches!(self, ValueType::Bytes | ValueType::String)
+    }
+
     pub fn integer_range(&self) -> Option<(i64, i64)> {
         match self {
             ValueType::Bool => Some((0, 1)),

@@ -55,6 +55,14 @@ impl DeviceProtocol for GenericProtocol {
                 command: command_name.to_string(),
             })?;
 
+        // The same gate the DTO's `is_encodable` uses, so the control and the
+        // encoder cannot disagree about what is sendable. A characteristic
+        // whose payloads must pass through framing or encryption this crate
+        // does not execute would otherwise take a template's bytes straight to
+        // the wire.
+        if let Some(kind) = types::unsupported_write_kind(characteristic, command) {
+            return Err(ProtocolError::UnsupportedCommandEncoding(kind));
+        }
         types::encode_command(command, params)
     }
 
