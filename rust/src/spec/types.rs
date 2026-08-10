@@ -76,6 +76,24 @@ pub struct Feature {
     /// resolution comes from the device at runtime.
     #[serde(default)]
     pub resolution_source: Option<String>,
+    /// Commands a client sends, in this order, before the first frame of an
+    /// upload — named from the spec's own `commands`, so their bytes stay in
+    /// the command templates and only the choreography lives here.
+    ///
+    /// This is the part of an upload flow a handler cannot derive: which
+    /// commands open a session is device knowledge, where fragmentation and
+    /// chunk sizing are properties the `framing` block states. SmartDawn's is
+    /// `[ui_end_sync, doodle_start]`, and the wrong opener (`M_DEV_START`)
+    /// blanks the canvas rather than failing — so a handler that hardcodes the
+    /// names cannot be pointed at a sibling device without a code change.
+    #[serde(default)]
+    pub session_open: Vec<String>,
+    /// Value of the framing scheme's channel-tag byte this flow writes under,
+    /// when the bulk characteristic cannot state one because its tag varies
+    /// per transfer. SmartDawn's BIN channel carries four buffer types and an
+    /// image upload is a full-canvas redraw, so this flow is 4.
+    #[serde(default)]
+    pub channel_tag: Option<u8>,
     /// Whether the device accepts multi-frame sequences (animations), not
     /// just a single static image.
     #[serde(default)]
