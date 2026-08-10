@@ -664,6 +664,22 @@ class _ServiceCard extends StatelessWidget {
   /// resolve. A vendor's own 128-bit UUID is in no registry and keeps the
   /// generic label — there is nothing true to say about it here, which is the
   /// spec matcher's job one level up.
+  ///
+  /// The registry is an async asset load, so before it resolves — and if it
+  /// ever fails to — the four names the old switch guaranteed still hold via
+  /// the compiled-in fallback: a Battery Service card must never render as
+  /// the anonymous "Service" just because an asset read lost a race.
   String _serviceDisplayName(String uuid) =>
-      registry.valueOrNull?.serviceName(uuid) ?? 'Service';
+      registry.valueOrNull?.serviceName(uuid) ??
+      _compiledInServiceNames[shortUuid(uuid)] ??
+      'Service';
 }
+
+/// The service names the panel guaranteed synchronously before the registry
+/// existed, kept as the fallback for the registry's loading/error states.
+const Map<String, String> _compiledInServiceNames = {
+  '180f': 'Battery Service',
+  '1800': 'Generic Access',
+  '1801': 'Generic Attribute',
+  '181a': 'Environmental Sensing',
+};

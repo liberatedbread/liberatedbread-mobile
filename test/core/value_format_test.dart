@@ -49,6 +49,22 @@ void main() {
     expect(divisionsFor(0, 65535), isNull);
   });
 
+  test('snapToStep lands on device-representable values and clamps', () {
+    // The continuous-slider case divisionsForStep gives up on: a 0..1000
+    // range stepped by 1 must still only ever produce whole numbers, or the
+    // label shows a value the write path rounds away.
+    expect(snapToStep(523.4, 0, 1000, 1), 523);
+    expect(snapToStep(523.5, 0, 1000, 1), 524);
+    // Steps coarser than 1 snap to the grid anchored at min.
+    expect(snapToStep(37, 10, 110, 25), 35);
+    // Ends clamp rather than overshooting the range.
+    expect(snapToStep(1000.4, 0, 1000, 1), 1000);
+    expect(snapToStep(-3, 0, 1000, 1), 0);
+    // Unsnappable inputs pass through rather than corrupting the drag.
+    expect(snapToStep(42.5, 0, 100, 0), 42.5);
+    expect(snapToStep(42.5, 0, 100, double.nan), 42.5);
+  });
+
   test('allowedEntryLabel pairs label with wire value, or shows value alone',
       () {
     expect(allowedEntryLabel('OFF', 0), 'OFF (0)');

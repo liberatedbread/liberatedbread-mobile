@@ -62,7 +62,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       _isScanning = true;
       _error = null;
       _permissionDenied = false;
-      _deviceManager.clear();
+      // Keep previously-discovered devices across rescans: a device that
+      // advertised in an earlier pass but missed this one (BLE advertising is
+      // lossy) should stay in the list rather than vanish. But not forever —
+      // beginScan/completeScan track misses, and a device that sits out two
+      // full completed scans is a ghost (powered off or gone) whose only
+      // affordance is a tap into a connect timeout, so it is dropped.
+      _deviceManager.beginScan();
     });
 
     _scanSub = _bleService.scan().listen(
@@ -95,6 +101,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         setState(() {
           _isScanning = false;
           _hasScanned = true;
+          // Only a scan that ran its course gets to judge who is missing —
+          // an errored scan (the handler above) proves nothing about who is
+          // still advertising, so it never charges a miss.
+          _deviceManager.completeScan();
         });
       },
       cancelOnError: true,

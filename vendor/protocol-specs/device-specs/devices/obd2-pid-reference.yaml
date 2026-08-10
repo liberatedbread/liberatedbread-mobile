@@ -2,7 +2,7 @@ device:
   name: OBD-II PID Reference (SAE J1979)
   manufacturer: SAE International
   model: Modes 01-0A (all legislated OBD-II services)
-  category: automotive
+  category: reference
   type: reference-diagnostic-protocol
   transport: obd2
   # SAE J1979 *is* legislated OBD-II, so 'obd2' is exact, not a compromise.

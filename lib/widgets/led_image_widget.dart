@@ -11,14 +11,95 @@ import '../core/log.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
+import 'led_designs.dart';
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
 /// Payload is MTU minus the 3-byte ATT write header, floored at the BLE 4.0
-/// minimum of 20 (an unreported MTU comes through as 23) and capped at 512 —
-/// the largest attribute value BLE permits, and what vendors' own apps
-/// request. Pure so the sizing is unit-testable.
+/// minimum of 20 and capped at 512 (the largest attribute value BLE permits,
+/// and what vendors' own apps request).
+///
+/// The reported MTU is trusted as-is. The one platform where the report lies
+/// (flutter_blue_plus_linux never updates `mtuNow` from what BlueZ actually
+/// negotiates) is corrected inside `RealBleService.mtu()`, next to the
+/// `requestMtu` call that owns that platform knowledge — so a genuine 23 from
+/// Android sizes to the 20-byte floor here and the image encoder rejects it
+/// with an actionable "raise the ATT MTU" message, instead of this helper
+/// assuming 512 and firing oversized writes at a link that cannot carry them.
+/// Pure so the sizing is unit-testable.
 int writePayloadForMtu(int mtu) => (mtu - 3).clamp(20, 512);
+
+/// The TUTU doodle format's palette ceiling (see the daniao encoder): a frame
+/// with more distinct colours than this cannot be sent at all.
+const int maxFrameColors = 16;
+
+/// Reduce [rgb] to at most [maxColors] distinct colours by keeping the
+/// most-used ones and remapping every dropped colour to its nearest kept
+/// neighbour (squared RGB distance).
+///
+/// The encoder REJECTS an over-palette frame rather than quantizing silently,
+/// so what the device shows always matches the preview — which means the
+/// preview itself must never exceed the palette. Every mutation that can push
+/// a frame past the limit (painting a 17th colour onto a 16-colour design,
+/// resize padding with black, loading a design) runs its result through this,
+/// so the canvas the user sees IS the canvas the device gets.
+///
+/// [protect], a packed 0xRRGGBB value, is always kept when present in the
+/// frame — the colour the user just painted must win over a least-used
+/// background colour, or strokes would visibly come out wrong.
+///
+/// Returns [rgb] unchanged (same identity) when it already fits, which is
+/// every frame outside the pathological cases. Pure for tests.
+Uint8List quantizeFrame(Uint8List rgb, {int? protect}) {
+  final counts = <int, int>{};
+  for (var i = 0; i + 2 < rgb.length; i += 3) {
+    final c = (rgb[i] << 16) | (rgb[i + 1] << 8) | rgb[i + 2];
+    counts[c] = (counts[c] ?? 0) + 1;
+  }
+  if (counts.length <= maxFrameColors) return rgb;
+
+  final byUse = counts.keys.toList()
+    ..sort((a, b) => counts[b]!.compareTo(counts[a]!));
+  final kept = <int>{};
+  if (protect != null && counts.containsKey(protect)) kept.add(protect);
+  for (final c in byUse) {
+    if (kept.length >= maxFrameColors) break;
+    kept.add(c);
+  }
+
+  int distance(int a, int b) {
+    final dr = ((a >> 16) & 0xFF) - ((b >> 16) & 0xFF);
+    final dg = ((a >> 8) & 0xFF) - ((b >> 8) & 0xFF);
+    final db = (a & 0xFF) - (b & 0xFF);
+    return dr * dr + dg * dg + db * db;
+  }
+
+  final remap = <int, int>{};
+  for (final c in counts.keys) {
+    if (kept.contains(c)) continue;
+    var best = kept.first;
+    var bestDist = distance(c, best);
+    for (final k in kept) {
+      final d = distance(c, k);
+      if (d < bestDist) {
+        best = k;
+        bestDist = d;
+      }
+    }
+    remap[c] = best;
+  }
+
+  final out = Uint8List.fromList(rgb);
+  for (var i = 0; i + 2 < out.length; i += 3) {
+    final c = (out[i] << 16) | (out[i + 1] << 8) | out[i + 2];
+    final to = remap[c];
+    if (to == null) continue;
+    out[i] = (to >> 16) & 0xFF;
+    out[i + 1] = (to >> 8) & 0xFF;
+    out[i + 2] = to & 0xFF;
+  }
+  return out;
+}
 
 /// Copy an RGB888 frame onto a new canvas size, preserving the overlapping
 /// region (anchored top-left) and filling new area with black.
@@ -145,6 +226,22 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   int _paintRevision = 0;
   String? _error;
 
+  /// Designs memoized for the current canvas size — regenerating them (three
+  /// stripe buffers + two scaled images per open) on every popup tap is pure
+  /// waste, since they only change when the canvas resizes.
+  List<LedDesign>? _designsCache;
+  int _designsW = -1;
+  int _designsH = -1;
+
+  List<LedDesign> get _designs {
+    if (_designsCache == null || _designsW != _width || _designsH != _height) {
+      _designsCache = defaultDesigns(_width, _height);
+      _designsW = _width;
+      _designsH = _height;
+    }
+    return _designsCache!;
+  }
+
   ImageUploadDto get _spec => widget.imageUpload;
 
   @override
@@ -218,9 +315,19 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final index = (y * _width + x) * 3;
     final frame = _frames[_current];
     setState(() {
-      frame[index] = (color.r * 255).round();
-      frame[index + 1] = (color.g * 255).round();
-      frame[index + 2] = (color.b * 255).round();
+      final r = (color.r * 255).round();
+      final g = (color.g * 255).round();
+      final b = (color.b * 255).round();
+      frame[index] = r;
+      frame[index + 1] = g;
+      frame[index + 2] = b;
+      // Painting a 17th distinct colour onto a full-palette frame would make
+      // it unsendable (the TUTU encoder rejects rather than quantizes).
+      // Quantize with the brush colour protected: the stroke the user just
+      // made wins, and the least-used colour merges into its nearest
+      // neighbour — visible immediately, so preview and device stay equal.
+      final quantized = quantizeFrame(frame, protect: (r << 16) | (g << 8) | b);
+      if (!identical(quantized, frame)) _frames[_current] = quantized;
       _paintRevision++;
     });
   }
@@ -231,8 +338,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     if (newWidth == _width && newHeight == _height) return;
     setState(() {
       for (var i = 0; i < _frames.length; i++) {
-        _frames[i] =
-            resizeFrame(_frames[i], _width, _height, newWidth, newHeight);
+        // Growing pads with black, which on a frame already using 16 colours
+        // none of them black would be an unsendable 17th — protect the pad
+        // colour (off LEDs are the point of padding) and let a least-used
+        // colour merge instead.
+        _frames[i] = quantizeFrame(
+          resizeFrame(_frames[i], _width, _height, newWidth, newHeight),
+          protect: 0x000000,
+        );
       }
       _width = newWidth;
       _height = newHeight;
@@ -307,6 +420,39 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     });
   }
 
+  /// Load a ready-made design onto the canvas, replacing the current frames.
+  ///
+  /// The design is generated for the current canvas size, so its frames drop in
+  /// without a resize. A multi-frame (animation) design switches to animation
+  /// mode when the device supports it, and otherwise loads only its first frame
+  /// as a static image. Sequence resets to 0 so the next send re-opens the
+  /// doodle session.
+  void _loadDesign(LedDesign design) {
+    final asAnimation = design.animation && _spec.animation;
+    // Choose the frames first (static keeps one), THEN clamp to the spec's
+    // frame cap — never below 1, so a maxFrames of 0 can't leave the canvas
+    // empty and crash the indexing in build()/_sendCurrentFrame.
+    var frames = asAnimation ? design.frames : design.frames.take(1).toList();
+    final maxFrames = _spec.maxFrames;
+    if (maxFrames != null && frames.length > maxFrames) {
+      frames = frames.sublist(0, maxFrames < 1 ? 1 : maxFrames);
+    }
+    setState(() {
+      _stopPreview();
+      _error = null;
+      _animationMode = asAnimation && frames.length > 1;
+      // Designs are built to fit the palette, but quantize defensively: a
+      // future design (or scaling artefact) that slipped past 16 colours
+      // must not produce a canvas that cannot be sent.
+      _frames
+        ..clear()
+        ..addAll(frames.map((f) => quantizeFrame(Uint8List.fromList(f))));
+      _current = 0;
+      _frameSequence = 0;
+      _paintRevision++;
+    });
+  }
+
   /// Usable bytes per BLE write, resolved once per send/stream — the MTU is
   /// fixed for the life of the connection, so re-querying it per frame would
   /// only add an async hop inside the frame budget. An unreported MTU shows
@@ -340,7 +486,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// buffer against the new dimensions. What is queued is a snapshot of what
   /// the user asked to send.
   Future<void> _enqueueSend(int index, int payloadPerWrite) {
-    final rgb = _frames[index];
+    // Snapshot the pixels by COPY: the encode runs later (behind _sendTail and
+    // an MTU await) and the paint gesture stays live, so aliasing the frame
+    // buffer would let an edit-in-progress leak into the frame being sent.
+    final rgb = Uint8List.fromList(_frames[index]);
     final width = _width;
     final height = _height;
     // The spec YAML is part of the same snapshot, and leaving it out undid the
@@ -365,6 +514,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     String specYaml,
     int payloadPerWrite,
   ) async {
+    // Pin this frame to the operation that launched it. A stop+restart (or a
+    // new single send) bumps _streamEpoch and resets _frameSequence to 0; if a
+    // prior in-flight frame lands after that reset, it must NOT write its stale
+    // nextFrameIndex back, or the restart would skip the session-open.
+    final epoch = _streamEpoch;
     final ble = ref.read(bleServiceProvider);
     final plan = await ref.read(specCodecProvider).encodeImageFrame(
           specYaml: specYaml,
@@ -374,24 +528,41 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           frameIndex: _frameSequence,
           maxPayloadPerWrite: payloadPerWrite,
         );
-    // Continue from the plan's next index, not += 1: a frame spanning several
-    // wire packets consumes that many sequence numbers, and re-using them on
-    // the next frame corrupts fragment reassembly on the device.
-    _frameSequence = plan.nextFrameIndex;
     for (final write in plan.writes) {
+      // Each write names its own characteristic: the doodle flow opens the
+      // session on the command channel and streams pixels on the bulk one.
       await ble.writeCharacteristic(
         widget.deviceId,
         plan.serviceUuid,
-        plan.characteristicUuid,
-        write,
+        write.characteristicUuid,
+        write.bytes,
       );
     }
+    if (epoch != _streamEpoch) {
+      return; // a newer operation owns the sequence now
+    }
+    // Advance ONLY after every write lands, not before: if a write throws
+    // mid-frame the session may not have opened, so the sequence must stay put
+    // and the retry re-send frame 0 (which re-opens the session). Continue from
+    // the plan's next index, not += 1 — a frame spanning several wire packets
+    // consumes that many sequence numbers, and re-using them on the next frame
+    // corrupts fragment reassembly on the device.
+    _frameSequence = plan.nextFrameIndex;
   }
 
   Future<void> _sendCurrentFrame() async {
     setState(() {
       _sending = true;
       _error = null;
+      // Start every discrete send at frame 0 so it re-opens the doodle session
+      // (ui_end_sync + doodle_start). Without this, a send after a BLE reconnect
+      // — or after a prior send failed partway — would carry frame_index > 0,
+      // skip the session-open, and silently render nothing on a device no
+      // longer in doodle mode. Bump the epoch too so a still-in-flight frame
+      // from a previous operation can't write its stale sequence back over
+      // this reset.
+      _streamEpoch++;
+      _frameSequence = 0;
     });
     try {
       await _enqueueSend(_current, await _resolvePayloadPerWrite());
@@ -429,6 +600,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     setState(() {
       _streaming = true;
       _error = null;
+      // Open the doodle session on this stream's first frame — and re-open it
+      // for a stream restarted after a reconnect — by starting from frame 0.
+      _frameSequence = 0;
       // The local preview advances _current on its own timer; left running
       // it would fight the stream loop's advance (with 2 frames the net is
       // zero — the device would receive the same frame forever).
@@ -558,6 +732,28 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             _PaletteRow(
               selected: _selectedColor,
               onSelected: (i) => setState(() => _selectedColor = i),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: PopupMenuButton<LedDesign>(
+                enabled: !_streaming && !_sending,
+                onSelected: _loadDesign,
+                itemBuilder: (context) => [
+                  for (final d in _designs)
+                    PopupMenuItem(
+                      value: d,
+                      child:
+                          Text(d.animation ? '${d.name} (animation)' : d.name),
+                    ),
+                ],
+                // A plain Chip (no onPressed) so the PopupMenuButton owns the
+                // tap; the button's `enabled` gates it while busy.
+                child: const Chip(
+                  avatar: Icon(Icons.palette_outlined, size: 18),
+                  label: Text('Designs'),
+                ),
+              ),
             ),
             if (_animationMode) ...[
               const SizedBox(height: 12),

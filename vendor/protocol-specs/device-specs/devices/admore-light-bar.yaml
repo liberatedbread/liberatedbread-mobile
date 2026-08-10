@@ -15,6 +15,7 @@ device:
   manufacturer: "AdMore Lighting Inc."
   manufacturer_status: "active"
   protocol: "ble"
+  category: "light"
   notes: >
     Bluetooth-enabled motorcycle brake light bar with accelerometer-based smart
     braking. Uses Nordic UART Service (NUS) with protobuf-encoded messages.

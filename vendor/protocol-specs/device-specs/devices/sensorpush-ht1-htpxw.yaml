@@ -2,7 +2,7 @@ device:
   name: SensorPush HT1 / HTP.xw
   manufacturer: SensorPush
   model: HT1 (temperature + humidity), HTP.xw (temperature + humidity + barometric pressure)
-  category: environmental
+  category: sensor
   type: sensor-temperature-humidity
   transport: ble
   # 'gatt' is not a schema protocol; GATT is the attribute protocol carried over

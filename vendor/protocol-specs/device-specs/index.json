@@ -3,6 +3,7 @@
     "name": "AdMore Light Bar Pro",
     "path": "device-specs/devices/admore-light-bar.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "AdMore Lighting Inc.",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -11,6 +12,7 @@
     "name": "Airthings Wave Family",
     "path": "device-specs/devices/airthings-wave-family.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Airthings ASA",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -19,6 +21,7 @@
     "name": "AUTOBABA LED Backpack",
     "path": "device-specs/devices/autobaba-led-backpack.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "LOY SPACE / popled.cn",
     "manufacturer_status": "active",
     "protocol_handler": "popled_json",
@@ -28,6 +31,7 @@
     "name": "Bafang BBS02 Mid-Drive",
     "path": "device-specs/devices/bafang-bbs02.yaml",
     "protocol": "uart",
+    "category": "motor",
     "manufacturer": "Suzhou Bafang Electric Motor Science-Technology",
     "manufacturer_status": "active",
     "helpful_urls": [
@@ -48,6 +52,7 @@
     "name": "BLE Fingertip Pulse Oximeter (SP001 / BerryMed)",
     "path": "device-specs/devices/ble-pulse-oximeter.yaml",
     "protocol": "ble",
+    "category": "health",
     "manufacturer": "Manridy (likely ODM)",
     "manufacturer_status": "abandoned",
     "schema_version": "2020-12"
@@ -56,6 +61,7 @@
     "name": "Bluetooth LED Name Badge",
     "path": "device-specs/devices/bluetooth-led-name-badge.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "Generic (multiple OEMs)",
     "manufacturer_status": "active",
     "protocol_handler": "ledbadge_bitmap",
@@ -65,6 +71,7 @@
     "name": "BMW Motorcycle Diagnostics",
     "path": "device-specs/devices/bmw-motorcycle-diagnostics.yaml",
     "protocol": "obd2",
+    "category": "vehicle",
     "manufacturer": "BMW Motorrad",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -73,6 +80,7 @@
     "name": "Bosch Performance Line CX (Gen4)",
     "path": "device-specs/devices/bosch-ebike-cx-gen4.yaml",
     "protocol": "can",
+    "category": "motor",
     "manufacturer": "Bosch eBike Systems",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -81,6 +89,7 @@
     "name": "Cat Printer Mini Thermal Printer",
     "path": "device-specs/devices/cat-printer.yaml",
     "protocol": "ble",
+    "category": "printer",
     "manufacturer": "Unbranded / Yu Tian (YT01) / various OEMs",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -89,6 +98,7 @@
     "name": "Chef iQ Sense",
     "path": "device-specs/devices/chef-iq-sense.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Chefman / Chef iQ",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -97,6 +107,7 @@
     "name": "CoolLEDX LED Sign",
     "path": "device-specs/devices/coolledx-led-sign.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "Juntong Technology",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -105,6 +116,7 @@
     "name": "devolo Home Control",
     "path": "device-specs/devices/devolo-home-control.yaml",
     "protocol": "zwave",
+    "category": "hub",
     "manufacturer": "devolo AG",
     "manufacturer_status": "shutdown",
     "helpful_urls": [
@@ -155,6 +167,7 @@
     "name": "Divoom Pixoo WiFi",
     "path": "device-specs/devices/divoom-pixoo.yaml",
     "protocol": "wifi",
+    "category": "display",
     "manufacturer": "Divoom",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -163,6 +176,7 @@
     "name": "Dyson Air Purifier",
     "path": "device-specs/devices/dyson-air-purifier.yaml",
     "protocol": "wifi",
+    "category": "climate",
     "manufacturer": "Dyson",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -171,6 +185,7 @@
     "name": "ELK-BLEDOM BLE LED Strip Controller",
     "path": "device-specs/devices/elk-bledom-led-strip.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "Unbranded / various OEMs (Zhiling/DuoCo etc.)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -179,6 +194,7 @@
     "name": "Ember Mug",
     "path": "device-specs/devices/ember-mug.yaml",
     "protocol": "ble",
+    "category": "appliance",
     "manufacturer": "Ember Technologies",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -187,6 +203,7 @@
     "name": "Enphase Envoy",
     "path": "device-specs/devices/enphase-envoy.yaml",
     "protocol": "wifi",
+    "category": "energy",
     "manufacturer": "Enphase Energy",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -195,6 +212,7 @@
     "name": "ETEKCITY ESN00 Smart Nutrition Scale",
     "path": "device-specs/devices/etekcity-smart-scale.yaml",
     "protocol": "ble",
+    "category": "scale",
     "manufacturer": "ETEKCITY (VeSync platform)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -203,6 +221,7 @@
     "name": "Fardriver ND-series Motor Controller",
     "path": "device-specs/devices/fardriver-controller.yaml",
     "protocol": "ble",
+    "category": "motor",
     "manufacturer": "Nanjing Fardriver Controller Co.",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -211,6 +230,7 @@
     "name": "Fichero / AiYin D11 Thermal Label Printer",
     "path": "device-specs/devices/fichero-d11-printer.yaml",
     "protocol": "ble",
+    "category": "printer",
     "manufacturer": "Xiamen Print Future Technology Co., Ltd",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -219,6 +239,7 @@
     "name": "Frigidaire WiFi Portable Air Conditioner",
     "path": "device-specs/devices/frigidaire-portable-ac.yaml",
     "protocol": "wifi",
+    "category": "climate",
     "manufacturer": "Frigidaire (Electrolux)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -227,6 +248,7 @@
     "name": "Frigidaire WiFi Window Air Conditioner",
     "path": "device-specs/devices/frigidaire-window-ac.yaml",
     "protocol": "wifi",
+    "category": "climate",
     "manufacturer": "Frigidaire (Electrolux)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -235,6 +257,7 @@
     "name": "Gerbing / GYDE ThermoGauge Heated Clothing Controller",
     "path": "device-specs/devices/gerbing-thermogauge.yaml",
     "protocol": "ble",
+    "category": "wearable",
     "manufacturer": "GYDE (Gerbing Heated Clothing)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -243,6 +266,7 @@
     "name": "Govee H5075 Thermometer/Hygrometer",
     "path": "device-specs/devices/govee-h5075-thermo.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech Co., Ltd.)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -251,6 +275,7 @@
     "name": "Govee H5080 Smart Plug",
     "path": "device-specs/devices/govee-h5080-plug.yaml",
     "protocol": "ble",
+    "category": "switch",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -259,6 +284,7 @@
     "name": "Govee H6001 Smart Bulb",
     "path": "device-specs/devices/govee-h6001-bulb.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -267,6 +293,7 @@
     "name": "HOTWIRED 12V Bluetooth Heated Gear",
     "path": "device-specs/devices/hotwired-heated-gear.yaml",
     "protocol": "ble",
+    "category": "wearable",
     "manufacturer": "Comoto Holdings, Inc. (HOTWIRED brand)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -275,6 +302,7 @@
     "name": "Philips Hue Bridge",
     "path": "device-specs/devices/hue-bridge.yaml",
     "protocol": "wifi",
+    "category": "hub",
     "manufacturer": "Signify / Philips Hue",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -283,6 +311,7 @@
     "name": "iBBQ / Inkbird BLE Meat Thermometer",
     "path": "device-specs/devices/ibbq-meat-thermo.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Inkbird / Tenergy Solis / various OEMs",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -291,6 +320,7 @@
     "name": "iDotMatrix",
     "path": "device-specs/devices/idotmatrix.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "iDotMatrix / Tech",
     "manufacturer_status": "unsupported",
     "protocol_handler": "idotmatrix_image",
@@ -300,6 +330,7 @@
     "name": "iLEDColor LED Matrix Panel (DreamPanel v3)",
     "path": "device-specs/devices/iledcolor-led-panel.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "Shenzhen I-ledshow Technology Co., Ltd.",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -308,6 +339,7 @@
     "name": "Inkbird BBQ Thermometer (BLE)",
     "path": "device-specs/devices/inkbird-bbq-thermometer.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Inkbird",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -316,6 +348,7 @@
     "name": "ISO 15765-2 CAN Transport Layer (ISO-TP) Reference",
     "path": "device-specs/devices/iso15765-2-can-transport.yaml",
     "protocol": "can",
+    "category": "reference",
     "manufacturer": "ISO",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -324,6 +357,7 @@
     "name": "iTag BLE Key Finder",
     "path": "device-specs/devices/itag-ble-tracker.yaml",
     "protocol": "ble",
+    "category": "tracker",
     "manufacturer": "Unbranded / various OEMs",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -332,6 +366,7 @@
     "name": "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)",
     "path": "device-specs/devices/kingsmith-walkingpad.yaml",
     "protocol": "ble",
+    "category": "fitness",
     "manufacturer": "KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)",
     "manufacturer_status": "active",
     "openness": "undocumented",
@@ -368,6 +403,7 @@
     "name": "Kwikset Kevo",
     "path": "device-specs/devices/kwikset-kevo.yaml",
     "protocol": "ble",
+    "category": "lock",
     "manufacturer": "Kwikset / ASSA ABLOY (UniKey Technologies platform)",
     "manufacturer_status": "shutdown",
     "schema_version": "2020-12"
@@ -376,6 +412,7 @@
     "name": "SP107E/SP110E LED Controller",
     "path": "device-specs/devices/leds2rave4-lunchbox-led.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "Shenzhen Sperll Optoelectronic (SPLED)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -384,6 +421,7 @@
     "name": "LIFX Z",
     "path": "device-specs/devices/lifx-z.yaml",
     "protocol": "wifi",
+    "category": "light",
     "manufacturer": "LIFX",
     "manufacturer_status": "active",
     "protocol_handler": "lifx_lan_udp",
@@ -393,6 +431,7 @@
     "name": "Lutron Caseta Smart Bridge 2",
     "path": "device-specs/devices/lutron-caseta-smart-bridge.yaml",
     "protocol": "wifi",
+    "category": "hub",
     "manufacturer": "Lutron",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -401,6 +440,7 @@
     "name": "M6 Smart Fitness Band",
     "path": "device-specs/devices/m6-fitness-band.yaml",
     "protocol": "ble",
+    "category": "fitness",
     "manufacturer": "Unknown (AliExpress generic / Mi Band clone)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -409,6 +449,7 @@
     "name": "Magic Display",
     "path": "device-specs/devices/magic-display.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "tirohk / AiTURE",
     "manufacturer_status": "abandoned",
     "protocol_handler": "cdbwsoft_ecb",
@@ -418,6 +459,7 @@
     "name": "MoTool Slacker",
     "path": "device-specs/devices/motool-slacker.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Slacker LLC (formerly MoTool)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -426,6 +468,7 @@
     "name": "NIIMBOT D110 / B21 Thermal Label Printer",
     "path": "device-specs/devices/niimbot-d110.yaml",
     "protocol": "ble",
+    "category": "printer",
     "manufacturer": "NIIMBOT (Wuhan Jingchen Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -434,6 +477,7 @@
     "name": "NIU Electric Scooter",
     "path": "device-specs/devices/niu-escooter.yaml",
     "protocol": "wifi",
+    "category": "vehicle",
     "manufacturer": "Niu Technologies",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -442,6 +486,7 @@
     "name": "Nuki Smart Lock",
     "path": "device-specs/devices/nuki-smart-lock.yaml",
     "protocol": "ble",
+    "category": "lock",
     "manufacturer": "Nuki Home Solutions GmbH",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -450,6 +495,7 @@
     "name": "NYAN BT Image Controller",
     "path": "device-specs/devices/nyan-bt-image-controller.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "NYAN GEAR / LOY SPACE / popled.cn",
     "manufacturer_status": "active",
     "protocol_handler": "popled_json",
@@ -459,6 +505,7 @@
     "name": "OBD-II Bluetooth Adapter (ELM327 / STN)",
     "path": "device-specs/devices/obd2-bluetooth-adapter.yaml",
     "protocol": "ble",
+    "category": "vehicle",
     "manufacturer": "Generic (ELM327 clones), ScanTool.net, Vgate, LELink",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -467,6 +514,7 @@
     "name": "OBD-II PID Reference (SAE J1979)",
     "path": "device-specs/devices/obd2-pid-reference.yaml",
     "protocol": "obd2",
+    "category": "reference",
     "manufacturer": "SAE International",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -475,6 +523,7 @@
     "name": "OBDLink MX+",
     "path": "device-specs/devices/obdlink-mx-plus.yaml",
     "protocol": "ble",
+    "category": "vehicle",
     "manufacturer": "OBD Solutions LLC (ScanTool.net)",
     "manufacturer_status": "active",
     "helpful_urls": [
@@ -515,6 +564,7 @@
     "name": "Oral-B iO Smart Brush",
     "path": "device-specs/devices/oral-b-io-smartbrush.yaml",
     "protocol": "ble",
+    "category": "health",
     "manufacturer": "Procter & Gamble",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -523,6 +573,7 @@
     "name": "PAX Vaporizer",
     "path": "device-specs/devices/pax-vape.yaml",
     "protocol": "ble",
+    "category": "appliance",
     "manufacturer": "PAX Labs",
     "manufacturer_status": "unsupported",
     "protocol_handler": "pax_ofb",
@@ -549,6 +600,7 @@
     "name": "ProGLOW Motorcycle LED Controller",
     "path": "device-specs/devices/proglow-motorcycle-led.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "ProGLOW / TTCBLE",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -557,6 +609,7 @@
     "name": "Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / BioGS 2.0 (SPA-550A/SPA-625A)",
     "path": "device-specs/devices/rabbit-air-purifier.yaml",
     "protocol": "wifi",
+    "category": "climate",
     "manufacturer": "Rabbit Air",
     "manufacturer_status": "active",
     "protocol_handler": "rabbit_air_lan",
@@ -584,6 +637,7 @@
     "name": "Rachio Controller",
     "path": "device-specs/devices/rachio-controller.yaml",
     "protocol": "wifi",
+    "category": "irrigation",
     "manufacturer": "Rachio",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -592,6 +646,7 @@
     "name": "Roku External Control Protocol",
     "path": "device-specs/devices/roku-ecp.yaml",
     "protocol": "wifi",
+    "category": "tv",
     "manufacturer": "Roku / TCL",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -600,6 +655,7 @@
     "name": "Schlage Smart Locks (Sense / Encode family)",
     "path": "device-specs/devices/schlage-smart-locks.yaml",
     "protocol": "ble",
+    "category": "lock",
     "manufacturer": "Schlage (Allegion)",
     "manufacturer_status": "active",
     "openness": "undocumented",
@@ -609,6 +665,7 @@
     "name": "Seeblue Motorcycle LED Controller",
     "path": "device-specs/devices/seeblue-motorcycle-led.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "Seeblue / LEDGlow",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -617,6 +674,7 @@
     "name": "SensorPush HT1 / HTP.xw",
     "path": "device-specs/devices/sensorpush-ht1-htpxw.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "SensorPush",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -625,6 +683,7 @@
     "name": "Shining Glasses",
     "path": "device-specs/devices/shining-glasses.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "Shenzhen Shining Bright Technology",
     "manufacturer_status": "active",
     "protocol_handler": "cdbwsoft_ecb",
@@ -634,6 +693,7 @@
     "name": "Shining Mask",
     "path": "device-specs/devices/shining-mask.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "Shenzhen Shining Bright Technology",
     "manufacturer_status": "unsupported",
     "protocol_handler": "shiningmask_ecb",
@@ -655,6 +715,7 @@
     "name": "SmartDawn Smart Lights",
     "path": "device-specs/devices/smartdawn-smart-lights.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)",
     "manufacturer_status": "active",
     "protocol_handler": "daniao_ddp",
@@ -691,6 +752,7 @@
     "name": "SmartThings Hub v2",
     "path": "device-specs/devices/smartthings-hub-v2.yaml",
     "protocol": "wifi",
+    "category": "hub",
     "manufacturer": "Samsung SmartThings",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -699,6 +761,7 @@
     "name": "Spider Farmer GGS Grow Light Controller",
     "path": "device-specs/devices/spider-farmer-ggs.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "Spider Farmer",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -707,6 +770,7 @@
     "name": "SPOTLED LED Panel",
     "path": "device-specs/devices/spotled-led-panel.yaml",
     "protocol": "ble",
+    "category": "display",
     "manufacturer": "Host No.4 Technology (Chengdu) Co., Ltd.",
     "manufacturer_status": "unsupported",
     "schema_version": "2020-12"
@@ -715,6 +779,7 @@
     "name": "Subaru Impreza / WRX / STi",
     "path": "device-specs/devices/subaru-impreza.yaml",
     "protocol": "obd2",
+    "category": "vehicle",
     "manufacturer": "Subaru Corporation",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -723,6 +788,7 @@
     "name": "SwitchBot BLE Device Family",
     "path": "device-specs/devices/switchbot-ble.yaml",
     "protocol": "ble",
+    "category": "switch",
     "manufacturer": "Wonderlabs, Inc. (SwitchBot)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -731,6 +797,7 @@
     "name": "ThermoPro TempSpike / TP9xx BBQ Thermometer",
     "path": "device-specs/devices/thermopro-tempspike-bbq.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "ThermoPro (Adsmart)",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -739,6 +806,7 @@
     "name": "Triumph Tiger 900",
     "path": "device-specs/devices/triumph-tiger-900.yaml",
     "protocol": "obd2",
+    "category": "vehicle",
     "manufacturer": "Triumph Motorcycles Ltd.",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -747,6 +815,7 @@
     "name": "Tongsheng TSDZ2 Mid-Drive",
     "path": "device-specs/devices/tsdz2-tongsheng.yaml",
     "protocol": "uart",
+    "category": "motor",
     "manufacturer": "Tongsheng",
     "manufacturer_status": "active",
     "helpful_urls": [
@@ -767,6 +836,7 @@
     "name": "ISO 14229 UDS (Unified Diagnostic Services) Reference",
     "path": "device-specs/devices/uds-services-reference.yaml",
     "protocol": "obd2",
+    "category": "reference",
     "manufacturer": "ISO",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -775,6 +845,7 @@
     "name": "Vector Robot",
     "path": "device-specs/devices/vector-robot.yaml",
     "protocol": "wifi",
+    "category": "robot",
     "manufacturer": "Anki / Digital Dream Labs",
     "manufacturer_status": "shutdown",
     "helpful_urls": [
@@ -825,6 +896,7 @@
     "name": "Belkin Wemo Smart Devices",
     "path": "device-specs/devices/wemo-devices.yaml",
     "protocol": "wifi",
+    "category": "switch",
     "manufacturer": "Belkin",
     "manufacturer_status": "shutdown",
     "helpful_urls": [
@@ -845,6 +917,7 @@
     "name": "WLED Addressable LED Controller",
     "path": "device-specs/devices/wled-controller.yaml",
     "protocol": "wifi",
+    "category": "light",
     "manufacturer": "WLED project (Aircoookie and contributors)",
     "manufacturer_status": "active",
     "openness": "open_by_design",
@@ -854,6 +927,7 @@
     "name": "Xiaomi Mijia LYWSD03MMC Thermometer/Hygrometer",
     "path": "device-specs/devices/xiaomi-lywsd03mmc.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Xiaomi",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -862,6 +936,7 @@
     "name": "Xiaomi Mi Scale Body Composition Scale",
     "path": "device-specs/devices/xiaomi-mi-scale.yaml",
     "protocol": "ble",
+    "category": "scale",
     "manufacturer": "Xiaomi / Huami",
     "manufacturer_status": "unsupported",
     "helpful_urls": [
@@ -877,6 +952,7 @@
     "name": "Xiaomi Mi Flora Plant Sensor",
     "path": "device-specs/devices/xiaomi-miflora.yaml",
     "protocol": "ble",
+    "category": "sensor",
     "manufacturer": "Xiaomi / HHCC Plant Technology Co., Ltd.",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -885,6 +961,7 @@
     "name": "XKGlow XKChrome Motorcycle LED Controller",
     "path": "device-specs/devices/xkglow-chrome.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "XKGlow",
     "manufacturer_status": "active",
     "schema_version": "2020-12"
@@ -893,6 +970,7 @@
     "name": "Example Smart Bulb",
     "path": "device-specs/examples/example-bulb.yaml",
     "protocol": "ble",
+    "category": "light",
     "manufacturer": "Acme Corp",
     "manufacturer_status": "abandoned",
     "helpful_urls": [

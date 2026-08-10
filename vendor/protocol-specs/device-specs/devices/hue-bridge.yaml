@@ -7,6 +7,7 @@ device:
   manufacturer: "Signify / Philips Hue"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "hub"
   transport: "http"
   notes: >
     Hue Bridge v2 exposes a local HTTP REST API on port 80. GET /api/config

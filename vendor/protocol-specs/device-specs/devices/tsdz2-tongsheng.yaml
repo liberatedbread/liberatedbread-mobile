@@ -7,6 +7,7 @@ device:
   manufacturer: "Tongsheng"
   manufacturer_status: "active"
   protocol: "uart"
+  category: "motor"
   notes: >
     Torque-sensing e-bike mid-drive conversion kit. No radio and no app: the
     controller talks to the display over plain 9600-baud TTL serial on the main

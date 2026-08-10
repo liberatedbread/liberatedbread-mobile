@@ -7,6 +7,7 @@ device:
   manufacturer: "Govee (Shenzhen Intellirocks Tech Co., Ltd.)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "sensor"
   notes: >
     BLE thermometer and hygrometer that broadcasts temperature and humidity
     via manufacturer-specific advertisement data — no connection required

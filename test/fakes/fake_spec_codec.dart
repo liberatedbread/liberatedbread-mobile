@@ -199,8 +199,10 @@ class FakeSpecCodec implements SpecCodec {
     return imagePlan ??
         ImageWritePlanDto(
           serviceUuid: 'srv',
-          characteristicUuid: 'chr',
-          writes: [Uint8List.fromList(rgb)],
+          writes: [
+            ImageWriteDto(
+                characteristicUuid: 'chr', bytes: Uint8List.fromList(rgb)),
+          ],
           // One packet consumed, like a real single-packet frame.
           nextFrameIndex: frameIndex + 1,
         );

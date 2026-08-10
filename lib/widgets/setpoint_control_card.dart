@@ -366,7 +366,12 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
               ? null
               : (v) => setState(() {
                     _touched = true;
-                    _pending = v;
+                    // Snap to the device's declared step even when the range
+                    // is too wide for divisions and the slider runs
+                    // continuous — otherwise the label shows a value the
+                    // write path rounds away, and display and device
+                    // disagree.
+                    _pending = snapToStep(v, min, max, _step);
                   }),
           // Sent on release rather than per-frame: each change is a BLE
           // write, and a dragged slider would flood the device.
