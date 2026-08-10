@@ -160,37 +160,67 @@ check_bundled_assets() {
 
 # The subtree is vendored *unmodified* — that is the property that lets the app
 # read the upstream index.json as-is and lets a refresh be one `git subtree
-# pull`. A commit that edits a file under the prefix here breaks it silently:
-# the edit is invisible upstream, and the next pull either conflicts with it or
-# quietly reverts it. Catch it in the gate instead, where the fix is still
-# "move the change upstream" rather than "work out which of these two trees is
-# right".
-check_no_local_edits() {
-  local squash merge edits
+# pull`. An edit made under the prefix here breaks it silently: the change is
+# invisible upstream, and the next pull either conflicts with it or quietly
+# reverts it. Catch it in the gate instead, where the fix is still "move the
+# change upstream" rather than "work out which of these two trees is right".
+#
+# This compares CONTENT, not commits. A squash commit's tree *is* the subtree's
+# content — `git subtree` builds it with `commit-tree` over the upstream rev's
+# tree — so one hash comparison answers the question for every way the prefix
+# can drift. Walking the commits that touched the prefix does not: a conflict
+# resolved during the subtree merge is recorded in the merge commit itself, and
+# a later merge can carry a change that belongs to neither parent. Both leave
+# the prefix disagreeing with upstream while every individual commit looks
+# innocent, which is the whole failure this is here to prevent.
+check_subtree_pristine() {
+  local squash merge want have edits dirty
   squash="$(git log -1 --format=%H --grep='^git-subtree-split:' 2>/dev/null)"
   if [ -z "$squash" ]; then
-    warn "no subtree squash commit in this history (shallow clone?); skipping the local-edit check."
+    warn "no subtree squash commit in this history (shallow clone?); skipping the pristine check."
     return 0
   fi
 
-  # The merge that brought that squash commit in. git-subtree merges it as the
-  # second parent, so this identifies the point after which nothing should have
-  # touched the prefix.
-  merge="$(git rev-list --parents HEAD | awk -v s="$squash" '$3 == s { print $1; exit }')"
-  if [ -z "$merge" ]; then
-    warn "could not locate the merge for squash commit ${squash:0:9}; skipping the local-edit check."
+  want="$(git rev-parse --verify --quiet "$squash^{tree}")"
+  have="$(git rev-parse --verify --quiet "HEAD:$PREFIX")"
+  if [ -z "$want" ] || [ -z "$have" ]; then
+    warn "could not read $PREFIX or squash commit ${squash:0:9}; skipping the pristine check."
     return 0
   fi
 
-  # --no-merges on purpose: merging main into a branch legitimately carries
-  # subtree changes along, and those merges are not hand edits.
-  edits="$(git log --no-merges --oneline "$merge..HEAD" -- "$PREFIX")"
-  if [ -n "$edits" ]; then
-    echo "::error::these commits edit $PREFIX/ directly:" >&2
-    printf '%s\n' "$edits" | sed 's/^/::error::  /' >&2
+  if [ "$want" != "$have" ]; then
+    echo "::error::$PREFIX no longer matches the upstream commit it was vendored from:" >&2
+    git diff --stat "$want" "$have" | sed 's/^/::error::  /' >&2
+    # A hint, not the check. The merge that brought the squash commit in is the
+    # point after which nothing should have touched the prefix — but an edit
+    # made *while resolving* that merge lives in the merge commit, which no
+    # range starting after it can name. Say so rather than printing an empty
+    # list and leaving someone hunting for a commit that is not there.
+    merge="$(git rev-list --parents HEAD | awk -v s="$squash" '$3 == s { print $1; exit }')"
+    edits=""
+    [ -n "$merge" ] && edits="$(git log --no-merges --oneline "$merge..HEAD" -- "$PREFIX")"
+    if [ -n "$edits" ]; then
+      echo "::error::Commits since the subtree merge that touch it:" >&2
+      printf '%s\n' "$edits" | sed 's/^/::error::  /' >&2
+    else
+      echo "::error::No later commit touches it, so the change is in the subtree merge" >&2
+      echo "::error::itself — a conflict resolved by editing the spec rather than by" >&2
+      echo "::error::taking upstream's side." >&2
+    fi
     echo "::error::The subtree is vendored unmodified. Make the change in" >&2
     echo "::error::liberatedbread-protocol-specs and re-run this script — or, while" >&2
     echo "::error::iterating, pull the branch you are writing it on with --from." >&2
+    return 1
+  fi
+
+  # HEAD is right; the files on disk still might not be. Untracked counts: an
+  # unstaged YAML dropped into device-specs/devices/ is bundled by Flutter at
+  # build time exactly like a real one.
+  dirty="$(git status --porcelain -- "$PREFIX")"
+  if [ -n "$dirty" ]; then
+    echo "::error::$PREFIX has uncommitted changes:" >&2
+    printf '%s\n' "$dirty" | sed 's/^/::error::  /' >&2
+    echo "::error::Spec changes belong upstream, not in this working copy." >&2
     return 1
   fi
 }
@@ -198,7 +228,7 @@ check_no_local_edits() {
 run_checks() {
   local rc=0
   check_bundled_assets || rc=1
-  check_no_local_edits || rc=1
+  check_subtree_pristine || rc=1
   return "$rc"
 }
 
