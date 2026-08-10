@@ -34,8 +34,11 @@
 //! (first ≤16 distinct colors in row-major scan order), then a COLUMN-MAJOR
 //! run-length stream of palette indices — a run < 16 is one byte
 //! `(index << 4) | run_len`; a longer run is `(index << 4)` then count bytes
-//! (`0xFF` per full 127, then the remainder). A chunk is flushed at ~200
-//! bytes; the next chunk's header carries the (x, y) where its data resumes.
+//! (`0xFF` per full 127, then the remainder). A chunk is flushed at the
+//! vendor's ~200-byte limit or at the negotiated write budget, whichever is
+//! smaller — each chunk must fit ONE BLE write, so a mid-range MTU (iOS
+//! commonly negotiates 185) gets smaller chunks rather than a rejection. The
+//! next chunk's header carries the (x, y) where its data resumes.
 //!
 //! The encoder is stateless: callers pass a `frame_index` and fragment serials
 //! derive from it, so streaming N frames produces distinct serials without
@@ -59,13 +62,20 @@ pub const SERVICE_UUID: &str = "00000074-1972-1925-3022-077119514e44";
 const FRAGMENT_SCHEME: &str = "daniao_fragment";
 const FRAG_HEADER_LEN: usize = 4;
 const MAX_PALETTE: usize = 16;
-/// Chunk flush threshold from the vendor encoder: header + pixel bytes < 200.
+/// The vendor encoder's chunk ceiling: header + pixel bytes < 200. The
+/// effective per-chunk budget is the SMALLER of this and what one BLE write
+/// carries, so a link with a mid-range MTU still encodes (in more, smaller
+/// chunks) instead of being rejected.
 const CHUNK_LIMIT: usize = 200;
 /// Maximum pixels in one emitted run. A longer solid region is split into
 /// consecutive same-colour runs (identical on the device) so a single run's
-/// tokens (<= 2 + ceil(MAX_RUN/127) bytes) can never bloat a chunk past a BLE
+/// tokens (<= MAX_RUN_TOKENS bytes) can never bloat a chunk past a BLE
 /// write. Well above any real per-strand run, so the 20x20 curtain is unaffected.
 const MAX_RUN: usize = 1016; // 8 * 127 -> <= 10 token bytes per run
+/// Worst-case token bytes one `emit_run` call can append: the leading
+/// `(index << 4)` byte, one `0xFF` per full 127 pixels, and the terminating
+/// remainder byte.
+const MAX_RUN_TOKENS: usize = 2 + MAX_RUN / 127;
 /// The BLE 4.0 minimum ATT payload (MTU 23 - 3). The vendor app requests MTU
 /// 512; a chunk that cannot fit one write over the negotiated MTU is rejected.
 const MIN_PAYLOAD_PER_WRITE: usize = 20;
@@ -197,9 +207,18 @@ pub fn encode_doodle_frame(
             reason: "spec has no daniao_fragment bulk characteristic (no channel_tag)".to_string(),
         })?;
 
-    let chunks = encode_tutu_restore(rgb, width as usize, height as usize)?;
-
     let frag_capacity = max_payload_per_write - FRAG_HEADER_LEN;
+
+    // Chunks are sized to the write, not just to the vendor's ceiling: the
+    // device honors only the first BLE write of a BIN transfer, so a chunk
+    // that fits one write is the actual requirement, and a mid-range MTU
+    // (iOS commonly negotiates 185) simply gets more, smaller chunks.
+    let chunks = encode_tutu_restore(
+        rgb,
+        width as usize,
+        height as usize,
+        CHUNK_LIMIT.min(frag_capacity),
+    )?;
 
     // The device honors ONLY the first BLE write of a BIN transfer, so every
     // TUTU chunk must fit one write. Fail loudly rather than paint a partial
@@ -252,7 +271,15 @@ pub fn encode_doodle_frame(
                     uuid: command_char.uuid.clone(),
                     command: (*name).to_string(),
                 })?;
-            let packet = encode_command(command, &HashMap::new())?;
+            // The spec's `sn` is `auto: sequence`, which encodes as 0 unless a
+            // stateful caller supplies it. Reuse the fragment serial this
+            // packet is about to consume: it costs no extra state, and it
+            // keeps ui_end_sync and doodle_start distinguishable to firmware
+            // that de-duplicates DNX messages by serial (both went out as
+            // sn=0 before, which the live-verified unit tolerated but nothing
+            // guarantees others do).
+            let params = HashMap::from([("sn".to_string(), serial as f64)]);
+            let packet = encode_command(command, &params)?;
             push_framed(&packet, &command_char.uuid, command_tag, &mut serial);
         }
     }
@@ -276,11 +303,14 @@ pub fn encode_doodle_frame(
 }
 
 /// Port of the vendor H5 `sendRecoveData` chunk builder — see the module docs
-/// for the format. Returns the ordered `TUTU_RESTORE` chunk payloads.
+/// for the format. Returns the ordered `TUTU_RESTORE` chunk payloads, each no
+/// larger than `chunk_budget` bytes (header included) so every chunk fits the
+/// one BLE write the device honors.
 fn encode_tutu_restore(
     rgb: &[u8],
     width: usize,
     height: usize,
+    chunk_budget: usize,
 ) -> Result<Vec<Vec<u8>>, ProtocolError> {
     // Palette: first ≤16 distinct colors in row-major scan order.
     let mut palette: Vec<[u8; 3]> = Vec::new();
@@ -310,6 +340,24 @@ fn encode_tutu_restore(
     };
     let header_len = header(0, 0).len();
 
+    // Every chunk repeats the palette header, and the flush logic below can
+    // overshoot its threshold by up to two runs' tokens (the run emitted
+    // after the per-pixel check plus the final flush after the loop). A
+    // budget that cannot carry header + that slack cannot make progress, so
+    // reject it with the fix spelled out rather than emitting chunks the
+    // `biggest > frag_capacity` backstop then refuses one by one.
+    if chunk_budget < header_len + 2 * MAX_RUN_TOKENS {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "the {}-color palette needs {header_len}-byte chunk headers but only \
+                 {chunk_budget} B fit one BLE write — raise the ATT MTU (need >= {} bytes) \
+                 before pushing images",
+                palette.len(),
+                header_len + 2 * MAX_RUN_TOKENS + FRAG_HEADER_LEN + 3
+            ),
+        });
+    }
+
     let mut chunks: Vec<Vec<u8>> = Vec::new();
     let mut tokens: Vec<u8> = Vec::new();
     let mut cur: Option<u8> = None;
@@ -337,10 +385,13 @@ fn encode_tutu_restore(
         }
     }
 
-    // Column-major traversal, exactly like the vendor encoder.
+    // Column-major traversal, exactly like the vendor encoder. The flush
+    // threshold leaves room for the two emits that can land after a check —
+    // this pixel's run and the post-loop flush, MAX_RUN_TOKENS each — so no
+    // chunk can exceed the budget.
     for x in 0..width {
         for y in 0..height {
-            if header_len + tokens.len() >= CHUNK_LIMIT {
+            if header_len + tokens.len() + 2 * MAX_RUN_TOKENS > chunk_budget {
                 let mut chunk = header(chunk_start.0, chunk_start.1);
                 chunk.append(&mut tokens);
                 chunks.push(chunk);
@@ -392,49 +443,10 @@ mod tests {
     use super::*;
     use crate::spec::parser::parse_device_spec;
 
-    const SPEC_YAML: &str = r#"
-device:
-  name: "SmartDawn"
-  manufacturer: "Daniao"
-  manufacturer_status: "active"
-  protocol: "ble"
-  category: "light"
-  identification:
-    local_name_prefix: "DN"
-    service_uuids: ["00000074-1972-1925-3022-077119514e44"]
-protocol_handler: "daniao_ddp"
-services:
-  - uuid: "00000074-1972-1925-3022-077119514e44"
-    name: "Daniao DDP Service"
-    characteristics:
-      - uuid: "01020074-1972-1925-3022-077119514e44"
-        name: "DDP Write"
-        properties: ["write", "write_without_response"]
-        framing: { scheme: "daniao_fragment", channel_tag: 0 }
-        commands:
-          ui_end_sync:
-            description: "suspend UI mirror"
-            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
-            parameters:
-              sn: { type: "uint16", endianness: "big", auto: "sequence" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length" }
-              cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
-              ts: { type: "uint8", default: 0 }
-          doodle_start:
-            description: "open doodle"
-            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x8D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
-            parameters:
-              sn: { type: "uint16", endianness: "big", auto: "sequence" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length" }
-              cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
-              ts: { type: "uint8", default: 0 }
-      - uuid: "02020074-1972-1925-3022-077119514e44"
-        name: "BIN Write"
-        properties: ["write", "write_without_response"]
-        framing: { scheme: "daniao_fragment" }
-"#;
+    /// Shared with device_api's routing tests — one fixture, so an edit to
+    /// the command templates or framing cannot leave one test module
+    /// exercising a stale spec shape while the other passes.
+    const SPEC_YAML: &str = include_str!("test_specs/smartdawn_doodle.yaml");
 
     fn spec() -> DeviceSpec {
         parse_device_spec(SPEC_YAML).unwrap()
@@ -480,7 +492,12 @@ services:
         assert_eq!(w[1].characteristic_uuid, DDP);
         assert_eq!(&w[1].bytes[..4], &[1, 1, 0, 0]);
         assert_eq!(&w[1].bytes[10..12], &[0x0A, 0x8D]); // mt 2701 (DOODLE_START)
-                                                        // Then the pixel chunk on the BIN char, tag 4, single write.
+                                                        // Each command's DNX serial is the fragment serial it consumed
+                                                        // (packet offset 2..4, big-endian u16, behind the 4-byte fragment
+                                                        // header) — distinguishable to firmware that de-dupes by sn.
+        assert_eq!(&w[0].bytes[6..8], &[0, 0]);
+        assert_eq!(&w[1].bytes[6..8], &[0, 1]);
+        // Then the pixel chunk on the BIN char, tag 4, single write.
         assert_eq!(w[2].characteristic_uuid, BIN);
         assert_eq!(&w[2].bytes[..4], &[2, 1, 0, TAG_TUTU_RESTORE]);
     }
@@ -497,13 +514,40 @@ services:
     #[test]
     fn chunk_too_big_for_one_write_is_rejected() {
         // The device honors only the first BLE write of a BIN transfer, so a
-        // chunk that cannot fit one write is a hard error, not a partial paint.
+        // write budget that cannot carry even one chunk header plus its run
+        // slack is a hard error naming the fix, not a partial paint.
         let err = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 5, 20).unwrap_err();
         match err {
             ProtocolError::ImageDimensionsInvalid { reason } => {
-                assert!(reason.contains("does not reassemble"), "got: {reason}");
+                assert!(reason.contains("raise the ATT MTU"), "got: {reason}");
             }
             other => panic!("expected ImageDimensionsInvalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mid_range_mtu_sizes_chunks_to_the_write_budget() {
+        // A 20x20 two-colour checkerboard is ~400 one-pixel runs — several
+        // chunks' worth of tokens. At iOS's commonly negotiated MTU 185
+        // (payload 182) the old fixed ~200-byte flush built chunks no write
+        // could carry and rejected the send outright; the budget-aware
+        // encoder must fit every write instead.
+        let (w, h) = (20usize, 20usize);
+        let mut rgb = Vec::with_capacity(w * h * 3);
+        for y in 0..h {
+            for x in 0..w {
+                let on = (x + y) % 2 == 0;
+                rgb.extend_from_slice(if on { &[255, 255, 255] } else { &[255, 0, 0] });
+            }
+        }
+        let frame = encode_doodle_frame(&spec(), &rgb, 20, 20, 5, 182).unwrap();
+        assert!(frame.writes.len() > 1, "several small chunks, not one big");
+        for wr in &frame.writes {
+            assert!(
+                wr.bytes.len() <= 182,
+                "write of {} B exceeds the 182 B payload",
+                wr.bytes.len()
+            );
         }
     }
 
@@ -547,7 +591,7 @@ services:
     fn long_runs_use_extension_bytes() {
         // A solid 20x20 canvas: one 400-pixel run -> (0<<4) then 255,255,255,19.
         let rgb = vec![0x11u8; 20 * 20 * 3];
-        let chunks = encode_tutu_restore(&rgb, 20, 20).unwrap();
+        let chunks = encode_tutu_restore(&rgb, 20, 20, CHUNK_LIMIT).unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(&chunks[0][..6], &[0, 0, 1, 0x11, 0x11, 0x11]);
         assert_eq!(&chunks[0][6..], &[0x00, 255, 255, 255, 19]);
@@ -559,7 +603,7 @@ services:
         // (here 0), not just a trailing 0xFF, or the decoder would swallow the
         // next run's token.
         let rgb = vec![0x22u8; 127 * 3];
-        let chunks = encode_tutu_restore(&rgb, 127, 1).unwrap();
+        let chunks = encode_tutu_restore(&rgb, 127, 1, CHUNK_LIMIT).unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(&chunks[0][6..], &[0x00, 0xFF, 0x00]);
     }
