@@ -64,13 +64,14 @@ IoTDevice _device({
   int rssi = -50,
   List<String> serviceUuids = const [],
   List<int> companyIds = const [],
+  DateTime? discoveredAt,
 }) =>
     IoTDevice(
       id: id,
       name: name,
       rssi: rssi,
       isConnectable: true,
-      discoveredAt: DateTime.now(),
+      discoveredAt: discoveredAt ?? DateTime.now(),
       serviceUuids: serviceUuids,
       companyIds: companyIds,
     );
@@ -325,6 +326,53 @@ void main() {
 
       expect(
           ranked.likelySupported.map((r) => r.device.id), ['strong', 'likely']);
+    });
+
+    test('rows do not trade places on rssi jitter inside a band', () {
+      // The failure this prevents: a continuous scan reports each device
+      // several times a second and its reading wanders a few dB while nothing
+      // moves. Sorting on the exact number reshuffles neighbouring rows
+      // continuously — so the row under a finger can change between deciding to
+      // tap and tapping, and the tap opens a different device.
+      // Named so the alphabetical id fallback would give the OPPOSITE order:
+      // what holds these two in place has to be when each was found.
+      final first = _device(
+          id: 'zulu', rssi: -52, discoveredAt: DateTime(2026, 8, 10, 12));
+      final second = _device(
+          id: 'alpha', rssi: -50, discoveredAt: DateTime(2026, 8, 10, 12, 1));
+      ({List<RankedDevice> likelySupported, List<RankedDevice> other}) rank(
+        List<IoTDevice> devices,
+      ) =>
+          rankScannedDevices(devices, (_) => null);
+
+      // 'first' was discovered first (see _device below), so it leads despite
+      // the weaker reading — both are in the same band.
+      expect(rank([first, second]).other.map((r) => r.device.id),
+          ['zulu', 'alpha']);
+
+      // Now 'second' jitters two dB the other way, still inside the band.
+      final jittered = IoTDevice(
+        id: second.id,
+        name: second.name,
+        rssi: -48,
+        isConnectable: true,
+        discoveredAt: second.discoveredAt,
+        lastSeen: second.lastSeen,
+      );
+      expect(rank([first, jittered]).other.map((r) => r.device.id),
+          ['zulu', 'alpha'],
+          reason: 'nothing moved, so nothing may move');
+    });
+
+    test('a genuinely stronger device still sorts above a weaker one', () {
+      // Banding must not flatten the list: a device a room away and one on the
+      // desk belong in that order however long each has been listed.
+      final onTheDesk = _device(id: 'desk', rssi: -35);
+      final aRoomAway = _device(id: 'away', rssi: -85);
+
+      final ranked = rankScannedDevices([aRoomAway, onTheDesk], (_) => null);
+
+      expect(ranked.other.map((r) => r.device.id), ['desk', 'away']);
     });
 
     test('signal strength breaks ties within a confidence tier', () {

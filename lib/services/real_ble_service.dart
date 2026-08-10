@@ -328,6 +328,16 @@ const int continuousScanDivisor = 2;
 /// device list, both outlive the platform scan.
 const Duration continuousScanRefresh = Duration(minutes: 15);
 
+/// How soon a failed refresh is retried.
+///
+/// A refresh failure is not a missed tick, it is a stopped scan: flutter_blue_plus
+/// stops the running scan before starting the replacement and unwinds itself if
+/// the platform call fails, so there is nothing scanning afterwards. Short
+/// enough that a transient failure — the adapter busy, a bonding in flight — is
+/// a blip rather than fifteen dead minutes behind a screen that says
+/// "searching".
+const Duration continuousScanRetry = Duration(seconds: 30);
+
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
@@ -337,6 +347,10 @@ class RealBleService implements BleService {
   /// quarter of an hour for it.
   @visibleForTesting
   Duration continuousScanRefreshInterval = continuousScanRefresh;
+
+  /// Overridable for the same reason as [continuousScanRefreshInterval].
+  @visibleForTesting
+  Duration continuousScanRetryInterval = continuousScanRetry;
 
   @override
   Future<bool> requestPermissions() async {
@@ -390,6 +404,15 @@ class RealBleService implements BleService {
     // Watches for the radio going away under a continuous scan (see below);
     // null for a bounded scan, whose adapter check at the top is enough.
     StreamSubscription<BluetoothAdapterState>? adapterSub;
+    // Set when the consumer lets go. Setup is a chain of awaits — permissions,
+    // adapter state, tearing down a previous scan — and a cancel arriving
+    // during it finds nothing to cancel: `sub` does not exist yet, so onCancel
+    // has no scan to stop, and without this flag the setup would carry on and
+    // start a native scan nobody is listening to. Which, for a continuous scan,
+    // means one that runs until the app dies: there is no window to expire, and
+    // the screen's own state says it is not scanning, so nothing will ever stop
+    // it. Checked after every await from here on.
+    var cancelled = false;
 
     Future<void> closeIfOpen() async {
       if (!controller.isClosed) await controller.close();
@@ -428,9 +451,27 @@ class RealBleService implements BleService {
       await closeIfOpen();
     }
 
+    /// Abandon a setup the consumer no longer wants, stopping the native scan
+    /// if we got as far as starting one. Returns true when it applied, so the
+    /// setup can `return` on it.
+    Future<bool> abandonIfCancelled({bool nativeScanStarted = false}) async {
+      if (!cancelled) return false;
+      Log.ble.debug('scan cancelled during setup; unwinding');
+      if (nativeScanStarted) {
+        try {
+          await FlutterBluePlus.stopScan();
+        } catch (_) {
+          // Best-effort: the scan may already have failed to start.
+        }
+      }
+      await endScan();
+      return true;
+    }
+
     () async {
       try {
         final granted = await requestPermissions();
+        if (await abandonIfCancelled()) return;
         if (!granted) {
           // Surface a distinct error rather than silently closing the stream,
           // so the UI can render permission-specific guidance + recovery
@@ -446,6 +487,7 @@ class RealBleService implements BleService {
         // raised natively by CoreBluetooth rather than by requestPermissions().
         // The state is held in a local purely so it can be named in the log.
         final adapterState = await FlutterBluePlus.adapterState.first;
+        if (await abandonIfCancelled()) return;
         final adapterError = adapterStateError(adapterState);
         if (adapterError != null) {
           Log.ble
@@ -471,6 +513,7 @@ class RealBleService implements BleService {
           // stream that can never produce anything again.
           if (endPrevious != null) await endPrevious();
         }
+        if (await abandonIfCancelled()) return;
 
         // scanResults re-emits its latest list to every new listener, so our
         // subscription's first event is the PREVIOUS scan's accumulated
@@ -530,6 +573,7 @@ class RealBleService implements BleService {
             );
 
         await startNative();
+        if (await abandonIfCancelled(nativeScanStarted: true)) return;
         Log.ble.info('scan started '
             '(${timeout == null ? 'continuous' : '${timeout.inSeconds}s'})');
 
@@ -551,15 +595,34 @@ class RealBleService implements BleService {
             unawaited(endScan());
           });
           // Keeps the platform scan real — see [continuousScanRefresh].
-          refresh = Timer.periodic(continuousScanRefreshInterval, (_) {
-            Log.ble.debug('refreshing the continuous scan');
-            unawaited(startNative().catchError((Object e) {
-              // A failed refresh is not fatal: the previous scan may still be
-              // running, and erroring the stream here would empty a list the
-              // user is looking at. Logged, and left to the next tick.
-              Log.ble.warning('continuous scan refresh failed', error: e);
-            }));
-          });
+          //
+          // Self-scheduling rather than periodic, because a failed refresh is
+          // not a tick to shrug off and wait out. flutter_blue_plus stops the
+          // running scan BEFORE starting the new one, and unwinds its own state
+          // if the platform call then fails — so a refresh that throws leaves
+          // no scan running at all, silently, while the screen still says it is
+          // searching. Retrying in [continuousScanRetry] instead of a quarter
+          // of an hour is the difference between a blip and a dead tab. (If the
+          // cause was the radio going away, the adapter watch above has already
+          // ended the scan and this timer is cancelled with it.)
+          void scheduleRefresh(Duration after) {
+            refresh = Timer(after, () async {
+              Log.ble.debug('refreshing the continuous scan');
+              try {
+                await startNative();
+                scheduleRefresh(continuousScanRefreshInterval);
+              } catch (e) {
+                Log.ble.warning(
+                    'continuous scan refresh failed; nothing is scanning '
+                    'until the retry in '
+                    '${continuousScanRetryInterval.inSeconds}s',
+                    error: e);
+                scheduleRefresh(continuousScanRetryInterval);
+              }
+            });
+          }
+
+          scheduleRefresh(continuousScanRefreshInterval);
           return;
         }
 
@@ -601,6 +664,7 @@ class RealBleService implements BleService {
     // This is equivalent to checking `_scanSubscription == null` after
     // cancelSub() (which nulls the field iff it still pointed at OUR sub).
     controller.onCancel = () async {
+      cancelled = true;
       final stopNative =
           shouldStopNativeScanOnCancel(active: _scanSubscription, own: sub);
       await cancelSub();
@@ -619,18 +683,24 @@ class RealBleService implements BleService {
   @override
   Future<void> stopScan() async {
     Log.ble.info('scan stopped by request');
-    await FlutterBluePlus.stopScan();
+    // Claim the scan that is running NOW, before the platform call is awaited.
+    // A scan() starting inside that await would otherwise install its own
+    // teardown, and this stop — issued for the scan before it — would run it,
+    // closing a brand new stream on behalf of an already-dead one. Same
+    // ownership rule shouldStopNativeScanOnCancel applies on the cancel path.
     final end = _endActiveScan;
+    final sub = _scanSubscription;
     _endActiveScan = null;
+    await FlutterBluePlus.stopScan();
     if (end != null) {
-      // Closes the active scan's stream too, so a continuous scan's consumer
+      // Closes the claimed scan's stream too, so a continuous scan's consumer
       // learns it has ended instead of waiting on a stream nothing will ever
       // feed again.
       await end();
       return;
     }
-    await _scanSubscription?.cancel();
-    _scanSubscription = null;
+    await sub?.cancel();
+    if (identical(_scanSubscription, sub)) _scanSubscription = null;
   }
 
   /// Tears down whichever scan owns [_scanSubscription], stream and all.
