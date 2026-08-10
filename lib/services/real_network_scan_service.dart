@@ -7,6 +7,7 @@ import 'package:multicast_dns/multicast_dns.dart';
 
 import '../core/error_text.dart';
 import '../core/log.dart';
+import '../core/stop_signal.dart';
 import '../models/network_device.dart';
 import 'multicast_lock.dart';
 import 'network_scan_service.dart';
@@ -306,10 +307,7 @@ class RealNetworkScanService implements NetworkScanService {
       // waits for the stream to end before re-enabling its button — which is
       // what "stop scanning" looks like from the UI — waits that long for a
       // scan that already stopped.
-      await Future.any([
-        Future<void>.delayed(phase),
-        session.whenStopped,
-      ]);
+      await session.sleepUnlessStopped(phase);
       // No separate "heard during resolve" state: a resolution only ever
       // starts after the enumeration loop has already received a record, so
       // `heard` is necessarily true by then.
@@ -479,25 +477,29 @@ class RealNetworkScanService implements NetworkScanService {
 /// service, and `networkScanServiceProvider` hands out a single shared
 /// instance, so an overlapping pair fought over them.
 class _ScanSession {
-  bool stopped = false;
   MDnsClient? mdns;
   RawDatagramSocket? ssdpSocket;
 
-  final Completer<void> _stopped = Completer<void>();
+  /// The interruptible-wait mechanism, shared with the mock service: a wait
+  /// races [whenStopped] rather than only checking a flag at its ends — a
+  /// transport parked in a delay never looks at a flag.
+  final StopSignal _stop = StopSignal();
 
-  /// Completes when [stop] is called, so a wait can be cut short rather than
-  /// only checked at its ends. The flag alone cannot do that: a transport
-  /// parked in a delay never looks at it.
-  Future<void> get whenStopped => _stopped.future;
+  bool get stopped => _stop.stopped;
+
+  /// Completes when [stop] is called, so a wait can be cut short.
+  Future<void> get whenStopped => _stop.whenStopped;
+
+  /// Waits [duration], or until [stop] is called. True when stopped.
+  Future<bool> sleepUnlessStopped(Duration duration) => _stop.sleep(duration);
 
   void stop() {
-    stopped = true;
+    // Idempotent (StopSignal guards the complete): every path out of a scan
+    // calls this, and cancel-then-finish calls it twice.
+    _stop.stop();
     mdns?.stop();
     mdns = null;
     ssdpSocket?.close();
     ssdpSocket = null;
-    // Guarded: every path out of a scan calls this, and cancel-then-finish
-    // calls it twice.
-    if (!_stopped.isCompleted) _stopped.complete();
   }
 }

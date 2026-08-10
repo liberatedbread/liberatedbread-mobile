@@ -55,13 +55,14 @@ Future<void> _scrollAndTap(WidgetTester tester, Finder finder) async {
 
 void main() {
   group('writePayloadForMtu', () {
-    test('treats the uninformative default MTU as unknown -> optimistic 512',
-        () {
-      // 23 (and below) means the backend never reported the negotiated MTU
-      // (e.g. flutter_blue_plus_linux); assume the requested 512 rather than a
-      // 20-byte floor the image protocol can never use.
-      expect(writePayloadForMtu(23), 509);
-      expect(writePayloadForMtu(0), 509);
+    test('sizes a genuinely tiny link to the 20-byte BLE floor', () {
+      // A reported 23 is trusted: on Android it means requestMtu(512) was
+      // refused, so writes must be sized for the real link and the image
+      // encoder gets to reject with its actionable MTU message. The one
+      // platform whose report lies (flutter_blue_plus_linux) is corrected in
+      // RealBleService.mtu(), not here.
+      expect(writePayloadForMtu(23), 20);
+      expect(writePayloadForMtu(0), 20);
     });
 
     test('uses a real negotiated MTU minus the 3-byte ATT header', () {
@@ -71,6 +72,57 @@ void main() {
 
     test('caps at the 512-byte attribute maximum', () {
       expect(writePayloadForMtu(9999), 512);
+    });
+  });
+
+  group('quantizeFrame', () {
+    Uint8List frameOf(List<int> packed) {
+      final out = Uint8List(packed.length * 3);
+      for (var i = 0; i < packed.length; i++) {
+        out[i * 3] = (packed[i] >> 16) & 0xFF;
+        out[i * 3 + 1] = (packed[i] >> 8) & 0xFF;
+        out[i * 3 + 2] = packed[i] & 0xFF;
+      }
+      return out;
+    }
+
+    Set<int> distinct(Uint8List rgb) => {
+          for (var i = 0; i < rgb.length; i += 3)
+            (rgb[i] << 16) | (rgb[i + 1] << 8) | rgb[i + 2],
+        };
+
+    // 16 grays, 0x000000 through 0xFFFFFF in 0x111111 steps.
+    final grays = [for (var i = 0; i < 16; i++) i * 0x111111];
+
+    test('a frame already within the palette keeps its identity', () {
+      final frame = frameOf(grays);
+      expect(identical(quantizeFrame(frame), frame), isTrue,
+          reason: 'no copy, no remap — the common case costs one count pass');
+    });
+
+    test('a 17th colour merges into its nearest kept neighbour', () {
+      // Every gray appears twice; the near-black 0x101010 once, so it is the
+      // colour dropped — and 0x111111 is its nearest survivor.
+      final frame = frameOf([...grays, ...grays, 0x101010]);
+      final out = quantizeFrame(frame);
+      final colors = distinct(out);
+      expect(colors.length, lessThanOrEqualTo(maxFrameColors));
+      expect(colors, isNot(contains(0x101010)));
+      final last = out.sublist(out.length - 3);
+      expect(last, [0x11, 0x11, 0x11],
+          reason: 'the dropped pixel takes its nearest kept colour');
+    });
+
+    test('the protected colour survives even as the least used', () {
+      // One freshly painted red pixel on a full 16-gray canvas: red is the
+      // rarest colour, but it is the stroke the user just made, so it must
+      // win and a gray must merge instead.
+      final frame = frameOf([...grays, ...grays, 0xFF0000]);
+      final out = quantizeFrame(frame, protect: 0xFF0000);
+      final colors = distinct(out);
+      expect(colors.length, lessThanOrEqualTo(maxFrameColors));
+      expect(colors, contains(0xFF0000));
+      expect(out.sublist(out.length - 3), [0xFF, 0x00, 0x00]);
     });
   });
 
@@ -198,9 +250,10 @@ void main() {
         reason: 'painted pixel must not stay black');
     expect(call.rgb.sublist(3), everyElement(0),
         reason: 'unpainted pixels stay black');
-    // ...sized optimistically because the fake reports the uninformative
-    // 23-byte default (treated as unknown -> the requested 512)...
-    expect(call.maxPayloadPerWrite, 509);
+    // ...sized for the 20-byte floor because the fake reports MTU 23 and the
+    // widget trusts the service's answer (the Linux mtuNow quirk is corrected
+    // inside RealBleService.mtu(), not here)...
+    expect(call.maxPayloadPerWrite, 20);
     // ...and both plan writes went to the plan's service/characteristic.
     expect(ble.writes, hasLength(2));
     expect(ble.writes[0].charUuid, 'chr-uuid');
