@@ -135,7 +135,7 @@ packages:
     source: hosted
     version: "4.0.1"
   flutter_blue_plus_linux:
-    dependency: transitive
+    dependency: "direct dev"
     description:
       name: flutter_blue_plus_linux
       sha256: "635443d1d333e3695733fd70e81ee0d87fa41e78aa81844103d2a8a854b0d593"
