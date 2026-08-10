@@ -48,6 +48,7 @@
 #   CI_CMAKE_VERSION          Android SDK CMake (Flutter's Gradle plugin needs it)
 #   CI_JAVA_VERSION           JDK major version Gradle runs on
 #   CI_FRB_VERSION            flutter_rust_bridge_codegen
+#   CI_LLVM_COV_VERSION       cargo-llvm-cov (the rust-coverage job's tool)
 #   CI_RUST_ANDROID_TARGETS   space-separated rustup targets for Android
 #   CI_RUST_IOS_TARGETS       space-separated rustup targets for iOS
 #   CI_EMULATOR_API           API level of the AVD CI boots
@@ -125,6 +126,11 @@ _ci_env_list() {
   printf '%s' "$raw" | tr ',' ' '
 }
 
+# How many values this load could not read and had to fall back on. Every
+# fallback is already announced on stderr; the count is what lets `--strict`
+# turn "announced" into "enforced" — see the bottom of this file.
+CI_VERSIONS_FALLBACKS=0
+
 # Assign $1=$3 if $3 is non-empty, else fall back to $2 and say so.
 _ci_set() {
   local var="$1" fallback="$2" parsed="$3"
@@ -132,11 +138,13 @@ _ci_set() {
     printf -v "$var" '%s' "$parsed"
   else
     printf -v "$var" '%s' "$fallback"
+    CI_VERSIONS_FALLBACKS=$((CI_VERSIONS_FALLBACKS + 1))
     _ci_warn "could not read $var from ${CI_WORKFLOW}; using fallback '$fallback'"
   fi
 }
 
 ci_versions_load() {
+  CI_VERSIONS_FALLBACKS=0
   if [ ! -r "$CI_WORKFLOW" ]; then
     _ci_warn "workflow not readable at ${CI_WORKFLOW}; using fallbacks for everything"
   fi
@@ -148,6 +156,7 @@ ci_versions_load() {
   _ci_set CI_CMAKE_VERSION '3.22.1' "$(_ci_env ANDROID_CMAKE || true)"
   _ci_set CI_JAVA_VERSION '17' "$(_ci_env JAVA_VERSION || true)"
   _ci_set CI_FRB_VERSION '2.9.0' "$(_ci_env FRB_VERSION || true)"
+  _ci_set CI_LLVM_COV_VERSION '0.8.7' "$(_ci_env LLVM_COV_VERSION || true)"
 
   _ci_set CI_RUST_ANDROID_TARGETS \
     'aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android' \
@@ -175,7 +184,7 @@ ci_versions_print() {
   ci_versions_load
   local v
   for v in CI_FLUTTER_VERSION CI_NDK_VERSION CI_ANDROID_API CI_BUILD_TOOLS_VERSION \
-           CI_CMAKE_VERSION CI_JAVA_VERSION CI_FRB_VERSION \
+           CI_CMAKE_VERSION CI_JAVA_VERSION CI_FRB_VERSION CI_LLVM_COV_VERSION \
            CI_RUST_ANDROID_TARGETS CI_RUST_IOS_TARGETS \
            CI_EMULATOR_API CI_EMULATOR_TARGET CI_EMULATOR_ARCH CI_EMULATOR_PROFILE \
            CI_EMULATOR_SYSTEM_IMAGE CI_LINUX_DESKTOP_PACKAGES; do
@@ -184,8 +193,28 @@ ci_versions_print() {
 }
 
 # Sourced: define the variables. Executed: print them.
+#
+# `--strict` additionally FAILS on any fallback. The fallbacks exist so that a
+# parse miss degrades to a slightly stale pin rather than an exploding setup
+# script, and the miss is reported on stderr so it gets fixed — but nothing was
+# reading that stderr. Renaming a key in ci.yml's env block therefore had no
+# visible consequence at all: CI kept using its own `env:` values while every
+# dev machine and Claude Code session silently provisioned from a hardcoded
+# default further and further behind. `--strict` is what the workflow's own gate
+# job runs, so the rename fails in the pull request that makes it.
 if [ "${BASH_SOURCE[0]:-}" = "${0}" ]; then
+  strict=0
+  for arg in "$@"; do
+    case "$arg" in
+      --strict) strict=1 ;;
+      *) _ci_warn "unknown argument '$arg'"; exit 2 ;;
+    esac
+  done
   ci_versions_print
+  if [ "$strict" -eq 1 ] && [ "$CI_VERSIONS_FALLBACKS" -gt 0 ]; then
+    echo "::error file=.github/workflows/ci.yml::${CI_VERSIONS_FALLBACKS} pinned value(s) could not be read out of this workflow's top-level env: block (each is named on stderr above), so scripts/setup.sh and .claude/hooks/session-start.sh would provision dev environments from stale hardcoded defaults while CI used the real ones. Add the key back to that env: block, or update the reader in scripts/ci-versions.sh." >&2
+    exit 1
+  fi
 else
   ci_versions_load
 fi
