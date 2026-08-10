@@ -203,12 +203,12 @@ services:
                 max: 255
               data:
                 type: "bytes"
-                min: 1
-                max: 26
+                min_length: 1
+                max_length: 26
               crc:
                 type: "bytes"
-                min: 2
-                max: 2
+                min_length: 2
+                max_length: 2
           system_command:
             description: >
               System command: writes 0x88 followed by a subcommand byte to address
@@ -238,8 +238,8 @@ services:
                 max: 255
               crc:
                 type: "bytes"
-                min: 2
-                max: 2
+                min_length: 2
+                max_length: 2
 
 entities:
   - platform: "sensor"
