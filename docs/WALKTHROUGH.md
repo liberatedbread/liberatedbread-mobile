@@ -335,7 +335,16 @@ written on:
 ./scripts/update-specs.sh                    # main, canonical remote
 ./scripts/update-specs.sh some-branch
 ./scripts/update-specs.sh some-branch --from ../liberatedbread-protocol-specs
+./scripts/update-specs.sh --check            # verify only; no network, no pull
 ```
+
+The git underneath is stock `git subtree pull --squash` — the script is a
+wrapper, not a replacement, and anything it does can be done by hand. What the
+wrapper adds is the checking. `--check` is that half on its own, and it is what
+CI runs: it re-asserts the bundled paths, and it fails if any commit has edited
+`vendor/protocol-specs/` directly since the last subtree merge. That second one
+matters because a spec edited here rather than upstream looks exactly like a
+legitimate change in review, and then vanishes at the next refresh.
 
 **Ranking**: a scan in a populated building is mostly other people's earbuds,
 so the list does not sort on signal strength alone. Each device's advertisement
