@@ -298,7 +298,7 @@ safety:
 entities:
   - platform: "climate"
     name: "Heat Level"
-    write_characteristic: "0000ffb1-0000-1000-8000-00805f9b34fb"
+    command_characteristic: "0000ffb1-0000-1000-8000-00805f9b34fb"
     fallback_characteristic: "0000fee2-0000-1000-8000-00805f9b34fb"
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     fallback_state_characteristic: "0000fee1-0000-1000-8000-00805f9b34fb"
@@ -312,12 +312,12 @@ entities:
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     value_template: "{{ value[3:4] | int(base=16) | binary }}"
     unit: "%"
-    mapping:
-      - 0: 0
-      - 1: 25
-      - 2: 50
-      - 3: 75
-      - 4: 100
+    state_mapping:
+      0: 0
+      1: 25
+      2: 50
+      3: 75
+      4: 100
 
   - platform: "sensor"
     name: "Internal Temperature"

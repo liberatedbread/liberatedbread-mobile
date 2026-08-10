@@ -201,16 +201,15 @@ services:
                 max: 69
           set_foreground_color:
             description: >
-              Set text foreground color. Channels are emitted in R,G,B order
-              (color_order: rgb) per every public implementation (mask-go
-              SetTextFrontColor, tayred06 mask_controller.py, BrickCraftDream
+              Set text foreground color. Channels are emitted in R,G,B order —
+              as the template below states — per every public implementation
+              (mask-go SetTextFrontColor, tayred06 mask_controller.py, BrickCraftDream
               ble-protocol.md). NOTE: needs on-hardware A/B verification —
               existing clients only set white, so a G/B swap would be
               invisible to them; the earlier R,B,G reading rested on private
               APK analysis only.
             template: [0x06, 0x46, 0x43, 0x01, "{red}", "{green}", "{blue}"]
             parameters:
-              color_order: "rgb"
               red:
                 type: "uint8"
                 min: 0
