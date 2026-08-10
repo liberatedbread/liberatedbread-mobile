@@ -91,14 +91,25 @@ class FakeBleService implements BleService {
   @override
   Future<bool> requestPermissions() async => true;
 
+  /// Timeouts [scan] was called with, in order. A null entry is a continuous
+  /// scan — which is what the scan screen asks for, and the only way a test can
+  /// see that it did.
+  final List<Duration?> scanTimeouts = [];
+
   // Matches the fixed RealBleService contract: devices stream in during the
   // scan window and the stream closes only when the window ends (here: when
   // there is nothing left to emit) — never early with results still pending.
+  //
+  // A continuous scan (timeout: null) ends here too, once the fake has emitted
+  // everything it was given. The real service would keep the stream open, but a
+  // widget test that pumps until quiet cannot wait on a stream that never
+  // finishes, and every state this fake drives is reachable either way.
   @override
   Stream<IoTDevice> scan({
-    Duration timeout =
+    Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
   }) async* {
+    scanTimeouts.add(timeout);
     if (scanError != null) throw scanError!;
     for (final d in devicesToEmit) {
       if (scanStepDelay > Duration.zero) {

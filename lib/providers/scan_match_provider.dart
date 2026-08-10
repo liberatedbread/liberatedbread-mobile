@@ -267,16 +267,29 @@ typedef RankedDevice = Ranked<IoTDevice>;
   return (likelySupported: likelySupported, other: other);
 }
 
-/// Split scanned BLE devices, breaking ties by signal strength — a recognised
-/// device across the room still outranks an anonymous one on the desk, because
-/// knowing what something is matters more here than how close it is.
+/// Split scanned BLE devices, breaking ties by freshness and then by signal
+/// strength — a recognised device across the room still outranks an anonymous
+/// one on the desk, because knowing what something is matters more here than
+/// how close it is.
+///
+/// Freshness comes first within a group because a stale row's signal reading is
+/// a memory, not a measurement: a device that fell silent while showing -40 dBm
+/// would otherwise sit at the top of the list, above everything the scan can
+/// actually still hear. [isStale] defaults to "nothing is stale", for callers
+/// that do not track it.
 ({List<RankedDevice> likelySupported, List<RankedDevice> other})
     rankScannedDevices(
   List<IoTDevice> devices,
-  ScanGuess? Function(IoTDevice device) guessFor,
-) =>
+  ScanGuess? Function(IoTDevice device) guessFor, {
+  bool Function(IoTDevice device)? isStale,
+}) =>
         rankDevices(
           devices,
           guessFor,
-          (a, b) => b.device.rssi.compareTo(a.device.rssi),
+          (a, b) {
+            final aStale = isStale?.call(a.device) ?? false;
+            final bStale = isStale?.call(b.device) ?? false;
+            if (aStale != bStale) return aStale ? 1 : -1;
+            return b.device.rssi.compareTo(a.device.rssi);
+          },
         );

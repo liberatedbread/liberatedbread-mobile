@@ -136,3 +136,18 @@ bool isNumericValueType(String valueType) => switch (valueType) {
 /// back to the raw value.
 String allowedEntryLabel(String? label, Object value) =>
     (label == null || label.isEmpty) ? '$value' : '$label ($value)';
+
+/// A short, glanceable span: `"12s"`, `"4m"`, `"2h"`.
+///
+/// Deliberately coarser than a clock and blunter than [relativeTime] in
+/// saved_devices_screen.dart, whose smallest step is "Just now" — useless for a
+/// scan list, where the interesting question is whether a device went quiet
+/// twenty seconds ago or twenty minutes ago. Sub-second spans round up to
+/// `"0s"` rather than being written out in milliseconds; nothing here is
+/// measuring anything that fast.
+String shortAge(Duration age) {
+  if (age.inMinutes < 1) return '${age.inSeconds.clamp(0, 59)}s';
+  if (age.inHours < 1) return '${age.inMinutes}m';
+  if (age.inDays < 1) return '${age.inHours}h';
+  return '${age.inDays}d';
+}

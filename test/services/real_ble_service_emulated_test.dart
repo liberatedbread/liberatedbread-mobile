@@ -214,6 +214,36 @@ void main() {
           reason: 'one fresh advertisement, not a stale replay before it');
     });
 
+    test('asks the platform to keep reporting a device it already saw',
+        () async {
+      // Without continuousUpdates, Android suppresses same-payload
+      // advertisements and Apple platforms coalesce duplicates: a device would
+      // be reported once and then never again, leaving "still here" and
+      // "switched off an hour ago" indistinguishable.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+      await runScan();
+
+      expect(ble.lastScanSettings?.continuousUpdates, isTrue);
+      expect(ble.lastScanSettings?.continuousDivisor, continuousScanDivisor);
+    });
+
+    test('a re-sighting moves lastSeen but not discoveredAt', () async {
+      final bulb =
+          ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+
+      final found = await runScan(during: () async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        bulb.advertise(rssi: -30);
+      });
+
+      expect(found, hasLength(2));
+      expect(found[1].discoveredAt, found[0].discoveredAt,
+          reason: 'advertising again does not make a device newly discovered');
+      expect(found[1].lastSeen.isAfter(found[0].lastSeen), isTrue,
+          reason: 'but it does make it freshly seen');
+    });
+
     test('stopScan ends an in-progress scan', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
 
@@ -231,6 +261,99 @@ void main() {
           reason: 'the app-facing stream must finish, not hang open for the '
               'remaining 30s of the requested window');
       await sub.cancel();
+    });
+  });
+
+  // A scan with no timeout is what the scan screen runs: it is not a window
+  // with an answer at the end, it is a live picture of what is on air.
+  group('continuous scan', () {
+    /// Start one, collecting what it reports. Cancelled on teardown.
+    ({List<IoTDevice> seen, List<Object> errors, List<bool> done})
+        startContinuous() {
+      final seen = <IoTDevice>[];
+      final errors = <Object>[];
+      final done = <bool>[];
+      final sub = service.scan(timeout: null).listen(
+            seen.add,
+            onError: errors.add,
+            onDone: () => done.add(true),
+          );
+      addTearDown(sub.cancel);
+      return (seen: seen, errors: errors, done: done);
+    }
+
+    test('reports a device that only turns up later', () async {
+      // The whole point: a bounded scan answers "what was advertising during
+      // those 30 seconds", and a device plugged in afterwards never appears.
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(result.seen, isEmpty);
+
+      ble
+          .add(EmulatedPeripheral.bulb(id: _bulbId, name: 'Late Bulb'))
+          .advertise();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(result.seen.map((d) => d.name), ['Late Bulb']);
+      expect(result.done, isEmpty, reason: 'the scan is still running');
+    });
+
+    test('stays open long past a bounded scan\'s window', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+
+      // The 5s belt-and-braces timeout that ends a bounded scan must not be
+      // armed here; nothing may close this stream on a timer.
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(result.done, isEmpty);
+      expect(result.errors, isEmpty);
+    });
+
+    test('stopScan ends it, stream and all', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      await service.stopScan();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(ble.platformCalls, contains('stopScan'));
+      expect(result.done, [true],
+          reason: 'a scan with no window of its own has to be told it is over, '
+              'or its consumer waits on a stream nothing will feed again');
+    });
+
+    test('the radio being switched off surfaces as an actionable error',
+        () async {
+      // A scan meant to run all session has to notice the radio going dark
+      // under it, rather than sitting there claiming to search.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      ble.adapterState = EmulatedAdapterState.off;
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(result.errors.single, isA<BleUnavailableException>());
+      expect(result.done, [true]);
+    });
+
+    test('restarts the platform scan so it cannot go opportunistic', () async {
+      // Android downgrades a scan that has been running for 30 minutes to
+      // opportunistic — callbacks still registered, radio no longer driven.
+      // Restarting inside that window is what keeps a long scan real.
+      service.continuousScanRefreshInterval = const Duration(milliseconds: 40);
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+
+      expect(ble.platformCalls.where((c) => c == 'startScan').length,
+          greaterThan(2));
+      expect(result.done, isEmpty,
+          reason: 'refreshing is invisible to the consumer');
+      expect(result.errors, isEmpty);
     });
   });
 

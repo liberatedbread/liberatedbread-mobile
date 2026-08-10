@@ -81,8 +81,18 @@ abstract class BleService {
   Future<bool> requestPermissions();
 
   /// Scan for nearby BLE devices.
+  ///
+  /// A null [timeout] scans continuously: the stream stays open, and keeps
+  /// reporting, until the consumer cancels it or [stopScan] is called. That is
+  /// what the scan screen uses — discovery is not an event with an end, it is a
+  /// picture of what is on air, and a device that only powers on a minute after
+  /// the user opened the app should still appear. A non-null timeout keeps the
+  /// old one-shot behaviour, where the stream closes when the window ends.
+  ///
+  /// Devices are re-reported as they keep advertising, so a consumer can tell a
+  /// device still on air from one that has gone quiet — see [IoTDevice.lastSeen].
   Stream<IoTDevice> scan({
-    Duration timeout =
+    Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
   });
 
