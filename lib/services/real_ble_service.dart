@@ -1,6 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -75,13 +75,22 @@ UserFacingException? adapterStateError(BluetoothAdapterState state) {
 /// completion (`active == null`). If a newer `scan()` has installed a different
 /// subscription, `active` points at it and we must NOT stop its native scan.
 ///
+/// A null [own] means this scan has ALREADY been torn down — its own teardown
+/// nulled the field, and that teardown is where the native scan's fate was
+/// decided. Closing the stream afterwards cancels the last subscription and
+/// brings us back here, and stopping the radio at that point would reach past
+/// this scan's lifetime into whatever is running now. That is not theoretical:
+/// superseding a scan closes the old stream milliseconds before the new one
+/// calls startScan, and the late stop landed on the new scan, which then found
+/// nothing at all.
+///
 /// Extracted as a pure top-level function so the re-entrancy guard can be
 /// unit-tested without a real Bluetooth adapter.
 bool shouldStopNativeScanOnCancel({
   required Object? active,
   required Object? own,
 }) =>
-    active == null || identical(active, own);
+    own != null && (active == null || identical(active, own));
 
 /// Delay before retrying a service discovery that returned zero services, or
 /// null when [attempt] retries have already happened and the empty result
@@ -212,15 +221,36 @@ bool useWriteWithoutResponse({
 }) =>
     !canWriteWithResponse && canWriteWithoutResponse;
 
+/// How long an unchanged advertisement may go unreported before the coalescer
+/// re-emits it anyway.
+///
+/// Without this, a device whose advertisement never changes — same name, same
+/// service UUIDs, and an rssi that quantises to the same dBm reading twice in a
+/// row — would be reported once and never again, and the consumer would have no
+/// way to tell it apart from one that had been switched off. The heartbeat puts
+/// a ceiling on how out-of-date [IoTDevice.lastSeen] can be for a device that is
+/// still on air; it is well under `DeviceManager.staleAfter` so a live device
+/// never drifts into the warning state on the strength of a quiet advertisement.
+const Duration scanHeartbeat = Duration(seconds: 5);
+
 /// Per-scan coalescing of flutter_blue_plus scan batches.
 ///
 /// fbp's `scanResults` stream carries the FULL accumulated result list on
 /// every event, so forwarding each batch verbatim would re-emit every known
 /// device on every advertisement — constantly refreshing `discoveredAt` and
 /// flooding the consumer. [next] returns an [IoTDevice] only when the device
-/// is new to this scan or something about it changed (so rssi updates still
-/// flow to the DeviceManager), preserving the first-seen `discoveredAt`
-/// for known ids; it returns null for an unchanged entry.
+/// is new to this scan, when something about it changed (so rssi updates still
+/// flow to the DeviceManager), or when [scanHeartbeat] has passed since it was
+/// last reported; it returns null for an unchanged entry inside that window.
+/// The first-seen `discoveredAt` is preserved for known ids, while `lastSeen`
+/// advances with each sighting.
+///
+/// `seenAt` is the advertisement's own timestamp, not the wall clock at the
+/// moment we process the batch. The difference is load-bearing: fbp re-pushes
+/// its whole accumulated list on every batch, including devices that have since
+/// gone silent, and those entries keep their ORIGINAL timestamp. Reading the
+/// clock here would refresh a dead device's `lastSeen` every time a live one
+/// advertised.
 ///
 /// Extracted as a pure class so the coalescing rules can be unit-tested
 /// without a real Bluetooth adapter.
@@ -237,7 +267,9 @@ class ScanResultCoalescer {
     required bool isConnectable,
     List<String> serviceUuids = const [],
     List<int> companyIds = const [],
+    DateTime? seenAt,
   }) {
+    final at = seenAt ?? DateTime.now();
     final prev = _emitted[id];
     // Reject before constructing: this runs for every device in every
     // advertisement batch, and the common case is "nothing changed". The field
@@ -247,7 +279,8 @@ class ScanResultCoalescer {
         prev.isConnectable == isConnectable &&
         prev.name == name &&
         listEquals(prev.serviceUuids, serviceUuids) &&
-        listEquals(prev.companyIds, companyIds)) {
+        listEquals(prev.companyIds, companyIds) &&
+        at.difference(prev.lastSeen) < scanHeartbeat) {
       return null;
     }
     final device = IoTDevice(
@@ -255,7 +288,8 @@ class ScanResultCoalescer {
       name: name,
       rssi: rssi,
       isConnectable: isConnectable,
-      discoveredAt: prev?.discoveredAt ?? DateTime.now(),
+      discoveredAt: prev?.discoveredAt ?? at,
+      lastSeen: at,
       serviceUuids: serviceUuids,
       companyIds: companyIds,
     );
@@ -270,10 +304,39 @@ class ScanResultCoalescer {
 /// would stretch "signal lost" to ~45 seconds of stale-looking-live data.
 const int rssiReadTimeoutSeconds = 3;
 
+/// Report one advertisement in this many, per device.
+///
+/// Continuous scanning asks the platform for EVERY advertisement (that is what
+/// `continuousUpdates` means: allowDuplicates on Apple platforms, no
+/// same-payload suppression on Android), and a chatty peripheral emits ten a
+/// second. Every one of those crosses the platform channel, so halving them
+/// halves the cost of a scan that now runs for as long as the screen is open.
+/// Two, not ten: the divisor also decides how quickly a device's last-seen
+/// stamp refreshes, and a slow advertiser must still stay comfortably inside
+/// the stale threshold.
+const int continuousScanDivisor = 2;
+
+/// How often a continuous scan restarts the underlying platform scan.
+///
+/// Android converts a scan that has been running for 30 minutes into an
+/// opportunistic one — it keeps the callback registered but stops driving the
+/// radio, so the app silently goes deaf while still believing it is scanning.
+/// Restarting well inside that window keeps a long-lived scan real. Every
+/// platform takes the same treatment: a restart is cheap, and one code path is
+/// worth more here than shaving a stop/start off iOS every quarter of an hour.
+/// Results are NOT lost across it — the coalescer's state, and the caller's
+/// device list, both outlive the platform scan.
+const Duration continuousScanRefresh = Duration(minutes: 15);
+
 /// Real BLE implementation using flutter_blue_plus.
 class RealBleService implements BleService {
   StreamSubscription<List<ScanResult>>? _scanSubscription;
   final Map<String, List<BluetoothService>> _servicesCache = {};
+
+  /// Overridable so a test can watch the refresh happen without waiting a
+  /// quarter of an hour for it.
+  @visibleForTesting
+  Duration continuousScanRefreshInterval = continuousScanRefresh;
 
   @override
   Future<bool> requestPermissions() async {
@@ -312,7 +375,7 @@ class RealBleService implements BleService {
 
   @override
   Stream<IoTDevice> scan({
-    Duration timeout =
+    Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
   }) {
     final controller = StreamController<IoTDevice>();
@@ -321,12 +384,26 @@ class RealBleService implements BleService {
     // relying solely on the shared _scanSubscription field) so a concurrent
     // scan() call can't orphan or cancel the wrong subscription.
     StreamSubscription<List<ScanResult>>? sub;
+    // Keeps a continuous scan off Android's 30-minute opportunistic cliff;
+    // null for a bounded scan, which ends long before that matters.
+    Timer? refresh;
+    // Watches for the radio going away under a continuous scan (see below);
+    // null for a bounded scan, whose adapter check at the top is enough.
+    StreamSubscription<BluetoothAdapterState>? adapterSub;
 
     Future<void> closeIfOpen() async {
       if (!controller.isClosed) await controller.close();
     }
 
     Future<void> cancelSub() async {
+      refresh?.cancel();
+      refresh = null;
+      try {
+        await adapterSub?.cancel();
+      } catch (_) {
+        // Ignore, for the same reason as the scan subscription below.
+      }
+      adapterSub = null;
       try {
         await sub?.cancel();
       } catch (_) {
@@ -337,8 +414,18 @@ class RealBleService implements BleService {
       // a newer scan() may have replaced it.
       if (identical(_scanSubscription, sub)) {
         _scanSubscription = null;
+        _endActiveScan = null;
       }
       sub = null;
+    }
+
+    // Ends this scan from outside — what [stopScan] calls. A bounded scan
+    // discovers the stop for itself, by waiting on `isScanning`; a continuous
+    // one has nothing to wait on, so without this its stream would stay open
+    // (and its refresh timer armed) after the caller asked it to stop.
+    Future<void> endScan() async {
+      await cancelSub();
+      await closeIfOpen();
     }
 
     () async {
@@ -374,9 +461,15 @@ class RealBleService implements BleService {
         final previous = _scanSubscription;
         if (previous != null) {
           Log.ble.debug('tearing down the previous scan before restarting');
+          final endPrevious = _endActiveScan;
           _scanSubscription = null;
+          _endActiveScan = null;
           await previous.cancel();
           await FlutterBluePlus.stopScan();
+          // Close the superseded scan's stream as well: a continuous one has
+          // no window to run out, so its consumer would otherwise sit on a
+          // stream that can never produce anything again.
+          if (endPrevious != null) await endPrevious();
         }
 
         // scanResults re-emits its latest list to every new listener, so our
@@ -406,6 +499,11 @@ class RealBleService implements BleService {
                 // several records; the payloads are not read here, only who
                 // they claim to be from.
                 companyIds: advertisement.manufacturerData.keys.toList(),
+                // When the advertisement was heard, not when this batch was
+                // processed — fbp re-pushes silent devices in every batch with
+                // their original timestamp, and that is exactly the signal a
+                // consumer needs to notice one has gone quiet.
+                seenAt: result.timeStamp,
               );
               if (device != null) controller.add(device);
             }
@@ -416,9 +514,54 @@ class RealBleService implements BleService {
           },
         );
         _scanSubscription = sub;
+        _endActiveScan = endScan;
 
-        await FlutterBluePlus.startScan(timeout: timeout);
-        Log.ble.info('scan started (timeout ${timeout.inSeconds}s)');
+        // continuousUpdates, on every scan: without it Android drops
+        // same-payload advertisements and Apple platforms coalesce duplicates,
+        // so a device would be reported once and then never again — leaving no
+        // way to tell "still here, still broadcasting" from "switched off ten
+        // minutes ago". That distinction is the whole point of `lastSeen`, and
+        // it is what a scan that never ends needs in order to stay truthful.
+        // The divisor keeps the resulting firehose affordable.
+        Future<void> startNative() => FlutterBluePlus.startScan(
+              timeout: timeout,
+              continuousUpdates: true,
+              continuousDivisor: continuousScanDivisor,
+            );
+
+        await startNative();
+        Log.ble.info('scan started '
+            '(${timeout == null ? 'continuous' : '${timeout.inSeconds}s'})');
+
+        if (timeout == null) {
+          // A continuous scan has no end of its own: it runs until the consumer
+          // cancels, until stopScan() is called, or until the radio goes away.
+          // The first two tear this down from outside; the third is what the
+          // adapter watch below is for. A bounded scan can get away without it
+          // — its window ends in a few seconds regardless — but a scan that is
+          // meant to run all session has to notice when Bluetooth is switched
+          // off underneath it, or the screen sits there claiming to be
+          // searching while the radio is dark.
+          adapterSub = FlutterBluePlus.adapterState.listen((state) {
+            final error = adapterStateError(state);
+            if (error == null) return;
+            Log.ble.warning('continuous scan ended: adapter state is '
+                '${state.name}');
+            controller.addError(error);
+            unawaited(endScan());
+          });
+          // Keeps the platform scan real — see [continuousScanRefresh].
+          refresh = Timer.periodic(continuousScanRefreshInterval, (_) {
+            Log.ble.debug('refreshing the continuous scan');
+            unawaited(startNative().catchError((Object e) {
+              // A failed refresh is not fatal: the previous scan may still be
+              // running, and erroring the stream here would empty a list the
+              // user is looking at. Logged, and left to the next tick.
+              Log.ble.warning('continuous scan refresh failed', error: e);
+            }));
+          });
+          return;
+        }
 
         // startScan resolves once scanning has STARTED (its `timeout` only
         // arms a stop timer), so wait for the actual stop before tearing the
@@ -477,9 +620,23 @@ class RealBleService implements BleService {
   Future<void> stopScan() async {
     Log.ble.info('scan stopped by request');
     await FlutterBluePlus.stopScan();
+    final end = _endActiveScan;
+    _endActiveScan = null;
+    if (end != null) {
+      // Closes the active scan's stream too, so a continuous scan's consumer
+      // learns it has ended instead of waiting on a stream nothing will ever
+      // feed again.
+      await end();
+      return;
+    }
     await _scanSubscription?.cancel();
     _scanSubscription = null;
   }
+
+  /// Tears down whichever scan owns [_scanSubscription], stream and all.
+  /// Registered by [scan] and invoked by [stopScan]; null when no scan is
+  /// running.
+  Future<void> Function()? _endActiveScan;
 
   @override
   Future<void> connect(String deviceId) async {

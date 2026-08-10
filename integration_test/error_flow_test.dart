@@ -30,7 +30,7 @@ class _FailingBleService implements BleService {
       throw const _ConnectFailure('mock rssi failure');
 
   @override
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) =>
+  Stream<IoTDevice> scan({Duration? timeout = const Duration(seconds: 10)}) =>
       const Stream.empty();
 
   @override

@@ -26,6 +26,42 @@ heading.
 
 ### Changed
 
+- **The BLE scan runs by itself, and keeps running.** Discovery was a button
+  press with a 30-second window: whatever was advertising during those seconds
+  was the answer, and a device powered on a minute later never appeared unless
+  someone pressed Scan again. The Nearby tab now scans from the moment it opens
+  until it is told to stop — `BleService.scan(timeout: null)` keeps the stream
+  open — so a device that wakes up, is walked into the room, or is plugged in
+  while the app is watching simply turns up.
+
+  The scan asks the platform for `continuousUpdates`, which is what makes the
+  rest of this possible: without it Android suppresses same-payload
+  advertisements and Apple platforms coalesce duplicates, so a device is
+  reported once and there is no way to tell "still here" from "switched off an
+  hour ago". A divisor of 2 halves the resulting traffic, the coalescer only
+  passes on a change or a five-second heartbeat, and the list repaints at most
+  every 400ms — except for a newly-found device, which repaints at once.
+
+  Three things follow from a scan that never ends: it stops while the app is in
+  the background (where the OS would not deliver results anyway) and resumes on
+  return, including out of the "Bluetooth is turned off" state someone has just
+  left the app to fix; it restarts the platform scan every 15 minutes, because
+  Android silently converts a 30-minute-old scan into an opportunistic one; and
+  it notices the radio being switched off underneath it rather than sitting
+  there claiming to search. The FAB is now a Stop button, and a scan stopped
+  from it stays stopped.
+
+- **Devices that have gone quiet are flagged instead of quietly disappearing.**
+  A row used to be dropped after sitting out two scan windows, which meant a
+  device that had been unplugged looked exactly like one that had never been
+  found — the row was simply gone. Every device now carries `lastSeen` (the
+  advertisement's own timestamp, so a silent device is not refreshed by a
+  neighbour's traffic), and silence is read in two stages: past 40 seconds the
+  row gets a warning glyph, says how long it has been quiet, drops its signal
+  meter — that reading is a memory, not a measurement — and sinks below the
+  devices still being heard; past five minutes it is dropped, since by then a
+  tap on it can only end in a connect timeout.
+
 - **Image upload is a generic pipeline now, not a SmartDawn one.** Seven
   devices in the catalogue declare an `image_upload` feature across six
   handlers and five pixel formats, and the app drove one — with the pipeline
