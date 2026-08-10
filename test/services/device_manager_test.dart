@@ -10,13 +10,23 @@ void main() {
     manager = DeviceManager();
   });
 
-  IoTDevice makeDevice({String id = 'AA:BB:CC:DD:EE:FF', int rssi = -50}) {
+  /// A fixed instant to age devices against, so nothing here depends on how
+  /// long the test itself took.
+  final now = DateTime(2026, 8, 10, 12);
+
+  IoTDevice makeDevice({
+    String id = 'AA:BB:CC:DD:EE:FF',
+    int rssi = -50,
+    Duration ago = Duration.zero,
+  }) {
     return IoTDevice(
-        id: id,
-        name: 'Test',
-        rssi: rssi,
-        isConnectable: true,
-        discoveredAt: DateTime.now());
+      id: id,
+      name: 'Test',
+      rssi: rssi,
+      isConnectable: true,
+      discoveredAt: now.subtract(ago),
+      lastSeen: now.subtract(ago),
+    );
   }
 
   group('DeviceManager', () {
@@ -56,49 +66,74 @@ void main() {
     });
   });
 
-  group('ghost expiry across scans', () {
-    /// One full scan window in which only [seen] advertise.
-    void scanWith(List<String> seen) {
-      manager.beginScan();
-      for (final id in seen) {
-        manager.addOrUpdate(makeDevice(id: id));
-      }
-      manager.completeScan();
-    }
-
-    test('a device missing one scan survives — advertising is lossy', () {
-      scanWith(['keeper', 'flaky']);
-      scanWith(['keeper']);
-      expect(manager.getById('flaky'), isNotNull,
-          reason: 'one missed window must not evict a live device');
+  group('freshness', () {
+    test('a device just heard from is neither stale nor gone', () {
+      final device = makeDevice();
+      expect(DeviceManager.isStale(device, now), isFalse);
+      expect(DeviceManager.isGone(device, now), isFalse);
     });
 
-    test('a device missing two consecutive scans is dropped', () {
-      scanWith(['keeper', 'ghost']);
-      scanWith(['keeper']);
-      scanWith(['keeper']);
+    test('a device quiet for less than the threshold is still live', () {
+      // BLE advertising is lossy and sleepy sensors are slow; a short silence
+      // must not put a warning on a device that is plainly still there.
+      final device = makeDevice(ago: DeviceManager.staleAfter * 0.5);
+      expect(DeviceManager.isStale(device, now), isFalse);
+    });
+
+    test('a device quiet past the threshold is stale but kept', () {
+      final device = makeDevice(ago: DeviceManager.staleAfter);
+      manager.addOrUpdate(device);
+
+      expect(DeviceManager.isStale(device, now), isTrue);
+      expect(DeviceManager.isGone(device, now), isFalse);
+      expect(manager.forgetGone(now), isFalse);
+      expect(manager.getById(device.id), isNotNull,
+          reason: 'a warning, not an eviction: it is probably still there');
+    });
+
+    test('a device quiet past forgetAfter is dropped', () {
+      manager
+          .addOrUpdate(makeDevice(id: 'ghost', ago: DeviceManager.forgetAfter));
+      manager.addOrUpdate(makeDevice(id: 'keeper'));
+
+      expect(manager.forgetGone(now), isTrue);
       expect(manager.getById('ghost'), isNull,
-          reason: 'two full windows with no advertisement is a ghost');
+          reason: 'a tap on it could only end in a connect timeout');
       expect(manager.getById('keeper'), isNotNull);
     });
 
-    test('reappearing resets the miss count', () {
-      scanWith(['blinky']);
-      scanWith([]); // miss 1
-      scanWith(['blinky']); // back — slate wiped
-      scanWith([]); // miss 1 again, not 2
-      expect(manager.getById('blinky'), isNotNull);
-      scanWith([]); // miss 2
-      expect(manager.getById('blinky'), isNull);
+    test('forgetGone reports nothing to do when everything is fresh', () {
+      manager.addOrUpdate(makeDevice(id: '1'));
+      manager.addOrUpdate(makeDevice(id: '2'));
+      // The scan screen repaints on true, so a tick that changed nothing must
+      // not claim it did.
+      expect(manager.forgetGone(now), isFalse);
+      expect(manager.count, 2);
     });
 
-    test('an aborted scan charges no misses', () {
-      scanWith(['keeper', 'ghost']);
-      // Two scans start but never complete (error / user navigated away):
-      // nothing learned, nothing dropped.
-      manager.beginScan();
-      manager.beginScan();
-      expect(manager.getById('ghost'), isNotNull);
+    test('being heard again clears the warning', () {
+      manager
+          .addOrUpdate(makeDevice(id: 'blinky', ago: DeviceManager.staleAfter));
+      expect(manager.staleIds(now), {'blinky'});
+
+      manager.addOrUpdate(makeDevice(id: 'blinky'));
+      expect(manager.staleIds(now), isEmpty);
+    });
+
+    test('staleIds names exactly the devices past the threshold', () {
+      manager.addOrUpdate(makeDevice(id: 'live'));
+      manager
+          .addOrUpdate(makeDevice(id: 'quiet', ago: DeviceManager.staleAfter));
+      manager.addOrUpdate(
+          makeDevice(id: 'quieter', ago: DeviceManager.staleAfter * 2));
+
+      expect(manager.staleIds(now), {'quiet', 'quieter'});
+    });
+
+    test('the stale threshold sits well inside the forget one', () {
+      // The two exist to say different things; collapsing them would mean a
+      // device vanishing the moment it was flagged, with nothing to notice.
+      expect(DeviceManager.staleAfter, lessThan(DeviceManager.forgetAfter));
     });
   });
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -9,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 import '../core/device_category.dart';
 import '../core/error_text.dart';
+import '../core/value_format.dart' show shortAge;
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
@@ -29,13 +31,37 @@ class ScanScreen extends ConsumerStatefulWidget {
   ConsumerState<ScanScreen> createState() => _ScanScreenState();
 }
 
-class _ScanScreenState extends ConsumerState<ScanScreen> {
+/// How often the screen re-examines how long ago each device was last heard.
+///
+/// Only a clock tick: nothing arrives on this interval, it exists so a row
+/// crossing the stale threshold updates without waiting for the next
+/// advertisement — which, for a device that has just been switched off, is
+/// never.
+const Duration _ageTick = Duration(seconds: 5);
+
+/// Longest the list waits before repainting for changed values.
+///
+/// A continuous scan asks the platform for every advertisement, so a busy room
+/// can deliver dozens of rssi updates a second — each one worth a pixel or two
+/// of signal meter and not worth a rebuild. New devices are exempt: those
+/// repaint immediately, because appearing half a second late is the one thing
+/// a scan screen must not do.
+const Duration _repaintInterval = Duration(milliseconds: 400);
+
+class _ScanScreenState extends ConsumerState<ScanScreen>
+    with WidgetsBindingObserver {
   final DeviceManager _deviceManager = DeviceManager();
   bool _isScanning = false;
-  // True once at least one scan has completed (successfully or with an error).
+  // True once at least one scan has run (successfully or with an error).
   // Distinguishes the "never scanned" prompt from the "scanned, found nothing"
   // dead-end.
   bool _hasScanned = false;
+  // Set when the user stopped the scan from the FAB. Kept apart from
+  // _isScanning because it is what decides whether returning from a device
+  // screen — or from the background — resumes scanning: an app that quietly
+  // restarted the radio someone had just turned off would be worse than one
+  // that never scanned by itself at all.
+  bool _pausedByUser = false;
   String? _error;
   // Set when scanning failed because BLE permissions were denied; drives a
   // permission-specific state with an open-settings recovery path.
@@ -44,14 +70,58 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   // Owned scan subscription so a device tap (or dispose) can cancel the active
   // scan instead of leaving it running behind the pushed route.
   StreamSubscription<IoTDevice>? _scanSub;
+  // Clock tick for ageing devices, and the pending coalesced repaint. Both are
+  // cancelled in dispose.
+  Timer? _ageTicker;
+  Timer? _repaint;
+  // Which rows were stale as of the last repaint, so a tick can tell a change
+  // worth drawing from one where nothing moved.
+  Set<String> _staleIds = const {};
 
   @override
   void initState() {
     super.initState();
     _bleService = ref.read(bleServiceProvider);
+    WidgetsBinding.instance.addObserver(this);
+    // Scan on arrival, and keep scanning. Discovery is not a thing the user
+    // should have to ask for: BLE devices appear when they are powered on,
+    // walked into the room, or woken from sleep, and a screen that only looks
+    // when a button is pressed shows a snapshot of the moment someone last
+    // pressed it. The FAB stays, as a way to stop.
+    _ageTicker = Timer.periodic(_ageTick, (_) => _ageDevices());
+    unawaited(_startScan());
+  }
+
+  /// Stop scanning while the app is in the background, resume when it returns.
+  ///
+  /// Not a nicety: a continuous BLE scan is the single most expensive thing
+  /// this app does, Android throttles background scans anyway, and iOS stops
+  /// delivering them to an app without the bluetooth-central background mode.
+  /// So a scan left running while the app is away burns battery for results
+  /// that will not arrive.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    switch (state) {
+      case AppLifecycleState.resumed:
+        // Including out of an error state: the usual reason someone leaves
+        // this screen after "Bluetooth is turned off" is to go and turn it on,
+        // and coming back to the same dead screen with a Retry button on it
+        // would be a poor reward for having done what it asked.
+        if (!_pausedByUser && !_isScanning) unawaited(_startScan());
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
+        if (_isScanning) unawaited(_stopScan(byUser: false));
+      // Transient — a notification shade or an incoming call. Stopping the
+      // scan here would restart it seconds later for nothing.
+      case AppLifecycleState.inactive:
+        break;
+    }
   }
 
   Future<void> _startScan() async {
+    if (!mounted) return;
     // Tear down any in-flight scan before starting a new one. Cancel is
     // fire-and-forget: it synchronously stops delivery, and awaiting the
     // teardown future can stall inside the widget-test fake zone.
@@ -60,23 +130,29 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
     setState(() {
       _isScanning = true;
+      _pausedByUser = false;
       _error = null;
       _permissionDenied = false;
-      // Keep previously-discovered devices across rescans: a device that
-      // advertised in an earlier pass but missed this one (BLE advertising is
-      // lossy) should stay in the list rather than vanish. But not forever —
-      // beginScan/completeScan track misses, and a device that sits out two
-      // full completed scans is a ghost (powered off or gone) whose only
-      // affordance is a tap into a connect timeout, so it is dropped.
-      _deviceManager.beginScan();
+      // Devices found so far are kept. They age out on their own now (see
+      // DeviceManager.forgetAfter), so a restart — a retry, a return from the
+      // background, a resume after a connect — no longer has to choose between
+      // dropping everything and keeping it forever.
     });
 
-    _scanSub = _bleService.scan().listen(
+    // A null timeout scans until we stop: the point is to keep listening, so a
+    // device powered on two minutes from now still shows up.
+    _scanSub = _bleService.scan(timeout: null).listen(
       (device) {
         if (!mounted) return;
-        setState(() {
-          _deviceManager.addOrUpdate(device);
-        });
+        final isNew = _deviceManager.getById(device.id) == null;
+        _deviceManager.addOrUpdate(device);
+        // A new device is worth a frame of its own; an rssi tick on a known
+        // one can wait for the next coalesced repaint.
+        if (isNew) {
+          _repaintNow();
+        } else {
+          _scheduleRepaint();
+        }
       },
       onError: (Object e) {
         if (!mounted) return;
@@ -101,33 +177,76 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         setState(() {
           _isScanning = false;
           _hasScanned = true;
-          // Only a scan that ran its course gets to judge who is missing —
-          // an errored scan (the handler above) proves nothing about who is
-          // still advertising, so it never charges a miss.
-          _deviceManager.completeScan();
         });
       },
       cancelOnError: true,
     );
   }
 
+  /// Stop the scan. [byUser] separates "they pressed stop" from the automatic
+  /// stops (backgrounding, opening a device) that should resume by themselves.
+  Future<void> _stopScan({required bool byUser}) async {
+    unawaited(_scanSub?.cancel());
+    _scanSub = null;
+    if (mounted) {
+      setState(() {
+        _isScanning = false;
+        if (byUser) {
+          _pausedByUser = true;
+          _hasScanned = true;
+        }
+      });
+    }
+    await _bleService.stopScan().catchError((Object _) {});
+  }
+
+  /// Repaint at most every [_repaintInterval], for changes that are not worth
+  /// a frame of their own.
+  void _scheduleRepaint() {
+    _repaint ??= Timer(_repaintInterval, () {
+      _repaint = null;
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _repaintNow() {
+    _repaint?.cancel();
+    _repaint = null;
+    setState(() {});
+  }
+
+  /// Re-examine freshness: drop what has been silent too long, and repaint if
+  /// any row's stale/live classification changed.
+  void _ageDevices() {
+    if (!mounted) return;
+    final now = DateTime.now();
+    final dropped = _deviceManager.forgetGone(now);
+    final stale = _deviceManager.staleIds(now);
+    if (!dropped && setEquals(stale, _staleIds)) return;
+    setState(() => _staleIds = stale);
+  }
+
   /// Stop the active scan, then navigate to the device screen (which owns the
   /// connect). Stopping first keeps the native scan from running behind the
   /// pushed route, which otherwise makes connections flaky.
   Future<void> _connect(IoTDevice device) async {
-    unawaited(_scanSub?.cancel());
-    _scanSub = null;
-    await _bleService.stopScan().catchError((Object _) {});
+    await _stopScan(byUser: false);
     if (!mounted) return;
-    setState(() => _isScanning = false);
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => DeviceScreen(device: device)),
     );
+    // Back on the list: pick the scan up again, unless the user had stopped it
+    // before tapping through.
+    if (!mounted || _pausedByUser) return;
+    unawaited(_startScan());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _ageTicker?.cancel();
+    _repaint?.cancel();
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
     // catchError to keep a throw during teardown from surfacing as an
     // unhandled async error.
@@ -174,7 +293,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
         // nit: it throws out of the hero controller the moment any route is
         // pushed, which is every tap on a device.
         heroTag: 'scan-fab',
-        onPressed: _isScanning ? null : _startScan,
+        // A stop, not a start. The scan runs itself now, so the useful control
+        // is the one that turns it off — for battery, or to freeze a list that
+        // keeps re-sorting under a finger. A disabled button that says
+        // "Scanning..." would be chrome reporting a state the radar already
+        // shows.
+        tooltip: _isScanning ? 'Stop scanning' : 'Scan for devices',
+        onPressed: () => _isScanning ? _stopScan(byUser: true) : _startScan(),
         icon: _isScanning
             ? SizedBox(
                 width: 18,
@@ -189,7 +314,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
                 ),
               )
             : const Icon(Icons.search),
-        label: Text(_isScanning ? 'Scanning...' : 'Scan'),
+        label: Text(_isScanning ? 'Stop' : 'Scan'),
       ),
     );
   }
@@ -199,11 +324,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   String get _headline {
     if (_permissionDenied) return 'Bluetooth permission needed';
     if (_error != null) return 'Scan failed';
-    if (_isScanning) return 'Searching for devices...';
     if (_deviceManager.count > 0) {
       final n = _deviceManager.count;
       return '$n device${n == 1 ? '' : 's'} found';
     }
+    if (_isScanning) return 'Searching for devices...';
     if (_hasScanned) return 'No devices found';
     return 'Scan for BLE Devices';
   }
@@ -214,8 +339,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
           'access so the app can scan for devices.';
     }
     if (_error != null) return _error!;
+    if (_deviceManager.count > 0) {
+      // Says the quiet part: the list is live, so a row appearing or picking
+      // up a warning a minute from now is the screen working, not a glitch.
+      return _isScanning
+          ? 'Tap a device to connect. Still scanning for more.'
+          : 'Tap a device to connect. Scanning stopped.';
+    }
     if (_isScanning) return 'Make sure your device is powered on and nearby.';
-    if (_deviceManager.count > 0) return 'Tap a device to connect.';
     if (_hasScanned) {
       return 'Move closer or check the device is powered on, then scan again.';
     }
@@ -223,14 +354,28 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   }
 
   /// One row in either found-devices group.
-  Widget _deviceCard(RankedDevice entry, DeviceDescription description) {
+  Widget _deviceCard(
+    RankedDevice entry,
+    DeviceDescription description,
+    DateTime now,
+  ) {
     final device = entry.device;
+    final stale = DeviceManager.isStale(device, now);
+    final age = shortAge(device.ageAt(now));
     return DeviceListTile(
       title: deviceTitle(device, description),
-      subtitle:
-          device.isConnectable ? _signalLabel(device.rssi) : 'Not connectable',
-      detail: '${device.rssi} dBm',
+      // A stale row's signal reading is history, so it stops claiming one and
+      // says how long the device has been quiet instead.
+      subtitle: stale
+          ? 'Not seen for $age'
+          : (device.isConnectable
+              ? _signalLabel(device.rssi)
+              : 'Not connectable'),
+      detail: stale ? 'last ${device.rssi} dBm' : '${device.rssi} dBm',
       rssi: device.rssi,
+      stale: stale,
+      staleReason: 'No advertisement for $age — the device may be out of '
+          'range or powered off',
       icon: entry.guess?.iconOr(unknownDeviceIcon) ?? unknownDeviceIcon,
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
@@ -252,6 +397,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   Widget _buildBody() {
     final registry = ref.watch(numberRegistryProvider);
     final found = _deviceManager.devices;
+    // One instant for the whole pass, so every row is classified against the
+    // same clock and the ordering below agrees with the badges above it.
+    final now = DateTime.now();
     // Each device gets its own matching future, keyed on its identity rather
     // than its id — an rssi tick reuses the cached result instead of asking
     // again. A guess that has not resolved yet reads as "no guess", so a row
@@ -261,6 +409,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
       found,
       (device) =>
           ref.watch(scanGuessProvider(ScanIdentity.of(device))).valueOrNull,
+      isStale: (device) => DeviceManager.isStale(device, now),
     );
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
@@ -354,7 +503,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             ),
             const SizedBox(height: 12),
             for (final entry in ranked.likelySupported) ...[
-              _deviceCard(entry, describeWith(registry, entry.device)),
+              _deviceCard(entry, describeWith(registry, entry.device), now),
               const SizedBox(height: 10),
             ],
           ],
@@ -368,7 +517,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
             ),
             const SizedBox(height: 12),
             for (final entry in ranked.other) ...[
-              _deviceCard(entry, describeWith(registry, entry.device)),
+              _deviceCard(entry, describeWith(registry, entry.device), now),
               const SizedBox(height: 10),
             ],
           ],

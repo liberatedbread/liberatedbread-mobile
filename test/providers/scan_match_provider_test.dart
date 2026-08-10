@@ -337,6 +337,46 @@ void main() {
       expect(ranked.likelySupported.map((r) => r.device.id), ['near', 'far']);
     });
 
+    test('a device that has gone quiet sinks below the ones still heard', () {
+      // Its signal reading is a memory: at -30 it would otherwise head the
+      // list, above every device the scan can actually still hear.
+      final quietButLoud = _device(id: 'quiet', rssi: -30);
+      final liveButFaint = _device(id: 'live', rssi: -85);
+
+      final ranked = rankScannedDevices(
+        [quietButLoud, liveButFaint],
+        (_) => null,
+        isStale: (d) => d.id == 'quiet',
+      );
+
+      expect(ranked.other.map((r) => r.device.id), ['live', 'quiet']);
+    });
+
+    test('staleness only breaks ties inside a confidence tier', () {
+      // A recognised device that went quiet is still the recognised one; it
+      // does not fall out of the group it earned.
+      final staleMatch = _device(id: 'match', rssi: -80);
+      final liveUnknown = _device(id: 'unknown', rssi: -40);
+
+      final ranked = rankScannedDevices(
+        [liveUnknown, staleMatch],
+        (d) => d.id == 'match' ? g(MatchConfidence.strong) : null,
+        isStale: (d) => d.id == 'match',
+      );
+
+      expect(ranked.likelySupported.map((r) => r.device.id), ['match']);
+      expect(ranked.other.map((r) => r.device.id), ['unknown']);
+    });
+
+    test('nothing is stale unless the caller says so', () {
+      final a = _device(id: 'a', rssi: -30);
+      final b = _device(id: 'b', rssi: -85);
+
+      final ranked = rankScannedDevices([b, a], (_) => null);
+
+      expect(ranked.other.map((r) => r.device.id), ['a', 'b']);
+    });
+
     test('devices whose match has not resolved yet still list', () {
       // Matching is async; a row must appear immediately and gain its badge
       // later rather than the whole list waiting on the catalogue.

@@ -291,6 +291,74 @@ void main() {
       expect(updated!.name, 'Bulb');
     });
 
+    test('an unchanged device is re-emitted once the heartbeat has passed', () {
+      // The point of the re-emit: a device whose advertisement never changes
+      // would otherwise be reported once and then look, to anything watching
+      // freshness, exactly like one that had been switched off.
+      final start = DateTime(2026, 8, 10, 12);
+      final coalescer = ScanResultCoalescer();
+      final first = coalescer.next(
+          id: 'AA',
+          name: 'Bulb',
+          rssi: -50,
+          isConnectable: true,
+          seenAt: start)!;
+
+      expect(
+        coalescer.next(
+            id: 'AA',
+            name: 'Bulb',
+            rssi: -50,
+            isConnectable: true,
+            seenAt: start.add(scanHeartbeat ~/ 2)),
+        isNull,
+        reason: 'inside the heartbeat, an unchanged repeat is still noise',
+      );
+
+      final beat = coalescer.next(
+          id: 'AA',
+          name: 'Bulb',
+          rssi: -50,
+          isConnectable: true,
+          seenAt: start.add(scanHeartbeat));
+      expect(beat, isNotNull);
+      expect(beat!.lastSeen, start.add(scanHeartbeat));
+      expect(beat.discoveredAt, first.discoveredAt);
+    });
+
+    test('a device that stops advertising keeps its old lastSeen', () {
+      // fbp re-pushes its whole accumulated list on every batch, silent
+      // devices included, each carrying the timestamp of when it was last
+      // actually heard. Reading the clock instead would keep resurrecting a
+      // dead device every time a live one advertised.
+      final start = DateTime(2026, 8, 10, 12);
+      final coalescer = ScanResultCoalescer();
+      coalescer.next(
+          id: 'AA',
+          name: 'Bulb',
+          rssi: -50,
+          isConnectable: true,
+          seenAt: start);
+
+      // Ten minutes of batches later, the silent device's entry is unchanged.
+      expect(
+        coalescer.next(
+            id: 'AA',
+            name: 'Bulb',
+            rssi: -50,
+            isConnectable: true,
+            seenAt: start),
+        isNull,
+      );
+    });
+
+    test('lastSeen defaults to the first-seen time', () {
+      final coalescer = ScanResultCoalescer();
+      final device = coalescer.next(
+          id: 'AA', name: 'Bulb', rssi: -50, isConnectable: true)!;
+      expect(device.lastSeen, device.discoveredAt);
+    });
+
     test('deviceCount counts distinct devices, not advertisements', () {
       // Feeds the "scan finished: N device(s)" log line, so it must count
       // devices rather than the fbp batches they arrived in.
@@ -398,6 +466,15 @@ void main() {
         shouldStopNativeScanOnCancel(active: newerSub, own: ownSub),
         isFalse,
       );
+    });
+
+    test('does NOT stop when this scan was already torn down', () {
+      // Our own teardown nulls `own`, and closing the stream afterwards brings
+      // us back here. The radio's fate was settled during that teardown; a
+      // stop issued now lands on whatever scan is running by then.
+      expect(shouldStopNativeScanOnCancel(active: null, own: null), isFalse);
+      expect(
+          shouldStopNativeScanOnCancel(active: newerSub, own: null), isFalse);
     });
   });
 

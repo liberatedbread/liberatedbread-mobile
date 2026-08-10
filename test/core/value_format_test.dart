@@ -85,4 +85,18 @@ void main() {
       expect(isNumericValueType(t), isFalse, reason: t);
     }
   });
+
+  test('shortAge writes a span at the coarsest useful unit', () {
+    // Seconds matter here: the difference between a device that went quiet
+    // twenty seconds ago and one that went quiet twenty minutes ago is the
+    // difference between a dropped packet and an unplugged device.
+    expect(shortAge(Duration.zero), '0s');
+    expect(shortAge(const Duration(milliseconds: 900)), '0s');
+    expect(shortAge(const Duration(seconds: 45)), '45s');
+    expect(shortAge(const Duration(seconds: 59)), '59s');
+    expect(shortAge(const Duration(minutes: 1)), '1m');
+    expect(shortAge(const Duration(minutes: 59, seconds: 59)), '59m');
+    expect(shortAge(const Duration(hours: 3, minutes: 30)), '3h');
+    expect(shortAge(const Duration(days: 2)), '2d');
+  });
 }

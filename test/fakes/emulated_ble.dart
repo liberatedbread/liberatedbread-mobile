@@ -489,6 +489,13 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   /// native scan, or connected exactly once.
   final List<String> platformCalls = [];
 
+  /// Settings the most recent `startScan` was asked for.
+  ///
+  /// The shape of a scan is as load-bearing as its results: without continuous
+  /// updates a real controller reports each device once and then suppresses it,
+  /// which no amount of listening on this side can undo.
+  BmScanSettings? lastScanSettings;
+
   /// How long the emulated controller takes to answer. Zero keeps tests fast;
   /// raise it to open a window where a request is genuinely in flight.
   Duration latency = Duration.zero;
@@ -546,6 +553,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     await Future<void>.delayed(Duration.zero);
     _peripherals.clear();
     platformCalls.clear();
+    lastScanSettings = null;
     scanError = null;
     latency = Duration.zero;
     _scanning = false;
@@ -763,6 +771,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   @override
   Future<bool> startScan(BmScanSettings request) async {
     platformCalls.add('startScan');
+    lastScanSettings = request;
     _scanning = true;
     final failure = scanError;
     if (failure != null) {
