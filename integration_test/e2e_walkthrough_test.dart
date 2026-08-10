@@ -72,7 +72,10 @@ void main() {
     await _shot(tester, '01_launch_scan_running');
 
     await _soak(tester, const Duration(milliseconds: 600));
-    expect(find.text('Stop'), findsOneWidget);
+    // A running scan offers a small stop button and no start; the radar is
+    // what says "scanning".
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+    expect(find.text('Scan'), findsNothing);
     await _shot(tester, '02_scan_in_progress');
 
     await _soak(tester, const Duration(seconds: 2));
