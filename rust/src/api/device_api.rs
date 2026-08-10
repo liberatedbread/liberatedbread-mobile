@@ -699,7 +699,7 @@ impl From<&Characteristic> for CharacteristicDto {
                 .as_ref()
                 .map(|cmds| {
                     cmds.iter()
-                        .map(|(name, cmd)| CommandDto::from((name.as_str(), cmd)))
+                        .map(|(name, cmd)| CommandDto::from((c, name.as_str(), cmd)))
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -725,9 +725,12 @@ impl From<&FormatField> for FormatFieldDto {
     }
 }
 
-impl From<(&str, &Command)> for CommandDto {
-    fn from((name, cmd): (&str, &Command)) -> Self {
-        let enc = crate::codec::types::unsupported_encoding_kind(cmd);
+/// Built from the characteristic as well as the command: whether a command can
+/// be sent depends on the transform its characteristic declares, not only on
+/// the command's own encoding. See `unsupported_write_kind`.
+impl From<(&Characteristic, &str, &Command)> for CommandDto {
+    fn from((characteristic, name, cmd): (&Characteristic, &str, &Command)) -> Self {
+        let enc = crate::codec::types::unsupported_write_kind(characteristic, cmd);
         Self {
             name: name.to_string(),
             description: cmd.description.clone(),

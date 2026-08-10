@@ -5,7 +5,8 @@
 
 use crate::error::ProtocolError;
 use crate::spec::types::{
-    AutoRole, Command, Endianness, FormatField, Parameter, TemplateElement, ValueType,
+    AutoRole, Characteristic, Command, Endianness, FormatField, Parameter, TemplateElement,
+    ValueType,
 };
 use std::collections::HashMap;
 
@@ -269,6 +270,70 @@ pub(crate) enum TypedParam {
 ///
 /// Single source of truth: `encode_command` rejects on it and `CommandDto`
 /// flags the UI from it, so the encoder and the control can never disagree.
+/// Why this command cannot be sent as raw bytes on THIS characteristic, or
+/// `None` when it can.
+///
+/// [`unsupported_encoding_kind`] answers the same question about the command
+/// alone. That is not enough: a characteristic can declare an `encryption` or
+/// `framing` transform that every payload written to it must pass through, and
+/// this crate executes neither. Seeblue's commands are the case — their
+/// templates are the packet, and the SEEBlue envelope (header, length,
+/// sequence, protocol id, checksum) is the characteristic's job — so writing a
+/// template's bytes straight to the characteristic sends a packet the device
+/// will not answer.
+///
+/// The entity-binding path has always applied this rule. The generic
+/// typed-command path did not, so a spec whose transform lives one level up
+/// reached the UI as an ordinary sendable command.
+pub fn unsupported_write_kind(
+    characteristic: &Characteristic,
+    command: &Command,
+) -> Option<String> {
+    if characteristic.encryption.is_some() {
+        return Some("characteristic encryption".to_string());
+    }
+    if let Some(framing) = characteristic.framing.as_ref() {
+        let scheme = framing
+            .get("scheme")
+            .and_then(|v| v.as_str())
+            .unwrap_or("framing");
+        return Some(format!("characteristic framing ({scheme})"));
+    }
+    // Checked here rather than inside `unsupported_encoding_kind` so the
+    // low-level encoder keeps reporting the precise
+    // `UnsupportedParameterType` for a caller that reaches it directly. This
+    // is the capability question — may the UI offer a Send at all — and the
+    // answer is no.
+    unsupported_parameter_kind(command).or_else(|| unsupported_encoding_kind(command))
+}
+
+/// A template parameter whose declared type the encoder cannot carry.
+///
+/// The FFI passes parameters as `HashMap<String, f64>`, so a `bytes` or
+/// `string` parameter has no representation: `coerce_param` rejects it with
+/// `UnsupportedParameterType`. Without this check a command like Fardriver's
+/// `write_parameter` — whose `data` is 1-26 raw octets — reports itself
+/// encodable, the UI enables Send, and every press fails after the user has
+/// filled in the form.
+///
+/// Only parameters the template actually references count. A spec may declare
+/// a parameter it does not use, and an unused `bytes` definition costs the
+/// command nothing.
+fn unsupported_parameter_kind(command: &Command) -> Option<String> {
+    let template = command.template.as_ref()?;
+    let defs = command.parameters.as_ref()?;
+    for element in template {
+        let TemplateElement::Param(name) = element else {
+            continue;
+        };
+        let def = defs.params.get(name.as_str())?;
+        if !def.value_type.is_encodable_param() {
+            return Some(format!("{} parameter '{name}'", def.value_type));
+        }
+    }
+    None
+}
+
 pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     if command.value.is_some() || command.template.is_some() {
         return None;
