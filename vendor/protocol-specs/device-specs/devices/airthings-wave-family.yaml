@@ -227,7 +227,7 @@ services:
             length: 1
             name: "flags"
             type: "uint8"
-            description: "Bit 0=baseTimePresent, bit 1=datasetIndexPresent, bit 2=timeOffsetPresent, bit 3=sensorStatusPresent, bit 4=noData"
+            notes: "Bit 0=baseTimePresent, bit 1=datasetIndexPresent, bit 2=timeOffsetPresent, bit 3=sensorStatusPresent, bit 4=noData"
 
       - uuid: "b42e24fa-ade7-11e4-89d3-123b93f75cba"
         name: "ASRACP (Air Sensor Read Access Control Point)"
