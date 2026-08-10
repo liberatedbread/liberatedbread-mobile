@@ -232,30 +232,63 @@ void main() {
     // move. They are adjacent ints in the signature, and a transposition
     // compiles.
     //
-    // 40x34 RGB888 at the 20-byte payload floor is two DDP packets, so the
-    // frame index must come back advanced by two — 5 -> 7. Advancing by one
-    // would make the next frame's first packet collide with this frame's
-    // second, which corrupts reassembly on the device. (`writes` is the
-    // FRAGMENT count, which is much larger; it is the packet count that the
-    // serial is drawn from.)
-    final plan = await codec.encodeImageFrame(
+    // A solid 40x34 canvas encodes as ONE TUTU chunk, so frame 0 is exactly
+    // three logical packets: ui_end_sync + doodle_start (the session open)
+    // and the pixel chunk. The frame index must come back advanced by all
+    // three — advancing by one would make the next frame's serials collide
+    // with this frame's and corrupt fragment reassembly on the device.
+    final first = await codec.encodeImageFrame(
       specYaml: display,
       width: 40,
       height: 34,
       rgb: List<int>.filled(40 * 34 * 3, 0xAB),
-      frameIndex: 5,
-      maxPayloadPerWrite: 20,
+      frameIndex: 0,
+      maxPayloadPerWrite: 509,
     );
 
-    expect(plan.nextFrameIndex, 7, reason: 'frameIndex reached the encoder');
-    expect(plan.writes, isNotEmpty);
+    expect(first.nextFrameIndex, 3, reason: 'frameIndex reached the encoder');
+    expect(first.writes, hasLength(3));
+    expect(first.serviceUuid, isNotEmpty);
     expect(
-      plan.writes.every((w) => w.length <= 20),
+      first.writes.every((w) => w.bytes.length <= 509),
       isTrue,
-      reason: 'no BLE write may exceed maxPayloadPerWrite, which is how that '
-          'argument proves it arrived',
+      reason: 'no BLE write may exceed maxPayloadPerWrite',
     );
-    expect(plan.characteristicUuid, isNotEmpty);
+
+    // A later frame skips the session open, streams on the OTHER (bulk)
+    // characteristic, and derives its fragment serial from frameIndex —
+    // which is how that argument proves it arrived.
+    final later = await codec.encodeImageFrame(
+      specYaml: display,
+      width: 40,
+      height: 34,
+      rgb: List<int>.filled(40 * 34 * 3, 0xAB),
+      frameIndex: first.nextFrameIndex,
+      maxPayloadPerWrite: 509,
+    );
+    expect(later.writes, hasLength(1));
+    expect(later.writes.single.bytes[0], first.nextFrameIndex);
+    expect(later.nextFrameIndex, first.nextFrameIndex + 1);
+    expect(
+      later.writes.single.characteristicUuid,
+      isNot(first.writes.first.characteristicUuid),
+      reason: 'pixels go to the bulk channel, not the command channel',
+    );
+
+    // maxPayloadPerWrite is enforced, not advisory: at the 20-byte BLE floor
+    // this canvas's single chunk cannot fit one write, and the device does
+    // not reassemble split chunks, so the encoder must refuse.
+    await expectLater(
+      codec.encodeImageFrame(
+        specYaml: display,
+        width: 40,
+        height: 34,
+        rgb: List<int>.filled(40 * 34 * 3, 0xAB),
+        frameIndex: 5,
+        maxPayloadPerWrite: 20,
+      ),
+      throwsA(anything),
+    );
 
     // And width/height: the encoder rejects a pixel buffer that is not
     // width x height x 3, so a swapped or dropped dimension cannot pass

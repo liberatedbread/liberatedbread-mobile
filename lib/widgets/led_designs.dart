@@ -94,9 +94,11 @@ Uint8List _scaled(
   }
   final out = Uint8List(width * height * 3);
   for (var y = 0; y < height; y++) {
-    final sy = height == 0 ? 0 : (y * srcHeight ~/ height).clamp(0, srcHeight - 1);
+    final sy =
+        height == 0 ? 0 : (y * srcHeight ~/ height).clamp(0, srcHeight - 1);
     for (var x = 0; x < width; x++) {
-      final sx = width == 0 ? 0 : (x * srcWidth ~/ width).clamp(0, srcWidth - 1);
+      final sx =
+          width == 0 ? 0 : (x * srcWidth ~/ width).clamp(0, srcWidth - 1);
       final from = (sy * srcWidth + sx) * 3;
       final to = (y * width + x) * 3;
       out[to] = src[from];

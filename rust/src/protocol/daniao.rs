@@ -106,10 +106,7 @@ fn is_writable(c: &Characteristic) -> bool {
 
 /// Resolve a `daniao_fragment` characteristic from the spec by its channel tag:
 /// the command channel is `channel_tag: 0`; the bulk channel omits it.
-fn resolve_char(
-    spec: &DeviceSpec,
-    want_command_channel: bool,
-) -> Option<(&Characteristic, u8)> {
+fn resolve_char(spec: &DeviceSpec, want_command_channel: bool) -> Option<(&Characteristic, u8)> {
     for service in &spec.services {
         for c in &service.characteristics {
             if !is_writable(c) {
