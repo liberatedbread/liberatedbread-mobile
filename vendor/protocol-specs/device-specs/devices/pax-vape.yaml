@@ -182,7 +182,7 @@ services:
             length: 1
             name: "message_type"
             type: "uint8"
-            description: "Attribute ID: 0x01 = ACTUAL_TEMP, 0x02 = HEATER_SET_POINT, 0x03 = BATTERY, 0x18 = SUPPORTED_ATTRIBUTES (PaxMessageType enum)"
+            notes: "Attribute ID: 0x01 = ACTUAL_TEMP, 0x02 = HEATER_SET_POINT, 0x03 = BATTERY, 0x18 = SUPPORTED_ATTRIBUTES (PaxMessageType enum)"
           - offset: 1
             length: 2
             name: "temperature"
@@ -190,13 +190,13 @@ services:
             endianness: "little"
             scale: 0.1
             unit: "C"
-            description: "Valid when message_type == 0x01 (ACTUAL_TEMP): uint16 LE, value / 10 = degrees C (GenericTemperatureMessage, tristanseifert PaxMessage.swift)"
+            notes: "Valid when message_type == 0x01 (ACTUAL_TEMP): uint16 LE, value / 10 = degrees C (GenericTemperatureMessage, tristanseifert PaxMessage.swift)"
           - offset: 1
             length: 1
             name: "battery"
             type: "uint8"
             unit: "%"
-            description: "Valid when message_type == 0x03 (BATTERY): state of charge 0-100 in one byte (BatteryMessage, tristanseifert PaxMessage.swift)"
+            notes: "Valid when message_type == 0x03 (BATTERY): state of charge 0-100 in one byte (BatteryMessage, tristanseifert PaxMessage.swift)"
 
       - uuid: "8e320202-64d2-11e6-bdf4-0800200c9a66"
         name: "Write Command"

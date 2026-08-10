@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -219,6 +219,12 @@ class CommandDto {
   /// Human-readable encoding name when is_encodable is false.
   final String? unsupportedEncoding;
 
+  /// `sound` | `flash` | `both` when the spec declares this command a
+  /// locator — its whole effect is to make the device noticeable. `None`
+  /// for every other command, including one whose *name* sounds like a
+  /// locator.
+  final String? locate;
+
   const CommandDto({
     required this.name,
     required this.description,
@@ -226,6 +232,7 @@ class CommandDto {
     required this.isFixed,
     required this.isEncodable,
     this.unsupportedEncoding,
+    this.locate,
   });
 
   @override
@@ -235,7 +242,8 @@ class CommandDto {
       parameters.hashCode ^
       isFixed.hashCode ^
       isEncodable.hashCode ^
-      unsupportedEncoding.hashCode;
+      unsupportedEncoding.hashCode ^
+      locate.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -247,7 +255,8 @@ class CommandDto {
           parameters == other.parameters &&
           isFixed == other.isFixed &&
           isEncodable == other.isEncodable &&
-          unsupportedEncoding == other.unsupportedEncoding;
+          unsupportedEncoding == other.unsupportedEncoding &&
+          locate == other.locate;
 }
 
 /// A decoded value from a characteristic read.
@@ -523,6 +532,18 @@ class EntityDto {
   /// e.g. "temperature", "battery". Drives icon/formatting choices.
   final String? deviceClass;
 
+  /// Material Design Icons name the spec asks for (`mdi:heat-wave`), when
+  /// `device_class` does not already imply the right picture. Advisory: a
+  /// UI that cannot draw the named icon falls back to what it derives from
+  /// `device_class`, so nothing depends on it resolving.
+  final String? icon;
+
+  /// Display rounding as the smallest increment worth showing (`0.1` = one
+  /// decimal). `None` means the number's own transform decides, which is
+  /// the right answer whenever the device's resolution and its encoding
+  /// agree.
+  final double? precision;
+
   /// e.g. "F", "%". Rendered next to the value.
   final String? unit;
 
@@ -589,6 +610,8 @@ class EntityDto {
     required this.name,
     this.platform,
     this.deviceClass,
+    this.icon,
+    this.precision,
     this.unit,
     this.stateCharacteristic,
     required this.canNotify,
@@ -613,6 +636,8 @@ class EntityDto {
       name.hashCode ^
       platform.hashCode ^
       deviceClass.hashCode ^
+      icon.hashCode ^
+      precision.hashCode ^
       unit.hashCode ^
       stateCharacteristic.hashCode ^
       canNotify.hashCode ^
@@ -639,6 +664,8 @@ class EntityDto {
           name == other.name &&
           platform == other.platform &&
           deviceClass == other.deviceClass &&
+          icon == other.icon &&
+          precision == other.precision &&
           unit == other.unit &&
           stateCharacteristic == other.stateCharacteristic &&
           canNotify == other.canNotify &&

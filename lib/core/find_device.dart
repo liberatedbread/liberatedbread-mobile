@@ -231,9 +231,23 @@ const String alertLevelCharUuid = '00002a06-0000-1000-8000-00805f9b34fb';
 const int _highAlertLevel = 0x02;
 const int _noAlertLevel = 0x00;
 
-// Command-name tokens that mark a spec command as an alert trigger. Matching
-// is on whole `_`-separated tokens, not substrings, so `ring` can't hide in
-// `bring`. The token lists were calibrated against the vendored spec
+// FALLBACK ONLY, for specs that do not declare `locate`.
+//
+// A spec command can now say outright that it is a locator, and
+// [classifyAlertCommand] reads that first — see [locateAlertKind]. Everything
+// below is what happens when nobody said: guess from the name.
+//
+// The guess is kept because spec packs update on their own schedule and the
+// declaration is new, but it is a poor substitute and the size of these lists
+// is the evidence. Across the 350 BLE commands in the vendored catalogue the
+// positive tokens match three, and four of the six sets below exist purely to
+// take matches away again — `set_flash_count` configures, `silence_alarm`
+// negates, `get_alarm_mode` queries, `flash_firmware` must never be one tap
+// from a user. A declared `locate` needs none of that machinery, because the
+// author knows which of those their command is.
+//
+// Matching is on whole `_`-separated tokens, not substrings, so `ring` can't
+// hide in `bring`. The token lists were calibrated against the vendored spec
 // catalogue — e.g. bare `play`/`music` are NOT sound tokens because the
 // catalogue uses them for LED effect players (`play_program`, `music_start`),
 // and `identify` is excluded because the OBD2 spec's `identify` is a version
@@ -283,14 +297,51 @@ const Set<String> _dangerTokens = {
   'format', 'unpair', 'password', //
 };
 
-/// Classify a spec command name as an alert trigger, or null when it isn't
-/// one. Exposed for tests; [detectAlertActions] applies it to full specs.
-FindAlertKind? classifyAlertCommand(String commandName) {
-  final tokens = commandName
-      .toLowerCase()
-      .split(RegExp(r'[_\-\s]+'))
-      .where((t) => t.isNotEmpty)
-      .toSet();
+/// The kind a spec's own `locate` declaration names, or null when the command
+/// does not declare one (or names a value this build does not know).
+///
+/// `both` becomes [FindAlertKind.alert] — the same "device's choice of buzzer
+/// and/or LED" the SIG's high alert level means, which is why the two share a
+/// kind rather than each having their own.
+FindAlertKind? locateAlertKind(String? locate) => switch (locate) {
+      'sound' => FindAlertKind.sound,
+      'flash' => FindAlertKind.flash,
+      'both' => FindAlertKind.alert,
+      _ => null,
+    };
+
+/// Classify a spec command as an alert trigger, or null when it isn't one.
+///
+/// [locate] is the command's own declaration and settles it outright when
+/// present: the spec author knows whether `blink_led` locates the device or
+/// `set_mode` (whose mode 2 is "blink") configures it, and no amount of
+/// reading the name can. Only when nothing was declared does this fall back to
+/// [classifyAlertCommandByName].
+///
+/// Exposed for tests; [detectAlertActions] applies it to full specs.
+FindAlertKind? classifyAlertCommand(String commandName, {String? locate}) {
+  // The one thing a declaration does not get to override. A `locate` on a
+  // command whose name says `firmware`/`dfu`/`erase` is either a mistake or a
+  // hostile spec pack, and the cost of being wrong is asymmetric: refusing a
+  // real locator loses a convenience button, honouring a fake one puts a
+  // firmware wipe one tap away with no confirmation. The schema forbids
+  // `locate` on an `advanced` command, but a third-party pack is not obliged
+  // to have run the schema.
+  if (_tokensOf(commandName).any(_dangerTokens.contains)) return null;
+  return locateAlertKind(locate) ?? classifyAlertCommandByName(commandName);
+}
+
+/// A command name split into whole `_`/`-`/space-separated tokens.
+Set<String> _tokensOf(String commandName) => commandName
+    .toLowerCase()
+    .split(RegExp(r'[_\-\s]+'))
+    .where((t) => t.isNotEmpty)
+    .toSet();
+
+/// The name-based guess. See the token lists above for why it is a fallback
+/// rather than the rule.
+FindAlertKind? classifyAlertCommandByName(String commandName) {
+  final tokens = _tokensOf(commandName);
   if (tokens.any(_dangerTokens.contains)) return null;
   if (tokens.any(_negatingTokens.contains)) return null;
   // Find-me style commands often also name the mechanism ("alarm", "buzz")
@@ -307,8 +358,9 @@ FindAlertKind? classifyAlertCommand(String commandName) {
 
 /// Detect every alert action this device supports, from two sources:
 ///
-/// 1. **Spec commands** — fixed, encodable commands whose name says they make
-///    the device beep/blink (see [classifyAlertCommand]). The command's
+/// 1. **Spec commands** — fixed, encodable commands the spec declares as
+///    locators, or failing that whose name says they make the device
+///    beep/blink (see [classifyAlertCommand]). The command's
 ///    characteristic must also have been *discovered* on this device
 ///    (writable), because a spec may describe a bigger variant than the unit
 ///    in front of us. This resolves against GATT endpoints, so it is BLE-only:
@@ -353,7 +405,8 @@ List<FindAlertAction> detectAlertActions({
           // and defaulting parameters would send values the spec author never
           // blessed as "the alert".
           if (!command.isFixed || !command.isEncodable) continue;
-          final kind = classifyAlertCommand(command.name);
+          final kind =
+              classifyAlertCommand(command.name, locate: command.locate);
           if (kind == null) continue;
           actions.add(FindAlertAction(
             kind: kind,

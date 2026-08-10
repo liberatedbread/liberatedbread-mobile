@@ -26,6 +26,107 @@ heading.
 
 ### Changed
 
+- **Image upload is a generic pipeline now, not a SmartDawn one.** Seven
+  devices in the catalogue declare an `image_upload` feature across six
+  handlers and five pixel formats, and the app drove one — with the pipeline
+  and the algorithms in a single file, so the sixth device would have meant a
+  sixth copy of the pipeline. `protocol/image_upload.rs` is the shared part:
+  resolve the command and bulk channels, open the session, encode the canvas,
+  fragment, write. Everything it needs is data a spec already states.
+  `daniao.rs` keeps what genuinely cannot be YAML — the palette+RLE pixel
+  codec and the `daniao_fragment` header — and drops from 487 non-test lines
+  to 286, all of it algorithm.
+
+  The line is deliberate: a spec *names* an algorithm and the pipeline runs
+  it, exactly as `protocol_handler` and `framing.scheme` already work.
+  Expressing a pixel codec in YAML would mean inventing a bytecode —
+  untypeable, untestable, and it would make a downloadable spec pack
+  executable. So adding a display is: write the spec, and add a codec only if
+  its pixel encoding is genuinely new. Proved rather than asserted — a test
+  runs the pipeline on a made-up device with a different framing scheme, a
+  different codec, different UUIDs and a different opener, none of which
+  SmartDawn shares.
+
+  One behaviour change fell out: the canvas ceiling is the spec's
+  `max_width`/`max_height` now, where the old code hardcoded 256. SmartDawn
+  declares 255 (it reports resolution in u8 advertisement fields), so a
+  256-wide canvas is correctly refused where it used to be accepted. The
+  codec's own u8 chunk coordinates still cap at 256, and the tighter of the
+  two binds.
+- **A command whose bytes this app cannot produce no longer offers a Send.**
+  Two specs this branch made parseable exposed the same gap from opposite
+  sides, and both were newly reachable precisely because the specs now load.
+  `CommandDto.is_encodable` consulted only the command, so a characteristic
+  declaring a `framing` or `encryption` transform this crate does not execute
+  still had every command on it listed as sendable — seeblue's templates are
+  the packet, with the SEEBlue envelope belonging to the characteristic, so a
+  raw write reached the device as a packet it will not answer. And a template
+  referencing a `bytes` parameter was reported encodable although the FFI
+  carries parameters as `f64` and the encoder has no representation for raw
+  octets, so Fardriver's `write_parameter` enabled a Send that failed on every
+  press. Both now report themselves unsupported, naming the framing scheme or
+  the parameter, and the same gate runs in the encoder — the single source of
+  truth the codebase already claimed but only applied to the entity path.
+- **The SmartDawn upload flow is driven by the spec, not by constants beside
+  it.** The handler already resolved its two channels from the spec's `framing`
+  blocks and built its session-open packets from the spec's command templates,
+  so message types and field encodings were the spec's to change. Three things
+  were not: which commands open a session and in what order, which buffer tag
+  the flow writes under on the bulk channel, and where the vendor encoder
+  flushes a chunk. Those describe SmartDawn's upload rather than the fragment
+  scheme, so a sibling device on the same platform with a different opener
+  needed a code change. They now come from the feature's `session_open` and
+  `channel_tag` and the bulk channel's `framing.max_chunk_size`, with the old
+  constants kept as the fallback for a spec pack written before those keys
+  existed. Four tests change one declaration each and assert the bytes move
+  with it — without those, every value the handler reads is also the value it
+  used to hardcode, so a test against the shipped spec would pass either way.
+- **Two vendored specs that failed to parse now load**, upstream: 36 commands
+  and a 500-line register map that reached nobody. `seeblue-motorcycle-led`
+  spelled its transport envelope into nine command templates as placeholders
+  no command declared, and `fardriver-controller` bounded a `bytes` parameter
+  with `min`/`max`, which mean a numeric range a run of octets does not have.
+  The `KNOWN_BAD` allowlist in `rust/tests/vendored_assets.rs` is empty as a
+  result — kept, because upstream now enforces both rules, so a spec should
+  not arrive broken that way again.
+- **Four spec keys the app was ignoring now drive it, and one it was carrying
+  is gone.** Each had real information in the catalogue reaching nothing.
+  - **`endianness` on `format:` fields.** The decoder hardcoded little-endian.
+    Six fields across `xiaomi-miflora` and `pax-vape` declared byte order, all
+    saying `little`, into a key the BLE schema did not define — so nothing
+    decoded wrong and nothing would have said so if it had. The schema
+    declares it now (same enum and default as the bus fields it mirrors) and
+    the decoder consults it. A byte-swapped reading is not visibly broken, it
+    is a different plausible number: a big-endian `0x0100` reads as 1 rather
+    than 256.
+  - **`entity.icon`.** The cards derived every icon from `device_class`, which
+    has nothing to say about `gerbing-thermogauge`'s heat levels — `number`
+    entities with no class that means "this warms you up". The spec's `icon`
+    now wins, translated from its MDI name into the Material glyph this app
+    can draw (`lib/core/entity_icon.dart`); `device_class` remains the answer
+    for the entities that do not state one, so nothing regresses and an
+    unmapped name degrades to exactly the old behaviour.
+  - **`entity.precision`.** Display rounding, which is a different question
+    from the transform's implied decimal places: the transform says how finely
+    the value was *encoded*, `precision` how finely the device actually knows
+    it. Presentation only — controls still seed from the unrounded number, so
+    a slider cannot write its own rounding back to the device.
+  - **`locate` on a command** (new upstream). The Find view classified alert
+    commands by matching their names against six token sets, four of which
+    existed only to take matches back: across the 350 BLE commands in the
+    catalogue, `play_effect`, `set_mode`, `identify` and `set_volume_low` all
+    read as locators and none is one, while `flash_firmware` reads as one and
+    must never be one tap away. A command can now say what it is, and two do.
+    The name heuristic stays as the fallback for spec packs that have not
+    caught up, and the danger-token veto applies to declared locators too — a
+    third-party pack is not obliged to have run the schema.
+  - **`parameters.color_order` is gone.** It declared RGB channel order beside
+    a `template` that already emitted the channels in an order, with nothing
+    saying which won if they disagreed. It never crossed the FFI, all eight
+    uses said `rgb`, and every one sat next to a template already naming
+    `{red}`/`{green}`/`{blue}` in that order. The parser still absorbs the key
+    so a spec pack written against the older schema loads rather than failing
+    whole.
 - **`assets/` is gone; everything ships from the vendored subtree.** Both the
   device specs and the number registries were duplicated — 1.2MB and 1.7MB of
   byte-identical copies of `vendor/protocol-specs/`, made by

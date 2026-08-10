@@ -26,6 +26,10 @@ features:
     resolution_source: "device_reported"
     animation: true
     default_frame_interval_ms: 200
+    # The upload choreography and the buffer tag it writes under, stated by
+    # the spec rather than assumed by the handler.
+    session_open: ["ui_end_sync", "doodle_start"]
+    channel_tag: 0x04
 
 services:
   - uuid: "00000074-1972-1925-3022-077119514e44"
@@ -57,4 +61,4 @@ services:
       - uuid: "02020074-1972-1925-3022-077119514e44"
         name: "BIN Write"
         properties: ["write", "write_without_response"]
-        framing: { scheme: "daniao_fragment" }
+        framing: { scheme: "daniao_fragment", max_chunk_size: 200 }

@@ -44,11 +44,10 @@
 //! derive from it, so streaming N frames produces distinct serials without
 //! shared state across the FFI boundary.
 
-use super::{EncodedFrame, EncodedWrite};
-use crate::codec::types::encode_command;
+use super::image_upload::{self, FragmentRequest};
+use super::EncodedFrame;
 use crate::error::ProtocolError;
-use crate::spec::types::{Characteristic, CharacteristicProperty, DeviceSpec};
-use serde::Deserialize;
+use crate::spec::types::DeviceSpec;
 use std::collections::HashMap;
 
 /// `protocol_handler` name this module implements (see the device spec's
@@ -59,14 +58,9 @@ pub const HANDLER_NAME: &str = "daniao_ddp";
 pub const SERVICE_UUID: &str = "00000074-1972-1925-3022-077119514e44";
 
 /// Named fragment scheme this handler understands (spec `framing.scheme`).
-const FRAGMENT_SCHEME: &str = "daniao_fragment";
-const FRAG_HEADER_LEN: usize = 4;
+pub const FRAGMENT_SCHEME: &str = "daniao_fragment";
+pub const FRAG_HEADER_LEN: usize = 4;
 const MAX_PALETTE: usize = 16;
-/// The vendor encoder's chunk ceiling: header + pixel bytes < 200. The
-/// effective per-chunk budget is the SMALLER of this and what one BLE write
-/// carries, so a link with a mid-range MTU still encodes (in more, smaller
-/// chunks) instead of being rejected.
-const CHUNK_LIMIT: usize = 200;
 /// Maximum pixels in one emitted run. A longer solid region is split into
 /// consecutive same-colour runs (identical on the device) so a single run's
 /// tokens (<= MAX_RUN_TOKENS bytes) can never bloat a chunk past a BLE
@@ -76,80 +70,60 @@ const MAX_RUN: usize = 1016; // 8 * 127 -> <= 10 token bytes per run
 /// `(index << 4)` byte, one `0xFF` per full 127 pixels, and the terminating
 /// remainder byte.
 const MAX_RUN_TOKENS: usize = 2 + MAX_RUN / 127;
-/// The BLE 4.0 minimum ATT payload (MTU 23 - 3). The vendor app requests MTU
-/// 512; a chunk that cannot fit one write over the negotiated MTU is rejected.
-const MIN_PAYLOAD_PER_WRITE: usize = 20;
-
-/// BIN buffer-type tag for a full-canvas redraw (spec's BIN Write notes:
-/// 1=TUTU_DOODLE, 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN). Not a fixed
-/// `channel_tag` in the spec because the bulk channel picks its tag per
-/// transfer; this handler pushes full canvases, hence RESTORE.
-const TAG_TUTU_RESTORE: u8 = 0x04;
-
-/// Command names, resolved from the spec's command templates, that open a
-/// doodle/pixel session. Their message-type bytes live in the spec, not here.
-const SESSION_OPEN_COMMANDS: &[&str] = &["ui_end_sync", "doodle_start"];
-
-/// The `framing` block of a characteristic, deserialized from the spec's
-/// opaque value on demand (the shared `Characteristic` type keeps it untyped
-/// because most devices have no framing).
-#[derive(Debug, Deserialize)]
-struct Framing {
-    scheme: Option<String>,
-    channel_tag: Option<u8>,
-}
-
-fn framing_of(c: &Characteristic) -> Option<Framing> {
-    c.framing
-        .as_ref()
-        .and_then(|v| serde_yaml::from_value(v.clone()).ok())
-}
-
-fn is_writable(c: &Characteristic) -> bool {
-    c.properties.iter().any(|p| {
-        matches!(
-            p,
-            CharacteristicProperty::Write | CharacteristicProperty::WriteWithoutResponse
-        )
-    })
-}
-
-/// Resolve a `daniao_fragment` characteristic from the spec by its channel tag:
-/// the command channel is `channel_tag: 0`; the bulk channel omits it.
-fn resolve_char(spec: &DeviceSpec, want_command_channel: bool) -> Option<(&Characteristic, u8)> {
-    for service in &spec.services {
-        for c in &service.characteristics {
-            if !is_writable(c) {
-                continue;
-            }
-            let Some(f) = framing_of(c) else { continue };
-            if f.scheme.as_deref() != Some(FRAGMENT_SCHEME) {
-                continue;
-            }
-            match (want_command_channel, f.channel_tag) {
-                (true, Some(0)) => return Some((c, 0)),
-                (false, None) => return Some((c, TAG_TUTU_RESTORE)),
-                _ => {}
-            }
-        }
-    }
-    None
-}
-
-/// Encode one RGB frame as the ordered BLE writes of the doodle flow, driven
-/// by `spec`.
+/// Fallbacks for the three things the spec now states, kept for a spec pack
+/// written before it did.
 ///
-/// `rgb` is row-major RGB888 (`width * height * 3` bytes) using at most 16
-/// distinct colors — the palette limit; more is an error rather than a silent
-/// quantization, so what the device shows matches what the caller previewed.
-/// `max_payload_per_write` is the usable bytes per BLE write (negotiated ATT
-/// MTU minus 3; 20 when unknown).
+/// Each was a constant here first, and each was the wrong place for it: they
+/// describe SmartDawn's flow, not the fragment scheme, so a sibling device on
+/// the same platform with a different opener or buffer tag needed a code
+/// change to work. They are read from the spec's `image_upload` feature and
+/// the bulk channel's `framing` now — `session_open`, `channel_tag` and
+/// `max_chunk_size` — and these values only apply when a spec is silent.
 ///
-/// When `frame_index` is 0 the plan opens the doodle session first (the spec's
-/// `ui_end_sync` then `doodle_start` commands on the DDP characteristic);
-/// later frames send only their pixel chunks. The returned
-/// [`EncodedFrame::packets`] counts logical packets (and therefore fragment
-/// serials) consumed — callers MUST advance `frame_index` by it.
+/// TUTU_RESTORE is the full-canvas redraw tag (the BIN channel also carries
+/// 1=TUTU_DOODLE, 2=TUTU_ERASE, 16=MUSIC_BIN); 200 is the vendor encoder's
+/// chunk ceiling; and the opener pair is the sequence verified on hardware,
+/// where sending `M_DEV_START` instead blanks the canvas.
+const DEFAULT_BULK_TAG: u8 = 0x04;
+const DEFAULT_CHUNK_LIMIT: usize = 200;
+const DEFAULT_SESSION_OPEN: &[&str] = &["ui_end_sync", "doodle_start"];
+
+/// Fragment one logical packet into `daniao_fragment` BLE writes.
+///
+/// Each write carries `[serial][total][remaining][tag]` and up to `capacity`
+/// packet bytes; `remaining` counts down to 0 so the device knows when it has
+/// the whole packet. A single-fragment packet is `[serial, 1, 0, tag]`.
+pub fn fragment_packet(req: FragmentRequest<'_>) -> Vec<Vec<u8>> {
+    let serial = req.serial as u8;
+    let parts: Vec<&[u8]> = req.packet.chunks(req.capacity).collect();
+    let total = parts.len().max(1);
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, part)| {
+            let mut bytes = Vec::with_capacity(FRAG_HEADER_LEN + part.len());
+            bytes.extend_from_slice(&[serial, total as u8, (total - 1 - i) as u8, req.tag]);
+            bytes.extend_from_slice(part);
+            bytes
+        })
+        .collect()
+}
+
+/// The [`PixelCodec`] signature over [`encode_tutu_restore`].
+pub fn encode_tutu_restore_chunks(
+    rgb: &[u8],
+    width: usize,
+    height: usize,
+    budget: usize,
+) -> Result<Vec<Vec<u8>>, ProtocolError> {
+    encode_tutu_restore(rgb, width, height, budget)
+}
+
+/// Encode one RGB frame as the ordered BLE writes of the doodle flow.
+///
+/// Everything device-shaped here is a default for a spec that predates the
+/// keys carrying it — see [`image_upload::encode_frame`], which is the actual
+/// pipeline and is shared with every other display.
 pub fn encode_doodle_frame(
     spec: &DeviceSpec,
     rgb: &[u8],
@@ -158,148 +132,20 @@ pub fn encode_doodle_frame(
     frame_index: u32,
     max_payload_per_write: usize,
 ) -> Result<EncodedFrame, ProtocolError> {
-    let expected = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|px| px.checked_mul(3))
-        .ok_or_else(|| ProtocolError::ImageDimensionsInvalid {
-            reason: format!("{width}x{height} overflows the pixel buffer size"),
-        })?;
-    if expected == 0 {
-        return Err(ProtocolError::ImageDimensionsInvalid {
-            reason: format!("{width}x{height} has no pixels"),
-        });
-    }
-    if rgb.len() != expected {
-        return Err(ProtocolError::ImageDimensionsInvalid {
-            reason: format!(
-                "pixel buffer is {} bytes but {width}x{height} RGB888 needs {expected}",
-                rgb.len()
-            ),
-        });
-    }
-    // Chunk headers pack start_x/start_y as single bytes, so pixel indices must
-    // fit a u8 — a dimension over 256 would silently wrap coordinates and
-    // scramble the image. Reject rather than corrupt.
-    if width > 256 || height > 256 {
-        return Err(ProtocolError::ImageDimensionsInvalid {
-            reason: format!(
-                "{width}x{height} exceeds 256 in a dimension; TUTU chunk coordinates are u8"
-            ),
-        });
-    }
-    if max_payload_per_write < MIN_PAYLOAD_PER_WRITE {
-        return Err(ProtocolError::ImageDimensionsInvalid {
-            reason: format!(
-                "max_payload_per_write {max_payload_per_write} is below the BLE minimum of \
-                 {MIN_PAYLOAD_PER_WRITE}"
-            ),
-        });
-    }
-
-    // Resolve the two channels from the spec's framing declarations.
-    let (command_char, command_tag) =
-        resolve_char(spec, true).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
-            reason: "spec has no daniao_fragment command characteristic (channel_tag: 0)"
-                .to_string(),
-        })?;
-    let (bulk_char, bulk_tag) =
-        resolve_char(spec, false).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
-            reason: "spec has no daniao_fragment bulk characteristic (no channel_tag)".to_string(),
-        })?;
-
-    let frag_capacity = max_payload_per_write - FRAG_HEADER_LEN;
-
-    // Chunks are sized to the write, not just to the vendor's ceiling: the
-    // device honors only the first BLE write of a BIN transfer, so a chunk
-    // that fits one write is the actual requirement, and a mid-range MTU
-    // (iOS commonly negotiates 185) simply gets more, smaller chunks.
-    let chunks = encode_tutu_restore(
+    image_upload::encode_frame(
+        spec,
         rgb,
-        width as usize,
-        height as usize,
-        CHUNK_LIMIT.min(frag_capacity),
-    )?;
-
-    // The device honors ONLY the first BLE write of a BIN transfer, so every
-    // TUTU chunk must fit one write. Fail loudly rather than paint a partial
-    // image if the MTU is too small.
-    if let Some(biggest) = chunks.iter().map(Vec::len).max() {
-        if biggest > frag_capacity {
-            return Err(ProtocolError::ImageDimensionsInvalid {
-                reason: format!(
-                    "a TUTU chunk is {biggest} B but only {frag_capacity} B fit in one BLE \
-                     write, and the device does not reassemble BIN fragments — raise the ATT \
-                     MTU (need >= {} bytes) before pushing images",
-                    biggest + FRAG_HEADER_LEN + 3
-                ),
-            });
-        }
-    }
-
-    let mut serial = frame_index;
-    let mut writes = Vec::new();
-
-    // One logical packet -> one or more BLE writes sharing a serial, with the
-    // 4-byte daniao_fragment header and a remaining-count walking to 0.
-    let mut push_framed = |packet: &[u8], char_uuid: &str, tag: u8, serial: &mut u32| {
-        let s = *serial as u8;
-        *serial = serial.wrapping_add(1);
-        let parts: Vec<&[u8]> = packet.chunks(frag_capacity).collect();
-        let total = parts.len().max(1);
-        for (i, part) in parts.iter().enumerate() {
-            let mut bytes = Vec::with_capacity(FRAG_HEADER_LEN + part.len());
-            bytes.extend_from_slice(&[s, total as u8, (total - 1 - i) as u8, tag]);
-            bytes.extend_from_slice(part);
-            writes.push(EncodedWrite {
-                characteristic_uuid: char_uuid.to_string(),
-                bytes,
-            });
-        }
-    };
-
-    if frame_index == 0 {
-        let commands = command_char
-            .commands
-            .as_ref()
-            .ok_or_else(|| ProtocolError::NoCommands {
-                uuid: command_char.uuid.clone(),
-            })?;
-        for name in SESSION_OPEN_COMMANDS {
-            let command = commands
-                .get(*name)
-                .ok_or_else(|| ProtocolError::CommandNotFound {
-                    uuid: command_char.uuid.clone(),
-                    command: (*name).to_string(),
-                })?;
-            // The spec's `sn` is `auto: sequence`, which encodes as 0 unless a
-            // stateful caller supplies it. Reuse the fragment serial this
-            // packet is about to consume: it costs no extra state, and it
-            // keeps ui_end_sync and doodle_start distinguishable to firmware
-            // that de-duplicates DNX messages by serial (both went out as
-            // sn=0 before, which the live-verified unit tolerated but nothing
-            // guarantees others do).
-            let params = HashMap::from([("sn".to_string(), serial as f64)]);
-            let packet = encode_command(command, &params)?;
-            push_framed(&packet, &command_char.uuid, command_tag, &mut serial);
-        }
-    }
-
-    for chunk in &chunks {
-        push_framed(chunk, &bulk_char.uuid, bulk_tag, &mut serial);
-    }
-
-    let packets = serial.wrapping_sub(frame_index);
-    // The fragment serial is a u8, so a frame that needs more than 256 distinct
-    // serials would reuse a byte mid-frame and corrupt reassembly on the device.
-    if packets > 256 {
-        return Err(ProtocolError::ImageDimensionsInvalid {
-            reason: format!(
-                "frame needs {packets} logical packets; the u8 fragment serial allows at most 256 \
-                 per frame — reduce the image's distinct-run count or size"
-            ),
-        });
-    }
-    Ok(EncodedFrame { writes, packets })
+        width,
+        height,
+        frame_index,
+        max_payload_per_write,
+        &image_upload::HandlerDefaults {
+            handler: HANDLER_NAME,
+            session_open: DEFAULT_SESSION_OPEN,
+            bulk_tag: DEFAULT_BULK_TAG,
+            chunk_limit: DEFAULT_CHUNK_LIMIT,
+        },
+    )
 }
 
 /// Port of the vendor H5 `sendRecoveData` chunk builder — see the module docs
@@ -479,6 +325,154 @@ mod tests {
         px
     }
 
+    /// Parse a variant of the test spec with one substring swapped, so a case
+    /// can change exactly one declaration and watch the encoding follow.
+    fn spec_with(from: &str, to: &str) -> DeviceSpec {
+        assert!(
+            SPEC_YAML.contains(from),
+            "fixture no longer contains {from:?} — the substitution below is stale"
+        );
+        parse_device_spec(&SPEC_YAML.replace(from, to)).unwrap()
+    }
+
+    /// The session-open sequence comes from the spec, not from this file.
+    ///
+    /// The three cases below are the difference between "driven by the spec"
+    /// and "happens to agree with the spec": every value the handler reads is
+    /// also the value it used to hardcode, so a test that only checks the
+    /// shipped spec passes either way. Each of these changes one declaration
+    /// and asserts the bytes move with it.
+    #[test]
+    fn the_session_open_sequence_is_whatever_the_spec_lists() {
+        // Reversed: doodle_start (mt 2701) must now precede ui_end_sync
+        // (mt 2411). Order is the whole point — the hardware verification
+        // found that opening with the wrong command blanks the canvas.
+        let reversed = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            r#"session_open: ["doodle_start", "ui_end_sync"]"#,
+        );
+        let frame = encode_doodle_frame(&reversed, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(&frame.writes[0].bytes[10..12], &[0x0A, 0x8D]);
+        assert_eq!(&frame.writes[1].bytes[10..12], &[0x09, 0x6B]);
+
+        // Shortened: one opener, so one session-open write before the chunks.
+        let single = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            r#"session_open: ["doodle_start"]"#,
+        );
+        let frame = encode_doodle_frame(&single, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(&frame.writes[0].bytes[10..12], &[0x0A, 0x8D]);
+        assert_eq!(
+            frame.writes[1].characteristic_uuid, BIN,
+            "with one opener the second write is already a pixel chunk"
+        );
+
+        // A name the spec's commands do not define is an error naming the
+        // command, not a silent fallback to the old hardcoded pair.
+        let bogus = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            r#"session_open: ["no_such_command"]"#,
+        );
+        let err = encode_doodle_frame(&bogus, &trans_flag(), 20, 20, 0, 509).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("no_such_command"),
+            "the error should name the missing command, got {err:?}"
+        );
+    }
+
+    /// The bulk buffer tag comes from the feature, not from this file.
+    #[test]
+    fn the_bulk_channel_tag_is_whatever_the_feature_declares() {
+        // 0x01 is TUTU_DOODLE where 0x04 is TUTU_RESTORE: same channel, same
+        // framing, different buffer. It rides in fragment-header byte 3.
+        let doodle = spec_with("channel_tag: 0x04", "channel_tag: 0x01");
+        let frame = encode_doodle_frame(&doodle, &trans_flag(), 20, 20, 0, 509).unwrap();
+        let chunk = frame
+            .writes
+            .iter()
+            .find(|w| w.characteristic_uuid == BIN)
+            .expect("a pixel chunk");
+        assert_eq!(chunk.bytes[3], 0x01);
+
+        // The command channel is unaffected: its tag is fixed at 0 by its own
+        // framing block, which is a statement about the channel rather than
+        // about this flow.
+        assert_eq!(frame.writes[0].bytes[3], 0);
+    }
+
+    /// The chunk ceiling comes from the bulk channel's framing block.
+    #[test]
+    fn the_chunk_ceiling_is_whatever_the_bulk_channel_declares() {
+        // A 20x20 trans flag at a large MTU: with the vendor's 200-byte
+        // ceiling it fits few chunks, and a much smaller ceiling must produce
+        // strictly more of them. Nothing else changes.
+        let wide = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 1, 509).unwrap();
+        let narrow_spec = spec_with("max_chunk_size: 200", "max_chunk_size: 40");
+        let narrow = encode_doodle_frame(&narrow_spec, &trans_flag(), 20, 20, 1, 509).unwrap();
+        assert!(
+            narrow.writes.len() > wide.writes.len(),
+            "a smaller declared ceiling must cut the canvas into more chunks: \
+             {} vs {}",
+            narrow.writes.len(),
+            wide.writes.len()
+        );
+        for w in &narrow.writes {
+            assert!(
+                w.bytes.len() - FRAG_HEADER_LEN <= 40,
+                "every chunk must respect the declared ceiling"
+            );
+        }
+    }
+
+    /// An empty `session_open` is a statement, not a missing one.
+    ///
+    /// The schema says an empty list means "this device takes pixel data with
+    /// no preamble". Reading it as the absent case would send SmartDawn's
+    /// openers to a device that said it wants none — and on this platform the
+    /// wrong opener is not a no-op, it blanks the canvas.
+    #[test]
+    fn an_empty_session_open_means_no_preamble_not_the_default() {
+        let none = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            "session_open: []",
+        );
+        let frame = encode_doodle_frame(&none, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert!(
+            frame.writes.iter().all(|w| w.characteristic_uuid == BIN),
+            "an explicit empty opener list must send pixels only, no DDP preamble"
+        );
+
+        // And it is genuinely distinct from the absent key, which still gets
+        // the pre-key default.
+        let absent = spec_with(r#"session_open: ["ui_end_sync", "doodle_start"]"#, "");
+        let frame = encode_doodle_frame(&absent, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(frame.writes[0].characteristic_uuid, DDP);
+    }
+
+    /// A spec pack written before these keys existed still encodes.
+    ///
+    /// The fallbacks are not dead code: third-party packs update on their own
+    /// schedule, and the values they fall back to are the ones this handler
+    /// used before the spec could state them, so an older pack behaves exactly
+    /// as it did.
+    #[test]
+    fn a_spec_that_states_none_of_them_falls_back_to_what_it_used_to_do() {
+        let bare = parse_device_spec(
+            &SPEC_YAML
+                .replace(r#"session_open: ["ui_end_sync", "doodle_start"]"#, "")
+                .replace("channel_tag: 0x04", "")
+                .replace(", max_chunk_size: 200", ""),
+        )
+        .unwrap();
+        let old_way = encode_doodle_frame(&bare, &trans_flag(), 20, 20, 0, 509).unwrap();
+        let declared = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(old_way.writes.len(), declared.writes.len());
+        for (a, b) in old_way.writes.iter().zip(&declared.writes) {
+            assert_eq!(a.bytes, b.bytes);
+            assert_eq!(a.characteristic_uuid, b.characteristic_uuid);
+        }
+    }
+
     #[test]
     fn first_frame_opens_session_from_spec_then_streams_chunks() {
         let frame = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 0, 509).unwrap();
@@ -499,7 +493,7 @@ mod tests {
         assert_eq!(&w[1].bytes[6..8], &[0, 1]);
         // Then the pixel chunk on the BIN char, tag 4, single write.
         assert_eq!(w[2].characteristic_uuid, BIN);
-        assert_eq!(&w[2].bytes[..4], &[2, 1, 0, TAG_TUTU_RESTORE]);
+        assert_eq!(&w[2].bytes[..4], &[2, 1, 0, DEFAULT_BULK_TAG]);
     }
 
     #[test]
@@ -508,7 +502,7 @@ mod tests {
         assert_eq!(frame.packets, 1, "one chunk, no session packets");
         assert_eq!(frame.writes.len(), 1);
         assert_eq!(frame.writes[0].characteristic_uuid, BIN);
-        assert_eq!(&frame.writes[0].bytes[..4], &[5, 1, 0, TAG_TUTU_RESTORE]);
+        assert_eq!(&frame.writes[0].bytes[..4], &[5, 1, 0, DEFAULT_BULK_TAG]);
     }
 
     #[test]
@@ -591,7 +585,7 @@ mod tests {
     fn long_runs_use_extension_bytes() {
         // A solid 20x20 canvas: one 400-pixel run -> (0<<4) then 255,255,255,19.
         let rgb = vec![0x11u8; 20 * 20 * 3];
-        let chunks = encode_tutu_restore(&rgb, 20, 20, CHUNK_LIMIT).unwrap();
+        let chunks = encode_tutu_restore(&rgb, 20, 20, DEFAULT_CHUNK_LIMIT).unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(&chunks[0][..6], &[0, 0, 1, 0x11, 0x11, 0x11]);
         assert_eq!(&chunks[0][6..], &[0x00, 255, 255, 255, 19]);
@@ -603,7 +597,7 @@ mod tests {
         // (here 0), not just a trailing 0xFF, or the decoder would swallow the
         // next run's token.
         let rgb = vec![0x22u8; 127 * 3];
-        let chunks = encode_tutu_restore(&rgb, 127, 1, CHUNK_LIMIT).unwrap();
+        let chunks = encode_tutu_restore(&rgb, 127, 1, DEFAULT_CHUNK_LIMIT).unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(&chunks[0][6..], &[0x00, 0xFF, 0x00]);
     }
@@ -634,11 +628,17 @@ mod tests {
 
     #[test]
     fn large_solid_canvas_encodes_with_every_chunk_fitting_one_write() {
-        // A 256x256 solid colour is one 65536-pixel run. Run-capping splits it
+        // A 255x255 solid colour is one 65025-pixel run. Run-capping splits it
         // into consecutive same-colour runs so no chunk overflows a BLE write
         // (the old atomic-run encoder produced a ~518-byte chunk no MTU carries).
-        let rgb = vec![0x11u8; 256 * 256 * 3];
-        let frame = encode_doodle_frame(&spec(), &rgb, 256, 256, 0, 509).unwrap();
+        //
+        // 255 rather than 256 because the canvas ceiling is the spec's now:
+        // SmartDawn reports its resolution in u8 advertisement fields, so 255
+        // is what the platform can express. The codec could address 256 — its
+        // chunk coordinates are u8 — and the tighter of the two binds, which
+        // is the point of checking both.
+        let rgb = vec![0x11u8; 255 * 255 * 3];
+        let frame = encode_doodle_frame(&spec(), &rgb, 255, 255, 0, 509).unwrap();
         for w in &frame.writes {
             assert!(w.bytes.len() <= 509, "every write fits the MTU payload");
         }
