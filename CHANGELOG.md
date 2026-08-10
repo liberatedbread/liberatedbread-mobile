@@ -62,6 +62,16 @@ heading.
   from it stays stopped: not through a tab switch, a backgrounding, or a trip
   into a device screen.
 
+- **The scan list holds still enough to tap.** Rows were ordered on the raw
+  dBm, which a continuous scan updates several times a second — and a reading
+  wanders a few dB while nothing physically moves, so neighbouring rows traded
+  places continuously and the row under a finger could change between deciding
+  to tap and tapping. Ordering is now by the same four-step band the signal
+  meter draws (one `signalBars` for both, so a row can never sit above another
+  while showing fewer bars), then by which device was found first. Both keys
+  are things that do not move, so a row changes position only when the device
+  genuinely does.
+
 - **Devices that have gone quiet are flagged instead of quietly disappearing.**
   A row used to be dropped after sitting out two scan windows, which meant a
   device that had been unplugged looked exactly like one that had never been

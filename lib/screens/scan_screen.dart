@@ -62,6 +62,31 @@ const Duration _ageTick = Duration(seconds: 5);
 /// a scan screen must not do.
 const Duration _repaintInterval = Duration(milliseconds: 400);
 
+/// Whether a clock tick has anything to draw.
+///
+/// [dropped] is true when the tick evicted a device, [stale] the ids currently
+/// past the warning threshold, [previouslyStale] the same set as of the last
+/// repaint.
+///
+/// The non-obvious clause is `stale.isNotEmpty`. A stale row's subtitle counts
+/// ("Not seen for 45s"), and nothing else is coming to repaint it — a device
+/// that stopped advertising is, by definition, not going to advertise — so
+/// while any row is stale the tick itself IS the change. Comparing the sets
+/// alone would leave that number frozen at whatever it read when the row
+/// crossed the threshold, quietly turning a live readout into a lie. With no
+/// stale rows nothing on screen ages, so a tick that changed no classification
+/// draws nothing.
+///
+/// Extracted as a pure top-level function because the widget test around it
+/// cannot see the difference: a scan screen repaints for several other reasons
+/// during a pump, so a frozen counter still looks correct from outside.
+bool ageTickNeedsRepaint({
+  required bool dropped,
+  required Set<String> stale,
+  required Set<String> previouslyStale,
+}) =>
+    dropped || stale.isNotEmpty || !setEquals(stale, previouslyStale);
+
 class _ScanScreenState extends ConsumerState<ScanScreen>
     with WidgetsBindingObserver {
   final DeviceManager _deviceManager = DeviceManager();
@@ -91,6 +116,10 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // Which rows were stale as of the last repaint, so a tick can tell a change
   // worth drawing from one where nothing moved.
   Set<String> _staleIds = const {};
+  // True while a device screen is pushed over this one. The scan is stopped for
+  // the duration (a connect on a scanning adapter is flaky), so every automatic
+  // resume has to know not to undo that.
+  bool _onDeviceScreen = false;
 
   @override
   void initState() {
@@ -117,10 +146,27 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     super.didUpdateWidget(old);
     if (widget.active == old.active) return;
     if (widget.active) {
-      if (!_pausedByUser && !_isScanning) unawaited(_startScan());
+      _resumeIfIdle();
     } else if (_isScanning) {
       unawaited(_stopScan(byUser: false));
     }
+  }
+
+  /// Start scanning again unless something says not to.
+  ///
+  /// Every automatic resume — a tab coming back, the app returning from the
+  /// background, a pop off the device screen — goes through here, because they
+  /// share the same three reasons to stay off: the user stopped the scan, this
+  /// is not the visible tab, or a device screen is open in front of us. That
+  /// last one is not hypothetical: backgrounding the app while connected and
+  /// coming back would otherwise restart the radio behind the device screen,
+  /// undoing the stop [_connect] performs precisely to keep the connection off
+  /// a scanning adapter.
+  void _resumeIfIdle() {
+    if (_isScanning || _pausedByUser || !widget.active || _onDeviceScreen) {
+      return;
+    }
+    unawaited(_startScan());
   }
 
   /// Stop scanning while the app is in the background, resume when it returns.
@@ -139,9 +185,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         // this screen after "Bluetooth is turned off" is to go and turn it on,
         // and coming back to the same dead screen with a Retry button on it
         // would be a poor reward for having done what it asked.
-        if (widget.active && !_pausedByUser && !_isScanning) {
-          unawaited(_startScan());
-        }
+        _resumeIfIdle();
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
@@ -255,7 +299,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final now = DateTime.now();
     final dropped = _deviceManager.forgetGone(now);
     final stale = _deviceManager.staleIds(now);
-    if (!dropped && setEquals(stale, _staleIds)) return;
+    if (!ageTickNeedsRepaint(
+      dropped: dropped,
+      stale: stale,
+      previouslyStale: _staleIds,
+    )) {
+      return;
+    }
     setState(() => _staleIds = stale);
   }
 
@@ -263,16 +313,22 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// connect). Stopping first keeps the native scan from running behind the
   /// pushed route, which otherwise makes connections flaky.
   Future<void> _connect(IoTDevice device) async {
+    _onDeviceScreen = true;
     await _stopScan(byUser: false);
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => DeviceScreen(device: device)),
-    );
-    // Back on the list: pick the scan up again, unless the user had stopped it
-    // before tapping through.
-    if (!mounted || _pausedByUser || !widget.active) return;
-    unawaited(_startScan());
+    if (!mounted) {
+      _onDeviceScreen = false;
+      return;
+    }
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DeviceScreen(device: device)),
+      );
+    } finally {
+      _onDeviceScreen = false;
+    }
+    // Back on the list: pick the scan up again, unless something says not to.
+    if (mounted) _resumeIfIdle();
   }
 
   @override

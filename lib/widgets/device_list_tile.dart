@@ -8,6 +8,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../core/find_device.dart' show signalBars;
+
 /// Section label with a count pill, e.g. "Found · 2".
 class SectionHeader extends StatelessWidget {
   final String label;
@@ -288,12 +290,10 @@ class _SignalBars extends StatelessWidget {
 
   const _SignalBars({required this.rssi, required this.color});
 
-  int get _filled {
-    if (rssi >= -60) return 4;
-    if (rssi >= -70) return 3;
-    if (rssi >= -80) return 2;
-    return 1;
-  }
+  // Shared with the scan list's ordering, deliberately: the bars a row draws
+  // and the band it sorts into must be the same judgement, or a row can sit
+  // above another while showing fewer bars.
+  int get _filled => signalBars(rssi);
 
   @override
   Widget build(BuildContext context) {
