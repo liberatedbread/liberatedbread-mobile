@@ -123,6 +123,28 @@ These suites are tagged `@Tags(['netdisco'])` and are **excluded from
 running `avahi-daemon` or `systemd-resolved` cannot spare, and a scan window is
 seconds of waiting for real datagrams rather than frames of a fake clock.
 
+## Device specs live in another repository
+
+`vendor/protocol-specs/` is a **git subtree**, vendored unmodified from
+[liberatedbread-protocol-specs](https://github.com/liberatedbread/liberatedbread-protocol-specs).
+`pubspec.yaml` bundles paths inside it directly — there is no copy under
+`assets/` and no sync step — which is what lets a refresh be one `git subtree
+pull`, and what makes editing it here a mistake:
+
+- **Do not edit files under `vendor/protocol-specs/` in this repository.** The
+  change is invisible upstream, and the next refresh reverts or conflicts with
+  it. CI fails the pull request that does it.
+- To change a spec, open a pull request against the specs repository, then
+  refresh here with `./scripts/update-specs.sh`.
+- While iterating on both at once, pull from the branch you are still writing:
+  `./scripts/update-specs.sh my-branch --from ../liberatedbread-protocol-specs`.
+- `./scripts/update-specs.sh --check` runs the verification alone — no network,
+  no pull. It is what the CI step runs.
+
+The script wraps stock `git subtree` (`pull --squash`); it adds the preflight
+checks, the assertion that every bundled path arrived, and the error triage.
+Doing the `git subtree` commands by hand is fine — you just lose the checks.
+
 ## Code Style
 
 - Follow the [Effective Dart](https://dart.dev/effective-dart) guidelines

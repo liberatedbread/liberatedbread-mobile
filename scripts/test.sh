@@ -84,6 +84,14 @@ cd "$PROJECT_DIR"
 log "ci-versions.sh --strict (toolchain pins still readable from ci.yml?)"
 ./scripts/ci-versions.sh --strict > /dev/null
 
+# Also cheap, also no network, and it catches the two ways the vendored subtree
+# goes wrong without anything failing: a path pubspec.yaml bundles that stopped
+# existing (a runtime rootBundle error, not a build one), and a spec edited
+# here instead of upstream (reverted by the next refresh). Same command as
+# CI's gate job.
+log "update-specs.sh --check (vendored protocol-specs still intact?)"
+./scripts/update-specs.sh --check > /dev/null
+
 log "flutter pub get"
 flutter pub get
 

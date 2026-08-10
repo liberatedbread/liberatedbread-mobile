@@ -2,7 +2,7 @@
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# Refresh the vendored protocol-specs subtree.
+# Refresh — or verify — the vendored protocol-specs subtree.
 #
 # WHY THIS IS A SCRIPT AND NOT A DOCUMENTED COMMAND
 #
@@ -14,18 +14,27 @@
 # runtime rootBundle error on a code path most tests never reach. The app just
 # quietly stops naming vendors.
 #
-# So the refresh is a script: it does the pull, then asserts that everything
-# pubspec.yaml promises to bundle actually arrived.
+# So the refresh is a script: it runs the ordinary `git subtree pull`, then
+# asserts that everything pubspec.yaml promises to bundle actually arrived.
+# The git plumbing is stock git-subtree throughout — this wrapper adds the
+# preflight, the assertions and the error triage, and nothing else. Anything
+# it does can be done by hand with `git subtree`.
 #
 # Usage:
 #   ./scripts/update-specs.sh                     # main, from the canonical remote
 #   ./scripts/update-specs.sh some-branch         # a branch, tag or SHA
 #   ./scripts/update-specs.sh some-branch --from ../liberatedbread-protocol-specs
 #   ./scripts/update-specs.sh --from /path/to/checkout
+#   ./scripts/update-specs.sh --check             # verify only: no network, no pull
 #
 # `--from` takes any git remote: a URL, or a path to a local checkout. Pulling
 # from a local checkout is for iterating on a spec change alongside an app
 # change without pushing first — see the warning it prints.
+#
+# `--check` is the half of this script that has nothing to do with pulling: it
+# asserts the vendored tree still satisfies pubspec.yaml and that nobody has
+# hand-edited it in this repo. It touches no network and works on a shallow
+# clone, which is what makes it usable from CI.
 
 set -uo pipefail
 
@@ -37,6 +46,12 @@ DEFAULT_REMOTE="https://github.com/liberatedbread/liberatedbread-protocol-specs.
 REF="main"
 REMOTE="$DEFAULT_REMOTE"
 saw_ref=0
+check_only=0
+
+# Print the header's usage block. Deliberately keyed off the "# Usage:" line
+# rather than off line numbers: the previous `sed -n '5,28p'` silently started
+# printing the wrong paragraph the first time anyone added a sentence above it.
+usage() { awk '/^# Usage:/ {p=1} p && /^#/ {sub(/^# ?/, ""); print; next} p {exit}' "$0"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -45,8 +60,10 @@ while [ $# -gt 0 ]; do
       REMOTE="$2"; shift 2 ;;
     --from=*)
       REMOTE="${1#--from=}"; shift ;;
+    --check)
+      check_only=1; shift ;;
     -h|--help)
-      sed -n '5,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+      usage; exit 0 ;;
     -*)
       echo "::error::unknown option $1" >&2; exit 2 ;;
     *)
@@ -57,6 +74,162 @@ done
 
 log()  { printf '\033[1;32m[update-specs]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[update-specs]\033[0m %s\n' "$*"; }
+
+# The upstream commit the vendored tree is supposed to be at, read out of the
+# newest `git subtree ... --squash` commit. This is the same trailer git-subtree
+# itself looks for, so if this comes back empty git-subtree is about to be
+# unhappy too — except on a shallow clone, where the squash commit is simply
+# not in the fetched history and nothing is wrong.
+recorded_split() {
+  git log -1 --format=%B --grep='^git-subtree-split:' 2>/dev/null \
+    | awk '/^git-subtree-split:/ { print $2; exit }'
+}
+
+# ---------------------------------------------------------------------------
+# Assertions. These run after a pull and are the whole of `--check`.
+# ---------------------------------------------------------------------------
+
+# The paths pubspec.yaml bundles out of the subtree, read from pubspec.yaml
+# rather than repeated here. The list used to be hardcoded, which meant the
+# assertion covered whatever was true on the day it was written: a registry
+# added to `assets:` afterwards was bundled by Flutter and checked by nobody,
+# which is exactly the hole this script exists to close.
+pubspec_subtree_assets() {
+  awk '
+    /^flutter:/ { in_flutter = 1; next }
+    # Any other top-level key ends the flutter: block.
+    /^[^[:space:]#]/ { in_flutter = 0; in_assets = 0; next }
+    in_flutter && /^[[:space:]]+assets:[[:space:]]*$/ { in_assets = 1; next }
+    # A sibling key at any indent ends the asset list.
+    in_assets && /^[[:space:]]*[A-Za-z_-]+:/ { in_assets = 0 }
+    in_assets && /^[[:space:]]*-[[:space:]]*[^[:space:]#]/ {
+      sub(/^[[:space:]]*-[[:space:]]*/, "")
+      sub(/[[:space:]]+#.*$/, "")
+      gsub(/^["'\'']|["'\'']$/, "")
+      if ($0 != "") print
+    }
+  ' pubspec.yaml | grep "^$PREFIX/"
+}
+
+check_bundled_assets() {
+  local missing=0 path count specs assets
+  assets="$(pubspec_subtree_assets)"
+
+  # An empty list is a failure, not a pass. If pubspec.yaml is restructured so
+  # this parse stops matching, a check that silently asserts nothing is worse
+  # than no check at all — it reports success over an unexamined tree.
+  if [ -z "$assets" ]; then
+    echo "::error file=pubspec.yaml::no $PREFIX/ paths found under flutter: assets: — either the" >&2
+    echo "::error file=pubspec.yaml::subtree stopped being bundled, or this script can no longer read the list." >&2
+    return 1
+  fi
+
+  while IFS= read -r path; do
+    case "$path" in
+      */)
+        # Flutter bundles a directory as whatever it contains at build time, so
+        # a directory that has become empty ships as nothing at all rather than
+        # as an error. Under device-specs/ the contents have to be YAML for the
+        # catalogue loader to find anything.
+        if [ ! -d "$path" ]; then
+          echo "::error file=pubspec.yaml::$path is missing, but pubspec.yaml bundles it." >&2
+          missing=1
+        elif case "$path" in */device-specs/*) true ;; *) false ;; esac; then
+          if [ -z "$(find "$path" -name '*.yaml' -print -quit 2>/dev/null)" ]; then
+            echo "::error file=pubspec.yaml::$path has no specs, but pubspec.yaml bundles it." >&2
+            missing=1
+          fi
+        elif [ -z "$(find "$path" -type f ! -empty -print -quit 2>/dev/null)" ]; then
+          echo "::error file=pubspec.yaml::$path is empty, but pubspec.yaml bundles it." >&2
+          missing=1
+        fi ;;
+      *)
+        if [ ! -s "$path" ]; then
+          echo "::error file=pubspec.yaml::$path is missing or empty, but pubspec.yaml bundles it." >&2
+          missing=1
+        fi ;;
+    esac
+  done <<< "$assets"
+
+  [ "$missing" -eq 0 ] || return 1
+
+  count=$(printf '%s\n' "$assets" | wc -l | tr -d ' ')
+  specs=$(find "$PREFIX/device-specs" -name '*.yaml' 2>/dev/null | wc -l | tr -d ' ')
+  log "$specs spec(s) vendored; all $count bundled path(s) present."
+}
+
+# The subtree is vendored *unmodified* — that is the property that lets the app
+# read the upstream index.json as-is and lets a refresh be one `git subtree
+# pull`. A commit that edits a file under the prefix here breaks it silently:
+# the edit is invisible upstream, and the next pull either conflicts with it or
+# quietly reverts it. Catch it in the gate instead, where the fix is still
+# "move the change upstream" rather than "work out which of these two trees is
+# right".
+check_no_local_edits() {
+  local squash merge edits
+  squash="$(git log -1 --format=%H --grep='^git-subtree-split:' 2>/dev/null)"
+  if [ -z "$squash" ]; then
+    warn "no subtree squash commit in this history (shallow clone?); skipping the local-edit check."
+    return 0
+  fi
+
+  # The merge that brought that squash commit in. git-subtree merges it as the
+  # second parent, so this identifies the point after which nothing should have
+  # touched the prefix.
+  merge="$(git rev-list --parents HEAD | awk -v s="$squash" '$3 == s { print $1; exit }')"
+  if [ -z "$merge" ]; then
+    warn "could not locate the merge for squash commit ${squash:0:9}; skipping the local-edit check."
+    return 0
+  fi
+
+  # --no-merges on purpose: merging main into a branch legitimately carries
+  # subtree changes along, and those merges are not hand edits.
+  edits="$(git log --no-merges --oneline "$merge..HEAD" -- "$PREFIX")"
+  if [ -n "$edits" ]; then
+    echo "::error::these commits edit $PREFIX/ directly:" >&2
+    printf '%s\n' "$edits" | sed 's/^/::error::  /' >&2
+    echo "::error::The subtree is vendored unmodified. Make the change in" >&2
+    echo "::error::liberatedbread-protocol-specs and re-run this script — or, while" >&2
+    echo "::error::iterating, pull the branch you are writing it on with --from." >&2
+    return 1
+  fi
+}
+
+run_checks() {
+  local rc=0
+  check_bundled_assets || rc=1
+  check_no_local_edits || rc=1
+  return "$rc"
+}
+
+# ---------------------------------------------------------------------------
+# --check: verify the tree we already have. No network, no pull, no git state.
+# ---------------------------------------------------------------------------
+if [ "$check_only" -eq 1 ]; then
+  [ "$saw_ref" -eq 0 ] || { echo "::error::--check takes no ref" >&2; exit 2; }
+  split="$(recorded_split)"
+  if [ -n "$split" ]; then
+    log "vendored at upstream ${split:0:9}"
+  else
+    warn "no recorded upstream commit found in this history."
+  fi
+  run_checks || exit 1
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# The pull.
+# ---------------------------------------------------------------------------
+
+# git-subtree ships in contrib/, so it is packaged separately or omitted
+# entirely on some installs (Apple's git being the one people actually hit).
+# Without this the failure is `git: 'subtree' is not a git command`, which
+# reads like a typo in this script rather than a missing package.
+if [ ! -x "$(git --exec-path)/git-subtree" ] && ! command -v git-subtree >/dev/null 2>&1; then
+  echo "::error::git-subtree is not installed. It ships with git on most distros;" >&2
+  echo "::error::on macOS use Homebrew's git (Apple's does not include it)." >&2
+  exit 1
+fi
 
 # `git subtree pull` merges, so it refuses to start on a dirty tree — and it
 # refuses *after* fetching, with a message about the merge rather than about
@@ -76,20 +249,51 @@ case "$REMOTE" in
      warn "commit will not exist for anyone else until that branch is pushed." ;;
 esac
 
+# With --squash we keep none of upstream's objects, so the previously recorded
+# split commit is usually absent locally — and git-subtree needs it to write
+# the "changes from X..Y" message. git 2.42+ fetches it itself; older git dies
+# with "could not rev-parse split hash" and no hint that the fix is a fetch.
+# Doing it here makes the script work on the git people actually have, and
+# turns "upstream rewrote history and dropped that commit" into a warning
+# printed before the pull rather than a cryptic failure during it.
+BEFORE_SPLIT="$(recorded_split)"
+if [ -n "$BEFORE_SPLIT" ] && ! git cat-file -e "${BEFORE_SPLIT}^{commit}" 2>/dev/null; then
+  if ! git fetch --no-tags "$REMOTE" "$BEFORE_SPLIT" >/dev/null 2>&1; then
+    warn "$REMOTE no longer has the recorded upstream commit ${BEFORE_SPLIT:0:9};"
+    warn "if the pull fails on it, see the recovery note it prints."
+  fi
+fi
+
 BEFORE="$(git rev-parse HEAD)"
 log "pulling $PREFIX from $REMOTE @ $REF"
+
+# Stock `git subtree pull --squash`. Everything above is preflight and
+# everything below is triage; the pull itself is the command you would type.
+# Output is tee'd rather than swallowed so it still scrolls past live — the
+# copy is only read to tell the failure modes apart.
+pull_log="$(mktemp)"
+trap 'rm -f "$pull_log"' EXIT
 if ! git subtree pull --prefix="$PREFIX" "$REMOTE" "$REF" --squash \
      -m "Update vendored protocol-specs
 
-Refreshed from $REF via scripts/update-specs.sh."; then
-  # Two very different failures reach here and the advice is opposite, so ask
-  # git which one it was rather than guessing. An unresolved merge leaves
-  # MERGE_HEAD behind; a fetch that never got that far leaves the tree
+Refreshed from $REF via scripts/update-specs.sh." 2>&1 | tee "$pull_log"; then
+  # Three very different failures reach here and the advice differs for each,
+  # so ask git which one it was rather than guessing. An unresolved merge
+  # leaves MERGE_HEAD behind; a fetch that never got that far leaves the tree
   # untouched, and telling someone to resolve conflicts they do not have sends
   # them looking for a merge that is not there.
   if [ -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
     echo "::error::subtree pull hit conflicts. Resolve them, 'git add' them," >&2
     echo "::error::and commit — the merge is in progress." >&2
+  elif grep -q 'could not rev-parse split hash' "$pull_log"; then
+    # Upstream force-pushed or garbage-collected the commit we recorded, so
+    # there is no common point to diff against any more. Re-adding is the
+    # documented way out and it is not destructive: the next commit records a
+    # fresh baseline and the vendored files are unchanged by it.
+    echo "::error::the recorded upstream commit is gone from $REMOTE — history there" >&2
+    echo "::error::was rewritten. Re-baseline the subtree with the ordinary commands:" >&2
+    echo "::error::  git rm -r --quiet $PREFIX && git commit -m 'Re-baseline vendored specs'" >&2
+    echo "::error::  git subtree add --prefix=$PREFIX $REMOTE $REF --squash" >&2
   else
     echo "::error::subtree pull failed before merging; the tree is unchanged." >&2
     echo "::error::Check that '$REF' exists on $REMOTE." >&2
@@ -111,36 +315,20 @@ if [ "$(git rev-parse HEAD)" = "$BEFORE" ]; then
   log "already at that ref; checking the bundled paths anyway."
 fi
 
-# The assertion this script exists for. Run even when the pull was a no-op:
-# the question it answers is "does the tree satisfy pubspec.yaml", and that
-# can stop being true without the subtree moving at all. Every path here is one pubspec.yaml
-# lists under `assets:`; Flutter resolves those at build time, and a directory
-# that has become empty is bundled as nothing at all rather than as an error.
-missing=0
-for path in \
-  "$PREFIX/device-specs/index.json" \
-  "$PREFIX/registries/ieee-oui.tsv" \
-  "$PREFIX/registries/ieee-oui28.tsv" \
-  "$PREFIX/registries/ieee-oui36.tsv" \
-  "$PREFIX/registries/bluetooth-company-ids.tsv" \
-  "$PREFIX/registries/bluetooth-service-uuids.tsv"
-do
-  if [ ! -s "$path" ]; then
-    echo "::error file=pubspec.yaml::$path is missing or empty after the pull, but pubspec.yaml bundles it." >&2
-    missing=1
+AFTER_SPLIT="$(recorded_split)"
+if [ -n "$AFTER_SPLIT" ]; then
+  if [ "$AFTER_SPLIT" != "$BEFORE_SPLIT" ] && [ -n "$BEFORE_SPLIT" ]; then
+    log "upstream ${BEFORE_SPLIT:0:9} -> ${AFTER_SPLIT:0:9}"
+  else
+    log "vendored at upstream ${AFTER_SPLIT:0:9}"
   fi
-done
-for dir in "$PREFIX/device-specs/devices" "$PREFIX/device-specs/examples"; do
-  if [ -z "$(find "$dir" -name '*.yaml' -print -quit 2>/dev/null)" ]; then
-    echo "::error file=pubspec.yaml::$dir has no specs after the pull, but pubspec.yaml bundles it." >&2
-    missing=1
-  fi
-done
-[ "$missing" -eq 0 ] || exit 1
+fi
 
-specs=$(find "$PREFIX/device-specs/devices" "$PREFIX/device-specs/examples" \
-        -name '*.yaml' | wc -l | tr -d ' ')
-log "$specs spec(s) vendored; every bundled asset path present."
+# Run even when the pull was a no-op: the question these answer is "does the
+# tree satisfy pubspec.yaml", and that can stop being true without the subtree
+# moving at all.
+run_checks || exit 1
+
 if [ "$changed" -eq 1 ]; then
   log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"
   log "Bonjour list and the registries, and each has a test that reads it."
