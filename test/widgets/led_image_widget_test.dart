@@ -55,7 +55,8 @@ Future<void> _scrollAndTap(WidgetTester tester, Finder finder) async {
 
 void main() {
   group('writePayloadForMtu', () {
-    test('treats the uninformative default MTU as unknown -> optimistic 512', () {
+    test('treats the uninformative default MTU as unknown -> optimistic 512',
+        () {
       // 23 (and below) means the backend never reported the negotiated MTU
       // (e.g. flutter_blue_plus_linux); assume the requested 512 rather than a
       // 20-byte floor the image protocol can never use.
@@ -158,9 +159,11 @@ void main() {
         serviceUuid: 'svc-uuid',
         writes: [
           ImageWriteDto(
-              characteristicUuid: 'chr-uuid', bytes: Uint8List.fromList([1, 2])),
+              characteristicUuid: 'chr-uuid',
+              bytes: Uint8List.fromList([1, 2])),
           ImageWriteDto(
-              characteristicUuid: 'chr-uuid', bytes: Uint8List.fromList([3, 4])),
+              characteristicUuid: 'chr-uuid',
+              bytes: Uint8List.fromList([3, 4])),
         ],
         nextFrameIndex: 2,
       ),
@@ -255,8 +258,10 @@ void main() {
       imagePlan: ImageWritePlanDto(
         serviceUuid: 's',
         writes: [
-          ImageWriteDto(characteristicUuid: 'c', bytes: Uint8List.fromList([1])),
-          ImageWriteDto(characteristicUuid: 'c', bytes: Uint8List.fromList([2])),
+          ImageWriteDto(
+              characteristicUuid: 'c', bytes: Uint8List.fromList([1])),
+          ImageWriteDto(
+              characteristicUuid: 'c', bytes: Uint8List.fromList([2])),
         ],
         nextFrameIndex: 1,
       ),

@@ -449,7 +449,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         write.bytes,
       );
     }
-    if (epoch != _streamEpoch) return; // a newer operation owns the sequence now
+    if (epoch != _streamEpoch) {
+      return; // a newer operation owns the sequence now
+    }
     // Advance ONLY after every write lands, not before: if a write throws
     // mid-frame the session may not have opened, so the sequence must stay put
     // and the retry re-send frame 0 (which re-opens the session). Continue from
@@ -652,7 +654,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   for (final d in _designs)
                     PopupMenuItem(
                       value: d,
-                      child: Text(d.animation ? '${d.name} (animation)' : d.name),
+                      child:
+                          Text(d.animation ? '${d.name} (animation)' : d.name),
                     ),
                 ],
                 // A plain Chip (no onPressed) so the PopupMenuButton owns the
