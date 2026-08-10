@@ -47,6 +47,37 @@ heading.
   specs are keyed by subtree asset path and remote ones by `pack:<name>/<file>`,
   and the two namespaces are pinned as non-overlapping so neither half can
   shadow the other in the merged catalogue.
+- **`scripts/update-specs.sh` gained a `--check` mode, and CI runs it.** The
+  script wraps stock `git subtree pull --squash` — that has not changed, and
+  doing the subtree commands by hand still works — but its checking half was
+  only ever reachable by doing a pull, so nothing verified the vendored tree on
+  an ordinary commit. `--check` is that half alone: no network, no pull, works
+  on a shallow clone.
+
+  It also checks something new. The subtree is vendored *unmodified*, and an
+  edit made to `vendor/protocol-specs/` here instead of upstream reads as an
+  ordinary spec change in review, then silently reverts at the next refresh.
+  `--check` compares the vendored tree's hash against the squash commit's —
+  a squash commit's tree *is* the subtree's content — so it catches every way
+  the prefix can drift, including the two that no walk over commits can see: a
+  conflict resolved by editing the spec (recorded in the merge commit itself)
+  and a local edit that auto-merges cleanly during a pull (recorded before it).
+  Uncommitted and untracked files under the prefix count too; Flutter bundles
+  an unstaged YAML in `device-specs/devices/` exactly like a real one. This is
+  why the `analyze` job now checks out full history.
+
+  The bundled-path assertions are read out of `pubspec.yaml` rather than
+  repeated in the script. The old hardcoded list covered whatever was true the
+  day it was written: a registry added to `assets:` afterwards shipped in the
+  app and was checked by nobody.
+
+  The pull path picked up the three things that made its failures cryptic: a
+  preflight for git-subtree not being installed (it is contrib, and Apple's git
+  omits it) rather than `git: 'subtree' is not a git command`; a pre-fetch of
+  the recorded upstream commit, which git 2.42+ does itself but older git dies
+  on; and triage for upstream having rewritten history away from that commit,
+  which now prints the `git subtree add` re-baseline instead of `fatal: could
+  not rev-parse split hash`.
 - **iOS deployment target 12.0 → 13.0.** Flutter 3.44 no longer supports an
   iOS 12 target. The Podfile now pins the platform explicitly rather than
   leaving it commented out, so CocoaPods and the Xcode project cannot drift
