@@ -26,6 +26,33 @@ heading.
 
 ### Changed
 
+- **Image upload is a generic pipeline now, not a SmartDawn one.** Seven
+  devices in the catalogue declare an `image_upload` feature across six
+  handlers and five pixel formats, and the app drove one — with the pipeline
+  and the algorithms in a single file, so the sixth device would have meant a
+  sixth copy of the pipeline. `protocol/image_upload.rs` is the shared part:
+  resolve the command and bulk channels, open the session, encode the canvas,
+  fragment, write. Everything it needs is data a spec already states.
+  `daniao.rs` keeps what genuinely cannot be YAML — the palette+RLE pixel
+  codec and the `daniao_fragment` header — and drops from 487 non-test lines
+  to 286, all of it algorithm.
+
+  The line is deliberate: a spec *names* an algorithm and the pipeline runs
+  it, exactly as `protocol_handler` and `framing.scheme` already work.
+  Expressing a pixel codec in YAML would mean inventing a bytecode —
+  untypeable, untestable, and it would make a downloadable spec pack
+  executable. So adding a display is: write the spec, and add a codec only if
+  its pixel encoding is genuinely new. Proved rather than asserted — a test
+  runs the pipeline on a made-up device with a different framing scheme, a
+  different codec, different UUIDs and a different opener, none of which
+  SmartDawn shares.
+
+  One behaviour change fell out: the canvas ceiling is the spec's
+  `max_width`/`max_height` now, where the old code hardcoded 256. SmartDawn
+  declares 255 (it reports resolution in u8 advertisement fields), so a
+  256-wide canvas is correctly refused where it used to be accepted. The
+  codec's own u8 chunk coordinates still cap at 256, and the tighter of the
+  two binds.
 - **A command whose bytes this app cannot produce no longer offers a Send.**
   Two specs this branch made parseable exposed the same gap from opposite
   sides, and both were newly reachable precisely because the specs now load.
