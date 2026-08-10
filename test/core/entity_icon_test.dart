@@ -56,6 +56,23 @@ void main() {
       expect(entityIcon(_entity()), Icons.sensors);
     });
 
+    test('the Airthings family\'s device classes all resolve to real glyphs',
+        () {
+      // Its pressure entity says `atmospheric_pressure` (Home Assistant
+      // spells barometric readings both ways) and its radon entities ride
+      // under the VOC-parts class upstream — none of them may fall to the
+      // anonymous sensor glyph.
+      expect(entityIcon(_entity(deviceClass: 'atmospheric_pressure')),
+          Icons.speed);
+      expect(entityIcon(_entity(deviceClass: 'pressure')), Icons.speed);
+      expect(
+          entityIcon(_entity(deviceClass: 'volatile_organic_compounds_parts')),
+          Icons.air);
+      expect(entityIcon(_entity(deviceClass: 'volatile_organic_compounds')),
+          Icons.air);
+      expect(entityIcon(_entity(deviceClass: 'carbon_dioxide')), Icons.co2);
+    });
+
     test('the caller chooses what "nothing to say" looks like', () {
       // A reading with nothing else to say for itself is a sensor; a control
       // with nothing else to say for itself is a knob. Only that last step

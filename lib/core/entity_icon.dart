@@ -47,9 +47,14 @@ IconData? _byDeviceClass(String? deviceClass, IconData? fallback) =>
       'temperature' => Icons.thermostat,
       'battery' => Icons.battery_full,
       'humidity' || 'moisture' => Icons.water_drop_outlined,
+      // Home Assistant spells barometric readings both ways; Airthings'
+      // pressure entity says `atmospheric_pressure` and was falling to the
+      // anonymous sensor glyph.
       'pressure' || 'atmospheric_pressure' => Icons.speed,
       'signal_strength' => Icons.signal_cellular_alt,
       'carbon_dioxide' => Icons.co2,
+      // Air-quality readings (the Airthings family: radon rides under the
+      // VOC-parts class upstream, CO₂ under its own).
       'volatile_organic_compounds' ||
       'volatile_organic_compounds_parts' =>
         Icons.science_outlined,
