@@ -23,6 +23,7 @@ export '../src/rust/api/device_api.dart'
         FormatFieldDto,
         DecodedValueDto,
         ImageUploadDto,
+        ImageWriteDto,
         ImageWritePlanDto,
         MatchResult,
         MatchConfidence,

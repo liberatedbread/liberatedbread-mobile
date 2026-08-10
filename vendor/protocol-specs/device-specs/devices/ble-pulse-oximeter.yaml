@@ -9,6 +9,7 @@ device:
   manufacturer: "Manridy (likely ODM)"
   manufacturer_status: "abandoned"
   protocol: "ble"
+  category: "health"
   notes: >
     Uses standard Nordic UART service. Interaction is POLL-based, not
     subscribe-and-stream: each measurement notification requires a poll write

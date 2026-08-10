@@ -97,15 +97,17 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
                 | ValueType::Int8
                 | ValueType::Int16
                 | ValueType::Int32
-                | ValueType::Uint32,
+                | ValueType::Uint32
+                | ValueType::Varint,
                 Some(scale),
             ) => Some(raw_for_physical(nominal_for_name(&field.name), scale)),
             (ValueType::Uint8, None) => Some(default_uint8_for_name(&field.name) as i64),
             (ValueType::Uint16, None) => Some(default_uint16_for_name(&field.name) as i64),
             (ValueType::Int8, None) => Some(22),   // ~22°C
             (ValueType::Int16, None) => Some(220), // 22.0 if scaled
-            // 32-bit fields with no scale, and the non-numeric types, stay zero.
-            (ValueType::Int32 | ValueType::Uint32, None)
+            // 32-bit / varint fields with no scale, and the non-numeric types,
+            // stay zero.
+            (ValueType::Int32 | ValueType::Uint32 | ValueType::Varint, None)
             | (ValueType::Bytes | ValueType::String, _) => None,
         };
         if let Some(val) = heuristic {
@@ -157,7 +159,8 @@ fn write_value(slice: &mut [u8], val: i64, ty: &ValueType) {
         ValueType::Int16 => slice[..2].copy_from_slice(&(val as i16).to_le_bytes()),
         ValueType::Int32 => slice[..4].copy_from_slice(&(val as i32).to_le_bytes()),
         ValueType::Uint32 => slice[..4].copy_from_slice(&(val as u32).to_le_bytes()),
-        ValueType::Bytes | ValueType::String => {} // mock_default is ignored for these
+        // mock_default is ignored for these (variable/opaque width).
+        ValueType::Varint | ValueType::Bytes | ValueType::String => {}
     }
 }
 

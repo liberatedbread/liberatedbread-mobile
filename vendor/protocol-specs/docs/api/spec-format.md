@@ -22,6 +22,8 @@ device:              # identity, discovery, and one-time setup
   manufacturer_status: ...   # abandoned | shutdown | unsupported | active
   openness: ...              # was this protocol published, or did we recover it?
   protocol: ...              # ble | wifi | zigbee | zwave | obd2 | uart | can
+  category: ...              # what KIND of thing it is — closed vocabulary
+  type: ...                  # what the thing IS — free text
   identification: ...        # how to recognise it while scanning
   discovery: ...             # how to FIND one that is already on the network
   setup: ...                 # how to GET one onto the network
@@ -175,6 +177,45 @@ comes from is `C4:7C:8D:6x`. A whole-octet prefix cannot express that, so it
 also matches the other fourteen vendors. `00:17:88` (Hue) is the worked example
 of `medium` — genuinely Philips Lighting's, and on their lamps and switches
 too, not just bridges.
+
+### `category` and `type` — what kind of thing is this?
+
+Both name the device class, and the difference between them is who reads them.
+
+`type` is free text for a human: `smart-scale`, `ebike-controller`,
+`electronic_door_lock`. Write whatever is most precise.
+
+`category` is a **closed vocabulary** for a program. It is required, and a
+value outside the list is rejected:
+
+| | | | | |
+|---|---|---|---|---|
+| `appliance` | `camera` | `climate` | `display` | `energy` |
+| `fitness` | `health` | `hub` | `irrigation` | `light` |
+| `lock` | `motor` | `printer` | `reference` | `robot` |
+| `scale` | `sensor` | `speaker` | `switch` | `tool` |
+| `tracker` | `tv` | `vehicle` | `wearable` | `other` |
+
+The closed list is what makes the field useful downstream. The mobile app
+draws an icon beside every scan result from this value, so it needs the three
+specs that say `smart-scale`, `kitchen-scale` and `body-composition-scale` to
+agree on one word (`scale`) — and a typo'd or invented category is
+indistinguishable at the consumer from a device nobody has documented at all.
+Both fall back to the same anonymous radio icon, which is the outcome the
+field exists to prevent.
+
+Pick the word someone would use to describe the device from across the room,
+not the most precise one available:
+
+- an LED strip controller is a `light`; an LED matrix panel is a `display`
+- an e-bike mid-drive is a `motor`; the bike's diagnostic connector is `vehicle`
+- a BBQ probe is a `sensor`, whatever the kitchen has to do with it
+- a bridge or gateway you talk to *instead of* the device is a `hub`
+
+Two rules that are not judgement calls: reference specs (a `type` starting
+`reference-`) take `category: reference`, and the schema enforces that the two
+fields agree. `other` is for a device the list genuinely cannot describe —
+reach for it as a prompt to propose a new value, not as somewhere to leave it.
 
 ### `openness` — did we have to recover this?
 

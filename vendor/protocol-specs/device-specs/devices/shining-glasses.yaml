@@ -7,6 +7,7 @@ device:
   manufacturer: "Shenzhen Shining Bright Technology"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "display"
   notes: >
     Bluetooth-controlled LED glasses. Uses identical protocol to Shining Mask
     (same UUIDs, AES encryption, ASCII-based 16-byte command format, DATS/DATCP handshake).

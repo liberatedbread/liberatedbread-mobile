@@ -836,6 +836,34 @@ pub struct Parameter {
     /// Free-form documentation about the parameter.
     #[serde(default)]
     pub notes: Option<String>,
+    /// Byte order for multi-byte parameters. Defaults to little-endian when
+    /// absent; protocols with big-endian headers (e.g. Daniao DNX) declare it.
+    #[serde(default)]
+    pub endianness: Option<Endianness>,
+    /// Transport role the ENCODER fills, rather than the caller: `sequence`
+    /// (a message serial) and `packet_length` (the total encoded length). This
+    /// is what lets a spec declare header fields the client computes without
+    /// the caller having to.
+    #[serde(default)]
+    pub auto: Option<AutoRole>,
+}
+
+/// Byte order for a multi-byte [`Parameter`] / template field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Endianness {
+    Little,
+    Big,
+}
+
+/// A transport field the encoder fills in rather than the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoRole {
+    /// The total encoded packet length in bytes.
+    PacketLength,
+    /// A per-message sequence number (0 unless a stateful caller supplies one).
+    Sequence,
 }
 
 /// Same rationale as [`FormatField`]'s: only `type` is load-bearing, and the
@@ -855,6 +883,8 @@ impl Default for Parameter {
             value_offset: None,
             unit: None,
             notes: None,
+            endianness: None,
+            auto: None,
         }
     }
 }
@@ -1054,6 +1084,11 @@ pub enum ValueType {
     Int16,
     Int32,
     Uint32,
+    /// A protobuf base-128 varint (LEB128, unsigned): 1 byte for values
+    /// <= 127, more for larger ones. Variable width, so it has no
+    /// `fixed_byte_size`. Used for protobuf command fields whose value can
+    /// exceed 127 (e.g. SmartDawn brightness 0-255, packed pixel colors).
+    Varint,
     Bytes,
     String,
 }
@@ -1068,6 +1103,7 @@ impl std::fmt::Display for ValueType {
             ValueType::Int16 => write!(f, "int16"),
             ValueType::Int32 => write!(f, "int32"),
             ValueType::Uint32 => write!(f, "uint32"),
+            ValueType::Varint => write!(f, "varint"),
             ValueType::Bytes => write!(f, "bytes"),
             ValueType::String => write!(f, "string"),
         }
@@ -1082,7 +1118,8 @@ impl ValueType {
             ValueType::Bool | ValueType::Uint8 | ValueType::Int8 => Some(1),
             ValueType::Uint16 | ValueType::Int16 => Some(2),
             ValueType::Int32 | ValueType::Uint32 => Some(4),
-            ValueType::Bytes | ValueType::String => None,
+            // Varint width depends on the value, so it is not fixed.
+            ValueType::Varint | ValueType::Bytes | ValueType::String => None,
         }
     }
 
@@ -1097,7 +1134,7 @@ impl ValueType {
             ValueType::Int8 => Some((i8::MIN as i64, i8::MAX as i64)),
             ValueType::Int16 => Some((i16::MIN as i64, i16::MAX as i64)),
             ValueType::Int32 => Some((i32::MIN as i64, i32::MAX as i64)),
-            ValueType::Uint32 => Some((0, u32::MAX as i64)),
+            ValueType::Uint32 | ValueType::Varint => Some((0, u32::MAX as i64)),
             ValueType::Bytes | ValueType::String => None,
         }
     }

@@ -3,6 +3,7 @@ device:
   manufacturer: Divoom
   manufacturer_status: active
   protocol: wifi
+  category: display
   model: pixoo64_wifi
   notes: "WiFi-connected RGB LED pixel-matrix display. Displays static images, animations\
     \ (GIF-like), scrolling text, clock faces, EQ visualizer, and cloud gallery content.\

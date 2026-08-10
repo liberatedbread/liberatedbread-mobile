@@ -8,6 +8,7 @@ device:
   manufacturer: "Shenzhen I-ledshow Technology Co., Ltd."
   manufacturer_status: "active"
   protocol: "ble"
+  category: "display"
   notes: >
     This app replaced SPOTLED for DreamPanel v3 hardware (horizontal serial
     number). Built on JieLi (JL) Bluetooth OTA SDK. The protocol is FULLY

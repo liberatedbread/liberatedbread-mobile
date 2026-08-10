@@ -5,7 +5,9 @@ class AppConstants {
   static const String appName = 'Liberated Bread';
   static const String appTagline = 'Own your devices, don\'t let them own you.';
   static const String appVersion = '0.1.0';
-  static const int defaultScanDuration = 10;
+  // 30s, not 10: some controllers (e.g. the SmartDawn/Daniao curtain) advertise
+  // slowly, and a short window ended before they appeared.
+  static const int defaultScanDuration = 30;
   static const int nearbyRssiThreshold = -70;
 
   /// App identifier sent to Home Assistant's mobile_app registration.

@@ -7,6 +7,7 @@ device:
   manufacturer: "Ember Technologies"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "appliance"
   notes: >
     Covers Ember Mug 2 (10/14 oz), Travel Mug 2/2+, Cup (6 oz), Tumbler (16 oz).
     Official Android app package is `com.embertech`; APKPure XAPK inspected:

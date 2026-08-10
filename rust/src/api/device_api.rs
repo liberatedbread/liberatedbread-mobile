@@ -100,14 +100,23 @@ pub struct ImageUploadDto {
     pub default_frame_interval_ms: Option<u32>,
 }
 
+/// One BLE write of an image frame: the bytes and the characteristic they go
+/// to. Per-write targets because the doodle flow spans channels (session-open
+/// on the command characteristic, pixels on the bulk one).
+#[derive(Debug, Clone)]
+pub struct ImageWriteDto {
+    pub characteristic_uuid: String,
+    pub bytes: Vec<u8>,
+}
+
 /// The BLE writes that push one image frame to a device, in send order.
 #[derive(Debug, Clone)]
 pub struct ImageWritePlanDto {
+    /// The GATT service every write's characteristic belongs to.
     pub service_uuid: String,
-    pub characteristic_uuid: String,
-    /// Ordered write payloads. The caller sends them back-to-back on the
+    /// Ordered writes. The caller sends them back-to-back, each to its own
     /// characteristic; ordering is part of the protocol (fragment reassembly).
-    pub writes: Vec<Vec<u8>>,
+    pub writes: Vec<ImageWriteDto>,
     /// The frame index to pass for the NEXT frame. A frame spanning P wire
     /// packets consumes P sequence numbers, so advancing by 1 would make the
     /// next frame's serials collide with this one's and corrupt fragment
@@ -1499,6 +1508,7 @@ pub fn encode_image_frame(
         .into());
     };
     let frame = (handler.encode)(
+        &spec,
         &rgb,
         width,
         height,
@@ -1507,9 +1517,15 @@ pub fn encode_image_frame(
     )?;
     Ok(ImageWritePlanDto {
         service_uuid: handler.service_uuid.to_string(),
-        characteristic_uuid: handler.characteristic_uuid.to_string(),
         next_frame_index: frame_index.wrapping_add(frame.packets),
-        writes: frame.writes,
+        writes: frame
+            .writes
+            .into_iter()
+            .map(|w| ImageWriteDto {
+                characteristic_uuid: w.characteristic_uuid,
+                bytes: w.bytes,
+            })
+            .collect(),
     })
 }
 
@@ -1884,26 +1900,10 @@ services:
         assert!(results.is_empty());
     }
 
-    const IMAGE_SPEC_YAML: &str = r#"
-device:
-  name: "Pixel Curtain"
-  manufacturer: "Daniao"
-  manufacturer_status: "active"
-  protocol: "ble"
-
-protocol_handler: "daniao_ddp"
-
-features:
-  - type: "image_upload"
-    format: "rgb888"
-    max_width: 255
-    max_height: 255
-    resolution_source: "device_reported"
-    animation: true
-    default_frame_interval_ms: 200
-
-services: []
-"#;
+    /// Shared with the daniao handler's unit tests — one fixture, so an edit
+    /// to the command templates or framing cannot leave one test module
+    /// exercising a stale spec shape while the other passes.
+    const IMAGE_SPEC_YAML: &str = include_str!("../protocol/test_specs/smartdawn_doodle.yaml");
 
     #[test]
     fn image_upload_feature_parses_into_dto() {
@@ -1936,33 +1936,45 @@ services: []
 
     #[test]
     fn encode_image_frame_routes_to_daniao() {
-        let plan = encode_image_frame(IMAGE_SPEC_YAML.into(), 1, 1, vec![0x10, 0x20, 0x30], 0, 20)
+        // Frame 0 opens the session (ui_end_sync + doodle_start on the DDP
+        // char) then streams one pixel chunk on the BIN char — 3 packets.
+        let plan = encode_image_frame(IMAGE_SPEC_YAML.into(), 1, 1, vec![0x10, 0x20, 0x30], 0, 509)
             .unwrap();
         assert_eq!(plan.service_uuid, "00000074-1972-1925-3022-077119514e44");
+        assert_eq!(plan.writes.len(), 3);
         assert_eq!(
-            plan.characteristic_uuid,
+            plan.writes[0].characteristic_uuid,
             "01020074-1972-1925-3022-077119514e44"
         );
-        assert_eq!(plan.writes.len(), 1);
-        assert!(plan.writes[0].ends_with(&[0x10, 0x20, 0x30]));
-        assert_eq!(plan.next_frame_index, 1, "one packet consumed one serial");
+        assert_eq!(
+            plan.writes[2].characteristic_uuid,
+            "02020074-1972-1925-3022-077119514e44"
+        );
+        // The BIN chunk carries the palette color for the single pixel.
+        assert!(plan.writes[2].bytes.ends_with(&[0x10, 0x20, 0x30, 0x01]));
+        assert_eq!(plan.next_frame_index, 3, "2 session packets + 1 chunk");
     }
 
     #[test]
     fn encode_image_frame_advances_index_by_packets_consumed() {
-        // 40x34 RGB at the 20-byte payload floor splits into two DDP packets
-        // (serials 5 and 6), so the next frame must start at 7 — advancing by
-        // one would make its first packet collide with this frame's second.
-        let plan = encode_image_frame(
+        // Frame 0 consumes 3 serials (2 session + 1 chunk); the next frame,
+        // started at that index, sends only its chunk (1 serial) — advancing
+        // by less would make its serial collide and corrupt reassembly.
+        let img = vec![0xAB; 20 * 20 * 3];
+        let first =
+            encode_image_frame(IMAGE_SPEC_YAML.into(), 20, 20, img.clone(), 0, 509).unwrap();
+        assert_eq!(first.next_frame_index, 3);
+        let next = encode_image_frame(
             IMAGE_SPEC_YAML.into(),
-            40,
-            34,
-            vec![0xAB; 40 * 34 * 3],
-            5,
             20,
+            20,
+            img,
+            first.next_frame_index,
+            509,
         )
         .unwrap();
-        assert_eq!(plan.next_frame_index, 7);
+        assert_eq!(next.writes.len(), 1, "later frames skip session open");
+        assert_eq!(next.next_frame_index, 4);
     }
 
     #[test]
