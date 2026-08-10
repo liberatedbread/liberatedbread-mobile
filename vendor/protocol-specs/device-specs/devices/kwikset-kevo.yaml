@@ -29,7 +29,7 @@ device:
   name: "Kwikset Kevo"
   manufacturer: "Kwikset / ASSA ABLOY (UniKey Technologies platform)"
   manufacturer_status: "shutdown"
-  category: "smart_lock"
+  category: "lock"
   type: "electronic_door_lock"
   protocol: "ble"
   transport: "ble-gatt"

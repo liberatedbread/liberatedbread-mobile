@@ -7,6 +7,7 @@ device:
   manufacturer: "Slacker LLC (formerly MoTool)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "sensor"
   notes: >
     Motorcycle digital suspension sag measurement tool (V4/V5).
     Vendor is active: live Shopify store at getslacker.com, V5 user guide dated

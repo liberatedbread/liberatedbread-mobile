@@ -7,6 +7,7 @@ device:
   manufacturer: "Wonderlabs, Inc. (SwitchBot)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "switch"
   notes: >
     Family of BLE smart home devices: Bot (button pusher), Meter/TH (temp/humidity),
     Curtain, Motion Sensor, Contact Sensor, Color Bulb, LED Strip Light, Smart Lock,

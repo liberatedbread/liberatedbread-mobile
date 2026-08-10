@@ -7,6 +7,7 @@ device:
   manufacturer: "Shenzhen Sperll Optoelectronic (SPLED)"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "light"
   notes: >
     SPI LED pixel controllers used in LEDs2RAVE4 / Lunchbox Dream LED products.
     Two distinct variants that do NOT share the same BLE service UUID:

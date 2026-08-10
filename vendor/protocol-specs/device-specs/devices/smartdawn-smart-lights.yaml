@@ -7,6 +7,7 @@ device:
   manufacturer: "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)"
   manufacturer_status: "active"
   protocol: "ble"
+  category: "light"
   notes: >
     SmartDawn (smartdawn.com, Shopify storefront linked to the Minetom
     string-lights seller) sells addressable-RGB holiday lighting: RGBIC
@@ -36,11 +37,17 @@ device:
     http://file.daniaokeji.com/download/SmartDawn.apk).
 
     DISCOVERY: advertised local name is 6-8 chars starting with "DN"
-    (app-side filter, case-insensitive), and the custom service UUID
-    00000074-1972-1925-3022-077119514e44 is advertised and used as the
-    app's scan filter. Advertisements also carry a 14-byte manufacturer-data
-    record (fw_ver, factory id, product type, width, height, group, vendor,
-    run-mode/leader flags).
+    (app-side filter, case-insensitive). The custom service UUID
+    00000074-1972-1925-3022-077119514e44 is what the official app's scan
+    filter names, but the JY25CUT curtain controller tested live
+    (2026-08-08, unit "DN0B88") does NOT include it in its advertisement —
+    the ADV carries only the local name and a manufacturer-data record
+    (company id 0x61ea + 12 payload bytes, observed
+    03 e8 00 64 14 14 00 00 72 74 00 00: fw_ver, factory id, product
+    type, width, height, group, vendor, run-mode/leader flags). Scan
+    matching must therefore key on the name prefix (and optionally the
+    manufacturer data); the service UUID is confirmed from the GATT table
+    after connecting.
 
     WIFI VARIANTS: Daniao's platform also supports Wi-Fi control — same DDP
     framing over UDP port 4048, device presence announcements to app UDP
@@ -49,14 +56,33 @@ device:
     "00000000"). Whether shipping SmartDawn-branded SKUs enable Wi-Fi is
     unverified; the curtain lights are BLE-per-listing.
 
-    CONFIDENCE: HIGH (code-sourced) for discovery, GATT layout, fragment
-    framing, extended-header layout, and the command vocabulary — read from
-    two independent implementations inside the vendor's own app. No live
-    over-the-air capture exists yet; payload field usage per command
-    (SimpleMessage i1/i2/s1 semantics, ranges) follows app call sites and is
-    medium confidence. Header shape and UDP port 4048 echo the WLED/xLights
-    DDP (Digital Display Protocol), suggesting a derivation, but the DNX
-    extended channel is Daniao-specific.
+    CONFIDENCE: HIGH for discovery, GATT layout, fragment framing,
+    extended-header layout, and the core command path — code-sourced from
+    two independent implementations inside the vendor's own app AND
+    verified live against JY25CUT curtain hardware (unit "DN0B88",
+    "DNX:S104-JY" per its DeviceInfo push) on 2026-08-08: connect +
+    subscribe needs no pairing; the device immediately pushes
+    M_DEVICE_INFO_NOTIFY (mt=2103) and a periodic M_PLAY_PROGRESS_NOTIFY
+    (mt=2630) stream on the DDP notify characteristic; fragment-framed
+    M_SET_POWEROFF/M_SET_POWERON commands (single-fragment, big-endian
+    header fields, correct len) are acknowledged with
+    M_POWER_STATUS_NOTIFY (mt=2105) and visibly pause/resume playback,
+    while the SAME packets written WITHOUT the 4-byte fragment header are
+    silently ignored — the framing is mandatory, not advisory. Commands
+    worked without a prior M_TIME_SYNC. M_SET_BRIGHTNESS (mt=2509, protobuf
+    SimpleMessage {i1}) is accepted without an ACK and the value echoes
+    back in the next M_DEVICE_INFO_NOTIFY brightness field. The pixel-push
+    path was also exercised live: M_DEV_START (mt=235) verifiably takes
+    over the display (the M_PLAY_PROGRESS_NOTIFY stream goes silent until
+    the mode is left), and full-canvas TUTU_RESTORE chunks then stream on
+    the BIN channel (format under the BIN Write characteristic).
+    M_GET_RUNNING_STATUS (mt=2104) produced no observable reply in that
+    session (framed or not) — its semantics stay medium confidence, as
+    does payload field usage for commands not exercised live (SimpleMessage
+    i1/i2/s1 semantics, ranges), which follows app call sites. Header shape
+    and UDP port 4048 echo the WLED/xLights DDP (Digital Display Protocol),
+    suggesting a derivation, but the DNX extended channel is
+    Daniao-specific.
 
   identification:
     # Advertised local name is 6-8 chars starting with "DN" (the official
@@ -83,20 +109,23 @@ device:
 
   setup:
     required: false
-    confidence: "medium"
+    confidence: "high"
     notes: >
       BLE models need no provisioning: power on, scan for the DN-prefixed
-      name or the 00000074-... service UUID, connect, subscribe to the DDP
+      name (the tested JY25CUT unit does not advertise the 00000074-...
+      service UUID — see DISCOVERY), connect, subscribe to the DDP
       and BIN notify characteristics, negotiate MTU (app requests 512,
-      payload MTU = negotiated - 3, fallback 20), then send a time sync
-      (M_TIME_SYNC, mt=2504). No pairing, bonding, or authentication on the
-      command path — auth message types exist but serve cloud/sharing
-      flows. Confidence medium: flow is from app code, not a live capture.
-      Wi-Fi SKUs (if any ship under SmartDawn) would use the AP-mode flow in
-      the notes above (low confidence for this brand).
+      payload MTU = negotiated - 3, fallback 20), then optionally send a
+      time sync (M_TIME_SYNC, mt=2504) — the official app always does, but
+      live testing (2026-08-08) confirmed power commands work without it.
+      No pairing, bonding, or authentication on the command path — auth
+      message types exist but serve cloud/sharing flows; the whole flow was
+      exercised on JY25CUT curtain hardware over BlueZ. Wi-Fi SKUs (if any
+      ship under SmartDawn) would use the AP-mode flow in the notes above
+      (low confidence for this brand).
     methods:
       - type: "ble_direct"
-        verified: false
+        verified: true
         description: >
           Scan for a "DN"-prefixed name (6-8 chars) or the
           00000074-1972-1925-3022-077119514e44 service UUID, connect, enable
@@ -188,17 +217,39 @@ features:
     max_height: 255
     resolution_source: "device_reported"
     # The vendor app's draw / photo-to-light modes push pixels over the
-    # BIN channel, not the DDP channel: M_DOODLE_START (mt=2701) opens the
-    # session, then buffer arrays tagged TUTU_DOODLE (1) / TUTU_RESTORE
-    # (4) carry the canvas as ~200-byte chunks of a palette-indexed format
-    # (3-byte header [x][y][colorCount<=16] + RGB palette + per-pixel
-    # indices), and M_DOODLE_END (mt=2702) closes it. A DDP DISPLAY
-    # (datatype 0x01) streaming encoder also ships in the H5 bundle but is
-    # never called in v1.2.4 — dormant/legacy until a capture says
-    # otherwise. Stored multi-frame animations install via the BIN-channel
-    # flow M_START_INSTALL_ANIMATION / M_INSTALL_ANIMATION_PACKET /
-    # M_END_INSTALL_ANIMATION (mt 2918-2920). No documented minimum frame
-    # interval — throughput is MTU-bound.
+    # BIN channel, not the DDP channel — VERIFIED LIVE on JY25CUT curtain
+    # hardware (unit DN0B88) 2026-08-08. The working sequence (matches the
+    # vendor H5 app AND confirmed rendering full multi-color images,
+    # sequential images, and ~5fps animation on hardware):
+    #
+    #   1. M_UI_END_SYNC (mt=2411, no payload) on the DDP channel — suspends
+    #      the UI-mirror playback so the doodle canvas owns the display.
+    #   2. M_DOODLE_START (mt=2701) on the DDP channel. The H5 app sends
+    #      SimpleMessage {i1: showRate, i2: showRate} where showRate is
+    #      undefined, so the payload is EMPTY on the wire; an empty payload
+    #      was used in the live verification. (M_DOODLE_END mt=2702 exists
+    #      but the app never sends it — the session stays open; for a
+    #      multi-image stream DOODLE_START need not be resent per frame.)
+    #   3. The canvas as TUTU_RESTORE-tagged buffer arrays on the BIN Write
+    #      characteristic; format under that characteristic's notes. EACH
+    #      chunk MUST fit in a single BLE write — the device does NOT
+    #      reassemble BIN fragments (a split chunk renders only its first
+    #      strand), so negotiate a large ATT MTU (the app requests 527, the
+    #      device grants 512) before pushing images.
+    #
+    #   DO NOT send M_DEV_START (mt=235) for this path: it is the
+    #   developer/layout RAW-pixel mode (paired with M_DEV_SHOW_PIXEL) and it
+    #   BLANKS the doodle canvas — every DEV_START + TUTU_RESTORE attempt
+    #   rendered nothing on hardware, while the M_UI_END_SYNC path rendered
+    #   full images. (A DDP DISPLAY datatype-0x01 streaming encoder also ships
+    #   in the H5 bundle but has no call sites and did nothing observable —
+    #   dormant/legacy.)
+    #
+    # Stored, standalone-playable animations install via the Uploader
+    # characteristic (27923001-...): see its notes for the UploadRequest +
+    # 8-byte-header + CRC8 flow (device-side STORAGE, decoded from an
+    # over-the-air capture 2026-08-08). No documented minimum frame interval
+    # for live streaming — throughput is MTU-bound.
     animation: true
 
 services:
@@ -250,7 +301,16 @@ services:
 
       Command templates below cover the 20-byte extended header; "{sn}",
       "{len}", "{ts}" and "{payload}" are the variable parts. No-payload
-      commands send the header alone (len = 20).
+      commands send the header alone (len = 20). The templates do NOT
+      include the 4-byte fragment header: each characteristic's `framing`
+      block declares it machine-readably (scheme `daniao_fragment`), and
+      encoders MUST apply it to every write — live testing (2026-08-08,
+      JY25CUT curtain) confirmed the controller silently ignores unframed
+      command packets and acknowledges framed ones. Multi-byte header
+      fields (sn, len, cid, osn) are big-endian, declared per-parameter
+      via `endianness`; `len`/`sn` are transport fields the encoder fills
+      (`auto: packet_length` / `auto: sequence` — a constant sn of 0 was
+      accepted on hardware).
     initialization:
       - characteristic: "01010074-1972-1925-3022-077119514e44"
         subscribe: true
@@ -259,12 +319,17 @@ services:
     characteristics:
       - uuid: "01020074-1972-1925-3022-077119514e44"
         name: "DDP Write"
-        properties: ["write"]
+        properties: ["write", "write_without_response"]
+        framing:
+          scheme: "daniao_fragment"
+          channel_tag: 0
         notes: >
-          Command channel. Writes are BLE fragments (see service notes)
-          whose reassembled payload is one DDP packet — usually a 20-byte
-          extended (DNX) header plus optional protobuf payload. Responses
-          arrive on the DDP notify characteristic.
+          Command channel. Writes are BLE fragments (see service notes and
+          the `framing` block: 4-byte [serial][total][remaining][tag=0]
+          header on every write — MANDATORY, the device ignores unframed
+          packets) whose reassembled payload is one DDP packet — usually a
+          20-byte extended (DNX) header plus optional protobuf payload.
+          Responses arrive on the DDP notify characteristic.
         commands:
           power_on:
             description: >
@@ -272,10 +337,10 @@ services:
               no payload.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD2, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16", description: "message sequence, big-endian" }
-              len: { type: "uint16", default: 20, description: "total packet length, big-endian" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (header + payload); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           power_off:
             description: >
@@ -283,41 +348,46 @@ services:
               only, no payload.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD3, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           set_brightness:
             description: >
               Set brightness. M_SET_BRIGHTNESS (mt=2509) with protobuf
-              SimpleMessage {i1: brightness} payload (app sends a varint;
-              range per UI slider, 0-100 — medium confidence).
-            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCD, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+              SimpleMessage {i1: brightness} payload: 0x08 is the protobuf tag
+              for field 1 (i1), followed by the value as a protobuf varint.
+              The device's range is 1-255 (the vendor app's slider), so the
+              value MUST be a varint — 1-127 encode as a single byte, 128-255
+              as two. VERIFIED live 2026-08-08: sweeping 1..255 stepped the
+              panel across the full range. `len` is auto-computed and accounts
+              for the varint width.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCD, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{brightness}"]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", description: "20 + protobuf payload length" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (22: header + 2-byte protobuf); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
-              payload: { type: "bytes", description: "SimpleMessage {i1: brightness} protobuf" }
+              brightness: { type: "varint", min: 1, max: 255, description: "Brightness level 1-255; encoded as a protobuf varint (1 byte for <=127, 2 bytes above)." }
           play_next:
             description: "Next effect. M_PLAY_NEXT (mt=2604), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2C, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           play_prev:
             description: "Previous effect. M_PLAY_PREV (mt=2605), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           play_effect:
             description: >
@@ -329,20 +399,20 @@ services:
               locally as <id>.eff — FileCache.java in the SmartDawn APK).
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2E, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes", description: "effect reference (uuid string) protobuf" }
           set_play_speed:
             description: "Set effect speed. M_SET_PLAY_SPEED (mt=2523), SimpleMessage {i1: speed}."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xDB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes", description: "SimpleMessage {i1: speed} protobuf" }
           set_color_mode:
@@ -352,29 +422,29 @@ services:
               palette/color payloads.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes" }
           set_mode_loop:
             description: "Loop the effect playlist. M_SET_MODE_LOOP (mt=2507), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           set_mode_single:
             description: "Play a single effect once. M_SET_MODE_SINGLE (mt=2508), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCC, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           time_sync:
             description: >
@@ -382,29 +452,29 @@ services:
               with TimeSync protobuf {offset, time, dst}.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xC8, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes", description: "TimeSync {offset, time, dst} protobuf" }
           get_running_status:
             description: "Query running state. M_GET_RUNNING_STATUS (mt=2104); device answers with status/device-info notifications."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x08, 0x38, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           music_start:
             description: "Enter music-reactive mode. M_MUSIC_START (mt=2611); M_MUSIC_STOP = 2612."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x33, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes" }
           device_mic_start:
@@ -416,57 +486,119 @@ services:
               2654/2655. From p2p.proto + H5 call sites.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x5A, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+          ui_end_sync:
+            description: >
+              Suspend the device->app UI mirror so an editor (doodle / photo /
+              scroll text) owns the canvas. M_UI_END_SYNC (mt=2411), no payload.
+              This is the FIRST packet of the image/photo/animation push
+              sequence (then M_DOODLE_START, then TUTU_RESTORE chunks) —
+              verified live 2026-08-08. Paired with M_UI_START_SYNC (2410) to
+              resume playback on leave.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+          ui_start_sync:
+            description: >
+              Resume the device->app UI mirror / playback after an editor
+              closes. M_UI_START_SYNC (mt=2410), no payload.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6A, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           doodle_start:
             description: >
-              Open a live draw/photo pixel session. M_DOODLE_START
-              (mt=2701) with SimpleMessage {i1, i2} (app sends {1,1});
-              pixel data then flows as TUTU-tagged buffer arrays on the
-              BIN Write characteristic (see its notes). M_DOODLE_END =
-              2702, M_DOODLE_SCROLL = 2715.
-            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x85, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+              Open a live draw/photo pixel session (send dev_start first —
+              see its description). M_DOODLE_START (mt=2701); the H5 app
+              passes SimpleMessage {i1: showRate, i2: showRate} but
+              showRate is undefined in v1.2.4, so the wire payload is
+              EMPTY — verified working with no payload on hardware
+              (2026-08-08). Pixel data then flows as TUTU-tagged buffer
+              arrays on the BIN Write characteristic (see its notes).
+              M_DOODLE_END = 2702 exists but the app never sends it;
+              M_DOODLE_SCROLL = 2715. The wire payload is EMPTY (header only,
+              len=20), so the template carries no protobuf body — matching the
+              live-verified send.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x8D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
-              payload: { type: "bytes", description: "SimpleMessage {i1:1, i2:1} protobuf" }
+          dev_start:
+            description: >
+              Enter the developer/layout RAW-pixel mode. M_DEV_START (mt=235),
+              no payload. This addresses individual LEDs via M_DEV_SHOW_PIXEL
+              (mt=237) and is used by the app's LED-layout editor. IMPORTANT:
+              it is NOT the image/doodle path and it BLANKS the doodle canvas —
+              VERIFIED LIVE (2026-08-08) every M_DEV_START + TUTU_RESTORE
+              attempt rendered nothing, while per-pixel SHOW_PIXEL after
+              DEV_START lit individual LEDs. For image/photo/animation push use
+              M_UI_END_SYNC + M_DOODLE_START instead (see the image_upload
+              feature). Related: M_DEV_CLEAR (236) clears, M_DEV_EXIT (238)
+              leaves the mode.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xEB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+          dev_exit:
+            description: >
+              Leave the direct-pixel/canvas mode. M_DEV_EXIT (mt=238), no
+              payload.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xEE, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
           show_pixel:
             description: >
-              Preview/erase single pixels while doodling.
-              M_DEV_SHOW_PIXEL (mt=237) with SimpleMessage {i1: pixel
-              index or point count, i2: packed color} — exact field
-              semantics from H5 call sites, medium confidence.
+              Light one pixel while in the dev/doodle mode.
+              M_DEV_SHOW_PIXEL (mt=237) with SimpleMessage {i1: row-major
+              led index, i2: color packed as r<<8 | g<<16 | b<<24 (byte 0
+              unused)} — packing read from the H5 call sites (undo and
+              layout-test paths both use it).
             template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xED, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16" }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes", description: "SimpleMessage {i1, i2} protobuf" }
           reboot:
             description: "Reboot the controller. M_REBOOT (mt=2599), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x27, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
           factory_reset:
             description: "Factory reset. M_FACTORY_RESET (mt=2598), no payload. Not verified on hardware."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x26, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
-              sn: { type: "uint16" }
-              len: { type: "uint16", default: 20 }
-              cid: { type: "uint32", default: 0 }
-              osn: { type: "uint16", default: 1 }
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
 
       - uuid: "01010074-1972-1925-3022-077119514e44"
@@ -483,19 +615,57 @@ services:
 
       - uuid: "02020074-1972-1925-3022-077119514e44"
         name: "BIN Write"
-        properties: ["write"]
+        properties: ["write", "write_without_response"]
+        framing:
+          scheme: "daniao_fragment"
+          # channel_tag deliberately omitted: on this channel the tag byte
+          # identifies the buffer type per transfer (1=TUTU_DOODLE,
+          # 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN), so there is no one
+          # fixed value.
         notes: >
           Bulk-data channel (same fragment framing, with a nonzero buffer
           tag in fragment-header byte 3). Two confirmed uses in v1.2.4:
           (1) file installs — effects, animations, layouts and other file
           payloads, M_START_INSTALL_* (mt 2901/2906/2915/2918/2921),
           *_PACKET, M_END_INSTALL_* flows; (2) live pixel push for the
-          draw / photo-to-light modes — after M_DOODLE_START (mt=2701),
-          buffer arrays tagged TUTU_DOODLE (1) or TUTU_RESTORE (4) carry
-          the canvas as ~200-byte chunks of a palette-indexed format
-          ([x][y][colorCount<=16] + RGB palette + per-pixel indices;
-          TUTU_ERASE=2 clears). Tag 16 (MUSIC_BIN) is defined in the H5
-          bundle alongside these but no call site was found.
+          draw / photo-to-light modes, VERIFIED LIVE on JY25CUT curtain
+          hardware 2026-08-08 (see the image_upload feature for the session
+          sequence): after M_DEV_START + M_DOODLE_START, each full-canvas
+          redraw is one or more TUTU_RESTORE (tag 4) buffer arrays with
+          this exact layout (from the H5 bundle's TuTu.sendRecoveData,
+          ported and exercised against hardware):
+
+          CHUNK = [start_x u8][start_y u8][palette_count u8 <= 16]
+          + palette_count RGB triplets (the first <=16 distinct colors of
+          the canvas in row-major scan order) + RLE pixel data. Pixels are
+          traversed COLUMN-MAJOR (x outer, y inner); each run of identical
+          palette indices encodes as one byte (index << 4) | run_length
+          when run_length < 16, else (index << 4) followed by count bytes —
+          0xFF for each full 127, then the remainder byte. A chunk is
+          flushed when header + pixel bytes reach 200; the next chunk's
+          [start_x][start_y] is the coordinate where its first run began,
+          and runs do NOT span a chunk boundary. Canvases with more than 16
+          distinct colors cannot be expressed — quantize first.
+
+          CRITICAL (verified live 2026-08-08): the device does NOT reassemble
+          BLE fragments on this channel — it honors ONLY the first write of a
+          TUTU transfer. So each CHUNK must be sent as a SINGLE BLE write; a
+          chunk split across the 4-byte fragment framing renders only its
+          first fragment (e.g. one strand of the image, rest blank). This is
+          why the ~200-byte chunk cap and the large negotiated ATT MTU (app
+          requests 527, device grants 512) matter: with MTU 512 every chunk
+          fits one write. A full canvas may still be MANY chunks, each its own
+          single-write transfer placed by its [start_x][start_y]; the device
+          composites them. Sequential images and ~5fps animation work by
+          re-sending chunks this way (M_DOODLE_START need not be resent per
+          frame). Send M_UI_END_SYNC + M_DOODLE_START first, NOT M_DEV_START.
+
+          The live doodle path (finger drawing) instead sends TUTU_DOODLE
+          (tag 1) deltas: [1][r][g][b] + a bit-run-length encoding of WHICH
+          led indices changed to that one color (runs of skip/set with
+          7-bit counts, high bit = set). TUTU_ERASE=2 clears. Tag 16
+          (MUSIC_BIN) is defined in the H5 bundle alongside these but no
+          call site was found.
 
       - uuid: "02010074-1972-1925-3022-077119514e44"
         name: "BIN Notify"
@@ -509,17 +679,61 @@ services:
         name: "Uploader"
         properties: ["write"]
         notes: >
-          Firmware-upload characteristic used by the OTA flow
-          (M_START_UPDATE_FIRMWARE mt=2912, M_UPDATE_FIRMWARE_PACKET
-          mt=2913, M_END_UPDATE_FIRMWARE mt=2914). Note the second UUID
-          group is 2072 — unlike every other characteristic here, it does
-          not share the 010x/020x-1972 pattern (confirmed in BleUtils5,
-          SmartDawn 1.2.4 and BleUtils3, SuperPix 4.4.1). Firmware
-          binaries are fetched from https://daniaokeji.com/led/ota?<product,fw,...>
-          which returns {code, fw:{version, desc, date, url}}.
+          Bulk file-upload channel for BOTH firmware OTA and device-side
+          STORAGE of effects/animations (persisted so they play standalone).
+          The second UUID group is 2072 — unlike every other characteristic
+          here, it does not share the 010x/020x-1972 pattern (confirmed in
+          BleUtils5, SmartDawn 1.2.4 and BleUtils3, SuperPix 4.4.1).
+
+          STORAGE UPLOAD (decoded from an over-the-air capture 2026-08-08 and
+          confirmed live — the handshake was replayed and the device ACKed):
+          the whole transfer runs on THIS characteristic; the device answers
+          on the DDP Notify characteristic. It does NOT use a DDP
+          M_UPLOAD_START_REQUEST (2930) write.
+            1. START packet (write here) = 8-byte header
+               [id u8][packetnum u16 BE][0x11][0xFF][packetnum u16 BE]
+               [crc8 over the WHOLE packet] followed by an UploadRequest
+               protobuf {id=1, type=2 (0=effect .eff, 3=animation), size=3,
+               offset=4 (0), packetnum=5=ceil(size/500), framesize=6 (500),
+               crc8=7 (0), path=8 (omitted for animations), cid=9}.
+            2. Device -> DDP Notify M_UPLOAD_START_RESPONSE (mt=2931),
+               SimpleMessage: i1==0 accept (i1!=0 fail); i3 = resume byte
+               offset (0 = start fresh). The device accepts a NOVEL cid, so
+               custom content can be stored, not just re-installed catalog
+               effects.
+            3. DATA packets (write here) = 8-byte header
+               [id][packetnum u16 BE][0x11][0xFF][remaining u16 BE]
+               [crc8 over the PAYLOAD ONLY] + up to framesize (500) bytes;
+               `remaining` counts down from packetnum-1 to 0. Payload is the
+               "DN" AMX container (256-byte header + TinyProgram protobuf,
+               CRC8 at header[9] over bytes 10.., padded to a 4096 multiple).
+            4. Device -> DDP Notify M_UPLOAD_COMPLETE (mt=2934), i1==0 success;
+               M_UPLOAD_PROGRESS (mt=2933) may stream during transfer. After
+               success the app refreshes M_EFFECT_LIST (2904) and plays it via
+               M_PLAY_EFFECT (2606) by cid.
+          CRC8 uses polynomial 0x97, MSB-first, init 0 — note the two DIFFERENT
+          scopes (whole-packet for START, payload-only for DATA), both verified
+          on the wire.
+
+          FIRMWARE OTA uses the same channel: M_START_UPDATE_FIRMWARE mt=2912,
+          M_UPDATE_FIRMWARE_PACKET mt=2913, M_END_UPDATE_FIRMWARE mt=2914.
+          Firmware binaries are fetched from
+          https://daniaokeji.com/led/ota?<product,fw,...> which returns
+          {code, fw:{version, desc, date, url}}.
 
 entities:
   - platform: "light"
     name: "SmartDawn Lights"
     features: ["brightness", "effect", "color"]
     state_characteristic: "01010074-1972-1925-3022-077119514e44"
+    # Explicit role bindings so a consumer resolves the control commands
+    # without name guessing. All three verified live on JY25CUT curtain
+    # hardware (2026-08-08): power_on/power_off ACK with
+    # M_POWER_STATUS_NOTIFY (mt=2105) and visibly pause/resume playback;
+    # set_brightness produces no ACK (fire-and-forget) but the set value is
+    # echoed back in the next M_DEVICE_INFO_NOTIFY's brightness field
+    # (field 26) — setting 50 read back as 50.
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+      set_brightness: "set_brightness"

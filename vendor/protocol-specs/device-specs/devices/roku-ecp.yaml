@@ -7,6 +7,7 @@ device:
   manufacturer: "Roku / TCL"
   manufacturer_status: "active"
   protocol: "wifi"
+  category: "tv"
   transport: "http"
   notes: >
     Roku ECP is a local REST-style HTTP API exposed on port 8060 with no

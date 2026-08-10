@@ -4,7 +4,9 @@
 //! Byte-level encoding and decoding for BLE characteristic values.
 
 use crate::error::ProtocolError;
-use crate::spec::types::{Command, FormatField, Parameter, TemplateElement, ValueType};
+use crate::spec::types::{
+    AutoRole, Command, Endianness, FormatField, Parameter, TemplateElement, ValueType,
+};
 use std::collections::HashMap;
 
 /// Format bytes as a hex string with the given separator.
@@ -181,6 +183,26 @@ pub fn decode_field(bytes: &[u8], field: &FormatField) -> Result<DecodedValue, P
                 .unwrap_or_else(|_| bytes_to_hex(slice, " "));
             Ok(DecodedValue::String(s))
         }
+        ValueType::Varint => {
+            // Unsigned LEB128. Format fields rarely declare varint, but keep
+            // decode symmetric with the encoder rather than erroring.
+            let mut v: u64 = 0;
+            let mut shift = 0u32;
+            for &b in slice {
+                v |= u64::from(b & 0x7F) << shift;
+                if b & 0x80 == 0 {
+                    break;
+                }
+                shift += 7;
+                // A u64 varint is at most 10 bytes; stop before the shift would
+                // overflow (a malformed over-long continuation must not panic
+                // the decode of an incoming notification).
+                if shift >= 64 {
+                    break;
+                }
+            }
+            Ok(DecodedValue::Uint(v))
+        }
     }
 }
 
@@ -208,6 +230,9 @@ pub(crate) enum TypedParam {
     I8(i8),
     I16(i16),
     I32(i32),
+    /// A protobuf base-128 varint value (unsigned). Emitted variable-width,
+    /// endianness-independent.
+    Varint(u64),
 }
 
 /// Encode a command to bytes for a BLE write.
@@ -272,29 +297,80 @@ pub fn encode_command(
         .ok_or(ProtocolError::EmptyCommand)?;
     let param_defs = command.parameters.as_ref();
 
+    // `auto: packet_length` needs the TOTAL encoded length, but a variable-width
+    // param (a protobuf `varint`) before or after it means the total is not
+    // known until every element is emitted. So reserve fixed-width zero
+    // placeholders for length fields, then patch them once the packet is built.
     let mut bytes = Vec::new();
+    let mut length_fixups: Vec<(usize, usize, bool)> = Vec::new(); // (offset, width, be)
     for element in template {
         match element {
             TemplateElement::Byte(b) => bytes.push(*b),
             TemplateElement::Param(name) => {
                 let def = param_defs.and_then(|d| d.params.get(name.as_str()));
-                // A caller-supplied value wins; otherwise the spec's declared
-                // default fills in. This is what lets a high-level control
-                // (brightness slider, color picker) send only the parameters
-                // it owns while protocol bytes like `seq`/`flag` come from
-                // the spec.
-                let val = params
-                    .get(name.as_str())
-                    .copied()
-                    .or_else(|| def.and_then(|d| d.default).map(|v| v as f64))
-                    .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
+                let big_endian = matches!(def.and_then(|d| d.endianness), Some(Endianness::Big));
+                if def.and_then(|d| d.auto) == Some(AutoRole::PacketLength) {
+                    let width = def
+                        .map(|d| &d.value_type)
+                        .unwrap_or(&ValueType::Uint8)
+                        .fixed_byte_size()
+                        .ok_or_else(|| ProtocolError::ParameterInvalid {
+                            name: name.clone(),
+                            value: 0.0,
+                            reason: "auto: packet_length must be a fixed-width type".into(),
+                        })?;
+                    length_fixups.push((bytes.len(), width, big_endian));
+                    bytes.resize(bytes.len() + width, 0);
+                    continue;
+                }
+                // Resolution order: `auto: sequence` is the encoder's (a
+                // supplied value is honored so stateful callers can increment);
+                // otherwise a supplied value wins, then the spec's default, then
+                // the parameter is genuinely missing. The supplied-then-default
+                // fallback lets a high-level control (brightness slider, color
+                // picker) send only the parameters it owns while protocol bytes
+                // like `seq`/`flag` come from the spec.
+                let val = match def.and_then(|d| d.auto) {
+                    Some(AutoRole::Sequence) => params.get(name.as_str()).copied().unwrap_or(0.0),
+                    _ => match params.get(name.as_str()) {
+                        Some(v) => *v,
+                        None => def
+                            .and_then(|d| d.default)
+                            .map(|d| d as f64)
+                            .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?,
+                    },
+                };
                 if let Some(def) = def {
                     validate_param_range(name, val, def)?;
                 }
                 let param_type = def.map(|d| &d.value_type).unwrap_or(&ValueType::Uint8);
                 let typed = coerce_param(val, param_type, name)?;
-                append_typed(&mut bytes, typed);
+                append_typed(&mut bytes, typed, big_endian);
             }
+        }
+    }
+
+    // Patch the total length into every reserved packet_length field.
+    let total = bytes.len();
+    for (offset, width, big_endian) in length_fixups {
+        // Refuse to silently truncate: a length that doesn't fit the field
+        // would put a wrong length on the wire and make the device mis-parse.
+        let capacity = if width >= 8 {
+            u64::MAX
+        } else {
+            (1u64 << (width * 8)) - 1
+        };
+        if total as u64 > capacity {
+            return Err(ProtocolError::ParameterInvalid {
+                name: "packet_length".to_string(),
+                value: total as f64,
+                reason: format!("packet length {total} does not fit the {width}-byte length field"),
+            });
+        }
+        let le = (total as u64).to_le_bytes();
+        for i in 0..width {
+            let src = if big_endian { width - 1 - i } else { i };
+            bytes[offset + i] = le[src];
         }
     }
     Ok(bytes)
@@ -384,6 +460,9 @@ pub(crate) fn coerce_param(
         ValueType::Int32 => i32::try_from(as_int)
             .map(TypedParam::I32)
             .map_err(|_| oor()),
+        ValueType::Varint => u32::try_from(as_int)
+            .map(|v| TypedParam::Varint(v as u64))
+            .map_err(|_| oor()),
         other => Err(ProtocolError::UnsupportedParameterType { ty: other.clone() }),
     }
 }
@@ -397,18 +476,40 @@ pub(crate) fn coerce_param(
 /// an out-of-range setpoint fails here rather than on the wire.
 pub fn encode_scalar(value: f64, ty: &ValueType, name: &str) -> Result<Vec<u8>, ProtocolError> {
     let mut bytes = Vec::new();
-    append_typed(&mut bytes, coerce_param(value, ty, name)?);
+    // Setpoint scalars have no endianness declaration of their own; keep the
+    // established little-endian behavior for multi-byte widths.
+    append_typed(&mut bytes, coerce_param(value, ty, name)?, false);
     Ok(bytes)
 }
 
-fn append_typed(bytes: &mut Vec<u8>, val: TypedParam) {
+fn append_typed(bytes: &mut Vec<u8>, val: TypedParam, big_endian: bool) {
+    macro_rules! push {
+        ($v:expr) => {
+            if big_endian {
+                bytes.extend_from_slice(&$v.to_be_bytes())
+            } else {
+                bytes.extend_from_slice(&$v.to_le_bytes())
+            }
+        };
+    }
     match val {
         TypedParam::U8(v) => bytes.push(v),
         TypedParam::I8(v) => bytes.push(v as u8),
-        TypedParam::U16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
-        TypedParam::I16(v) => bytes.extend_from_slice(&v.to_le_bytes()),
-        TypedParam::U32(v) => bytes.extend_from_slice(&v.to_le_bytes()),
-        TypedParam::I32(v) => bytes.extend_from_slice(&v.to_le_bytes()),
+        TypedParam::U16(v) => push!(v),
+        TypedParam::I16(v) => push!(v),
+        TypedParam::U32(v) => push!(v),
+        TypedParam::I32(v) => push!(v),
+        // Protobuf base-128 varint: 7 bits per byte, high bit = "more".
+        // Byte order is intrinsic, so `big_endian` does not apply.
+        TypedParam::Varint(mut v) => loop {
+            let byte = (v & 0x7F) as u8;
+            v >>= 7;
+            if v == 0 {
+                bytes.push(byte);
+                break;
+            }
+            bytes.push(byte | 0x80);
+        },
     }
 }
 
@@ -697,6 +798,96 @@ mod tests {
             encoding: None,
             payload: None,
         }
+    }
+
+    #[test]
+    fn varint_param_and_auto_packet_length_account_for_width() {
+        // A DNX-style header: [0xF0][len: auto packet_length, u16 BE][0x08]
+        // [brightness: varint]. The length field must include the varint's
+        // width, which changes with the value.
+        let cmd = Command {
+            description: "brightness".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0xF0),
+                TemplateElement::Param("len".into()),
+                TemplateElement::Byte(0x08),
+                TemplateElement::Param("brightness".into()),
+            ]),
+            parameters: Some(pset([
+                (
+                    "len",
+                    Parameter {
+                        value_type: ValueType::Uint16,
+                        endianness: Some(Endianness::Big),
+                        auto: Some(AutoRole::PacketLength),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "brightness",
+                    Parameter {
+                        value_type: ValueType::Varint,
+                        min: Some(1),
+                        max: Some(255),
+                        ..Default::default()
+                    },
+                ),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+        };
+        // 200 -> two-byte varint [0xC8, 0x01], total length 6 (BE in len).
+        let bytes = encode_command(&cmd, &HashMap::from([("brightness".into(), 200.0)])).unwrap();
+        assert_eq!(bytes, vec![0xF0, 0x00, 0x06, 0x08, 0xC8, 0x01]);
+        // 100 -> single-byte varint [0x64], total length 5.
+        let bytes = encode_command(&cmd, &HashMap::from([("brightness".into(), 100.0)])).unwrap();
+        assert_eq!(bytes, vec![0xF0, 0x00, 0x05, 0x08, 0x64]);
+        // 256 is out of the varint param's declared max (255).
+        assert!(encode_command(&cmd, &HashMap::from([("brightness".into(), 256.0)])).is_err());
+    }
+
+    #[test]
+    fn packet_length_that_overflows_the_field_is_rejected() {
+        // A uint8 auto:packet_length field with a packet longer than 255 bytes
+        // must error, not silently truncate the length.
+        let mut template = vec![TemplateElement::Param("len".into())];
+        template.extend((0..300).map(|_| TemplateElement::Byte(0)));
+        let cmd = Command {
+            description: "x".into(),
+            value: None,
+            template: Some(template),
+            parameters: Some(pset([(
+                "len",
+                Parameter {
+                    value_type: ValueType::Uint8,
+                    auto: Some(AutoRole::PacketLength),
+                    ..Default::default()
+                },
+            )])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+        };
+        assert!(matches!(
+            encode_command(&cmd, &HashMap::new()),
+            Err(ProtocolError::ParameterInvalid { .. })
+        ));
+    }
+
+    #[test]
+    fn varint_decode_does_not_panic_on_overlong_continuation() {
+        // 12 continuation bytes (all high-bit set) must not overflow the shift.
+        let field = FormatField {
+            offset: 0,
+            length: 12,
+            name: "v".into(),
+            field_type: ValueType::Varint,
+            ..Default::default()
+        };
+        let decoded = decode_field(&[0x80; 12], &field);
+        assert!(decoded.is_ok());
     }
 
     fn assert_invalid(result: Result<Vec<u8>, ProtocolError>, want_reason: &str) {

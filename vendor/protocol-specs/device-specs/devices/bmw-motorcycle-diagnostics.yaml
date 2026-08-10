@@ -13,6 +13,7 @@ device:
   manufacturer: "BMW Motorrad"
   manufacturer_status: "active"
   protocol: "obd2"
+  category: "vehicle"
   notes: >
     BMW motorcycles (C-, F-, G-, K-, R- and S-series) expose service interval reset, fault
     codes, live data, adaptations and ECU coding over the diagnostic connector. All of it

@@ -11,6 +11,7 @@ device:
   manufacturer: "Comoto Holdings, Inc. (HOTWIRED brand)"
   manufacturer_status: "unsupported"
   protocol: "ble"
+  category: "wearable"
   notes: >
     12V motorcycle heated gear (jacket liner, pant liner, gloves, heating pad).
     Each garment has an independent BLE module. Gloves are paired in the UI.
