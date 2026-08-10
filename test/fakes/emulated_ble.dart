@@ -485,6 +485,15 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   /// delivers one: as an unsuccessful scan response.
   EmulatedGattError? scanError;
 
+  /// Injected REFUSAL of the next `startScan` — the request never starts a
+  /// scan at all, as when Android answers `startScan` with an error string.
+  ///
+  /// Distinct from [scanError], and the distinction matters: a refusal
+  /// propagates out of `FlutterBluePlus.startScan` itself, which unwinds its
+  /// own scan state on the way, so the caller is left with no scan running
+  /// rather than a running scan that reported a failure.
+  Object? startScanRefusal;
+
   /// Requests seen, newest last. Lets a test assert that the app stopped a
   /// native scan, or connected exactly once.
   final List<String> platformCalls = [];
@@ -555,6 +564,7 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     platformCalls.clear();
     lastScanSettings = null;
     scanError = null;
+    startScanRefusal = null;
     latency = Duration.zero;
     _scanning = false;
     adapterState = BmAdapterStateEnum.on;
@@ -772,6 +782,12 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   Future<bool> startScan(BmScanSettings request) async {
     platformCalls.add('startScan');
     lastScanSettings = request;
+    final refusal = startScanRefusal;
+    if (refusal != null) {
+      startScanRefusal = null;
+      _scanning = false;
+      throw refusal;
+    }
     _scanning = true;
     final failure = scanError;
     if (failure != null) {
@@ -800,6 +816,10 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   Future<bool> stopScan(BmStopScanRequest request) async {
     platformCalls.add('stopScan');
     _scanning = false;
+    // Honour [latency] the way the request-carrying calls do, so a test can
+    // hold a stop genuinely in flight and run something else during it. Skipped
+    // entirely at zero so the default timing of every other test is unchanged.
+    if (latency > Duration.zero) await Future<void>.delayed(latency);
     return true;
   }
 

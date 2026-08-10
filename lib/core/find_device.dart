@@ -68,6 +68,25 @@ String proximityLabel(double meters) {
 /// floor) is 0, -30 dBm (touching the antenna) is 1.
 double signalFraction(double rssi) => ((rssi + 100) / 70).clamp(0.0, 1.0);
 
+/// RSSI reduced to a four-step strength band, 1 (weakest) to 4.
+///
+/// Two callers, and they must agree: it is what the scan list's signal meter
+/// draws, and what that list SORTS by. Ordering on the raw dBm looks more
+/// precise and is worse — a continuous scan reports a device many times a
+/// second and the reading wanders several dB while nothing moves, so two rows
+/// within a few dB of each other trade places continuously and a tap lands on
+/// whichever one arrived last. Ordering by band, and settling ties by
+/// something that does not move, keeps the list still enough to touch.
+///
+/// The bands are wide for the same reason [proximityLabel]'s are: 10 dB is
+/// about the resolution this measurement honestly has indoors.
+int signalBars(int rssi) {
+  if (rssi >= -60) return 4;
+  if (rssi >= -70) return 3;
+  if (rssi >= -80) return 2;
+  return 1;
+}
+
 /// Direction the signal is moving, for hot/cold guidance. [unknown] means
 /// too few samples to say — distinct from [steady], which is a real verdict
 /// ("you are standing still") the UI must not fabricate from two readings.

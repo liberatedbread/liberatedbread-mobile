@@ -94,6 +94,52 @@ ScanMatch _scanMatch(MatchConfidence confidence,
     );
 
 void main() {
+  group('ageTickNeedsRepaint', () {
+    test('a tick with nothing stale and nothing dropped draws nothing', () {
+      expect(
+        ageTickNeedsRepaint(
+            dropped: false, stale: const {}, previouslyStale: const {}),
+        isFalse,
+      );
+    });
+
+    test('a row crossing into stale is drawn', () {
+      expect(
+        ageTickNeedsRepaint(
+            dropped: false, stale: const {'a'}, previouslyStale: const {}),
+        isTrue,
+      );
+    });
+
+    test('a row coming back from stale is drawn', () {
+      expect(
+        ageTickNeedsRepaint(
+            dropped: false, stale: const {}, previouslyStale: const {'a'}),
+        isTrue,
+      );
+    });
+
+    test('an unchanged stale row is STILL drawn, because its count moves', () {
+      // The one that is easy to get wrong: comparing the sets alone leaves
+      // "Not seen for 40s" frozen at 40s for the four minutes before the row
+      // is dropped, and nothing else will ever repaint it — a device that
+      // stopped advertising does not advertise.
+      expect(
+        ageTickNeedsRepaint(
+            dropped: false, stale: const {'a'}, previouslyStale: const {'a'}),
+        isTrue,
+      );
+    });
+
+    test('an eviction is drawn even with nothing stale left', () {
+      expect(
+        ageTickNeedsRepaint(
+            dropped: true, stale: const {}, previouslyStale: const {}),
+        isTrue,
+      );
+    });
+  });
+
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     _prefs = await SharedPreferences.getInstance();
@@ -164,6 +210,29 @@ void main() {
       await tester.pumpAndSettle();
       expect(fake.scanTimeouts, hasLength(2),
           reason: 'coming back to the screen means looking again');
+    });
+
+    testWidgets('coming back to a device screen does not restart the scan',
+        (tester) async {
+      // Opening a device stops the scan on purpose — a connect on a scanning
+      // adapter is flaky. Backgrounding the app from the device screen and
+      // returning must not undo that behind the pushed route.
+      final fake =
+          FakeBleService(devicesToEmit: [_device('01', name: 'ACME_A')]);
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('ACME_A'));
+      await tester.pumpAndSettle();
+      final scansBefore = fake.scanTimeouts.length;
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(fake.scanTimeouts, hasLength(scansBefore),
+          reason: 'the device screen is still open; the radio stays off');
     });
 
     testWidgets('a scan the user stopped is not resurrected by the OS',
