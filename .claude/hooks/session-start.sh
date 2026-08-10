@@ -181,10 +181,18 @@ log "flutter pub get..."
 (cd "$PROJECT_DIR" && flutter pub get) >>"$WORK_LOG" 2>&1
 
 # Host Rust library so the FFI-backed flutter tests can load it. Skipped
-# gracefully if no Rust toolchain is present (those tests self-skip).
+# gracefully if no Rust toolchain is present (those tests self-skip) — that is
+# what the script's exit 2 means, as distinct from a build that actually broke.
+#
+# Through scripts/ensure-rust-lib.sh rather than a bare `cargo build`: it also
+# checks the cdylib landed, which `cargo build` exiting 0 does not promise. A
+# session that starts with no library present is one where every FFI-backed
+# test skips itself and the suite still reports green.
 if have cargo; then
   log "cargo build (host Rust library)..."
-  (cd "$PROJECT_DIR/rust" && cargo build) >>"$WORK_LOG" 2>&1
+  if ! "$PROJECT_DIR/scripts/ensure-rust-lib.sh" --quiet >>"$WORK_LOG" 2>&1; then
+    log "host Rust build failed; see $WORK_LOG (FFI tests will self-skip)."
+  fi
 else
   log "cargo not found; skipping host Rust build (FFI tests will self-skip)."
 fi
