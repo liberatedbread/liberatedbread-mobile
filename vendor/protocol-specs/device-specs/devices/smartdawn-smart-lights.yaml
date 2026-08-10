@@ -645,7 +645,8 @@ services:
           *_PACKET, M_END_INSTALL_* flows; (2) live pixel push for the
           draw / photo-to-light modes, VERIFIED LIVE on JY25CUT curtain
           hardware 2026-08-08 (see the image_upload feature for the session
-          sequence): after M_DEV_START + M_DOODLE_START, each full-canvas
+          sequence, which is M_UI_END_SYNC then M_DOODLE_START — NOT
+          M_DEV_START, which blanks the canvas): after it, each full-canvas
           redraw is one or more TUTU_RESTORE (tag 4) buffer arrays with
           this exact layout (from the H5 bundle's TuTu.sendRecoveData,
           ported and exercised against hardware):
