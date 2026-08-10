@@ -42,14 +42,25 @@ heading.
   passes on a change or a five-second heartbeat, and the list repaints at most
   every 400ms — except for a newly-found device, which repaints at once.
 
-  Three things follow from a scan that never ends: it stops while the app is in
-  the background (where the OS would not deliver results anyway) and resumes on
-  return, including out of the "Bluetooth is turned off" state someone has just
-  left the app to fix; it restarts the platform scan every 15 minutes, because
-  Android silently converts a 30-minute-old scan into an opportunistic one; and
-  it notices the radio being switched off underneath it rather than sitting
-  there claiming to search. The FAB is now a Stop button, and a scan stopped
-  from it stays stopped.
+  A scan that never ends has to be careful about when it runs, so it does not:
+  it pauses while the app is in the background (where the OS would not deliver
+  results anyway) and while another tab is selected — `HomeShell` keeps all
+  three alive in an IndexedStack, which is right for their state and wrong for
+  their radios — and resumes on return with the list it built still there,
+  aged accordingly. Resuming includes coming back out of the "Bluetooth is
+  turned off" state someone has just left the app to fix. It also restarts the
+  platform scan every 15 minutes, because Android silently converts a
+  30-minute-old scan into an opportunistic one, and it notices the radio being
+  switched off underneath it rather than sitting there claiming to search.
+
+  The FAB now says what there is to do rather than what is happening. While a
+  scan runs it is a small round stop button — the radar already reads as
+  "scanning", and a full-width bar over the results would be shouting an offer
+  nobody came for — with "saves battery" in its tooltip, since that is the
+  reason to press it. Stopped, it is the wide "Scan" button again, because
+  then nothing is happening and the way back has to be obvious. A scan stopped
+  from it stays stopped: not through a tab switch, a backgrounding, or a trip
+  into a device screen.
 
 - **Devices that have gone quiet are flagged instead of quietly disappearing.**
   A row used to be dropped after sitting out two scan windows, which meant a
