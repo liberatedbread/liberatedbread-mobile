@@ -57,8 +57,14 @@ heading.
   It also checks something new. The subtree is vendored *unmodified*, and an
   edit made to `vendor/protocol-specs/` here instead of upstream reads as an
   ordinary spec change in review, then silently reverts at the next refresh.
-  `--check` fails on any non-merge commit touching the prefix since the last
-  subtree merge, which is why the `analyze` job now checks out full history.
+  `--check` compares the vendored tree's hash against the squash commit's —
+  a squash commit's tree *is* the subtree's content — so it catches every way
+  the prefix can drift, including the two that no walk over commits can see: a
+  conflict resolved by editing the spec (recorded in the merge commit itself)
+  and a local edit that auto-merges cleanly during a pull (recorded before it).
+  Uncommitted and untracked files under the prefix count too; Flutter bundles
+  an unstaged YAML in `device-specs/devices/` exactly like a real one. This is
+  why the `analyze` job now checks out full history.
 
   The bundled-path assertions are read out of `pubspec.yaml` rather than
   repeated in the script. The old hardcoded list covered whatever was true the

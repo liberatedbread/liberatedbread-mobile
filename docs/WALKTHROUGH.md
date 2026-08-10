@@ -341,10 +341,15 @@ written on:
 The git underneath is stock `git subtree pull --squash` — the script is a
 wrapper, not a replacement, and anything it does can be done by hand. What the
 wrapper adds is the checking. `--check` is that half on its own, and it is what
-CI runs: it re-asserts the bundled paths, and it fails if any commit has edited
-`vendor/protocol-specs/` directly since the last subtree merge. That second one
-matters because a spec edited here rather than upstream looks exactly like a
-legitimate change in review, and then vanishes at the next refresh.
+CI runs: it re-asserts the bundled paths, and it compares the vendored tree
+against the commit it was vendored from — a squash commit's tree *is* the
+subtree's content, so one hash answers it. That second check matters because a
+spec edited here rather than upstream looks exactly like a legitimate change in
+review, and then vanishes at the next refresh. Comparing content rather than
+walking commits is deliberate: a conflict resolved by editing the spec is
+recorded in the merge commit, and a local edit that auto-merges cleanly during
+a pull is recorded before it — neither shows up in a range of commits, and both
+leave the prefix disagreeing with upstream.
 
 **Ranking**: a scan in a populated building is mostly other people's earbuds,
 so the list does not sort on signal strength alone. Each device's advertisement
