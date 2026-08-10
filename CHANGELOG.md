@@ -88,6 +88,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `hotwired-heated-gear`'s climate entity can be driven at all. Its write
+  characteristic carries an 8-byte `AA <status> <level> 00 00 00 00 55` frame,
+  so there is no bare value for the direct-write path to write, and the command
+  that builds the frame sat in a top-level `commands:` block — a byte-by-byte
+  `frame:` table no consumer reads. `set_heat` is a real characteristic command
+  with a template now, and the entity binds to it explicitly; `status` defaults
+  to ON so a level control supplies only the level. The duplicate top-level
+  block is gone rather than left to disagree with it, with its worked hex
+  examples, echo acknowledgment and 3-second retransmit folded into the
+  command's description
+- `seeblue-motorcycle-led`'s framing no longer claims `checksum: sum`. The
+  enum's `sum` means the sum itself is appended and this protocol appends its
+  8-bit two's complement, so a consumer executing the generic field would emit
+  a different final byte on nearly every frame. The scheme states the real
+  algorithm; a near-miss generic value contradicting it is worse than no value
+- `smartdawn-smart-lights`' BIN notes told a reader to open with
+  `M_DEV_START + M_DOODLE_START`, which the same spec's feature block warns
+  blanks the canvas. That sentence is the one a byte-level implementer reads
 - **Two specs failed to parse outright, and each was a key saying something
   the vocabulary did not define.** Both are now fixed, and both classes are
   pinned by `scripts/test_device_specs.py` so they cannot come back quietly.

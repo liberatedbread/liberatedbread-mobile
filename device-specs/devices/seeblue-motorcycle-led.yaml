@@ -103,8 +103,12 @@ services:
         properties: ["write"]
         notes: "SEEBlue envelope writes target this characteristic."
         framing:
+          # No generic `checksum:` here on purpose. The enum's `sum` means the
+          # sum itself is appended, and this protocol appends its 8-bit two's
+          # complement — a consumer executing `sum` would emit a different
+          # final byte on nearly every frame. The scheme states the real
+          # algorithm; a near-miss generic value would contradict it.
           scheme: "seeblue_envelope"
-          checksum: "sum"
           notes: >
             Every command below writes its packet inside the SEEBlue envelope:
             [0x95][message_length][message_index][protocol_id][packet][checksum].
