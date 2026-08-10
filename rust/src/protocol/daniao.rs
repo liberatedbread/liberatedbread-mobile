@@ -106,10 +106,10 @@ fn is_writable(c: &Characteristic) -> bool {
 
 /// Resolve a `daniao_fragment` characteristic from the spec by its channel tag:
 /// the command channel is `channel_tag: 0`; the bulk channel omits it.
-fn resolve_char<'a>(
-    spec: &'a DeviceSpec,
+fn resolve_char(
+    spec: &DeviceSpec,
     want_command_channel: bool,
-) -> Option<(&'a Characteristic, u8)> {
+) -> Option<(&Characteristic, u8)> {
     for service in &spec.services {
         for c in &service.characteristics {
             if !is_writable(c) {
@@ -190,17 +190,15 @@ pub fn encode_doodle_frame(
     }
 
     // Resolve the two channels from the spec's framing declarations.
-    let (command_char, command_tag) = resolve_char(spec, true).ok_or_else(|| {
-        ProtocolError::ImageUploadUnsupported {
+    let (command_char, command_tag) =
+        resolve_char(spec, true).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
             reason: "spec has no daniao_fragment command characteristic (channel_tag: 0)"
                 .to_string(),
-        }
-    })?;
-    let (bulk_char, bulk_tag) = resolve_char(spec, false).ok_or_else(|| {
-        ProtocolError::ImageUploadUnsupported {
+        })?;
+    let (bulk_char, bulk_tag) =
+        resolve_char(spec, false).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
             reason: "spec has no daniao_fragment bulk characteristic (no channel_tag)".to_string(),
-        }
-    })?;
+        })?;
 
     let chunks = encode_tutu_restore(rgb, width as usize, height as usize)?;
 
@@ -485,7 +483,7 @@ services:
         assert_eq!(w[1].characteristic_uuid, DDP);
         assert_eq!(&w[1].bytes[..4], &[1, 1, 0, 0]);
         assert_eq!(&w[1].bytes[10..12], &[0x0A, 0x8D]); // mt 2701 (DOODLE_START)
-        // Then the pixel chunk on the BIN char, tag 4, single write.
+                                                        // Then the pixel chunk on the BIN char, tag 4, single write.
         assert_eq!(w[2].characteristic_uuid, BIN);
         assert_eq!(&w[2].bytes[..4], &[2, 1, 0, TAG_TUTU_RESTORE]);
     }
