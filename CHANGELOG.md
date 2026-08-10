@@ -26,6 +26,20 @@ heading.
 
 ### Changed
 
+- **A command whose bytes this app cannot produce no longer offers a Send.**
+  Two specs this branch made parseable exposed the same gap from opposite
+  sides, and both were newly reachable precisely because the specs now load.
+  `CommandDto.is_encodable` consulted only the command, so a characteristic
+  declaring a `framing` or `encryption` transform this crate does not execute
+  still had every command on it listed as sendable — seeblue's templates are
+  the packet, with the SEEBlue envelope belonging to the characteristic, so a
+  raw write reached the device as a packet it will not answer. And a template
+  referencing a `bytes` parameter was reported encodable although the FFI
+  carries parameters as `f64` and the encoder has no representation for raw
+  octets, so Fardriver's `write_parameter` enabled a Send that failed on every
+  press. Both now report themselves unsupported, naming the framing scheme or
+  the parameter, and the same gate runs in the encoder — the single source of
+  truth the codebase already claimed but only applied to the entity path.
 - **The SmartDawn upload flow is driven by the spec, not by constants beside
   it.** The handler already resolved its two channels from the spec's `framing`
   blocks and built its session-open packets from the spec's command templates,
