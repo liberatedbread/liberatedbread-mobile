@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -537,3 +538,322 @@ def test_every_vocabulary_value_is_reachable(specs):
     unused = sorted(schema_categories() - used)
     print(f"categories with no spec yet: {unused or 'none'}")
     assert used <= schema_categories()
+
+
+# ---------------------------------------------------------------------------
+# Undeclared keys in the blocks a client executes
+# ---------------------------------------------------------------------------
+#
+# `test_identification_keys_are_not_near_misses` above catches a named list of
+# slips under `device.identification`. The tests below generalise it to the
+# three blocks a client actually runs on -- entities, characteristic `format:`
+# fields, and command `parameters` -- and they do it by comparing against
+# schema.json rather than a list, so a *new* invented key fails too.
+#
+# The failure mode is always the same and always silent. The schema is
+# permissive by design (no `additionalProperties: false`, so vendor metadata
+# can ride along), and every consumer parser drops what it does not recognise.
+# So an entity that says `write_characteristic` where the vocabulary says
+# `command_characteristic` validates, reads fine to a human, and cannot be
+# written to by anything. Nothing anywhere reports it.
+#
+# These are the executed blocks, not the documentary ones: a bespoke key next
+# to `device.notes` costs a reader nothing, while a bespoke key in an entity is
+# a control that does not work.
+
+
+def _entity_schema_keys() -> set[str]:
+    return set(_schema()["properties"]["entities"]["items"]["properties"])
+
+
+def _format_field_schema_keys() -> set[str]:
+    schema = _schema()
+    field = schema["properties"]["services"]["items"]["properties"][
+        "characteristics"
+    ]["items"]["properties"]["format"]["items"]
+    # The shared number vocabulary is pulled in by $ref, so its keys are
+    # declared for this block even though they are not spelled out in it.
+    return set(field["properties"]) | set(
+        schema["$defs"]["number_semantics"]["properties"]
+    )
+
+
+def _characteristics(spec: dict):
+    """Yield every characteristic in a spec, service order preserved."""
+    for service in spec.get("services") or []:
+        for characteristic in service.get("characteristics") or []:
+            yield characteristic
+
+
+def test_entity_keys_are_declared_in_the_schema(specs):
+    """Every key on an entity must be one schema.json defines.
+
+    An entity is a contract with a client: draw this control, read that
+    characteristic. A key outside the vocabulary is not an extension, it is a
+    line of the contract nobody is on the other end of.
+    """
+    declared = _entity_schema_keys()
+    for device_id, spec in specs.items():
+        for entity in spec.get("entities") or []:
+            undeclared = sorted(set(entity) - declared)
+            assert not undeclared, (
+                f"{device_id}: entity {entity.get('name')!r} uses "
+                f"{undeclared}, which schema.json does not declare under "
+                "`entities`. Consumers drop unknown keys silently, so this "
+                "reaches nothing. Use the declared spelling, or add the key "
+                f"to schema.json if it is genuinely new. Declared: "
+                f"{sorted(declared)}"
+            )
+
+
+def test_format_field_keys_are_declared_in_the_schema(specs):
+    """Same rule for the `format:` fields a client decodes bytes with.
+
+    `description` used to appear here alongside the declared `notes`, saying
+    the same thing in a spelling nothing read.
+    """
+    declared = _format_field_schema_keys()
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for field in characteristic.get("format") or []:
+                undeclared = sorted(set(field) - declared)
+                assert not undeclared, (
+                    f"{device_id}: format field {field.get('name')!r} uses "
+                    f"{undeclared}, which schema.json does not declare. "
+                    f"Declared: {sorted(declared)}"
+                )
+
+
+def _command_schema_keys() -> set[str]:
+    schema = _schema()
+    return set(
+        schema["properties"]["services"]["items"]["properties"]["characteristics"][
+            "items"
+        ]["properties"]["commands"]["additionalProperties"]["properties"]
+    )
+
+
+def test_command_keys_are_declared_in_the_schema(specs):
+    """A command is the most executed block there is — it becomes bytes.
+
+    `seeblue-motorcycle-led` carried its whole envelope design in undeclared
+    keys, and paid for it: nine of its commands spelled the framed byte
+    sequence into `template` with `{message_length}`/`{message_index}`/
+    `{checksum}` placeholders no command declared and no client could fill,
+    while the packet a client could actually send sat in `payload_template`,
+    which nothing reads. The spec failed to parse outright — 36 documented
+    commands reaching nobody.
+    """
+    declared = _command_schema_keys()
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                undeclared = sorted(set(command) - declared)
+                assert not undeclared, (
+                    f"{device_id}: command {name!r} uses {undeclared}, which "
+                    "schema.json does not declare. Consumers drop unknown "
+                    "keys silently, so anything load-bearing there reaches "
+                    f"nothing. Declared: {sorted(declared)}"
+                )
+
+
+def test_templates_only_reference_declared_parameters(specs):
+    """Every `{placeholder}` must name a parameter of its own command.
+
+    A template is an encoding instruction, not prose: a consumer walks it and
+    substitutes. A placeholder nothing declares has no value to substitute and
+    no width to reserve, so the write is either wrong or impossible — and the
+    mobile parser rejects the whole spec over it rather than send bad bytes.
+
+    Bytes that belong to a framing layer are not the command's to name: the
+    characteristic's `framing.scheme` owns them and the template is the packet
+    alone, which is exactly what seeblue got wrong.
+    """
+    placeholder = re.compile(r"^\{(.+)\}$")
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                template = command.get("template")
+                if not isinstance(template, list):
+                    continue
+                declared = set(command.get("parameters") or {})
+                referenced = {
+                    match.group(1)
+                    for element in template
+                    if isinstance(element, str)
+                    for match in [placeholder.match(element)]
+                    if match
+                }
+                undeclared = sorted(referenced - declared)
+                assert not undeclared, (
+                    f"{device_id}: command {name!r} references {undeclared} in "
+                    "its template but declares no such parameter. Either "
+                    "declare it, or -- if those bytes are envelope/framing "
+                    "bytes -- drop them from the template and let the "
+                    "characteristic's `framing.scheme` carry them."
+                )
+
+
+def test_byte_parameters_state_lengths_not_value_ranges(specs):
+    """`min`/`max` bound a number; a `bytes` parameter has no number.
+
+    `fardriver-controller` wrote `data: {type: bytes, min: 1, max: 26}`
+    meaning "1 to 26 bytes". Read as a value range — which is what `min`/`max`
+    mean everywhere else — it is nonsense, and the consumer that said so
+    rejected the parameter and lost the whole spec with it. The length
+    vocabulary is `min_length`/`max_length`.
+
+    schema.json enforces this; the test is for the failure message, which
+    names the replacement.
+    """
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                for param, definition in (command.get("parameters") or {}).items():
+                    if not isinstance(definition, dict):
+                        continue
+                    if definition.get("type") != "bytes":
+                        continue
+                    numeric = sorted({"min", "max"} & set(definition))
+                    assert not numeric, (
+                        f"{device_id}: command {name!r} parameter {param!r} is "
+                        f"`bytes` and states {numeric}. A run of octets has no "
+                        "numeric range — if that was a length, say "
+                        "`min_length`/`max_length`."
+                    )
+
+
+def test_command_parameters_are_all_parameters(specs):
+    """`parameters:` has no reserved siblings — every key is a parameter.
+
+    `color_order` used to be one: a per-command declaration of RGB channel
+    order, sitting beside a `template` that already emitted the channels in an
+    order. Two statements of one fact with no stated precedence, so a spec
+    where they disagreed had no correct reading — and every one of the eight
+    specs that carried it said `rgb` next to a template already in R,G,B
+    order. The template is the byte order; a device wanting GRB is written
+    `template: ["{green}", "{red}", "{blue}"]`.
+
+    schema.json enforces this (a non-object under `parameters` fails), so this
+    test is for the failure message rather than the rule.
+    """
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                for key, value in (command.get("parameters") or {}).items():
+                    assert isinstance(value, dict), (
+                        f"{device_id}: command {name!r} has "
+                        f"`parameters.{key}` set to a scalar ({value!r}). "
+                        "Every key under `parameters` is a parameter "
+                        "definition; there are no reserved siblings. If this "
+                        "is byte order for a colour command, state it by the "
+                        "order the template names {red}/{green}/{blue}."
+                    )
+
+
+def test_locate_commands_are_never_advanced(specs):
+    """A locator is a one-tap button; `advanced` means "not one tap".
+
+    The two are mutually exclusive in schema.json for a reason worth stating
+    twice: a client offering "make my device beep" has no user in the loop to
+    confirm anything, and `flash_firmware` matches every name-based heuristic
+    for a locator that has ever been written.
+    """
+    kinds = {"sound", "flash", "both"}
+    seen = 0
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for name, command in (characteristic.get("commands") or {}).items():
+                if not isinstance(command, dict):
+                    continue
+                locate = command.get("locate")
+                if locate is None:
+                    continue
+                seen += 1
+                assert locate in kinds, (
+                    f"{device_id}: command {name!r} has locate={locate!r}, "
+                    f"not one of {sorted(kinds)}"
+                )
+                assert not command.get("advanced"), (
+                    f"{device_id}: command {name!r} is both `advanced` and a "
+                    "`locate` action. A locator is offered without "
+                    "confirmation, so it must not be a command a user needs "
+                    "protecting from."
+                )
+    assert seen, "no command declares `locate` — the vocabulary has rotted out"
+
+
+def test_the_schema_rejects_an_advanced_locator():
+    """The rule above must hold for consumers who never run these tests."""
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "xiaomi-miflora.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    both = copy.deepcopy(spec)
+    for service in both["services"]:
+        for characteristic in service.get("characteristics", []):
+            command = (characteristic.get("commands") or {}).get("blink_led")
+            if command is not None:
+                command["advanced"] = True
+                command["advanced_reason"] = "irrelevant, but required"
+    assert list(validator.iter_errors(both)), (
+        "a command may not be both `advanced` and a `locate` action"
+    )
+
+
+def test_endianness_is_declared_the_same_way_everywhere():
+    """A BLE `format` field and a bus message field ask the same question.
+
+    Byte order was declared on bus fields only, so the six BLE fields that
+    stated it were writing a key nothing defined — tolerated because the
+    schema is permissive, dropped by every parser, and harmless only because
+    all six said `little`, which is what the decoders assume anyway. A `big`
+    one would have decoded byte-swapped with nothing to catch it: a
+    big-endian 0x0100 reads as 1 rather than 256, and both are plausible
+    sensor readings.
+
+    Two definitions of one concept is how they drift, so this pins them
+    together rather than merely pinning each.
+    """
+    schema = _schema()
+    ble = schema["properties"]["services"]["items"]["properties"][
+        "characteristics"
+    ]["items"]["properties"]["format"]["items"]["properties"]["endianness"]
+    bus = schema["properties"]["bus"]["properties"]["messages"]["items"][
+        "properties"
+    ]["fields"]["items"]["properties"]["endianness"]
+
+    for key in ("type", "enum", "default"):
+        assert ble[key] == bus[key], (
+            f"`endianness` disagrees between BLE format fields and bus "
+            f"message fields on {key!r}: {ble[key]!r} vs {bus[key]!r}"
+        )
+    assert ble["default"] == "little"
+
+
+def test_declared_endianness_matches_the_default(specs):
+    """Every stated byte order is currently `little` — say so out loud.
+
+    Not a rule (a `big` field is legal and the point of declaring the key),
+    but the moment the first one lands, the consumers that hardcode
+    little-endian become wrong. The print is the review prompt.
+    """
+    stated = []
+    for device_id, spec in specs.items():
+        for characteristic in _characteristics(spec):
+            for field in characteristic.get("format") or []:
+                if "endianness" in field:
+                    stated.append(
+                        (device_id, field["name"], field["endianness"])
+                    )
+    big = [s for s in stated if s[2] != "little"]
+    print(f"BLE format fields stating endianness: {len(stated)}, big-endian: {big or 'none'}")
+    assert all(s[2] in {"little", "big"} for s in stated)

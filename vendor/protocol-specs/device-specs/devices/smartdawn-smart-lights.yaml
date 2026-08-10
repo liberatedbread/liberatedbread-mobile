@@ -216,6 +216,15 @@ features:
     max_width: 255
     max_height: 255
     resolution_source: "device_reported"
+    # The choreography, stated rather than left for a client to hardcode: the
+    # byte sequences live in these commands' own templates on the DDP channel,
+    # and this says which of them open a session and in what order. Sending
+    # M_DEV_START instead blanks the canvas — see the note below.
+    session_open: ["ui_end_sync", "doodle_start"]
+    # Buffer-type tag this flow writes under on the bulk channel: TUTU_RESTORE,
+    # because each write is a full-canvas redraw. The BIN characteristic itself
+    # declares no channel_tag precisely because the tag is per-flow.
+    channel_tag: 0x04
     # The vendor app's draw / photo-to-light modes push pixels over the
     # BIN channel, not the DDP channel — VERIFIED LIVE on JY25CUT curtain
     # hardware (unit DN0B88) 2026-08-08. The working sequence (matches the
@@ -621,7 +630,13 @@ services:
           # channel_tag deliberately omitted: on this channel the tag byte
           # identifies the buffer type per transfer (1=TUTU_DOODLE,
           # 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN), so there is no one
-          # fixed value.
+          # fixed value. Which tag a given flow uses is stated by that flow —
+          # see the image_upload feature's `channel_tag`.
+          # The vendor encoder flushes a chunk once header + pixel bytes reach
+          # this, so it is the ceiling a client sizes chunks to (the effective
+          # budget is the smaller of this and what one BLE write carries,
+          # because the device does not reassemble fragments here).
+          max_chunk_size: 200
         notes: >
           Bulk-data channel (same fragment framing, with a nonzero buffer
           tag in fragment-header byte 3). Two confirmed uses in v1.2.4:
@@ -630,7 +645,8 @@ services:
           *_PACKET, M_END_INSTALL_* flows; (2) live pixel push for the
           draw / photo-to-light modes, VERIFIED LIVE on JY25CUT curtain
           hardware 2026-08-08 (see the image_upload feature for the session
-          sequence): after M_DEV_START + M_DOODLE_START, each full-canvas
+          sequence, which is M_UI_END_SYNC then M_DOODLE_START — NOT
+          M_DEV_START, which blanks the canvas): after it, each full-canvas
           redraw is one or more TUTU_RESTORE (tag 4) buffer arrays with
           this exact layout (from the H5 bundle's TuTu.sendRecoveData,
           ported and exercised against hardware):

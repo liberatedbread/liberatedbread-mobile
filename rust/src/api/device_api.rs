@@ -133,6 +133,16 @@ pub struct EntityDto {
     pub platform: Option<String>,
     /// e.g. "temperature", "battery". Drives icon/formatting choices.
     pub device_class: Option<String>,
+    /// Material Design Icons name the spec asks for (`mdi:heat-wave`), when
+    /// `device_class` does not already imply the right picture. Advisory: a
+    /// UI that cannot draw the named icon falls back to what it derives from
+    /// `device_class`, so nothing depends on it resolving.
+    pub icon: Option<String>,
+    /// Display rounding as the smallest increment worth showing (`0.1` = one
+    /// decimal). `None` means the number's own transform decides, which is
+    /// the right answer whenever the device's resolution and its encoding
+    /// agree.
+    pub precision: Option<f64>,
     /// e.g. "F", "%". Rendered next to the value.
     pub unit: Option<String>,
     /// UUID of the characteristic carrying this value. When present it is
@@ -244,6 +254,11 @@ pub struct CommandDto {
     pub is_encodable: bool,
     /// Human-readable encoding name when is_encodable is false.
     pub unsupported_encoding: Option<String>,
+    /// `sound` | `flash` | `both` when the spec declares this command a
+    /// locator — its whole effect is to make the device noticeable. `None`
+    /// for every other command, including one whose *name* sounds like a
+    /// locator.
+    pub locate: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -614,6 +629,8 @@ fn entity_dto(spec: &DeviceSpec, entity: &Entity) -> Option<EntityDto> {
         name: entity.name.clone(),
         platform: entity.platform.clone(),
         device_class: entity.device_class.clone(),
+        icon: entity.icon.clone(),
+        precision: entity.precision,
         unit: entity.unit.clone(),
         state_characteristic: state
             .is_some()
@@ -682,7 +699,7 @@ impl From<&Characteristic> for CharacteristicDto {
                 .as_ref()
                 .map(|cmds| {
                     cmds.iter()
-                        .map(|(name, cmd)| CommandDto::from((name.as_str(), cmd)))
+                        .map(|(name, cmd)| CommandDto::from((c, name.as_str(), cmd)))
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -708,15 +725,23 @@ impl From<&FormatField> for FormatFieldDto {
     }
 }
 
-impl From<(&str, &Command)> for CommandDto {
-    fn from((name, cmd): (&str, &Command)) -> Self {
-        let enc = crate::codec::types::unsupported_encoding_kind(cmd);
+/// Built from the characteristic as well as the command: whether a command can
+/// be sent depends on the transform its characteristic declares, not only on
+/// the command's own encoding. See `unsupported_write_kind`.
+impl From<(&Characteristic, &str, &Command)> for CommandDto {
+    fn from((characteristic, name, cmd): (&Characteristic, &str, &Command)) -> Self {
+        let enc = crate::codec::types::unsupported_write_kind(characteristic, cmd);
         Self {
             name: name.to_string(),
             description: cmd.description.clone(),
             is_fixed: cmd.value.is_some(),
             is_encodable: enc.is_none(),
             unsupported_encoding: enc,
+            // Normalized through `locate_kind` rather than forwarded raw, so
+            // a spelling this build does not understand crosses the FFI as
+            // "not a locator" instead of as a string the Dart side would have
+            // to re-validate.
+            locate: cmd.locate_kind().map(|kind| kind.as_str().to_string()),
             // Same as commands: `params` is an IndexMap, so plain iteration
             // yields the spec's declaration order.
             parameters: cmd

@@ -14,6 +14,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use liberated_bread_core::spec::parser::parse_device_spec;
+use liberated_bread_core::spec::types::LocateKind;
 
 /// The bundled spec directories, derived from this crate's manifest dir
 /// (`<repo>/rust`) so the test is location-independent.
@@ -94,17 +95,18 @@ fn every_vendored_spec_parses_ok() {
     // unparseable specs at runtime, so a listed spec means one missing device,
     // not a broken app.
     //
-    // seeblue-motorcycle-led: the `direct_brake_feature` command's template
-    // references `{message_length}`, which the command never declares. The
-    // write would fail at send time with a missing parameter, so rejecting it
-    // at parse time is right — the spec should declare it or drop the
-    // reference.
-    //
-    // fardriver-controller: declares `min` on a `bytes` parameter. Byte-string
-    // parameters have no numeric range, so the bound is meaningless and the
-    // validator is right to reject it — the spec should drop `min` or change
-    // the type.
-    const KNOWN_BAD: &[&str] = &["fardriver-controller.yaml", "seeblue-motorcycle-led.yaml"];
+    // The list is empty, and the two entries it used to hold are why it is
+    // worth keeping empty rather than deleting. Both were real authoring
+    // errors, both cost their whole spec, and both were a key saying something
+    // the schema did not define — seeblue spelled its transport envelope into
+    // nine command templates as placeholders no command declared, and
+    // fardriver bounded a `bytes` parameter with `min`/`max`, which mean a
+    // numeric range that a run of octets does not have. Upstream fixed both
+    // (`framing.scheme: seeblue_envelope` owns the envelope bytes now, and
+    // `bytes` parameters use `min_length`/`max_length`) and now enforces both
+    // rules in `scripts/test_device_specs.py`, so a spec cannot arrive here
+    // broken the same way again.
+    const KNOWN_BAD: &[&str] = &[];
 
     let mut failures = Vec::new();
     for path in &paths {
@@ -560,4 +562,257 @@ fn smartdawn_spec_encodes_a_doodle_frame() {
         plan.writes[0].characteristic_uuid,
         "01020074-1972-1925-3022-077119514e44"
     );
+}
+
+/// The shipped SmartDawn spec, not the stripped fixture, states its own
+/// upload choreography.
+///
+/// The handler reads `session_open`, the feature's `channel_tag` and the bulk
+/// channel's `max_chunk_size`, and falls back to what it used to hardcode when
+/// a spec is silent — which means a vendored spec that stopped declaring them
+/// would keep working and nothing would say so. This is the test that notices:
+/// it asserts the real catalogue still carries the declarations, so the
+/// fallbacks stay a compatibility path for older third-party packs rather than
+/// quietly becoming the way SmartDawn works again.
+#[test]
+fn the_vendored_smartdawn_spec_declares_its_own_upload_flow() {
+    let spec = parse_device_spec(
+        &fs::read_to_string(spec_path("smartdawn-smart-lights.yaml"))
+            .expect("smartdawn spec should be readable"),
+    )
+    .expect("smartdawn spec should parse");
+
+    let feature = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")
+        .expect("smartdawn declares an image_upload feature");
+    let session_open = feature
+        .session_open
+        .as_ref()
+        .expect("smartdawn states its opener sequence rather than leaving it to a fallback");
+    assert_eq!(
+        session_open.as_slice(),
+        ["ui_end_sync", "doodle_start"],
+        "the opener pair verified on hardware — M_DEV_START blanks the canvas"
+    );
+    assert_eq!(
+        feature.channel_tag,
+        Some(0x04),
+        "an image upload is a full-canvas redraw, so it writes under TUTU_RESTORE"
+    );
+    for name in session_open {
+        assert!(
+            spec.services
+                .iter()
+                .any(|s| s.characteristics.iter().any(|c| c
+                    .commands
+                    .as_ref()
+                    .is_some_and(|m| m.contains_key(name.as_str())))),
+            "session_open names {name:?}, which the spec's commands do not define"
+        );
+    }
+
+    let bulk = spec
+        .services
+        .iter()
+        .flat_map(|s| &s.characteristics)
+        .find(|c| c.uuid.starts_with("02020074"))
+        .expect("smartdawn declares the BIN bulk characteristic");
+    let framing = bulk.framing.as_ref().expect("BIN declares framing");
+    assert_eq!(
+        framing.get("max_chunk_size").and_then(|v| v.as_u64()),
+        Some(200),
+        "the vendor encoder's chunk ceiling belongs in the spec, not the handler"
+    );
+}
+
+/// The catalogue's own uses of the keys this app newly honours.
+///
+/// Each of these was carrying real information that reached nothing: the
+/// endianness declarations were written into a key the BLE schema did not
+/// define, Gerbing's icons and Hotwired's precision had no consumer, and the
+/// two locator commands were found — when they were found — by matching on
+/// their names. Pinning them against the vendored catalogue rather than a
+/// fixture is the point: a hand-written fixture would keep passing after an
+/// upstream refresh dropped the key.
+#[test]
+fn vendored_specs_exercise_the_newly_honoured_keys() {
+    let read = |name: &str| {
+        let path = spec_path(name);
+        parse_device_spec(
+            &fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("reading {}: {e}", path.display())),
+        )
+        .unwrap_or_else(|e| panic!("{name} should parse: {e:?}"))
+    };
+
+    // xiaomi-miflora states `endianness: little` on five fields. All little,
+    // so the reading is the same either way — what matters is that the key
+    // now parses into something the decoder consults rather than being
+    // dropped on the floor.
+    let miflora = read("xiaomi-miflora.yaml");
+    let (_, realtime) = miflora
+        .find_decodable_characteristic("00001a01-0000-1000-8000-00805f9b34fb")
+        .expect("miflora declares the realtime sensor characteristic");
+    let fields = realtime.format.as_ref().expect("format block");
+    let stated: Vec<_> = fields.iter().filter(|f| f.endianness.is_some()).collect();
+    assert!(
+        !stated.is_empty(),
+        "miflora should still declare endianness on its multi-byte fields"
+    );
+    for field in stated {
+        assert!(
+            !field.is_big_endian(),
+            "{} is big-endian upstream now; the decoder handles it, but the \
+             reading it produces has changed and wants checking",
+            field.name
+        );
+    }
+
+    // gerbing-thermogauge asks for an icon on its heat levels: `number`
+    // entities with no device_class that implies a heater.
+    let gerbing = read("gerbing-thermogauge.yaml");
+    let iconed: Vec<_> = gerbing
+        .entities
+        .iter()
+        .filter(|e| e.icon.is_some())
+        .collect();
+    assert!(
+        !iconed.is_empty(),
+        "gerbing should still declare entity icons"
+    );
+    assert!(
+        iconed
+            .iter()
+            .all(|e| e.icon.as_deref() == Some("mdi:heat-wave")),
+        "gerbing's icons changed upstream; check lib/core/entity_icon.dart \
+         maps the new name"
+    );
+
+    // hotwired-heated-gear declares precision on its climate control.
+    let hotwired = read("hotwired-heated-gear.yaml");
+    assert!(
+        hotwired.entities.iter().any(|e| e.precision.is_some()),
+        "hotwired should still declare entity precision"
+    );
+
+    // The two commands upstream marks as locators. Both must stay FIXED:
+    // a find button is one tap, so a command needing a user-supplied
+    // parameter cannot be offered as one however it is labelled.
+    for (file, uuid, command, kind) in [
+        (
+            "xiaomi-miflora.yaml",
+            "00001a00-0000-1000-8000-00805f9b34fb",
+            "blink_led",
+            LocateKind::Flash,
+        ),
+        (
+            "m6-fitness-band.yaml",
+            "6e400002-b5a3-f393-e0a9-e50e24dcca9d",
+            "find_me",
+            LocateKind::Both,
+        ),
+    ] {
+        let spec = read(file);
+        let (_, characteristic) = spec
+            .find_characteristic(uuid)
+            .unwrap_or_else(|| panic!("{file} should declare {uuid}"));
+        let cmd = &characteristic
+            .commands
+            .as_ref()
+            .unwrap_or_else(|| panic!("{file}: {uuid} should carry commands"))[command];
+        assert_eq!(
+            cmd.locate_kind(),
+            Some(kind),
+            "{file}: {command} should still declare itself a {kind:?} locator"
+        );
+        assert!(
+            cmd.value.is_some(),
+            "{file}: {command} must stay a fixed command — a locator is one \
+             tap, with no user to supply parameters"
+        );
+    }
+}
+
+/// Two specs this branch made parseable must not reach the UI as ordinary
+/// sendable commands.
+///
+/// Both were unreachable before — the specs did not parse at all — so making
+/// them load is exactly when the question arises. Neither can be encoded by
+/// this crate today, and the failure mode differs: seeblue's templates are the
+/// packet, with the SEEBlue envelope (header, length, sequence, protocol id,
+/// checksum) belonging to the characteristic, so raw bytes reach the device as
+/// a packet it will not answer. Fardriver's `data` is 1-26 raw octets, and the
+/// FFI carries parameters as f64, so there is no value to send at all.
+///
+/// The rule is the same either way: a command the encoder cannot produce must
+/// report itself unencodable rather than enabling a Send that fails — or worse,
+/// one that succeeds into malformed bytes.
+#[test]
+fn specs_this_branch_unlocked_do_not_offer_commands_that_cannot_encode() {
+    use liberated_bread_core::codec::types::unsupported_write_kind;
+
+    let read = |name: &str| {
+        parse_device_spec(&fs::read_to_string(spec_path(name)).expect("readable"))
+            .unwrap_or_else(|e| panic!("{name} should parse: {e:?}"))
+    };
+
+    // Every seeblue command sits behind the envelope, so none is sendable raw.
+    let seeblue = read("seeblue-motorcycle-led.yaml");
+    let mut checked = 0;
+    for service in &seeblue.services {
+        for characteristic in &service.characteristics {
+            let Some(commands) = characteristic.commands.as_ref() else {
+                continue;
+            };
+            for (name, command) in commands {
+                let reason = unsupported_write_kind(characteristic, command);
+                assert!(
+                    reason
+                        .as_deref()
+                        .is_some_and(|r| r.contains("seeblue_envelope")),
+                    "seeblue {name} must be gated by its characteristic's framing, got {reason:?}"
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(
+        checked >= 30,
+        "expected seeblue's full command set, saw {checked}"
+    );
+
+    // Fardriver's frame carries a raw byte payload the FFI cannot express.
+    let fardriver = read("fardriver-controller.yaml");
+    let (_, characteristic) = fardriver
+        .find_writable_characteristic("0000ffe1-0000-1000-8000-00805f9b34fb")
+        .or_else(|| {
+            fardriver.services.iter().find_map(|s| {
+                s.characteristics
+                    .iter()
+                    .find(|c| {
+                        c.commands
+                            .as_ref()
+                            .is_some_and(|m| m.contains_key("write_parameter"))
+                    })
+                    .map(|c| (s, c))
+            })
+        })
+        .expect("fardriver declares write_parameter somewhere");
+    let command = &characteristic.commands.as_ref().unwrap()["write_parameter"];
+    let reason = unsupported_write_kind(characteristic, command);
+    assert!(
+        reason.as_deref().is_some_and(|r| r.contains("data")),
+        "write_parameter must name the byte parameter it cannot carry, got {reason:?}"
+    );
+
+    // The gate is not a blanket "nothing encodes": a plain templated command on
+    // an unframed characteristic is still offered.
+    let miflora = read("xiaomi-miflora.yaml");
+    let (_, blink_char) = miflora
+        .find_writable_characteristic("00001a00-0000-1000-8000-00805f9b34fb")
+        .expect("miflora's mode-change characteristic");
+    let blink = &blink_char.commands.as_ref().unwrap()["blink_led"];
+    assert_eq!(unsupported_write_kind(blink_char, blink), None);
 }

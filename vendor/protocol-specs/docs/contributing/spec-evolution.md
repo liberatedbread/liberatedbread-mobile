@@ -146,6 +146,15 @@ characteristic's UUID actually is SIG-assigned.
 
 ### P3 — Endianness on BLE `format` fields { #p3 }
 
+**Status: landed.** `endianness` is on BLE `format` items in `schema.json`, with
+the same enum and the same `little` default as the `bus` field it mirrors, and
+`test_device_specs.py` pins the two declarations to each other so they cannot
+drift. The mobile decoder honours it. The six fields that were already stating
+the key — five in `xiaomi-miflora`, one in `pax-vape` — now mean something;
+before, they were writing into a key nothing defined, tolerated by a permissive
+schema and dropped by every parser. Kept here as the worked reasoning; the rest
+of this section is written as it was proposed.
+
 **Problem.** A multi-byte value read from a BLE characteristic has no byte order in
 the schema. `bus.fields` carry `endianness` (default `little`); the BLE `format`
 items — `offset`/`length`/`name`/`type` — do not. A `uint16` temperature is
@@ -508,7 +517,7 @@ this page classifiable.
 |---|----------|-------|------|---------|
 | [P1](#p1) | Reproducible checksum descriptor | High | Low | Recommended now |
 | [P2](#p2) | Mark SIG-standard GATT entries | High | Low | Recommended now |
-| [P3](#p3) | Endianness on BLE `format` | Medium | Very low | Recommended now |
+| [P3](#p3) | Endianness on BLE `format` | Medium | Very low | **Landed** |
 | [P4](#p4) | Bit-field decoding | Medium | Low | With consumer |
 | [P5](#p5) | Symmetric BLE command responses | High | Low | With consumer |
 | [P6](#p6) | First-class advertisement payloads | High | Medium | With consumer |

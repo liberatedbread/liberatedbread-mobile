@@ -124,6 +124,7 @@ services:
         commands:
           find_me:
             description: "Make the band alert (find-my-band). Documented example frame from the LT716 platform RE."
+            locate: "both"
             verification: "reported"
             value: [0xCD, 0x00, 0x06, 0x12, 0x01, 0x0B, 0x00, 0x01, 0x01]
       - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9d"

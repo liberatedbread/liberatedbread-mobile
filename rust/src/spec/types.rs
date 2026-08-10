@@ -76,6 +76,30 @@ pub struct Feature {
     /// resolution comes from the device at runtime.
     #[serde(default)]
     pub resolution_source: Option<String>,
+    /// Commands a client sends, in this order, before the first frame of an
+    /// upload — named from the spec's own `commands`, so their bytes stay in
+    /// the command templates and only the choreography lives here.
+    ///
+    /// This is the part of an upload flow a handler cannot derive: which
+    /// commands open a session is device knowledge, where fragmentation and
+    /// chunk sizing are properties the `framing` block states. SmartDawn's is
+    /// `[ui_end_sync, doodle_start]`, and the wrong opener (`M_DEV_START`)
+    /// blanks the canvas rather than failing — so a handler that hardcodes the
+    /// names cannot be pointed at a sibling device without a code change.
+    ///
+    /// `Some(vec![])` and `None` are DIFFERENT and the difference is
+    /// load-bearing. An empty list says "this device takes pixel data with no
+    /// preamble"; an absent key says nothing, and a handler falls back to
+    /// whatever it hardcoded before the key existed. Collapsing the two would
+    /// send a legacy device's opener to a device that wants none.
+    #[serde(default)]
+    pub session_open: Option<Vec<String>>,
+    /// Value of the framing scheme's channel-tag byte this flow writes under,
+    /// when the bulk characteristic cannot state one because its tag varies
+    /// per transfer. SmartDawn's BIN channel carries four buffer types and an
+    /// image upload is a full-canvas redraw, so this flow is 4.
+    #[serde(default)]
+    pub channel_tag: Option<u8>,
     /// Whether the device accepts multi-frame sequences (animations), not
     /// just a single static image.
     #[serde(default)]
@@ -104,6 +128,22 @@ pub struct Entity {
     pub platform: Option<String>,
     #[serde(default)]
     pub device_class: Option<String>,
+    /// Material Design Icons name (`mdi:heat-wave`) the spec asks for when
+    /// `device_class` does not already imply the right picture — Gerbing's
+    /// heat *level* is a percentage with no device_class that says "this
+    /// warms you up". Advisory: a consumer that cannot draw MDI falls back to
+    /// what it derives from `platform`/`device_class`.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// Display rounding, as the smallest increment worth showing (`0.1` = one
+    /// decimal, `1.0` = whole numbers).
+    ///
+    /// A presentation rule, not a decode rule: it never changes the value,
+    /// only how many digits of it are honest to print. Distinct from
+    /// [`Self::step`], which is how finely a control may be *set* — a
+    /// thermostat settable in whole degrees can still report tenths.
+    #[serde(default)]
+    pub precision: Option<f64>,
     #[serde(default)]
     pub unit: Option<String>,
     #[serde(default)]
@@ -693,6 +733,46 @@ pub struct Command {
     /// Structured payload description for `json`/`tlv` encodings.
     #[serde(default)]
     pub payload: Option<serde_yaml::Value>,
+    /// `sound` | `flash` | `both` when this command's whole effect is to make
+    /// the device noticeable so a user can find it — the vendor-opcode
+    /// equivalent of the SIG Immediate Alert service.
+    ///
+    /// Never inferred: the schema forbids it on an `advanced` command, and the
+    /// spec author is the only one who knows that `blink_led` locates the
+    /// device while `set_mode` (whose mode 2 is "blink") configures it.
+    /// Untyped for the usual tolerance reason — an unrecognised value reads as
+    /// "not a locator" rather than failing the spec.
+    #[serde(default)]
+    pub locate: Option<String>,
+}
+
+/// What a locator command does to make the device noticeable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocateKind {
+    Sound,
+    Flash,
+    /// The device does whichever it has — the same latitude the SIG's high
+    /// alert level gives it.
+    Both,
+}
+
+impl LocateKind {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "sound" => Some(Self::Sound),
+            "flash" => Some(Self::Flash),
+            "both" => Some(Self::Both),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Sound => "sound",
+            Self::Flash => "flash",
+            Self::Both => "both",
+        }
+    }
 }
 
 impl Command {
@@ -705,6 +785,15 @@ impl Command {
     /// encoding, for a missing/short payload, or for entries outside 0..=255,
     /// so a malformed payload stays "unsupported" rather than sending a
     /// truncated write.
+    /// The declared locator modality, or `None` when this is not a locator.
+    ///
+    /// An unrecognised spelling is `None`: offering a button that writes an
+    /// unknown opcode because a spec said something this build does not
+    /// understand is worse than not offering it.
+    pub fn locate_kind(&self) -> Option<LocateKind> {
+        LocateKind::parse(self.locate.as_deref()?)
+    }
+
     pub fn payload_bytes(&self) -> Option<Vec<u8>> {
         if self.encoding.as_deref() != Some("bytes") {
             return None;
@@ -722,20 +811,30 @@ impl Command {
 
 /// The `parameters` block of a command.
 ///
-/// This is a map of parameter-name → [`Parameter`], plus a small set of
-/// reserved keys that are *not* parameters. `color_order` (e.g. `"rbg"`)
-/// declares the color-channel order for commands with color parameters; it is
-/// a sibling scalar, not a parameter definition, so it is pulled out explicitly
-/// and the remaining keys flatten into `params`.
+/// Every key is a parameter — the block has no reserved siblings. It used to
+/// have one: `color_order`, declaring the RGB channel order for a command
+/// with colour parameters. It was removed upstream because the `template`
+/// already states that order by naming `{red}`/`{green}`/`{blue}` in the
+/// sequence the bytes go out, so the two could disagree with nothing to say
+/// which won. A device wanting GRB is written
+/// `template: ["{green}", "{red}", "{blue}"]`, which is also what the encoder
+/// walks.
 ///
 /// `params` is an [`IndexMap`] for the same reason [`Characteristic::commands`]
 /// is: declaration order is the order the sliders appear in.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ParameterSet {
-    /// Reserved key: color-channel order (default `"rgb"`). Not a parameter.
-    #[serde(default)]
-    pub color_order: Option<String>,
-    /// Actual parameter definitions, keyed by name.
+    /// Absorbs the retired `color_order` key so a spec pack written against
+    /// the older schema still loads.
+    ///
+    /// Without this the string `"rbg"` would be handed to [`Parameter`]'s
+    /// deserializer, which wants a map, and the error would fail the entire
+    /// spec — one retired documentation key costing a whole device. The
+    /// catalogue no longer ships the key; third-party packs update on their
+    /// own schedule.
+    #[serde(default, rename = "color_order")]
+    pub retired_color_order: Option<serde_yaml::Value>,
+    /// Parameter definitions, keyed by name.
     #[serde(flatten)]
     pub params: IndexMap<String, Parameter>,
 }
@@ -968,6 +1067,16 @@ pub struct FormatField {
     /// The schema requires it in that case, so a consumer always has an exit.
     #[serde(default)]
     pub unit_reference: Option<String>,
+    /// Byte order of a multi-byte integer field: `little` (the default and
+    /// BLE's overwhelming convention) or `big`.
+    ///
+    /// Parsed as a string rather than an enum so an unrecognised spelling
+    /// degrades to the default instead of failing the whole spec — the
+    /// difference between one field reading a plausible wrong number and a
+    /// device disappearing from the catalogue. [`Self::is_big_endian`] is the
+    /// only reader.
+    #[serde(default)]
+    pub endianness: Option<String>,
 }
 
 /// Every field but the four that locate and size the value is optional, and
@@ -989,6 +1098,7 @@ impl Default for FormatField {
             values: None,
             unit_source: None,
             unit_reference: None,
+            endianness: None,
         }
     }
 }
@@ -998,6 +1108,18 @@ impl FormatField {
     /// reading rendered with a fixed unit would be a guess.
     pub fn unit_follows_device_setting(&self) -> bool {
         self.unit_source.as_deref() == Some("device_setting")
+    }
+
+    /// Whether this field's bytes are most-significant-first.
+    ///
+    /// Anything other than an explicit `big` is little-endian: that is the
+    /// schema's default, BLE's convention, and what every spec in the
+    /// catalogue currently states. Defaulting an unrecognised spelling to
+    /// little rather than rejecting it keeps a typo to one wrong field
+    /// instead of one missing device — and little is the reading that was
+    /// already being given before this key was honoured at all.
+    pub fn is_big_endian(&self) -> bool {
+        self.endianness.as_deref() == Some("big")
     }
 
     /// Apply the field's linear transform: `value = raw * scale +
@@ -1126,6 +1248,19 @@ impl ValueType {
     /// Inclusive `[min, max]` range that fits in this type, used to validate
     /// `Parameter.min`/`max` declarations at parse time. Returns `None` for
     /// variable-length types where bounds don't apply.
+    /// Whether `coerce_param` can turn an FFI `f64` into wire bytes of this
+    /// type.
+    ///
+    /// `bytes` and `string` cannot: the FFI carries parameters as
+    /// `HashMap<String, f64>`, and there is no number that means "these 26
+    /// octets". A template referencing one can never encode, which is why
+    /// `CommandDto` must report such a command unencodable rather than
+    /// offering a Send that fails on every press — the same rule the `Bool`
+    /// arm of `coerce_param` already exists to keep.
+    pub fn is_encodable_param(&self) -> bool {
+        !matches!(self, ValueType::Bytes | ValueType::String)
+    }
+
     pub fn integer_range(&self) -> Option<(i64, i64)> {
         match self {
             ValueType::Bool => Some((0, 1)),

@@ -7,6 +7,7 @@ import '../core/error_text.dart';
 import '../core/value_format.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../core/entity_icon.dart';
 import '../services/spec_codec.dart';
 import 'entity_value.dart';
 
@@ -142,9 +143,11 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
     final reading = _readingOf(value);
     if (!_touched && reading != null) _pending = reading;
 
-    final icon = widget.entity.deviceClass == 'temperature'
-        ? Icons.thermostat
-        : Icons.tune;
+    // A control that says nothing about itself gets a knob rather than the
+    // sensor card's dial; everything above that last step is shared, so an
+    // entity declaring `icon: mdi:heat-wave` gets it here too — which is
+    // where Gerbing's heat levels actually live.
+    final icon = entityIcon(widget.entity, fallback: Icons.tune);
 
     return Container(
       padding: const EdgeInsets.all(16),
