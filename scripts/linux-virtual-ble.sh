@@ -64,7 +64,7 @@ BUS_PID=""
 PERIPHERAL_PID=""
 
 # The exit status is whatever triggered the trap; nothing here changes it.
-# shellcheck disable=SC2317  # reached through `trap`, which shellcheck cannot see
+# shellcheck disable=SC2317,SC2329  # reached through `trap`, which shellcheck cannot see
 cleanup() {
   if [ -n "$PERIPHERAL_PID" ]; then
     kill "$PERIPHERAL_PID" 2>/dev/null || true
