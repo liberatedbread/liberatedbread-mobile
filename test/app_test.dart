@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
+import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/screens/home_shell.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
@@ -67,6 +68,44 @@ void main() {
       reason: 'Heroes alive together in the shell must have distinct tags; '
           'found $tags',
     );
+  });
+
+  testWidgets('switching tabs stops the BLE scan, and coming back restarts it',
+      (tester) async {
+    // The shell keeps every tab alive so a scan survives a glance elsewhere —
+    // but alive is not the same as working. A continuous scan running behind
+    // the Saved tab is the radio spending battery on a list that is three
+    // layers deep in an IndexedStack.
+    final fake = FakeBleService(
+      devicesToEmit: [
+        IoTDevice(
+          id: 'AA:BB:CC:DD:EE:01',
+          name: 'ACME_A',
+          rssi: -40,
+          isConnectable: true,
+          discoveredAt: DateTime.now(),
+        ),
+      ],
+      scanStepDelay: const Duration(milliseconds: 200),
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+      ],
+      child: const LiberatedBreadApp(),
+    ));
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(fake.scanTimeouts, hasLength(1),
+        reason: 'Nearby is the landing tab, so it scans on launch');
+
+    await tester.tap(find.text('Saved'));
+    await tester.pumpAndSettle();
+    expect(fake.stopScanCount, greaterThan(0));
+
+    await tester.tap(find.text('Nearby'));
+    await tester.pumpAndSettle();
+    expect(fake.scanTimeouts, hasLength(2));
   });
 
   testWidgets('the bottom bar switches destination', (tester) async {

@@ -187,6 +187,84 @@ void main() {
     });
   });
 
+  group('tab visibility', () {
+    /// The screen as the shell mounts it: alive either way, told whether it is
+    /// the tab being looked at.
+    Widget wrapActive(FakeBleService fake, {required bool active}) =>
+        ProviderScope(
+          overrides: [
+            bleServiceProvider.overrideWithValue(fake),
+            sharedPreferencesProvider.overrideWithValue(_prefs),
+          ],
+          child: MaterialApp(home: ScanScreen(active: active)),
+        );
+
+    testWidgets('a tab nobody is looking at does not run the radio',
+        (tester) async {
+      final fake = FakeBleService(devicesToEmit: [_device('01')]);
+      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpAndSettle();
+
+      expect(fake.scanTimeouts, isEmpty);
+    });
+
+    testWidgets('leaving the tab pauses the scan and returning resumes it',
+        (tester) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01')],
+        scanStepDelay: const Duration(milliseconds: 200),
+      );
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(fake.scanTimeouts, hasLength(1));
+
+      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpAndSettle();
+      expect(fake.stopScanCount, greaterThan(0));
+
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpAndSettle();
+      expect(fake.scanTimeouts, hasLength(2));
+    });
+
+    testWidgets('what the scan already found survives the trip',
+        (tester) async {
+      // Keeping the state is the whole reason the shell holds the tab alive;
+      // pausing the radio must not throw the list away with it.
+      final fake =
+          FakeBleService(devicesToEmit: [_device('01', name: 'ACME_A')]);
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpAndSettle();
+      expect(find.text('ACME_A'), findsOneWidget);
+
+      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ACME_A'), findsOneWidget);
+    });
+
+    testWidgets('coming back does not restart a scan the user stopped',
+        (tester) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01')],
+        scanStepDelay: const Duration(milliseconds: 200),
+      );
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pumpAndSettle();
+
+      expect(fake.scanTimeouts, hasLength(1));
+    });
+  });
+
   group('devices that go quiet', () {
     testWidgets('a device not heard from lately is flagged, not dropped',
         (tester) async {
@@ -416,9 +494,11 @@ void main() {
     });
   });
 
-  testWidgets('the FAB stops a scan that is in flight', (tester) async {
-    // The scan runs itself, so the button is a stop — and it has to actually
-    // stop the radio, not just relabel itself.
+  testWidgets('a scan in flight offers a small stop button, and it stops',
+      (tester) async {
+    // While scanning the control is a compact stop — the radar already says
+    // "scanning", and the results are what the screen is for. It has to
+    // actually stop the radio, not just restyle itself.
     final fake = FakeBleService(
       devicesToEmit: [_device('01')],
       scanStepDelay: const Duration(milliseconds: 200),
@@ -426,14 +506,17 @@ void main() {
     await tester.pumpWidget(_wrap(fake));
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('Stop'), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+    expect(find.byTooltip('Stop scanning — saves battery'), findsOneWidget);
+    expect(find.text('Scan'), findsNothing);
 
     await tester.tap(find.byType(FloatingActionButton));
     await tester.pumpAndSettle();
 
     expect(fake.stopScanCount, greaterThan(0));
-    expect(find.text('Scan'), findsOneWidget);
-    expect(find.text('Stop'), findsNothing);
+    // Stopped, nothing is happening, so the way back has to be the loud one.
+    expect(find.widgetWithText(FloatingActionButton, 'Scan'), findsOneWidget);
+    expect(find.byIcon(Icons.stop), findsNothing);
   });
 
   testWidgets('a stopped scan stays stopped until asked again', (tester) async {
@@ -542,7 +625,7 @@ void main() {
     final fake = FakeBleService(devicesToEmit: [_device('01', name: 'ACME_A')]);
     await tester.pumpWidget(_wrap(fake));
 
-    await tester.tap(find.byType(FloatingActionButton));
+    // The scan starts itself, and nothing has asked it to stop yet.
     await tester.pumpAndSettle();
     expect(fake.stopScanCount, 0);
 

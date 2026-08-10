@@ -25,7 +25,21 @@ import 'ha_settings_screen.dart';
 import 'spec_pack_settings_screen.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
-  const ScanScreen({super.key});
+  /// Whether this screen is the one on screen.
+  ///
+  /// [HomeShell] keeps all three tabs alive in an IndexedStack so a scan in
+  /// progress survives a glance at another tab — which, now that the scan runs
+  /// continuously, would mean driving the BLE radio for a list nobody is
+  /// looking at. The shell passes false while another tab is selected and the
+  /// scan pauses; it resumes on return, with whatever it found still listed
+  /// (and aged accordingly).
+  ///
+  /// Defaults to true so mounting a ScanScreen on its own — a test, a deep
+  /// link, anything that is not the shell — scans, rather than sitting inert
+  /// waiting for a flag nobody set.
+  final bool active;
+
+  const ScanScreen({super.key, this.active = true});
 
   @override
   ConsumerState<ScanScreen> createState() => _ScanScreenState();
@@ -88,8 +102,25 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     // walked into the room, or woken from sleep, and a screen that only looks
     // when a button is pressed shows a snapshot of the moment someone last
     // pressed it. The FAB stays, as a way to stop.
+    //
+    // The ticker runs whether or not the scan does: devices keep ageing while
+    // the tab is away or the scan is stopped, and coming back to a list of
+    // rows still claiming a live signal would be a lie the clock had already
+    // disproved.
     _ageTicker = Timer.periodic(_ageTick, (_) => _ageDevices());
-    unawaited(_startScan());
+    if (widget.active) unawaited(_startScan());
+  }
+
+  /// React to the shell switching tabs (see [ScanScreen.active]).
+  @override
+  void didUpdateWidget(ScanScreen old) {
+    super.didUpdateWidget(old);
+    if (widget.active == old.active) return;
+    if (widget.active) {
+      if (!_pausedByUser && !_isScanning) unawaited(_startScan());
+    } else if (_isScanning) {
+      unawaited(_stopScan(byUser: false));
+    }
   }
 
   /// Stop scanning while the app is in the background, resume when it returns.
@@ -108,7 +139,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
         // this screen after "Bluetooth is turned off" is to go and turn it on,
         // and coming back to the same dead screen with a Retry button on it
         // would be a poor reward for having done what it asked.
-        if (!_pausedByUser && !_isScanning) unawaited(_startScan());
+        if (widget.active && !_pausedByUser && !_isScanning) {
+          unawaited(_startScan());
+        }
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
       case AppLifecycleState.hidden:
@@ -238,7 +271,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     );
     // Back on the list: pick the scan up again, unless the user had stopped it
     // before tapping through.
-    if (!mounted || _pausedByUser) return;
+    if (!mounted || _pausedByUser || !widget.active) return;
     unawaited(_startScan());
   }
 
@@ -286,36 +319,38 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       // House-ad bar. Renders zero-height until the provider has a banner, and
       // the provider never blocks: bundled/cached content first, network later.
       bottomNavigationBar: const AdBannerBar(),
-      floatingActionButton: FloatingActionButton.extended(
-        // Explicit because HomeShell keeps this screen and the Wi-Fi one alive
-        // together in an IndexedStack, so both FABs are in the tree at once and
-        // the default tag would collide. A Hero tag collision is not a layout
-        // nit: it throws out of the hero controller the moment any route is
-        // pushed, which is every tap on a device.
-        heroTag: 'scan-fab',
-        // A stop, not a start. The scan runs itself now, so the useful control
-        // is the one that turns it off — for battery, or to freeze a list that
-        // keeps re-sorting under a finger. A disabled button that says
-        // "Scanning..." would be chrome reporting a state the radar already
-        // shows.
-        tooltip: _isScanning ? 'Stop scanning' : 'Scan for devices',
-        onPressed: () => _isScanning ? _stopScan(byUser: true) : _startScan(),
-        icon: _isScanning
-            ? SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  // Match the FAB's themed foreground; a hardcoded white here
-                  // fails contrast against the bread-orange fill.
-                  color: Theme.of(context)
-                      .floatingActionButtonTheme
-                      .foregroundColor,
-                ),
-              )
-            : const Icon(Icons.search),
-        label: Text(_isScanning ? 'Stop' : 'Scan'),
-      ),
+      // Two buttons, sized by how much they have to say for themselves.
+      //
+      // While a scan runs, the useful control is the one that turns the radio
+      // off, and it wants as little of the screen as it can get away with: the
+      // radar is already saying "scanning", the list below it is the thing
+      // worth looking at, and a wide bar reading "Stop" over the results would
+      // be shouting an offer nobody came here for. A small round stop button is
+      // enough, with the reason for pressing it in its tooltip.
+      //
+      // Stopped, the opposite is true: nothing is happening, so the way back to
+      // scanning has to be the most obvious thing on the screen.
+      //
+      // The hero tag is explicit (and shared, since the two are never on screen
+      // together) because HomeShell keeps this screen and the Wi-Fi one alive in
+      // an IndexedStack, so both tabs' FABs are in the tree at once and the
+      // default tag would collide. That is not a layout nit: it throws out of
+      // the hero controller the moment any route is pushed, which is every tap
+      // on a device.
+      floatingActionButton: _isScanning
+          ? FloatingActionButton.small(
+              heroTag: 'scan-fab',
+              tooltip: 'Stop scanning — saves battery',
+              onPressed: () => _stopScan(byUser: true),
+              child: const Icon(Icons.stop),
+            )
+          : FloatingActionButton.extended(
+              heroTag: 'scan-fab',
+              tooltip: 'Scan for devices',
+              onPressed: _startScan,
+              icon: const Icon(Icons.search),
+              label: const Text('Scan'),
+            ),
     );
   }
 
