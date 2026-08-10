@@ -1208,8 +1208,7 @@
           "session_open": {
             "type": "array",
             "items": { "type": "string" },
-            "minItems": 1,
-            "description": "Commands a client must send, IN THIS ORDER, before the first frame of an upload — named from this spec's own `commands`, so their bytes stay in the command templates and only the choreography lives here. SmartDawn's is `[ui_end_sync, doodle_start]`: the first suspends UI-mirror playback, the second opens the doodle session, and sending the wrong opener (M_DEV_START) blanks the canvas instead. Send once per upload, not once per frame. Omit when a device takes pixel data with no preamble.",
+            "description": "Commands a client must send, IN THIS ORDER, before the first frame of an upload — named from this spec's own `commands`, so their bytes stay in the command templates and only the choreography lives here. SmartDawn's is `[ui_end_sync, doodle_start]`: the first suspends UI-mirror playback, the second opens the doodle session, and sending the wrong opener (M_DEV_START) blanks the canvas instead. Send once per upload, not once per frame. An EMPTY array states that this device takes pixel data with no preamble at all — which is a different claim from omitting the key, and the distinction is load-bearing: a consumer that implemented a device's flow before this key existed falls back to whatever opener it hardcoded when the key is absent, and would otherwise send that opener to a device that wants none. State it explicitly rather than leaving it to be inferred.",
             "$comment": "This is the one part of an upload flow a handler cannot derive: which commands and in what order is device-specific knowledge, where fragmentation and chunk sizing are properties the framing block already states. Without it a consumer has to hardcode the names, and a device whose opener differs needs a code change rather than a spec change."
           },
           "max_frames": {

@@ -115,6 +115,32 @@ services:
           Device echoes frame back on notify characteristic as ACK.
           Also check fallback: 0000fee2-0000-1000-8000-00805f9b34fb
           for older hardware revisions.
+        commands:
+          set_heat:
+            description: >
+              Set heat on/off and level. Frame is
+              [0xAA][status][level][0x00 x4][0x55] — worked examples from the
+              stock app: OFF = AA00000000000055, ON level 1 =
+              AA01010000000055, ON level 5 = AA01050000000055, ON level 10 =
+              AA010A0000000055. The device echoes the exact frame back on the
+              notify characteristic as its acknowledgment; the stock app
+              retransmits after 3 s if no matching echo arrives.
+            verification: "reported"
+            template: [0xAA, "{status}", "{level}", 0x00, 0x00, 0x00, 0x00, 0x55]
+            parameters:
+              status:
+                type: "uint8"
+                allowed: [0x00, 0x01]
+                labels: ["Off", "On"]
+                default: 1
+                description: >
+                  Power state. Defaulted to ON so a level control sends only
+                  the level; level 0 turns the element off either way.
+              level:
+                type: "uint8"
+                min: 0
+                max: 10
+                description: "Heat level, 0-10 (0 = off/clamp, 10 = max)."
       - uuid: "0000ffb2-0000-1000-8000-00805f9b34fb"
         name: "Status Notify"
         properties: ["read", "notify"]
@@ -151,48 +177,12 @@ services:
           app enables notifications only on ffb2 and discards fee1 values
           without parsing (BluetoothService.java:143-145, :362-384).
 
-commands:
-  set_heat:
-    description: "Set heat on/off and level"
-    write_characteristic: "0000ffb1-0000-1000-8000-00805f9b34fb"
-    fallback_characteristic: "0000fee2-0000-1000-8000-00805f9b34fb"
-    frame:
-      - byte: 0
-        value: "0xAA"
-        description: "Frame header"
-      - byte: 1
-        name: "status"
-        values:
-          - "0x00": "OFF"
-          - "0x01": "ON"
-        description: "Power state"
-      - byte: 2
-        name: "level"
-        min: "0x00"
-        max: "0x0A"
-        description: "Heat level 0-10 (0=OFF/clamp, 10=max)"
-      - bytes: "3-6"
-        value: "0x00000000"
-        description: "Reserved padding"
-      - byte: 7
-        value: "0x55"
-        description: "Frame footer"
-    examples:
-      - name: "OFF"
-        hex: "AA00000000000055"
-      - name: "ON level 1"
-        hex: "AA01010000000055"
-      - name: "ON level 5"
-        hex: "AA01050000000055"
-      - name: "ON level 10 (max)"
-        hex: "AA010A0000000055"
-    ack:
-      type: "echo"
-      description: "Device echoes exact frame back on notify characteristic to acknowledge"
-    retry:
-      enabled: true
-      timeout_ms: 3000
-      description: "Retransmit after 3 seconds if no matching echo received"
+# The set_heat frame lives on the ffb1 characteristic as a real command with a
+# template — see it there. It was documented here as well, in a top-level
+# `commands:` block whose byte-by-byte `frame:` table no consumer reads, so the
+# one entity that exists to set the heat level had nothing to send. Everything
+# that block carried (the worked hex examples, the echo acknowledgment, the
+# 3-second retransmit) is stated in the command's description.
 
 notifications:
   characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
@@ -300,6 +290,11 @@ entities:
     name: "Heat Level"
     command_characteristic: "0000ffb1-0000-1000-8000-00805f9b34fb"
     fallback_characteristic: "0000fee2-0000-1000-8000-00805f9b34fb"
+    # Bound explicitly rather than left to a consumer's name guessing: this
+    # characteristic carries an 8-byte frame, so there is no bare value to
+    # write and the entity is inert without a command to send.
+    commands:
+      set_value: "set_heat"
     state_characteristic: "0000ffb2-0000-1000-8000-00805f9b34fb"
     fallback_state_characteristic: "0000fee1-0000-1000-8000-00805f9b34fb"
     min_temp: 0
