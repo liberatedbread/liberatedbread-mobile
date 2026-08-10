@@ -47,7 +47,7 @@
 use super::{EncodedFrame, EncodedWrite};
 use crate::codec::types::encode_command;
 use crate::error::ProtocolError;
-use crate::spec::types::{Characteristic, CharacteristicProperty, DeviceSpec};
+use crate::spec::types::{Characteristic, CharacteristicProperty, DeviceSpec, Feature};
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -62,11 +62,6 @@ pub const SERVICE_UUID: &str = "00000074-1972-1925-3022-077119514e44";
 const FRAGMENT_SCHEME: &str = "daniao_fragment";
 const FRAG_HEADER_LEN: usize = 4;
 const MAX_PALETTE: usize = 16;
-/// The vendor encoder's chunk ceiling: header + pixel bytes < 200. The
-/// effective per-chunk budget is the SMALLER of this and what one BLE write
-/// carries, so a link with a mid-range MTU still encodes (in more, smaller
-/// chunks) instead of being rejected.
-const CHUNK_LIMIT: usize = 200;
 /// Maximum pixels in one emitted run. A longer solid region is split into
 /// consecutive same-colour runs (identical on the device) so a single run's
 /// tokens (<= MAX_RUN_TOKENS bytes) can never bloat a chunk past a BLE
@@ -80,15 +75,23 @@ const MAX_RUN_TOKENS: usize = 2 + MAX_RUN / 127;
 /// 512; a chunk that cannot fit one write over the negotiated MTU is rejected.
 const MIN_PAYLOAD_PER_WRITE: usize = 20;
 
-/// BIN buffer-type tag for a full-canvas redraw (spec's BIN Write notes:
-/// 1=TUTU_DOODLE, 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN). Not a fixed
-/// `channel_tag` in the spec because the bulk channel picks its tag per
-/// transfer; this handler pushes full canvases, hence RESTORE.
-const TAG_TUTU_RESTORE: u8 = 0x04;
-
-/// Command names, resolved from the spec's command templates, that open a
-/// doodle/pixel session. Their message-type bytes live in the spec, not here.
-const SESSION_OPEN_COMMANDS: &[&str] = &["ui_end_sync", "doodle_start"];
+/// Fallbacks for the three things the spec now states, kept for a spec pack
+/// written before it did.
+///
+/// Each was a constant here first, and each was the wrong place for it: they
+/// describe SmartDawn's flow, not the fragment scheme, so a sibling device on
+/// the same platform with a different opener or buffer tag needed a code
+/// change to work. They are read from the spec's `image_upload` feature and
+/// the bulk channel's `framing` now — `session_open`, `channel_tag` and
+/// `max_chunk_size` — and these values only apply when a spec is silent.
+///
+/// TUTU_RESTORE is the full-canvas redraw tag (the BIN channel also carries
+/// 1=TUTU_DOODLE, 2=TUTU_ERASE, 16=MUSIC_BIN); 200 is the vendor encoder's
+/// chunk ceiling; and the opener pair is the sequence verified on hardware,
+/// where sending `M_DEV_START` instead blanks the canvas.
+const DEFAULT_BULK_TAG: u8 = 0x04;
+const DEFAULT_CHUNK_LIMIT: usize = 200;
+const DEFAULT_SESSION_OPEN: &[&str] = &["ui_end_sync", "doodle_start"];
 
 /// The `framing` block of a characteristic, deserialized from the spec's
 /// opaque value on demand (the shared `Characteristic` type keeps it untyped
@@ -97,6 +100,11 @@ const SESSION_OPEN_COMMANDS: &[&str] = &["ui_end_sync", "doodle_start"];
 struct Framing {
     scheme: Option<String>,
     channel_tag: Option<u8>,
+    /// The chunk ceiling this channel's encoder flushes at. The effective
+    /// per-chunk budget is the SMALLER of this and what one BLE write carries,
+    /// so a link with a mid-range MTU still encodes (in more, smaller chunks)
+    /// rather than being rejected.
+    max_chunk_size: Option<usize>,
 }
 
 fn framing_of(c: &Characteristic) -> Option<Framing> {
@@ -114,9 +122,26 @@ fn is_writable(c: &Characteristic) -> bool {
     })
 }
 
+/// The `image_upload` feature this handler drives, if the spec declares one.
+fn image_feature(spec: &DeviceSpec) -> Option<&Feature> {
+    spec.features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")
+}
+
 /// Resolve a `daniao_fragment` characteristic from the spec by its channel tag:
-/// the command channel is `channel_tag: 0`; the bulk channel omits it.
+/// the command channel is `channel_tag: 0`; the bulk channel is the one that
+/// is not the command channel.
+///
+/// The bulk channel is identified by *not* being channel 0 rather than by
+/// omitting a tag, because omitting one is a statement about the channel (its
+/// tag varies per transfer) and not an identifier. Its tag for THIS flow comes
+/// from the feature, which is the layer that knows which buffer type an image
+/// upload writes.
 fn resolve_char(spec: &DeviceSpec, want_command_channel: bool) -> Option<(&Characteristic, u8)> {
+    let flow_tag = image_feature(spec)
+        .and_then(|f| f.channel_tag)
+        .unwrap_or(DEFAULT_BULK_TAG);
     for service in &spec.services {
         for c in &service.characteristics {
             if !is_writable(c) {
@@ -128,7 +153,10 @@ fn resolve_char(spec: &DeviceSpec, want_command_channel: bool) -> Option<(&Chara
             }
             match (want_command_channel, f.channel_tag) {
                 (true, Some(0)) => return Some((c, 0)),
-                (false, None) => return Some((c, TAG_TUTU_RESTORE)),
+                // A bulk channel may fix its own tag; when it does not, the
+                // flow's tag applies.
+                (false, Some(tag)) if tag != 0 => return Some((c, tag)),
+                (false, None) => return Some((c, flow_tag)),
                 _ => {}
             }
         }
@@ -213,11 +241,18 @@ pub fn encode_doodle_frame(
     // device honors only the first BLE write of a BIN transfer, so a chunk
     // that fits one write is the actual requirement, and a mid-range MTU
     // (iOS commonly negotiates 185) simply gets more, smaller chunks.
+    // The chunk ceiling is the bulk channel's own `framing.max_chunk_size`
+    // where it states one: it is a property of that channel's encoder, not of
+    // this handler.
+    let chunk_limit = framing_of(bulk_char)
+        .and_then(|f| f.max_chunk_size)
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_CHUNK_LIMIT);
     let chunks = encode_tutu_restore(
         rgb,
         width as usize,
         height as usize,
-        CHUNK_LIMIT.min(frag_capacity),
+        chunk_limit.min(frag_capacity),
     )?;
 
     // The device honors ONLY the first BLE write of a BIN transfer, so every
@@ -264,12 +299,23 @@ pub fn encode_doodle_frame(
             .ok_or_else(|| ProtocolError::NoCommands {
                 uuid: command_char.uuid.clone(),
             })?;
-        for name in SESSION_OPEN_COMMANDS {
+        // Which commands open a session, and in what order, is the spec's to
+        // say — the bytes are already in their templates, and a sibling device
+        // on this platform with a different opener should be a spec change.
+        let declared: Vec<String> = image_feature(spec)
+            .map(|f| f.session_open.clone())
+            .unwrap_or_default();
+        let session_open: Vec<&str> = if declared.is_empty() {
+            DEFAULT_SESSION_OPEN.to_vec()
+        } else {
+            declared.iter().map(String::as_str).collect()
+        };
+        for name in session_open {
             let command = commands
-                .get(*name)
+                .get(name)
                 .ok_or_else(|| ProtocolError::CommandNotFound {
                     uuid: command_char.uuid.clone(),
-                    command: (*name).to_string(),
+                    command: name.to_string(),
                 })?;
             // The spec's `sn` is `auto: sequence`, which encodes as 0 unless a
             // stateful caller supplies it. Reuse the fragment serial this
@@ -479,6 +525,129 @@ mod tests {
         px
     }
 
+    /// Parse a variant of the test spec with one substring swapped, so a case
+    /// can change exactly one declaration and watch the encoding follow.
+    fn spec_with(from: &str, to: &str) -> DeviceSpec {
+        assert!(
+            SPEC_YAML.contains(from),
+            "fixture no longer contains {from:?} — the substitution below is stale"
+        );
+        parse_device_spec(&SPEC_YAML.replace(from, to)).unwrap()
+    }
+
+    /// The session-open sequence comes from the spec, not from this file.
+    ///
+    /// The three cases below are the difference between "driven by the spec"
+    /// and "happens to agree with the spec": every value the handler reads is
+    /// also the value it used to hardcode, so a test that only checks the
+    /// shipped spec passes either way. Each of these changes one declaration
+    /// and asserts the bytes move with it.
+    #[test]
+    fn the_session_open_sequence_is_whatever_the_spec_lists() {
+        // Reversed: doodle_start (mt 2701) must now precede ui_end_sync
+        // (mt 2411). Order is the whole point — the hardware verification
+        // found that opening with the wrong command blanks the canvas.
+        let reversed = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            r#"session_open: ["doodle_start", "ui_end_sync"]"#,
+        );
+        let frame = encode_doodle_frame(&reversed, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(&frame.writes[0].bytes[10..12], &[0x0A, 0x8D]);
+        assert_eq!(&frame.writes[1].bytes[10..12], &[0x09, 0x6B]);
+
+        // Shortened: one opener, so one session-open write before the chunks.
+        let single = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            r#"session_open: ["doodle_start"]"#,
+        );
+        let frame = encode_doodle_frame(&single, &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(&frame.writes[0].bytes[10..12], &[0x0A, 0x8D]);
+        assert_eq!(
+            frame.writes[1].characteristic_uuid, BIN,
+            "with one opener the second write is already a pixel chunk"
+        );
+
+        // A name the spec's commands do not define is an error naming the
+        // command, not a silent fallback to the old hardcoded pair.
+        let bogus = spec_with(
+            r#"session_open: ["ui_end_sync", "doodle_start"]"#,
+            r#"session_open: ["no_such_command"]"#,
+        );
+        let err = encode_doodle_frame(&bogus, &trans_flag(), 20, 20, 0, 509).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("no_such_command"),
+            "the error should name the missing command, got {err:?}"
+        );
+    }
+
+    /// The bulk buffer tag comes from the feature, not from this file.
+    #[test]
+    fn the_bulk_channel_tag_is_whatever_the_feature_declares() {
+        // 0x01 is TUTU_DOODLE where 0x04 is TUTU_RESTORE: same channel, same
+        // framing, different buffer. It rides in fragment-header byte 3.
+        let doodle = spec_with("channel_tag: 0x04", "channel_tag: 0x01");
+        let frame = encode_doodle_frame(&doodle, &trans_flag(), 20, 20, 0, 509).unwrap();
+        let chunk = frame
+            .writes
+            .iter()
+            .find(|w| w.characteristic_uuid == BIN)
+            .expect("a pixel chunk");
+        assert_eq!(chunk.bytes[3], 0x01);
+
+        // The command channel is unaffected: its tag is fixed at 0 by its own
+        // framing block, which is a statement about the channel rather than
+        // about this flow.
+        assert_eq!(frame.writes[0].bytes[3], 0);
+    }
+
+    /// The chunk ceiling comes from the bulk channel's framing block.
+    #[test]
+    fn the_chunk_ceiling_is_whatever_the_bulk_channel_declares() {
+        // A 20x20 trans flag at a large MTU: with the vendor's 200-byte
+        // ceiling it fits few chunks, and a much smaller ceiling must produce
+        // strictly more of them. Nothing else changes.
+        let wide = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 1, 509).unwrap();
+        let narrow_spec = spec_with("max_chunk_size: 200", "max_chunk_size: 40");
+        let narrow = encode_doodle_frame(&narrow_spec, &trans_flag(), 20, 20, 1, 509).unwrap();
+        assert!(
+            narrow.writes.len() > wide.writes.len(),
+            "a smaller declared ceiling must cut the canvas into more chunks: \
+             {} vs {}",
+            narrow.writes.len(),
+            wide.writes.len()
+        );
+        for w in &narrow.writes {
+            assert!(
+                w.bytes.len() - FRAG_HEADER_LEN <= 40,
+                "every chunk must respect the declared ceiling"
+            );
+        }
+    }
+
+    /// A spec pack written before these keys existed still encodes.
+    ///
+    /// The fallbacks are not dead code: third-party packs update on their own
+    /// schedule, and the values they fall back to are the ones this handler
+    /// used before the spec could state them, so an older pack behaves exactly
+    /// as it did.
+    #[test]
+    fn a_spec_that_states_none_of_them_falls_back_to_what_it_used_to_do() {
+        let bare = parse_device_spec(
+            &SPEC_YAML
+                .replace(r#"session_open: ["ui_end_sync", "doodle_start"]"#, "")
+                .replace("channel_tag: 0x04", "")
+                .replace(", max_chunk_size: 200", ""),
+        )
+        .unwrap();
+        let old_way = encode_doodle_frame(&bare, &trans_flag(), 20, 20, 0, 509).unwrap();
+        let declared = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 0, 509).unwrap();
+        assert_eq!(old_way.writes.len(), declared.writes.len());
+        for (a, b) in old_way.writes.iter().zip(&declared.writes) {
+            assert_eq!(a.bytes, b.bytes);
+            assert_eq!(a.characteristic_uuid, b.characteristic_uuid);
+        }
+    }
+
     #[test]
     fn first_frame_opens_session_from_spec_then_streams_chunks() {
         let frame = encode_doodle_frame(&spec(), &trans_flag(), 20, 20, 0, 509).unwrap();
@@ -499,7 +668,7 @@ mod tests {
         assert_eq!(&w[1].bytes[6..8], &[0, 1]);
         // Then the pixel chunk on the BIN char, tag 4, single write.
         assert_eq!(w[2].characteristic_uuid, BIN);
-        assert_eq!(&w[2].bytes[..4], &[2, 1, 0, TAG_TUTU_RESTORE]);
+        assert_eq!(&w[2].bytes[..4], &[2, 1, 0, DEFAULT_BULK_TAG]);
     }
 
     #[test]
@@ -508,7 +677,7 @@ mod tests {
         assert_eq!(frame.packets, 1, "one chunk, no session packets");
         assert_eq!(frame.writes.len(), 1);
         assert_eq!(frame.writes[0].characteristic_uuid, BIN);
-        assert_eq!(&frame.writes[0].bytes[..4], &[5, 1, 0, TAG_TUTU_RESTORE]);
+        assert_eq!(&frame.writes[0].bytes[..4], &[5, 1, 0, DEFAULT_BULK_TAG]);
     }
 
     #[test]
@@ -591,7 +760,7 @@ mod tests {
     fn long_runs_use_extension_bytes() {
         // A solid 20x20 canvas: one 400-pixel run -> (0<<4) then 255,255,255,19.
         let rgb = vec![0x11u8; 20 * 20 * 3];
-        let chunks = encode_tutu_restore(&rgb, 20, 20, CHUNK_LIMIT).unwrap();
+        let chunks = encode_tutu_restore(&rgb, 20, 20, DEFAULT_CHUNK_LIMIT).unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(&chunks[0][..6], &[0, 0, 1, 0x11, 0x11, 0x11]);
         assert_eq!(&chunks[0][6..], &[0x00, 255, 255, 255, 19]);
@@ -603,7 +772,7 @@ mod tests {
         // (here 0), not just a trailing 0xFF, or the decoder would swallow the
         // next run's token.
         let rgb = vec![0x22u8; 127 * 3];
-        let chunks = encode_tutu_restore(&rgb, 127, 1, CHUNK_LIMIT).unwrap();
+        let chunks = encode_tutu_restore(&rgb, 127, 1, DEFAULT_CHUNK_LIMIT).unwrap();
         assert_eq!(chunks.len(), 1);
         assert_eq!(&chunks[0][6..], &[0x00, 0xFF, 0x00]);
     }
