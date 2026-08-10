@@ -26,6 +26,28 @@ heading.
 
 ### Changed
 
+- **The SmartDawn upload flow is driven by the spec, not by constants beside
+  it.** The handler already resolved its two channels from the spec's `framing`
+  blocks and built its session-open packets from the spec's command templates,
+  so message types and field encodings were the spec's to change. Three things
+  were not: which commands open a session and in what order, which buffer tag
+  the flow writes under on the bulk channel, and where the vendor encoder
+  flushes a chunk. Those describe SmartDawn's upload rather than the fragment
+  scheme, so a sibling device on the same platform with a different opener
+  needed a code change. They now come from the feature's `session_open` and
+  `channel_tag` and the bulk channel's `framing.max_chunk_size`, with the old
+  constants kept as the fallback for a spec pack written before those keys
+  existed. Four tests change one declaration each and assert the bytes move
+  with it — without those, every value the handler reads is also the value it
+  used to hardcode, so a test against the shipped spec would pass either way.
+- **Two vendored specs that failed to parse now load**, upstream: 36 commands
+  and a 500-line register map that reached nobody. `seeblue-motorcycle-led`
+  spelled its transport envelope into nine command templates as placeholders
+  no command declared, and `fardriver-controller` bounded a `bytes` parameter
+  with `min`/`max`, which mean a numeric range a run of octets does not have.
+  The `KNOWN_BAD` allowlist in `rust/tests/vendored_assets.rs` is empty as a
+  result — kept, because upstream now enforces both rules, so a spec should
+  not arrive broken that way again.
 - **Four spec keys the app was ignoring now drive it, and one it was carrying
   is gone.** Each had real information in the catalogue reaching nothing.
   - **`endianness` on `format:` fields.** The decoder hardcoded little-endian.

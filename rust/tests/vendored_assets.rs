@@ -564,6 +564,65 @@ fn smartdawn_spec_encodes_a_doodle_frame() {
     );
 }
 
+/// The shipped SmartDawn spec, not the stripped fixture, states its own
+/// upload choreography.
+///
+/// The handler reads `session_open`, the feature's `channel_tag` and the bulk
+/// channel's `max_chunk_size`, and falls back to what it used to hardcode when
+/// a spec is silent — which means a vendored spec that stopped declaring them
+/// would keep working and nothing would say so. This is the test that notices:
+/// it asserts the real catalogue still carries the declarations, so the
+/// fallbacks stay a compatibility path for older third-party packs rather than
+/// quietly becoming the way SmartDawn works again.
+#[test]
+fn the_vendored_smartdawn_spec_declares_its_own_upload_flow() {
+    let spec = parse_device_spec(
+        &fs::read_to_string(spec_path("smartdawn-smart-lights.yaml"))
+            .expect("smartdawn spec should be readable"),
+    )
+    .expect("smartdawn spec should parse");
+
+    let feature = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")
+        .expect("smartdawn declares an image_upload feature");
+    assert_eq!(
+        feature.session_open,
+        ["ui_end_sync", "doodle_start"],
+        "the opener pair verified on hardware — M_DEV_START blanks the canvas"
+    );
+    assert_eq!(
+        feature.channel_tag,
+        Some(0x04),
+        "an image upload is a full-canvas redraw, so it writes under TUTU_RESTORE"
+    );
+    for name in &feature.session_open {
+        assert!(
+            spec.services
+                .iter()
+                .any(|s| s.characteristics.iter().any(|c| c
+                    .commands
+                    .as_ref()
+                    .is_some_and(|m| m.contains_key(name.as_str())))),
+            "session_open names {name:?}, which the spec's commands do not define"
+        );
+    }
+
+    let bulk = spec
+        .services
+        .iter()
+        .flat_map(|s| &s.characteristics)
+        .find(|c| c.uuid.starts_with("02020074"))
+        .expect("smartdawn declares the BIN bulk characteristic");
+    let framing = bulk.framing.as_ref().expect("BIN declares framing");
+    assert_eq!(
+        framing.get("max_chunk_size").and_then(|v| v.as_u64()),
+        Some(200),
+        "the vendor encoder's chunk ceiling belongs in the spec, not the handler"
+    );
+}
+
 /// The catalogue's own uses of the keys this app newly honours.
 ///
 /// Each of these was carrying real information that reached nothing: the
