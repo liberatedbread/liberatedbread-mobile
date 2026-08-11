@@ -75,6 +75,27 @@ class FakeSpecCodec implements SpecCodec {
         int maxPayloadPerWrite,
       })> encodeImageCalls = [];
 
+  /// Returned by [networkEntitiesForDevice], as a function of the SSDP
+  /// targets so one fake can answer per model.
+  final List<NetworkEntityDto> Function(List<String> ssdpTargets)?
+      networkEntities;
+
+  /// Returned by [renderNetworkCommand] / [renderNetworkStateRequest]; the
+  /// action/soapAction carry the command or state-command name so a transport
+  /// test can tell requests apart.
+  SoapRequestDto Function(String name, Map<String, String> values)?
+      networkRequest;
+
+  /// Every rendered command, in call order, with the values it carried —
+  /// including read-back values, which is what the Crock-Pot tests assert on.
+  final List<({String commandName, Map<String, String> values})>
+      renderNetworkCommandCalls = [];
+
+  /// Returned by [readNetworkEntity], as a function of entity name and the
+  /// returned values.
+  NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
+      networkReading;
+
   FakeSpecCodec({
     this.spec,
     this.matches = const [],
@@ -90,6 +111,9 @@ class FakeSpecCodec implements SpecCodec {
     this.imagePlan,
     this.encodeEntityValueError,
     this.entityWrite,
+    this.networkEntities,
+    this.networkRequest,
+    this.networkReading,
   }) : encoded = encoded ?? Uint8List(0);
 
   @override
@@ -207,4 +231,46 @@ class FakeSpecCodec implements SpecCodec {
           nextFrameIndex: frameIndex + 1,
         );
   }
+
+  @override
+  Future<List<NetworkEntityDto>> networkEntitiesForDevice({
+    required String specYaml,
+    required List<String> ssdpTargets,
+  }) async =>
+      networkEntities?.call(ssdpTargets) ?? const [];
+
+  @override
+  Future<SoapRequestDto> renderNetworkCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    renderNetworkCommandCalls.add((commandName: commandName, values: values));
+    return networkRequest?.call(commandName, values) ??
+        _defaultRequest(commandName);
+  }
+
+  @override
+  Future<SoapRequestDto> renderNetworkStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  }) async =>
+      networkRequest?.call(stateCommand, const {}) ??
+      _defaultRequest(stateCommand);
+
+  static SoapRequestDto _defaultRequest(String name) => SoapRequestDto(
+        service: 'urn:Fake:service:basicevent:1',
+        action: name,
+        soapAction: '"urn:Fake:service:basicevent:1#$name"',
+        path: '/upnp/control/basicevent1',
+        body: '<fake action="$name"/>',
+      );
+
+  @override
+  Future<NetworkReadingDto?> readNetworkEntity({
+    required String specYaml,
+    required String entityName,
+    required Map<String, String> returned,
+  }) async =>
+      networkReading?.call(entityName, returned);
 }

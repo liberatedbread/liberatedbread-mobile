@@ -49,6 +49,31 @@ pub struct DeviceSpec {
     /// [`DeviceSpec::protocol_handler`] naming an implemented handler.
     #[serde(default)]
     pub features: Vec<Feature>,
+    /// Top-level `commands:` — named invocations for a device with no GATT
+    /// characteristic to hang a command on.
+    ///
+    /// An entity's role map resolves here exactly as it resolves to a
+    /// characteristic's commands on a BLE device, which is the whole point of
+    /// one block: `turn_on: plug_turn_on` reads the same either way and only
+    /// the transport underneath differs. Promoted out of `extensions` because
+    /// the network control path executes it — see [`crate::protocol::soap`].
+    ///
+    /// Deliberately tolerant of shapes this crate does not execute:
+    /// `airthings-wave-family` has kept a BLE-flavoured catalogue here
+    /// (keyed by `characteristic`/`template`/`value`) since before anything
+    /// declared the block, and those entries must load rather than fail the
+    /// spec they arrive in.
+    #[serde(default)]
+    pub commands: IndexMap<String, SpecCommand>,
+    /// Top-level `payload_formats:` — how to read a returned value that is not
+    /// self-describing, keyed by the value's name.
+    ///
+    /// Needed on the network path for the same reason a `format:` block is
+    /// needed on the BLE one: `GetBinaryState` answers `1` on one firmware and
+    /// `8|1492338954|0|922|...` on another, and only the spec knows that the
+    /// state is field 0 of the second.
+    #[serde(default)]
+    pub payload_formats: IndexMap<String, PayloadFormat>,
     /// Parsed-but-ignored top-level extension blocks, preserved verbatim so no
     /// information is lost even though nothing interprets them yet.
     #[serde(flatten)]
@@ -115,6 +140,226 @@ pub struct Feature {
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
 
+/// One entry of the top-level `commands:` block: an action plus the arguments
+/// this particular invocation has already chosen.
+///
+/// The division of labour with `http_endpoints` is what makes the block worth
+/// having. The endpoint catalogue says `SetBinaryState` exists and takes a
+/// `BinaryState`; `plug_turn_on` is that action *with `1`*, and the `1` has
+/// nowhere else to live — an entity's role map carries a name, not a payload.
+///
+/// Every field is optional. Entries this crate cannot execute (a BLE-flavoured
+/// one, a transport not implemented) must load and then decline to resolve,
+/// not fail the spec.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SpecCommand {
+    #[serde(default)]
+    pub description: Option<String>,
+    /// `soap` | `http` | `mqtt` | … — which transport block supplies the
+    /// request template and the address. Absent means the spec's only
+    /// transport, and an unrecognised value means this crate declines the
+    /// command rather than guessing.
+    #[serde(default)]
+    pub transport: Option<String>,
+    /// Service the action belongs to, as the device names it — for SOAP the
+    /// `serviceType` URN, which is also the key the control URL is resolved
+    /// by. A command names the service rather than a path because published
+    /// paths vary across firmware generations and the device's own service
+    /// list is authoritative.
+    #[serde(default)]
+    pub service: Option<String>,
+    /// Action invoked, spelled as it goes on the wire (`SetBinaryState`).
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Request path, for transports that address by path rather than service.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Argument name → value as both go on the wire. `"{name}"` is substituted
+    /// from the like-named parameter; anything else is a literal this
+    /// invocation has already decided.
+    #[serde(default)]
+    pub arguments: IndexMap<String, serde_yaml::Value>,
+    /// Values the caller supplies, keyed by the placeholder name.
+    #[serde(default)]
+    pub parameters: IndexMap<String, SpecCommandParameter>,
+    /// The exact request this command renders to. Not used to send anything —
+    /// it is what the tests diff the renderer against, which is how a spec
+    /// change that breaks the rendering is caught in this crate rather than
+    /// against somebody's hardware.
+    #[serde(default)]
+    pub example_body: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl SpecCommand {
+    /// Parameters the caller supplies: the ones that are neither a spec
+    /// constant (`default`) nor a device read-back (`source`).
+    ///
+    /// The gate every control passes before it is drawn. A command with two
+    /// blanks cannot be sent by a control that owns one value, and drawing it
+    /// anyway puts a button on screen that fails when pressed. A `source`
+    /// parameter is not a blank — the client knows where to fetch it — but it
+    /// is also not defaulted: rendering without the fetched value FAILS, by
+    /// the spec's own rule, rather than quietly substituting anything. The
+    /// first Wemo spec paired every `source` with `default: 0`, and the
+    /// failure mode of honouring that default was a cleared cook timer (or a
+    /// stopped cooker) whenever a read-back silently failed.
+    pub fn user_params(&self) -> Vec<&str> {
+        self.parameters
+            .iter()
+            .filter(|(_, p)| p.default.is_none() && p.source.is_none())
+            .map(|(name, _)| name.as_str())
+            .collect()
+    }
+
+    /// Parameters whose value the client must read from the device as part of
+    /// the send, as (parameter, `source`) pairs.
+    ///
+    /// This is the difference between a working Crock-Pot control and one that
+    /// wipes the cook timer: `SetCrockpotState` carries mode and time
+    /// together, so changing the mode means reading the time back and sending
+    /// it along. Mandatory, not advisory — these parameters carry no default,
+    /// so a send that skips the read-back errors instead of inventing a value.
+    pub fn read_back_params(&self) -> Vec<(&str, &str)> {
+        self.parameters
+            .iter()
+            .filter_map(|(name, p)| Some((name.as_str(), p.source.as_deref()?)))
+            .collect()
+    }
+}
+
+/// One parameter of a [`SpecCommand`].
+#[derive(Debug, Clone, Deserialize)]
+pub struct SpecCommandParameter {
+    #[serde(default, rename = "type")]
+    pub value_type: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: Option<bool>,
+    #[serde(default)]
+    pub unit: Option<String>,
+    #[serde(default)]
+    pub min: Option<f64>,
+    #[serde(default)]
+    pub max: Option<f64>,
+    /// Value used when the caller supplies none — what lets a control that
+    /// owns one of an action's arguments send it at all.
+    #[serde(default)]
+    pub default: Option<serde_yaml::Value>,
+    /// Where a client reads this value when it is not the one being set, as
+    /// `state:<command>.<field>`.
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Code table for a parameter that is really an enumeration: raw value →
+    /// label. Keys arrive as whatever YAML made of them, so they are compared
+    /// as strings.
+    #[serde(default)]
+    pub values: Option<serde_yaml::Value>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl SpecCommandParameter {
+    /// The parameter's code table as (raw, label) pairs in declaration order.
+    pub fn value_table(&self) -> Vec<(String, String)> {
+        value_table(self.values.as_ref())
+    }
+}
+
+/// A `payload_formats:` entry: how to read one returned value.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PayloadFormat {
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Separator, when the value is several fields packed into one string.
+    ///
+    /// Declared rather than inferred: "split on `|` and take field 0" was
+    /// prose for as long as this format has been documented, and prose is not
+    /// something a decoder can follow. A payload with no delimiter is the
+    /// whole value.
+    #[serde(default)]
+    pub delimiter: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<PayloadFormatField>,
+    /// Meaning of each value, for an enumerated payload.
+    #[serde(default)]
+    pub values: Option<serde_yaml::Value>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+impl PayloadFormat {
+    /// Pull one field out of a raw returned value.
+    ///
+    /// With no delimiter the value is returned whole. With one, the field at
+    /// `index` is taken — a short payload yields `None` rather than a
+    /// plausible-looking wrong column, because firmware that answers with the
+    /// short form is exactly the case this exists for.
+    pub fn field_value<'a>(&self, raw: &'a str, index: usize) -> Option<&'a str> {
+        let Some(delimiter) = self.delimiter.as_deref().filter(|d| !d.is_empty()) else {
+            return Some(raw);
+        };
+        raw.split(delimiter).nth(index)
+    }
+
+    /// The value carrying this payload's own reading: field index 0 when the
+    /// format declares fields, else the whole value.
+    pub fn primary_value<'a>(&self, raw: &'a str) -> Option<&'a str> {
+        self.field_value(raw, 0)
+    }
+
+    pub fn value_table(&self) -> Vec<(String, String)> {
+        value_table(self.values.as_ref())
+    }
+}
+
+/// One field of a delimited payload.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PayloadFormatField {
+    pub name: String,
+    #[serde(default)]
+    pub index: Option<usize>,
+    #[serde(default)]
+    pub unit: Option<String>,
+    #[serde(default)]
+    pub scale: Option<f64>,
+    #[serde(default)]
+    pub value_offset: Option<f64>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// Normalize a YAML code table to (raw, label) string pairs.
+///
+/// Keys are compared as strings throughout because the catalogue writes them
+/// both ways and means the same thing by both: `ember-mug` writes bare
+/// integers, `wemo-devices` quotes them, and a consumer that honoured only one
+/// spelling would silently render half the catalogue's enumerations as raw
+/// numbers.
+fn value_table(values: Option<&serde_yaml::Value>) -> Vec<(String, String)> {
+    let Some(serde_yaml::Value::Mapping(map)) = values else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(key, label)| Some((scalar_to_string(key)?, scalar_to_string(label)?)))
+        .collect()
+}
+
+/// A YAML scalar as the string a spec author wrote, or `None` for anything
+/// that is not a scalar.
+pub(crate) fn scalar_to_string(value: &serde_yaml::Value) -> Option<String> {
+    match value {
+        serde_yaml::Value::String(s) => Some(s.clone()),
+        serde_yaml::Value::Number(n) => Some(n.to_string()),
+        serde_yaml::Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
 /// A declared sensor or control surface.
 ///
 /// Field set is deliberately small and every field but `name` is optional:
@@ -148,6 +393,22 @@ pub struct Entity {
     pub unit: Option<String>,
     #[serde(default)]
     pub state_characteristic: Option<String>,
+    /// Endpoint the state call is made against, for an entity on a device with
+    /// no GATT. The network counterpart of [`Self::state_characteristic`].
+    ///
+    /// Advisory: it is the conventional path, and a client should still
+    /// resolve the real one from the device's own service list. Wemo ports and
+    /// control-URL spellings both move across firmware generations.
+    #[serde(default)]
+    pub state_endpoint: Option<String>,
+    /// Name of the action whose reply carries this entity's state, from the
+    /// spec's own `http_endpoints`/command vocabulary.
+    #[serde(default)]
+    pub state_command: Option<String>,
+    /// Where the reading sits inside what `state_command` returns, when the
+    /// returned value is a structure rather than the value itself.
+    #[serde(default)]
+    pub state_path: Option<String>,
     /// Characteristic the entity's writes target when it differs from
     /// `state_characteristic` (spider-farmer's grow light) — and the first
     /// place role commands are looked up when resolving control bindings.
@@ -275,6 +536,26 @@ impl Entity {
     /// [`Self::setpoint_min`].
     pub fn setpoint_step(&self) -> Option<f64> {
         self.step.or(self.temp_step)
+    }
+
+    /// The `select` options this entity offers, as (raw, label) pairs in
+    /// declaration order (`state_mapping.options`).
+    ///
+    /// Only a mapping counts. A bare list of labels says which options exist
+    /// but not which value each one is, and a picker that cannot say what to
+    /// send is not a control.
+    pub fn options(&self) -> Vec<(String, String)> {
+        value_table(self.state_mapping.get("options"))
+    }
+
+    /// The label this entity shows for a raw reading, when it declares a code
+    /// table. An unlisted value gets `None` — a Crock-Pot mode this table does
+    /// not know must read as unknown, never fold into the first entry.
+    pub fn option_label(&self, raw: &str) -> Option<String> {
+        self.options()
+            .into_iter()
+            .find(|(value, _)| value == raw)
+            .map(|(_, label)| label)
     }
 
     /// The decoded fields carrying a light's color, in red/green/blue order
