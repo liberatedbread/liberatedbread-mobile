@@ -30,9 +30,9 @@
 // entire test suite stays green — which is precisely the gap the shipped
 // entrypoint should not have.
 //
-// This is also the pattern package:integration_test documents
-// (`app.main(); await tester.pumpAndSettle();`) and the repo simply did not
-// have it.
+// This is close to the pattern package:integration_test documents
+// (`app.main(); await tester.pumpAndSettle();`) — with bounded pumps instead
+// of the settle, because the app starts scanning on arrival and never idles.
 //
 // COST: none worth measuring. It joins the single build/install/launch cycle
 // the device jobs already pay for through ci_all_test.dart, and on Linux it is
@@ -42,6 +42,8 @@
 // initialises RustLib, which is process-wide, and doing that ahead of the flow
 // suites would switch MockBleService from its Dart fallback table to the real
 // codec underneath them and change what they are testing.
+import 'dart:io' show File, Platform;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
@@ -54,15 +56,38 @@ void main() {
 
   testWidgets('the shipped entrypoint boots to the scan screen',
       (tester) async {
+    // The launch scan touches the real BLE stack. On Linux that means the
+    // SYSTEM D-Bus: with no bus socket at all (a bare dev container — CI
+    // runners have one), the Linux BLE plugin leaks its connect failure from
+    // an internal subscription as an uncatchable async error, which is the
+    // platform being absent rather than the entrypoint failing. Skip early
+    // instead of failing on a host that cannot run the shipped Linux app.
+    if (Platform.isLinux &&
+        !File('/var/run/dbus/system_bus_socket').existsSync() &&
+        !File('/run/dbus/system_bus_socket').existsSync()) {
+      markTestSkipped('no system D-Bus on this host; the shipped Linux app '
+          'cannot initialise its BLE stack here');
+      return;
+    }
+
     // No ProviderScope, no overrides, no pumpWidget. main() calls runApp
     // itself, and building the widget tree its own way is the entire point —
     // anything constructed here would be testing this file instead of the app.
     await app.main();
 
-    // pumpAndSettle rather than pump: main() has already awaited its own
-    // async setup, but the first frame still resolves the theme, the saved
-    // device list and the ad-banner config fetch.
-    await tester.pumpAndSettle();
+    // Bounded pumps, never pumpAndSettle: the scan screen starts scanning
+    // the moment it appears, so the radar is already sweeping on the first
+    // frame and the app legitimately never settles — pumpAndSettle here is
+    // ten minutes to a guaranteed timeout (the exact trap documented at
+    // length in mock_flow_test.dart). Pump until the scan screen exists,
+    // which is all the assertions below need rendered.
+    const step = Duration(milliseconds: 100);
+    for (var waited = Duration.zero;
+        waited < const Duration(seconds: 20) &&
+            find.byType(ScanScreen).evaluate().isEmpty;
+        waited += step) {
+      await tester.pump(step);
+    }
 
     // Reaching a rendered ScanScreen means the whole chain held: RustLib.init
     // returned or was caught, SharedPreferences resolved and was injected

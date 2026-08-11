@@ -26,6 +26,109 @@ heading.
 
 ### Changed
 
+- **The BLE scan runs by itself, and keeps running.** Discovery was a button
+  press with a 30-second window: whatever was advertising during those seconds
+  was the answer, and a device powered on a minute later never appeared unless
+  someone pressed Scan again. The Nearby tab now scans from the moment it opens
+  until it is told to stop — `BleService.scan(timeout: null)` keeps the stream
+  open — so a device that wakes up, is walked into the room, or is plugged in
+  while the app is watching simply turns up.
+
+  The scan asks the platform for `continuousUpdates`, which is what makes the
+  rest of this possible: without it Android suppresses same-payload
+  advertisements and Apple platforms coalesce duplicates, so a device is
+  reported once and there is no way to tell "still here" from "switched off an
+  hour ago". The coalescer only passes on a change or a five-second heartbeat,
+  and the list repaints at most every 400ms — except for a newly-found device,
+  which repaints at once.
+
+  How hard the radio listens depends on whose idea the scan was
+  (`ScanIntensity`). Everything the screen starts by itself — launch, a tab
+  or lifecycle resume, the radio coming back — runs *ambient*: Android's
+  balanced scan mode, which duty-cycles the radio to roughly a quarter and is
+  the single biggest energy saving the scan has. Pressing Scan (or a Retry)
+  buys an *active* burst: thirty seconds of continuous low-latency listening
+  — someone hunting for a device right now should not wait on a duty cycle —
+  after which the scan seamlessly downshifts to ambient, because a mode that
+  one tap re-pins for the whole session would hinge the energy story on
+  nobody pressing the tab's most prominent button. The advertisement divisor
+  (2, to halve platform-channel traffic) now applies only to active scans:
+  balanced has already thinned receptions at the radio, and stacking the two
+  would double a sleepy sensor's reception gaps. Apple platforms expose no
+  scan-mode knob, so there the intensity changes nothing and the cost stays
+  bounded by the tab/lifecycle gating.
+
+  A scan that never ends has to be careful about when it runs, so it does not:
+  it pauses while the app is in the background (where the OS would not deliver
+  results anyway) and while another tab is selected — `HomeShell` keeps all
+  three alive in an IndexedStack, which is right for their state and wrong for
+  their radios — and resumes on return with the list it built still there,
+  aged accordingly. Resuming includes coming back out of the "Bluetooth is
+  turned off" state someone has just left the app to fix. It also restarts the
+  platform scan every 15 minutes, because Android silently converts a
+  30-minute-old scan into an opportunistic one, and it notices the radio being
+  switched off underneath it rather than sitting there claiming to search.
+
+  Two more habits the session-long shape demands. Bluetooth switched back on
+  resumes the scan by itself: on Android the radio is toggled from quick
+  settings without the app ever losing focus, so no lifecycle event announces
+  the fix, and the screen otherwise kept showing "Bluetooth is turned off" —
+  with a Retry button — for a problem the user had already solved. A new
+  `BleService.adapterReady()` stream carries the signal, and the resume runs
+  through the same guard as every other automatic restart, so it never
+  overrides a user's stop. And the off-tab stop waits two seconds before
+  touching the radio: every return to the tab is a native scan start, Android
+  blocks an app that starts more than five scans in thirty seconds, and a
+  glance at the Saved tab should not spend one of them.
+
+  The FAB now says what there is to do rather than what is happening. While a
+  scan runs it is a small round stop button — the radar already reads as
+  "scanning", and a full-width bar over the results would be shouting an offer
+  nobody came for — with "saves battery" in its tooltip, since that is the
+  reason to press it. Stopped, it is the wide "Scan" button again, because
+  then nothing is happening and the way back has to be obvious. A scan stopped
+  from it stays stopped: not through a tab switch, a backgrounding, or a trip
+  into a device screen.
+
+- **The scan list holds still enough to tap.** Rows were ordered on the raw
+  dBm, which a continuous scan updates several times a second — and a reading
+  wanders a few dB while nothing physically moves, so neighbouring rows traded
+  places continuously and the row under a finger could change between deciding
+  to tap and tapping. Ordering is now by the same four-step band the signal
+  meter draws — one `signalBars` behind the meter, the ordering, and the
+  "Strong/Good/Fair/Weak signal" caption, which previously carried its own
+  thresholds and could say "Good" over two bars — then by which device was
+  found first. Both keys are things that do not move, so a row changes
+  position only when the device genuinely does.
+
+- **Every dead-end on the device screen offers "Try to find device".** The
+  hot/cold locator was only reachable from the connected header — but a
+  FAILED or LOST connection is when "where is this thing?" is the actual
+  question, since it usually means out of range or powered off. The
+  connection-failed and disconnected states now carry a quieter second
+  button under their Retry/Reconnect: it re-attempts the connect (the
+  locator pings the live link's RSSI, so finding is connect-first — hence
+  "try") and lands straight in the find screen when the link comes up. A
+  failed attempt returns to the error state, which is itself an answer to
+  "is it near me", and a later plain Retry does not surprise-open the
+  locator.
+
+- **Devices that have gone quiet are flagged instead of quietly disappearing.**
+  A row used to be dropped after sitting out two scan windows, which meant a
+  device that had been unplugged looked exactly like one that had never been
+  found — the row was simply gone. Every device now carries `lastSeen` (the
+  advertisement's own timestamp, so a silent device is not refreshed by a
+  neighbour's traffic), and silence is read in two stages: past 90 seconds the
+  row gets a warning glyph, says how long it has been quiet, drops its signal
+  meter — that reading is a memory, not a measurement — and sinks below the
+  devices still being heard; past five minutes it is dropped, since by then a
+  tap on it can only end in a connect timeout. Ninety seconds rather than the
+  forty this branch first shipped, because the ambient scan's duty cycle
+  lengthens honest reception gaps: a sleepy sensor advertising every 10s is
+  caught on average once per ~40s under a quarter duty cycle, and a threshold
+  sized for continuous listening would flicker warnings over devices that are
+  quietly fine.
+
 - **Image upload is a generic pipeline now, not a SmartDawn one.** Seven
   devices in the catalogue declare an `image_upload` feature across six
   handlers and five pixel formats, and the app drove one — with the pipeline
