@@ -283,4 +283,58 @@ class RealSpecCodec implements SpecCodec {
     required int cid,
   }) =>
       rust.encodeStoredPlay(specYaml: specYaml, cid: cid);
+
+  @override
+  Future<int> lifxPort() => rust.lifxPort();
+
+  @override
+  Future<Uint8List> renderLifxCommand({
+    required String action,
+    required Map<String, double> params,
+    required String targetMac,
+    required int sequence,
+  }) =>
+      rust.renderLifxCommand(
+        action: action,
+        params: params,
+        targetMac: targetMac,
+        sequence: sequence,
+      );
+
+  @override
+  Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) =>
+      rust.buildLifxDiscoveryProbe(sequence: sequence);
+
+  @override
+  Future<Uint8List> buildLifxStateRequest({
+    required String targetMac,
+    required int sequence,
+  }) =>
+      rust.buildLifxStateRequest(targetMac: targetMac, sequence: sequence);
+
+  @override
+  Future<Uint8List> buildLifxZonesRequest({
+    required String targetMac,
+    required int start,
+    required int end,
+    required int sequence,
+  }) =>
+      rust.buildLifxZonesRequest(
+        targetMac: targetMac,
+        start: start,
+        end: end,
+        sequence: sequence,
+      );
+
+  @override
+  Future<LifxServiceDto> parseLifxStateService({required List<int> bytes}) =>
+      rust.parseLifxStateService(bytes: bytes);
+
+  @override
+  Future<LifxStateDto> decodeLifxState({required List<int> bytes}) =>
+      rust.decodeLifxState(bytes: bytes);
+
+  @override
+  Future<LifxZonesDto> decodeLifxZones({required List<int> bytes}) =>
+      rust.decodeLifxZones(bytes: bytes);
 }

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import '../services/http_control_service.dart';
+import '../services/lifx_control_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import 'device_spec_match_provider.dart';
@@ -19,6 +20,11 @@ final soapControlClientProvider =
 /// a keypress with a canned 200 instead of a Roku.
 final httpControlClientProvider =
     Provider<HttpControlClient>((ref) => HttpControlClient());
+
+/// The LIFX binary-UDP transport — same substitution rule, for tests that
+/// answer (or drop) a datagram with a fake socket instead of a real strip.
+final lifxControlClientProvider =
+    Provider<LifxControlClient>((ref) => LifxControlClient());
 
 /// Identity of one network device the control layer is asked about.
 ///

@@ -8,6 +8,7 @@ pub mod dispatch;
 pub mod generic;
 pub mod http;
 pub mod image_upload;
+pub mod lifx;
 pub mod profiles;
 pub mod soap;
 pub mod stored_upload;
