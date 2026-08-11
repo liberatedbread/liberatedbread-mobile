@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `airthings-wave-family` binds temperature and humidity to each model's
+  combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
+  `b42e3b98`), ordered before the SIG environmental-sensing bindings. The
+  SIG characteristics (2A6E/2A6F) are app-derived and unobserved in either
+  hardware capture, while the combined packet is what the vendor app reads
+  and is capture-verified — so a unit that never exposes the SIG
+  characteristics previously showed radon and battery but no temperature or
+  humidity, and a unit exposing both now reads the proven source. Also
+  new: `Ambient Light` on all three combined packets (raw 0-255 counts,
+  deliberately no `illuminance` class since the counts are not lux — the
+  field is capture-verified on Wave Gen 2), and Gen 1's dedicated 1-hour
+  radon characteristic (`b42e06dc`) bound as `Radon 1h Average`, its third
+  documented radon reading and the fastest-moving of them. Variant
+  `sensors` lists gain `light` accordingly
 - `airthings-wave-family` surfaces every sensor each model actually has, not
   just the six readings the entity list happened to name. The Wave Plus
   combined characteristic (`b42e2a68`) now carries the shared 20-byte layout
