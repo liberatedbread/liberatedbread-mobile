@@ -51,14 +51,30 @@ class NetworkControlRequest {
 }
 
 /// The matched spec's YAML plus the controls it declares for this device, or
-/// null when the matched spec declares none (a hub, a printer — most of the
-/// network catalogue). Null is what keeps the plain details sheet for those.
+/// null when the matched spec declares none (a printer — much of the network
+/// catalogue). Null is what keeps the plain details sheet for those.
 @immutable
 class NetworkControls {
   final String specYaml;
   final List<NetworkEntityDto> entities;
 
   const NetworkControls({required this.specYaml, required this.entities});
+
+  /// The one transport these controls ride (`soap` | `http`), from the first
+  /// entity that states one.
+  String? get transport {
+    for (final entity in entities) {
+      final transport = entity.transport;
+      if (transport != null) return transport;
+    }
+    return null;
+  }
+
+  /// Whether these controls describe a hub — a device fronting children that
+  /// must be paired with and enumerated. This, not `transport`, routes the
+  /// tap: Roku is `http` too but has no children and no pairing, so it keeps
+  /// the ordinary control screen; a hub gets the paired one.
+  bool get isHub => entities.any((e) => e.isInstanced);
 }
 
 /// Resolve what the catalogue lets us control on one network device.

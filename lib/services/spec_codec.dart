@@ -45,6 +45,9 @@ export '../src/rust/api/device_api.dart'
         NetworkReadBackDto,
         NetworkReadingDto,
         NetworkReadingKind,
+        NetworkSourceParamDto,
+        NetworkInstanceDto,
+        NetworkRoleReadingDto,
         SoapRequestDto,
         HttpRequestDto,
         QuerySourceDto;
@@ -176,6 +179,34 @@ abstract class SpecCodec {
     required String specYaml,
     required String commandName,
     required Map<String, String> values,
+  });
+
+  /// Render the HTTP request that reads a state command's values — on an
+  /// instanced entity, the one GET that enumerates every child and carries
+  /// all their state. [values] fills the path's placeholders (the pairing
+  /// credential, on a Hue bridge); a missing one fails the render.
+  Future<HttpRequestDto> renderNetworkHttpStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required Map<String, String> values,
+  });
+
+  /// Enumerate the children an instanced entity's state reply carries, in the
+  /// hub's own order.
+  Future<List<NetworkInstanceDto>> listNetworkInstances({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+  });
+
+  /// Read one child's roles out of an instanced entity's state reply. Empty
+  /// for a child the reply no longer carries — rendered as unknown, never as
+  /// a fabricated "off".
+  Future<List<NetworkRoleReadingDto>> readNetworkInstance({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+    required String instanceId,
   });
 
   /// Render the argument-less request that reads a state command's values.
