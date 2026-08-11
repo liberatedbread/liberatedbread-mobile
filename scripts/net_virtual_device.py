@@ -43,12 +43,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import http.server
 import json
 import os
+import re
 import selectors
 import socket
 import struct
 import sys
+import threading
 import time
 
 MDNS_GROUP = '224.0.0.251'
@@ -318,6 +321,203 @@ class VirtualNetwork:
         return replies
 
 
+# ── a CLIP v1 bridge, for scenario devices that carry a `hue` block ────────
+#
+# Everything below is transcribed from the hue-bridge spec's own examples
+# (vendored at rust/tests/specs/hue-bridge.yaml): the short /api/config
+# identity, the create_user envelopes, the two-light Lights reply, the
+# per-attribute write acknowledgements, and the three error types a client
+# must know (101 keep-polling, 1 unauthorized, 201 bri-while-off). Plain
+# HTTP on an ephemeral port — this plays the v1 round bridge with no 443 at
+# all; the TLS trust path has its own loopback suite in
+# test/services/hub_http_client_tls_test.dart.
+
+HUE_USERNAME = 'virtualbridgeuser0001'
+HUE_CLIENTKEY = 'E39B1C9F76A2D48C0FA3B5E7D216C84A'
+
+
+def _hue_default_lights() -> dict:
+    """The spec's Lights example, as mutable server state."""
+    return {
+        '1': {
+            'state': {'on': True, 'bri': 254, 'reachable': True},
+            'type': 'Extended color light',
+            'name': 'Kitchen counter',
+            'modelid': 'LCT016',
+            'uniqueid': '00:17:88:01:0a:1b:2c:3d-0b',
+        },
+        '2': {
+            'state': {'on': False, 'bri': 77, 'reachable': True},
+            'type': 'Dimmable light',
+            'name': 'Hallway',
+            'modelid': 'LWB010',
+            'uniqueid': '00:17:88:01:0a:4e:5f:60-0b',
+        },
+    }
+
+
+class HueBridgeState:
+    """One virtual bridge's identity, whitelist and lights."""
+
+    def __init__(self, hue: dict, link_file: str | None,
+                 press_link_after: float | None):
+        self.bridgeid = hue.get('bridgeid', '001788FFFE123456')
+        self.modelid = hue.get('modelid', 'BSB001')
+        self.name = hue.get('name', 'Philips hue')
+        self.lights = _hue_default_lights()
+        self.usernames: set[str] = set()
+        self._link_file = link_file
+        self._pressed_at = (time.monotonic() + press_link_after
+                            if press_link_after is not None else None)
+        self.lock = threading.Lock()
+
+    def link_button_pressed(self) -> bool:
+        if self._link_file and os.path.exists(self._link_file):
+            return True
+        if self._pressed_at is not None:
+            return time.monotonic() >= self._pressed_at
+        return False
+
+    def config(self) -> dict:
+        # The unauthenticated short form, per the spec's Bridge Config example.
+        mac_hex = (self.bridgeid[:6] + self.bridgeid[10:]).lower()
+        mac = ':'.join(mac_hex[i:i + 2] for i in range(0, 12, 2))
+        return {
+            'name': self.name,
+            'datastoreversion': '178',
+            'swversion': '1978074000',
+            'apiversion': '1.78.0',
+            'mac': mac,
+            'bridgeid': self.bridgeid,
+            'factorynew': False,
+            'replacesbridgeid': None,
+            'modelid': self.modelid,
+            'starterkitid': '',
+        }
+
+
+def _hue_error(etype: int, address: str, description: str) -> list:
+    return [{'error': {'type': etype, 'address': address,
+                       'description': description}}]
+
+
+class HueRequestHandler(http.server.BaseHTTPRequestHandler):
+    """CLIP v1 over the wire: HTTP 200 always, outcomes in the body."""
+
+    # Set per-server via a subclass attribute in start_hue_server.
+    bridge: HueBridgeState
+    protocol_version = 'HTTP/1.1'
+
+    def log_message(self, fmt, *args):  # noqa: N802 - stdlib naming
+        pass  # The selector loop owns stdout; per-request noise helps nobody.
+
+    def _reply(self, payload) -> None:
+        body = json.dumps(payload).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self) -> dict:
+        length = int(self.headers.get('Content-Length', 0))
+        raw = self.rfile.read(length) if length else b'{}'
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+    def do_GET(self) -> None:  # noqa: N802
+        bridge = self.bridge
+        if self.path == '/api/config':
+            self._reply(bridge.config())
+            return
+        match = re.fullmatch(r'/api/([^/]+)/lights', self.path)
+        if match:
+            if match.group(1) not in bridge.usernames:
+                self._reply(_hue_error(1, '/lights', 'unauthorized user'))
+                return
+            with bridge.lock:
+                self._reply(bridge.lights)
+            return
+        self._reply(_hue_error(3, self.path, 'resource not available'))
+
+    def do_POST(self) -> None:  # noqa: N802
+        bridge = self.bridge
+        if self.path != '/api':
+            self._reply(_hue_error(3, self.path, 'resource not available'))
+            return
+        body = self._read_body()
+        if 'devicetype' not in body:
+            self._reply(_hue_error(5, '/', 'invalid/missing parameters in body'))
+            return
+        if not bridge.link_button_pressed():
+            # The keep-polling signal, verbatim from the spec's V1Envelope.
+            self._reply(_hue_error(101, '', 'link button not pressed'))
+            return
+        bridge.usernames.add(HUE_USERNAME)
+        success: dict = {'username': HUE_USERNAME}
+        if body.get('generateclientkey'):
+            success['clientkey'] = HUE_CLIENTKEY
+        self._reply([{'success': success}])
+
+    def do_PUT(self) -> None:  # noqa: N802
+        bridge = self.bridge
+        match = re.fullmatch(r'/api/([^/]+)/lights/([^/]+)/state', self.path)
+        if not match:
+            self._reply(_hue_error(3, self.path, 'resource not available'))
+            return
+        username, light_id = match.groups()
+        if username not in bridge.usernames:
+            self._reply(_hue_error(1, '/lights', 'unauthorized user'))
+            return
+        with bridge.lock:
+            light = bridge.lights.get(light_id)
+            if light is None:
+                self._reply(_hue_error(
+                    3, f'/lights/{light_id}', 'resource not available'))
+                return
+            body = self._read_body()
+            outcomes: list = []
+            turning_on = body.get('on')
+            if isinstance(turning_on, bool):
+                light['state']['on'] = turning_on
+                outcomes.append({'success': {
+                    f'/lights/{light_id}/state/on': turning_on}})
+            if 'bri' in body:
+                # The 201 trap the spec documents: bri is only modifiable
+                # while the light is on (including an on carried in this
+                # same write, which light_set_brightness always does).
+                if not light['state']['on']:
+                    outcomes.append(_hue_error(
+                        201, f'/lights/{light_id}/state/bri',
+                        'parameter, bri, is not modifiable. Device is set '
+                        'to off.')[0])
+                elif (isinstance(body['bri'], int)
+                        and 1 <= body['bri'] <= 254):
+                    light['state']['bri'] = body['bri']
+                    outcomes.append({'success': {
+                        f'/lights/{light_id}/state/bri': body['bri']}})
+                else:
+                    outcomes.append(_hue_error(
+                        7, f'/lights/{light_id}/state/bri',
+                        f'invalid value, {body.get("bri")!r}, for '
+                        'parameter, bri')[0])
+        self._reply(outcomes or _hue_error(
+            5, f'/lights/{light_id}/state', 'invalid/missing parameters'))
+
+
+def start_hue_server(bridge: HueBridgeState) -> int:
+    """Serve one virtual bridge on an ephemeral port; returns the port."""
+    handler = type('BoundHueHandler', (HueRequestHandler,),
+                   {'bridge': bridge})
+    server = http.server.ThreadingHTTPServer(('', 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server.server_address[1]
+
+
 def open_mdns_socket() -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -364,12 +564,37 @@ def main() -> int:
                              'killed.')
     parser.add_argument('--verbose', action='store_true',
                         help='Log every query answered.')
+    parser.add_argument('--link-file',
+                        help='For scenario devices with a `hue` block: the '
+                             'link button counts as pressed while this file '
+                             'exists. A test creates it mid-poll, which is '
+                             'the button press as a fact instead of a sleep.')
+    parser.add_argument('--press-link-after', type=float, default=None,
+                        help='Alternative to --link-file for hand-running: '
+                             'the button counts as pressed this many seconds '
+                             'after startup.')
     args = parser.parse_args()
 
     scenario = DEFAULT_SCENARIO
     if args.scenario:
         with open(args.scenario) as handle:
             scenario = json.load(handle)
+
+    # Scenario devices carrying a `hue` block get a live CLIP v1 responder on
+    # an ephemeral port. The advertised SRV port is rewritten to the real
+    # listener — a client is entitled to connect to what mDNS told it — and
+    # such a device must advertise a reachable address, so entries that name
+    # none inherit the host address exactly like everything else.
+    hue_ports: dict[str, int] = {}
+    for entry in scenario:
+        hue = entry.get('hue')
+        if hue is None:
+            continue
+        bridge = HueBridgeState(hue, args.link_file, args.press_link_after)
+        port = start_hue_server(bridge)
+        hue_ports[entry.get('name', bridge.bridgeid)] = port
+        for service in entry.get('mdns', []):
+            service['port'] = port
 
     network = VirtualNetwork(scenario, args.address or primary_address())
 
@@ -390,7 +615,10 @@ def main() -> int:
 
     if args.ready_file:
         with open(args.ready_file, 'w') as handle:
-            handle.write(network.address)
+            # JSON, so a caller that needs the hue port can read it; the
+            # existing consumers only test that the file exists.
+            handle.write(json.dumps(
+                {'address': network.address, 'hue_ports': hue_ports}))
 
     names = ', '.join(d['name'] for d in network.devices)
     print(f'virtual network devices up on {network.address}: {names}',
