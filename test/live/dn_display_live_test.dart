@@ -154,11 +154,22 @@ void main() {
               stored.serviceUuid,
               stored.responseCharacteristicUuid!,
             )
+            .map((bytes) {
+              // Every raw push while the transfer is in flight, for protocol
+              // triage when a run times out waiting on the verdict.
+              // ignore: avoid_print
+              print('DDP notify: '
+                  '${bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+              return bytes;
+            })
             .asyncMap((bytes) =>
                 codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes))
             .where((e) => e != null)
             .cast<StoredUploadEventDto>()
-            .firstWhere((e) => e.kind != StoredUploadEventKind.progress)
+            .firstWhere((e) =>
+                e.kind == StoredUploadEventKind.complete ||
+                e.kind == StoredUploadEventKind.failed ||
+                e.kind == StoredUploadEventKind.startRejected)
             .timeout(const Duration(seconds: 20));
 
         for (final write in stored.uploadWrites) {
