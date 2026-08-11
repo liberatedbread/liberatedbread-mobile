@@ -269,6 +269,50 @@ heading.
 
 ### Added
 
+- **The core can drive a device that has no GATT at all.** Everything the app
+  controls today is BLE: an entity binds a characteristic, a role resolves to
+  a command on it, and the command becomes bytes. A Wemo plug has none of
+  that. `protocol/soap.rs` is the same job one transport over — a spec command
+  becomes an HTTP request, a returned value becomes an entity reading — and
+  `spec/bindings.rs` gains the network sibling of the role resolution, using
+  the same role names on purpose: two tables that disagreed about what
+  `switch` offers would give one device different controls depending on how it
+  happened to connect.
+
+  Deliberately no I/O. This crate has no HTTP client and wants none: it
+  renders the request and reads the reply back from name→value pairs, exactly
+  as the BLE path hands back the bytes somebody else read. What lives here is
+  what a transport cannot work out for itself — parameter defaulting, argument
+  substitution, XML escaping, and the read-back rule below.
+
+  Two device facts drove the design, both from the Crock-Pot, and both
+  invisible until you write the consumer:
+
+  - **A heat-level picker is a `select`, and nothing here spoke that role.**
+    The cooker's modes are `0`/`50`/`51`/`52` — a choice from a list, not a
+    number anybody can slide between. `select_option` resolves now, with the
+    option table read the way `ember-mug` already writes one, and an
+    unrecognised value reads as *unknown* rather than folding into the first
+    entry, which on this device would say "off" while the thing is heating.
+  - **`SetCrockpotState` carries mode and cook time together.** Change one
+    without sending the other back and you have cleared the timer. A resolved
+    action now surfaces `read_back` — the parameters whose real value the
+    client must fetch first — because it changes what the caller has to *do*,
+    and a control that does not know cannot be written correctly by accident.
+
+  `tests/network_control.rs` drives the real catalogue file end to end: five
+  entities resolve, the rendered requests are diffed against the bodies the
+  spec publishes, and one published `GetCrockpotState` response drives all
+  four cooker controls. It also pins the trap — the cooker's state comes from
+  `mode`, never from `BinaryState`, which answers `0` whatever the device is
+  doing.
+
+  **Not yet wired to the UI.** This is the half that needs no toolchain to
+  test; the Dart side (fetch `setup.xml`, resolve control URLs from the
+  device's own service list, POST, parse the reply) and the controls that
+  render a picker and a countdown are still to come, as is the FRB surface
+  that carries them across.
+
 - **A file no test imports can no longer hide from the coverage number.**
   `flutter test --coverage` instruments only what a test reaches, so an
   unreferenced library is absent from the report rather than reported as zero —
