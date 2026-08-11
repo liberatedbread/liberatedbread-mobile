@@ -99,6 +99,11 @@ void main() {
       expect(entityIcon(_entity(deviceClass: 'pm25')), Icons.grain);
       expect(entityIcon(_entity(deviceClass: 'illuminance')),
           Icons.light_mode_outlined);
+      // Ambient light asks for the icon by name because it deliberately
+      // carries no illuminance class (raw counts, not lux) — the glyph must
+      // not depend on a class the entity refuses to claim.
+      expect(entityIcon(_entity(icon: 'mdi:brightness-5')),
+          Icons.light_mode_outlined);
     });
   });
 }
