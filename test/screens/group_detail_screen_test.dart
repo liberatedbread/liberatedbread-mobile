@@ -9,7 +9,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
-import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
