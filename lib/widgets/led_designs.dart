@@ -6,16 +6,43 @@ import 'dart:typed_data';
 
 /// A ready-made picture (or animation) the user can drop onto the canvas.
 ///
-/// [frames] are RGB888 buffers sized to the canvas the design was built for;
-/// an animation has more than one. Every frame stays within the 16-colour
-/// TUTU palette limit so it encodes without quantization.
+/// The frames are built LAZILY, through [buildFrames], not held on the object:
+/// each frame is `width * height * 3` bytes, so materializing every preset just
+/// to populate the Designs menu would allocate one full-canvas buffer per
+/// design (times the frame count for animations) before the user picks
+/// anything — cheap on a 20x20 curtain, ruinous on a large panel. The menu
+/// needs only [name] and [animation]; the pixels wait until a design is chosen.
+///
+/// Every frame [buildFrames] returns stays within the 16-colour TUTU palette
+/// limit so it encodes without quantization.
 class LedDesign {
-  const LedDesign(this.name, this.frames, {this.animation = false});
+  const LedDesign(this.name, this._build, {this.animation = false});
 
   final String name;
-  final List<Uint8List> frames;
   final bool animation;
+  final List<Uint8List> Function() _build;
+
+  /// Materialize this design's RGB888 frames for the canvas it was built for.
+  /// Call once, on selection — not while listing the menu.
+  List<Uint8List> buildFrames() => _build();
 }
+
+/// Per-frame byte ceiling above which the procedural presets are not offered.
+///
+/// A preset frame is `width * height * 3` bytes. Real LED displays in the
+/// catalogue top out around 255x255 (≈187 KiB), comfortably under this; the
+/// case this excludes is a receipt printer, which declares an effectively
+/// unbounded roll (`max_height: 65535`) — a single frame there is ~18 MiB and
+/// the Pride/Star animations would be that many times over. At those sizes the
+/// menu is omitted entirely rather than allowed to allocate hundreds of MB.
+const int _maxDesignFrameBytes = 1 << 20; // 1 MiB
+
+/// Whether [defaultDesigns] will offer any presets for a `width`x`height`
+/// canvas — false when the canvas is degenerate or so large that a single
+/// preset frame would blow the [_maxDesignFrameBytes] budget. The editor uses
+/// this to show a note in place of the Designs button. Pure for tests.
+bool designsFitCanvas(int width, int height) =>
+    width > 0 && height > 0 && width * height * 3 <= _maxDesignFrameBytes;
 
 /// True when a `width`x`height` canvas offers at least `a`x`b` pixels in
 /// EITHER orientation — a 31x62 curtain and a 62x31 panel have the same
@@ -52,47 +79,57 @@ const (int, int) timbitMinCanvas = (64, 64);
 /// variant — a flag flown inverted is the signal of dire distress, and some
 /// occasions call for it.
 List<LedDesign> defaultDesigns(int width, int height) {
-  final trans = _stripes(width, height, _transStripes);
-  final pride = _stripes(width, height, _prideStripes);
-  final lesbian = _stripes(width, height, _lesbianStripes);
-  final bi = _stripes(width, height, _biStripes);
-  final pan = _stripes(width, height, _panStripes);
-  final nonbinary = _stripes(width, height, _nonbinaryStripes);
-  final ace = _stripes(width, height, _aceStripes);
-  final american = _americanFlag(width, height);
+  // No presets on a degenerate or effectively unbounded canvas — see
+  // [designsFitCanvas]. The builders below are deferred, so this guard is what
+  // stops a printer's tall roll from ever allocating a preset frame.
+  if (!designsFitCanvas(width, height)) return const [];
 
   final designs = <LedDesign>[
-    LedDesign('Trans flag', [trans]),
-    LedDesign('Pride flag', [pride]),
-    LedDesign('Lesbian flag', [lesbian]),
-    LedDesign('Bi flag', [bi]),
-    LedDesign('Pan flag', [pan]),
-    LedDesign('Nonbinary flag', [nonbinary]),
-    LedDesign('Ace flag', [ace]),
-    LedDesign('American flag', [american]),
+    LedDesign('Trans flag', () => [_stripes(width, height, _transStripes)]),
+    LedDesign('Pride flag', () => [_stripes(width, height, _prideStripes)]),
+    LedDesign('Lesbian flag', () => [_stripes(width, height, _lesbianStripes)]),
+    LedDesign('Bi flag', () => [_stripes(width, height, _biStripes)]),
+    LedDesign('Pan flag', () => [_stripes(width, height, _panStripes)]),
     LedDesign(
-        'American flag (in distress)', [_rotated180(american, width, height)]),
+        'Nonbinary flag', () => [_stripes(width, height, _nonbinaryStripes)]),
+    LedDesign('Ace flag', () => [_stripes(width, height, _aceStripes)]),
+    LedDesign('American flag', () => [_americanFlag(width, height)]),
+    LedDesign('American flag (in distress)',
+        () => [_rotated180(_americanFlag(width, height), width, height)]),
   ];
 
   if (canvasReaches(
       width, height, canadianFlagMinCanvas.$1, canadianFlagMinCanvas.$2)) {
-    final canadian = _scaled(_canadian20, 20, 20, width, height);
     designs
-      ..add(LedDesign('Canadian flag', [canadian]))
-      ..add(LedDesign('Canadian flag (in distress)',
-          [_rotated180(canadian, width, height)]));
+      ..add(LedDesign(
+          'Canadian flag', () => [_scaled(_canadian20, 20, 20, width, height)]))
+      ..add(LedDesign(
+          'Canadian flag (in distress)',
+          () => [
+                _rotated180(
+                    _scaled(_canadian20, 20, 20, width, height), width, height)
+              ]));
   }
   if (canvasReaches(width, height, timbitMinCanvas.$1, timbitMinCanvas.$2)) {
     designs.add(LedDesign(
-        'Professor Timbit', [_scaled(_timbit20, 20, 20, width, height)]));
+        'Professor Timbit', () => [_scaled(_timbit20, 20, 20, width, height)]));
   }
 
   designs
     // Rotates through the pride flags — one on-device animation frame each.
     ..add(LedDesign(
-        'Pride animation', [trans, pride, lesbian, bi, pan, nonbinary, ace],
+        'Pride animation',
+        () => [
+              _stripes(width, height, _transStripes),
+              _stripes(width, height, _prideStripes),
+              _stripes(width, height, _lesbianStripes),
+              _stripes(width, height, _biStripes),
+              _stripes(width, height, _panStripes),
+              _stripes(width, height, _nonbinaryStripes),
+              _stripes(width, height, _aceStripes),
+            ],
         animation: true))
-    ..add(LedDesign('Star animation', _starTwinkle(width, height),
+    ..add(LedDesign('Star animation', () => _starTwinkle(width, height),
         animation: true));
   return designs;
 }
