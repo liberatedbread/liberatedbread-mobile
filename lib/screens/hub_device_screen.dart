@@ -93,6 +93,20 @@ class _HubDeviceScreenState extends ConsumerState<HubDeviceScreen> {
         await _refreshState();
       }
       if (mounted) setState(() => _loading = false);
+    } on HubAuthException {
+      // The stored username no longer exists on the bridge — a factory reset
+      // or a pruned whitelist. This can surface on the very first load (or a
+      // refresh), not only mid-session, so it must flip to pairing here too:
+      // without this clause the screen would sit paired-but-empty behind a
+      // "try scanning again" banner that a re-scan cannot fix.
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _credentials = null;
+        _authNote = 'The bridge no longer recognizes this app — its '
+            'whitelist entry is gone (a factory reset does that). '
+            'Pair again to continue.';
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
