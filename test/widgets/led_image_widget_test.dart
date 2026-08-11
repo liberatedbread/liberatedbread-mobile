@@ -907,12 +907,36 @@ void main() {
     expect(find.textContaining('Width'), findsOneWidget);
     expect(find.textContaining('Height'), findsOneWidget);
 
+    final widthField = find.ancestor(
+      of: find.text('Width (1-255)'),
+      matching: find.byType(TextFormField),
+    );
+
     // Free-form entry: a non-preset size like a real 25-wide panel works.
-    await tester.enterText(
-        find.byKey(const ValueKey('led-canvas-width-16')), '25');
+    await tester.enterText(widthField, '25');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pump();
-    expect(find.byKey(const ValueKey('led-canvas-width-25')), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '25'), findsOneWidget);
+
+    // Unparseable input snaps the field back to the committed size instead
+    // of leaving "abc" on screen over a canvas that kept its old dimensions.
+    await tester.enterText(widthField, 'abc');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.widgetWithText(TextFormField, 'abc'), findsNothing);
+    expect(find.widgetWithText(TextFormField, '25'), findsOneWidget);
+
+    // A clamp settles the text to what was actually committed too — even
+    // when it lands on the current size and no resize happens at all.
+    await tester.enterText(widthField, '999');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.widgetWithText(TextFormField, '255'), findsOneWidget);
+    await tester.enterText(widthField, '999');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.widgetWithText(TextFormField, '999'), findsNothing);
+    expect(find.widgetWithText(TextFormField, '255'), findsOneWidget);
   });
 
   testWidgets('switching to Static stops a running preview', (tester) async {
