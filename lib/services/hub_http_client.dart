@@ -135,7 +135,16 @@ class HubHttpClient {
       // failed verification. Falling back would hand them the credential.
       rethrow;
     } on SocketException catch (e) {
-      if (remembered == 'https') {
+      // "Has spoken HTTPS before" is the pin, not just the scheme record. The
+      // pin and the scheme are two separate keychain writes (saveCertPin then
+      // saveScheme); a crash or a failed second write between them would leave
+      // a bridge pinned with no scheme, and keying the downgrade guard on the
+      // scheme alone would then put the credential-bearing path on the wire in
+      // clear to whoever answers port 80. A stored pin is the durable proof
+      // that 443 verified once, so it refuses the downgrade on its own.
+      final pinned =
+          bridgeId != null && await _credentials.certPin(bridgeId) != null;
+      if (remembered == 'https' || pinned) {
         // This bridge has spoken HTTPS before; a dead 443 now is an outage
         // or a downgrade attempt, and either way not a reason to go clear.
         throw HubTransportException('bridge unreachable over https: $e');
@@ -301,8 +310,15 @@ class HubHttpClient {
   /// `CN=001788fffe61fcb0` out of a distinguished-name string. dart:io
   /// renders the subject platform-dependently (`/CN=x` on BoringSSL,
   /// `CN=x, O=y` elsewhere), so this matches the attribute, not the shape.
+  ///
+  /// `CN=` must begin a DN component — anchored to the start of the string or
+  /// a `,`/`/` separator — so a `CN=` appearing inside another attribute's
+  /// value (`O=xCN=…`) cannot be mistaken for the common name. Not a known
+  /// exploit (on first contact the attacker owns the cert and would just set
+  /// the real CN), but the check is the whole first-contact identity gate, so
+  /// it reads the field it means to.
   static String? _subjectCn(String subject) {
-    final match = RegExp(r'CN=([^,/]+)').firstMatch(subject);
+    final match = RegExp(r'(?:^|[,/])\s*CN=([^,/]+)').firstMatch(subject);
     return match?.group(1)?.trim();
   }
 
