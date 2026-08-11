@@ -281,7 +281,12 @@ const MT_UPLOAD_COMPLETE: u16 = 2934;
 /// instead of a misparse.
 pub fn parse_upload_event(notification: &[u8]) -> Option<UploadEvent> {
     use super::daniao::FRAG_HEADER_LEN;
-    // DNX header: [0xF0][0x04][sn u16 BE][len u16 BE][mt u16 BE].
+    // Inbound DNX header, read off the live JY25CUT curtain (2026-08-10):
+    // [0xF1][0x01][sn u16 BE][len u16 BE][mt u16 BE] — the DEVICE-to-host
+    // magic differs from the host's 0xF0 0x04 — then the same 12-byte
+    // extended header the outbound templates carry (cid u32, osn u16, 0x00,
+    // ts, four 0x00), and only THEN the SimpleMessage protobuf. e.g. a live
+    // M_UPLOAD_COMPLETE: f1 01 00 27 00 16 0b 76 <12 header bytes> 10 09.
     if notification.len() < FRAG_HEADER_LEN + 8 {
         return None;
     }
@@ -291,7 +296,7 @@ pub fn parse_upload_event(notification: &[u8]) -> Option<UploadEvent> {
         return None; // not the first fragment of a packet
     }
     let dnx = &notification[FRAG_HEADER_LEN..];
-    if dnx[0] != 0xF0 || dnx[1] != 0x04 {
+    if dnx[0] != 0xF1 || dnx[1] != 0x01 {
         return None;
     }
     let mt = u16::from_be_bytes([dnx[6], dnx[7]]);
@@ -304,10 +309,13 @@ pub fn parse_upload_event(notification: &[u8]) -> Option<UploadEvent> {
 
     // SimpleMessage: varint fields i1=1, i2=2, i3=3 (play_effect's captured
     // payload `08 a1 e9 04 10 00` is this same shape from the other side).
-    // Unset fields default to 0, like protobuf itself.
+    // Unset fields default to 0, like protobuf itself — the live curtain
+    // omits i1 entirely on success. A packet cut short of the extended
+    // header (a fragmented tail) simply reads as "no fields", which the mt
+    // alone already decides.
     let mut i1 = 0u64;
     let mut i3 = 0u64;
-    let mut body = &dnx[8..];
+    let mut body = if dnx.len() > 20 { &dnx[20..] } else { &[] };
     while let Some((&tag, rest)) = body.split_first() {
         if tag & 0x07 != 0 {
             break; // not a varint field; nothing past here is ours
@@ -447,14 +455,17 @@ services:
         assert!(encode_upload(&spec(), 1, 0, 5, &[], None, 500).is_err());
     }
 
-    /// A single-fragment DDP push carrying a DNX packet with `mt` and a
-    /// SimpleMessage body — the shape every upload response arrives in.
+    /// A single-fragment DDP push carrying an inbound DNX packet with `mt`
+    /// and a SimpleMessage body — the shape every upload response arrives in
+    /// (magic F1 01, then the 12-byte cid/osn/ts extended header, then the
+    /// protobuf), matching the packets captured live off the curtain.
     fn response(mt: u16, body: &[u8]) -> Vec<u8> {
         let mut v = vec![0x01, 1, 0, 0]; // [serial][total=1][remaining=0][tag]
-        v.extend_from_slice(&[0xF0, 0x04, 0x00, 0x07]); // magic + sn
-        let len = (8 + body.len()) as u16;
+        v.extend_from_slice(&[0xF1, 0x01, 0x00, 0x07]); // inbound magic + sn
+        let len = (20 + body.len()) as u16;
         v.extend_from_slice(&len.to_be_bytes());
         v.extend_from_slice(&mt.to_be_bytes());
+        v.extend_from_slice(&[0u8; 12]); // cid, osn, 0, ts, four 0x00
         v.extend_from_slice(body);
         v
     }
@@ -492,6 +503,33 @@ services:
             parse_upload_event(&response(2933, &[0x08, 0x32])),
             Some(UploadEvent::Progress { value: 50 })
         );
+    }
+
+    #[test]
+    fn live_captured_curtain_responses_decode() {
+        // Verbatim notifications from the JY25CUT curtain (2026-08-10),
+        // pinned so the parser can never drift from the observed wire again.
+        let complete = [
+            0x27, 0x01, 0x00, 0x00, 0xf1, 0x01, 0x00, 0x27, 0x00, 0x16, 0x0b, 0x76, 0xc8, 0x34,
+            0xc9, 0x3f, 0x00, 0x00, 0x38, 0x40, 0x00, 0x50, 0x19, 0x00, 0x10, 0x09,
+        ];
+        assert_eq!(parse_upload_event(&complete), Some(UploadEvent::Complete));
+
+        let start_accept = [
+            0x25, 0x01, 0x00, 0x00, 0xf1, 0x01, 0x00, 0x25, 0x00, 0x16, 0x0b, 0x73, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x3c,
+        ];
+        assert_eq!(
+            parse_upload_event(&start_accept),
+            Some(UploadEvent::StartAccepted { resume_offset: 0 })
+        );
+
+        // The play-progress stream (mt=2630) that floods the same channel.
+        let play_progress = [
+            0x26, 0x01, 0x00, 0x00, 0xf1, 0x01, 0x00, 0x26, 0x00, 0x16, 0x0a, 0x46, 0x00, 0x48,
+            0x6d, 0x2f, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x10, 0x09,
+        ];
+        assert_eq!(parse_upload_event(&play_progress), None);
     }
 
     #[test]
