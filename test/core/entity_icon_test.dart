@@ -67,9 +67,9 @@ void main() {
       expect(entityIcon(_entity(deviceClass: 'pressure')), Icons.speed);
       expect(
           entityIcon(_entity(deviceClass: 'volatile_organic_compounds_parts')),
-          Icons.air);
+          Icons.science_outlined);
       expect(entityIcon(_entity(deviceClass: 'volatile_organic_compounds')),
-          Icons.air);
+          Icons.science_outlined);
       expect(entityIcon(_entity(deviceClass: 'carbon_dioxide')), Icons.co2);
     });
 
