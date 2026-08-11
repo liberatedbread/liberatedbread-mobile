@@ -250,8 +250,8 @@ void main() {
     // sensor shows its number with the unit.
     final toggle = tester.widget<Switch>(find.byType(Switch));
     expect(toggle.value, isTrue);
-    final low = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'low'));
+    final low =
+        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'low'));
     expect(low.selected, isTrue);
     expect(find.text('15 min'), findsOneWidget);
   });
@@ -271,8 +271,8 @@ void main() {
     expect(call.values, {'mode': '50', 'time': '240'});
 
     // And the device's reply, not the tap, is what the UI now shows.
-    final warm = tester.widget<ChoiceChip>(
-        find.widgetWithText(ChoiceChip, 'warm'));
+    final warm =
+        tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'warm'));
     expect(warm.selected, isTrue);
   });
 

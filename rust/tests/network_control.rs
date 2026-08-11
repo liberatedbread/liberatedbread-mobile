@@ -217,25 +217,38 @@ fn setting_a_cook_mode_renders_the_request_the_spec_publishes() {
 }
 
 #[test]
-fn a_mode_picker_that_cannot_read_the_time_back_still_sends_a_valid_request() {
+fn a_mode_picker_that_cannot_read_the_time_back_fails_instead_of_clearing_it() {
     let spec = spec();
     let action = resolve_network_actions(&spec, entity(&spec, "Cook Mode"))
         .into_iter()
         .next()
         .unwrap();
 
-    // The spec defaults `time` precisely so this is possible. It is the
-    // fallback, not the intent — but a control that cannot send at all is
-    // worse than one that sends the documented default.
-    let request = soap::render_command(
+    // This test used to assert the opposite: that a missing read-back fell
+    // back to the spec's `default: 0` and still sent. Review killed that
+    // default, correctly — honouring it meant a failed read quietly clearing
+    // the cook timer, and on set_cook_time quietly STOPPING a running cooker.
+    // A `source` parameter with no value now fails the render, visibly, and
+    // the error names what was missing.
+    let err = soap::render_command(
         &spec,
         action.command_name,
         action.command,
         &values(&[("mode", "50")]),
     )
-    .expect("set_cook_mode renders without a read-back");
-    assert!(request.body.contains("<mode>50</mode>"));
-    assert!(request.body.contains("<time>0</time>"));
+    .expect_err("a missing read-back value must not render");
+    assert!(
+        err.to_string().contains("time"),
+        "the error should name the missing parameter: {err}"
+    );
+
+    // Off remains the one cooker write sendable from a cold start.
+    let off = resolve_network_actions(&spec, entity(&spec, "Slow Cooker"))
+        .into_iter()
+        .find(|a| a.role == "turn_off")
+        .unwrap();
+    soap::render_command(&spec, off.command_name, off.command, &values(&[]))
+        .expect("turn_off renders from nothing");
 }
 
 #[test]

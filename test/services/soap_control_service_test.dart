@@ -95,8 +95,7 @@ void main() {
       final stripped = _setupXml.replaceFirst(
           ' xmlns="urn:schemas-upnp-org:device-1-0"', '');
       final client = SoapControlClient(
-        httpClient:
-            MockClient((request) async => http.Response(stripped, 200)),
+        httpClient: MockClient((request) async => http.Response(stripped, 200)),
       );
       final description = await client.fetchDescription('10.0.0.5', 49153);
       expect(description.friendlyName, 'Kitchen Crock-Pot');
@@ -105,8 +104,7 @@ void main() {
 
     test('a non-200 is a transport error naming the URL', () async {
       final client = SoapControlClient(
-        httpClient:
-            MockClient((request) async => http.Response('gone', 404)),
+        httpClient: MockClient((request) async => http.Response('gone', 404)),
       );
       await expectLater(
         client.fetchDescription('10.0.0.5', 49153),
@@ -126,7 +124,8 @@ void main() {
       );
       // Published paths move across firmware generations; the device's own
       // serviceList is the authority and the spec's path only a fallback.
-      expect(description.controlPathFor(_request), '/upnp/control/device-truth');
+      expect(
+          description.controlPathFor(_request), '/upnp/control/device-truth');
     });
 
     test('falls back to the spec path, and to null past that', () {
@@ -154,8 +153,8 @@ void main() {
           return http.Response(_stateResponse, 200);
         }),
       );
-      final values =
-          await client.send('10.0.0.5', 49153, '/upnp/control/basicevent1', _request);
+      final values = await client.send(
+          '10.0.0.5', 49153, '/upnp/control/basicevent1', _request);
 
       expect(seen.method, 'POST');
       expect(seen.url.toString(),
