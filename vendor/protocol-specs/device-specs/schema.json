@@ -1476,11 +1476,6 @@
                               "default": "little",
                               "description": "Byte order this parameter's value is emitted in. Same key, enum and default as a `format` field's and a bus field's -- encode and decode ask one question and must not answer it two ways. Little is the default because it is what BLE overwhelmingly uses; a `big` parameter must say so, because a byte-swapped write is silently plausible rather than visibly broken."
                             },
-                            "auto": {
-                              "type": "string",
-                              "enum": ["sequence", "packet_length", "checksum"],
-                              "description": "Marks a parameter the CLIENT derives rather than the user supplying: `sequence` is a per-connection message counter, `packet_length` the finished packet's own length, `checksum` a value computed over the rest. Declared as a parameter anyway so the template can name it and a serializer knows its width and byte order. A consumer must never present one as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects."
-                            },
                             "min_length": {
                               "type": "integer",
                               "minimum": 0,
@@ -1511,7 +1506,7 @@
                             "auto": {
                               "type": "string",
                               "enum": ["sequence", "packet_length", "checksum"],
-                              "description": "Marks a parameter the encoder fills in itself rather than a value the user sets — without this flag a generic command UI renders one control per declared parameter and would happily show a slider for a checksum byte. 'sequence': a per-message counter the encoder increments (SmartDawn `sn`). 'packet_length': the total encoded packet length (SmartDawn `len`). 'checksum': an additive frame checksum — the byte is the sum (mod 256) of all encoded frame bytes from index `checksum_start` up to but not including this parameter's own position, then XOR `checksum_xor`. This covers the common sum8-over-frame idiom (KingSmith WiLink sums from index 1 with no xor; UREVO UR frames sum from index 1 and xor 0x5A) without a per-device handler. A parameter carrying `auto` SHOULD still declare its wire `type` so the encoder knows how wide the computed value is."
+                              "description": "Marks a parameter the encoder fills in itself rather than a value the user sets — without this flag a generic command UI renders one control per declared parameter and would happily show a slider for a checksum byte. 'sequence': a per-message counter the encoder increments (SmartDawn `sn`). 'packet_length': the total encoded packet length (SmartDawn `len`). 'checksum': an additive frame checksum — the byte is the sum (mod 256) of all encoded frame bytes from index `checksum_start` up to but not including this parameter's own position, then XOR `checksum_xor`. This covers the common sum8-over-frame idiom (KingSmith WiLink sums from index 1 with no xor; UREVO UR frames sum from index 1 and xor 0x5A) without a per-device handler. A parameter carrying `auto` SHOULD still declare its wire `type` so the encoder knows how wide the computed value is. A consumer must never present an auto parameter as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects."
                             },
                             "checksum_start": {
                               "type": "integer",
