@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -577,6 +578,67 @@ void main() {
       await tester.tap(find.text('Air Service'));
       await tester.pumpAndSettle();
       expect(find.byType(RawCharacteristicWidget), findsNWidgets(4));
+    });
+
+    testWidgets('folding hides the service children without disposing them',
+        (tester) async {
+      // The readings cards and the folded characteristic widgets subscribe to
+      // the SAME characteristics, and the real BLE service answers any one
+      // subscriber's cancel with setNotifyValue(false) on the peripheral — no
+      // reference counting. If the fold *disposed* the children, their
+      // teardown would mute the characteristics the dashboard is still
+      // showing, and every notify-driven tile would freeze at its first
+      // read. So the fold must keep them mounted offstage.
+      const notifying = [
+        BleDiscoveredService(
+          uuid: svcUuid,
+          characteristics: [
+            BleDiscoveredCharacteristic(
+              uuid: radonChar,
+              canRead: true,
+              canWrite: false,
+              canNotify: true,
+            ),
+            BleDiscoveredCharacteristic(
+              uuid: humidityChar,
+              canRead: true,
+              canWrite: false,
+              canNotify: true,
+            ),
+          ],
+        ),
+      ];
+      // A stream that stays open, unlike the default done-immediately empty
+      // stream — a cancel recorded against it is a real widget teardown.
+      final notify = StreamController<List<int>>.broadcast();
+      addTearDown(notify.close);
+      final ble = FakeBleService(
+        readValues: const {
+          radonChar: [55, 0],
+          humidityChar: [55],
+        },
+        notifyStream: notify.stream,
+      );
+
+      await tester.pumpWidget(await _wrap(
+        const DeviceControlPanel(
+            deviceId: '01', deviceName: 'Air', services: notifying),
+        ble: ble,
+        codec: airCodec(airSpec()),
+        specs: const {'air.yaml': 'yaml'},
+      ));
+      await tester.pumpAndSettle();
+
+      // Folded from view…
+      expect(find.byType(RawCharacteristicWidget), findsNothing);
+      // …but still mounted offstage, subscriptions intact.
+      expect(
+        find.byType(RawCharacteristicWidget, skipOffstage: false),
+        findsNWidgets(2),
+      );
+      expect(ble.cancelledSubscriptions, isEmpty,
+          reason: 'a teardown here disables notifications on the peripheral '
+              'for the still-listening readings cards');
     });
 
     testWidgets('a non-sensor device keeps its service cards open',
