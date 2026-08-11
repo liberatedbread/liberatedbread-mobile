@@ -46,11 +46,15 @@ NetworkActionDto _action(String role, {List<String> params = const []}) =>
       transport: 'lifx',
       userParams: params,
       readBack: const [],
+      credentials: const [],
+      instanceParams: const [],
     );
 
 NetworkEntityDto _lightEntity({bool multizone = false}) => NetworkEntityDto(
       name: 'LIFX Z Multizone Strip',
       platform: 'light',
+      transport: 'lifx',
+      isInstanced: false,
       stateCommand: '',
       options: const [],
       actions: [

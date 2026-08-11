@@ -54,7 +54,8 @@ export '../src/rust/api/device_api.dart'
         LifxServiceDto,
         LifxStateDto,
         LifxZoneColorDto,
-        LifxZonesDto;
+        LifxZonesDto,
+        LifxAccessPointDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -349,4 +350,28 @@ abstract class SpecCodec {
 
   /// Decode a `StateMultiZone`/`StateZone` reply into per-zone colours.
   Future<LifxZonesDto> decodeLifxZones({required List<int> bytes});
+
+  // ── LIFX SoftAP provisioning ──────────────────────────────────────────────
+  // The legacy access-point family that onboards an unprovisioned strip onto
+  // WiFi over its own setup AP. Unauthenticated, plaintext passphrase — send it
+  // once, never persist it.
+
+  /// The default security byte (WPA2-AES) to try for a manually-typed SSID that
+  /// never appeared in a scan.
+  Future<int> lifxDefaultSecurity();
+
+  /// The `GetAccessPoints` datagram asking an unprovisioned device to scan.
+  Future<Uint8List> buildLifxGetAccessPoints({required int sequence});
+
+  /// The `SetAccessPoint` datagram handing the device its home-network
+  /// credentials. [password] is sent in plaintext — do not persist it.
+  Future<Uint8List> renderLifxSetAccessPoint({
+    required String ssid,
+    required String password,
+    required int security,
+    required int sequence,
+  });
+
+  /// Decode a `StateAccessPoint` scan-result reply.
+  Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes});
 }

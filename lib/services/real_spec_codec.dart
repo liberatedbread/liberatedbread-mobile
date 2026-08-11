@@ -337,4 +337,30 @@ class RealSpecCodec implements SpecCodec {
   @override
   Future<LifxZonesDto> decodeLifxZones({required List<int> bytes}) =>
       rust.decodeLifxZones(bytes: bytes);
+
+  @override
+  Future<int> lifxDefaultSecurity() => rust.lifxDefaultSecurity();
+
+  @override
+  Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) =>
+      rust.buildLifxGetAccessPoints(sequence: sequence);
+
+  @override
+  Future<Uint8List> renderLifxSetAccessPoint({
+    required String ssid,
+    required String password,
+    required int security,
+    required int sequence,
+  }) =>
+      rust.renderLifxSetAccessPoint(
+        ssid: ssid,
+        password: password,
+        security: security,
+        sequence: sequence,
+      );
+
+  @override
+  Future<LifxAccessPointDto> decodeLifxAccessPoint(
+          {required List<int> bytes}) =>
+      rust.decodeLifxAccessPoint(bytes: bytes);
 }
