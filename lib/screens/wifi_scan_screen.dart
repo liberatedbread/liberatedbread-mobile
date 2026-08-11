@@ -9,10 +9,12 @@ import 'package:permission_handler/permission_handler.dart';
 import '../core/error_text.dart';
 import '../models/network_device.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
 import '../services/network_scan_service.dart';
 import '../services/number_registry.dart';
 import '../widgets/device_list_tile.dart';
+import 'network_device_screen.dart';
 
 /// Discovery of devices on the local network, alongside the BLE scan.
 ///
@@ -257,6 +259,20 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       data: (r) => r.vendorForMac(device.advertisedMac),
       orElse: () => null,
     );
+    // A matched spec may declare controls for this device (a Wemo plug's
+    // toggle, the Crock-Pot's cook mode). Resolved here, per tile, so the tap
+    // can go straight to a control screen — and stays on the details sheet
+    // for the majority of matches that declare none.
+    final guess = entry.guess;
+    final controls = guess == null
+        ? null
+        : ref
+            .watch(networkControlsProvider(NetworkControlRequest(
+              deviceName: guess.deviceName,
+              manufacturer: guess.manufacturer,
+              ssdpTargets: device.ssdpTargets,
+            )))
+            .valueOrNull;
     return DeviceListTile(
       title: device.displayName,
       subtitle: _transportLabel(device),
@@ -272,7 +288,16 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       // type underneath it are precisely what distinguishes this row.
       description:
           entry.guess?.namesAProduct == true ? null : _describe(device, vendor),
-      onTap: () => _showDetails(device, vendor),
+      onTap: controls != null
+          ? () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => NetworkDeviceScreen(
+                    device: device,
+                    controls: controls,
+                  ),
+                ),
+              )
+          : () => _showDetails(device, vendor),
     );
   }
 
