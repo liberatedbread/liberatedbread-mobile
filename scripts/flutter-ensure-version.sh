@@ -91,10 +91,17 @@ _fev_lock() {
 # gone, then sweep leftovers — callers hold the upgrade lock, so nothing here
 # can race a live swap's backup.
 _fev_heal_interrupted() {
-  local home="$1" backup leftover
+  local home="$1" backup="" candidate leftover
   if [ ! -e "$home" ]; then
-    backup="$(ls -td "${home}".old.* 2>/dev/null | head -n 1)"
-    if [ -n "$backup" ] && [ -d "$backup" ]; then
+    # Newest backup by mtime, via the glob rather than parsing ls output
+    # (shellcheck SC2012); an unmatched glob stays literal and fails -d.
+    for candidate in "${home}".old.*; do
+      [ -d "$candidate" ] || continue
+      if [ -z "$backup" ] || [ "$candidate" -nt "$backup" ]; then
+        backup="$candidate"
+      fi
+    done
+    if [ -n "$backup" ]; then
       warn "Restoring the Flutter SDK from an interrupted upgrade (${backup})."
       mv "$backup" "$home" || warn "Could not restore ${backup}; run ./scripts/setup.sh."
     fi
