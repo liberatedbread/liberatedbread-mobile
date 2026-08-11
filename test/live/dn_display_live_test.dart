@@ -97,7 +97,7 @@ void main() {
         for (final (name, loops) in show) {
           final design = designs.firstWhere((d) => d.name == name);
           for (var loop = 0; loop <= loops; loop++) {
-            for (final frame in design.frames) {
+            for (final frame in design.buildFrames()) {
               final plan = await codec.encodeImageFrame(
                 specYaml: specYaml,
                 width: _width,

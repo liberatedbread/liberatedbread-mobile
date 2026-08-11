@@ -21,7 +21,22 @@ List<int> _pixel(Uint8List rgb, int width, int x, int y) {
 
 void main() {
   group('defaultDesigns', () {
-    test('offers every procedural preset at any size, plus both animations',
+    test('offers no presets — and builds nothing — on an unbounded canvas', () {
+      // A receipt printer declares a 65535-tall roll: one preset frame would
+      // be ~18 MiB and the animations many times that. The menu is omitted
+      // rather than allowed to allocate, and the whole design list is empty so
+      // nothing is ever built.
+      expect(designsFitCanvas(96, 65535), isFalse);
+      expect(defaultDesigns(96, 65535), isEmpty);
+      // The largest real display (255x255) is well under the budget.
+      expect(designsFitCanvas(255, 255), isTrue);
+      expect(defaultDesigns(255, 255), isNotEmpty);
+      // Degenerate canvases offer nothing either.
+      expect(defaultDesigns(0, 20), isEmpty);
+    });
+
+    test(
+        'offers every procedural preset at a normal size, plus both animations',
         () {
       final designs = defaultDesigns(20, 20);
       expect(
@@ -42,14 +57,14 @@ void main() {
       );
       final pride = designs.firstWhere((d) => d.name == 'Pride animation');
       expect(pride.animation, isTrue);
-      expect(pride.frames, hasLength(7),
+      expect(pride.buildFrames(), hasLength(7),
           reason: 'rotates through all seven pride flags');
       final stars = designs.firstWhere((d) => d.name == 'Star animation');
       expect(stars.animation, isTrue);
-      expect(stars.frames, hasLength(4));
+      expect(stars.buildFrames(), hasLength(4));
       // Only the animations are multi-frame.
       for (final d in designs.where((d) => !d.animation)) {
-        expect(d.frames, hasLength(1), reason: d.name);
+        expect(d.buildFrames(), hasLength(1), reason: d.name);
       }
     });
 
@@ -98,7 +113,7 @@ void main() {
         (96, 16),
       ]) {
         for (final d in defaultDesigns(w, h)) {
-          for (final frame in d.frames) {
+          for (final frame in d.buildFrames()) {
             expect(frame.length, w * h * 3,
                 reason: '${d.name} at ${w}x$h must fill the canvas');
             expect(_distinctColors(frame), lessThanOrEqualTo(16),
@@ -110,7 +125,7 @@ void main() {
 
     test('flags scale to any size with the right stripe colours', () {
       // Trans flag: top row light blue, middle row white.
-      final trans = defaultDesigns(4, 5).first.frames.first;
+      final trans = defaultDesigns(4, 5).first.buildFrames().first;
       expect(trans.sublist(0, 3), [0x5B, 0xCE, 0xFA]);
       const midRow = (5 ~/ 2) * 4 * 3;
       expect(trans.sublist(midRow, midRow + 3), [0xFF, 0xFF, 0xFF]);
@@ -120,7 +135,7 @@ void main() {
       // 10 rows: magenta on 0-3, lavender on 4-5, blue on 6-9.
       final bi = defaultDesigns(3, 10)
           .firstWhere((d) => d.name == 'Bi flag')
-          .frames
+          .buildFrames()
           .first;
       expect(_pixel(bi, 3, 0, 0), [0xD6, 0x02, 0x70]);
       expect(_pixel(bi, 3, 0, 3), [0xD6, 0x02, 0x70]);
@@ -134,7 +149,7 @@ void main() {
       const w = 65, h = 39;
       final flag = defaultDesigns(w, h)
           .firstWhere((d) => d.name == 'American flag')
-          .frames
+          .buildFrames()
           .first;
       const red = [0xB2, 0x22, 0x34];
       const blue = [0x3C, 0x3B, 0x6E];
@@ -157,11 +172,13 @@ void main() {
     test('the distress variant is the flag rotated 180 degrees', () {
       const w = 65, h = 39;
       final designs = defaultDesigns(w, h);
-      final regular =
-          designs.firstWhere((d) => d.name == 'American flag').frames.first;
+      final regular = designs
+          .firstWhere((d) => d.name == 'American flag')
+          .buildFrames()
+          .first;
       final distress = designs
           .firstWhere((d) => d.name == 'American flag (in distress)')
-          .frames
+          .buildFrames()
           .first;
       for (final (x, y) in const [(0, 0), (12, 7), (64, 38), (30, 20)]) {
         expect(
@@ -175,10 +192,10 @@ void main() {
     test('the star animation twinkles deterministically', () {
       final a = defaultDesigns(32, 32)
           .firstWhere((d) => d.name == 'Star animation')
-          .frames;
+          .buildFrames();
       final b = defaultDesigns(32, 32)
           .firstWhere((d) => d.name == 'Star animation')
-          .frames;
+          .buildFrames();
       for (var i = 0; i < a.length; i++) {
         expect(a[i], b[i],
             reason: 'the same canvas must always yield the same sky');
@@ -196,12 +213,12 @@ void main() {
     test('the dog is offered from 64x64 up and scales to the canvas', () {
       final at64 = defaultDesigns(64, 64)
           .firstWhere((d) => d.name == 'Professor Timbit')
-          .frames
+          .buildFrames()
           .first;
       expect(at64.length, 64 * 64 * 3);
       final at100 = defaultDesigns(100, 128)
           .firstWhere((d) => d.name == 'Professor Timbit')
-          .frames
+          .buildFrames()
           .first;
       expect(at100.length, 100 * 128 * 3);
     });
