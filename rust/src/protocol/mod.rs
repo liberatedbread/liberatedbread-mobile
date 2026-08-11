@@ -6,6 +6,7 @@ pub mod dispatch;
 pub mod generic;
 pub mod image_upload;
 pub mod profiles;
+pub mod soap;
 pub mod traits;
 
 use crate::error::ProtocolError;

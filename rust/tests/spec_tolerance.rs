@@ -31,6 +31,11 @@ const SPECS: &[(&str, &str)] = &[
         "frigidaire-portable-ac",
         include_str!("specs/frigidaire-portable-ac.yaml"),
     ),
+    // The catalogue's largest file, and the one that exercises the top-level
+    // `commands` block and SOAP-bound entities. `airthings-wave-family` keeps a
+    // BLE-flavoured catalogue under the same key, so the two together are what
+    // holds the block tolerant of both shapes.
+    ("wemo-devices", include_str!("specs/wemo-devices.yaml")),
 ];
 
 #[test]
