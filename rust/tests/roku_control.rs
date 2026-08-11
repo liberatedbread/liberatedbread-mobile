@@ -159,3 +159,62 @@ fn the_sensors_stay_off_the_network_surface_for_now() {
     assert!(!names.contains(&"Active App"));
     assert!(!names.contains(&"Media Player"));
 }
+
+#[test]
+fn the_channel_picker_resolves_with_its_sources_joined() {
+    // The launcher: a select with no static options and no state binding,
+    // admitted because its options live on the device — and its two query
+    // sources arrive with the endpoint join already done, so a client holds
+    // a fetchable method and path rather than a name to look up.
+    let entities = liberated_bread_core::api::device_api::network_entities_for_device(
+        ROKU.to_string(),
+        vec!["roku:ecp".to_string()],
+    )
+    .expect("the vendored spec resolves");
+    let channel = entities
+        .iter()
+        .find(|e| e.name == "Channel")
+        .expect("the Channel select is on the surface");
+
+    assert_eq!(channel.platform.as_deref(), Some("select"));
+    assert!(channel.options.is_empty(), "options come from the device");
+    let options = channel.options_source.as_ref().expect("options source");
+    assert_eq!(
+        (options.method.as_str(), options.path.as_str()),
+        ("GET", "/query/apps")
+    );
+    assert_eq!(
+        (options.item.as_str(), options.value_attribute.as_str()),
+        ("app", "id")
+    );
+    let state = channel.state_source.as_ref().expect("state source");
+    assert_eq!(
+        (state.method.as_str(), state.path.as_str()),
+        ("GET", "/query/active-app")
+    );
+
+    let action = &channel.actions[0];
+    assert_eq!(action.role, "select_option");
+    assert_eq!(action.transport, "http");
+    assert_eq!(action.user_params, vec!["app_id".to_string()]);
+}
+
+#[test]
+fn choosing_a_channel_renders_the_documented_launch() {
+    let spec = spec();
+    let request = http::render_request(&spec, "launch_app", &values(&[("app_id", "12")])).unwrap();
+    assert_eq!(request.method, "POST");
+    assert_eq!(request.path, "/launch/12");
+    // The id is data, never path structure — an id that tried to be one is
+    // encoded away.
+    let sneaky =
+        http::render_request(&spec, "launch_app", &values(&[("app_id", "12/../x")])).unwrap();
+    assert_eq!(sneaky.path, "/launch/12%2F..%2Fx");
+}
+
+fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+        .collect()
+}

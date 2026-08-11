@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `resolve_query_source`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -1208,6 +1208,14 @@ class NetworkEntityDto {
   /// Option table for a `select`, in declaration order. Empty otherwise.
   final List<NetworkOptionDto> options;
 
+  /// Where a `select` fetches options the spec could not enumerate (the
+  /// installed-channel list). None for statically-optioned entities.
+  final QuerySourceDto? optionsSource;
+
+  /// Where such a select reads which option is current. None means the
+  /// control launches without showing a current selection.
+  final QuerySourceDto? stateSource;
+
   /// Sendable actions, role order. Empty for a pure reading.
   final List<NetworkActionDto> actions;
   final double? setpointMin;
@@ -1224,6 +1232,8 @@ class NetworkEntityDto {
     required this.stateCommand,
     this.valueField,
     required this.options,
+    this.optionsSource,
+    this.stateSource,
     required this.actions,
     this.setpointMin,
     this.setpointMax,
@@ -1241,6 +1251,8 @@ class NetworkEntityDto {
       stateCommand.hashCode ^
       valueField.hashCode ^
       options.hashCode ^
+      optionsSource.hashCode ^
+      stateSource.hashCode ^
       actions.hashCode ^
       setpointMin.hashCode ^
       setpointMax.hashCode ^
@@ -1260,6 +1272,8 @@ class NetworkEntityDto {
           stateCommand == other.stateCommand &&
           valueField == other.valueField &&
           options == other.options &&
+          optionsSource == other.optionsSource &&
+          stateSource == other.stateSource &&
           actions == other.actions &&
           setpointMin == other.setpointMin &&
           setpointMax == other.setpointMax &&
@@ -1535,6 +1549,43 @@ class ProfileInfoDto {
           serviceUuid == other.serviceUuid &&
           profileName == other.profileName &&
           characteristics == other.characteristics;
+}
+
+/// A resolved XML query source: the request to make and how to read entries
+/// out of its response.
+///
+/// The spec's `options_source`/`state_source` with the endpoint join already
+/// done — the entity names an endpoint, this carries that endpoint's method
+/// and path so Dart never joins the two blocks by name. The contract for the
+/// response is the schema's: every element whose local name is [`Self::item`]
+/// is one entry, the attribute named [`Self::value_attribute`] is its raw
+/// value, the element's trimmed text is its label.
+class QuerySourceDto {
+  final String method;
+  final String path;
+  final String item;
+  final String valueAttribute;
+
+  const QuerySourceDto({
+    required this.method,
+    required this.path,
+    required this.item,
+    required this.valueAttribute,
+  });
+
+  @override
+  int get hashCode =>
+      method.hashCode ^ path.hashCode ^ item.hashCode ^ valueAttribute.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is QuerySourceDto &&
+          runtimeType == other.runtimeType &&
+          method == other.method &&
+          path == other.path &&
+          item == other.item &&
+          valueAttribute == other.valueAttribute;
 }
 
 /// One spec that a scanned device might be, and why we think so.

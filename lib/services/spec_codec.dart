@@ -41,7 +41,8 @@ export '../src/rust/api/device_api.dart'
         NetworkReadingDto,
         NetworkReadingKind,
         SoapRequestDto,
-        HttpRequestDto;
+        HttpRequestDto,
+        QuerySourceDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
