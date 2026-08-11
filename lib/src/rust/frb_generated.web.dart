@@ -126,6 +126,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw);
 
   @protected
+  LifxServiceDto dco_decode_lifx_service_dto(dynamic raw);
+
+  @protected
+  LifxStateDto dco_decode_lifx_state_dto(dynamic raw);
+
+  @protected
+  LifxZoneColorDto dco_decode_lifx_zone_color_dto(dynamic raw);
+
+  @protected
+  LifxZonesDto dco_decode_lifx_zones_dto(dynamic raw);
+
+  @protected
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
@@ -151,6 +163,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
+
+  @protected
+  List<LifxZoneColorDto> dco_decode_list_lifx_zone_color_dto(dynamic raw);
 
   @protected
   List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
@@ -488,6 +503,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  LifxServiceDto sse_decode_lifx_service_dto(SseDeserializer deserializer);
+
+  @protected
+  LifxStateDto sse_decode_lifx_state_dto(SseDeserializer deserializer);
+
+  @protected
+  LifxZoneColorDto sse_decode_lifx_zone_color_dto(SseDeserializer deserializer);
+
+  @protected
+  LifxZonesDto sse_decode_lifx_zones_dto(SseDeserializer deserializer);
+
+  @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
@@ -518,6 +545,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> sse_decode_list_image_write_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<LifxZoneColorDto> sse_decode_list_lifx_zone_color_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -894,6 +925,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       ImageWritePlanDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_lifx_service_dto(
+      LifxServiceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lifx_state_dto(LifxStateDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lifx_zone_color_dto(
+      LifxZoneColorDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lifx_zones_dto(LifxZonesDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
@@ -927,6 +972,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_image_write_dto(
       List<ImageWriteDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_lifx_zone_color_dto(
+      List<LifxZoneColorDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_list_prim_u_8_strict(

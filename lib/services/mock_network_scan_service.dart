@@ -60,6 +60,19 @@ class MockNetworkScanService implements NetworkScanService {
       sources: const {NetworkDiscoverySource.ssdp},
       discoveredAt: DateTime(2026),
     ),
+    // A LIFX Z light strip: the first device driven over binary UDP. Answers
+    // the synthetic `lifx:udp` target a real GetService broadcast confirms
+    // (strong, like Wemo's own search target), and carries its MAC so
+    // per-device addressing works. Demo mode walks into the LIFX light card.
+    NetworkDevice(
+      host: '192.168.1.44',
+      name: 'LIFX Z',
+      port: 56700,
+      ssdpTargets: const ['lifx:udp'],
+      txt: const {'mac': 'd0:73:d5:00:04:a3', 'md': 'LIFX Z'},
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime(2026),
+    ),
     NetworkDevice(
       host: '192.168.1.42',
       name: '',

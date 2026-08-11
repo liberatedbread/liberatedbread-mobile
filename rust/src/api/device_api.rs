@@ -1305,6 +1305,61 @@ impl NetworkActionDto {
             max: action.max,
         }
     }
+
+    /// A LIFX control as a network action. LIFX actions are synthesised from the
+    /// entity's `features` rather than resolved from spec `commands`, so they
+    /// carry no read-back and always the `lifx` transport — the UI dispatches on
+    /// that to the UDP client and calls [`render_lifx_command`] rather than
+    /// rendering a SOAP/HTTP request.
+    fn from_lifx(control: &crate::protocol::lifx::LifxControl) -> Self {
+        Self {
+            role: control.role.to_string(),
+            command_name: control.command_name.to_string(),
+            transport: crate::protocol::lifx::TRANSPORT.to_string(),
+            user_params: control
+                .user_params
+                .iter()
+                .map(|p| (*p).to_string())
+                .collect(),
+            read_back: Vec::new(),
+            min: control.min,
+            max: control.max,
+        }
+    }
+}
+
+/// The controllable LIFX entities of a spec, as network entity DTOs. LIFX has
+/// no `commands`/`services` the generic resolver could execute, so its `light`
+/// entities are synthesised directly from `features` — see
+/// [`crate::protocol::lifx::network_entities`]. State is not polled through a
+/// SOAP `state_command` (there is none); the UI reads it live with
+/// [`build_lifx_state_request`] + [`decode_lifx_state`], so `state_command` is
+/// left empty and the entity survives on its actions alone.
+fn lifx_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
+    crate::protocol::lifx::network_entities(spec)
+        .into_iter()
+        .map(|entity| NetworkEntityDto {
+            name: entity.name,
+            platform: Some("light".to_string()),
+            device_class: None,
+            icon: None,
+            unit: None,
+            state_endpoint: None,
+            state_command: String::new(),
+            value_field: None,
+            options: Vec::new(),
+            options_source: None,
+            state_source: None,
+            actions: entity
+                .controls
+                .iter()
+                .map(NetworkActionDto::from_lifx)
+                .collect(),
+            setpoint_min: None,
+            setpoint_max: None,
+            setpoint_step: None,
+        })
+        .collect()
 }
 
 /// Resolve an entity's query source against the spec's endpoint catalogue.
@@ -1338,6 +1393,12 @@ pub fn network_entities_for_device(
     ssdp_targets: Vec<String>,
 ) -> anyhow::Result<Vec<NetworkEntityDto>> {
     let spec = parse_device_spec(&spec_yaml)?;
+    // LIFX is driven by a dedicated binary-UDP handler, not the generic
+    // command resolver (which rejects a non-SOAP/HTTP transport). Its light
+    // entities are synthesised from `features` before the generic path runs.
+    if spec.protocol_handler.as_deref() == Some(crate::protocol::lifx::HANDLER_NAME) {
+        return Ok(lifx_network_entities(&spec));
+    }
     Ok(bindings::network_entities_for_targets(&spec, &ssdp_targets)
         .into_iter()
         .map(|entity| {
@@ -1639,6 +1700,171 @@ fn find_entity<'a>(
         .iter()
         .find(|e| e.name == entity_name)
         .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))
+}
+
+// ── LIFX (binary UDP) ───────────────────────────────────────────────────────
+// LIFX speaks a binary LAN protocol over UDP unicast, not text-over-TCP like
+// SOAP/HTTP. So instead of a rendered request DTO the caller POSTs, these return
+// the datagram *bytes* the caller sends over its own UDP socket, and take the
+// reply bytes back to decode — the byte-in/byte-out shape of the BLE codec, one
+// transport over. See `crate::protocol::lifx`.
+
+/// The UDP port every LIFX device listens on. Exposed so the Dart client need
+/// not hardcode it separately from the protocol module.
+pub fn lifx_port() -> u16 {
+    crate::protocol::lifx::PORT
+}
+
+/// Render one LIFX control action into the datagram bytes to send.
+///
+/// `action` is a `command_name` from [`network_entities_for_device`] on a LIFX
+/// spec (`turn_on`, `set_color`, `set_zone_color`, …); `params` carries the
+/// UI-owned values (`red`/`green`/`blue`/`brightness` on 0..=255, `kelvin` on
+/// 1500..=9000, `zone` a zone index). `target_mac` is `d0:73:d5:…` or empty for
+/// a device not yet identified (the all-zero target unicast firmware accepts).
+/// `sequence` is the caller's counter, echoed in any reply for correlation.
+pub fn render_lifx_command(
+    action: String,
+    params: HashMap<String, f64>,
+    target_mac: String,
+    sequence: u8,
+) -> anyhow::Result<Vec<u8>> {
+    let target = crate::protocol::lifx::parse_mac(&target_mac);
+    Ok(crate::protocol::lifx::render_command(
+        &action, &params, target, sequence,
+    )?)
+}
+
+/// The tagged-broadcast `GetService` datagram — the discovery probe every LIFX
+/// device answers with a `StateService`.
+pub fn build_lifx_discovery_probe(sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_service(sequence)
+}
+
+/// The `LightGet` datagram that asks a device for its current colour and power.
+pub fn build_lifx_state_request(target_mac: String, sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_color(crate::protocol::lifx::parse_mac(&target_mac), sequence)
+}
+
+/// The `GetColorZones` datagram asking for the colours of zones `start..=end`.
+pub fn build_lifx_zones_request(target_mac: String, start: u8, end: u8, sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_color_zones(
+        crate::protocol::lifx::parse_mac(&target_mac),
+        start,
+        end,
+        sequence,
+    )
+}
+
+/// A decoded `StateService` reply: which device answered (MAC), on which
+/// service (1 = UDP) and port. The IP is the datagram's source address, which
+/// the socket already knows.
+#[derive(Debug, Clone)]
+pub struct LifxServiceDto {
+    pub mac: String,
+    pub service: u8,
+    pub port: u32,
+}
+
+/// A decoded light `State` reply, in the units the UI works in: RGB and
+/// brightness on 0..=255 for the colour swatch and slider, plus the raw HSBK
+/// channels and the device's label.
+#[derive(Debug, Clone)]
+pub struct LifxStateDto {
+    pub power_on: bool,
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub brightness: u8,
+    pub hue: u16,
+    pub saturation: u16,
+    pub kelvin: u16,
+    pub label: String,
+}
+
+/// One zone's colour, RGB + brightness on 0..=255.
+#[derive(Debug, Clone)]
+pub struct LifxZoneColorDto {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub brightness: u8,
+}
+
+/// A decoded multizone reply: the strip's total zone count, the index this
+/// batch starts at, and the colours it carries.
+#[derive(Debug, Clone)]
+pub struct LifxZonesDto {
+    pub zones_count: u8,
+    pub zone_index: u8,
+    pub colors: Vec<LifxZoneColorDto>,
+}
+
+/// Format a 6-byte MAC as the `d0:73:d5:00:04:a3` string the UI and discovery
+/// key on.
+fn format_mac(mac: [u8; 6]) -> String {
+    mac.iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+fn brightness_to_byte(brightness: u16) -> u8 {
+    (f64::from(brightness) / f64::from(u16::MAX) * 255.0).round() as u8
+}
+
+/// Decode a `StateService` datagram (the discovery reply).
+pub fn parse_lifx_state_service(bytes: Vec<u8>) -> anyhow::Result<LifxServiceDto> {
+    let s = crate::protocol::lifx::parse_state_service(&bytes)?;
+    Ok(LifxServiceDto {
+        mac: format_mac(s.mac),
+        service: s.service,
+        port: s.port,
+    })
+}
+
+/// Decode a light `State` (107) datagram into a UI-facing reading.
+pub fn decode_lifx_state(bytes: Vec<u8>) -> anyhow::Result<LifxStateDto> {
+    let s = crate::protocol::lifx::parse_state(&bytes)?;
+    let (red, green, blue) = crate::protocol::lifx::hsbk_to_rgb(&s.color);
+    Ok(LifxStateDto {
+        power_on: s.power_on,
+        red,
+        green,
+        blue,
+        brightness: brightness_to_byte(s.color.brightness),
+        hue: s.color.hue,
+        saturation: s.color.saturation,
+        kelvin: s.color.kelvin,
+        label: s.label,
+    })
+}
+
+/// Decode a `StateMultiZone` (506) or `StateZone` (503) datagram into per-zone
+/// colours. Routed by the datagram's own message type.
+pub fn decode_lifx_zones(bytes: Vec<u8>) -> anyhow::Result<LifxZonesDto> {
+    use crate::protocol::lifx::{decode_reply, Reply};
+    let mz = match decode_reply(&bytes)? {
+        Reply::Zones(mz) => mz,
+        other => anyhow::bail!("expected a zone reply, got {other:?}"),
+    };
+    Ok(LifxZonesDto {
+        zones_count: mz.zones_count,
+        zone_index: mz.zone_index,
+        colors: mz
+            .colors
+            .iter()
+            .map(|c| {
+                let (red, green, blue) = crate::protocol::lifx::hsbk_to_rgb(c);
+                LifxZoneColorDto {
+                    red,
+                    green,
+                    blue,
+                    brightness: brightness_to_byte(c.brightness),
+                }
+            })
+            .collect(),
+    })
 }
 
 /// The axes on which one spec identity matched one observation. Every field is
