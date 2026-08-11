@@ -10,18 +10,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `airthings-wave-family` binds temperature and humidity to each model's
   combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
-  `b42e3b98`), ordered before the SIG environmental-sensing bindings. The
-  SIG characteristics (2A6E/2A6F) are app-derived and unobserved in either
-  hardware capture, while the combined packet is what the vendor app reads
-  and is capture-verified — so a unit that never exposes the SIG
-  characteristics previously showed radon and battery but no temperature or
-  humidity, and a unit exposing both now reads the proven source. Also
-  new: `Ambient Light` on all three combined packets (raw 0-255 counts,
-  deliberately no `illuminance` class since the counts are not lux — the
-  field is capture-verified on Wave Gen 2), and Gen 1's dedicated 1-hour
-  radon characteristic (`b42e06dc`) bound as `Radon 1h Average`, its third
-  documented radon reading and the fastest-moving of them. Variant
-  `sensors` lists gain `light` accordingly
+  `b42e3b98`). The SIG characteristics (2A6E/2A6F) are app-derived and
+  unobserved in either hardware capture, while the combined packet is what
+  the vendor app reads and is capture-verified — so a unit that never
+  exposes the SIG characteristics previously showed radon and battery but
+  no temperature or humidity. The SIG bindings are now scoped
+  (`variants: Wave (Gen 1), View Plus` — the models with no decodable
+  combined packet), so every variant resolves exactly one binding per
+  reading under the schema's declared variant model rather than by an
+  implicit first-match rule; the combined bindings are also listed first
+  for characteristic-keyed consumers meeting hardware that exposes both
+  interfaces. Also new: `Ambient Light` on all three combined packets (raw
+  0-255 counts, deliberately no `illuminance` class since the counts are
+  not lux — the field is capture-verified on Wave Gen 2), and Gen 1's
+  dedicated 1-hour radon characteristic (`b42e06dc`) bound as
+  `Radon 1h Average`, its third documented radon reading and the
+  fastest-moving of them. Variant `sensors` lists gain `light` accordingly
 - `airthings-wave-family` surfaces every sensor each model actually has, not
   just the six readings the entity list happened to name. The Wave Plus
   combined characteristic (`b42e2a68`) now carries the shared 20-byte layout
@@ -195,6 +199,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `schema.json` no longer defines the parameter `auto` key twice. The
+  checksum extension added a second `"auto"` member to the same `properties`
+  object instead of extending the first; JSON objects cannot carry duplicate
+  keys, so permissive loaders silently kept whichever one they preferred and
+  a strict loader could reject the whole schema. One definition remains,
+  merging both descriptions (the checksum algorithm and the
+  never-render-as-a-control consumer rule)
+- `urevo-walking-pad` research note: the `set_speed_and_slope` example frame
+  carried checksum `0x73` — the pre-XOR sum, contradicting the note's own
+  formula `((B + C + payload) & 0xFF) ^ 0x5A` and every literal frame beside
+  it (stop/pause/resume/status all verify). The example now shows `0x29`, a
+  frame a pad should actually accept. The two `query_*_config` frames'
+  checksum comments still do not reproduce their dumped bytes under any
+  consistent rule and are left as dumped — flagged for re-verification
+  against the disassembly rather than silently "corrected"
 - `airthings-wave-family`'s radon entities no longer claim
   `device_class: volatile_organic_compounds_parts`. Radon in Bq/m³ is a
   radioactivity concentration, not a chemical one, and the class was not
