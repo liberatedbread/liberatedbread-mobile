@@ -366,7 +366,7 @@
     "name": "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)",
     "path": "device-specs/devices/kingsmith-walkingpad.yaml",
     "protocol": "ble",
-    "category": "fitness",
+    "category": "treadmill",
     "manufacturer": "KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)",
     "manufacturer_status": "active",
     "openness": "undocumented",
