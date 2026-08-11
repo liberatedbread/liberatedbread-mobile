@@ -107,6 +107,16 @@ class FakeSpecCodec implements SpecCodec {
   final List<({String commandName, Map<String, String> values})>
       renderNetworkHttpCommandCalls = [];
 
+  /// Returned by [listNetworkInstances]. Defaults to no children.
+  final List<NetworkInstanceDto> instances;
+
+  /// Returned by [readNetworkInstance], as a function of the instance id.
+  List<NetworkRoleReadingDto> Function(String instanceId)? instanceReadings;
+
+  /// Thrown by the http render calls when set — how a test stands in for an
+  /// unpaired render (missing credential) failing visibly.
+  final Object? httpRenderError;
+
   /// Returned by [readNetworkEntity], as a function of entity name and the
   /// returned values.
   NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
@@ -149,6 +159,9 @@ class FakeSpecCodec implements SpecCodec {
     this.networkRequest,
     this.networkHttpRequest,
     this.networkReading,
+    this.instances = const [],
+    this.instanceReadings,
+    this.httpRenderError,
   }) : encoded = encoded ?? Uint8List(0);
 
   @override
@@ -293,9 +306,38 @@ class FakeSpecCodec implements SpecCodec {
   }) async {
     renderNetworkHttpCommandCalls
         .add((commandName: commandName, values: values));
+    if (httpRenderError != null) throw httpRenderError!;
     return networkHttpRequest?.call(commandName, values) ??
         HttpRequestDto(method: 'POST', path: '/fake/$commandName', body: '');
   }
+
+  @override
+  Future<HttpRequestDto> renderNetworkHttpStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required Map<String, String> values,
+  }) async {
+    if (httpRenderError != null) throw httpRenderError!;
+    return networkHttpRequest?.call(stateCommand, values) ??
+        HttpRequestDto(method: 'GET', path: '/fake/$stateCommand', body: '');
+  }
+
+  @override
+  Future<List<NetworkInstanceDto>> listNetworkInstances({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+  }) async =>
+      instances;
+
+  @override
+  Future<List<NetworkRoleReadingDto>> readNetworkInstance({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+    required String instanceId,
+  }) async =>
+      instanceReadings?.call(instanceId) ?? const [];
 
   @override
   Future<SoapRequestDto> renderNetworkStateRequest({

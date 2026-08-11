@@ -68,6 +68,7 @@ final _cookerDevice = NetworkDevice(
 /// mode-change action carrying its documented read-back.
 const _entities = [
   NetworkEntityDto(
+    isInstanced: false,
     name: 'Slow Cooker',
     platform: 'switch',
     stateCommand: 'GetCrockpotState',
@@ -75,6 +76,8 @@ const _entities = [
     options: [],
     actions: [
       NetworkActionDto(
+        credentials: [],
+        instanceParams: [],
         role: 'turn_on',
         transport: 'soap',
         commandName: 'crockpot_turn_on',
@@ -85,6 +88,8 @@ const _entities = [
         ],
       ),
       NetworkActionDto(
+        credentials: [],
+        instanceParams: [],
         role: 'turn_off',
         transport: 'soap',
         commandName: 'crockpot_turn_off',
@@ -94,6 +99,7 @@ const _entities = [
     ],
   ),
   NetworkEntityDto(
+    isInstanced: false,
     name: 'Cook Mode',
     platform: 'select',
     stateCommand: 'GetCrockpotState',
@@ -106,6 +112,8 @@ const _entities = [
     ],
     actions: [
       NetworkActionDto(
+        credentials: [],
+        instanceParams: [],
         role: 'select_option',
         transport: 'soap',
         commandName: 'set_cook_mode',
@@ -118,6 +126,7 @@ const _entities = [
     ],
   ),
   NetworkEntityDto(
+    isInstanced: false,
     name: 'Cooked Time',
     platform: 'sensor',
     unit: 'min',
@@ -331,6 +340,7 @@ void main() {
 
     const remoteEntities = [
       NetworkEntityDto(
+        isInstanced: false,
         name: 'Power On',
         platform: 'button',
         icon: 'mdi:power',
@@ -338,6 +348,8 @@ void main() {
         options: [],
         actions: [
           NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
             role: 'press',
             commandName: 'press_power_on',
             transport: 'http',
@@ -347,6 +359,7 @@ void main() {
         ],
       ),
       NetworkEntityDto(
+        isInstanced: false,
         name: 'Home',
         platform: 'button',
         icon: 'mdi:home',
@@ -354,6 +367,8 @@ void main() {
         options: [],
         actions: [
           NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
             role: 'press',
             commandName: 'press_home',
             transport: 'http',
@@ -479,6 +494,7 @@ void main() {
     );
 
     const channelEntity = NetworkEntityDto(
+      isInstanced: false,
       name: 'Channel',
       platform: 'select',
       stateCommand: '',
@@ -497,6 +513,8 @@ void main() {
       ),
       actions: [
         NetworkActionDto(
+          credentials: [],
+          instanceParams: [],
           role: 'select_option',
           commandName: 'launch_app',
           transport: 'http',

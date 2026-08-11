@@ -119,14 +119,15 @@ void main() {
       Log.spec.info('b');
       Log.ha.info('c');
       Log.net.info('d');
-      Log.packs.info('e');
-      Log.ads.info('f');
-      Log.app.info('g');
-      Log.ui.info('h');
+      Log.hub.info('e');
+      Log.packs.info('f');
+      Log.ads.info('g');
+      Log.app.info('h');
+      Log.ui.info('i');
 
       expect(
         records.map((r) => r.category),
-        ['ble', 'spec', 'ha', 'net', 'packs', 'ads', 'app', 'ui'],
+        ['ble', 'spec', 'ha', 'net', 'hub', 'packs', 'ads', 'app', 'ui'],
       );
     });
 
@@ -135,7 +136,7 @@ void main() {
       // ('BLE', 'bluetooth', a typo) and split the output. This pins the set.
       expect(
         Log.categories.map((c) => c.category),
-        ['ble', 'spec', 'ha', 'net', 'packs', 'ads', 'app', 'ui'],
+        ['ble', 'spec', 'ha', 'net', 'hub', 'packs', 'ads', 'app', 'ui'],
       );
     });
 

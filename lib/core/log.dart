@@ -188,6 +188,13 @@ class Log {
   /// Local-network discovery: mDNS, SSDP, and the multicast lock.
   static const Logger net = Logger._('net');
 
+  /// Hub pairing, TLS trust decisions, and control transport. Its own
+  /// category (not `net`) because its lines are the audit trail of trust:
+  /// "pinned", "pin mismatch", "fell back to http" are the ones a security
+  /// review greps for. NOTE: requests to a Hue bridge embed the credential
+  /// in the path, so hub lines never carry a path.
+  static const Logger hub = Logger._('hub');
+
   /// Spec-pack download, validation, install and cache.
   static const Logger packs = Logger._('packs');
 
@@ -206,6 +213,7 @@ class Log {
     spec,
     ha,
     net,
+    hub,
     packs,
     ads,
     app,
