@@ -16,10 +16,11 @@
 //! toggle until the spec pins that byte down.
 
 use super::types::{
-    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service, TemplateElement,
-    ValueType,
+    Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, Service, SpecCommand,
+    TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
+use crate::protocol::soap;
 
 /// Whether a characteristic's payloads must pass through a byte transform
 /// this crate does not implement, making any raw write to it wrong on the
@@ -611,6 +612,215 @@ fn qualify<'a>(
         min,
         max,
     })
+}
+
+// ── The same job for a device with no GATT ──────────────────────────────────
+//
+// A Wemo plug has no characteristic to bind to, so its entities bind an
+// endpoint and a command name, and the roles resolve against the spec's
+// top-level `commands` instead of a characteristic's. Everything above this
+// line — which role a platform offers, what makes a command sendable, that a
+// valued control needs exactly one blank to fill — is the same on both sides,
+// and is deliberately spelled the same way here so the two cannot drift into
+// different ideas of what `turn_on` means.
+
+/// One resolved control action on a network device.
+///
+/// The network sibling of [`ResolvedAction`], and a separate type on purpose:
+/// that one borrows the service and characteristic a caller needs to talk to
+/// the radio, and there is no honest value to put in either field here.
+#[derive(Debug)]
+pub struct NetworkAction<'a> {
+    /// Canonical role name, from the same vocabulary the BLE path uses.
+    pub role: &'static str,
+    pub command_name: &'a str,
+    pub command: &'a SpecCommand,
+    /// The one value this control supplies, when it has one. Empty for a
+    /// fixed action like `turn_off`.
+    pub user_params: Vec<&'a str>,
+    /// Parameters the command defaults but whose real value the client should
+    /// read from the device first, as (parameter, `source`).
+    ///
+    /// Surfaced rather than left inside the command because it changes what a
+    /// caller must DO: send this action without reading these back and the
+    /// write silently overwrites settings the user never touched.
+    pub read_back: Vec<(&'a str, &'a str)>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+/// One role a network entity can bind, and how to tell whether a command can
+/// serve it.
+struct NetworkRole {
+    /// Canonical name, reported to the caller.
+    role: &'static str,
+    /// Keys in the entity's `commands:` map that bind this role, in order.
+    aliases: &'static [&'static str],
+    /// Whether the control supplies a value. A valued role needs exactly one
+    /// blank in the command; a fixed one needs none.
+    takes_value: bool,
+}
+
+/// The setpoint role's aliases, shared by every platform that has one so a
+/// `number` and a `climate` cannot drift into different vocabularies.
+const SETPOINT_ALIASES: &[&str] = &["set_value", "set_temperature", "set_target"];
+
+const NETWORK_SETPOINT: NetworkRole = NetworkRole {
+    role: SET_VALUE_ROLE,
+    aliases: SETPOINT_ALIASES,
+    takes_value: true,
+};
+
+/// Roles each platform offers on the network path.
+///
+/// Kept beside the BLE `RoleSpec` table, and using the same role names on
+/// purpose: two tables that disagreed about what `switch` offers would give
+/// one device different controls depending on how it happened to connect.
+const NETWORK_ROLES: &[(&str, &[NetworkRole])] = &[
+    (
+        "switch",
+        &[
+            NetworkRole {
+                role: TURN_ON.role,
+                aliases: TURN_ON.aliases,
+                takes_value: false,
+            },
+            NetworkRole {
+                role: TURN_OFF.role,
+                aliases: TURN_OFF.aliases,
+                takes_value: false,
+            },
+        ],
+    ),
+    (
+        "light",
+        &[
+            NetworkRole {
+                role: TURN_ON.role,
+                aliases: TURN_ON.aliases,
+                takes_value: false,
+            },
+            NetworkRole {
+                role: TURN_OFF.role,
+                aliases: TURN_OFF.aliases,
+                takes_value: false,
+            },
+            NetworkRole {
+                role: SET_BRIGHTNESS.role,
+                aliases: SET_BRIGHTNESS.aliases,
+                takes_value: true,
+            },
+        ],
+    ),
+    (
+        "select",
+        &[NetworkRole {
+            // The role a heat-level picker needs, and the one nothing in the
+            // catalogue could resolve before a Crock-Pot turned up: its modes
+            // are 0/50/51/52, which is a choice from a list and not a number
+            // anybody can slide between.
+            role: "select_option",
+            aliases: &["select_option", "set_option"],
+            takes_value: true,
+        }],
+    ),
+    ("number", &[NETWORK_SETPOINT]),
+    ("climate", &[NETWORK_SETPOINT]),
+    (
+        "fan",
+        &[NetworkRole {
+            role: SET_VALUE_ROLE,
+            aliases: &["set_value", "set_speed"],
+            takes_value: true,
+        }],
+    ),
+];
+
+/// Resolve every control action a spec supports for one network entity.
+///
+/// Returns nothing for an entity that binds no `state_command` — that is a
+/// BLE entity, or an entity that reaches nothing at all, and either way this
+/// is not its path.
+pub fn resolve_network_actions<'a>(
+    spec: &'a DeviceSpec,
+    entity: &'a Entity,
+) -> Vec<NetworkAction<'a>> {
+    if entity.state_command.is_none() {
+        return Vec::new();
+    }
+    let platform = entity.platform.as_deref().unwrap_or_default();
+    let Some((_, roles)) = NETWORK_ROLES.iter().find(|(name, _)| *name == platform) else {
+        return Vec::new();
+    };
+
+    roles
+        .iter()
+        .filter_map(|role| {
+            let bound = role
+                .aliases
+                .iter()
+                .find_map(|alias| entity.command_for_role(alias))?;
+            let command = spec.commands.get(bound)?;
+            qualify_network(role.role, bound, command, role.takes_value)
+        })
+        .collect()
+}
+
+/// Decide whether a command can serve a network role.
+///
+/// The gate is the one the BLE path applies, for the same reason: a control
+/// may only offer what it can actually send. A fixed role cannot fill in a
+/// blank, and a valued role with two blanks does not know which one its value
+/// belongs in — Wemo's `SetCrockpotState` would be exactly that if the spec
+/// did not default the argument the control is not changing.
+fn qualify_network<'a>(
+    role: &'static str,
+    command_name: &'a str,
+    command: &'a SpecCommand,
+    takes_value: bool,
+) -> Option<NetworkAction<'a>> {
+    // Renderable at all: a command with no action, or one for a transport this
+    // crate does not speak, resolves to nothing rather than to a control that
+    // errors when pressed.
+    if command.transport.as_deref().unwrap_or(soap::TRANSPORT) != soap::TRANSPORT {
+        return None;
+    }
+    if command.service.is_none() || command.action.is_none() {
+        return None;
+    }
+
+    let user_params = command.user_params();
+    match (takes_value, user_params.len()) {
+        (false, 0) => {}
+        (true, 1) => {}
+        _ => return None,
+    }
+
+    let bounds = user_params
+        .first()
+        .and_then(|name| command.parameters.get(*name));
+    Some(NetworkAction {
+        role,
+        command_name,
+        command,
+        min: bounds.and_then(|p| p.min),
+        max: bounds.and_then(|p| p.max),
+        user_params,
+        read_back: command.read_back_params(),
+    })
+}
+
+/// Entities a spec drives over the network: those that name a state command.
+///
+/// The network counterpart of [`DeviceSpec::resolved_entities`], and it
+/// applies the same honesty rule — an entity is listed only if it says where
+/// its reading comes from, because a control that can never update is worse
+/// than an absent one.
+pub fn network_entities(spec: &DeviceSpec) -> Vec<&Entity> {
+    spec.entities
+        .iter()
+        .filter(|entity| entity.state_command.is_some())
+        .collect()
 }
 
 #[cfg(test)]
