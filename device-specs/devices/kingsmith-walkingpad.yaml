@@ -29,7 +29,8 @@ device:
   openness:
     status: "undocumented"
   protocol: "ble"
-  category: "fitness"
+  category: "treadmill"
+  type: "treadmill"
   notes: >
     KingSmith's foldable walking pads / under-desk treadmills (WalkingPad A1,
     A1 Pro, R1, R1 Pro, R2, C2, X21, MC21, Z1 and OEM variants) are controlled
@@ -248,16 +249,19 @@ services:
             verification: "confirmed"
             value: [0xF7, 0xA2, 0x00, 0x00, 0xA2, 0xFD]
           set_speed:
-            description: "Set belt speed in 0.1 km/h units; speed 0 stops the belt. 5-60 usable on A1-class hardware."
+            description: "Set belt speed in km/h (wire encoding 0.1 km/h per count, via the parameter's scale); speed 0 stops the belt. 0.5-6.0 km/h usable on A1-class hardware."
             verification: "confirmed"
             template: [0xF7, 0xA2, 0x01, "{speed}", "{checksum}", 0xFD]
             parameters:
               speed:
                 type: "uint8"
+                scale: 0.1
+                unit: "km/h"
                 min: 0
                 max: 60
               checksum:
                 type: "uint8"
+                auto: "checksum"
           switch_mode:
             description: "Switch belt mode: 0 = automatic (foot-sensing), 1 = manual, 2 = standby."
             verification: "confirmed"
@@ -267,8 +271,11 @@ services:
                 type: "uint8"
                 min: 0
                 max: 2
+                allowed: [0, 1, 2]
+                labels: ["automatic", "manual", "standby"]
               checksum:
                 type: "uint8"
+                auto: "checksum"
           start_belt:
             description: "Start the belt (enters run at start speed)."
             verification: "confirmed"
@@ -286,6 +293,7 @@ services:
                 max: 7
               checksum:
                 type: "uint8"
+                auto: "checksum"
           query_params:
             description: "Request the preference block (goal, max/start speed, auto-start, sensitivity, display mask, child lock, units). First of several 10-byte F7 A5 query frames recovered by ph4-walkingpad."
             verification: "reported"
@@ -325,6 +333,7 @@ services:
                 type: "uint8"
               checksum:
                 type: "uint8"
+                auto: "checksum"
           set_max_speed:
             description: "Convenience form of set_preference with key 3 (0.1 km/h units)."
             verification: "confirmed"
@@ -338,6 +347,7 @@ services:
                 max: 255
               checksum:
                 type: "uint8"
+                auto: "checksum"
 
   # ------------------------------------------------------------------ FTMS
   - uuid: "00001826-0000-1000-8000-00805f9b34fb"
@@ -383,14 +393,17 @@ services:
             value: [0x01]
           set_target_speed:
             description: >
-              Standard FTMS Set Target Speed: opcode 0x02 + uint16-LE speed in 0.01 km/h. Example: 02 90 01 = 4.0 km/h (HCI-snoop-confirmed on MC-21). Opcode-discrepancy note (resolved 2026-08-08): the "0x03 for speed" claim circulating in walking-pad writeups traces to Ivan Morgillo's Mobvoi Home Walking Pad article — a different vendor/device (TicSports app), not KingSmith. In FTMS 1.0, 0x02 = Set Target Speed and 0x03 = Set Target Inclination; KS Fit v6.5.6 has separate setSpeed and setInclination code paths (string table: WilinkDeviceActionExt|setSpeed / |setInclination, supportInclination), so on incline models (X21) it emits 0x03 for INCLINATION, never for speed. The WalkingPad app v2.5.5 emits no FTMS opcodes at all (WiLink-only binary). KingSmith speed opcode is 0x02 under all known model/firmware conditions.
+              Standard FTMS Set Target Speed: opcode 0x02 + a single little-endian uint16 speed parameter in 0.01 km/h (raw = km/h * 100; the parser's default endianness is little-endian, matching FTMS). Example: speed 4.0 km/h encodes raw 400 = 0x0190, emitted LE as frame 02 90 01 (HCI-snoop-confirmed on MC-21). Opcode-discrepancy note (resolved 2026-08-08): the "0x03 for speed" claim circulating in walking-pad writeups traces to Ivan Morgillo's Mobvoi Home Walking Pad article — a different vendor/device (TicSports app), not KingSmith. In FTMS 1.0, 0x02 = Set Target Speed and 0x03 = Set Target Inclination; KS Fit v6.5.6 has separate setSpeed and setInclination code paths (string table: WilinkDeviceActionExt|setSpeed / |setInclination, supportInclination), so on incline models (X21) it emits 0x03 for INCLINATION, never for speed. The WalkingPad app v2.5.5 emits no FTMS opcodes at all (WiLink-only binary). KingSmith speed opcode is 0x02 under all known model/firmware conditions.
             verification: "confirmed"
-            template: [0x02, "{speed_ckmh_lo}", "{speed_ckmh_hi}"]
+            template: [0x02, "{speed}"]
             parameters:
-              speed_ckmh_lo:
-                type: "uint8"
-              speed_ckmh_hi:
-                type: "uint8"
+              speed:
+                type: "uint16"
+                scale: 0.01
+                unit: "km/h"
+                min: 0
+                max: 2500
+                description: "Target belt speed in km/h. min/max bound the RAW wire value (0.01 km/h counts), so 0-2500 = 0-25.0 km/h — well above any walking pad's ceiling; tighten per model from the Supported Speed Range characteristic 0x2AD4 where available."
           start_or_resume:
             description: "Standard FTMS Start or Resume."
             verification: "confirmed"
