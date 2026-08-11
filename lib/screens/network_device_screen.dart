@@ -197,8 +197,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         final body = await client.send(
           widget.device.host,
           port,
-          HttpRequestDto(
-              method: options.method, path: options.path, body: ''),
+          HttpRequestDto(method: options.method, path: options.path, body: ''),
         );
         _fetchedOptions[entity.name] = readQuerySource(body, options);
 
