@@ -24,6 +24,9 @@ if [[ ! -d "$specs_dir" ]]; then
   echo "no such spec directory: $specs_dir" >&2
   exit 1
 fi
+# Canonicalize before the cd below, or a relative argument that just passed
+# the check above is re-resolved against rust/ and silently points elsewhere.
+specs_dir="$(cd "$specs_dir" && pwd)"
 
 # Uses the app's own parser, so the report and the app can never disagree.
 cd "$repo_root/rust"

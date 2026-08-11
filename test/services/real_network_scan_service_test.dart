@@ -76,9 +76,13 @@ void main() {
       expect(parsed?.port, 49153);
     });
 
-    test('a location with no explicit port reports none', () {
-      // Defaulting to 80 here would invent a fact; the device did not say it.
-      expect(parseSsdpLocation('http://192.168.1.41/setup.xml')?.port, isNull);
+    test('a location with no explicit port reports the scheme default', () {
+      // `http://host/path` states port 80 the way URLs state it — by scheme.
+      // Reporting null here made the control screen refuse to talk to a
+      // device that advertised its port fine; only a scheme with no default
+      // genuinely leaves the port unsaid.
+      expect(parseSsdpLocation('http://192.168.1.41/setup.xml')?.port, 80);
+      expect(parseSsdpLocation('foo://192.168.1.41/setup.xml')?.port, isNull);
     });
 
     test('unparseable locations yield nothing', () {
