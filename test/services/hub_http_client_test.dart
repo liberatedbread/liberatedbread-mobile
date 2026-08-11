@@ -116,6 +116,28 @@ void main() {
             'credential on the wire in clear');
   });
 
+  test('a stored pin alone refuses the downgrade, even with no scheme record',
+      () async {
+    // The pin and the scheme are two separate keychain writes; a crash
+    // between them can leave a bridge pinned with no scheme. The pin is the
+    // durable proof 443 verified once, so it must refuse the plain-http
+    // fallback on its own — otherwise a refused 443 plus an on-path attacker
+    // on port 80 would get the credential in clear.
+    await store.saveCertPin(_bridgeId, 'a' * 64);
+    expect(await store.scheme(_bridgeId), isNull, reason: 'no scheme recorded');
+    var plainCalls = 0;
+    final hub = client(plain: (_) async {
+      plainCalls += 1;
+      return http.Response('{}', 200);
+    });
+
+    await expectLater(
+      hub.send('10.0.0.2', _bridgeId, _get),
+      throwsA(isA<HubTransportException>()),
+    );
+    expect(plainCalls, 0);
+  });
+
   test('a TLS failure is never followed by an http fallback', () async {
     var plainCalls = 0;
     final hub = client(

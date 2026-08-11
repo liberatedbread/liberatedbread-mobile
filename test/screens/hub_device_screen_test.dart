@@ -95,6 +95,10 @@ class _StubHubClient extends HubHttpClient {
   final List<HttpRequestDto> sent = [];
   Object? sendError;
 
+  /// When true, [sendError] is thrown on the GET state read too, not only on
+  /// writes — how the initial-load auth-failure path is exercised.
+  bool errorOnGet = false;
+
   _StubHubClient(HubCredentialStore store) : super(credentials: store);
 
   @override
@@ -105,9 +109,9 @@ class _StubHubClient extends HubHttpClient {
   ) async {
     sent.add(request);
     final error = sendError;
-    if (error != null && request.method != 'GET') {
+    if (error != null && (errorOnGet || request.method != 'GET')) {
       sendError = null;
-      throw error;
+      return Future<String>.error(error);
     }
     return '{"canned":true}';
   }
@@ -249,6 +253,29 @@ void main() {
 
     expect(find.text('Pair with bridge'), findsOneWidget);
     expect(find.textContaining('no longer recognizes'), findsOneWidget);
+  });
+
+  testWidgets(
+      'error type 1 on the initial load flips to pairing, not a '
+      'dead "try scanning again"', (tester) async {
+    // A bridge reset since pairing: the very first state GET answers error 1,
+    // so _load (not just _send) must recover. Without the on-HubAuthException
+    // clause the screen sat paired-but-empty behind a scan-again banner a
+    // re-scan could never fix.
+    await store.saveCredentials(
+        _bridgeId, const HubCredentials(username: 'stale'));
+    client
+      ..errorOnGet = true
+      ..sendError = HubAuthException('unauthorized user');
+
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pair with bridge'), findsOneWidget);
+    expect(find.textContaining('no longer recognizes'), findsOneWidget);
+    expect(find.byType(HubChildLightCard), findsNothing);
+    // The misleading transport banner must not be what the user sees.
+    expect(find.textContaining('try scanning again'), findsNothing);
   });
 
   testWidgets('forgetting the bridge clears the pairing after confirmation',
