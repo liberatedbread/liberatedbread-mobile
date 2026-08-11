@@ -50,7 +50,11 @@ export '../src/rust/api/device_api.dart'
         NetworkRoleReadingDto,
         SoapRequestDto,
         HttpRequestDto,
-        QuerySourceDto;
+        QuerySourceDto,
+        LifxServiceDto,
+        LifxStateDto,
+        LifxZoneColorDto,
+        LifxZonesDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -294,4 +298,55 @@ abstract class SpecCodec {
     required String specYaml,
     required int cid,
   });
+
+  // ── LIFX (binary UDP) ─────────────────────────────────────────────────────
+  // LIFX speaks a binary LAN protocol over UDP, so — unlike SOAP/HTTP — these
+  // return the datagram *bytes* the UDP client sends, and take reply bytes back
+  // to decode. The byte-in/byte-out shape of the BLE codec, one transport over.
+
+  /// The UDP port every LIFX device listens on (56700). Sourced from Rust so
+  /// the client never hardcodes a second copy that could drift.
+  Future<int> lifxPort();
+
+  /// Render one LIFX control action into the datagram bytes to send.
+  ///
+  /// [action] is a LIFX entity action's `commandName` (`turn_on`, `set_color`,
+  /// `set_zone_color`, …); [params] carries the UI-owned values
+  /// (`red`/`green`/`blue`/`brightness` on 0–255, `kelvin` 1500–9000, `zone` a
+  /// zone index). [targetMac] is `d0:73:d5:…` or empty for a device not yet
+  /// identified; [sequence] is the caller's counter, echoed in any reply.
+  Future<Uint8List> renderLifxCommand({
+    required String action,
+    required Map<String, double> params,
+    required String targetMac,
+    required int sequence,
+  });
+
+  /// The tagged-broadcast `GetService` probe every LIFX device answers with a
+  /// `StateService`.
+  Future<Uint8List> buildLifxDiscoveryProbe({required int sequence});
+
+  /// The `LightGet` datagram that asks a device for its colour and power.
+  Future<Uint8List> buildLifxStateRequest({
+    required String targetMac,
+    required int sequence,
+  });
+
+  /// The `GetColorZones` datagram asking for the colours of zones [start]–[end].
+  Future<Uint8List> buildLifxZonesRequest({
+    required String targetMac,
+    required int start,
+    required int end,
+    required int sequence,
+  });
+
+  /// Decode a `StateService` discovery reply (MAC, service, port).
+  Future<LifxServiceDto> parseLifxStateService({required List<int> bytes});
+
+  /// Decode a light `State` reply into a UI-facing reading (RGB, brightness,
+  /// power, label).
+  Future<LifxStateDto> decodeLifxState({required List<int> bytes});
+
+  /// Decode a `StateMultiZone`/`StateZone` reply into per-zone colours.
+  Future<LifxZonesDto> decodeLifxZones({required List<int> bytes});
 }
