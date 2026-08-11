@@ -1040,10 +1040,18 @@ class RealBleService implements BleService {
     // The characteristic we enabled notifications on, captured so onCancel can
     // disable them again. Null until setNotifyValue(true) succeeds.
     BluetoothCharacteristic? notifyingChar;
+    // Set when the consumer cancels while setup is still awaiting: onCancel
+    // finds sub and notifyingChar both null then and can tear nothing down,
+    // so setup itself must notice on its next step and undo what it did —
+    // otherwise the peripheral keeps notifying into a listener nobody reads
+    // for the rest of the connection. scan() guards the same shape with its
+    // own cancelled flag.
+    var cancelled = false;
 
     () async {
       try {
         final char = await _findCharacteristic(deviceId, serviceUuid, charUuid);
+        if (cancelled) return;
         // Logged BEFORE the enable so a hang inside setNotifyValue (a CCCD
         // write the peripheral never acks) is visible as an unanswered line
         // instead of the log only ever showing successes.
@@ -1057,6 +1065,16 @@ class RealBleService implements BleService {
         // Once per subscription. The notifications themselves are deliberately
         // NOT logged — that is the tight loop this logging must stay out of.
         Log.ble.debug('notifications enabled for $charUuid on $deviceId');
+        if (cancelled) {
+          // The consumer went away while the CCCD write was in flight; the
+          // enable landed, so undo it rather than leave the device pushing.
+          try {
+            await _setNotifyValue(char, enable: false);
+          } catch (_) {
+            // Best-effort: the device may already be gone.
+          }
+          return;
+        }
         notifyingChar = char;
         // Use onValueReceived rather than lastValueStream: the latter replays
         // the last cached value on listen, which would surface a stale reading
@@ -1076,6 +1094,7 @@ class RealBleService implements BleService {
     }();
 
     controller.onCancel = () async {
+      cancelled = true;
       try {
         await sub?.cancel();
       } catch (_) {

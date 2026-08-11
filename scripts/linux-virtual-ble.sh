@@ -75,6 +75,12 @@ cleanup() {
   rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
+# EXIT traps do not run when the shell dies to an untrapped signal, and the
+# dbus-daemon below forks into its own session — a Ctrl-C would orphan it
+# indefinitely. Clean up, then re-raise so the exit status still says
+# "killed by signal".
+trap 'cleanup; trap - INT; kill -INT $$' INT
+trap 'cleanup; trap - TERM; kill -TERM $$' TERM
 
 # --print-address/--print-pid write one line each, in that order.
 {

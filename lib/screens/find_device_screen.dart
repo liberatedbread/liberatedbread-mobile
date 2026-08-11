@@ -150,15 +150,23 @@ class _FindDeviceScreenState extends ConsumerState<FindDeviceScreen> {
       } else {
         bytes = action.bytes!;
       }
+      // Remember that this device is (probably) about to make noise BEFORE
+      // the write goes out: recording it after meant a dispose during the
+      // in-flight write saw no ring to silence, and the alert latched with
+      // its only stop control gone. Pessimistic in both directions — a ring
+      // write may have landed even when it reports an error, and a FAILED
+      // stop must keep the ring on record so dispose still tries to silence
+      // it; only a stop that succeeds clears it. A redundant stop write to
+      // a quiet device is harmless, and the BLE stack serialises writes, so
+      // a dispose-chained stop queues behind whatever is in flight.
+      if (!stop && action.stopBytes != null) _ringing = action;
       await _bleService.writeCharacteristic(
         widget.deviceId,
         action.serviceUuid,
         action.charUuid,
         bytes,
       );
-      // Remember that this device is (probably) now making noise, so leaving
-      // the screen can turn it off again.
-      _ringing = stop ? null : (action.stopBytes == null ? null : action);
+      if (stop) _ringing = null;
       if (!mounted) return;
       _showSnack(stop ? 'Stopped ${action.label}' : 'Sent ${action.label}');
     } catch (e) {

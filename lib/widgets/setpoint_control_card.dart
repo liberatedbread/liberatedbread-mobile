@@ -79,7 +79,7 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
 
   /// How many decimals the step implies, so 0.5 shows "56.5" and 1 shows
   /// "60" rather than "60.0".
-  int get _decimals => _step >= 1 ? 0 : _step.toString().split('.').last.length;
+  int get _decimals => decimalsForStep(_step);
 
   Future<void> _send(double value) async {
     setState(() {
@@ -377,8 +377,11 @@ class _SetpointControlCardState extends ConsumerState<SetpointControlCard> {
                     _pending = snapToStep(v, min, max, _step);
                   }),
           // Sent on release rather than per-frame: each change is a BLE
-          // write, and a dragged slider would flood the device.
-          onChangeEnd: _sending ? null : _send,
+          // write, and a dragged slider would flood the device. Snapped the
+          // same way onChanged snaps the label — the Slider hands back its
+          // own unsnapped value here, and the write must match the display.
+          onChangeEnd:
+              _sending ? null : (v) => _send(snapToStep(v, min, max, _step)),
         ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
