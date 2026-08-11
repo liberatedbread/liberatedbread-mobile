@@ -160,4 +160,89 @@ class RealSpecCodec implements SpecCodec {
         entityName: entityName,
         returned: returned,
       );
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredImage({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) =>
+      rust.encodeStoredImage(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        name: name,
+        cid: cid,
+        timeSecs: timeSecs,
+        scroll: scroll,
+        speed: speed,
+      );
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredText({
+    required String specYaml,
+    required int textWidth,
+    required int textHeight,
+    required List<int> bits,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) =>
+      rust.encodeStoredText(
+        specYaml: specYaml,
+        textWidth: textWidth,
+        textHeight: textHeight,
+        bits: bits,
+        name: name,
+        cid: cid,
+        timeSecs: timeSecs,
+        scroll: scroll,
+        speed: speed,
+      );
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required String name,
+    required int cid,
+    required int frameMs,
+  }) =>
+      rust.encodeStoredAnimation(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        frames: frames.map(Uint8List.fromList).toList(),
+        name: name,
+        cid: cid,
+        frameMs: frameMs,
+      );
+
+  @override
+  Future<StoredUploadEventDto?> decodeStoredUploadEvent({
+    required String specYaml,
+    required List<int> bytes,
+  }) =>
+      rust.decodeStoredUploadEvent(
+        specYaml: specYaml,
+        bytes: Uint8List.fromList(bytes),
+      );
+
+  @override
+  Future<StoredPlayDto> encodeStoredPlay({
+    required String specYaml,
+    required int cid,
+  }) =>
+      rust.encodeStoredPlay(specYaml: specYaml, cid: cid);
 }
