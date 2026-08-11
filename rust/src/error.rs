@@ -48,6 +48,12 @@ pub enum ProtocolError {
     #[error("command requires '{0}' encoding, which is not supported by the legacy raw-byte encoder — use typed controls instead")]
     UnsupportedCommandEncoding(String),
 
+    #[error("entity '{0}' declares no instances block, so it has no children to enumerate")]
+    EntityNotInstanced(String),
+
+    #[error("state reply is not the JSON shape the spec promises: {0}")]
+    InvalidStateReply(String),
+
     #[error("standard profile does not support commands")]
     ProfileReadOnly,
 

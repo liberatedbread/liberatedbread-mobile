@@ -36,6 +36,9 @@ const SPECS: &[(&str, &str)] = &[
     // BLE-flavoured catalogue under the same key, so the two together are what
     // holds the block tolerant of both shapes.
     ("wemo-devices", include_str!("specs/wemo-devices.yaml")),
+    // The http-transport hub: commands with method+path, `credential:`/
+    // `instance:` sources, and an `instances:` entity stamped out per light.
+    ("hue-bridge", include_str!("specs/hue-bridge.yaml")),
 ];
 
 #[test]
@@ -581,4 +584,40 @@ fn hotwired_climate_entity_resolves_a_sendable_action() {
     assert_eq!(set.command_name, Some("set_heat"));
     assert_eq!(set.user_params, vec!["level"]);
     assert_eq!((set.min, set.max), (Some(0), Some(10)));
+}
+
+#[test]
+fn a_malformed_instances_block_degrades_instead_of_failing_the_spec() {
+    // The schema documents the fallback for a consumer that cannot read an
+    // `instances:` block: the entity degrades to a non-instanced one that
+    // resolves nothing. A consumer that DOES know the key must not be
+    // stricter — a future spec extending the block (or an author's typo)
+    // must still load, and only that entity goes quiet.
+    let yaml = r#"
+device:
+  name: "Odd Hub"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "hub"
+entities:
+  - platform: "light"
+    name: "Odd Child"
+    instances: "everywhere at once"
+    state_command: "Things"
+    state_mapping:
+      is_on: "state.on"
+"#;
+    let spec = parse_device_spec(yaml).expect("a spec with an odd instances block still parses");
+    assert!(
+        spec.entities[0].instances.is_none(),
+        "an unreadable instances block must parse to None, not fail the file"
+    );
+    // And the instance-flavoured calls decline it rather than guessing.
+    let err = liberated_bread_core::protocol::http::list_instances(&spec.entities[0], "{}")
+        .expect_err("a degraded entity has no children to enumerate");
+    assert!(matches!(
+        err,
+        liberated_bread_core::error::ProtocolError::EntityNotInstanced(_)
+    ));
 }
