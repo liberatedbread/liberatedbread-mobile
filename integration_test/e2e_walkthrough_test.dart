@@ -63,16 +63,19 @@ void main() {
 
   testWidgets('01 scan: launch, scan, devices appear', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
-    await _soak(tester, const Duration(seconds: 2));
+    await _soak(tester, const Duration(milliseconds: 300));
 
-    expect(find.text('Scan for BLE Devices'), findsOneWidget);
+    // Launching IS starting the scan — nothing is tapped here.
+    expect(find.text('Searching for devices...'), findsOneWidget);
     expect(find.text('MOCK'), findsOneWidget,
         reason: 'run with --dart-define=LIBERATED_BREAD_MOCK=true');
-    await _shot(tester, '01_launch_scan_idle');
+    await _shot(tester, '01_launch_scan_running');
 
-    await tester.tap(find.byType(FloatingActionButton));
-    await _soak(tester, const Duration(milliseconds: 400));
-    expect(find.text('Scanning...'), findsOneWidget);
+    await _soak(tester, const Duration(milliseconds: 600));
+    // A running scan offers a small stop button and no start; the radar is
+    // what says "scanning".
+    expect(find.byIcon(Icons.stop), findsOneWidget);
+    expect(find.text('Scan'), findsNothing);
     await _shot(tester, '02_scan_in_progress');
 
     await _soak(tester, const Duration(seconds: 2));
@@ -80,17 +83,20 @@ void main() {
     expect(find.text('ACME_Bedroom'), findsOneWidget);
     await _shot(tester, '03_devices_found');
 
-    // The mock scan self-terminates a few seconds after the last device.
-    await _soak(tester, const Duration(seconds: 5));
+    // The scan does not stop by itself any more, so this is the FAB doing its
+    // job: the button is a stop, and the list it leaves behind is still there.
+    await tester.tap(find.byType(FloatingActionButton));
+    await _soak(tester, const Duration(seconds: 1));
     expect(find.text('Scan'), findsOneWidget);
-    await _shot(tester, '04_scan_finished');
+    expect(find.text('ACME_Living_Room'), findsOneWidget);
+    await _shot(tester, '04_scan_stopped');
   });
 
   testWidgets('02 device: connect, typed controls, commands', (tester) async {
     await tester.pumpWidget(const ProviderScope(child: LiberatedBreadApp()));
-    await _soak(tester, const Duration(seconds: 1));
-    await tester.tap(find.byType(FloatingActionButton));
-    await _soak(tester, const Duration(seconds: 2));
+    // The scan is already running by the time the first frame lands; this is
+    // just waiting for the mock to get through its devices.
+    await _soak(tester, const Duration(seconds: 3));
 
     await tester.tap(find.text('ACME_Living_Room'));
     await _soak(tester, const Duration(milliseconds: 300));
@@ -256,17 +262,19 @@ void main() {
   });
 
   testWidgets('06 scan empty / error / permission states', (tester) async {
+    // Each scenario mounts a fresh ScanScreen, and mounting one starts its
+    // scan — so every state below is reached the way a user reaches it, by
+    // arriving on the screen.
+    //
     // Permission denied.
     await _pumpScan(tester,
         _ScriptedBleService(scanError: const BlePermissionDeniedException()));
-    await tester.tap(find.byType(FloatingActionButton));
     await _soak(tester, const Duration(seconds: 2));
     expect(find.text('Bluetooth permission needed'), findsOneWidget);
     await _shot(tester, '26_permission_denied');
 
     // Scan completed with nothing in range.
     await _pumpScan(tester, _ScriptedBleService());
-    await tester.tap(find.byType(FloatingActionButton));
     await _soak(tester, const Duration(seconds: 2));
     expect(find.text('No devices found'), findsOneWidget);
     await _shot(tester, '27_no_devices_found');
@@ -276,7 +284,6 @@ void main() {
     // StateError) must never reach the screen.
     await _pumpScan(tester,
         _ScriptedBleService(scanError: const BleUnavailableException()));
-    await tester.tap(find.byType(FloatingActionButton));
     await _soak(tester, const Duration(seconds: 2));
     expect(find.textContaining('Bluetooth is turned off'), findsOneWidget);
     expect(find.textContaining('Bad state'), findsNothing);
@@ -457,11 +464,20 @@ class _UnmatchedBleService implements BleService {
   Future<int> readRssi(String deviceId) async => -60;
 
   @override
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) =>
+  Stream<IoTDevice> scan({
+    Duration? timeout = const Duration(seconds: 10),
+    ScanIntensity intensity = ScanIntensity.active,
+  }) =>
       const Stream.empty();
 
   @override
   Future<void> stopScan() async {}
+
+  // Never emits: the scripted scan states are the point of these doubles, and
+  // an adapter event that quietly cleared one mid-screenshot would make the
+  // walkthrough assert against a state it no longer shows.
+  @override
+  Stream<bool> adapterReady() => const Stream.empty();
 
   @override
   Future<void> connect(String deviceId) async {}
@@ -526,7 +542,10 @@ class _ScriptedBleService implements BleService {
   Future<int> readRssi(String deviceId) async => -60;
 
   @override
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) {
+  Stream<IoTDevice> scan({
+    Duration? timeout = const Duration(seconds: 10),
+    ScanIntensity intensity = ScanIntensity.active,
+  }) {
     if (scanError case final Object error) {
       return Stream<IoTDevice>.error(error);
     }
@@ -535,6 +554,12 @@ class _ScriptedBleService implements BleService {
 
   @override
   Future<void> stopScan() async {}
+
+  // Never emits: the scripted scan states are the point of these doubles, and
+  // an adapter event that quietly cleared one mid-screenshot would make the
+  // walkthrough assert against a state it no longer shows.
+  @override
+  Stream<bool> adapterReady() => const Stream.empty();
 
   @override
   Future<void> connect(String deviceId) async {

@@ -16,6 +16,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show AndroidScanMode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
@@ -180,6 +181,27 @@ void main() {
       expect(ble.platformCalls, contains('stopScan'));
     });
 
+    test('a cancel during setup leaves nothing scanning', () async {
+      // Setup is a chain of awaits (permissions, adapter state, teardown of a
+      // previous scan) and a cancel can land inside it — the scan screen does
+      // exactly this if a tab switch follows arrival closely enough. There is
+      // no subscription to cancel yet at that point, so without an explicit
+      // check the setup runs to completion and starts a scan with no listener:
+      // for a continuous scan, one with no window to expire and nothing left
+      // holding a handle to stop it.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+      final sub = service.scan(timeout: null).listen((_) {});
+      await sub.cancel(); // before the setup closure gets anywhere
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      final started = ble.platformCalls.where((c) => c == 'startScan').length;
+      final stopped = ble.platformCalls.where((c) => c == 'stopScan').length;
+      expect(stopped, greaterThanOrEqualTo(started),
+          reason: 'every scan this started must have been stopped again; '
+              'calls were ${ble.platformCalls}');
+    });
+
     test('a second scan tears the first one down instead of stacking',
         () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
@@ -214,6 +236,54 @@ void main() {
           reason: 'one fresh advertisement, not a stale replay before it');
     });
 
+    test('asks the platform to keep reporting a device it already saw',
+        () async {
+      // Without continuousUpdates, Android suppresses same-payload
+      // advertisements and Apple platforms coalesce duplicates: a device would
+      // be reported once and then never again, leaving "still here" and
+      // "switched off an hour ago" indistinguishable.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+      await runScan();
+
+      expect(ble.lastScanSettings?.continuousUpdates, isTrue);
+      expect(ble.lastScanSettings?.continuousDivisor, continuousScanDivisor);
+    });
+
+    test('an ambient scan asks Android for the balanced duty cycle', () async {
+      // The energy dial: a scan the app starts by itself must not pin the
+      // radio to continuous listening the way the pre-dial default did.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+      final sub = service
+          .scan(timeout: null, intensity: ScanIntensity.ambient)
+          .listen((_) {});
+      addTearDown(sub.cancel);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(ble.lastScanSettings?.androidScanMode,
+          AndroidScanMode.balanced.value);
+      expect(ble.lastScanSettings?.continuousDivisor, 1,
+          reason: 'the duty cycle already thinned receptions; the divisor on '
+              'top would double a sleepy sensor\'s reception gaps');
+    });
+
+    test('a re-sighting moves lastSeen but not discoveredAt', () async {
+      final bulb =
+          ble.add(EmulatedPeripheral.bulb(id: _bulbId, name: 'ACME_Bulb'));
+
+      final found = await runScan(during: () async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        bulb.advertise(rssi: -30);
+      });
+
+      expect(found, hasLength(2));
+      expect(found[1].discoveredAt, found[0].discoveredAt,
+          reason: 'advertising again does not make a device newly discovered');
+      expect(found[1].lastSeen.isAfter(found[0].lastSeen), isTrue,
+          reason: 'but it does make it freshly seen');
+    });
+
     test('stopScan ends an in-progress scan', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));
 
@@ -230,6 +300,227 @@ void main() {
       expect(closed, isTrue,
           reason: 'the app-facing stream must finish, not hang open for the '
               'remaining 30s of the requested window');
+      await sub.cancel();
+    });
+  });
+
+  // A scan with no timeout is what the scan screen runs: it is not a window
+  // with an answer at the end, it is a live picture of what is on air.
+  group('continuous scan', () {
+    /// Start one, collecting what it reports. Cancelled on teardown.
+    ({List<IoTDevice> seen, List<Object> errors, List<bool> done})
+        startContinuous() {
+      final seen = <IoTDevice>[];
+      final errors = <Object>[];
+      final done = <bool>[];
+      final sub = service.scan(timeout: null).listen(
+            seen.add,
+            onError: errors.add,
+            onDone: () => done.add(true),
+          );
+      addTearDown(sub.cancel);
+      return (seen: seen, errors: errors, done: done);
+    }
+
+    test('reports a device that only turns up later', () async {
+      // The whole point: a bounded scan answers "what was advertising during
+      // those 30 seconds", and a device plugged in afterwards never appears.
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(result.seen, isEmpty);
+
+      ble
+          .add(EmulatedPeripheral.bulb(id: _bulbId, name: 'Late Bulb'))
+          .advertise();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(result.seen.map((d) => d.name), ['Late Bulb']);
+      expect(result.done, isEmpty, reason: 'the scan is still running');
+    });
+
+    test('stays open long past a bounded scan\'s window', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+
+      // The 5s belt-and-braces timeout that ends a bounded scan must not be
+      // armed here; nothing may close this stream on a timer.
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(result.done, isEmpty);
+      expect(result.errors, isEmpty);
+    });
+
+    test('stopScan ends it, stream and all', () async {
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      await service.stopScan();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(ble.platformCalls, contains('stopScan'));
+      expect(result.done, [true],
+          reason: 'a scan with no window of its own has to be told it is over, '
+              'or its consumer waits on a stream nothing will feed again');
+    });
+
+    test('the radio being switched off surfaces as an actionable error',
+        () async {
+      // A scan meant to run all session has to notice the radio going dark
+      // under it, rather than sitting there claiming to search.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      ble.adapterState = EmulatedAdapterState.off;
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(result.errors.single, isA<BleUnavailableException>());
+      expect(result.done, [true]);
+    });
+
+    test(
+        'a refused refresh recovers on the retry, not a quarter of an hour '
+        'later', () async {
+      // fbp stops the running scan BEFORE starting its replacement, and unwinds
+      // its own state if that start is refused — so a failed refresh leaves
+      // nothing scanning at all. Waiting out the full interval would mean a tab
+      // saying "searching" over a dark radio for fifteen minutes.
+      service.continuousScanRefreshInterval = const Duration(milliseconds: 40);
+      service.continuousScanRetryInterval = const Duration(milliseconds: 40);
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // The refresh that fires next is refused by the platform.
+      ble.startScanRefusal = Exception('startScan refused');
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+
+      // Prove the recovery by what it is for: a device that starts advertising
+      // after the failed refresh still has to reach the app.
+      ble
+          .add(EmulatedPeripheral.bulb(id: _bulbId, name: 'After The Failure'))
+          .advertise();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      expect(result.seen.map((d) => d.name), contains('After The Failure'));
+      expect(result.done, isEmpty,
+          reason: 'a refresh failure does not end the scan the user sees');
+    });
+
+    test('a stop meant for the previous scan cannot close its replacement',
+        () async {
+      // The shape the scan screen produces whenever a stop is followed closely
+      // by a start: a tab switched away from and back, a device screen popped.
+      // The old scan is cancelled, stopScan() is still in flight, and the
+      // replacement starts inside that window.
+      //
+      // Honesty about what this pins: it exercises the sequence, not the
+      // interleaving. stopScan() now claims the active scan BEFORE awaiting the
+      // platform, so a scan installed during that await can never be torn down
+      // on behalf of one that is already over — but flutter_blue_plus's scan
+      // mutex and its synchronous isScanning bookkeeping keep the emulated
+      // adapter from landing on the exact interleaving that used to break, so
+      // this passes with the capture in either position. It is here to hold the
+      // contract, not to prove the race.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final first = service.scan(timeout: null).listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      await first.cancel();
+
+      ble.latency = const Duration(milliseconds: 60);
+      final stopping = service.stopScan();
+      final second = startContinuous();
+      await stopping;
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+
+      expect(second.done, isEmpty,
+          reason: 'the replacement scan belongs to nobody but its own caller');
+      expect(second.errors, isEmpty);
+    });
+
+    test('a teardown during an in-flight refresh does not revive the scan',
+        () async {
+      // Cancelling the refresh Timer cannot reach a callback that has already
+      // fired and is awaiting startScan. Without a teardown check inside the
+      // callback, that restart completes AFTER the consumer cancelled — and
+      // then reschedules itself, leaving a radio scanning forever for nobody.
+      service.continuousScanRefreshInterval = const Duration(milliseconds: 40);
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // Slow the platform down so the next refresh is mid-startScan when the
+      // teardown lands.
+      ble.latency = const Duration(milliseconds: 60);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      await service.stopScan();
+      ble.latency = Duration.zero;
+
+      // Let the in-flight restart finish and any (buggy) reschedule fire.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      final startsAfterSettle =
+          ble.platformCalls.where((c) => c == 'startScan').length;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(ble.platformCalls.where((c) => c == 'startScan').length,
+          startsAfterSettle,
+          reason: 'no further restarts once the scan is over');
+      final calls = ble.platformCalls;
+      expect(calls.lastIndexOf('stopScan'),
+          greaterThan(calls.lastIndexOf('startScan')),
+          reason: 'whatever the in-flight restart revived was put back down; '
+              'calls were $calls');
+      expect(result.done, [true]);
+    });
+
+    test('restarts the platform scan so it cannot go opportunistic', () async {
+      // Android downgrades a scan that has been running for 30 minutes to
+      // opportunistic — callbacks still registered, radio no longer driven.
+      // Restarting inside that window is what keeps a long scan real.
+      service.continuousScanRefreshInterval = const Duration(milliseconds: 40);
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+
+      expect(ble.platformCalls.where((c) => c == 'startScan').length,
+          greaterThan(2));
+      expect(result.done, isEmpty,
+          reason: 'refreshing is invisible to the consumer');
+      expect(result.errors, isEmpty);
+    });
+  });
+
+  group('adapterReady', () {
+    test('replays the current state, then follows transitions', () async {
+      final events = <bool>[];
+      final sub = service.adapterReady().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(events, [true],
+          reason: 'the current answer must arrive without waiting for a '
+              'transition, or a listener attached while the radio is off '
+              'would wait forever to learn that');
+
+      ble.adapterState = EmulatedAdapterState.off;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      ble.adapterState = EmulatedAdapterState.on;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [true, false, true]);
+      await sub.cancel();
+    });
+
+    test('unauthorized reads as not ready, same as off', () async {
+      // The screen must not auto-resume into a permission refusal: granting
+      // one means leaving the app, which the lifecycle path already covers.
+      final events = <bool>[];
+      final sub = service.adapterReady().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      ble.adapterState = EmulatedAdapterState.unauthorized;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [true, false]);
       await sub.cancel();
     });
   });

@@ -29,6 +29,11 @@ class DeviceScreen extends ConsumerStatefulWidget {
 
 class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   _ScreenState _state = _ScreenState.connecting;
+  // Set when "Try to find device" started the current connect attempt: the
+  // find screen needs a live link for its RSSI ping, so from the failed and
+  // disconnected states finding is connect-first. Cleared on failure — a
+  // later manual Retry must not surprise-open the find screen.
+  bool _openFindWhenReady = false;
   String? _error;
   List<BleDiscoveredService> _services = [];
   late final BleService _bleService;
@@ -115,10 +120,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         _services = services;
         _state = _ScreenState.ready;
       });
+      if (_openFindWhenReady) {
+        _openFindWhenReady = false;
+        _openFind();
+      }
     } catch (e) {
       // Drop any half-open link + cached services so the error path / Retry
       // starts from a clean slate (no-op if we never connected).
       await _cleanupConnection();
+      _openFindWhenReady = false;
       if (mounted) {
         setState(() {
           _error = friendlyErrorText(
@@ -131,6 +141,31 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         });
       }
     }
+  }
+
+  /// Push the hot/cold locator for the (connected) device. One method for
+  /// both entrances — the connected header's button and the try-to-find path
+  /// out of the failed/disconnected states — so they cannot drift.
+  void _openFind() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FindDeviceScreen(
+          deviceId: widget.device.id,
+          deviceName: widget.device.displayName,
+          services: _services,
+        ),
+      ),
+    );
+  }
+
+  /// Connect, then open the find screen — the find affordance for the states
+  /// with no link to measure. "Try", honestly: if the device is genuinely out
+  /// of range the connect fails and the error state says so, which is itself
+  /// the answer to "is it near me".
+  Future<void> _tryToFind() {
+    _openFindWhenReady = true;
+    return _connect();
   }
 
   /// Tear down the connection this screen owns: cancel the connection-state
@@ -254,6 +289,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           deviceName: null,
         );
 
+      // Both dead-end states carry the find affordance too: a failed or lost
+      // connection usually MEANS out of range or powered off, which makes
+      // "where is it?" the natural next question, not a follow-up one.
       case _ScreenState.error:
         return _StatusState(
           icon: Icons.error_outline,
@@ -262,6 +300,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           message: _error ?? 'Connection failed',
           actionLabel: 'Retry',
           onAction: _connect,
+          secondaryActionLabel: 'Try to find device',
+          secondaryActionIcon: Icons.radar,
+          onSecondaryAction: _tryToFind,
         );
 
       case _ScreenState.disconnected:
@@ -273,6 +314,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               'is powered on, then reconnect.',
           actionLabel: 'Reconnect',
           onAction: _connect,
+          secondaryActionLabel: 'Try to find device',
+          secondaryActionIcon: Icons.radar,
+          onSecondaryAction: _tryToFind,
         );
 
       case _ScreenState.ready:
@@ -288,16 +332,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               description: describeWith(
                   ref.watch(numberRegistryProvider), widget.device),
               serviceCount: _services.length,
-              onFind: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => FindDeviceScreen(
-                    deviceId: widget.device.id,
-                    deviceName: widget.device.displayName,
-                    services: _services,
-                  ),
-                ),
-              ),
+              onFind: _openFind,
               onDisconnect: () async {
                 await _cleanupConnection();
                 if (!mounted) return;
@@ -584,6 +619,13 @@ class _StatusState extends StatelessWidget {
   final String actionLabel;
   final VoidCallback onAction;
 
+  /// Optional second, visually quieter action under the primary one — how the
+  /// dead-end states offer "Try to find device" without competing with their
+  /// Retry/Reconnect.
+  final String? secondaryActionLabel;
+  final IconData? secondaryActionIcon;
+  final VoidCallback? onSecondaryAction;
+
   const _StatusState({
     required this.icon,
     required this.severity,
@@ -591,6 +633,9 @@ class _StatusState extends StatelessWidget {
     required this.message,
     required this.actionLabel,
     required this.onAction,
+    this.secondaryActionLabel,
+    this.secondaryActionIcon,
+    this.onSecondaryAction,
   });
 
   @override
@@ -642,6 +687,18 @@ class _StatusState extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
               ),
             ),
+            if (secondaryActionLabel != null) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: onSecondaryAction,
+                icon: Icon(secondaryActionIcon ?? Icons.radar, size: 18),
+                label: Text(secondaryActionLabel!),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                ),
+              ),
+            ],
           ],
         ),
       ),
