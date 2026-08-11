@@ -307,11 +307,27 @@ heading.
   `mode`, never from `BinaryState`, which answers `0` whatever the device is
   doing.
 
-  **Not yet wired to the UI.** This is the half that needs no toolchain to
-  test; the Dart side (fetch `setup.xml`, resolve control URLs from the
-  device's own service list, POST, parse the reply) and the controls that
-  render a picker and a countdown are still to come, as is the FRB surface
-  that carries them across.
+  And the UI half, now wired end to end. Tapping a matched Wi-Fi device whose
+  spec declares controls opens a control screen instead of the details sheet:
+  a toggle for the plug; for the Crock-Pot a cook-mode picker, an editable
+  cook-time card and a cooked-time reading — the app's first `select` control
+  on any transport. `SoapControlClient` is the transport (fetch `setup.xml`,
+  resolve control URLs from the device's own service list because published
+  paths move across firmware generations, POST with the exact SOAPACTION
+  header, parse the reply by the spec's envelope rule, and tell a SOAP Fault
+  — the device refusing — apart from the network failing). The FRB surface
+  carries four calls: list a device's controls (narrowed to the model by the
+  SSDP targets it answered, so a plug never grows the cooker's picker),
+  render a command, render a state read, decode a reading.
+
+  Every write that carries a `read_back` re-reads the state it depends on
+  immediately before sending — not from the last refresh, because the
+  cooker's own countdown moves between refreshes and sending a stale time
+  rewinds it. The widget test pins exactly that: picking Warm on a cooker
+  with four hours on the clock sends `mode=50, time=240`, and turning off
+  sends no values at all. An unrecognised mode renders as
+  "Unrecognized state", never as the first option — which would read "off"
+  while the thing is heating.
 
 - **A file no test imports can no longer hide from the coverage number.**
   `flutter test --coverage` instruments only what a test reaches, so an

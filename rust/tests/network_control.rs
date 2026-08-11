@@ -345,3 +345,139 @@ fn the_other_wemo_families_declare_no_controls_yet() {
         .flatten()
         .all(|variant| { variant.contains("Plug") || variant.contains("Crock-Pot") }));
 }
+
+// ── The FFI surface, over the same file ─────────────────────────────────────
+//
+// What Dart actually calls. Tested here rather than only through the internal
+// modules because the FFI layer adds two things of its own — variant scoping
+// by SSDP target, and the parsing of `source:` strings into structured
+// read-back entries — and both have a wrong-answer failure mode, not a crash.
+
+use liberated_bread_core::api::device_api::{
+    network_entities_for_device, read_network_entity, render_network_command,
+    render_network_state_request, NetworkReadingKind,
+};
+use std::collections::HashMap;
+
+fn targets(list: &[&str]) -> Vec<String> {
+    list.iter().map(|t| (*t).to_string()).collect()
+}
+
+#[test]
+fn a_crockpot_gets_cooker_controls_and_a_plug_does_not() {
+    // The device's own SSDP answers are what narrow a family spec to a model.
+    let cooker = network_entities_for_device(
+        WEMO.to_string(),
+        targets(&[
+            "urn:Belkin:service:basicevent:1",
+            "urn:Belkin:device:crockpot:1",
+        ]),
+    )
+    .unwrap();
+    let names: Vec<&str> = cooker.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["Slow Cooker", "Cook Mode", "Cook Time", "Cooked Time"]
+    );
+
+    // A Mini answers controllee:1 — it must get the plug switch and nothing
+    // of the cooker's. This is the assertion that fails if variant scoping
+    // ever loosens, and the failure it prevents is a Cook Mode picker on a
+    // power strip.
+    let plug = network_entities_for_device(
+        WEMO.to_string(),
+        targets(&[
+            "urn:Belkin:service:basicevent:1",
+            "urn:Belkin:device:controllee:1",
+        ]),
+    )
+    .unwrap();
+    let names: Vec<&str> = plug.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, vec!["Plug"]);
+
+    // Unidentifiable model: no controls, not a stranger's controls.
+    let unknown =
+        network_entities_for_device(WEMO.to_string(), targets(&["upnp:rootdevice"])).unwrap();
+    assert!(unknown.is_empty());
+}
+
+#[test]
+fn the_dto_carries_structured_read_back_not_source_strings() {
+    let cooker =
+        network_entities_for_device(WEMO.to_string(), targets(&["urn:Belkin:device:crockpot:1"]))
+            .unwrap();
+    let mode = cooker.iter().find(|e| e.name == "Cook Mode").unwrap();
+
+    assert_eq!(mode.platform.as_deref(), Some("select"));
+    let labels: Vec<&str> = mode.options.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(labels, vec!["off", "warm", "low", "high"]);
+
+    let action = &mode.actions[0];
+    assert_eq!(action.role, "select_option");
+    assert_eq!(action.user_params, vec!["mode"]);
+    // "state:GetCrockpotState.time" arrives parsed, so Dart never learns the
+    // string format — the FFI is where it stops being a spelling.
+    assert_eq!(action.read_back.len(), 1);
+    assert_eq!(action.read_back[0].param, "time");
+    assert_eq!(action.read_back[0].command, "GetCrockpotState");
+    assert_eq!(action.read_back[0].field, "time");
+}
+
+#[test]
+fn a_state_request_renders_from_the_endpoint_catalogue() {
+    let request =
+        render_network_state_request(WEMO.to_string(), "GetCrockpotState".to_string()).unwrap();
+    assert_eq!(request.service, "urn:Belkin:service:basicevent:1");
+    assert_eq!(
+        request.soap_action,
+        "\"urn:Belkin:service:basicevent:1#GetCrockpotState\""
+    );
+    assert_eq!(request.path.as_deref(), Some("/upnp/control/basicevent1"));
+    assert!(request
+        .body
+        .contains("<u:GetCrockpotState xmlns:u=\"urn:Belkin:service:basicevent:1\">"));
+    // Argument-less: the action element is empty, with no stray blank line.
+    assert!(!request.body.contains("\n\n"));
+}
+
+#[test]
+fn the_ffi_round_trip_reads_what_it_would_send_about() {
+    let request = render_network_command(
+        WEMO.to_string(),
+        "set_cook_mode".to_string(),
+        HashMap::from([
+            ("mode".to_string(), "51".to_string()),
+            ("time".to_string(), "240".to_string()),
+        ]),
+    )
+    .unwrap();
+    assert!(request.body.contains("<mode>51</mode>"));
+
+    let reading = read_network_entity(
+        WEMO.to_string(),
+        "Cook Mode".to_string(),
+        HashMap::from([("mode".to_string(), "51".to_string())]),
+    )
+    .unwrap()
+    .expect("the reply carries the mode");
+    assert_eq!(reading.kind, NetworkReadingKind::Option);
+    assert_eq!(reading.label.as_deref(), Some("low"));
+    assert_eq!(reading.raw, "51");
+
+    // A mode the table does not know is UNKNOWN, with the raw value kept for
+    // display — never the first option's label.
+    let unknown = read_network_entity(
+        WEMO.to_string(),
+        "Cook Mode".to_string(),
+        HashMap::from([("mode".to_string(), "99".to_string())]),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(unknown.kind, NetworkReadingKind::UnknownOption);
+    assert_eq!(unknown.raw, "99");
+
+    // And a reply that never mentioned the value reads as nothing at all.
+    let absent =
+        read_network_entity(WEMO.to_string(), "Cook Mode".to_string(), HashMap::new()).unwrap();
+    assert!(absent.is_none());
+}

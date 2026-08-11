@@ -181,6 +181,78 @@ fn resolve_param(
         .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
 }
 
+/// Render the request that reads a state command's values — a SOAP call with
+/// no arguments, addressed by what the spec's `http_endpoints` catalogue says
+/// about the named action.
+///
+/// State reads are the one request an entity makes that no `commands` entry
+/// covers: `GetCrockpotState` is invoked by nothing, it is only *read from*.
+/// The endpoint entry carries its `service` (the schema declares the key for
+/// exactly this reason — a SOAPACTION header cannot be built from prose) and
+/// its conventional `path`.
+pub fn render_state_request(
+    spec: &DeviceSpec,
+    state_command: &str,
+) -> Result<SoapRequest, ProtocolError> {
+    let endpoint =
+        find_endpoint(spec, state_command).ok_or_else(|| ProtocolError::CommandNotFound {
+            uuid: "http_endpoints".to_string(),
+            command: state_command.to_string(),
+        })?;
+    let service = endpoint_service(&endpoint).ok_or_else(|| {
+        ProtocolError::UnsupportedCommandEncoding(format!(
+            "endpoint '{state_command}' declares no service, so its SOAPACTION cannot be built"
+        ))
+    })?;
+
+    let body = template_for(spec)
+        .replace("{action}", state_command)
+        .replace("{serviceType}", &service)
+        .replace("{arguments}", "");
+
+    Ok(SoapRequest {
+        soap_action: format!("\"{service}#{state_command}\""),
+        service,
+        action: state_command.to_string(),
+        path: endpoint
+            .get("path")
+            .and_then(|p| p.as_str())
+            .map(str::to_string),
+        // An empty argument line would leave a blank line inside the action
+        // element; harmless, but the published examples do not carry one.
+        body: body.replace("\n\n", "\n").trim().to_string(),
+    })
+}
+
+/// The `http_endpoints` entry named `name`, out of the untyped extension
+/// block. Endpoints stay untyped because only two keys are read here and the
+/// catalogue's endpoint entries vary widely.
+fn find_endpoint(spec: &DeviceSpec, name: &str) -> Option<serde_yaml::Value> {
+    spec.extensions
+        .get("http_endpoints")?
+        .as_sequence()?
+        .iter()
+        .find(|entry| entry.get("name").and_then(|n| n.as_str()) == Some(name))
+        .cloned()
+}
+
+/// An endpoint's service URN: the declared `service` key, or — for a spec
+/// written before the key existed — the first `urn:` token its description
+/// quotes, minus any `#Action` suffix.
+fn endpoint_service(endpoint: &serde_yaml::Value) -> Option<String> {
+    if let Some(service) = endpoint.get("service").and_then(|s| s.as_str()) {
+        return Some(service.to_string());
+    }
+    let description = endpoint.get("description")?.as_str()?;
+    let start = description.find("urn:")?;
+    let tail = &description[start..];
+    let end = tail
+        .find(|c: char| c == '#' || c == '"' || c.is_whitespace())
+        .unwrap_or(tail.len());
+    let urn = tail[..end].trim_end_matches(['.', ',']);
+    (!urn.is_empty()).then(|| urn.to_string())
+}
+
 /// Escape the three characters that would otherwise close or open an element.
 ///
 /// The spec calls this out because an SSID containing an ampersand is the
