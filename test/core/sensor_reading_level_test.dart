@@ -104,20 +104,16 @@ void main() {
 
   group('particulates', () {
     test('PM2.5 bands at 10/25', () {
-      expect(
-          sensorReadingLevel(deviceClass: 'pm25', unit: 'µg/m³', value: 5),
+      expect(sensorReadingLevel(deviceClass: 'pm25', unit: 'µg/m³', value: 5),
           SensorReadingLevel.good);
-      expect(
-          sensorReadingLevel(deviceClass: 'pm25', unit: 'µg/m³', value: 12),
+      expect(sensorReadingLevel(deviceClass: 'pm25', unit: 'µg/m³', value: 12),
           SensorReadingLevel.fair);
-      expect(
-          sensorReadingLevel(deviceClass: 'pm25', unit: 'µg/m³', value: 30),
+      expect(sensorReadingLevel(deviceClass: 'pm25', unit: 'µg/m³', value: 30),
           SensorReadingLevel.poor);
     });
 
     test('PM10 bands at 20/50', () {
-      expect(
-          sensorReadingLevel(deviceClass: 'pm10', unit: 'ug/m3', value: 30),
+      expect(sensorReadingLevel(deviceClass: 'pm10', unit: 'ug/m3', value: 30),
           SensorReadingLevel.fair);
     });
   });
@@ -168,15 +164,14 @@ void main() {
       // Temperature has no universal healthy range — comfort is preference —
       // and a made-up verdict there would cheapen the real ones.
       expect(
-          sensorReadingLevel(
-              deviceClass: 'temperature', unit: '°C', value: 22),
+          sensorReadingLevel(deviceClass: 'temperature', unit: '°C', value: 22),
           isNull);
       expect(
           sensorReadingLevel(
               deviceClass: 'atmospheric_pressure', unit: 'hPa', value: 1013),
           isNull);
-      expect(sensorReadingLevel(deviceClass: null, unit: null, value: 5),
-          isNull);
+      expect(
+          sensorReadingLevel(deviceClass: null, unit: null, value: 5), isNull);
     });
 
     test('a missing or non-finite value gets no verdict', () {
@@ -203,7 +198,8 @@ void main() {
         final colors = sensorReadingLevelColors(level, brightness);
         final l1 = colors.foreground.computeLuminance();
         final l2 = colors.background.computeLuminance();
-        final ratio = l1 > l2 ? (l1 + 0.05) / (l2 + 0.05) : (l2 + 0.05) / (l1 + 0.05);
+        final ratio =
+            l1 > l2 ? (l1 + 0.05) / (l2 + 0.05) : (l2 + 0.05) / (l1 + 0.05);
         expect(
           ratio,
           greaterThanOrEqualTo(4.5),

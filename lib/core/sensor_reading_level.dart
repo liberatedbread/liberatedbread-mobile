@@ -128,14 +128,32 @@ String sensorReadingLevelLabel(SensorReadingLevel level) => switch (level) {
   final dark = brightness == Brightness.dark;
   return switch (level) {
     SensorReadingLevel.good => dark
-        ? (background: const Color(0xFF243D28), foreground: const Color(0xFF9FD6A0))
-        : (background: const Color(0xFFD9EAD5), foreground: const Color(0xFF1E5323)),
+        ? (
+            background: const Color(0xFF243D28),
+            foreground: const Color(0xFF9FD6A0)
+          )
+        : (
+            background: const Color(0xFFD9EAD5),
+            foreground: const Color(0xFF1E5323)
+          ),
     SensorReadingLevel.fair => dark
-        ? (background: const Color(0xFF453A0C), foreground: const Color(0xFFE6C868))
-        : (background: const Color(0xFFF6E8C0), foreground: const Color(0xFF5F4700)),
+        ? (
+            background: const Color(0xFF453A0C),
+            foreground: const Color(0xFFE6C868)
+          )
+        : (
+            background: const Color(0xFFF6E8C0),
+            foreground: const Color(0xFF5F4700)
+          ),
     SensorReadingLevel.poor => dark
-        ? (background: const Color(0xFF4C2320), foreground: const Color(0xFFF2B8B5))
-        : (background: const Color(0xFFF6DAD6), foreground: const Color(0xFF8C1D18)),
+        ? (
+            background: const Color(0xFF4C2320),
+            foreground: const Color(0xFFF2B8B5)
+          )
+        : (
+            background: const Color(0xFFF6DAD6),
+            foreground: const Color(0xFF8C1D18)
+          ),
   };
 }
 
