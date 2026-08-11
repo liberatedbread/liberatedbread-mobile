@@ -128,7 +128,8 @@ class SavedDesignsStore {
   /// one entry, not two.
   Future<List<SavedDesign>> save(String deviceId, SavedDesign design) async {
     final designs = load(deviceId)
-        .where((d) => d.cid != design.cid && d.contentHash != design.contentHash)
+        .where(
+            (d) => d.cid != design.cid && d.contentHash != design.contentHash)
         .toList()
       ..insert(0, design);
     await _prefs.setString('$_keyPrefix$deviceId',
