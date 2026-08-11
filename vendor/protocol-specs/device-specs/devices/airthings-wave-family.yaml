@@ -223,7 +223,7 @@ variants:
       report-measurements → single 230-byte pending-hour block on the ASR
       characteristic (twelve 5-minute slots; format on b42e538a), and the
       advertisement's ~20 s "new 5-minute data" flag pulse every 300 s.
-    sensors: ["radon", "temperature", "humidity"]
+    sensors: ["radon", "temperature", "humidity", "light"]
 
   - model: "Wave Plus"
     identification:
@@ -234,7 +234,8 @@ variants:
       Device type code: dTWavePlus=2 in legacy code.
       ASR: b42e2fc2, ASRACP: b42e2d06, Combined: b42e2a68.
       Includes dew point characteristic (2A7B) and pressure (2A6D).
-    sensors: ["radon", "co2", "voc", "temperature", "humidity", "pressure"]
+    sensors:
+      ["radon", "co2", "voc", "temperature", "humidity", "pressure", "light"]
 
   - model: "Wave Mini"
     identification:
@@ -246,7 +247,7 @@ variants:
       The BLE packet on the combined data characteristic (b42e3b98, struct
       "<2B5HLL") also carries pressure and VOC, beyond the temp/humidity the
       marketing description suggests.
-    sensors: ["temperature", "humidity", "pressure", "voc"]
+    sensors: ["temperature", "humidity", "pressure", "voc", "light"]
 
   - model: "Wave Mist"
     notes: >
@@ -1188,6 +1189,22 @@ timing:
 # Wave Plus report radon inside their model-specific combined packet. A
 # consumer keyed on discovered characteristics naturally picks the one binding
 # the connected unit actually has.
+#
+# Temperature and humidity use the same multi-binding shape, and the variant
+# scoping is the source of truth for which binding serves which model: the
+# combined-packet bindings carry the variants whose packet is decodable
+# (Gen 2 / Plus / Mini — the packet the vendor app itself reads, and the one
+# source verified against live traffic: 22.6 °C / 53.5 %RH on Wave Gen 2),
+# while the SIG environmental-sensing bindings (2A6E/2A6F, app-derived and
+# unobserved in capture) are scoped to the models with no decodable combined
+# packet — Wave Gen 1 (the vendor's own wave-reader reads exactly these) and
+# View Plus. Every variant resolves exactly one binding per reading; nothing
+# relies on an implicit "first match wins" rule. The combined bindings are
+# still listed first deliberately: a consumer keyed on discovered
+# characteristics rather than variants (this repo's mobile app) can meet
+# hardware exposing BOTH interfaces — the Mini documents the SIG
+# characteristics alongside its packet — and taking the first resolved
+# binding then reads the source the vendor's own tooling trusts.
 entities:
   - platform: "sensor"
     name: "Radon 24h Average"
@@ -1207,6 +1224,19 @@ entities:
     unit: "Bq/m³"
     state_characteristic: "b42e0a4c-ade7-11e4-89d3-123b93f75cba"
     variants: ["Wave (Gen 1)"]
+
+  - platform: "sensor"
+    name: "Radon 1h Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e06dc-ade7-11e4-89d3-123b93f75cba"
+    variants: ["Wave (Gen 1)"]
+    notes: >
+      The Gen 1 service's third dedicated radon characteristic, previously
+      documented but bound to no entity. The hourly figure reacts a day
+      before the 24 h average does; Airthings' own banding (100/150 Bq/m³)
+      is defined on averages, so treat a brief spike here as a prompt to
+      watch the averages, not a verdict by itself.
 
   - platform: "sensor"
     name: "Radon 24h Average"
@@ -1276,13 +1306,92 @@ entities:
     name: "Temperature"
     device_class: "temperature"
     unit: "°C"
+    state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "temperature"
+    variants: ["Wave (Gen 2)"]
+    notes: >
+      Combined-packet field, capture-verified (22.57-22.66 °C tracking the
+      vendor app's own reading). Ordered before the SIG characteristic —
+      see the comment above the entities block.
+
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "temperature"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "temperature"
+    variants: ["Wave Mini"]
+    notes: >
+      The Mini's combined packet is centikelvin; the format block's
+      scale 0.01 + value_offset -273.15 already produce °C, and this entity
+      restates only the display unit. The vendor's wavemini-reader decodes
+      current values exclusively from this packet.
+
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
     state_characteristic: "00002a6e-0000-1000-8000-00805f9b34fb"
+    variants: ["Wave (Gen 1)", "View Plus"]
+    notes: >
+      SIG-characteristic binding, scoped to the models with no decodable
+      combined packet: Gen 1 (the vendor's wave-reader reads exactly this;
+      its combined characteristic has no recovered format) and View Plus
+      (no model-specific characteristics recovered at all). Unscoped, this
+      entity applied to every variant and doubled the reading beside the
+      combined-packet bindings above. App-derived; unobserved in capture.
+
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "humidity"
+    variants: ["Wave (Gen 2)"]
+    notes: >
+      Combined-packet field, capture-verified (107 raw = 53.5 %RH at the
+      packet's 0.5 %RH per count). Ordered before the SIG characteristic —
+      see the comment above the entities block.
+
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "humidity"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+    state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "humidity"
+    variants: ["Wave Mini"]
 
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
     state_characteristic: "00002a6f-0000-1000-8000-00805f9b34fb"
+    variants: ["Wave (Gen 1)", "View Plus"]
+    notes: >
+      SIG-characteristic binding, scoped to the models with no decodable
+      combined packet — same reasoning as the temperature entity above.
 
   - platform: "sensor"
     name: "Pressure"
@@ -1310,6 +1419,39 @@ entities:
     unit: "°C"
     state_characteristic: "00002a7b-0000-1000-8000-00805f9b34fb"
     variants: ["Wave Plus"]
+
+  # Ambient light is a real sensor on every Wave — it drives the ring's
+  # auto-brightness and is capture-verified live data (11-17 indoors on
+  # Wave Gen 2) — but it reports unitless raw counts (0-255). No
+  # `illuminance` device class: that class means lux, and claiming it would
+  # invite consumers to chart counts as lux. The raw level is still worth a
+  # tile: 0 vs 200 answers "is that room dark right now".
+  - platform: "sensor"
+    name: "Ambient Light"
+    icon: "mdi:brightness-5"
+    state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "ambient_light"
+    variants: ["Wave (Gen 2)"]
+
+  - platform: "sensor"
+    name: "Ambient Light"
+    icon: "mdi:brightness-5"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "ambient_light"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "Ambient Light"
+    icon: "mdi:brightness-5"
+    state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "ambient_light"
+    variants: ["Wave Mini"]
+    notes: >
+      On the Mini the light byte sits at offset 0 of the combined packet,
+      not offset 2 — see the format block's note on the two vendor decoders.
 
   - platform: "sensor"
     name: "Battery"
