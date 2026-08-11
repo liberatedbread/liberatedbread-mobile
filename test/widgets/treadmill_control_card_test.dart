@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -159,6 +160,14 @@ void main() {
     await tester.tap(find.text('Start'));
     await tester.pumpAndSettle();
 
+    // Start never fires from one tap: it sets a belt moving under a person,
+    // so the card asks first, every time.
+    expect(find.text('Start the belt?'), findsOneWidget);
+    expect(codec.encodeCalls, isEmpty);
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.pumpAndSettle();
+
     final call =
         codec.encodeCalls.firstWhere((c) => c.commandName == 'start_belt');
     expect(call.params, isEmpty);
@@ -186,6 +195,33 @@ void main() {
     call = codec.encodeCalls.lastWhere((c) => c.commandName == 'stop_or_pause');
     expect(call.params, {'action': 1.0});
     expect(ble.writes, hasLength(2));
+  });
+
+  testWidgets('Stop stays live while another write is in flight',
+      (tester) async {
+    // A speed write can stall for many seconds behind the BLE stack; that is
+    // exactly when the belt is moving under someone, so the one control that
+    // halts it must not grey out with the rest.
+    final gate = Completer<void>();
+    final ble = FakeBleService(writeGate: gate.future);
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x08, 0x01]));
+    await tester.pumpWidget(_wrap(ble: ble, codec: codec));
+
+    // Hold a speed write in flight.
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pump();
+    expect(tester.widget<Slider>(find.byType(Slider)).onChanged, isNull,
+        reason: 'the ordinary controls disable during a send');
+
+    await tester.tap(find.text('Stop'));
+    await tester.pump();
+    // Both writes resolve once the stack unblocks; Stop queued behind the
+    // stalled speed write rather than being refused.
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(ble.writes, hasLength(2));
+    expect(
+        codec.encodeCalls.map((c) => c.commandName), contains('stop_or_pause'));
   });
 
   testWidgets('the speed stepper commits immediately, in raw wire units',

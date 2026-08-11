@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:typed_data';
+
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
@@ -23,8 +25,47 @@ class SoapControlClient {
   /// eager retries; 10 s matches pywemo's REQUESTS_TIMEOUT.
   static const timeout = Duration(seconds: 10);
 
+  /// Largest response body this client will buffer. Descriptions and SOAP
+  /// envelopes are a few KB; anything past half a megabyte is not a device
+  /// we can drive, it is a broken or hostile host on the local network —
+  /// and the host chooses the size, so an uncapped read is an allocation
+  /// the LAN controls. (`package:http`'s convenience helpers buffer to
+  /// completion with no cap, which is why requests go through [_bounded].)
+  static const maxResponseBytes = 512 * 1024;
+
   SoapControlClient({http.Client? httpClient})
       : _http = httpClient ?? http.Client();
+
+  /// Send [request] and buffer its body, refusing past [maxResponseBytes].
+  ///
+  /// The size cap has to sit on the stream read: the convenience helpers
+  /// buffer the whole body before handing it over, so by the time a caller
+  /// could measure it the allocation has happened. The deadline is one
+  /// `Future.timeout` around the whole exchange, exactly the shape the old
+  /// `get(...).timeout(...)` had — deliberately not `Stream.timeout` on the
+  /// body, which never delivers events under flutter_test's fake async.
+  Future<http.Response> _bounded(http.Request request) {
+    return () async {
+      final streamed = await _http.send(request);
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in streamed.stream) {
+        bytes.add(chunk);
+        if (bytes.length > maxResponseBytes) {
+          throw SoapTransportException(
+              '${request.url} sent more than $maxResponseBytes bytes; '
+              'refusing to buffer further');
+        }
+      }
+      return http.Response.bytes(
+        bytes.takeBytes(),
+        streamed.statusCode,
+        request: request,
+        headers: streamed.headers,
+        reasonPhrase: streamed.reasonPhrase,
+      );
+    }()
+        .timeout(timeout);
+  }
 
   /// Fetch and parse `http://host:port/setup.xml`.
   ///
@@ -34,7 +75,7 @@ class SoapControlClient {
   /// the spec repeats more than any other.
   Future<SoapDeviceDescription> fetchDescription(String host, int port) async {
     final uri = Uri(scheme: 'http', host: host, port: port, path: '/setup.xml');
-    final response = await _http.get(uri).timeout(timeout);
+    final response = await _bounded(http.Request('GET', uri));
     if (response.statusCode != 200) {
       throw SoapTransportException(
           'description fetch failed: HTTP ${response.statusCode} from $uri');
@@ -54,19 +95,28 @@ class SoapControlClient {
     SoapRequestDto request,
   ) async {
     final uri = Uri(scheme: 'http', host: host, port: port, path: controlPath);
-    final response = await _http
-        .post(
-          uri,
-          headers: {
-            // The quotes in SOAPACTION are part of the value; the DTO carries
-            // them already. Charset spelling is the one the spec publishes.
-            'Content-Type': 'text/xml; charset="utf-8"',
-            'SOAPACTION': request.soapAction,
-          },
-          body: request.body,
-        )
-        .timeout(timeout);
+    final httpRequest = http.Request('POST', uri)
+      ..headers.addAll({
+        // The quotes in SOAPACTION are part of the value; the DTO carries
+        // them already. Charset spelling is the one the spec publishes.
+        'Content-Type': 'text/xml; charset="utf-8"',
+        'SOAPACTION': request.soapAction,
+      })
+      ..body = request.body;
+    final response = await _bounded(httpRequest);
     if (response.statusCode != 200) {
+      // UPnP delivers action-level errors as HTTP 500 with a Fault body,
+      // and that fault detail is the only diagnostics the device offers —
+      // read it before writing the reply off as a transport failure.
+      if (response.statusCode == 500) {
+        try {
+          parseSoapResponse(response.body, action: request.action);
+        } on SoapFaultException {
+          rethrow;
+        } catch (_) {
+          // Not a SOAP body after all; report the transport error below.
+        }
+      }
       throw SoapTransportException(
           '${request.action} failed: HTTP ${response.statusCode} from $uri');
     }

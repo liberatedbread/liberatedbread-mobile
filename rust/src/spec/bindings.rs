@@ -249,7 +249,10 @@ fn qualify_set_value<'a>(
             .parameters
             .as_ref()
             .and_then(|set| set.params.get(param_name.as_str()));
-        if declared.is_some_and(|p| p.default.is_some()) {
+        // A default fills the parameter, and so does `auto`: the encoder
+        // computes checksums, sequence numbers and packet lengths itself,
+        // so neither shape leaves a blank the user must own.
+        if declared.is_some_and(|p| p.default.is_some() || p.auto.is_some()) {
             continue;
         }
         match value_param {
@@ -561,12 +564,14 @@ fn qualify<'a>(
             user_params.push(param_name);
             continue;
         }
-        let defaulted = command
+        // Spec-supplied either way: a default is a stated value, `auto` is a
+        // value the encoder computes (checksum, sequence, packet_length).
+        let supplied = command
             .parameters
             .as_ref()
             .and_then(|set| set.params.get(param_name.as_str()))
-            .is_some_and(|p| p.default.is_some());
-        if !defaulted {
+            .is_some_and(|p| p.default.is_some() || p.auto.is_some());
+        if !supplied {
             return None;
         }
     }
