@@ -440,10 +440,12 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// doodle session.
   void _loadDesign(LedDesign design) {
     final asAnimation = design.animation && _spec.animation;
-    // Choose the frames first (static keeps one), THEN clamp to the spec's
-    // frame cap — never below 1, so a maxFrames of 0 can't leave the canvas
-    // empty and crash the indexing in build()/_sendCurrentFrame.
-    var frames = asAnimation ? design.frames : design.frames.take(1).toList();
+    // Build the design's pixels now, on selection — the menu carried only its
+    // name. Choose the frames first (static keeps one), THEN clamp to the
+    // spec's frame cap — never below 1, so a maxFrames of 0 can't leave the
+    // canvas empty and crash the indexing in build()/_sendCurrentFrame.
+    final built = design.buildFrames();
+    var frames = asAnimation ? built : built.take(1).toList();
     final maxFrames = _spec.maxFrames;
     if (maxFrames != null && frames.length > maxFrames) {
       frames = frames.sublist(0, maxFrames < 1 ? 1 : maxFrames);
@@ -901,26 +903,46 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
               onSelected: (i) => setState(() => _selectedColor = i),
             ),
             const SizedBox(height: 8),
+            // The ready-made presets, unless the canvas is too large to build
+            // them (a printer's tall roll) — then a note in their place rather
+            // than a menu that would allocate hundreds of MB on selection.
             Align(
               alignment: Alignment.centerLeft,
-              child: PopupMenuButton<LedDesign>(
-                enabled: !_streaming && !_sending && !_saving,
-                onSelected: _loadDesign,
-                itemBuilder: (context) => [
-                  for (final d in _designs)
-                    PopupMenuItem(
-                      value: d,
-                      child:
-                          Text(d.animation ? '${d.name} (animation)' : d.name),
+              child: _designs.isEmpty
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.info_outline,
+                            size: 16, color: scheme.onSurfaceVariant),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            'Ready-made designs are unavailable at this canvas '
+                            'size.',
+                            style: text.bodySmall
+                                ?.copyWith(color: scheme.onSurfaceVariant),
+                          ),
+                        ),
+                      ],
+                    )
+                  : PopupMenuButton<LedDesign>(
+                      enabled: !_streaming && !_sending && !_saving,
+                      onSelected: _loadDesign,
+                      itemBuilder: (context) => [
+                        for (final d in _designs)
+                          PopupMenuItem(
+                            value: d,
+                            child: Text(
+                                d.animation ? '${d.name} (animation)' : d.name),
+                          ),
+                      ],
+                      // A plain Chip (no onPressed) so the PopupMenuButton owns
+                      // the tap; the button's `enabled` gates it while busy.
+                      child: const Chip(
+                        avatar: Icon(Icons.palette_outlined, size: 18),
+                        label: Text('Designs'),
+                      ),
                     ),
-                ],
-                // A plain Chip (no onPressed) so the PopupMenuButton owns the
-                // tap; the button's `enabled` gates it while busy.
-                child: const Chip(
-                  avatar: Icon(Icons.palette_outlined, size: 18),
-                  label: Text('Designs'),
-                ),
-              ),
             ),
             if (_animationMode) ...[
               const SizedBox(height: 12),
