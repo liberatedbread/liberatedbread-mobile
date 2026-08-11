@@ -80,7 +80,22 @@ pub mod msg {
     pub const GET_COLOR_ZONES: u16 = 502;
     pub const STATE_ZONE: u16 = 503;
     pub const STATE_MULTI_ZONE: u16 = 506;
+    // SoftAP provisioning (the legacy access-point family the setup block
+    // documents; dropped from the current protocol.yml but still spoken by
+    // original-generation firmware over the setup AP).
+    pub const GET_ACCESS_POINTS: u16 = 0x130; // 304
+    pub const SET_ACCESS_POINT: u16 = 0x131; // 305
+    pub const STATE_ACCESS_POINT: u16 = 0x132; // 306
 }
+
+/// The `SECURITY_PROTOCOL` byte to try when the target network never appeared in
+/// a scan (a hidden SSID, or a device that scanned nothing): home networks
+/// overwhelmingly run WPA2-AES.
+pub const SECURITY_WPA2_AES: u8 = 5;
+
+/// The `interface` byte selecting the device's station radio — the one that
+/// joins the home network — on a `SetAccessPoint`.
+const INTERFACE_STATION: u8 = 2;
 
 /// LIFX's colour model: hue, saturation and brightness each span the full
 /// `u16` range; kelvin (1500..=9000) is the white point, meaningful when
@@ -313,6 +328,53 @@ pub fn get_color_zones(target: [u8; 6], start: u8, end: u8, sequence: u8) -> Vec
     msg
 }
 
+/// Write `src` into `out`, truncated or null-padded to exactly `width` bytes —
+/// how the access-point messages carry their fixed-width UTF-8 strings.
+fn push_fixed(out: &mut Vec<u8>, src: &[u8], width: usize) {
+    let take = src.len().min(width);
+    out.extend_from_slice(&src[..take]);
+    out.extend(std::iter::repeat_n(0u8, width - take));
+}
+
+/// `GetAccessPoints` (0x130): ask an unprovisioned device on its own setup AP to
+/// scan for networks. Sent tagged/broadcast — on the setup network the target is
+/// unknown. Answered by one `StateAccessPoint` per visible network.
+pub fn get_access_points(sequence: u8) -> Vec<u8> {
+    header(
+        msg::GET_ACCESS_POINTS,
+        0,
+        true,
+        [0; 6],
+        true,
+        false,
+        sequence,
+    )
+    .to_vec()
+}
+
+/// `SetAccessPoint` (0x131): hand the device its home-network credentials. The
+/// 98-byte payload is `interface(1) ssid(32) password(64) security(1)`; strings
+/// are UTF-8, null-padded to their fixed width. The passphrase rides in
+/// plaintext — the legacy exchange has no credential encryption, and the setup
+/// AP is the only transport protection — so a caller must not persist it.
+pub fn set_access_point(ssid: &str, password: &str, security: u8, sequence: u8) -> Vec<u8> {
+    let mut msg = header(
+        msg::SET_ACCESS_POINT,
+        98,
+        true,
+        [0; 6],
+        false,
+        false,
+        sequence,
+    )
+    .to_vec();
+    msg.push(INTERFACE_STATION);
+    push_fixed(&mut msg, ssid.as_bytes(), 32);
+    push_fixed(&mut msg, password.as_bytes(), 64);
+    msg.push(security);
+    msg
+}
+
 // ── reply decoders ───────────────────────────────────────────────────────
 
 /// The framing fields of any received datagram: who it is from and which
@@ -437,6 +499,30 @@ pub fn parse_state_zone(bytes: &[u8]) -> Result<MultiZone, ProtocolError> {
     })
 }
 
+/// A decoded `StateAccessPoint` (0x132): one network an unprovisioned device can
+/// see. The 38-byte payload is `interface(1) ssid(32) security(1) strength(2)
+/// channel(2)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccessPoint {
+    pub ssid: String,
+    pub security: u8,
+    pub strength: i16,
+    pub channel: u16,
+}
+
+pub fn parse_state_access_point(bytes: &[u8]) -> Result<AccessPoint, ProtocolError> {
+    parse_header(bytes)?;
+    need(bytes, HEADER_LEN + 38)?;
+    // interface at payload offset 0 is ignored — the reply is always a station
+    // scan result.
+    Ok(AccessPoint {
+        ssid: decode_label(&bytes[HEADER_LEN + 1..HEADER_LEN + 33]),
+        security: bytes[HEADER_LEN + 33],
+        strength: i16::from_le_bytes([bytes[HEADER_LEN + 34], bytes[HEADER_LEN + 35]]),
+        channel: u16::from_le_bytes([bytes[HEADER_LEN + 36], bytes[HEADER_LEN + 37]]),
+    })
+}
+
 /// A LIFX label is 32 UTF-8 bytes, null-padded. Cut at the first null and
 /// decode lossily — a garbled label must not fail a whole reply.
 fn decode_label(field: &[u8]) -> String {
@@ -456,6 +542,7 @@ pub enum Reply {
     Service(StateService),
     Light(LightState),
     Zones(MultiZone),
+    AccessPoint(AccessPoint),
     /// A well-formed reply of a type this client does not decode.
     Other {
         msg_type: u16,
@@ -470,6 +557,7 @@ pub fn decode_reply(bytes: &[u8]) -> Result<Reply, ProtocolError> {
         msg::STATE => Reply::Light(parse_state(bytes)?),
         msg::STATE_ZONE => Reply::Zones(parse_state_zone(bytes)?),
         msg::STATE_MULTI_ZONE => Reply::Zones(parse_state_multi_zone(bytes)?),
+        msg::STATE_ACCESS_POINT => Reply::AccessPoint(parse_state_access_point(bytes)?),
         other => Reply::Other { msg_type: other },
     })
 }
@@ -821,6 +909,62 @@ mod tests {
             assert!((i32::from(g) - i32::from(g2)).abs() <= 1, "g {g}->{g2}");
             assert!((i32::from(b) - i32::from(b2)).abs() <= 1, "b {b}->{b2}");
         }
+    }
+
+    #[test]
+    fn get_access_points_is_a_tagged_empty_request() {
+        let pkt = get_access_points(2);
+        assert_eq!(pkt.len(), HEADER_LEN);
+        assert_eq!(&pkt[2..4], &[0x00, 0x34]); // tagged broadcast on the setup AP
+        assert_eq!(&pkt[32..34], &0x130u16.to_le_bytes());
+    }
+
+    #[test]
+    fn set_access_point_frames_credentials_null_padded() {
+        let pkt = set_access_point("HomeNet", "s3cr3t", SECURITY_WPA2_AES, 4);
+        assert_eq!(pkt.len(), HEADER_LEN + 98);
+        assert_eq!(&pkt[0..2], &134u16.to_le_bytes());
+        assert_eq!(&pkt[32..34], &0x131u16.to_le_bytes());
+        assert_eq!(pkt[HEADER_LEN], INTERFACE_STATION);
+        // ssid at payload offset 1, null-padded to 32.
+        assert_eq!(&pkt[HEADER_LEN + 1..HEADER_LEN + 8], b"HomeNet");
+        assert_eq!(pkt[HEADER_LEN + 8], 0);
+        // password at payload offset 33.
+        assert_eq!(&pkt[HEADER_LEN + 33..HEADER_LEN + 39], b"s3cr3t");
+        assert_eq!(pkt[HEADER_LEN + 33 + 6], 0);
+        // security byte last, at payload offset 97.
+        assert_eq!(pkt[HEADER_LEN + 97], SECURITY_WPA2_AES);
+    }
+
+    #[test]
+    fn a_string_longer_than_its_field_is_truncated_not_overrun() {
+        let long = "x".repeat(50);
+        let pkt = set_access_point(&long, &long, 5, 0);
+        // Still exactly 98 payload bytes: the 50-char ssid is cut to 32.
+        assert_eq!(pkt.len(), HEADER_LEN + 98);
+        assert_eq!(&pkt[HEADER_LEN + 1..HEADER_LEN + 33], &[b'x'; 32]);
+    }
+
+    #[test]
+    fn state_access_point_decodes_ssid_and_signal() {
+        let mut pkt = header(msg::STATE_ACCESS_POINT, 38, false, TARGET, false, false, 0).to_vec();
+        pkt.push(2); // interface
+        let mut ssid = [0u8; 32];
+        ssid[..7].copy_from_slice(b"HomeNet");
+        pkt.extend_from_slice(&ssid);
+        pkt.push(SECURITY_WPA2_AES);
+        pkt.extend_from_slice(&(-40i16).to_le_bytes()); // strength
+        pkt.extend_from_slice(&11u16.to_le_bytes()); // channel
+        let ap = parse_state_access_point(&pkt).unwrap();
+        assert_eq!(ap.ssid, "HomeNet");
+        assert_eq!(ap.security, SECURITY_WPA2_AES);
+        assert_eq!(ap.strength, -40);
+        assert_eq!(ap.channel, 11);
+        // and it routes through the dispatcher
+        assert!(matches!(
+            decode_reply(&pkt).unwrap(),
+            Reply::AccessPoint(a) if a.ssid == "HomeNet"
+        ));
     }
 
     #[test]
