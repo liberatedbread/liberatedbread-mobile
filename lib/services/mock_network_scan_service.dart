@@ -48,6 +48,18 @@ class MockNetworkScanService implements NetworkScanService {
       sources: const {NetworkDiscoverySource.ssdp},
       discoveredAt: DateTime(2026),
     ),
+    // A device whose spec declares a control surface with buttons (the Roku
+    // remote), so demo mode can walk into a remote screen — the same reason
+    // the Wemo entry above exists for switches. Answers only its own search
+    // target, exactly like the hardware.
+    NetworkDevice(
+      host: '192.168.1.43',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime(2026),
+    ),
     NetworkDevice(
       host: '192.168.1.42',
       name: '',
@@ -72,6 +84,9 @@ class MockNetworkScanService implements NetworkScanService {
   @override
   Stream<NetworkDevice> scan({
     Duration timeout = const Duration(seconds: 8),
+    // Accepted for interface parity; a simulated network answers every
+    // question, so the extra targets change nothing here.
+    List<String> extraSearchTargets = const [],
   }) async* {
     _stop = StopSignal();
     for (final device in _devices) {

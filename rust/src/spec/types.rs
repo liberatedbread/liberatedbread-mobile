@@ -172,8 +172,15 @@ pub struct SpecCommand {
     #[serde(default)]
     pub action: Option<String>,
     /// Request path, for transports that address by path rather than service.
+    /// May carry `{name}` placeholders substituted exactly as argument values
+    /// are — Roku's whole control surface is the path (`/keypress/PowerOn`).
     #[serde(default)]
     pub path: Option<String>,
+    /// HTTP method of a `transport: http` command, spelled as the wire wants
+    /// it. Stated on the command so it is sendable without joining the
+    /// endpoint catalogue by name.
+    #[serde(default)]
+    pub method: Option<String>,
     /// Argument name → value as both go on the wire. `"{name}"` is substituted
     /// from the like-named parameter; anything else is a literal this
     /// invocation has already decided.
@@ -227,6 +234,19 @@ impl SpecCommand {
             .filter_map(|(name, p)| Some((name.as_str(), p.source.as_deref()?)))
             .collect()
     }
+}
+
+/// An entity's XML query source: which catalogue endpoint to fetch and how
+/// to read entries out of its response. The schema's `options_source` /
+/// `state_source` contract, verbatim.
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuerySource {
+    /// Name of the `http_endpoints` entry to fetch.
+    pub command: String,
+    /// Local element name matched anywhere in the response document.
+    pub item: String,
+    /// Attribute carrying the entry's raw value.
+    pub value: String,
 }
 
 /// One parameter of a [`SpecCommand`].
@@ -409,6 +429,17 @@ pub struct Entity {
     /// returned value is a structure rather than the value itself.
     #[serde(default)]
     pub state_path: Option<String>,
+    /// Where a `select` gets options the spec cannot enumerate because they
+    /// live on the device — Roku's installed channels. Fetch the named
+    /// endpoint; every element with `item`'s local name is one option, the
+    /// `value` attribute its raw value, the element text its label.
+    #[serde(default)]
+    pub options_source: Option<QuerySource>,
+    /// Where a dynamically-optioned `select` reads which option is current,
+    /// in [`Self::options_source`]'s exact shape. An element without the
+    /// value attribute means no option is current (Roku's home screen).
+    #[serde(default)]
+    pub state_source: Option<QuerySource>,
     /// Characteristic the entity's writes target when it differs from
     /// `state_characteristic` (spider-farmer's grow light) — and the first
     /// place role commands are looked up when resolving control bindings.

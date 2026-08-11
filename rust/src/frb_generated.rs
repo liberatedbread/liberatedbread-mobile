@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 795992558;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 890017412;
 
 // Section: executor
 
@@ -647,6 +647,48 @@ fn wire__crate__api__device_api__render_network_command_impl(
         },
     )
 }
+fn wire__crate__api__device_api__render_network_http_command_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "render_network_http_command",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            let api_command_name = <String>::sse_decode(&mut deserializer);
+            let api_values =
+                <std::collections::HashMap<String, String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::render_network_http_command(
+                            api_spec_yaml,
+                            api_command_name,
+                            api_values,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__device_api__render_network_state_request_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -960,6 +1002,20 @@ impl SseDecode for crate::api::device_api::FormatFieldDto {
             field_type: var_fieldType,
             offset: var_offset,
             length: var_length,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::HttpRequestDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_method = <String>::sse_decode(deserializer);
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_body = <String>::sse_decode(deserializer);
+        return crate::api::device_api::HttpRequestDto {
+            method: var_method,
+            path: var_path,
+            body: var_body,
         };
     }
 }
@@ -1443,6 +1499,7 @@ impl SseDecode for crate::api::device_api::NetworkActionDto {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_role = <String>::sse_decode(deserializer);
         let mut var_commandName = <String>::sse_decode(deserializer);
+        let mut var_transport = <String>::sse_decode(deserializer);
         let mut var_userParams = <Vec<String>>::sse_decode(deserializer);
         let mut var_readBack =
             <Vec<crate::api::device_api::NetworkReadBackDto>>::sse_decode(deserializer);
@@ -1451,6 +1508,7 @@ impl SseDecode for crate::api::device_api::NetworkActionDto {
         return crate::api::device_api::NetworkActionDto {
             role: var_role,
             command_name: var_commandName,
+            transport: var_transport,
             user_params: var_userParams,
             read_back: var_readBack,
             min: var_min,
@@ -1490,6 +1548,10 @@ impl SseDecode for crate::api::device_api::NetworkEntityDto {
         let mut var_valueField = <Option<String>>::sse_decode(deserializer);
         let mut var_options =
             <Vec<crate::api::device_api::NetworkOptionDto>>::sse_decode(deserializer);
+        let mut var_optionsSource =
+            <Option<crate::api::device_api::QuerySourceDto>>::sse_decode(deserializer);
+        let mut var_stateSource =
+            <Option<crate::api::device_api::QuerySourceDto>>::sse_decode(deserializer);
         let mut var_actions =
             <Vec<crate::api::device_api::NetworkActionDto>>::sse_decode(deserializer);
         let mut var_setpointMin = <Option<f64>>::sse_decode(deserializer);
@@ -1505,6 +1567,8 @@ impl SseDecode for crate::api::device_api::NetworkEntityDto {
             state_command: var_stateCommand,
             value_field: var_valueField,
             options: var_options,
+            options_source: var_optionsSource,
+            state_source: var_stateSource,
             actions: var_actions,
             setpoint_min: var_setpointMin,
             setpoint_max: var_setpointMax,
@@ -1655,6 +1719,19 @@ impl SseDecode for Option<crate::api::device_api::NetworkReadingDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::QuerySourceDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::QuerySourceDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<u16> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1758,6 +1835,22 @@ impl SseDecode for crate::api::device_api::ProfileInfoDto {
             service_uuid: var_serviceUuid,
             profile_name: var_profileName,
             characteristics: var_characteristics,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::QuerySourceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_method = <String>::sse_decode(deserializer);
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_item = <String>::sse_decode(deserializer);
+        let mut var_valueAttribute = <String>::sse_decode(deserializer);
+        return crate::api::device_api::QuerySourceDto {
+            method: var_method,
+            path: var_path,
+            item: var_item,
+            value_attribute: var_valueAttribute,
         };
     }
 }
@@ -1990,7 +2083,13 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        16 => wire__crate__api__device_api__render_network_state_request_impl(
+        16 => wire__crate__api__device_api__render_network_http_command_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        17 => wire__crate__api__device_api__render_network_state_request_impl(
             port,
             ptr,
             rust_vec_len,
@@ -2247,6 +2346,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::FormatFieldDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::HttpRequestDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.method.into_into_dart().into_dart(),
+            self.path.into_into_dart().into_dart(),
+            self.body.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::HttpRequestDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::HttpRequestDto>
+    for crate::api::device_api::HttpRequestDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::HttpRequestDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::ImageUploadDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -2412,6 +2533,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkActionDto 
         [
             self.role.into_into_dart().into_dart(),
             self.command_name.into_into_dart().into_dart(),
+            self.transport.into_into_dart().into_dart(),
             self.user_params.into_into_dart().into_dart(),
             self.read_back.into_into_dart().into_dart(),
             self.min.into_into_dart().into_dart(),
@@ -2468,6 +2590,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkEntityDto 
             self.state_command.into_into_dart().into_dart(),
             self.value_field.into_into_dart().into_dart(),
             self.options.into_into_dart().into_dart(),
+            self.options_source.into_into_dart().into_dart(),
+            self.state_source.into_into_dart().into_dart(),
             self.actions.into_into_dart().into_dart(),
             self.setpoint_min.into_into_dart().into_dart(),
             self.setpoint_max.into_into_dart().into_dart(),
@@ -2651,6 +2775,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ProfileInfoDto>
     for crate::api::device_api::ProfileInfoDto
 {
     fn into_into_dart(self) -> crate::api::device_api::ProfileInfoDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::QuerySourceDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.method.into_into_dart().into_dart(),
+            self.path.into_into_dart().into_dart(),
+            self.item.into_into_dart().into_dart(),
+            self.value_attribute.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::QuerySourceDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::QuerySourceDto>
+    for crate::api::device_api::QuerySourceDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::QuerySourceDto {
         self
     }
 }
@@ -2949,6 +3096,15 @@ impl SseEncode for crate::api::device_api::FormatFieldDto {
         <String>::sse_encode(self.field_type, serializer);
         <u32>::sse_encode(self.offset, serializer);
         <u32>::sse_encode(self.length, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::HttpRequestDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.method, serializer);
+        <String>::sse_encode(self.path, serializer);
+        <String>::sse_encode(self.body, serializer);
     }
 }
 
@@ -3316,6 +3472,7 @@ impl SseEncode for crate::api::device_api::NetworkActionDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.role, serializer);
         <String>::sse_encode(self.command_name, serializer);
+        <String>::sse_encode(self.transport, serializer);
         <Vec<String>>::sse_encode(self.user_params, serializer);
         <Vec<crate::api::device_api::NetworkReadBackDto>>::sse_encode(self.read_back, serializer);
         <Option<f64>>::sse_encode(self.min, serializer);
@@ -3346,6 +3503,11 @@ impl SseEncode for crate::api::device_api::NetworkEntityDto {
         <String>::sse_encode(self.state_command, serializer);
         <Option<String>>::sse_encode(self.value_field, serializer);
         <Vec<crate::api::device_api::NetworkOptionDto>>::sse_encode(self.options, serializer);
+        <Option<crate::api::device_api::QuerySourceDto>>::sse_encode(
+            self.options_source,
+            serializer,
+        );
+        <Option<crate::api::device_api::QuerySourceDto>>::sse_encode(self.state_source, serializer);
         <Vec<crate::api::device_api::NetworkActionDto>>::sse_encode(self.actions, serializer);
         <Option<f64>>::sse_encode(self.setpoint_min, serializer);
         <Option<f64>>::sse_encode(self.setpoint_max, serializer);
@@ -3470,6 +3632,16 @@ impl SseEncode for Option<crate::api::device_api::NetworkReadingDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::QuerySourceDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::QuerySourceDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<u16> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3547,6 +3719,16 @@ impl SseEncode for crate::api::device_api::ProfileInfoDto {
             self.characteristics,
             serializer,
         );
+    }
+}
+
+impl SseEncode for crate::api::device_api::QuerySourceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.method, serializer);
+        <String>::sse_encode(self.path, serializer);
+        <String>::sse_encode(self.item, serializer);
+        <String>::sse_encode(self.value_attribute, serializer);
     }
 }
 

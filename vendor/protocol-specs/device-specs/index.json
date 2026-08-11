@@ -649,6 +649,25 @@
     "category": "tv",
     "manufacturer": "Roku / TCL",
     "manufacturer_status": "active",
+    "openness": "documented_api",
+    "helpful_urls": [
+      {
+        "title": "Roku External Control Protocol — official developer documentation",
+        "url": "https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md"
+      },
+      {
+        "title": "python-rokuecp — asynchronous Python ECP client (Home Assistant's backend)",
+        "url": "https://github.com/ctalkington/python-rokuecp"
+      },
+      {
+        "title": "Home Assistant Roku integration",
+        "url": "https://www.home-assistant.io/integrations/roku/"
+      },
+      {
+        "title": "RoMote — open-source Android ECP remote",
+        "url": "https://github.com/wseemann/RoMote"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {

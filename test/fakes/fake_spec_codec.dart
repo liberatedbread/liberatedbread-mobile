@@ -91,6 +91,16 @@ class FakeSpecCodec implements SpecCodec {
   final List<({String commandName, Map<String, String> values})>
       renderNetworkCommandCalls = [];
 
+  /// Returned by [renderNetworkHttpCommand]; the default renders the
+  /// keypress shape (`POST /fake/<command>`) so a screen test can assert on
+  /// the path without configuring anything.
+  HttpRequestDto Function(String name, Map<String, String> values)?
+      networkHttpRequest;
+
+  /// Every rendered plain-HTTP command, in call order.
+  final List<({String commandName, Map<String, String> values})>
+      renderNetworkHttpCommandCalls = [];
+
   /// Returned by [readNetworkEntity], as a function of entity name and the
   /// returned values.
   NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
@@ -113,6 +123,7 @@ class FakeSpecCodec implements SpecCodec {
     this.entityWrite,
     this.networkEntities,
     this.networkRequest,
+    this.networkHttpRequest,
     this.networkReading,
   }) : encoded = encoded ?? Uint8List(0);
 
@@ -248,6 +259,18 @@ class FakeSpecCodec implements SpecCodec {
     renderNetworkCommandCalls.add((commandName: commandName, values: values));
     return networkRequest?.call(commandName, values) ??
         _defaultRequest(commandName);
+  }
+
+  @override
+  Future<HttpRequestDto> renderNetworkHttpCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    renderNetworkHttpCommandCalls
+        .add((commandName: commandName, values: values));
+    return networkHttpRequest?.call(commandName, values) ??
+        HttpRequestDto(method: 'POST', path: '/fake/$commandName', body: '');
   }
 
   @override

@@ -28,6 +28,12 @@ device:
     # No mdns_service_type. HomeKit accessories all advertise `_hap._tcp` — hundreds of unrelated
     # products. It says the device speaks HomeKit, not that it is this one.
     # The `discovery` block below still records it.
+    # The SSID prefix is the unprovisioned device announcing itself: a reset
+    # strip advertises an open AP named after the product ("LIFX Z 04A3C1").
+    # Flat here, like Wemo's, so a client watching the air for adoptable
+    # hardware reads one key per spec.
+    ssid_prefix: "LIFX"
+    ssid_examples: ["LIFX Z 04A3C1", "LIFX Bulb"]
     default_port: 56700
     identity_keys:
       primary: "mac"
@@ -54,31 +60,214 @@ device:
     required: true
     confidence: "low"
     notes: >
-      LIFX strips must be joined to WiFi before the LAN protocol is usable. The
-      onboarding exchange itself has not been captured in this project — the
-      device hosts a temporary AP that the vendor app talks to, and the older
-      published LAN protocol had SetAccessPoint/GetAccessPoint messages that
-      are now marked deprecated. Once provisioned, control is unauthenticated
-      UDP and needs no further setup.
+      LIFX strips must be joined to WiFi before the LAN protocol is usable.
+      Unprovisioned (or factory-reset) devices host a temporary AP and accept
+      credentials over the same UDP port 56700 used for control, via the
+      access-point message family (0x12D-0x132) that the original published
+      LAN protocol documented and the current official protocol.yml no longer
+      carries. The layouts below are transcribed from that legacy public
+      reverse-engineering documentation (magicmonkey/lifxjs Protocol.md — the
+      same class of source pywemo is for Wemo). They match original-generation
+      firmware and are the only published credential exchange for these
+      devices; they have NOT been replayed against hardware by this project,
+      and LCM3/Matter-era firmware onboards over BLE through the vendor app
+      instead, so expect newer units to ignore them. Once provisioned, control
+      is unauthenticated UDP and needs no further setup.
     methods:
-      - type: "softap_http"
+      - type: "softap_udp"
         verified: false
         description: >
-          Unprovisioned devices advertise their own access point named after
-          the product and serial. The vendor app joins it and hands over the
-          home network credentials. Field layout and transport for that
-          exchange are unverified here — capture required before a replacement
-          client can be written.
+          Join the device's own setup AP and drive the deprecated access-point
+          messages over UDP 56700: confirm the device answers discovery, ask
+          it to scan (GetAccessPoints), pick a network from the
+          StateAccessPoint replies, and hand over credentials
+          (SetAccessPoint with interface = STATION). The device then drops its
+          AP and joins the home network. Send requests to the subnet broadcast
+          address (255.255.255.255 works too) with unicast to gateway_ip as
+          the fallback — original firmware answers discovery sent broadcast.
         softap:
           ssid_prefix: "LIFX"
+          ssid_examples: ["LIFX Z 04A3C1", "LIFX Bulb"]
           open_network: true
+          gateway_ip: "172.16.0.1"
+          port: 56700
+          ssid_notes: >
+            Later products (LIFX Z among them) advertise an OPEN AP named
+            after the product and serial fragment. The original 2013 bulbs
+            hosted a secured AP named exactly "LIFX Bulb" with the published
+            passphrase "lifx1234" — open_network above describes the strips
+            this spec covers, and that constant is the fallback for the one
+            older AP name.
+          port_notes: >
+            The same port as normal control: in setup mode the device is at
+            gateway_ip on its own 172.16.0.0/24 subnet.
+        payload_formats:
+          legacy_header:
+            description: >
+              The 36-byte header the legacy access-point messages ride in,
+              all little-endian. It is offset-compatible with the current
+              LAN-protocol header — size at 0, protocol at 2, message type at
+              32 — and the fields between differ but are safe to send as
+              zero: the modern source/sequence slots land where the legacy
+              format put reserved bytes, the site MAC and a timestamp, and
+              legacy firmware does not validate them.
+            fields:
+              - name: "size"
+                offset: 0
+                bytes: 2
+                description: "Total packet length, header plus payload."
+              - name: "protocol"
+                offset: 2
+                bytes: 2
+                description: >
+                  0x3400 for a broadcast/tagged request (discovery, and the
+                  setup exchange, where the target is unknown); 0x1400 when
+                  addressing one device. The same two constants the current
+                  protocol produces from its origin/tagged/addressable bits.
+              - name: "reserved_source"
+                offset: 4
+                bytes: 4
+                description: "Legacy: always 0. Current firmware reads a client-chosen source id here; 0 is accepted and answered broadcast."
+              - name: "target"
+                offset: 8
+                bytes: 8
+                description: "Device MAC (6 bytes) plus 2 zero bytes; all zero for broadcast."
+              - name: "reserved_site"
+                offset: 16
+                bytes: 6
+                description: "Legacy site/gateway MAC; zero on requests."
+              - name: "reserved_flags"
+                offset: 22
+                bytes: 2
+                description: "Legacy: always 0. Current firmware reads ack/res flags and a sequence number here; zero asks for nothing extra."
+              - name: "reserved_timestamp"
+                offset: 24
+                bytes: 8
+                description: "Legacy timestamp; send 0."
+              - name: "type"
+                offset: 32
+                bytes: 2
+                description: "Message type, e.g. 0x130 GetAccessPoints."
+              - name: "reserved_tail"
+                offset: 34
+                bytes: 2
+                description: "Always 0."
+          get_access_points:
+            description: "Type 0x130 (304). No payload. The device answers with one StateAccessPoint (0x132) message per network it can see."
+          set_access_point:
+            description: >
+              Type 0x131 (305). Hands the device its home network. 98-byte
+              payload; strings are UTF-8, null-padded to their fixed width.
+            fields:
+              - name: "interface"
+                offset: 0
+                bytes: 1
+                description: "1 = SOFT_AP, 2 = STATION. Send 2: the device's station interface is the one that joins the home network."
+              - name: "ssid"
+                offset: 1
+                bytes: 32
+                description: "Target network name, exactly as the device reported it when it came from GetAccessPoints."
+              - name: "password"
+                offset: 33
+                bytes: 64
+                description: "Plaintext passphrase. The legacy exchange has no credential encryption; the setup AP is the only transport protection."
+              - name: "security_protocol"
+                offset: 97
+                bytes: 1
+                description: "See security_protocols below. WEP networks are documented as not supported."
+          state_access_point:
+            description: >
+              Type 0x132 (306). One scan result. 38-byte payload.
+            fields:
+              - name: "interface"
+                offset: 0
+                bytes: 1
+              - name: "ssid"
+                offset: 1
+                bytes: 32
+                description: "UTF-8, null-padded."
+              - name: "security_protocol"
+                offset: 33
+                bytes: 1
+              - name: "strength"
+                offset: 34
+                bytes: 2
+                description: "Signal strength, little-endian."
+              - name: "channel"
+                offset: 36
+                bytes: 2
+                description: "Little-endian."
+          security_protocols:
+            description: "The SECURITY_PROTOCOL byte shared by SetAccessPoint and StateAccessPoint."
+            values:
+              "1": "OPEN"
+              "2": "WEP_PSK (documented as not supported for joining)"
+              "3": "WPA_TKIP_PSK"
+              "4": "WPA_AES_PSK"
+              "5": "WPA2_AES_PSK"
+              "6": "WPA2_TKIP_PSK"
+              "7": "WPA2_MIXED_PSK"
+            notes: >
+              When the target network never appeared in a scan (hidden SSID,
+              or a device that answers GetAccessPoints with nothing),
+              WPA2_AES_PSK (5) is the value to try first — it is what home
+              networks overwhelmingly run.
+        timing:
+          scan_collect_seconds: 5
+          scan_collect_notes: >
+            StateAccessPoint replies arrive as separate datagrams over a few
+            seconds; collect until quiet rather than after the first.
+          join_wait_seconds: 30
+          join_wait_notes: >
+            After SetAccessPoint the device reboots its radio: its AP
+            disappears and it joins the home network. There is no
+            status-poll counterpart to Wemo's GetNetworkStatus — the
+            confirmation is the device turning up on the home LAN.
+        troubleshooting:
+          - symptom: "Nothing answers discovery on the setup AP."
+            causes:
+              - "The client fell back to cellular or another interface. Pin traffic to the 172.16.0.0/24 interface."
+              - "Broadcast datagrams are being dropped. Retry unicast to 172.16.0.1."
+              - "LCM3/Matter-era firmware: onboarding is BLE-only and these messages no longer exist. Terminal for this method."
+          - symptom: "GetAccessPoints returns nothing but discovery answers."
+            causes:
+              - "Some firmware scans lazily. Ask again after a few seconds, or skip the scan and send SetAccessPoint with a manually-entered SSID and WPA2_AES_PSK."
+          - symptom: "Device never appears on the home network after SetAccessPoint."
+            causes:
+              - "Wrong passphrase, or a WEP or WPA3-only network. The legacy radio wants WPA/WPA2."
+              - "5 GHz-only SSID. The radio is 2.4 GHz."
+              - "Reset and retry; the exchange is fire-and-forget and a lost datagram fails silently."
         steps:
-          - action: "Power the strip and wait for it to advertise its setup AP."
+          - action: "Factory reset the strip (or power a new one) and wait for its setup AP."
             actor: "user"
             timeout_seconds: 60
-          - action: "Capture the vendor app's provisioning exchange over that AP."
+            expect: "An AP named with the LIFX prefix appears; the device sits at 172.16.0.1 on it."
+          - action: "Join the setup AP from the provisioning client."
+            actor: "user"
+            expect: "Client receives a 172.16.0.x address."
+          - action: "Confirm the device answers on the setup network."
             actor: "client"
-            notes: "Open gap: needed to document the credential transfer."
+            request:
+              protocol: "udp"
+              message: "GetService (type 2), broadcast to port 56700"
+            expect: "A StateService (type 3) reply from the device."
+          - action: "Ask the device what networks it can see."
+            actor: "client"
+            request:
+              protocol: "udp"
+              message: "GetAccessPoints (type 0x130)"
+            expect: "One StateAccessPoint (type 0x132) datagram per visible network; collect for scan_collect_seconds."
+            timeout_seconds: 10
+          - action: "Send the chosen network's credentials."
+            actor: "client"
+            request:
+              protocol: "udp"
+              message: "SetAccessPoint (type 0x131), interface=STATION(2), ssid, password, security_protocol from the matching scan entry"
+            expect: "No reply is guaranteed. The setup AP drops within join_wait_seconds as the device joins the home network."
+          - action: "Rejoin the home network and rediscover the device."
+            actor: "user"
+            expect: "The device answers mDNS/UDP discovery on the home LAN; see the discovery block."
+            timeout_seconds: 90
     factory_reset:
       confidence: "medium"
       effect: "Clears WiFi credentials and returns the device to its unprovisioned, AP-hosting state."
@@ -98,13 +287,16 @@ device:
         No documented in-place credential update; treat a router change as a
         reset-and-reprovision.
     credentials:
-      wifi_passphrase_protection: "unknown"
+      wifi_passphrase_protection: "plaintext"
       stored_on_device:
         - "WiFi credentials"
       issued_to_client: []
       notes: >
-        Post-setup LAN control is unauthenticated UDP on port 56700, so no
-        client credential is issued and anything on the LAN can drive the strip.
+        The legacy SetAccessPoint message carries the passphrase in plaintext;
+        the setup AP itself is the only transport protection, and on the
+        strips it is open. Post-setup LAN control is unauthenticated UDP on
+        port 56700, so no client credential is issued and anything on the LAN
+        can drive the strip.
 
 protocol_handler: "lifx_lan_udp"
 

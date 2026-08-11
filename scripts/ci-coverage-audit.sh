@@ -57,6 +57,17 @@ ALLOWED_ABSENT=(
   # An abstract class plus `export` directives re-exporting the generated FRB
   # DTOs. No statement in it ever runs.
   'lib/services/spec_codec.dart'
+  # One `const` map literal each: the MDI-name translation tables, split per
+  # device domain so two device branches stop colliding on one file. A const
+  # map has no executable line to instrument, so lcov emits no record for it
+  # however hard a test leans on it — and entity_icon_test.dart does, both
+  # through entityIcon() and by walking every key. What is worth checking
+  # about these files is content (no duplicate name across domains, no key
+  # that could never be looked up, none left out of the merge), and that is
+  # what those tests check.
+  'lib/core/icons/appliance_glyphs.dart'
+  'lib/core/icons/remote_glyphs.dart'
+  'lib/core/icons/sensor_glyphs.dart'
 )
 
 # Generated output, ignored by codecov.yml for the reasons argued there. Keep

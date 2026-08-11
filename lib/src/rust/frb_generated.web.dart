@@ -59,6 +59,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkReadingDto dco_decode_box_autoadd_network_reading_dto(dynamic raw);
 
   @protected
+  QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw);
+
+  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
 
   @protected
@@ -93,6 +96,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FormatFieldDto dco_decode_format_field_dto(dynamic raw);
+
+  @protected
+  HttpRequestDto dco_decode_http_request_dto(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -247,6 +253,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -266,6 +275,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileInfoDto dco_decode_profile_info_dto(dynamic raw);
+
+  @protected
+  QuerySourceDto dco_decode_query_source_dto(dynamic raw);
 
   @protected
   (String, double) dco_decode_record_string_f_64(dynamic raw);
@@ -343,6 +355,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  QuerySourceDto sse_decode_box_autoadd_query_source_dto(
+      SseDeserializer deserializer);
+
+  @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
       SseDeserializer deserializer);
 
@@ -378,6 +394,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   FormatFieldDto sse_decode_format_field_dto(SseDeserializer deserializer);
+
+  @protected
+  HttpRequestDto sse_decode_http_request_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -555,6 +574,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
+      SseDeserializer deserializer);
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
@@ -575,6 +598,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ProfileInfoDto sse_decode_profile_info_dto(SseDeserializer deserializer);
+
+  @protected
+  QuerySourceDto sse_decode_query_source_dto(SseDeserializer deserializer);
 
   @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
@@ -655,6 +681,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkReadingDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_query_source_dto(
+      QuerySourceDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer);
 
@@ -695,6 +725,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_format_field_dto(
       FormatFieldDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_http_request_dto(
+      HttpRequestDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
@@ -887,6 +921,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkReadingDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_query_source_dto(
+      QuerySourceDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
@@ -909,6 +947,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_profile_info_dto(
       ProfileInfoDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_query_source_dto(
+      QuerySourceDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_record_string_f_64(
