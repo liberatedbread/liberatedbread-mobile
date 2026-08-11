@@ -459,6 +459,57 @@ void main() {
       // The button is back to its idle label, not stuck on "Saving…".
       expect(find.text('Save to device'), findsOneWidget);
     });
+
+    testWidgets(
+        'saving mid-stream stops the stream, so the played design is not '
+        'repainted over', (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      // Preview the way a user would: animation mode, streaming live.
+      await _scrollAndTap(tester, find.text('Animation'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.text('Stream to device'));
+      await tester.pump(const Duration(milliseconds: 450));
+      expect(codec.encodeImageCalls, isNotEmpty);
+
+      // Save while the stream is running — the button must be live. Bounded
+      // pumps, not pumpAndSettle: the stream's interval timer is still armed
+      // until the save stops it.
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+      // Drain the in-flight frame, the upload writes and the play write.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+
+      // The stream was stopped by the save, not left racing the playback.
+      expect(find.text('Stream to device'), findsOneWidget);
+      expect(find.text('Stop streaming'), findsNothing);
+
+      // Give a stray loop two more intervals to betray itself: nothing may
+      // follow the play write, or the stored design would be repainted over
+      // the moment the device starts playing it.
+      final writesAfterSave = ble.writes.length;
+      final framesAfterSave = codec.encodeImageCalls.length;
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(ble.writes.length, writesAfterSave);
+      expect(codec.encodeImageCalls.length, framesAfterSave);
+      expect(ble.writes.last.charUuid, 'ddp',
+          reason: 'the play-by-cid write must be the last thing on the wire');
+    });
   });
 
   testWidgets('animation mode adds frames and streams until stopped',

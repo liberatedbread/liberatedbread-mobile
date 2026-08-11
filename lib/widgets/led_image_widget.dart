@@ -680,7 +680,17 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     setState(() {
       _saving = true;
       _error = null;
+      // The play write at the end of this save is what should own the panel:
+      // a stream left running would repaint the canvas over the stored design
+      // within one interval of it starting to play. Stop the loop, and bump
+      // the epoch so an iteration parked in an await exits instead of
+      // reviving on the shared boolean.
+      _streaming = false;
+      _streamEpoch++;
     });
+    // Wait out the frame already being written, if any — uploader packets
+    // spliced into a half-sent doodle frame would corrupt both channels.
+    await _sendTail;
     try {
       final codec = ref.read(specCodecProvider);
       final ble = ref.read(bleServiceProvider);
@@ -1036,8 +1046,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                         )
                       : const Icon(Icons.save_alt),
                   label: Text(_saving ? 'Saving…' : 'Save to device'),
-                  onPressed:
-                      _sending || _saving || _streaming ? null : _saveToDevice,
+                  // Streaming does NOT disable the save: _saveToDevice stops
+                  // the stream itself (and drains the in-flight frame), so a
+                  // mid-preview save is "keep what I'm seeing" — store it,
+                  // then play it.
+                  onPressed: _sending || _saving ? null : _saveToDevice,
                 ),
               ),
             ],
