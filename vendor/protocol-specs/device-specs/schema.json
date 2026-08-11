@@ -322,6 +322,11 @@
         "type": "object",
         "properties": {
           "description": { "type": "string" },
+          "delimiter": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Separator, when the payload is several fields packed into one string: `fields[].index` then counts positions between occurrences of it.\n\nThis is the machine-readable half of what `parse_rules` says in prose, and it exists because prose is not something a decoder can follow. \"Split on '|' and take field 0\" was the documented rule for Wemo's BinaryState for as long as the format has been written down, and every consumer either hardcoded it per device or got a plausible wrong answer: read whole, `8|1492338954|…` is not a number, and a client that gives up there shows a live plug as off. Omit for a payload that is the whole value."
+          },
           "fields": {
             "type": "array",
             "description": "Positional or named fields within the payload. Numeric fields may carry the shared number-semantics vocabulary (`unit`, `scale`, `value_offset`, …) — an InsightParams power column is milliwatts, and that belongs in data rather than prose.",
@@ -1576,6 +1581,10 @@
             "type": "string",
             "description": "What this endpoint does."
           },
+          "service": {
+            "type": "string",
+            "description": "Service the action belongs to, as the device names it — for SOAP/UPnP a serviceType URN like 'urn:Belkin:service:basicevent:1'. The machine-readable form of what `description` was already stating in prose, and the key a client resolves the real control URL by from the device's own service list (published paths move across firmware generations, so `path` here is convention, not address). State it on every endpoint an entity's `state_command` names: without it, a consumer that must build a SOAPACTION header for a state read has nowhere to get the URN but prose."
+          },
           "request_body": {
             "type": "object",
             "description": "Expected request body schema.",
@@ -1603,6 +1612,10 @@
                     "max": { "type": "number" }
                   }
                 }
+              },
+              "example": {
+                "type": "string",
+                "description": "A literal request body, as bytes go out. Worth its space wherever the envelope is not obvious from the field list — a SOAP action, a form encoding, anything where the field names alone do not say where they sit in the document. It is what an implementer diffs against when the device rejects a request that looks right."
               }
             }
           },
@@ -1625,6 +1638,10 @@
                     "unit": { "type": "string", "description": "Unit of this field's value ('C', '%', 'seconds'). JSON payloads carry decoded numbers, so unlike BLE/bus fields there is no scale to declare — but C-vs-F and W-vs-mW still need stating." }
                   }
                 }
+              },
+              "example": {
+                "type": "string",
+                "description": "A literal response body. The one an implementer parses first, so it must be real enough to test against: an entity bound to this endpoint should be derivable from it and nothing else. Same role as `payload_formats.<name>.example`, one level up — that one is a value, this is the document carrying it."
               }
             }
           }
@@ -2260,6 +2277,142 @@
           }
         },
         "notes": { "type": "string" }
+      }
+    },
+    "scheduling": {
+      "type": "object",
+      "description": "How a device performs an action at a future time BY ITSELF, without a client being present to send it.\n\nWorth a block of its own because the difference is invisible from the control surface and decides what an integration can promise. A client can always send an on command at 17:00 if it happens to be running; a device that stores its own schedule keeps it when the phone is asleep, the app is closed or the laptop is shut. Wemo is the worked example, and its mechanism is a SQLite database moved over SOAP in both directions.\n\nState `supported: false` where a device has no such facility — that is an answer, and it saves the next person looking.",
+      "properties": {
+        "supported": { "type": "boolean" },
+        "mechanism": {
+          "type": "string",
+          "enum": ["on_device_rules", "countdown_timer", "device_ui", "cloud_only", "none", "unknown"],
+          "description": "What kind of thing the device keeps. 'on_device_rules' is a stored schedule the device evaluates against its own clock; 'countdown_timer' is a duration it counts down after being told to (the Crock-Pot's cook time), which is not the same promise; 'cloud_only' means the schedule lived in a vendor service and died with it."
+        },
+        "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+        "runs_without_a_client": {
+          "type": "boolean",
+          "description": "Whether the action still happens with nothing else on the network. The single most useful fact in this block."
+        },
+        "applies_to": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Which of `device.variants` (by name) the `supported` claim is evidenced for, on a spec covering a family. Omit only when the claim genuinely holds family-wide. A consumer branching on `supported` must intersect with this list: outside it the honest answer is UNKNOWN, not yes — Wemo's rules service is proven on the switch family and an open question on the appliance classes, and an unscoped true would advertise scheduling for a slow cooker nobody has scheduled."
+        },
+        "applies_to_notes": { "type": "string" },
+        "device_clock_dependency": {
+          "type": "string",
+          "description": "How the device knows what time it is, and what happens when it does not. A stored schedule is only as right as the clock under it, and these devices lost their time source when the vendor cloud went away."
+        },
+        "service": { "type": "string" },
+        "summary": { "type": "string" },
+        "confidence_notes": { "type": "string" },
+        "transfer": {
+          "type": "object",
+          "description": "How the schedule gets onto the device, as ordered steps in the same shape `setup.methods[].steps` uses."
+        },
+        "storage": {
+          "type": "object",
+          "description": "The stored form itself — tables, columns, and worked example rows where the schedule is a database rather than a set of parameters."
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What the mechanism CANNOT express. This is the part a reader needs before designing a feature on top of it: Wemo's rule actions are on/off/toggle, so a scheduled Crock-Pot mode is not expressible however much the table looks like it should be."
+        },
+        "open_questions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "What is not established, stated so a consumer can tell inference from evidence. A schedule written from a guessed column encoding fires at the wrong time on somebody's dinner."
+        },
+        "client_side_alternative": { "type": "string" },
+        "notes": { "type": "string" },
+        "verification": { "$ref": "#/$defs/verification" }
+      }
+    },
+    "commands": {
+      "type": "object",
+      "description": "Named invocations a client can send, for devices whose control surface is not a GATT characteristic. Keyed by command name; an entity's `commands:` role map (`turn_on: plug_turn_on`) names an entry here, exactly as it names a characteristic's command on a BLE device.\n\nThe distinction from `http_endpoints`/`mqtt_topics` is what makes both blocks necessary: those catalogue the ACTIONS a device offers -- what exists, what it takes, what it returns -- while a command here is one INVOCATION of an action with its arguments already chosen. 'Turn the plug on' is SetBinaryState with BinaryState=1, and that '1' has nowhere else to live: an entity's role map carries a name, not a payload. A consumer sends one by substituting `parameters` into `arguments` and rendering through whatever request template the spec's transport block publishes.\n\nDeliberately not `additionalProperties: false`. BLE specs (airthings-wave-family) already keep a top-level command catalogue keyed by `characteristic`/`template`/`value`, and the point of one block is that a role map resolves the same way whatever the transport underneath it is.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string" },
+          "transport": {
+            "type": "string",
+            "enum": ["soap", "http", "mqtt", "ble", "udp", "coap"],
+            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport."
+          },
+          "service": {
+            "type": "string",
+            "description": "Service the action belongs to, as the device names it -- a SOAP/UPnP serviceType URN such as 'urn:Belkin:service:basicevent:1'. It is also the key a client resolves the control URL by, which is why a command states the service rather than a path: published paths vary across firmware generations and the device's own service list is authoritative."
+          },
+          "action": {
+            "type": "string",
+            "description": "Name of the action invoked, spelled as it goes on the wire ('SetBinaryState'). Pairs with `service` to form a SOAPACTION header, and should match the `name` of the `http_endpoints` entry that documents the action's arguments and returns."
+          },
+          "path": {
+            "type": "string",
+            "description": "Request path, for transports that address by path rather than by service. Prefer resolving it from the device where the protocol offers a way to; state it here when the path is fixed."
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Argument name -> value, as the wire spells both. A value of '{name}' is substituted from the like-named entry in `parameters`; anything else is a literal this command has already decided (BinaryState '1' for an on command). Argument names are the device's, not ours: Wemo spells one BinaryState and the next one mode.",
+            "additionalProperties": { "type": ["string", "number", "boolean"] }
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Values the caller supplies, keyed by the placeholder name used in `arguments`. Same role as a BLE command's `parameters`, and the same rule applies: a command is only sendable when every parameter is either owned by the control invoking it or defaulted here.",
+            "additionalProperties": {
+              "type": "object",
+              "allOf": [
+                { "$ref": "#/$defs/number_semantics" },
+                {
+                  "$comment": "`default` and `source` are mutually exclusive because they answer the same question -- what happens when the caller supplies nothing -- with opposite instructions. `default` says substitute this constant; `source` says the real value lives on the device and a send without it must FAIL. A parameter carrying both would let a renderer quietly substitute the constant whenever the read-back fails, which on the Crock-Pot is a cleared timer (or a cooker stopped mid-run) with nothing on screen saying so. The first published version of the Wemo spec made exactly this mistake.",
+                  "not": { "required": ["default", "source"] }
+                }
+              ],
+              "properties": {
+                "type": { "type": "string" },
+                "required": { "type": "boolean", "description": "True for a value the CALLER supplies -- the option picked, the number chosen. Do not combine with `default` (a defaulted parameter is by definition omittable) or `source` (a read-back parameter is the client's job, not the caller's)." },
+                "description": { "type": "string" },
+                "notes": { "type": "string" },
+                "min": { "type": "number" },
+                "max": { "type": "number" },
+                "enum": { "type": "array", "items": {} },
+                "default": {
+                  "description": "Constant used when the caller supplies nothing -- for protocol filler whose value genuinely is a constant. Present so a control that owns only one of an action's arguments can still send it. NOT for a value whose truth lives on the device: that is `source`, and the two are mutually exclusive -- see the sibling $comment."
+                },
+                "source": {
+                  "type": "string",
+                  "description": "Where a client obtains this value when it is not the one the user is setting, as 'state:<command>.<field>' -- e.g. 'state:GetCrockpotState.time'. The case this exists for is an action that carries several settings at once: changing one means reading the others back and sending them along, and a spec that leaves that implicit produces a client which silently clears the settings it did not mean to touch. A `source` parameter deliberately has no `default`: the read-back is PART OF THE SEND, and a renderer reaching it with no value must fail the write visibly rather than substitute anything. Consumers therefore treat `source` -- like `default` -- as satisfying the 'every blank fillable' rule when deciding whether a control is offered at all, and enforce the value's presence at send time instead."
+                }
+              }
+            }
+          },
+          "returns": {
+            "type": "array",
+            "description": "What the call answers with, when that is worth stating -- typically because the reply acknowledges the request rather than reporting the resulting state, which decides whether a client can use it as a reading.",
+            "items": {
+              "type": "object",
+              "required": ["name"],
+              "properties": {
+                "name": { "type": "string" },
+                "type": { "type": "string" },
+                "unit": { "type": "string" },
+                "description": { "type": "string" }
+              }
+            }
+          },
+          "example_body": {
+            "type": "string",
+            "description": "The exact request this command produces, as bytes go out. The highest-value field here for the same reason test vectors are for crypto: it turns 'my request is rejected and I cannot tell which half is wrong' into a diff."
+          },
+          "example_notes": { "type": "string" },
+          "notes": { "type": "string" },
+          "verification": { "$ref": "#/$defs/verification" }
+        }
       }
     },
     "entities": {
