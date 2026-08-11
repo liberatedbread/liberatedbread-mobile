@@ -13,6 +13,14 @@
 # status codes, timing constants and a troubleshooting table. If you find
 # yourself needing to look something up elsewhere to finish an implementation,
 # that is a bug in this file.
+#
+# The same is now true of CONTROL for the two devices we have hardware for —
+# the smart plugs and the Crock-Pot Smart Slow Cooker. `entities` says which
+# controls to draw and where each reads its state; `commands` says what to
+# send for each control's roles, as arguments rather than prose; and
+# `http_endpoints` catalogues the actions both of those name. A consumer that
+# already renders a BLE spec's entities needs one new transport, not one new
+# device. The other families in `variants` are discovery and setup only.
 
 device:
   name: "Belkin Wemo Smart Devices"
@@ -824,6 +832,18 @@ device:
       characteristics:
         - "Basic on/off smart plug."
         - "Some firmware and APK mocks identify the Mini as socket:1."
+        - >
+          On/off is basicevent GetBinaryState/SetBinaryState; the control
+          surface is declared in the top-level `commands` and `entities`
+          blocks.
+        - >
+          This is the model whose HTTP port moves after a power cycle. The
+          port is not identity — rediscover by SSDP or probe
+          identification.port_probe_list before deciding the plug is gone.
+        - >
+          basicevent#ChangeFriendlyName on this model is CVE-2023-27217, an
+          unauthenticated stack overflow Belkin declined to patch as EOL. A
+          client has no reason to send it and every reason not to expose it.
       services:
         basicevent:
           control_url: "/upnp/control/basicevent1"
@@ -846,6 +866,14 @@ device:
         apk_widgets: ["wemo_smart_plug", "wemo_socket"]
       characteristics:
         - "Basic on/off smart plug."
+        - >
+          Same on/off surface as the Mini: basicevent
+          GetBinaryState/SetBinaryState, declared in the top-level `commands`
+          and `entities` blocks.
+        - >
+          GetSignalStrength is listed below because the device answers it, but
+          the return value's units and range are not documented here, so no
+          sensor entity is declared for it.
       services:
         basicevent:
           control_url: "/upnp/control/basicevent1"
@@ -1014,22 +1042,60 @@ device:
 
     - model: "SCCPWM600-V1"
       name: "Crock-Pot Smart Slow Cooker"
+      alternate_models: ["SCCPWM600-V2", "F7C045"]
+      alternate_models_notes: >
+        F7C045 is Belkin's part number for the same appliance ("Crock-Pot
+        Smart Slow Cooker with Wemo"); SCCPWM600 is Jarden's. A user reading a
+        support article and a user reading the base of their cooker are
+        holding the same device.
       identification:
         device_type: "urn:Belkin:device:crockpot:1"
         udn_prefixes: ["uuid:Crockpot"]
+        udn_prefix_notes: >
+          Spelled exactly as the device sends it: capital C, lowercase p.
+          pywemo dispatches on `udn.startswith("uuid:Crockpot")`, which is
+          case-SENSITIVE, and our own notes have carried a lowercase
+          "uuid:crockpot-1_0-..." guess elsewhere. Match case-insensitively
+          and you cannot be wrong either way.
         friendly_name_pattern: "Crock"
         apk_widgets: ["wemo_crockpot"]
       characteristics:
-        - "Cooking modes are off=0, warm=50, low=51, high=52."
+        - "Cooking modes are off=0, warm=50, low=51, high=52 (payload_formats.CrockpotMode)."
+        - >
+          BinaryState IS NOT THIS DEVICE'S STATE. basicevent#GetBinaryState
+          answers 0 whatever the cooker is doing, so on/off comes from
+          `mode != 0` in GetCrockpotState. This is the one Wemo where the
+          universal switch surface is present and lies.
+        - >
+          Mode and cook time are set together by one action; there is no
+          set-the-mode-alone call. See commands.set_cook_mode.
+        - >
+          SetCrockpotState is acknowledged, not confirmed. pywemo re-reads
+          the state after every write because the cooker does not always take
+          the setting.
+        - "Control surface is declared in the top-level `commands` and `entities` blocks."
       services:
         basicevent:
           control_url: "/upnp/control/basicevent1"
           event_sub_url: "/upnp/event/basicevent1"
           actions: ["GetCrockpotState", "SetCrockpotState", "GetBinaryState"]
+          notes: >
+            The appliance actions live HERE, on basicevent — that is where
+            pywemo calls them and the only placement with a working
+            implementation behind it. The SOAPACTION header is therefore
+            "urn:Belkin:service:basicevent:1#SetCrockpotState", not a
+            crockpotevent one.
+          event_properties: ["BinaryState", "mode", "time", "cookedTime"]
         crockpotevent:
           control_url: "/upnp/control/crockpotevent1"
           event_sub_url: "/upnp/event/crockpotevent1"
           actions: ["GetCrockpotState", "SetCrockpotState", "GetJardenStatus", "SetJardenStatus"]
+          verification: "hypothesis"
+          notes: >
+            Catalogued from the Jarden appliance family's shape, not from a
+            Crock-Pot's own setup.xml, and no implementation drives it. Take
+            the service list from the device rather than from this entry, and
+            send the two state actions to basicevent above.
 
     - model: "Holmes-Air-Purifier"
       name: "Holmes Smart Air Purifier"
@@ -1271,6 +1337,31 @@ soap_common:
         Present on the setup AP. Always resolve the controlURL from the
         serviceList in setup.xml; the path spelling differs across firmware
         generations.
+    rules:
+      service_type: "urn:Belkin:service:rules:1"
+      control_url: "/upnp/control/rules1"
+      event_sub_url: "/upnp/event/rules1"
+      actions: ["FetchRules", "StoreRules"]
+      actions_older_firmware:
+        - "GetRulesDBPath"
+        - "GetRulesDBVersion"
+        - "SetRulesDBVersion"
+        - "GetRules"
+        - "SetRules"
+        - "SetRuleID"
+        - "DeleteRuleID"
+        - "GetTemplates"
+        - "SetTemplates"
+        - "UpdateWeeklyCalendar"
+        - "EditWeeklycalendar"
+      availability: >
+        The on-device automation store — where the (now dead) Wemo app kept
+        its timers, schedules and long-press rules. FetchRules/StoreRules are
+        the pair a current implementation uses; the longer list comes from a
+        2016 dump of the service description and is not what pywemo drives, so
+        take the action list from the device's own SCPD rather than from here.
+        See the top-level `scheduling` block for what the two actions move.
+
     smartsetup:
       service_type: "urn:Belkin:service:smartsetup:1"
       control_url: "/upnp/control/smartsetup1"
@@ -1280,12 +1371,113 @@ soap_common:
         plug and humidifier. Its action surface is not yet mapped; it is
         suspected to be the newer-generation provisioning surface. Resolve the
         controlURL from setup.xml like any other service.
+  eventing:
+    description: >
+      Wemo devices push state changes over standard UPnP eventing, to the
+      eventSubURL each service publishes in setup.xml. This is the difference
+      between a control that reacts when somebody presses the button on the
+      device and one that only knows what it last wrote: a client that polls
+      GetBinaryState every few seconds still misses the Crock-Pot finishing.
+      Every field below is what pywemo's subscription registry sends and
+      parses; none of it has been replayed against hardware here.
+    subscribable_services: ["basicevent", "insight", "bridge"]
+    subscribable_services_notes: >
+      Subscribe to the services a device actually publishes — take the
+      eventSubURL from its own serviceList and skip the rest. On the plug and
+      the Crock-Pot that is basicevent alone.
+    subscribe:
+      method: "SUBSCRIBE"
+      url: "http://<ip>:<port><eventSubURL from setup.xml>"
+      headers:
+        CALLBACK: "<http://<client-ip>:<client-port>/<unique-path>>"
+        NT: "upnp:event"
+        TIMEOUT: "Second-300"
+      header_notes: >
+        The angle brackets around CALLBACK's URL are part of the value, not
+        notation. The client must already be listening on that address: the
+        device connects back to it, so a client behind NAT or on a different
+        subnet gets a subscription that never delivers. Pick the callback host
+        by which local interface routes to the device rather than by whatever
+        the OS calls primary.
+      response_headers:
+        SID: "Subscription identifier, needed to renew or cancel."
+        TIMEOUT: "Second-<n>, the lifetime the device actually granted."
+      timeout_seconds: 300
+      timeout_notes: >
+        TIMEOUT is a request, not a promise — renew on the value the device
+        returns in its own TIMEOUT header, not on the one you asked for.
+    renew:
+      method: "SUBSCRIBE"
+      headers:
+        SID: "<the SID from the original subscribe>"
+        TIMEOUT: "Second-300"
+      notes: >
+        A renewal carries SID and no CALLBACK/NT. A device that has forgotten
+        the subscription answers with an error; the recovery is to UNSUBSCRIBE
+        for safety and then subscribe afresh, which is also what a port change
+        after a power cycle looks like from here.
+    unsubscribe:
+      method: "UNSUBSCRIBE"
+      headers:
+        SID: "<the SID from the original subscribe>"
+    notify:
+      method: "NOTIFY"
+      description: >
+        The device POSTs an XML property set to the callback URL whenever a
+        subscribed value changes. Each <e:property> holds exactly one child
+        whose tag names the property and whose text is the new value — the
+        same values the matching Get* action returns, in the same encoding, so
+        one parser serves both paths.
+      namespace: "urn:schemas-upnp-org:event-1-0"
+      parse_rule: "propertyset -> each property -> first child -> {child.tag: child.text}"
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <e:propertyset xmlns:e="urn:schemas-upnp-org:event-1-0">
+        <e:property>
+        <BinaryState>1</BinaryState>
+        </e:property>
+        </e:propertyset>
+      properties:
+        BinaryState:
+          service: "basicevent"
+          format: "payload_formats.BinaryState"
+          notes: >
+            Sent by every switch-like device. Carries the pipe-delimited long
+            form on some firmware, so split on '|' and take field 0 here too.
+        mode:
+          service: "basicevent"
+          format: "payload_formats.CrockpotMode"
+          notes: "Crock-Pot only. The device's own state, whether it changed by SOAP or by the front-panel button."
+        time:
+          service: "basicevent"
+          unit: "minutes"
+          notes: "Crock-Pot only. Cook time remaining."
+        cookedTime:
+          service: "basicevent"
+          unit: "minutes"
+          notes: "Crock-Pot only. Minutes cooked so far in this run."
+        InsightParams:
+          service: "insight"
+          format: "payload_formats.InsightParams"
+          notes: >
+            Insight only. An Insight stops sending these when it is switched
+            off, so a gap in the stream is not a lost subscription.
+      verification: "reported"
 
 payload_formats:
   BinaryState:
     description: >
       Relay/light state, returned by basicevent#GetBinaryState and accepted
       by SetBinaryState.
+    delimiter: "|"
+    fields:
+      - index: 0
+        name: "state"
+        description: >
+          The state itself, and the only documented field of the long form.
+          Declared as a delimited field rather than left to the parse rule
+          below because a decoder cannot follow prose: this is what says the
+          value may need splitting before any of `values` applies.
     values:
       "0": "off"
       "1": "on"
@@ -1297,11 +1489,43 @@ payload_formats:
         Some firmware returns extra pipe-delimited values after the state
         (for example on dimmers). Split on '|' and take field 0 rather than
         parsing the whole string as an integer.
+      - >
+        The trailing fields of the long form are NOT InsightParams and must
+        not be read with that layout: the two differ in length and nothing
+        published says the columns line up. Field 0 is the documented part.
+        Reach for insight#GetInsightParams when you want the energy figures.
     example: "1"
+  CrockpotMode:
+    description: >
+      Cooking mode of the Crock-Pot Smart Slow Cooker: returned as the `mode`
+      value of basicevent#GetCrockpotState, sent as the `mode` argument of
+      basicevent#SetCrockpotState, and pushed as the `mode` event property.
+      This is the Crock-Pot's state — BinaryState is not (see
+      device.variants SCCPWM600-V1).
+    values:
+      "0": "off"
+      "50": "warm"
+      "51": "low"
+      "52": "high"
+    parse_rules:
+      - >
+        The numbers are the device's own and are not an ordering: there is no
+        mode between 0 and 50, and 51 is not "one more heat than" 50. Map
+        through this table rather than treating the value as a level.
+      - >
+        Any other value is a mode this table does not know. Keep the raw
+        number and render it as unknown; mapping an unrecognised value to
+        `off` would tell a user their cooker is off while it is heating.
+        pywemo returns a distinct unknown (-1) for exactly this reason.
+      - >
+        Off is a real mode, not the absence of one. A client deriving on/off
+        from this field asks `mode != 0`, which is what pywemo does.
+    example: "51"
   InsightParams:
     description: >
       Energy and timing counters from insight#GetInsightParams, as a single
       pipe-delimited string.
+    delimiter: "|"
     parse_rules:
       - "Split on '|'. Fields are positional; there are no names on the wire."
       - >
@@ -1375,6 +1599,188 @@ payload_formats:
         name: "model_name"
     example: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
 
+# Writes a client sends, as data rather than prose, so a consumer that can
+# already drive an entity's `turn_on` role over BLE can drive one over SOAP by
+# learning one new transport rather than one new device.
+#
+# The split with `http_endpoints` is deliberate and is the whole reason two
+# blocks exist: http_endpoints catalogues the ACTIONS (what exists, what it
+# takes, what it returns) and an entity's `state_command` names one of them,
+# while a command here is one INVOCATION of an action with its arguments
+# already chosen — `plug_turn_on` is SetBinaryState with BinaryState=1, and
+# that "1" is the part an entity's `commands:` map cannot carry itself. Every
+# name an entity binds resolves in exactly one of the two blocks.
+#
+# To send one: resolve the controlURL for `service` from the device's own
+# serviceList (NEVER hardcode it — see soap_common), substitute any
+# `parameters` into `arguments`, and render through
+# soap_common.request_format.template. Nothing else is needed; the example
+# bodies below are what that produces.
+commands:
+  plug_turn_on:
+    description: "Close the relay on a Wemo plug, switch or outdoor plug."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetBinaryState"
+    arguments:
+      BinaryState: "1"
+    returns:
+      - name: "BinaryState"
+        description: >
+          Echoes the new state, or the string 'Error' when the device was
+          already in it. 'Error' here is not a failure worth surfacing —
+          pywemo ignores it — but it does mean the reply cannot be used as a
+          state reading.
+    verification: "reported"
+    example_body: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:SetBinaryState xmlns:u="urn:Belkin:service:basicevent:1">
+      <BinaryState>1</BinaryState>
+      </u:SetBinaryState>
+      </s:Body>
+      </s:Envelope>
+
+  plug_turn_off:
+    description: "Open the relay on a Wemo plug, switch or outdoor plug."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetBinaryState"
+    arguments:
+      BinaryState: "0"
+    returns:
+      - name: "BinaryState"
+        description: "As plug_turn_on."
+    verification: "reported"
+
+  set_cook_mode:
+    description: >
+      Set the Crock-Pot's cooking mode, carrying the cook time along
+      unchanged.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "{mode}"
+      time: "{time}"
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        values:
+          "0": "off"
+          "50": "warm"
+          "51": "low"
+          "52": "high"
+        description: "Target mode; see payload_formats.CrockpotMode."
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        source: "state:GetCrockpotState.time"
+        description: >
+          SetCrockpotState carries BOTH values on every call, so changing the
+          mode alone still means sending the cook time back with it — omit it
+          and you have also cleared the timer. Read `time` from
+          GetCrockpotState immediately before the write and send what it
+          returned, which is what pywemo does.
+        notes: >
+          NO default, deliberately. A `source` parameter with no default is
+          this spec saying the read-back is part of the send: a renderer that
+          reaches this parameter with no value must FAIL the write, visibly,
+          rather than substitute anything. pywemo falls back to 0 here, but
+          what the appliance does with a 0 cook time in a heating mode is not
+          verified, and "the write failed, try again" is a better outcome
+          than a silently cleared timer. A client that genuinely cannot read
+          the device (mid-provisioning, say) should ask the user for a time.
+    verification: "reported"
+    example_body: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:SetCrockpotState xmlns:u="urn:Belkin:service:basicevent:1">
+      <mode>51</mode>
+      <time>240</time>
+      </u:SetCrockpotState>
+      </s:Body>
+      </s:Envelope>
+    example_notes: >
+      Low for four hours, built from mode=51 and time=240. Note the argument
+      names are lowercase where BinaryState is not; they are spelled here
+      exactly as they go on the wire.
+
+  set_cook_time:
+    description: >
+      Set the Crock-Pot's cook time in minutes, leaving the mode as it is.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "{mode}"
+      time: "{time}"
+    parameters:
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        required: true
+        description: "New cook time in minutes."
+      mode:
+        type: "integer"
+        source: "state:GetCrockpotState.mode"
+        description: >
+          The mirror of the same trap: the action carries both values, so
+          setting a time means sending the current mode back with it. Read it
+          from GetCrockpotState first.
+        notes: >
+          NO default, and this one earlier carried `default: 0` on the theory
+          that off is harmless. It is not: the user adjusting the cook time
+          almost certainly has a cooker that is RUNNING, and a failed
+          read-back quietly substituting 0 would stop it mid-cook — dinner
+          off, nothing on screen saying so. A missing value must fail the
+          write instead.
+    verification: "reported"
+
+  crockpot_turn_on:
+    description: >
+      Start the Crock-Pot on HIGH, keeping whatever cook time it already
+      holds. This is what a bare 'on' means for a device with no single on
+      state; the Cook Mode select is the control that reaches Warm and Low.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "52"
+      time: "{time}"
+    parameters:
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        source: "state:GetCrockpotState.time"
+        description: >
+          As set_cook_mode.time — read it back and send it along. No default,
+          for the same reason stated there: fail the write rather than start
+          the cooker with a timer this command just invented.
+    verification: "reported"
+    notes: >
+      HIGH rather than LOW because that is the mapping pywemo's on() uses; it
+      is a convention, not something the device states.
+
+  crockpot_turn_off:
+    description: "Stop the Crock-Pot and clear its timer."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "0"
+      time: "0"
+    verification: "reported"
+    notes: >
+      The one Crock-Pot write with no read-back: off takes no cook time with
+      it, so this is sendable from a cold start.
+
 http_endpoints:
   - method: "GET"
     path: "/setup.xml"
@@ -1409,6 +1815,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/basicevent1"
     name: "SetBinaryState"
+    service: "urn:Belkin:service:basicevent:1"
     description: >
       Universal SOAP action for relay/light on/off. Required SOAPACTION header:
       "urn:Belkin:service:basicevent:1#SetBinaryState". Dimmers may include a
@@ -1428,6 +1835,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/basicevent1"
     name: "GetBinaryState"
+    service: "urn:Belkin:service:basicevent:1"
     description: >
       Universal SOAP action for current binary state. Required SOAPACTION
       header: "urn:Belkin:service:basicevent:1#GetBinaryState".
@@ -1438,11 +1846,91 @@ http_endpoints:
           type: "integer"
           description: >
             Current state. Values and the pipe-delimited-extras caveat are in
-            the top-level payload_formats.BinaryState.
+            the top-level payload_formats.BinaryState. NOT a state reading on
+            the Crock-Pot, which answers 0 here whatever it is doing — use
+            GetCrockpotState there.
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+        <s:Body>
+        <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+        <BinaryState>8|1492338954|0|922|14195|1209600|0|940670|15213709|227088884</BinaryState>
+        </u:GetBinaryStateResponse>
+        </s:Body>
+        </s:Envelope>
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "GetCrockpotState"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Crock-Pot only. The device's whole state in one call. Required
+      SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#GetCrockpotState". Takes no arguments.
+      Note the service: these two actions live on basicevent, not on the
+      crockpotevent service that also appears in the Crock-Pot's serviceList.
+      That is where pywemo drives them, and it is the only placement with a
+      working implementation behind it.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "mode"
+          type: "integer"
+          description: "Cooking mode; see payload_formats.CrockpotMode. The device's on/off state lives here."
+        - name: "time"
+          type: "integer"
+          unit: "minutes"
+          description: >
+            Cook time remaining, in minutes. Also the value SetCrockpotState
+            wants handed back to it on any write that is not turning the
+            cooker off.
+        - name: "cookedTime"
+          type: "integer"
+          unit: "minutes"
+          description: "Minutes cooked so far in the current run."
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+        <s:Body>
+        <u:GetCrockpotStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+        <mode>51</mode>
+        <time>240</time>
+        <cookedTime>15</cookedTime>
+        </u:GetCrockpotStateResponse>
+        </s:Body>
+        </s:Envelope>
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "SetCrockpotState"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Crock-Pot only. Sets mode and cook time together — there is no action
+      that sets one of them. Required SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#SetCrockpotState". The reply
+      acknowledges the request rather than reporting the resulting state, so
+      read GetCrockpotState back afterwards; the cooker does not always take
+      the setting.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "mode"
+          type: "integer"
+          required: true
+          description: "Target mode; see payload_formats.CrockpotMode."
+          enum: [0, 50, 51, 52]
+        - name: "time"
+          type: "integer"
+          required: true
+          unit: "minutes"
+          description: >
+            Cook time in minutes. Sent on every call, including calls that
+            only mean to change the mode.
 
   - method: "POST"
     path: "/upnp/control/metainfo1"
     name: "GetMetaInfo"
+    service: "urn:Belkin:service:metainfo:1"
     description: >
       Device metadata. Required SOAPACTION header:
       "urn:Belkin:service:metainfo:1#GetMetaInfo". Takes no arguments.
@@ -1456,6 +1944,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/timesync1"
     name: "TimeSync"
+    service: "urn:Belkin:service:timesync:1"
     description: >
       Set the device clock, which local rules and timers depend on. Required
       SOAPACTION header: "urn:Belkin:service:timesync:1#TimeSync".
@@ -1470,6 +1959,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/deviceinfo1"
     name: "GetDeviceInformation"
+    service: "urn:Belkin:service:deviceinfo:1"
     description: >
       Extended device information. Required SOAPACTION header:
       "urn:Belkin:service:deviceinfo:1#GetDeviceInformation". Not present on
@@ -1479,6 +1969,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/insight1"
     name: "GetInsightParams"
+    service: "urn:Belkin:service:insight:1"
     description: >
       Insight-only SOAP action. Required SOAPACTION header:
       "urn:Belkin:service:insight:1#GetInsightParams".
@@ -1494,6 +1985,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/deviceevent1"
     name: "GetAttributes / SetAttributes"
+    service: "urn:Belkin:service:deviceevent:1"
     description: >
       Attribute-based appliance surface used by Maker, Coffee Maker, Heater,
       Air Purifier, and Humidifier classes. Required SOAPACTION header uses
@@ -1502,6 +1994,407 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/bridge1"
     name: "Bridge Device Control"
+    service: "urn:Belkin:service:bridge:1"
     description: >
       Wemo Link bridge actions for paired bulbs and groups, including
       GetEndDevicesWithStatus, GetDeviceStatus, and SetDeviceStatus.
+
+# The controls and readings a client draws, in the vocabulary a consumer
+# already speaks for BLE devices: a platform, a place to read state from, and
+# role -> command bindings. Only the bindings are transport-specific — a
+# `state_characteristic` becomes a `state_endpoint` plus a `state_command`,
+# and `state_mapping.value` names a value the state call RETURNS instead of a
+# field of a decoded characteristic. Everything above that line (which control
+# to draw, what its unit is, which raw value counts as on) is unchanged, which
+# is the point: a consumer gains Wemo by learning SOAP, not by learning Wemo.
+#
+# `state_endpoint` carries the conventional control URL so a reader has
+# something concrete, but it is the FALLBACK. Resolve the real one from the
+# serviceList in the device's own setup.xml, keyed by the service type the
+# named command declares.
+#
+# Scoped with `variants` to the two device families whose control surface is
+# fully mapped here. The rest of `device.variants` is discovery and setup
+# only, deliberately: a declared entity is a promise that the control works,
+# and the appliance classes still have unmapped attribute payloads.
+entities:
+  - platform: "switch"
+    name: "Plug"
+    device_class: "outlet"
+    variants:
+      - "Wemo Mini Smart Plug"
+      - "Wemo WiFi Smart Plug"
+      - "Wemo Insight Smart Plug"
+      - "Wemo Outdoor Plug"
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetBinaryState"
+    state_mapping:
+      value: "BinaryState"
+      on_when: "nonzero"
+    commands:
+      turn_on: "plug_turn_on"
+      turn_off: "plug_turn_off"
+    notes: >
+      `on_when: nonzero` rather than a comparison against 1, because an
+      Insight reports 8 for "on, and the attached load is idling". Treating 8
+      as anything but on gives a plug that reads as off while it is powering
+      something. The reading needs the split rule in
+      payload_formats.BinaryState: some firmware answers with the long
+      pipe-delimited form and only field 0 is the state.
+
+  - platform: "switch"
+    name: "Slow Cooker"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "mode"
+      on_when: "nonzero"
+    commands:
+      turn_on: "crockpot_turn_on"
+      turn_off: "crockpot_turn_off"
+    notes: >
+      Reads `mode`, NOT BinaryState. basicevent#GetBinaryState answers 0 on
+      this device whatever it is doing — pywemo overrides its own base
+      implementation for exactly that reason — so the obvious binding, the one
+      every other Wemo switch uses, yields a Crock-Pot that is permanently
+      off and a toggle that springs back. `turn_on` selects HIGH and keeps the
+      cook time; Warm and Low are reachable through the Cook Mode select.
+
+  - platform: "select"
+    name: "Cook Mode"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "mode"
+      options:
+        0: "off"
+        50: "warm"
+        51: "low"
+        52: "high"
+    commands:
+      select_option: "set_cook_mode"
+    notes: >
+      The mode codes are also in payload_formats.CrockpotMode, which is where
+      a parser should read them; the table is repeated here in the shape the
+      entity layer already uses for a select (ember-mug spells its
+      temperature unit the same way) because a consumer that reads entities
+      and nothing else still has to render a label rather than the number 51.
+      A value outside the table is a mode we do not know: show it as unknown
+      rather than folding it into `off`. `select_option` is the one role name
+      in this file that no consumer resolves yet — it is the parameterised
+      form the action actually has, where the catalogue's other selects
+      declare one command per option.
+
+  - platform: "number"
+    name: "Cook Time"
+    device_class: "duration"
+    unit: "min"
+    min: 0
+    step: 1
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "time"
+    commands:
+      set_value: "set_cook_time"
+    notes: >
+      No `max`: the longest cook time the appliance accepts is not something
+      we have established, and inventing a bound would either forbid a setting
+      the device allows or promise one it rejects. A consumer needing a slider
+      range should pick its own and say it is its own. Writing this sends the
+      current mode back alongside the new time — see commands.set_cook_time.
+
+  - platform: "sensor"
+    name: "Cooked Time"
+    device_class: "duration"
+    unit: "min"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "cookedTime"
+    notes: >
+      Minutes elapsed in the current run, counting up, where Cook Time counts
+      down. One GetCrockpotState call serves this, Cook Mode, Cook Time and
+      the switch — poll once and fan the three values out rather than calling
+      per entity.
+
+# Can a Wemo device be told to turn itself on later? Yes — and the answer is
+# stranger than any other part of this protocol, which is why it is written
+# down here rather than left for the next person to rediscover.
+scheduling:
+  supported: true
+  mechanism: "on_device_rules"
+  confidence: "medium"
+  runs_without_a_client: true
+  applies_to:
+    - "Wemo Mini Smart Plug"
+    - "Wemo WiFi Smart Plug"
+    - "Wemo Insight Smart Plug"
+    - "Wemo Outdoor Plug"
+    - "Wemo Light Switch Gen1/Gen2/3-Way"
+    - "Wemo Dimmer v1"
+    - "Wemo Dimmer v2"
+    - "Wemo Maker"
+  applies_to_notes: >
+    Scoped to the switch family, by `device.variants` name, because that is
+    where the evidence is: pywemo drives FetchRules/StoreRules against these
+    classes, and the captured schedule row is an Insight's. `supported: true`
+    unscoped would let a consumer advertise on-device scheduling for the
+    Crock-Pot and the Holmes appliances, where whether the rules service
+    honours anything is an open question below — and the Crock-Pot is
+    doubly excluded because a rule's action sets the binary state, which is
+    not that device's state at all. Outside this list, treat scheduling
+    support as UNKNOWN rather than absent: the service may well be present,
+    and finding out is listed in open_questions.
+  summary: >
+    Schedules live ON THE DEVICE, in a SQLite database it hands out and takes
+    back over SOAP. A client fetches the database, edits rows, zips it,
+    base64-encodes it and posts it back; the device then runs the schedule on
+    its own clock with nothing else on the network. That is the property worth
+    having — a phone app scheduling a future action has to still be running at
+    the time, and on iOS it will not be.
+  confidence_notes: >
+    MEDIUM, and the parts are not equally known. The transfer and the table
+    schemas are HIGH — pywemo implements both against real hardware. The
+    meaning of a schedule row's columns is inference from two known-good rows,
+    one written by pywemo and one captured from a device configured by the
+    Wemo app. `open_questions` below lists exactly what is not established;
+    none of it has been replayed by this project.
+  service: "urn:Belkin:service:rules:1"
+  device_clock_dependency: >
+    Rules run on the device's own clock, so a device whose time is wrong runs
+    the schedule wrong. Set it with timesync#TimeSync (UTC, %Y-%m-%dT%H:%M:%S)
+    before trusting a schedule, and remember that the Belkin cloud used to be
+    what kept it right.
+  transfer:
+    description: >
+      The database moves whole, in both directions. There is no add-one-rule
+      call in the pair a current client uses.
+    steps:
+      - action: "Ask the device where its rules database is and which version it holds."
+        actor: "client"
+        request:
+          protocol: "soap"
+          service: "urn:Belkin:service:rules:1"
+          action: "FetchRules"
+        response_fields:
+          - name: "ruleDbVersion"
+            type: "integer"
+            description: "Current version. The store call must send this plus one."
+          - name: "ruleDbPath"
+            type: "string"
+            description: "URL on the device itself, to fetch over plain HTTP."
+      - action: "Download the database."
+        actor: "client"
+        request:
+          protocol: "http"
+          action: "GET {ruleDbPath}"
+        expect: >
+          A ZIP archive containing one SQLite file. Keep the inner filename —
+          it goes back unchanged, and a device that has never held a rule may
+          404 here, in which case create an empty database with the tables
+          below and use the name 'temppluginRules.db'.
+      - action: "Edit the rows."
+        actor: "client"
+        expect: >
+          FETCH, MODIFY, STORE — never construct a database from scratch for a
+          device that already had one. The store replaces everything, so a
+          client that builds a fresh database silently deletes every rule the
+          user made in the Wemo app, and that app is gone: they cannot make
+          them again.
+      - action: "Send the database back."
+        actor: "client"
+        request:
+          protocol: "soap"
+          service: "urn:Belkin:service:rules:1"
+          action: "StoreRules"
+          arguments:
+            - name: "ruleDbVersion"
+              type: "integer"
+              required: true
+              description: "The version FetchRules returned, plus one."
+            - name: "processDb"
+              type: "integer"
+              required: true
+              description: "1 — apply the database rather than only storing it."
+            - name: "ruleDbBody"
+              type: "string"
+              required: true
+              description: >
+                The zipped database, base64-encoded, wrapped in a CDATA
+                section that is itself XML-ESCAPED — the argument's literal
+                text begins '&lt;![CDATA[' and ends ']]&gt;'. That is not a
+                typo carried forward: it is what the device accepts, and
+                sending a real CDATA section instead is the obvious correction
+                that does not work.
+  storage:
+    format: "sqlite3, zipped, base64-encoded in the SOAP argument"
+    tables:
+      RULES:
+        description: "One row per rule."
+        columns:
+          RuleID: "Primary key."
+          Name: "Free text, shown in the app that no longer exists."
+          Type: >
+            Rule kind. Two values are attested: 'Time Interval' (a schedule,
+            from a device configured by the Wemo app) and 'Long Press' (what
+            pywemo writes). Others certainly exist — the app offered sunset,
+            sunrise and away modes — and are not documented here.
+          RuleOrder: "Evaluation order; use max(existing) + 1 for a new rule."
+          StartDate: "'12201982' on every observed rule."
+          EndDate: "'07301982' on every observed rule."
+          State: "'1' enabled, '0' disabled."
+          Sync: "'NOSYNC'. Declared INTEGER in the schema and holding a string."
+        sentinel_dates: >
+          Those two dates are not dates. The same pair appears in a rule
+          pywemo writes and in a rule the Wemo app wrote, which is what makes
+          them constants meaning "no date restriction" rather than somebody's
+          birthday. Copy them; do not compute them.
+      RULEDEVICES:
+        description: "One row per device a rule acts on, carrying the timing."
+        columns:
+          RuleID: "The rule this belongs to."
+          DeviceID: "The device's UDN, e.g. uuid:Insight-1_0-231544K120002B."
+          GroupID: "0 for a single device."
+          DayID: "Which day(s). See open_questions — the encoding is not established."
+          StartTime: "Seconds since local midnight. 61200 = 17:00."
+          EndTime: "Seconds since local midnight. 75600 = 21:00."
+          RuleDuration: "Seconds between the two. 14400 = 4 hours."
+          StartAction: "What happens at StartTime: 1.0 on, 0.0 off, 2.0 toggle."
+          EndAction: "The same at EndTime; -1.0 where there is nothing to do."
+          CountdownTime: "Present on every row, 0 on both observed ones. Purpose not established."
+          SensorDuration: "Motion-sensor rules; -1 or 0 elsewhere."
+          Type: "An integer, distinct from RULES.Type. -1 on both observed rows."
+          Value: "-1 on both observed rows."
+          Level: "-1 on both observed rows; presumably a dimmer level."
+          ZBCapabilityStart: "Zigbee (Link bulbs); empty string elsewhere."
+          ZBCapabilityEnd: "As above."
+          OnModeOffset: "0 or -1 on the observed rows."
+          OffModeOffset: "As above."
+      TARGETDEVICES:
+        description: >
+          The devices a rule ACTS ON, where RULEDEVICES is the devices it
+          listens to — a long-press rule on one switch targets others.
+          A schedule targeting only its own device still gets no row here.
+        columns:
+          TargetDevicesPK: "Primary key, auto-increment."
+          RuleID: "The rule this belongs to."
+          DeviceID: "Target device's UDN."
+          DeviceIndex: "0-based position within the rule's target list."
+      DEVICECOMBINATION:
+        description: "Sensor→device pairings for motion rules."
+        columns:
+          DeviceCombinationPK: "Primary key, auto-increment."
+          RuleID: "integer"
+          SensorID: "text"
+          SensorGroupID: "integer"
+          DeviceID: "text"
+          DeviceGroupID: "integer"
+      GROUPDEVICES:
+        description: "Device-group membership."
+        columns:
+          GroupDevicePK: "Primary key, auto-increment."
+          GroupID: "integer"
+          DeviceID: "text"
+      LOCATIONINFO:
+        description: "Where the app said the device lives — sunrise/sunset rules needed it."
+        columns:
+          LocationPk: "Primary key, auto-increment."
+          cityName: "text"
+          countryName: "text"
+          latitude: "text"
+          longitude: "text"
+          countryCode: "text"
+          region: "text"
+      BLOCKEDRULES:
+        description: "Rules the device is told to ignore."
+        columns:
+          Primarykey: "Primary key, auto-increment."
+          ruleId: "text — note the string type and lowercase spelling, unlike RULES.RuleID."
+      RULESNOTIFYMESSAGE:
+        description: "Notification text a rule used to push through the cloud."
+        columns:
+          RuleID: "Primary key, auto-increment."
+          NotifyRuleID: "integer"
+          Message: "text"
+          Frequency: "integer"
+      SENSORNOTIFICATION:
+        description: "As RULESNOTIFYMESSAGE, for sensor-triggered rules."
+        columns:
+          SensorNotificationPK: "Primary key, auto-increment."
+          RuleID: "integer"
+          NotifyRuleID: "integer"
+          NotificationMessage: "text"
+          NotificationDuration: "integer"
+      tables_notes: >
+        All nine tables and their columns are transcribed from pywemo's
+        rules-database ORM (pywemo/ouimeaux_device/api/rules_db.py), which
+        both reads real devices' databases and CREATES the empty one when a
+        device 404s the download — so this listing is sufficient to build
+        that empty database, named 'temppluginRules.db' inside the zip. A
+        schedule touches only RULES and RULEDEVICES; the rest exist so the
+        device finds every table it expects. Column types beyond the ones
+        annotated are unremarkable (SQLite is dynamically typed and pywemo
+        declares TEXT/INTEGER as shown); the two standing oddities are
+        RULES.Sync, declared INTEGER and holding the string 'NOSYNC', and
+        BLOCKEDRULES.ruleId, a string where every other rule id is an
+        integer.
+    examples:
+      - name: "A schedule: on at 17:00, off at 21:00"
+        verification: "reported"
+        source: "Captured from an Insight configured by the Wemo app."
+        rules_row: "1 | 'Nightly' | 'Time Interval' | 2 | '12201982' | '07301982' | '1' | 'NOSYNC'"
+        ruledevices_row: >
+          RuleID 1, DeviceID uuid:Insight-1_0-231544K120002B, GroupID 0,
+          DayID 1, StartTime 61200, RuleDuration 14400, StartAction 1.0,
+          EndAction 0.0, SensorDuration 0, Type -1, Value -1, Level -1,
+          ZBCapability* '', OnModeOffset 0, OffModeOffset 0, CountdownTime 0,
+          EndTime 75600.
+      - name: "A long-press rule, for comparison"
+        verification: "reported"
+        source: "Written by pywemo against real hardware."
+        rules_row: >
+          '<device name> Long Press Rule' | 'Long Press' | max(RuleOrder)+1 |
+          '12201982' | '07301982' | '1' | 'NOSYNC'
+        ruledevices_row: >
+          DayID -1, StartTime 60, RuleDuration 86340, EndTime 86400,
+          StartAction 2.0 (toggle), EndAction -1.0, everything else -1 or ''.
+        notes: >
+          Useful precisely because it is not a schedule: it shows which
+          columns are inert (-1) when the rule is not about time of day, and
+          it is the only rule row in either source that a maintained
+          implementation writes.
+  limitations:
+    - >
+      A rule's action is a number — 1.0 on, 0.0 off, 2.0 toggle. There is no
+      column that carries a Crock-Pot mode, so "start the cooker on Low at
+      17:00" does not appear to be expressible: what a rule can schedule is
+      the BINARY state. On the Crock-Pot that is the surface which answers 0
+      whatever the device is doing, so a scheduled rule there is doubly
+      suspect and must be tested on hardware before anybody relies on it to
+      start cooking unattended.
+    - >
+      The Crock-Pot's own cook time IS a device-run countdown and is not part
+      of this at all: SetCrockpotState carries `time` in minutes and the
+      appliance counts it down itself. That is the timer that certainly works
+      today. It starts when you send it — it is a duration, not a start time.
+    - >
+      Nothing here is a way to schedule from off-network. The device runs the
+      rule; something must have written it while on the same LAN.
+  open_questions:
+    - "DayID's encoding. The one captured schedule is named 'Nightly' and uses 1, and pywemo's non-schedule rule uses -1. Whether it is a bitmask, an enum or an index is not established, and a wrong guess means a rule that fires on the wrong day."
+    - "The full RULES.Type vocabulary. Only 'Time Interval' and 'Long Press' are attested; the app also offered sunrise/sunset and away modes."
+    - "Whether the appliance classes (Crock-Pot, coffee maker, humidifier) honour rules at all, and what StartAction means on one."
+    - "What CountdownTime does. The name suggests the app's 'turn off after N minutes' timer, but both observed rows carry 0."
+    - "Whether StoreRules validates anything. If it does not, a malformed database may leave the device with no working rules and no error."
+  client_side_alternative: >
+    A client that only needs "turn this on at 17:00" while it is running can
+    simply send the ordinary control command at 17:00 and skip all of the
+    above. That is the honest fallback, and its limitation is the whole reason
+    the rules database is worth the trouble: close the app, or let the phone
+    sleep, and the schedule does not happen.
+  verification: "reported"
