@@ -75,8 +75,40 @@ pub struct StoredUploadPlan {
     /// The play-by-id command, fragment-framed and ready to write, when the
     /// spec declares a `play_command`. Sent after the upload completes.
     pub play_write: Option<EncodedWrite>,
+    /// Where the device answers the upload (the spec's
+    /// `response_characteristic`), when it names one. A caller subscribes
+    /// here and waits for the completion event before sending `play_write` —
+    /// playing a cid the device has not committed yet is a silent no-op.
+    pub response_characteristic_uuid: Option<String>,
     /// The stored id the caller can later address the item by.
     pub cid: u32,
+}
+
+/// The play-by-cid write alone, for RE-triggering an already stored item
+/// without uploading anything. Same framed command the upload plan tacks on;
+/// errors when the spec declares no `stored_upload` or no `play_command`.
+pub fn encode_stored_play(
+    spec: &DeviceSpec,
+    cid: u32,
+) -> Result<(String, EncodedWrite), ProtocolError> {
+    let feature = stored_feature(spec).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
+        reason: "spec declares no stored_upload feature".to_string(),
+    })?;
+    let command =
+        feature
+            .play_command
+            .as_deref()
+            .ok_or_else(|| ProtocolError::ImageUploadUnsupported {
+                reason: "spec's stored_upload declares no play_command".to_string(),
+            })?;
+    let write = build_play_write(spec, command, cid)?;
+    let service =
+        service_for_characteristic(spec, &write.characteristic_uuid).ok_or_else(|| {
+            ProtocolError::ImageUploadUnsupported {
+                reason: "the play command's characteristic belongs to no service".to_string(),
+            }
+        })?;
+    Ok((service, write))
 }
 
 /// Store `program`'s canvas as a standalone picture microapp ("DN" AMX,
@@ -174,6 +206,7 @@ fn assemble_plan(
         service_uuid,
         upload_writes: transfer.writes,
         play_write,
+        response_characteristic_uuid: feature.response_characteristic.clone(),
         cid,
     })
 }
@@ -299,6 +332,7 @@ features:
     file_type: 3
     frame_size: 500
     play_command: "play_effect"
+    response_characteristic: "01010074-1972-1925-3022-077119514e44"
 services:
   - uuid: "00000074-1972-1925-3022-077119514e44"
     name: "Daniao DDP Service"
@@ -319,6 +353,9 @@ services:
               ts: { type: "uint8", default: 0 }
               effect_id: { type: "varint", min: 0 }
               slot: { type: "varint", min: 0, default: 0 }
+      - uuid: "01010074-1972-1925-3022-077119514e44"
+        name: "DDP Notify"
+        properties: ["notify"]
       - uuid: "02020074-1972-1925-3022-077119514e44"
         name: "BIN Write"
         properties: ["write"]
@@ -366,6 +403,30 @@ services:
             .all(|w| w.characteristic_uuid == "27923001-2072-1925-3022-077119514e44"));
         assert_eq!(plan.service_uuid, "00000074-1972-1925-3022-077119514e44");
         assert_eq!(plan.cid, 79009);
+    }
+
+    #[test]
+    fn plan_names_the_response_characteristic_from_the_spec() {
+        let rgb = red_2x2();
+        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
+        assert_eq!(
+            plan.response_characteristic_uuid.as_deref(),
+            Some("01010074-1972-1925-3022-077119514e44"),
+            "the caller needs to know where to await the upload completion"
+        );
+    }
+
+    #[test]
+    fn stored_play_replays_by_cid_without_an_upload() {
+        let rgb = red_2x2();
+        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
+        let (service, write) = encode_stored_play(&spec(), 79009).unwrap();
+        assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
+        // Byte-identical to the play write the upload plan tacks on: the
+        // replay path IS the store-then-show command, minus the store.
+        let plan_play = plan.play_write.expect("play_command declared");
+        assert_eq!(write.characteristic_uuid, plan_play.characteristic_uuid);
+        assert_eq!(write.bytes, plan_play.bytes);
     }
 
     #[test]
@@ -429,6 +490,7 @@ services:
                 width: 2,
                 height: 2,
                 frames: &frames,
+                fps: 20,
             },
         )
         .unwrap();

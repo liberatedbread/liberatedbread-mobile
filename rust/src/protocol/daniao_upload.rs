@@ -248,6 +248,106 @@ fn uploader_characteristic(spec: &DeviceSpec) -> Option<String> {
     None
 }
 
+/// One inbound message on the stored-upload response channel (the spec's
+/// `response_characteristic`), decoded from a single BLE notification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UploadEvent {
+    /// M_UPLOAD_START_RESPONSE with i1==0: the device accepts the transfer.
+    /// `resume_offset` is its i3 — 0 means start fresh.
+    StartAccepted { resume_offset: u64 },
+    /// M_UPLOAD_START_RESPONSE with i1!=0: the device refuses the transfer.
+    StartRejected { code: u64 },
+    /// M_UPLOAD_PROGRESS, streamed during the transfer.
+    Progress { value: u64 },
+    /// M_UPLOAD_COMPLETE with i1==0: the item is committed and playable.
+    Complete,
+    /// M_UPLOAD_COMPLETE with i1!=0: the transfer failed device-side.
+    Failed { code: u64 },
+}
+
+const MT_UPLOAD_START_RESPONSE: u16 = 2931;
+const MT_UPLOAD_PROGRESS: u16 = 2933;
+const MT_UPLOAD_COMPLETE: u16 = 2934;
+
+/// Decode ONE notification from the response characteristic into an
+/// [`UploadEvent`], or `None` when it is some other push (device info, play
+/// progress, …) or not parseable as a DNX packet at all.
+///
+/// The channel fragments with the standard 4-byte `[serial][total][remaining]
+/// [tag]` header. Only the FIRST fragment is examined: the 8-byte DNX header
+/// and the SimpleMessage's small varint fields sit well inside any fragment's
+/// payload, so a split packet still decides here — and a continuation
+/// fragment (which carries raw tail bytes, no DNX header) returns `None`
+/// instead of a misparse.
+pub fn parse_upload_event(notification: &[u8]) -> Option<UploadEvent> {
+    use super::daniao::FRAG_HEADER_LEN;
+    // DNX header: [0xF0][0x04][sn u16 BE][len u16 BE][mt u16 BE].
+    if notification.len() < FRAG_HEADER_LEN + 8 {
+        return None;
+    }
+    let total = notification[1];
+    let remaining = notification[2];
+    if total == 0 || remaining != total - 1 {
+        return None; // not the first fragment of a packet
+    }
+    let dnx = &notification[FRAG_HEADER_LEN..];
+    if dnx[0] != 0xF0 || dnx[1] != 0x04 {
+        return None;
+    }
+    let mt = u16::from_be_bytes([dnx[6], dnx[7]]);
+    if !matches!(
+        mt,
+        MT_UPLOAD_START_RESPONSE | MT_UPLOAD_PROGRESS | MT_UPLOAD_COMPLETE
+    ) {
+        return None;
+    }
+
+    // SimpleMessage: varint fields i1=1, i2=2, i3=3 (play_effect's captured
+    // payload `08 a1 e9 04 10 00` is this same shape from the other side).
+    // Unset fields default to 0, like protobuf itself.
+    let mut i1 = 0u64;
+    let mut i3 = 0u64;
+    let mut body = &dnx[8..];
+    while let Some((&tag, rest)) = body.split_first() {
+        if tag & 0x07 != 0 {
+            break; // not a varint field; nothing past here is ours
+        }
+        let (value, rest) = parse_varint(rest)?;
+        match tag >> 3 {
+            1 => i1 = value,
+            3 => i3 = value,
+            _ => {}
+        }
+        body = rest;
+    }
+
+    Some(match mt {
+        MT_UPLOAD_START_RESPONSE if i1 == 0 => UploadEvent::StartAccepted { resume_offset: i3 },
+        MT_UPLOAD_START_RESPONSE => UploadEvent::StartRejected { code: i1 },
+        MT_UPLOAD_PROGRESS => UploadEvent::Progress { value: i1 },
+        _ if i1 == 0 => UploadEvent::Complete,
+        _ => UploadEvent::Failed { code: i1 },
+    })
+}
+
+/// Parse a protobuf varint, returning the value and the remaining bytes.
+fn parse_varint(mut bytes: &[u8]) -> Option<(u64, &[u8])> {
+    let mut value = 0u64;
+    let mut shift = 0u32;
+    while let Some((&b, rest)) = bytes.split_first() {
+        value |= u64::from(b & 0x7F) << shift;
+        if b & 0x80 == 0 {
+            return Some((value, rest));
+        }
+        shift += 7;
+        if shift >= 64 {
+            return None;
+        }
+        bytes = rest;
+    }
+    None // truncated mid-varint (split across fragments): treat as not ours
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -345,5 +445,70 @@ services:
     #[test]
     fn empty_payload_is_rejected() {
         assert!(encode_upload(&spec(), 1, 0, 5, &[], None, 500).is_err());
+    }
+
+    /// A single-fragment DDP push carrying a DNX packet with `mt` and a
+    /// SimpleMessage body — the shape every upload response arrives in.
+    fn response(mt: u16, body: &[u8]) -> Vec<u8> {
+        let mut v = vec![0x01, 1, 0, 0]; // [serial][total=1][remaining=0][tag]
+        v.extend_from_slice(&[0xF0, 0x04, 0x00, 0x07]); // magic + sn
+        let len = (8 + body.len()) as u16;
+        v.extend_from_slice(&len.to_be_bytes());
+        v.extend_from_slice(&mt.to_be_bytes());
+        v.extend_from_slice(body);
+        v
+    }
+
+    #[test]
+    fn upload_responses_decode_to_events() {
+        // M_UPLOAD_COMPLETE i1==0: the item is committed.
+        assert_eq!(
+            parse_upload_event(&response(2934, &[0x08, 0x00])),
+            Some(UploadEvent::Complete)
+        );
+        // i1!=0 is a device-side failure with its code.
+        assert_eq!(
+            parse_upload_event(&response(2934, &[0x08, 0x05])),
+            Some(UploadEvent::Failed { code: 5 })
+        );
+        // M_UPLOAD_START_RESPONSE accept, resume offset in i3 (1024 as a
+        // 2-byte varint).
+        assert_eq!(
+            parse_upload_event(&response(2931, &[0x08, 0x00, 0x18, 0x80, 0x08])),
+            Some(UploadEvent::StartAccepted {
+                resume_offset: 1024
+            })
+        );
+        assert_eq!(
+            parse_upload_event(&response(2931, &[0x08, 0x02])),
+            Some(UploadEvent::StartRejected { code: 2 })
+        );
+        // An i1 the encoder never wrote decodes as 0, protobuf-style.
+        assert_eq!(
+            parse_upload_event(&response(2934, &[])),
+            Some(UploadEvent::Complete)
+        );
+        assert_eq!(
+            parse_upload_event(&response(2933, &[0x08, 0x32])),
+            Some(UploadEvent::Progress { value: 50 })
+        );
+    }
+
+    #[test]
+    fn non_upload_pushes_and_fragments_tails_are_not_events() {
+        // Another DDP push on the same channel (M_DEVICE_INFO_NOTIFY).
+        assert_eq!(parse_upload_event(&response(2103, &[0x08, 0x00])), None);
+        // A continuation fragment: remaining != total-1, and its payload is
+        // raw tail bytes that must not be misread as a DNX header.
+        let mut cont = response(2934, &[0x08, 0x00]);
+        cont[1] = 2; // total 2
+        cont[2] = 0; // remaining 0 -> this is the SECOND fragment
+        assert_eq!(parse_upload_event(&cont), None);
+        // Wrong magic.
+        let mut bad = response(2934, &[0x08, 0x00]);
+        bad[4] = 0xAB;
+        assert_eq!(parse_upload_event(&bad), None);
+        // Too short to carry a DNX header at all.
+        assert_eq!(parse_upload_event(&[0x01, 1, 0, 0, 0xF0]), None);
     }
 }

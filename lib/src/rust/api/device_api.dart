@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -241,14 +241,34 @@ Future<StoredUploadPlanDto> encodeStoredAnimation(
         required int height,
         required List<Uint8List> frames,
         required String name,
-        required int cid}) =>
+        required int cid,
+        required int frameMs}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeStoredAnimation(
         specYaml: specYaml,
         width: width,
         height: height,
         frames: frames,
         name: name,
-        cid: cid);
+        cid: cid,
+        frameMs: frameMs);
+
+/// Decode one notification from the stored-upload response characteristic.
+///
+/// Returns `None` for anything that is not an upload event — other state
+/// pushes share the channel, and a caller filters by just ignoring `None`.
+/// The spec is taken so this dispatches like the encoders do; today the one
+/// implemented response format is Daniao's.
+Future<StoredUploadEventDto?> decodeStoredUploadEvent(
+        {required String specYaml, required List<int> bytes}) =>
+    RustLib.instance.api.crateApiDeviceApiDecodeStoredUploadEvent(
+        specYaml: specYaml, bytes: bytes);
+
+/// Encode the play-by-cid command for RE-triggering a previously stored item
+/// — the replay path, no upload involved.
+Future<StoredPlayDto> encodeStoredPlay(
+        {required String specYaml, required int cid}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiEncodeStoredPlay(specYaml: specYaml, cid: cid);
 
 /// Decode raw bytes from a BLE read/notify into named values.
 ///
@@ -1831,6 +1851,31 @@ class SpecIdentityDto {
           defaultPort == other.defaultPort;
 }
 
+/// The single play-by-cid write for RE-triggering an already stored item.
+class StoredPlayDto {
+  /// The GATT service the write's characteristic belongs to.
+  final String serviceUuid;
+
+  /// The framed play command, ready to write.
+  final ImageWriteDto write;
+
+  const StoredPlayDto({
+    required this.serviceUuid,
+    required this.write,
+  });
+
+  @override
+  int get hashCode => serviceUuid.hashCode ^ write.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StoredPlayDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          write == other.write;
+}
+
 /// A spec's declared device-side STORAGE capability: whether this device can
 /// persist content that plays standalone after disconnect, and whether this
 /// build can encode the container it wants.
@@ -1863,6 +1908,60 @@ class StoredUploadDto {
           encodable == other.encodable;
 }
 
+/// A decoded stored-upload response. Fields not named by [`kind`] are 0.
+class StoredUploadEventDto {
+  final StoredUploadEventKind kind;
+
+  /// Device error code, for `StartRejected` / `Failed`.
+  final BigInt code;
+
+  /// Byte offset to resume from, for `StartAccepted` (0 = fresh).
+  final BigInt resumeOffset;
+
+  /// The device's progress counter, for `Progress`.
+  final BigInt progress;
+
+  const StoredUploadEventDto({
+    required this.kind,
+    required this.code,
+    required this.resumeOffset,
+    required this.progress,
+  });
+
+  @override
+  int get hashCode =>
+      kind.hashCode ^ code.hashCode ^ resumeOffset.hashCode ^ progress.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StoredUploadEventDto &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          code == other.code &&
+          resumeOffset == other.resumeOffset &&
+          progress == other.progress;
+}
+
+/// What one notification on the stored-upload response characteristic said.
+enum StoredUploadEventKind {
+  /// The device accepts the transfer; `resume_offset` says where to start.
+  startAccepted,
+
+  /// The device refuses the transfer (`code` is its error).
+  startRejected,
+
+  /// Transfer progress (`progress` is the device's counter).
+  progress,
+
+  /// The item is committed and playable — safe to send the play write now.
+  complete,
+
+  /// The transfer failed device-side (`code` is its error).
+  failed,
+  ;
+}
+
 /// The BLE writes that persist one image on the device, in send order, plus the
 /// optional command that plays it immediately after.
 class StoredUploadPlanDto {
@@ -1878,6 +1977,12 @@ class StoredUploadPlanDto {
   /// stored item shows immediately (it also persists without this).
   final ImageWriteDto? playWrite;
 
+  /// Where the device answers the upload, when the spec names it. Subscribe
+  /// here before the first upload write and hold `play_write` until
+  /// [`decode_stored_upload_event`] reports completion — the device plays a
+  /// cid only once it has committed it, so an early play is a silent no-op.
+  final String? responseCharacteristicUuid;
+
   /// The id the stored item now lives under; the device can be told to play
   /// it again by this later.
   final int cid;
@@ -1886,6 +1991,7 @@ class StoredUploadPlanDto {
     required this.serviceUuid,
     required this.uploadWrites,
     this.playWrite,
+    this.responseCharacteristicUuid,
     required this.cid,
   });
 
@@ -1894,6 +2000,7 @@ class StoredUploadPlanDto {
       serviceUuid.hashCode ^
       uploadWrites.hashCode ^
       playWrite.hashCode ^
+      responseCharacteristicUuid.hashCode ^
       cid.hashCode;
 
   @override
@@ -1904,5 +2011,6 @@ class StoredUploadPlanDto {
           serviceUuid == other.serviceUuid &&
           uploadWrites == other.uploadWrites &&
           playWrite == other.playWrite &&
+          responseCharacteristicUuid == other.responseCharacteristicUuid &&
           cid == other.cid;
 }
