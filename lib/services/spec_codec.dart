@@ -33,7 +33,14 @@ export '../src/rust/api/device_api.dart'
         NetworkDeviceDto,
         SpecIdentityDto,
         ProfileInfoDto,
-        ProfileCharacteristicDto;
+        ProfileCharacteristicDto,
+        NetworkEntityDto,
+        NetworkActionDto,
+        NetworkOptionDto,
+        NetworkReadBackDto,
+        NetworkReadingDto,
+        NetworkReadingKind,
+        SoapRequestDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -132,5 +139,40 @@ abstract class SpecCodec {
     required List<int> rgb,
     required int frameIndex,
     required int maxPayloadPerWrite,
+  });
+
+  /// The controls a spec declares for one discovered network device — the
+  /// SOAP counterpart of a BLE spec's entities.
+  ///
+  /// [ssdpTargets] is what the device itself answered to; it narrows a family
+  /// spec's variant-scoped entities to the model actually found, so a Wemo
+  /// plug never grows the slow cooker's controls.
+  Future<List<NetworkEntityDto>> networkEntitiesForDevice({
+    required String specYaml,
+    required List<String> ssdpTargets,
+  });
+
+  /// Render a named command from the spec's `commands` block into a POSTable
+  /// SOAP request. [values] carries what the user picked plus any read-back
+  /// values fetched from the device; the spec's defaults fill the rest.
+  Future<SoapRequestDto> renderNetworkCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  });
+
+  /// Render the argument-less request that reads a state command's values.
+  Future<SoapRequestDto> renderNetworkStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  });
+
+  /// Decode one entity's state from the name→value pairs a state call
+  /// returned. Null when the reply did not carry the entity's value — which
+  /// renders as unknown, never as a fabricated zero.
+  Future<NetworkReadingDto?> readNetworkEntity({
+    required String specYaml,
+    required String entityName,
+    required Map<String, String> returned,
   });
 }

@@ -21,6 +21,10 @@ dependencies:
   shared_preferences: ^2.2.0
   url_launcher: ^6.3.0
   cupertino_icons: ^1.0.8
+  # SOAP/UPnP control of network devices (Wemo): parsing setup.xml and SOAP
+  # response envelopes. Already in the tree as a transitive dependency; listed
+  # here because lib/ imports it directly.
+  xml: ^6.5.0
   liberated_bread_core:
     path: rust_builder
   multicast_dns: ^0.3.3+1
