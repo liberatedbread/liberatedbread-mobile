@@ -750,6 +750,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_query_source_dto(raw);
+  }
+
+  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_scanned_device_dto(raw);
@@ -1244,8 +1250,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkEntityDto dco_decode_network_entity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
     return NetworkEntityDto(
       name: dco_decode_String(arr[0]),
       platform: dco_decode_opt_String(arr[1]),
@@ -1256,10 +1262,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       stateCommand: dco_decode_String(arr[6]),
       valueField: dco_decode_opt_String(arr[7]),
       options: dco_decode_list_network_option_dto(arr[8]),
-      actions: dco_decode_list_network_action_dto(arr[9]),
-      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[10]),
-      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[11]),
-      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[12]),
+      optionsSource: dco_decode_opt_box_autoadd_query_source_dto(arr[9]),
+      stateSource: dco_decode_opt_box_autoadd_query_source_dto(arr[10]),
+      actions: dco_decode_list_network_action_dto(arr[11]),
+      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[12]),
+      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[13]),
+      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[14]),
     );
   }
 
@@ -1353,6 +1361,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_query_source_dto(raw);
+  }
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_16(raw);
@@ -1422,6 +1436,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       serviceUuid: dco_decode_String(arr[0]),
       profileName: dco_decode_String(arr[1]),
       characteristics: dco_decode_list_profile_characteristic_dto(arr[2]),
+    );
+  }
+
+  @protected
+  QuerySourceDto dco_decode_query_source_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return QuerySourceDto(
+      method: dco_decode_String(arr[0]),
+      path: dco_decode_String(arr[1]),
+      item: dco_decode_String(arr[2]),
+      valueAttribute: dco_decode_String(arr[3]),
     );
   }
 
@@ -1637,6 +1665,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_network_reading_dto(deserializer));
+  }
+
+  @protected
+  QuerySourceDto sse_decode_box_autoadd_query_source_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_query_source_dto(deserializer));
   }
 
   @protected
@@ -2350,6 +2385,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_stateCommand = sse_decode_String(deserializer);
     var var_valueField = sse_decode_opt_String(deserializer);
     var var_options = sse_decode_list_network_option_dto(deserializer);
+    var var_optionsSource =
+        sse_decode_opt_box_autoadd_query_source_dto(deserializer);
+    var var_stateSource =
+        sse_decode_opt_box_autoadd_query_source_dto(deserializer);
     var var_actions = sse_decode_list_network_action_dto(deserializer);
     var var_setpointMin = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_setpointMax = sse_decode_opt_box_autoadd_f_64(deserializer);
@@ -2364,6 +2403,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         stateCommand: var_stateCommand,
         valueField: var_valueField,
         options: var_options,
+        optionsSource: var_optionsSource,
+        stateSource: var_stateSource,
         actions: var_actions,
         setpointMin: var_setpointMin,
         setpointMax: var_setpointMax,
@@ -2495,6 +2536,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_query_source_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -2595,6 +2648,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serviceUuid: var_serviceUuid,
         profileName: var_profileName,
         characteristics: var_characteristics);
+  }
+
+  @protected
+  QuerySourceDto sse_decode_query_source_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_method = sse_decode_String(deserializer);
+    var var_path = sse_decode_String(deserializer);
+    var var_item = sse_decode_String(deserializer);
+    var var_valueAttribute = sse_decode_String(deserializer);
+    return QuerySourceDto(
+        method: var_method,
+        path: var_path,
+        item: var_item,
+        valueAttribute: var_valueAttribute);
   }
 
   @protected
@@ -2810,6 +2877,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NetworkReadingDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_network_reading_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_query_source_dto(
+      QuerySourceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_query_source_dto(self, serializer);
   }
 
   @protected
@@ -3346,6 +3420,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.stateCommand, serializer);
     sse_encode_opt_String(self.valueField, serializer);
     sse_encode_list_network_option_dto(self.options, serializer);
+    sse_encode_opt_box_autoadd_query_source_dto(self.optionsSource, serializer);
+    sse_encode_opt_box_autoadd_query_source_dto(self.stateSource, serializer);
     sse_encode_list_network_action_dto(self.actions, serializer);
     sse_encode_opt_box_autoadd_f_64(self.setpointMin, serializer);
     sse_encode_opt_box_autoadd_f_64(self.setpointMax, serializer);
@@ -3462,6 +3538,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_query_source_dto(
+      QuerySourceDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_query_source_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -3538,6 +3625,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.profileName, serializer);
     sse_encode_list_profile_characteristic_dto(
         self.characteristics, serializer);
+  }
+
+  @protected
+  void sse_encode_query_source_dto(
+      QuerySourceDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.method, serializer);
+    sse_encode_String(self.path, serializer);
+    sse_encode_String(self.item, serializer);
+    sse_encode_String(self.valueAttribute, serializer);
   }
 
   @protected

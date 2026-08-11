@@ -458,6 +458,158 @@ void main() {
       // the device, not a network failure and not the generic fallback.
       expect(find.textContaining('control by mobile apps'), findsOneWidget);
       expect(find.textContaining('did not accept'), findsNothing);
+
+      // And the standing note, which says what still worked — a user whose
+      // TV ignores every button is otherwise left wondering whether the app
+      // found the right device at all.
+      expect(find.text('The device is refusing commands'), findsOneWidget);
+      expect(find.textContaining('answered discovery'), findsOneWidget);
+    });
+  });
+
+  // ── The channel launcher: options that live on the device ───────────────
+  group('device-sourced channel list', () {
+    final rokuDevice = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const channelEntity = NetworkEntityDto(
+      name: 'Channel',
+      platform: 'select',
+      stateCommand: '',
+      options: [],
+      optionsSource: QuerySourceDto(
+        method: 'GET',
+        path: '/query/apps',
+        item: 'app',
+        valueAttribute: 'id',
+      ),
+      stateSource: QuerySourceDto(
+        method: 'GET',
+        path: '/query/active-app',
+        item: 'app',
+        valueAttribute: 'id',
+      ),
+      actions: [
+        NetworkActionDto(
+          role: 'select_option',
+          commandName: 'launch_app',
+          transport: 'http',
+          userParams: ['app_id'],
+          readBack: [],
+        ),
+      ],
+    );
+
+    const apps = '''
+<apps>
+  <app id="12">Netflix</app>
+  <app id="837">YouTube</app>
+</apps>
+''';
+
+    /// A virtual Roku: serves both query lists, records launches, and moves
+    /// its foreground channel when one arrives — like the device does.
+    Future<List<http.Request>> pumpChannels(
+      WidgetTester tester, {
+      String activeApp = '<active-app><app id="837">YouTube</app></active-app>',
+    }) async {
+      final received = <http.Request>[];
+      var current = activeApp;
+      codec = FakeSpecCodec(
+        networkEntities: (_) => [channelEntity],
+        networkHttpRequest: (name, values) => HttpRequestDto(
+            method: 'POST', path: '/launch/${values['app_id']}', body: ''),
+      );
+      final roku = MockClient((request) async {
+        received.add(request);
+        if (request.url.path == '/query/apps') {
+          return http.Response(apps, 200);
+        }
+        if (request.url.path == '/query/active-app') {
+          return http.Response(current, 200);
+        }
+        final launched = request.url.path.split('/').last;
+        current = '<active-app><app id="$launched">Now</app></active-app>';
+        return http.Response('', 200);
+      });
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((request) async =>
+                  fail('no description exists for this device')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: roku)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: [channelEntity])),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return received;
+    }
+
+    testWidgets('lists the channels the device says it has', (tester) async {
+      final received = await pumpChannels(tester);
+
+      expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'YouTube'), findsOneWidget);
+      // The foreground channel is the selected one — read from the device,
+      // not guessed.
+      final youtube =
+          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'YouTube'));
+      expect(youtube.selected, isTrue);
+      final netflix =
+          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Netflix'));
+      expect(netflix.selected, isFalse);
+      expect(received.map((r) => r.url.path),
+          containsAll(<String>['/query/apps', '/query/active-app']));
+    });
+
+    testWidgets('tapping a channel launches it and re-reads what is current',
+        (tester) async {
+      final received = await pumpChannels(tester);
+      received.clear();
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Netflix'));
+      await tester.pumpAndSettle();
+
+      // The launch carried the id the list gave it...
+      final call = codec.renderNetworkHttpCommandCalls.single;
+      expect(call.commandName, 'launch_app');
+      expect(call.values, {'app_id': '12'});
+      expect(received.first.url.path, '/launch/12');
+      // ...and the selection now follows the device, which is why the state
+      // source is re-read rather than assumed from the tap.
+      final netflix =
+          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Netflix'));
+      expect(netflix.selected, isTrue);
+    });
+
+    testWidgets('the home screen reads as no channel selected', (tester) async {
+      // Roku's home screen answers with an <app> carrying no id at all.
+      await pumpChannels(tester,
+          activeApp: '<active-app><app>Roku</app></active-app>');
+
+      for (final label in ['Netflix', 'YouTube']) {
+        final chip =
+            tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label));
+        expect(chip.selected, isFalse,
+            reason: '$label must not read as current on the home screen');
+      }
     });
   });
 }
