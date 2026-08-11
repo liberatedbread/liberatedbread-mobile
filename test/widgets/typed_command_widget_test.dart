@@ -538,8 +538,8 @@ void main() {
     expect(find.text('Calibration mode'), findsWidgets);
     expect(find.widgetWithText(ElevatedButton, 'Calibration mode'),
         findsOneWidget);
-    expect(find.widgetWithText(ElevatedButton, 'Set max speed'),
-        findsOneWidget);
+    expect(
+        find.widgetWithText(ElevatedButton, 'Set max speed'), findsOneWidget);
   });
 
   testWidgets(
