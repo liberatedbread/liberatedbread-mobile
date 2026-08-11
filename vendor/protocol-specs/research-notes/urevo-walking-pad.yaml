@@ -148,7 +148,7 @@ protocol:
     set_speed_and_slope:
       description: "Set absolute target speed + slope (B=0x53, C=0x02). speed byte = km/h x 10, slope byte = % x 10 (protocol-level constants, not per-device config). This is also what the speed +/- buttons send (absolute, no step opcodes)."
       frame: [0x02, 0x53, 0x02, "{speed}", "{slope}", "{chk}", 0x03]
-      example: [0x02, 0x53, 0x02, 0x1E, 0x00, 0x73, 0x03]  # 3.0 km/h, slope 0: chk=(0x53+0x02+0x1E)&0xFF^0x5A
+      example: [0x02, 0x53, 0x02, 0x1E, 0x00, 0x29, 0x03]  # 3.0 km/h, slope 0: chk=((0x53+0x02+0x1E)&0xFF)^0x5A = 0x73^0x5A = 0x29
       verification: code-confirmed
     stop:
       description: "Stop the belt (B=0x53, C=0x03)"

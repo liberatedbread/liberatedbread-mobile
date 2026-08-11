@@ -57,12 +57,16 @@ void main() {
       return;
     }
 
-    final entity = spec.entities.firstWhere((e) => e.name == 'Temperature');
+    // The SIG-characteristic binding specifically: upstream now lists the
+    // combined-packet temperature bindings first (they are the
+    // capture-verified source), so "the Temperature entity" is no longer
+    // unique — this test is about the 2A6E declaration.
+    final entity = spec.entities.firstWhere(
+        (e) => e.name == 'Temperature' && e.stateCharacteristic == _tempChar);
     // The reading only works because the spec resolves to the declaration that
     // carries the byte layout: this UUID is declared twice in the spec, and the
     // first occurrence is a bare stub.
     expect(entity.hasFormat, isTrue);
-    expect(entity.stateCharacteristic, _tempChar);
 
     final widget = ProviderScope(
       overrides: [
@@ -109,11 +113,13 @@ void main() {
       return;
     }
 
-    // The full per-variant catalogue: radon bound three ways (Gen 1's
+    // The full per-variant catalogue: radon bound four ways (Gen 1's three
     // dedicated characteristics, Gen 2's and Plus's combined packets),
-    // CO₂/VOC/dew point on Wave Plus, VOC/pressure on Wave Mini, and the
-    // standard temperature/humidity/pressure/battery set.
-    expect(spec.entities, hasLength(15));
+    // CO₂/VOC/dew point on Wave Plus, VOC/pressure on Wave Mini,
+    // temperature and humidity bound per combined packet with the SIG
+    // characteristics as the Gen 1/fallback binding, ambient light on all
+    // three combined packets, and the standard pressure/battery set.
+    expect(spec.entities, hasLength(25));
     // An entity that crosses the FFI boundary without a format block renders as
     // "cannot be decoded", which is honest but useless. For this device the
     // whole set should be live.
