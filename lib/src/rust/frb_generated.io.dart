@@ -48,6 +48,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageUploadDto dco_decode_box_autoadd_image_upload_dto(dynamic raw);
 
   @protected
+  ImageWriteDto dco_decode_box_autoadd_image_write_dto(dynamic raw);
+
+  @protected
   MacPrefixDto dco_decode_box_autoadd_mac_prefix_dto(dynamic raw);
 
   @protected
@@ -61,6 +64,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
+
+  @protected
+  StoredUploadDto dco_decode_box_autoadd_stored_upload_dto(dynamic raw);
+
+  @protected
+  StoredUploadEventDto dco_decode_box_autoadd_stored_upload_event_dto(
+      dynamic raw);
 
   @protected
   int dco_decode_box_autoadd_u_16(dynamic raw);
@@ -139,6 +149,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
+
+  @protected
+  List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
 
   @protected
   List<MacPrefixDto> dco_decode_list_mac_prefix_dto(dynamic raw);
@@ -244,6 +257,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageUploadDto? dco_decode_opt_box_autoadd_image_upload_dto(dynamic raw);
 
   @protected
+  ImageWriteDto? dco_decode_opt_box_autoadd_image_write_dto(dynamic raw);
+
+  @protected
   MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw);
 
   @protected
@@ -252,6 +268,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
+
+  @protected
+  StoredUploadDto? dco_decode_opt_box_autoadd_stored_upload_dto(dynamic raw);
+
+  @protected
+  StoredUploadEventDto? dco_decode_opt_box_autoadd_stored_upload_event_dto(
+      dynamic raw);
 
   @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
@@ -299,10 +322,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw);
 
   @protected
+  StoredPlayDto dco_decode_stored_play_dto(dynamic raw);
+
+  @protected
+  StoredUploadDto dco_decode_stored_upload_dto(dynamic raw);
+
+  @protected
+  StoredUploadEventDto dco_decode_stored_upload_event_dto(dynamic raw);
+
+  @protected
+  StoredUploadEventKind dco_decode_stored_upload_event_kind(dynamic raw);
+
+  @protected
+  StoredUploadPlanDto dco_decode_stored_upload_plan_dto(dynamic raw);
+
+  @protected
   int dco_decode_u_16(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -341,6 +382,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  ImageWriteDto sse_decode_box_autoadd_image_write_dto(
+      SseDeserializer deserializer);
+
+  @protected
   MacPrefixDto sse_decode_box_autoadd_mac_prefix_dto(
       SseDeserializer deserializer);
 
@@ -358,6 +403,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadDto sse_decode_box_autoadd_stored_upload_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadEventDto sse_decode_box_autoadd_stored_upload_event_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -443,6 +496,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<ImageWriteDto> sse_decode_list_image_write_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<Uint8List> sse_decode_list_list_prim_u_8_strict(
       SseDeserializer deserializer);
 
   @protected
@@ -564,6 +621,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  ImageWriteDto? sse_decode_opt_box_autoadd_image_write_dto(
+      SseDeserializer deserializer);
+
+  @protected
   MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
       SseDeserializer deserializer);
 
@@ -573,6 +634,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadDto? sse_decode_opt_box_autoadd_stored_upload_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadEventDto? sse_decode_opt_box_autoadd_stored_upload_event_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -623,10 +692,31 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SpecIdentityDto sse_decode_spec_identity_dto(SseDeserializer deserializer);
 
   @protected
+  StoredPlayDto sse_decode_stored_play_dto(SseDeserializer deserializer);
+
+  @protected
+  StoredUploadDto sse_decode_stored_upload_dto(SseDeserializer deserializer);
+
+  @protected
+  StoredUploadEventDto sse_decode_stored_upload_event_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadEventKind sse_decode_stored_upload_event_kind(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadPlanDto sse_decode_stored_upload_plan_dto(
+      SseDeserializer deserializer);
+
+  @protected
   int sse_decode_u_16(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -667,6 +757,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       ImageUploadDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_image_write_dto(
+      ImageWriteDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_mac_prefix_dto(
       MacPrefixDto self, SseSerializer serializer);
 
@@ -685,6 +779,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_stored_upload_dto(
+      StoredUploadDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_stored_upload_event_dto(
+      StoredUploadEventDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
@@ -779,6 +881,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_image_write_dto(
       List<ImageWriteDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_list_prim_u_8_strict(
+      List<Uint8List> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_mac_prefix_dto(
@@ -911,6 +1017,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       ImageUploadDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_image_write_dto(
+      ImageWriteDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_mac_prefix_dto(
       MacPrefixDto? self, SseSerializer serializer);
 
@@ -921,6 +1031,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_query_source_dto(
       QuerySourceDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_stored_upload_dto(
+      StoredUploadDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_stored_upload_event_dto(
+      StoredUploadEventDto? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
@@ -977,10 +1095,32 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SpecIdentityDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_stored_play_dto(StoredPlayDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_upload_dto(
+      StoredUploadDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_upload_event_dto(
+      StoredUploadEventDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_upload_event_kind(
+      StoredUploadEventKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_upload_plan_dto(
+      StoredUploadPlanDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);

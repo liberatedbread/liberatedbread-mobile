@@ -35,6 +35,11 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # Test-only: the live-hardware smoke (test/live/) registers the Linux BlueZ
+  # backend by hand, because a test VM has no app startup to do it. Pinned to
+  # the exact version flutter_blue_plus 1.35.4 resolves anyway, so this adds
+  # no new code — it only makes the transitive dependency importable.
+  flutter_blue_plus_linux: 3.0.2
   # Test-only, and pinned exactly like flutter_blue_plus above because it is
   # that package's own federated interface — the two move together and a
   # mismatch is a compile error, not a warning.

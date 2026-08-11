@@ -5,3 +5,9 @@ tags:
   # excluded from the ordinary runs and opted into by
   # scripts/ci-netdisco-tests.sh, which explains why.
   netdisco: {}
+  # Smoke tests against REAL hardware over the machine's own BlueZ stack.
+  # Doubly guarded: the tag keeps them out of `--exclude-tags` runs, and each
+  # test also skips itself unless LB_LIVE_BLE=1, so even a bare `flutter test`
+  # on a developer machine cannot start writing to whatever is advertising
+  # nearby. Run deliberately, with the device you mean to poke in view.
+  live_ble: {}
