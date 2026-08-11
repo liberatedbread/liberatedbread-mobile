@@ -78,7 +78,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -299,7 +299,7 @@ jobs:
       # failure should be loud) and missing files are an error.
       - name: Upload IPA
         if: steps.signing.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: liberated-bread-adhoc${{ inputs.mock && '-mock' || '' }}.ipa
           path: build/ios/ipa/*.ipa
@@ -308,7 +308,7 @@ jobs:
 
       - name: Upload unsigned app bundle (no-secrets fallback)
         if: steps.signing.outputs.available == 'false'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
           name: liberated-bread-unsigned-simulator.app
