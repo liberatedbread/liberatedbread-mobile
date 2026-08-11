@@ -49,7 +49,8 @@ void main() {
     // The home screen: <app>Roku</app>, no id. It is an answer — nothing is
     // foreground — and treating it as one is what keeps the picker from
     // showing a stale channel as current.
-    expect(readCurrentValue('<active-app><app>Roku</app></active-app>', _source),
+    expect(
+        readCurrentValue('<active-app><app>Roku</app></active-app>', _source),
         isNull);
     // The entry itself survives the read, so a caller can still see what the
     // device called it.
