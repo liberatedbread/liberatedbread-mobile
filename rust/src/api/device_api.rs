@@ -913,6 +913,22 @@ pub fn encode_entity_value(
         .find(|a| a.role == "set_value")
         .ok_or_else(|| anyhow::anyhow!("entity '{entity_name}' has no settable value"))?;
 
+    // The entity's declared bounds are in decoded units, the same units
+    // `value` arrives in. The UI slider clamps too, but this is the API
+    // surface: Gerbing's spec says values above its max are untested on the
+    // firmware and must be treated as unsafe, so the refusal belongs here,
+    // not one caller up.
+    if let Some(min) = entity.setpoint_min() {
+        if value < min {
+            anyhow::bail!("entity '{entity_name}' declares min {min}, refusing {value}");
+        }
+    }
+    if let Some(max) = entity.setpoint_max() {
+        if value > max {
+            anyhow::bail!("entity '{entity_name}' declares max {max}, refusing {value}");
+        }
+    }
+
     let transform = bindings::setpoint_transform(&spec, entity, action);
     let raw = transform.encode(value).ok_or_else(|| {
         anyhow::anyhow!("entity '{entity_name}' declares scale 0, which cannot be inverted")
@@ -940,9 +956,17 @@ pub fn encode_entity_value(
                 .unwrap_or_default();
             crate::codec::types::encode_command(command, &params)?
         }
-        // Direct write: the value IS the payload, at the width the single
-        // format field declares.
-        None => crate::codec::types::encode_scalar(raw, &value_type, &entity_name)?,
+        // Direct write: the value IS the payload, at the width — and byte
+        // order — the single format field declares.
+        None => {
+            let big_endian = action
+                .characteristic
+                .format
+                .as_ref()
+                .and_then(|fields| fields.first())
+                .is_some_and(|f| f.is_big_endian());
+            crate::codec::types::encode_scalar(raw, &value_type, &entity_name, big_endian)?
+        }
     };
 
     Ok(EntityWriteDto {
