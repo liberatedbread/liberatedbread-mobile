@@ -3,6 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/core/entity_icon.dart';
+import 'package:liberated_bread_mobile/core/icons/appliance_glyphs.dart';
+import 'package:liberated_bread_mobile/core/icons/remote_glyphs.dart';
+import 'package:liberated_bread_mobile/core/icons/sensor_glyphs.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 /// An entity carrying only what an icon choice looks at.
@@ -104,6 +107,56 @@ void main() {
       // not depend on a class the entity refuses to claim.
       expect(entityIcon(_entity(icon: 'mdi:brightness-5')),
           Icons.light_mode_outlined);
+    });
+  });
+
+  group('the glyph tables', () {
+    // The tables are split per device domain so two device branches can add
+    // glyphs without touching the same file. The cost of that split is that
+    // nothing stops two files claiming the same MDI name with different
+    // glyphs — a merge silently keeps whichever spreads last, and the losing
+    // device quietly draws the wrong picture.
+    test('no MDI name is claimed by two domains', () {
+      const tables = {
+        'sensor': sensorGlyphs,
+        'appliance': applianceGlyphs,
+        'remote': remoteGlyphs,
+      };
+      final owner = <String, String>{};
+      for (final entry in tables.entries) {
+        for (final name in entry.value.keys) {
+          expect(owner[name], isNull,
+              reason: '$name is in both ${owner[name]} and ${entry.key}');
+          owner[name] = entry.key;
+        }
+      }
+    });
+
+    test('every key is a well-formed, lowercase mdi: name', () {
+      // Lookup is by the spec's exact string, lowercased once at the call
+      // site — an entry with a capital or a missing prefix is unreachable
+      // and would present as "the icon I added does nothing".
+      for (final table in [sensorGlyphs, applianceGlyphs, remoteGlyphs]) {
+        for (final name in table.keys) {
+          expect(name, matches(RegExp(r'^mdi:[a-z0-9-]+$')),
+              reason: '$name would never be looked up');
+        }
+      }
+    });
+
+    test('the merged table is every domain table', () {
+      // The merge in entity_icon.dart is the one line that knows about all
+      // the files; a new table added beside the others but left out of it
+      // reaches nothing, and this is what says so.
+      final domainKeys = {
+        ...sensorGlyphs.keys,
+        ...applianceGlyphs.keys,
+        ...remoteGlyphs.keys,
+      };
+      for (final name in domainKeys) {
+        expect(entityIcon(_entity(icon: name)), isNot(Icons.sensors),
+            reason: '$name resolves to the fallback, so the merge missed it');
+      }
     });
   });
 }

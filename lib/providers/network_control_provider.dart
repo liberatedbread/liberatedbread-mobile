@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import '../services/http_control_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import 'device_spec_match_provider.dart';
@@ -13,6 +14,11 @@ import 'spec_codec_provider.dart';
 /// that answers from canned XML instead of a network.
 final soapControlClientProvider =
     Provider<SoapControlClient>((ref) => SoapControlClient());
+
+/// The plain-HTTP transport — same substitution rule, for tests that answer
+/// a keypress with a canned 200 instead of a Roku.
+final httpControlClientProvider =
+    Provider<HttpControlClient>((ref) => HttpControlClient());
 
 /// Identity of one network device the control layer is asked about.
 ///
