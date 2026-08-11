@@ -7,10 +7,16 @@
 > Because your phone should be able to talk to your smart lightbulb even after
 > the manufacturer's servers have gone the way of the dodo.
 
-A cross-platform **Flutter + Rust** app for communicating with Bluetooth Low
-Energy (BLE) IoT devices via
+A cross-platform **Flutter + Rust** app for discovering and controlling
+locally-controllable IoT devices — both **Bluetooth Low Energy (BLE)** and
+**Wi-Fi/LAN** hardware — without the vendor cloud, built on
 [OpenGreenIoT](https://github.com/PigsCanFlyLabs/opengreeniot) by
 [Pigs Can Fly Labs LLC](https://pigscanfly.ca).
+
+Half the catalogue is Wi-Fi hardware a Bluetooth scan can never see — bridges,
+plugs, printers, TVs — so the app discovers devices on the local network
+(mDNS/DNS-SD and SSDP/UPnP) alongside the BLE scan and drives them over HTTP and
+SOAP, all from the same YAML device specs.
 
 ## Architecture Overview
 
@@ -38,17 +44,22 @@ Energy (BLE) IoT devices via
 └──────────────────────────────────────────────────┘
 ```
 
-**Flutter** handles the UI, BLE transport, and permissions.
+**Flutter** handles the UI, the BLE and local-network (mDNS/SSDP) transports,
+and permissions.
 **Rust** handles protocol logic: parsing YAML device specs, encoding commands,
-decoding characteristic values, and implementing standard Bluetooth profiles.
+decoding characteristic values, implementing standard Bluetooth profiles, and
+rendering the HTTP/SOAP requests that drive Wi-Fi/LAN devices.
 
 ## Features
 
-- Scan for nearby BLE devices, ranked by how well the catalogue recognises them
-  and labelled with what kind of device each one is (light, sensor, motor,
-  switch, display, TV, lock, …)
+- Scan for nearby **BLE** devices *and* discover **Wi-Fi/LAN** devices on the
+  local network (mDNS/DNS-SD + SSDP/UPnP) from the same screen — each ranked by
+  how well the catalogue recognises it and labelled with what kind of device it
+  is (light, sensor, motor, switch, display, TV, lock, …)
 - Connect and browse GATT services/characteristics
 - Read/write characteristic values with hex display
+- Control Wi-Fi/LAN devices over HTTP and SOAP — the same spec-driven typed
+  controls as the BLE path, generated straight from the YAML
 - Standard BLE profile support (Battery Service, Device Information)
 - YAML-driven device specs for custom IoT protocols
 - Spec-driven typed device controls (buttons, sliders, decoded values —
@@ -336,8 +347,8 @@ instead, so building is the whole requirement.
 │   ├── core/                   # Constants, theme, hex/uuid + HA helpers
 │   ├── models/                 # IoTDevice, BleDiscoveredService, HA models
 │   ├── providers/              # Riverpod providers (BLE, specs, spec packs, HA)
-│   ├── screens/                # Scan, Device, Find device, HA + spec-pack settings
-│   ├── services/               # BleService (real/mock), HA client, spec packs
+│   ├── screens/                # BLE + Wi-Fi scan, Device, Find device, HA + spec-pack settings
+│   ├── services/               # BLE + network scan (mDNS/SSDP), HTTP/SOAP control, HA, spec packs
 │   ├── widgets/                # Control panel, raw + typed characteristic widgets
 │   └── src/rust/               # Generated FRB bindings (committed, don't edit)
 ├── rust/
@@ -350,6 +361,8 @@ instead, so building is the whole requirement.
 │       │   ├── generic.rs      # YAML-driven GenericProtocol
 │       │   ├── traits.rs       # DeviceProtocol trait
 │       │   ├── dispatch.rs     # select_protocol() + spec cache
+│       │   ├── http.rs         # HTTP transport for Wi-Fi/LAN devices
+│       │   ├── soap.rs         # SOAP/UPnP transport (Wemo, older bridges)
 │       │   └── profiles/       # Standard BLE profiles (battery, device_info)
 │       └── spec/               # YAML parser and type definitions
 ├── assets/
@@ -440,6 +453,12 @@ services:
                 min: 0
                 max: 100
 ```
+
+The example above is a BLE spec. A Wi-Fi/LAN device instead declares
+`protocol: wifi`, is identified by its mDNS service type or SSDP search target,
+and carries `http`/`soap` transport blocks that say how each command is sent —
+the app renders and issues those requests through the Rust core, exactly as it
+encodes GATT writes for BLE.
 
 See [docs/WALKTHROUGH.md](docs/WALKTHROUGH.md) for the full spec format
 reference.
