@@ -32,6 +32,11 @@ const Map<String, IconData> _mdiGlyphs = {
   'mdi:power-plug': Icons.power_outlined,
   'mdi:radiator': Icons.thermostat_auto,
   'mdi:signal': Icons.signal_cellular_alt,
+  // Material ships no radiation glyph, so radon gets the diffuse-particles
+  // one — a gas hanging in the air, which is the true picture anyway.
+  'mdi:radioactive': Icons.blur_on,
+  'mdi:molecule-co2': Icons.co2,
+  'mdi:water-thermometer': Icons.dew_point,
 };
 
 /// The fallback that predates entity icons: what a reading's `device_class`
@@ -42,9 +47,15 @@ IconData _byDeviceClass(String? deviceClass, IconData fallback) =>
     switch (deviceClass) {
       'temperature' => Icons.thermostat,
       'battery' => Icons.battery_full,
-      'humidity' => Icons.water_drop_outlined,
-      'pressure' => Icons.speed,
+      'humidity' || 'moisture' => Icons.water_drop_outlined,
+      'pressure' || 'atmospheric_pressure' => Icons.speed,
       'signal_strength' => Icons.signal_cellular_alt,
+      'carbon_dioxide' => Icons.co2,
+      'volatile_organic_compounds' ||
+      'volatile_organic_compounds_parts' =>
+        Icons.science_outlined,
+      'pm1' || 'pm25' || 'pm10' => Icons.grain,
+      'illuminance' => Icons.light_mode_outlined,
       _ => fallback,
     };
 

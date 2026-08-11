@@ -109,11 +109,77 @@ void main() {
       return;
     }
 
-    expect(spec.entities, hasLength(6));
+    // The full per-variant catalogue: radon bound three ways (Gen 1's
+    // dedicated characteristics, Gen 2's and Plus's combined packets),
+    // CO₂/VOC/dew point on Wave Plus, VOC/pressure on Wave Mini, and the
+    // standard temperature/humidity/pressure/battery set.
+    expect(spec.entities, hasLength(15));
     // An entity that crosses the FFI boundary without a format block renders as
     // "cannot be decoded", which is honest but useless. For this device the
     // whole set should be live.
     expect(spec.entities.every((e) => e.hasFormat), isTrue);
+  });
+
+  testWidgets(
+      'a combined-packet entity picks its own field out of the record '
+      'and gets a verdict', (tester) async {
+    if (!rustReady) {
+      markTestSkipped('Rust lib not loaded');
+      return;
+    }
+
+    // Wave Plus CO₂ lives at offset 12 of the 20-byte combined record —
+    // there is no dedicated CO₂ characteristic. The entity's
+    // `state_mapping.value: co2` has to select that field; rendering the
+    // record's first field (a reserved byte) was the failure mode this
+    // binding style exists to prevent.
+    const wavePlusService = 'b42e1c08-ade7-11e4-89d3-123b93f75cba';
+    const combinedChar = 'b42e2a68-ade7-11e4-89d3-123b93f75cba';
+    final entity = spec.entities.firstWhere((e) => e.name == 'CO₂');
+    expect(entity.stateCharacteristic, combinedChar);
+    expect(entity.hasFormat, isTrue);
+
+    // A plausible Wave Plus record: humidity 53.5 %RH, radon 13/11 Bq/m³,
+    // 24.16 °C, pressure 96000 Pa, CO₂ 650 ppm, VOC 120 ppb.
+    const record = [
+      0x01, 107, 16, 0x21, //
+      13, 0, 11, 0, //
+      0x70, 0x09, //
+      0x80, 0xBB, //
+      0x8A, 0x02, //
+      0x78, 0x00, //
+      0x01, 0x00, 0xFF, 0xFF,
+    ];
+
+    final widget = ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(
+          FakeBleService(readValues: const {combinedChar: record}),
+        ),
+        specCodecProvider.overrideWithValue(codec),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: EntitySensorCard(
+            deviceId: 'd',
+            serviceUuid: wavePlusService,
+            entity: entity,
+            specYaml: yaml,
+          ),
+        ),
+      ),
+    );
+
+    await tester.runAsync(() async {
+      await tester.pumpWidget(widget);
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+    });
+    await tester.pump();
+
+    expect(find.text('650'), findsOneWidget);
+    expect(find.text('ppm'), findsOneWidget);
+    // 650 ppm sits under Airthings' own 800 ppm yellow line.
+    expect(find.text('Good'), findsOneWidget);
   });
 
   testWidgets('renders an OFFSET scaling from a vendored spec, not raw counts',
