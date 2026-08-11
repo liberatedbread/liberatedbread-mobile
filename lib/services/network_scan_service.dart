@@ -57,7 +57,18 @@ abstract class NetworkScanService {
   ///
   /// Passive in the sense that matters: it sends multicast queries that any
   /// device may answer, and never opens a connection to a specific host.
-  Stream<NetworkDevice> scan({Duration timeout});
+  ///
+  /// [extraSearchTargets] are vendor-specific SSDP search targets to query
+  /// alongside the standard `ssdp:all`, deduplicated by the implementation.
+  /// They exist because `ssdp:all` is not the whole story: a Roku answers
+  /// M-SEARCH for `roku:ecp` and nothing else, so a scan that only asks the
+  /// standard question never hears one. The caller supplies them from the
+  /// spec catalogue's `ssdp_search_targets` — the scan layer itself knows no
+  /// product names.
+  Stream<NetworkDevice> scan({
+    Duration timeout,
+    List<String> extraSearchTargets,
+  });
 
   /// Stop an in-progress scan.
   Future<void> stopScan();

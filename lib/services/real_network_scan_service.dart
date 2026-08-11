@@ -181,6 +181,7 @@ class RealNetworkScanService implements NetworkScanService {
   @override
   Stream<NetworkDevice> scan({
     Duration timeout = const Duration(seconds: 8),
+    List<String> extraSearchTargets = const [],
   }) {
     final controller = StreamController<NetworkDevice>();
     final coalescer = NetworkScanCoalescer();
@@ -217,7 +218,8 @@ class RealNetworkScanService implements NetworkScanService {
             Log.net.warning('mDNS discovery failed', error: e);
             return TransportOutcome.failed;
           }),
-          _runSsdp(session, emit, timeout).catchError((Object e) {
+          _runSsdp(session, emit, timeout, extraSearchTargets)
+              .catchError((Object e) {
             Log.net.warning('SSDP discovery failed', error: e);
             return TransportOutcome.failed;
           }),
@@ -325,11 +327,19 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
+    // Whether [client] can still be asked anything. These chains are fired off
+    // and not awaited, and each stage carries its own inactivity timeout, so a
+    // chain that began near the end of the enumeration phase is routinely
+    // still mid-flight when _runMdns's finally stops the client. Asking a
+    // stopped MDnsClient throws a StateError; a chain that has outlived its
+    // client has nothing left to contribute and should just end.
+    bool clientLive() => !session.stopped && identical(session.mdns, client);
+    if (!clientLive()) return;
     await for (final PtrResourceRecord instance in client
         .lookup<PtrResourceRecord>(
             ResourceRecordQuery.serverPointer(serviceType))
         .timeout(timeout, onTimeout: (sink) => sink.close())) {
-      if (session.stopped) return;
+      if (!clientLive()) return;
       // TXT and SRV are independent queries; run them together. A device that
       // publishes no TXT record leaves that stream open until its timeout, and
       // awaiting it before even asking for SRV used to spend the whole
@@ -339,6 +349,7 @@ class RealNetworkScanService implements NetworkScanService {
       final srvRecords = <SrvResourceRecord>[];
       await Future.wait([
         () async {
+          if (!clientLive()) return;
           await for (final TxtResourceRecord record in client
               .lookup<TxtResourceRecord>(
                   ResourceRecordQuery.text(instance.domainName))
@@ -347,6 +358,7 @@ class RealNetworkScanService implements NetworkScanService {
           }
         }(),
         () async {
+          if (!clientLive()) return;
           await for (final SrvResourceRecord srv in client
               .lookup<SrvResourceRecord>(
                   ResourceRecordQuery.service(instance.domainName))
@@ -358,7 +370,7 @@ class RealNetworkScanService implements NetworkScanService {
       ]);
 
       for (final srv in srvRecords) {
-        if (session.stopped) return;
+        if (!clientLive()) return;
         await for (final IPAddressResourceRecord address in client
             .lookup<IPAddressResourceRecord>(
                 ResourceRecordQuery.addressIPv4(srv.target))
@@ -387,6 +399,7 @@ class RealNetworkScanService implements NetworkScanService {
     _ScanSession session,
     void Function(NetworkDevice) emit,
     Duration timeout,
+    List<String> extraSearchTargets,
   ) async {
     final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
         reuseAddress: true);
@@ -394,21 +407,29 @@ class RealNetworkScanService implements NetworkScanService {
     socket.broadcastEnabled = true;
     var heard = false;
     try {
-      // MX is the maximum random delay a device waits before replying; it
-      // spreads responses out to avoid a storm, so the listen window has to be
-      // at least MX seconds or slow-answering devices are missed.
-      const request = 'M-SEARCH * HTTP/1.1\r\n'
-          'HOST: $_ssdpAddress:$_ssdpPort\r\n'
-          'MAN: "ssdp:discover"\r\n'
-          'MX: 3\r\n'
-          'ST: ssdp:all\r\n'
-          '\r\n';
-      final bytes = request.codeUnits;
+      // `ssdp:all` first — the standard question every conforming UPnP stack
+      // answers — then each vendor target the catalogue declares. The extras
+      // are not redundant politeness: a Roku answers only an M-SEARCH whose
+      // ST is exactly `roku:ecp` and is deaf to `ssdp:all`, so without its
+      // own question it does not exist. Conforming devices answer both and
+      // are coalesced by host, so the duplicates cost packets, not rows.
+      final targets = <String>{'ssdp:all', ...extraSearchTargets};
       final target = InternetAddress(_ssdpAddress);
       // Sent more than once: SSDP rides on UDP, and a dropped M-SEARCH means a
       // device that is simply never heard from.
       for (var attempt = 0; attempt < 2; attempt++) {
-        socket.send(bytes, target, _ssdpPort);
+        for (final searchTarget in targets) {
+          // MX is the maximum random delay a device waits before replying; it
+          // spreads responses out to avoid a storm, so the listen window has
+          // to be at least MX seconds or slow-answering devices are missed.
+          final request = 'M-SEARCH * HTTP/1.1\r\n'
+              'HOST: $_ssdpAddress:$_ssdpPort\r\n'
+              'MAN: "ssdp:discover"\r\n'
+              'MX: 3\r\n'
+              'ST: $searchTarget\r\n'
+              '\r\n';
+          socket.send(request.codeUnits, target, _ssdpPort);
+        }
         await Future<void>.delayed(const Duration(milliseconds: 250));
       }
 

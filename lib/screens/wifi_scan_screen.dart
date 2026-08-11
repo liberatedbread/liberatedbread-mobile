@@ -11,8 +11,10 @@ import '../models/network_device.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
+import '../providers/scan_match_provider.dart';
 import '../services/network_scan_service.dart';
 import '../services/number_registry.dart';
+import '../services/spec_codec.dart';
 import '../widgets/device_list_tile.dart';
 import 'network_device_screen.dart';
 
@@ -58,7 +60,21 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       _found.clear();
     });
 
-    _scanSub = _service.scan().listen(
+    // The catalogue's vendor SSDP targets ride along with the scan: a Roku
+    // answers only an M-SEARCH for its own `roku:ecp` and is deaf to the
+    // standard `ssdp:all`, so the scan has to ask every question the specs
+    // know about. Sourced from the specs rather than spelled here — the scan
+    // layer knows no product names. A catalogue that failed to load degrades
+    // to the standard question alone.
+    final identities = await ref
+        .read(specIdentitiesProvider.future)
+        .catchError((Object _) => const <SpecIdentityDto>[]);
+    final targets = <String>{
+      for (final identity in identities) ...identity.ssdpSearchTargets,
+    }.toList();
+    if (!mounted) return;
+
+    _scanSub = _service.scan(extraSearchTargets: targets).listen(
       (device) {
         if (!mounted) return;
         setState(() => _found[device.host] = device);
@@ -339,8 +355,12 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       showDragHandle: true,
       builder: (context) {
         final text = Theme.of(context).textTheme;
+        // Scrollable, because the content is whatever the device chose to
+        // advertise: a printer's TXT records alone can be taller than the
+        // sheet, and a Column would overflow rather than let the user read
+        // them.
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
