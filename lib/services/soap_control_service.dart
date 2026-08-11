@@ -53,8 +53,7 @@ class SoapControlClient {
     String controlPath,
     SoapRequestDto request,
   ) async {
-    final uri =
-        Uri(scheme: 'http', host: host, port: port, path: controlPath);
+    final uri = Uri(scheme: 'http', host: host, port: port, path: controlPath);
     final response = await _http
         .post(
           uri,
@@ -103,8 +102,7 @@ class SoapControlClient {
       throw SoapFaultException(action: action, detail: first.innerText.trim());
     }
     return {
-      for (final value in first.childElements)
-        value.localName: value.innerText,
+      for (final value in first.childElements) value.localName: value.innerText,
     };
   }
 }
@@ -161,8 +159,8 @@ class SoapDeviceDescription {
         .trim();
 
     final controlUrls = <String, String>{};
-    for (final service in device.descendantElements
-        .where((e) => e.localName == 'service')) {
+    for (final service
+        in device.descendantElements.where((e) => e.localName == 'service')) {
       String? field(String name) => service.childElements
           .where((e) => e.localName == name)
           .firstOrNull

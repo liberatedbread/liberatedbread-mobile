@@ -1678,9 +1678,7 @@ commands:
         type: "integer"
         unit: "minutes"
         min: 0
-        required: true
         source: "state:GetCrockpotState.time"
-        default: 0
         description: >
           SetCrockpotState carries BOTH values on every call, so changing the
           mode alone still means sending the cook time back with it — omit it
@@ -1688,11 +1686,14 @@ commands:
           GetCrockpotState immediately before the write and send what it
           returned, which is what pywemo does.
         notes: >
-          The default exists because pywemo has one: it falls back to 0 when
-          it has never read a time from the device. What the appliance does
-          with a 0 cook time in a heating mode is NOT verified here, so a
-          client that cannot do the read-back first should ask the user for a
-          time rather than quietly sending 0 to a slow cooker.
+          NO default, deliberately. A `source` parameter with no default is
+          this spec saying the read-back is part of the send: a renderer that
+          reaches this parameter with no value must FAIL the write, visibly,
+          rather than substitute anything. pywemo falls back to 0 here, but
+          what the appliance does with a 0 cook time in a heating mode is not
+          verified, and "the write failed, try again" is a better outcome
+          than a silently cleared timer. A client that genuinely cannot read
+          the device (mid-provisioning, say) should ask the user for a time.
     verification: "reported"
     example_body: |
       <?xml version="1.0" encoding="utf-8"?>
@@ -1727,17 +1728,18 @@ commands:
         description: "New cook time in minutes."
       mode:
         type: "integer"
-        required: true
         source: "state:GetCrockpotState.mode"
-        default: 0
         description: >
           The mirror of the same trap: the action carries both values, so
           setting a time means sending the current mode back with it. Read it
           from GetCrockpotState first.
         notes: >
-          The default is `off`, deliberately. A client that cannot read the
-          mode back must not guess a heating one — sending 0 stops the
-          cooker, which is the failure that does no harm.
+          NO default, and this one earlier carried `default: 0` on the theory
+          that off is harmless. It is not: the user adjusting the cook time
+          almost certainly has a cooker that is RUNNING, and a failed
+          read-back quietly substituting 0 would stop it mid-cook — dinner
+          off, nothing on screen saying so. A missing value must fail the
+          write instead.
     verification: "reported"
 
   crockpot_turn_on:
@@ -1756,10 +1758,11 @@ commands:
         type: "integer"
         unit: "minutes"
         min: 0
-        required: true
         source: "state:GetCrockpotState.time"
-        default: 0
-        description: "As set_cook_mode.time — read it back and send it along."
+        description: >
+          As set_cook_mode.time — read it back and send it along. No default,
+          for the same reason stated there: fail the write rather than start
+          the cooker with a timer this command just invented.
     verification: "reported"
     notes: >
       HIGH rather than LOW because that is the mapping pywemo's on() uses; it
@@ -2127,6 +2130,26 @@ scheduling:
   mechanism: "on_device_rules"
   confidence: "medium"
   runs_without_a_client: true
+  applies_to:
+    - "Wemo Mini Smart Plug"
+    - "Wemo WiFi Smart Plug"
+    - "Wemo Insight Smart Plug"
+    - "Wemo Outdoor Plug"
+    - "Wemo Light Switch Gen1/Gen2/3-Way"
+    - "Wemo Dimmer v1"
+    - "Wemo Dimmer v2"
+    - "Wemo Maker"
+  applies_to_notes: >
+    Scoped to the switch family, by `device.variants` name, because that is
+    where the evidence is: pywemo drives FetchRules/StoreRules against these
+    classes, and the captured schedule row is an Insight's. `supported: true`
+    unscoped would let a consumer advertise on-device scheduling for the
+    Crock-Pot and the Holmes appliances, where whether the rules service
+    honours anything is an open question below — and the Crock-Pot is
+    doubly excluded because a rule's action sets the binary state, which is
+    not that device's state at all. Outside this list, treat scheduling
+    support as UNKNOWN rather than absent: the service may well be present,
+    and finding out is listed in open_questions.
   summary: >
     Schedules live ON THE DEVICE, in a SQLite database it hands out and takes
     back over SOAP. A client fetches the database, edits rows, zips it,
@@ -2252,12 +2275,74 @@ scheduling:
           ZBCapabilityEnd: "As above."
           OnModeOffset: "0 or -1 on the observed rows."
           OffModeOffset: "As above."
-      other_tables:
+      TARGETDEVICES:
         description: >
-          TARGETDEVICES, DEVICECOMBINATION, GROUPDEVICES, LOCATIONINFO,
-          BLOCKEDRULES, RULESNOTIFYMESSAGE and SENSORNOTIFICATION also exist.
-          An empty database needs all of them created; a schedule touches only
-          the two above.
+          The devices a rule ACTS ON, where RULEDEVICES is the devices it
+          listens to — a long-press rule on one switch targets others.
+          A schedule targeting only its own device still gets no row here.
+        columns:
+          TargetDevicesPK: "Primary key, auto-increment."
+          RuleID: "The rule this belongs to."
+          DeviceID: "Target device's UDN."
+          DeviceIndex: "0-based position within the rule's target list."
+      DEVICECOMBINATION:
+        description: "Sensor→device pairings for motion rules."
+        columns:
+          DeviceCombinationPK: "Primary key, auto-increment."
+          RuleID: "integer"
+          SensorID: "text"
+          SensorGroupID: "integer"
+          DeviceID: "text"
+          DeviceGroupID: "integer"
+      GROUPDEVICES:
+        description: "Device-group membership."
+        columns:
+          GroupDevicePK: "Primary key, auto-increment."
+          GroupID: "integer"
+          DeviceID: "text"
+      LOCATIONINFO:
+        description: "Where the app said the device lives — sunrise/sunset rules needed it."
+        columns:
+          LocationPk: "Primary key, auto-increment."
+          cityName: "text"
+          countryName: "text"
+          latitude: "text"
+          longitude: "text"
+          countryCode: "text"
+          region: "text"
+      BLOCKEDRULES:
+        description: "Rules the device is told to ignore."
+        columns:
+          Primarykey: "Primary key, auto-increment."
+          ruleId: "text — note the string type and lowercase spelling, unlike RULES.RuleID."
+      RULESNOTIFYMESSAGE:
+        description: "Notification text a rule used to push through the cloud."
+        columns:
+          RuleID: "Primary key, auto-increment."
+          NotifyRuleID: "integer"
+          Message: "text"
+          Frequency: "integer"
+      SENSORNOTIFICATION:
+        description: "As RULESNOTIFYMESSAGE, for sensor-triggered rules."
+        columns:
+          SensorNotificationPK: "Primary key, auto-increment."
+          RuleID: "integer"
+          NotifyRuleID: "integer"
+          NotificationMessage: "text"
+          NotificationDuration: "integer"
+      tables_notes: >
+        All nine tables and their columns are transcribed from pywemo's
+        rules-database ORM (pywemo/ouimeaux_device/api/rules_db.py), which
+        both reads real devices' databases and CREATES the empty one when a
+        device 404s the download — so this listing is sufficient to build
+        that empty database, named 'temppluginRules.db' inside the zip. A
+        schedule touches only RULES and RULEDEVICES; the rest exist so the
+        device finds every table it expects. Column types beyond the ones
+        annotated are unremarkable (SQLite is dynamically typed and pywemo
+        declares TEXT/INTEGER as shown); the two standing oddities are
+        RULES.Sync, declared INTEGER and holding the string 'NOSYNC', and
+        BLOCKEDRULES.ruleId, a string where every other rule id is an
+        integer.
     examples:
       - name: "A schedule: on at 17:00, off at 21:00"
         verification: "reported"

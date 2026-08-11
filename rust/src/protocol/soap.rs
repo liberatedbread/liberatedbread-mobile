@@ -63,9 +63,12 @@ const DEFAULT_TEMPLATE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 
 /// Render one of the spec's `commands` into a request.
 ///
-/// `values` supplies the parameters the caller owns; anything else the command
-/// declares must carry a `default`, or this fails rather than sending a
-/// half-filled action. Values are matched by name and stringified as the spec
+/// `values` supplies the parameters the caller owns plus any read-back values
+/// it fetched; anything else the command declares must carry a `default`, or
+/// this fails rather than sending a half-filled action. A `source` parameter
+/// has no default by the spec's own rule, so skipping its read-back is one of
+/// the failures — the alternative was a renderer quietly substituting 0 into
+/// a cook timer. Values are matched by name and stringified as the spec
 /// author wrote them.
 pub fn render_request(
     spec: &DeviceSpec,
@@ -378,6 +381,7 @@ commands:
     arguments:
       mode: "{mode}"
       time: "{time}"
+      persist: "{persist}"
     parameters:
       mode:
         type: "integer"
@@ -385,7 +389,9 @@ commands:
       time:
         type: "integer"
         source: "state:GetCookerState.time"
-        default: 0
+      persist:
+        type: "integer"
+        default: 1
   rename:
     description: "A name is the argument that needs escaping."
     transport: "soap"
@@ -469,23 +475,29 @@ entities:
     }
 
     #[test]
-    fn substitutes_the_supplied_value_and_defaults_the_rest() {
-        let request = render_request(&spec(), "set_mode", &values(&[("mode", "51")])).unwrap();
-        assert!(request.body.contains("<mode>51</mode>"));
-        // Not supplied, so the spec's default carries it — the argument the
-        // control was never going to touch still goes out.
-        assert!(request.body.contains("<time>0</time>"));
-    }
-
-    #[test]
-    fn a_supplied_read_back_value_beats_the_default() {
+    fn substitutes_supplied_and_read_back_values_and_defaults_the_filler() {
         let request = render_request(
             &spec(),
             "set_mode",
             &values(&[("mode", "51"), ("time", "240")]),
         )
         .unwrap();
+        assert!(request.body.contains("<mode>51</mode>"));
         assert!(request.body.contains("<time>240</time>"));
+        // `persist` is genuine protocol filler, so its constant fills in.
+        assert!(request.body.contains("<persist>1</persist>"));
+    }
+
+    #[test]
+    fn a_missing_read_back_value_is_an_error_not_a_substitution() {
+        // `time` carries `source` and no default — the spec's way of saying
+        // the read-back is part of the send. Rendering without it must fail,
+        // not invent a timer.
+        let err = render_request(&spec(), "set_mode", &values(&[("mode", "51")])).unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::ParameterMissing(name) if name == "set_mode.time"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

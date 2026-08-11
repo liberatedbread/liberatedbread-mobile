@@ -77,8 +77,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             'the device did not advertise a control port');
       }
       final client = ref.read(soapControlClientProvider);
-      _description ??=
-          await client.fetchDescription(widget.device.host, port);
+      _description ??= await client.fetchDescription(widget.device.host, port);
       await _refreshState();
       if (mounted) setState(() => _loading = false);
     } catch (e) {
@@ -108,8 +107,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       );
       final path = description.controlPathFor(request);
       if (path == null) continue;
-      _stateByCommand[command] = await client.send(
-          description.host, description.port, path, request);
+      _stateByCommand[command] =
+          await client.send(description.host, description.port, path, request);
     }
     for (final entity in _entities) {
       final returned = _stateByCommand[entity.stateCommand];
@@ -456,8 +455,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(context).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
             child: const Text('Send'),
           ),
         ],
@@ -527,8 +525,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                           color: scheme.onSurfaceVariant,
                           fontWeight: FontWeight.w600)),
                 ),
-                Expanded(
-                    child: SelectableText(value, style: text.bodySmall)),
+                Expanded(child: SelectableText(value, style: text.bodySmall)),
               ],
             ),
           ),

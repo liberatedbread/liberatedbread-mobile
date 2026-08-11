@@ -323,7 +323,13 @@ heading.
   Every write that carries a `read_back` re-reads the state it depends on
   immediately before sending — not from the last refresh, because the
   cooker's own countdown moves between refreshes and sending a stale time
-  rewinds it. The widget test pins exactly that: picking Warm on a cooker
+  rewinds it. And the read-back is mandatory, not best-effort: review on the
+  spec side killed the `default: 0` that used to back each `source`
+  parameter, so a send whose read-back failed now errors visibly instead of
+  quietly clearing the timer (or, on a cook-time change, stopping a running
+  cooker with a substituted `mode: 0`). The resolver counts a `source`
+  parameter as fillable — the client knows where to fetch it — and the
+  renderer enforces that it actually was. The widget test pins exactly that: picking Warm on a cooker
   with four hours on the clock sends `mode=50, time=240`, and turning off
   sends no values at all. An unrecognised mode renders as
   "Unrecognized state", never as the first option — which would read "off"
