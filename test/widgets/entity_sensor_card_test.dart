@@ -91,7 +91,8 @@ void main() {
     expect(find.text('87'), findsOneWidget);
   });
 
-  testWidgets('a notify-only characteristic waits for its first notification '
+  testWidgets(
+      'a notify-only characteristic waits for its first notification '
       'instead of wearing a read error', (tester) async {
     // Discovery says the characteristic cannot be read; the old behavior
     // issued the read anyway and showed its failure until the first

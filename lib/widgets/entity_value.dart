@@ -225,7 +225,8 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
           await ref.read(bleServiceProvider).discoverServices(widget.deviceId);
       final target = normalizeUuid(stateChar);
       final char = services
-          .where((s) => normalizeUuid(s.uuid) == normalizeUuid(widget.serviceUuid))
+          .where(
+              (s) => normalizeUuid(s.uuid) == normalizeUuid(widget.serviceUuid))
           .expand((s) => s.characteristics)
           .where((c) => normalizeUuid(c.uuid) == target)
           .firstOrNull;

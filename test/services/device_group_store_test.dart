@@ -57,7 +57,8 @@ void main() {
     expect(store.load().single.id, 'g2');
   });
 
-  test('removeDevice prunes a forgotten device from every group but keeps '
+  test(
+      'removeDevice prunes a forgotten device from every group but keeps '
       'the groups', () async {
     final store = await _store();
     await store.save(const DeviceGroup(

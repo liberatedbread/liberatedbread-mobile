@@ -1549,8 +1549,9 @@ class _CanvasSizeFieldState extends State<_CanvasSizeField> {
       enabled: widget.enabled,
       keyboardType: TextInputType.number,
       decoration: InputDecoration(
-        labelText:
-            widget.max == null ? widget.label : '${widget.label} (1-${widget.max})',
+        labelText: widget.max == null
+            ? widget.label
+            : '${widget.label} (1-${widget.max})',
         border: const OutlineInputBorder(),
         isDense: true,
       ),

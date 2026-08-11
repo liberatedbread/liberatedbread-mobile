@@ -806,7 +806,8 @@ void main() {
       );
     });
 
-    test('a second subscriber keeps notifications alive when the first '
+    test(
+        'a second subscriber keeps notifications alive when the first '
         'cancels', () async {
       // Issue #29: six sensor tiles and the raw service card all subscribe to
       // one combined-packet characteristic, and the panel's ListView disposes
@@ -858,7 +859,8 @@ void main() {
       );
     });
 
-    test('a reconnect enables notifications afresh even with a stale '
+    test(
+        'a reconnect enables notifications afresh even with a stale '
         'subscription open', () async {
       // A subscription from a previous link that was never cancelled must
       // neither satisfy the new link's enable (CCCD state died with the old
