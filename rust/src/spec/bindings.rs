@@ -20,7 +20,7 @@ use super::types::{
     TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
-use crate::protocol::soap;
+use crate::protocol::{http, soap};
 
 /// Whether a characteristic's payloads must pass through a byte transform
 /// this crate does not implement, making any raw write to it wrong on the
@@ -693,6 +693,17 @@ const NETWORK_ROLES: &[(&str, &[NetworkRole])] = &[
         ],
     ),
     (
+        "button",
+        &[NetworkRole {
+            // A momentary action: one fixed role, nothing to fill in. The
+            // platform a remote key is — Roku's whole control surface is
+            // twenty-odd of these.
+            role: PRESS.role,
+            aliases: PRESS.aliases,
+            takes_value: false,
+        }],
+    ),
+    (
         "light",
         &[
             NetworkRole {
@@ -745,7 +756,7 @@ pub fn resolve_network_actions<'a>(
     spec: &'a DeviceSpec,
     entity: &'a Entity,
 ) -> Vec<NetworkAction<'a>> {
-    if entity.state_command.is_none() {
+    if entity.state_command.is_none() && !is_stateless_platform(entity) {
         return Vec::new();
     }
     let platform = entity.platform.as_deref().unwrap_or_default();
@@ -779,14 +790,23 @@ fn qualify_network<'a>(
     command: &'a SpecCommand,
     takes_value: bool,
 ) -> Option<NetworkAction<'a>> {
-    // Renderable at all: a command with no action, or one for a transport this
-    // crate does not speak, resolves to nothing rather than to a control that
-    // errors when pressed.
-    if command.transport.as_deref().unwrap_or(soap::TRANSPORT) != soap::TRANSPORT {
-        return None;
-    }
-    if command.service.is_none() || command.action.is_none() {
-        return None;
+    // Renderable at all: a command missing its transport's address, or one for
+    // a transport this crate does not speak, resolves to nothing rather than
+    // to a control that errors when pressed. Each transport is whole on its
+    // own terms — SOAP needs the service URN and action its envelope is built
+    // from, plain HTTP needs the method and path that ARE the request.
+    match command.transport.as_deref().unwrap_or(soap::TRANSPORT) {
+        soap::TRANSPORT => {
+            if command.service.is_none() || command.action.is_none() {
+                return None;
+            }
+        }
+        http::TRANSPORT => {
+            if command.method.is_none() || command.path.is_none() {
+                return None;
+            }
+        }
+        _ => return None,
     }
 
     let user_params = command.user_params();
@@ -810,16 +830,30 @@ fn qualify_network<'a>(
     })
 }
 
-/// Entities a spec drives over the network: those that name a state command.
+/// Whether an entity's platform has no state by nature, exempting it from
+/// the where-does-your-reading-come-from rule.
+///
+/// One platform qualifies: a `button` is momentary — pressed, not on — so
+/// statelessness is its honest description, where on a switch it would mean
+/// a control that can never update. The schema makes the same carve-out in
+/// the same words.
+fn is_stateless_platform(entity: &Entity) -> bool {
+    entity.platform.as_deref() == Some("button")
+}
+
+/// Entities a spec drives over the network: those that name a state command,
+/// plus the stateless platform that has nothing to name.
 ///
 /// The network counterpart of [`DeviceSpec::resolved_entities`], and it
 /// applies the same honesty rule — an entity is listed only if it says where
 /// its reading comes from, because a control that can never update is worse
-/// than an absent one.
+/// than an absent one. A `button` passes without a state source because a
+/// keypress HAS no resulting state to read; requiring one would just push
+/// spec authors to invent a fake binding.
 pub fn network_entities(spec: &DeviceSpec) -> Vec<&Entity> {
     spec.entities
         .iter()
-        .filter(|entity| entity.state_command.is_some())
+        .filter(|entity| entity.state_command.is_some() || is_stateless_platform(entity))
         .collect()
 }
 
@@ -1677,4 +1711,103 @@ entities:
         );
         assert!(actions_for(&spec).is_empty());
     }
+
+    // ── The network path's transport gates ───────────────────────────────
+
+    /// A miniature network spec: one stateless button per command shape.
+    fn network_spec(commands: &str) -> DeviceSpec {
+        let yaml = format!(
+            r#"
+device:
+  name: Test Remote
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+{commands}
+entities:
+  - name: Press Me
+    platform: button
+    commands:
+      press: press_me
+"#
+        );
+        parse_device_spec(&yaml).expect("test spec should parse")
+    }
+
+    /// A stateless `button` is on the network surface — the one platform the
+    /// where-is-your-state rule excuses — and resolves its press over HTTP.
+    #[test]
+    fn a_button_resolves_a_press_with_no_state() {
+        let spec = network_spec(
+            r#"
+  press_me:
+    description: Fixed HTTP invocation.
+    transport: http
+    method: POST
+    path: /keypress/Select
+"#,
+        );
+        let entities = network_entities(&spec);
+        assert_eq!(entities.len(), 1, "the button must be on the surface");
+        let actions = resolve_network_actions(&spec, entities[0]);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].role, "press");
+    }
+
+    /// An HTTP command without its address is not sendable, so the control
+    /// must not be offered — the same gate SOAP applies to a missing service.
+    #[test]
+    fn an_http_command_missing_its_method_resolves_nothing() {
+        let spec = network_spec(
+            r#"
+  press_me:
+    description: No method — half a request.
+    transport: http
+    path: /keypress/Select
+"#,
+        );
+        let entities = network_entities(&spec);
+        assert!(resolve_network_actions(&spec, entities[0]).is_empty());
+    }
+
+    /// A stateless platform that is NOT button keeps the old rule: a switch
+    /// with no state source stays off the network surface entirely.
+    #[test]
+    fn statelessness_excuses_only_buttons() {
+        let spec = network_spec(
+            r#"
+  press_me:
+    description: Fixed HTTP invocation.
+    transport: http
+    method: POST
+    path: /keypress/Select
+"#,
+        );
+        // Same spec, but the entity claims to be a switch.
+        let yaml = ROKUISH_SWITCH;
+        let switch_spec = parse_device_spec(yaml).expect("test spec should parse");
+        assert!(network_entities(&switch_spec).is_empty());
+        // Sanity: the button variant IS on the surface.
+        assert_eq!(network_entities(&spec).len(), 1);
+    }
+
+    const ROKUISH_SWITCH: &str = r#"
+device:
+  name: Test Remote
+  manufacturer: Test
+  manufacturer_status: active
+  protocol: wifi
+commands:
+  press_me:
+    description: Fixed HTTP invocation.
+    transport: http
+    method: POST
+    path: /keypress/Select
+entities:
+  - name: Press Me
+    platform: switch
+    commands:
+      turn_on: press_me
+"#;
 }

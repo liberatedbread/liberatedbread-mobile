@@ -130,6 +130,18 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
+  Future<HttpRequestDto> renderNetworkHttpCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) =>
+      rust.renderNetworkHttpCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        values: values,
+      );
+
+  @override
   Future<SoapRequestDto> renderNetworkStateRequest({
     required String specYaml,
     required String stateCommand,

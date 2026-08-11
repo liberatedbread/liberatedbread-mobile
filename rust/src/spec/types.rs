@@ -172,8 +172,15 @@ pub struct SpecCommand {
     #[serde(default)]
     pub action: Option<String>,
     /// Request path, for transports that address by path rather than service.
+    /// May carry `{name}` placeholders substituted exactly as argument values
+    /// are — Roku's whole control surface is the path (`/keypress/PowerOn`).
     #[serde(default)]
     pub path: Option<String>,
+    /// HTTP method of a `transport: http` command, spelled as the wire wants
+    /// it. Stated on the command so it is sendable without joining the
+    /// endpoint catalogue by name.
+    #[serde(default)]
+    pub method: Option<String>,
     /// Argument name → value as both go on the wire. `"{name}"` is substituted
     /// from the like-named parameter; anything else is a literal this
     /// invocation has already decided.

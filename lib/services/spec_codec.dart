@@ -40,7 +40,8 @@ export '../src/rust/api/device_api.dart'
         NetworkReadBackDto,
         NetworkReadingDto,
         NetworkReadingKind,
-        SoapRequestDto;
+        SoapRequestDto,
+        HttpRequestDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -156,6 +157,16 @@ abstract class SpecCodec {
   /// SOAP request. [values] carries what the user picked plus any read-back
   /// values fetched from the device; the spec's defaults fill the rest.
   Future<SoapRequestDto> renderNetworkCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  });
+
+  /// Render a named `transport: http` command into a sendable plain-HTTP
+  /// request — [renderNetworkCommand]'s sibling for the transport with no
+  /// envelope (Roku ECP's keypresses). An action's `transport` field says
+  /// which of the two to call; each renderer declines the other's commands.
+  Future<HttpRequestDto> renderNetworkHttpCommand({
     required String specYaml,
     required String commandName,
     required Map<String, String> values,
