@@ -16,6 +16,7 @@ import '../services/network_scan_service.dart';
 import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
 import '../widgets/device_list_tile.dart';
+import 'hub_device_screen.dart';
 import 'network_device_screen.dart';
 
 /// Discovery of devices on the local network, alongside the BLE scan.
@@ -307,10 +308,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       onTap: controls != null
           ? () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => NetworkDeviceScreen(
-                    device: device,
-                    controls: controls,
-                  ),
+                  // A hub (instanced children, link-button pairing) gets the
+                  // paired screen; everything else — SOAP devices and Roku's
+                  // plain-HTTP remote alike — keeps the ordinary control
+                  // screen, whose load path a Hue bridge would not survive.
+                  builder: (_) => controls.isHub
+                      ? HubDeviceScreen(device: device, controls: controls)
+                      : NetworkDeviceScreen(device: device, controls: controls),
                 ),
               )
           : () => _showDetails(device, vendor),
