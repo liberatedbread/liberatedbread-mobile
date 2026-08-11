@@ -16,6 +16,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:flutter_blue_plus/flutter_blue_plus.dart' show AndroidScanMode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
@@ -247,6 +248,24 @@ void main() {
 
       expect(ble.lastScanSettings?.continuousUpdates, isTrue);
       expect(ble.lastScanSettings?.continuousDivisor, continuousScanDivisor);
+    });
+
+    test('an ambient scan asks Android for the balanced duty cycle', () async {
+      // The energy dial: a scan the app starts by itself must not pin the
+      // radio to continuous listening the way the pre-dial default did.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+
+      final sub = service
+          .scan(timeout: null, intensity: ScanIntensity.ambient)
+          .listen((_) {});
+      addTearDown(sub.cancel);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(ble.lastScanSettings?.androidScanMode,
+          AndroidScanMode.balanced.value);
+      expect(ble.lastScanSettings?.continuousDivisor, 1,
+          reason: 'the duty cycle already thinned receptions; the divisor on '
+              'top would double a sleepy sensor\'s reception gaps');
     });
 
     test('a re-sighting moves lastSeen but not discoveredAt', () async {

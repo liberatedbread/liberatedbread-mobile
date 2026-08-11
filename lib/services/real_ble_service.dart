@@ -304,17 +304,49 @@ class ScanResultCoalescer {
 /// would stretch "signal lost" to ~45 seconds of stale-looking-live data.
 const int rssiReadTimeoutSeconds = 3;
 
-/// Report one advertisement in this many, per device.
+/// Report one advertisement in this many, per device — for ACTIVE scans only.
 ///
 /// Continuous scanning asks the platform for EVERY advertisement (that is what
 /// `continuousUpdates` means: allowDuplicates on Apple platforms, no
-/// same-payload suppression on Android), and a chatty peripheral emits ten a
-/// second. Every one of those crosses the platform channel, so halving them
-/// halves the cost of a scan that now runs for as long as the screen is open.
-/// Two, not ten: the divisor also decides how quickly a device's last-seen
-/// stamp refreshes, and a slow advertiser must still stay comfortably inside
-/// the stale threshold.
+/// same-payload suppression on Android), and under a low-latency scan a chatty
+/// peripheral emits ten a second. Every one of those crosses the platform
+/// channel, so halving them halves the cost. Two, not ten: the divisor also
+/// decides how quickly a device's last-seen stamp refreshes, and a slow
+/// advertiser must still stay comfortably inside the stale threshold.
+///
+/// Ambient scans do not use it (see [continuousDivisorFor]): the balanced
+/// duty cycle has already thinned receptions at the radio, and stacking the
+/// divisor on top would double a sleepy sensor's already-long reception gaps
+/// for a channel saving that no longer exists.
 const int continuousScanDivisor = 2;
+
+/// The Android scan mode a [ScanIntensity] asks for.
+///
+/// This is the single biggest energy dial the scan has: low latency keeps the
+/// radio receiving continuously, balanced duty-cycles it to roughly a quarter
+/// (1024ms windows on a 4096ms interval in AOSP). An active scan — the user
+/// pressed Scan and is watching — buys the continuous listen; the ambient
+/// watch the tab runs on its own does not need discoveries within a second,
+/// so it takes the duty cycle. Android-only by nature: Apple platforms expose
+/// no scan-mode knob, and their cost is bounded instead by the tab/lifecycle
+/// gating that keeps the scan foreground-only.
+///
+/// Extracted as a pure top-level function so the mapping can be unit-tested
+/// without a real Bluetooth adapter.
+AndroidScanMode androidScanModeFor(ScanIntensity intensity) =>
+    switch (intensity) {
+      ScanIntensity.active => AndroidScanMode.lowLatency,
+      ScanIntensity.ambient => AndroidScanMode.balanced,
+    };
+
+/// The per-device advertisement divisor a [ScanIntensity] asks for.
+///
+/// Extracted as a pure top-level function for the same reason as
+/// [androidScanModeFor]; see [continuousScanDivisor] for why ambient is 1.
+int continuousDivisorFor(ScanIntensity intensity) => switch (intensity) {
+      ScanIntensity.active => continuousScanDivisor,
+      ScanIntensity.ambient => 1,
+    };
 
 /// How often a continuous scan restarts the underlying platform scan.
 ///
@@ -391,6 +423,7 @@ class RealBleService implements BleService {
   Stream<IoTDevice> scan({
     Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
+    ScanIntensity intensity = ScanIntensity.active,
   }) {
     final controller = StreamController<IoTDevice>();
 
@@ -569,13 +602,14 @@ class RealBleService implements BleService {
         Future<void> startNative() => FlutterBluePlus.startScan(
               timeout: timeout,
               continuousUpdates: true,
-              continuousDivisor: continuousScanDivisor,
+              continuousDivisor: continuousDivisorFor(intensity),
+              androidScanMode: androidScanModeFor(intensity),
             );
 
         await startNative();
         if (await abandonIfCancelled(nativeScanStarted: true)) return;
-        Log.ble.info('scan started '
-            '(${timeout == null ? 'continuous' : '${timeout.inSeconds}s'})');
+        Log.ble.info('scan started (${intensity.name}, '
+            '${timeout == null ? 'continuous' : '${timeout.inSeconds}s'})');
 
         if (timeout == null) {
           // A continuous scan has no end of its own: it runs until the consumer

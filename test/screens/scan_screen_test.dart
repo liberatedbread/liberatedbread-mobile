@@ -122,8 +122,8 @@ void main() {
 
     test('an unchanged stale row is STILL drawn, because its count moves', () {
       // The one that is easy to get wrong: comparing the sets alone leaves
-      // "Not seen for 40s" frozen at 40s for the four minutes before the row
-      // is dropped, and nothing else will ever repaint it — a device that
+      // "Not seen for 90s" frozen at 90s for the minutes before the row is
+      // dropped, and nothing else will ever repaint it — a device that
       // stopped advertising does not advertise.
       expect(
         ageTickNeedsRepaint(
@@ -254,6 +254,74 @@ void main() {
 
       expect(fake.scanTimeouts, hasLength(1),
           reason: 'off means off, however the app came and went');
+    });
+  });
+
+  group('scan intensity', () {
+    testWidgets('everything the screen starts by itself is ambient',
+        (tester) async {
+      // Nobody pressed anything: the launch scan must take the duty-cycled
+      // mode, or the energy story only holds for people who never open the
+      // app.
+      final fake = FakeBleService(devicesToEmit: [_device('01')]);
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+
+      expect(fake.scanIntensities, [ScanIntensity.ambient]);
+    });
+
+    testWidgets('pressing Scan buys a low-latency burst', (tester) async {
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01')],
+        scanHold: Completer<void>(),
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Stop the ambient scan, then ask for one explicitly.
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+          fake.scanIntensities, [ScanIntensity.ambient, ScanIntensity.active]);
+    });
+
+    testWidgets('the burst downshifts to ambient after its window',
+        (tester) async {
+      // A press buys thirty seconds of continuous listening, not a permanent
+      // mode — otherwise one tap re-pins the radio for the whole session.
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01')],
+        scanHold: Completer<void>(),
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byType(FloatingActionButton)); // stop
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byType(FloatingActionButton)); // active burst
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.pump(const Duration(seconds: 31));
+
+      expect(fake.scanIntensities,
+          [ScanIntensity.ambient, ScanIntensity.active, ScanIntensity.ambient]);
+      // Seamless: still scanning, still a stop button on screen.
+      expect(find.byIcon(Icons.stop), findsOneWidget);
+    });
+
+    testWidgets('retry after a failure is an explicit ask, so it bursts',
+        (tester) async {
+      final fake = FakeBleService(scanError: StateError('boom'));
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+
+      fake.scanError = null;
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Retry'));
+      await tester.pumpAndSettle();
+
+      expect(fake.scanIntensities.last, ScanIntensity.active);
     });
   });
 

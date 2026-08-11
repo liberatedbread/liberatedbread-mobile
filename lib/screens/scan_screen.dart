@@ -54,6 +54,19 @@ class ScanScreen extends ConsumerStatefulWidget {
 /// never.
 const Duration _ageTick = Duration(seconds: 5);
 
+/// How long a Scan press keeps the radio in its low-latency mode before the
+/// scan downshifts to the ambient duty cycle.
+///
+/// The press buys a burst, not a mode: someone who taps Scan is hunting for a
+/// device right now, and thirty seconds of continuous listening — the app's
+/// original scan window — is enough to find anything that is going to be
+/// found quickly. Left permanent, one tap would re-pin the radio for the rest
+/// of the session, and the tab's whole energy story would hinge on nobody
+/// ever pressing its most prominent button. The downshift is a seamless
+/// restart: the device list survives scan restarts by design.
+const Duration _activeBurst =
+    Duration(seconds: AppConstants.defaultScanDuration);
+
 /// How long a switch away from this tab must last before the radio is
 /// actually stopped.
 ///
@@ -134,6 +147,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // the duration (a connect on a scanning adapter is flaky), so every automatic
   // resume has to know not to undo that.
   bool _onDeviceScreen = false;
+  // Ends the low-latency burst an explicit Scan press buys — see
+  // [_activeBurst]. Armed only for active-intensity scans.
+  Timer? _burstDownshift;
   // Pending off-tab stop (see [_offTabStopDelay]); armed when the shell
   // switches away, disarmed if it switches back inside the grace window.
   Timer? _offTabStop;
@@ -175,7 +191,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       // error state must not be able to crash the screen showing it.
       onError: (Object _) {},
     );
-    if (widget.active) unawaited(_startScan());
+    if (widget.active) unawaited(_startScan(ScanIntensity.ambient));
   }
 
   /// React to the shell switching tabs (see [ScanScreen.active]).
@@ -215,11 +231,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// coming back would otherwise restart the radio behind the device screen,
   /// undoing the stop [_connect] performs precisely to keep the connection off
   /// a scanning adapter.
+  /// Always ambient: nothing that resumes by itself gets to claim the user
+  /// just asked for it — the low-latency burst is the Scan button's alone.
   void _resumeIfIdle() {
     if (_isScanning || _pausedByUser || !widget.active || _onDeviceScreen) {
       return;
     }
-    unawaited(_startScan());
+    unawaited(_startScan(ScanIntensity.ambient));
   }
 
   /// Stop scanning while the app is in the background, resume when it returns.
@@ -250,13 +268,15 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     }
   }
 
-  Future<void> _startScan() async {
+  Future<void> _startScan(ScanIntensity intensity) async {
     if (!mounted) return;
     // Tear down any in-flight scan before starting a new one. Cancel is
     // fire-and-forget: it synchronously stops delivery, and awaiting the
     // teardown future can stall inside the widget-test fake zone.
     unawaited(_scanSub?.cancel());
     _scanSub = null;
+    _burstDownshift?.cancel();
+    _burstDownshift = null;
 
     setState(() {
       _isScanning = true;
@@ -270,8 +290,21 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     });
 
     // A null timeout scans until we stop: the point is to keep listening, so a
-    // device powered on two minutes from now still shows up.
-    _scanSub = _bleService.scan(timeout: null).listen(
+    // device powered on two minutes from now still shows up. The intensity
+    // decides how hard the radio listens meanwhile — an explicit press gets a
+    // low-latency burst (downshifted below), everything self-started runs on
+    // the balanced duty cycle.
+    if (intensity == ScanIntensity.active) {
+      _burstDownshift = Timer(_activeBurst, () {
+        _burstDownshift = null;
+        // Only a scan still running in the foreground gets downshifted; a
+        // stop, a tab switch or a backgrounding has already ended the burst.
+        if (mounted && _isScanning && widget.active) {
+          unawaited(_startScan(ScanIntensity.ambient));
+        }
+      });
+    }
+    _scanSub = _bleService.scan(timeout: null, intensity: intensity).listen(
       (device) {
         if (!mounted) return;
         final isNew = _deviceManager.getById(device.id) == null;
@@ -318,6 +351,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   Future<void> _stopScan({required bool byUser}) async {
     unawaited(_scanSub?.cancel());
     _scanSub = null;
+    _burstDownshift?.cancel();
+    _burstDownshift = null;
     if (mounted) {
       setState(() {
         _isScanning = false;
@@ -390,6 +425,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     _ageTicker?.cancel();
     _repaint?.cancel();
     _offTabStop?.cancel();
+    _burstDownshift?.cancel();
     unawaited(_adapterSub?.cancel());
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
     // catchError to keep a throw during teardown from surfacing as an
@@ -458,7 +494,9 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           : FloatingActionButton.extended(
               heroTag: 'scan-fab',
               tooltip: 'Scan for devices',
-              onPressed: _startScan,
+              // An explicit press is the one thing that buys the low-latency
+              // burst; everything the screen starts by itself is ambient.
+              onPressed: () => _startScan(ScanIntensity.active),
               icon: const Icon(Icons.search),
               label: const Text('Scan'),
             ),
@@ -608,7 +646,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           const SizedBox(height: 4),
           Center(
             child: TextButton(
-              onPressed: _isScanning ? null : _startScan,
+              onPressed:
+                  _isScanning ? null : () => _startScan(ScanIntensity.active),
               style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
               child: const Text('Retry'),
             ),
@@ -618,7 +657,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           const SizedBox(height: 24),
           Center(
             child: ActionPillButton(
-              onPressed: _isScanning ? null : _startScan,
+              onPressed:
+                  _isScanning ? null : () => _startScan(ScanIntensity.active),
               icon: Icons.refresh,
               label: 'Retry',
             ),
@@ -634,7 +674,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
           const SizedBox(height: 24),
           Center(
             child: ActionPillButton(
-              onPressed: _startScan,
+              onPressed: () => _startScan(ScanIntensity.active),
               icon: Icons.refresh,
               label: 'Scan again',
             ),
