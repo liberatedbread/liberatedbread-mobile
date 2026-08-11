@@ -121,6 +121,45 @@ void main() {
           // A beat between designs so each one is seen, not blinked past.
           await Future<void>.delayed(const Duration(seconds: 2));
         }
+
+        // The other half of the feature: persist a design on the device and
+        // play it immediately — the vendor's store-then-show, end to end on
+        // real hardware. The stored item survives disconnect; the play write
+        // is what takes the panel over from the doodle session right now, so
+        // a green run here means "save" visibly becomes "playing".
+        final trans = designs.firstWhere((d) => d.name == 'Trans flag');
+        final cid = 900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
+        final stored = await codec.encodeStoredImage(
+          specYaml: specYaml,
+          width: _width,
+          height: _height,
+          rgb: trans.buildFrames().first,
+          name: 'LB live store',
+          cid: cid,
+          timeSecs: 10,
+          scroll: 'none',
+          speed: 5,
+        );
+        expect(stored.playWrite, isNotNull,
+            reason: 'the spec declares play_command — a save must then show');
+        for (final write in stored.uploadWrites) {
+          await ble.writeCharacteristic(
+            deviceId,
+            stored.serviceUuid,
+            write.characteristicUuid,
+            write.bytes,
+          );
+        }
+        final play = stored.playWrite!;
+        await ble.writeCharacteristic(
+          deviceId,
+          stored.serviceUuid,
+          play.characteristicUuid,
+          play.bytes,
+        );
+        // Hold the link a beat so the playback is observable in the room and
+        // any device-side commit finishes before we drop the connection.
+        await Future<void>.delayed(const Duration(seconds: 3));
       } finally {
         await ble.disconnect(deviceId);
       }
