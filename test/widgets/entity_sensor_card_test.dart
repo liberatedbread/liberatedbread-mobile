@@ -179,4 +179,148 @@ void main() {
 
     expect(find.textContaining('not_in_format'), findsOneWidget);
   });
+
+  group('verdict chips', () {
+    EntityDto entity({String? deviceClass, String? unit}) => EntityDto(
+          name: 'Reading',
+          platform: 'sensor',
+          deviceClass: deviceClass,
+          unit: unit,
+          stateCharacteristic: _tempChar,
+          canNotify: false,
+          hasFormat: true,
+          valueField: 'current_temp_raw',
+          onWhenNonzero: false,
+          actions: const [],
+        );
+
+    testWidgets('a radon reading past the red line says Poor', (tester) async {
+      // 180 Bq/m³ is past Airthings' own red default (150) and the number
+      // alone tells nobody that. The verdict is the point of the card.
+      await tester.pumpWidget(_wrap(
+        entity(unit: 'Bq/m³'),
+        _codecReturning(180),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('180'), findsOneWidget);
+      expect(find.text('Poor'), findsOneWidget);
+    });
+
+    testWidgets('a CO₂ reading between the bands says Fair', (tester) async {
+      await tester.pumpWidget(_wrap(
+        entity(deviceClass: 'carbon_dioxide', unit: 'ppm'),
+        _codecReturning(900),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Fair'), findsOneWidget);
+    });
+
+    testWidgets('a healthy air reading says Good out loud', (tester) async {
+      await tester.pumpWidget(_wrap(
+        entity(deviceClass: 'humidity', unit: '%'),
+        _codecReturning(45),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Good'), findsOneWidget);
+    });
+
+    testWidgets('the verdict judges the DECODED value, not the raw count',
+        (tester) async {
+      // A humidity field encoded at 0.01 %/count: raw 4500 is 45 % — Good.
+      // Banding the raw count would read 4500 % as catastrophic.
+      await tester.pumpWidget(_wrap(
+        entity(deviceClass: 'humidity', unit: '%'),
+        _codecReturning(4500, scale: 0.01),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('45.00'), findsOneWidget);
+      expect(find.text('Good'), findsOneWidget);
+      expect(find.text('Poor'), findsNothing);
+    });
+
+    testWidgets('a healthy battery keeps quiet; a low one warns',
+        (tester) async {
+      await tester.pumpWidget(_wrap(
+        entity(deviceClass: 'battery', unit: '%'),
+        _codecReturning(85),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('85'), findsOneWidget);
+      expect(find.text('Good'), findsNothing);
+
+      // Torn down between scenarios: the value builder reads once at mount,
+      // so an in-place re-pump would keep showing the first codec's value.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(_wrap(
+        entity(deviceClass: 'battery', unit: '%'),
+        _codecReturning(15),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Fair'), findsOneWidget);
+    });
+
+    testWidgets('unbanded quantities show the number alone', (tester) async {
+      await tester.pumpWidget(
+        _wrap(_tempEntity(scale: 0.01), _codecReturning(5320)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('53.20'), findsOneWidget);
+      for (final verdict in ['Good', 'Fair', 'Poor']) {
+        expect(find.text(verdict), findsNothing);
+      }
+    });
+  });
+
+  group('compact tile', () {
+    testWidgets('carries the same reading, unit and verdict as the row',
+        (tester) async {
+      const entity = EntityDto(
+        name: 'Radon 24h Average',
+        platform: 'sensor',
+        deviceClass: null,
+        unit: 'Bq/m³',
+        stateCharacteristic: _tempChar,
+        canNotify: true,
+        hasFormat: true,
+        valueField: 'current_temp_raw',
+        onWhenNonzero: false,
+        actions: [],
+      );
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(
+            FakeBleService(readValues: const {
+              _tempChar: [55, 0],
+            }),
+          ),
+          specCodecProvider.overrideWithValue(_codecReturning(55)),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: EntitySensorCard(
+              deviceId: 'd',
+              serviceUuid: 's',
+              entity: entity,
+              specYaml: 'y',
+              compact: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Radon 24h Average'), findsOneWidget);
+      expect(find.text('55'), findsOneWidget);
+      expect(find.text('Bq/m³'), findsOneWidget);
+      expect(find.text('Good'), findsOneWidget);
+      // The live-updates affordance survives the compact layout.
+      expect(find.byIcon(Icons.bolt), findsOneWidget);
+    });
+  });
 }

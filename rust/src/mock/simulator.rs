@@ -83,13 +83,20 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
         // `write_value` (never a direct full-slice copy) because `length`
         // may legally exceed the type's byte width — see `write_value`.
         //
-        // A declared `scale` says what a raw count means, so work back from a
-        // plausible physical reading instead of guessing at the count:
-        // Airthings' temperature is `scale: 0.01`, and a reader that applies
-        // the scale would turn the unscaled 220 into 2.2 °C. Without a scale
-        // nothing in the spec says what the units are, so the historical raw
-        // constants stand.
-        let heuristic: Option<i64> = match (&field.field_type, field.scale) {
+        // A declared transform (`scale`/`value_offset`) says what a raw count
+        // means, so work back from a plausible physical reading instead of
+        // guessing at the count: Airthings' temperature is `scale: 0.01`, and
+        // a reader that applies the scale would turn the unscaled 220 into
+        // 2.2 °C. The offset matters as much as the scale — the Wave Mini's
+        // temperature is centikelvin (`scale: 0.01, value_offset: -273.15`),
+        // and inverting only the scale would demo a −251 °C living room.
+        // Without a transform nothing in the spec says what the units are, so
+        // the historical raw constants stand.
+        let transform = match (field.scale, field.value_offset) {
+            (None, None) => None,
+            (scale, offset) => Some((scale.unwrap_or(1.0), offset.unwrap_or(0.0))),
+        };
+        let heuristic: Option<i64> = match (&field.field_type, transform) {
             (ValueType::Bool, _) => Some(1), // default: on
             (
                 ValueType::Uint8
@@ -99,14 +106,14 @@ fn generate_defaults(fields: &[FormatField]) -> Vec<u8> {
                 | ValueType::Int32
                 | ValueType::Uint32
                 | ValueType::Varint,
-                Some(scale),
-            ) => Some(raw_for_physical(nominal_for_name(&field.name), scale)),
+                Some((scale, offset)),
+            ) => Some(raw_for_physical(nominal_for(field), scale, offset)),
             (ValueType::Uint8, None) => Some(default_uint8_for_name(&field.name) as i64),
             (ValueType::Uint16, None) => Some(default_uint16_for_name(&field.name) as i64),
             (ValueType::Int8, None) => Some(22),   // ~22°C
             (ValueType::Int16, None) => Some(220), // 22.0 if scaled
-            // 32-bit / varint fields with no scale, and the non-numeric types,
-            // stay zero.
+            // 32-bit / varint fields with no transform, and the non-numeric
+            // types, stay zero.
             (ValueType::Int32 | ValueType::Uint32 | ValueType::Varint, None)
             | (ValueType::Bytes | ValueType::String, _) => None,
         };
@@ -183,14 +190,26 @@ fn default_uint8_for_name(name: &str) -> u8 {
     }
 }
 
-/// A plausible reading in the field's own unit, chosen by name.
+/// A plausible reading in the field's own decoded unit, chosen by name — and
+/// for pressure by declared unit too, since "plausible" differs by three
+/// orders of magnitude between hPa and Pa.
 ///
 /// The counterpart to [`default_uint16_for_name`] for specs that declare a
-/// `scale`: that one guesses at a raw count, this one names the physical value
-/// and lets [`raw_for_physical`] derive the count the device would send.
-fn nominal_for_name(name: &str) -> f64 {
-    let lower = name.to_lowercase();
-    if lower.contains("temp") {
+/// transform: that one guesses at a raw count, this one names the physical
+/// value and lets [`raw_for_physical`] derive the count the device would
+/// send.
+fn nominal_for(field: &FormatField) -> f64 {
+    let lower = field.name.to_lowercase();
+    let unit = field
+        .unit
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    // "dew" before "temp": a dew point IS a temperature, but a 22 °C dew
+    // point would demo a swamp.
+    if lower.contains("dew") {
+        12.0
+    } else if lower.contains("temp") {
         22.0
     } else if lower.contains("humid") {
         55.0
@@ -198,18 +217,32 @@ fn nominal_for_name(name: &str) -> f64 {
         500.0
     } else if lower.contains("battery") || lower.contains("percent") {
         85.0
+    } else if lower.contains("pressure") {
+        // Sea-level atmosphere, in whichever unit the spec declares.
+        // "hpa" is checked first because it contains "pa".
+        if unit.contains("hpa") || unit.contains("mbar") {
+            1013.0
+        } else if unit.contains("kpa") {
+            101.3
+        } else if unit.contains("pa") {
+            101300.0
+        } else {
+            100.0
+        }
     } else {
         100.0
     }
 }
 
-/// Invert a spec's `scale` to get the raw count a device would report for
-/// `physical`. A non-positive or non-finite scale is meaningless as a
-/// multiplier, so the physical value passes through unchanged rather than
-/// producing an infinity.
-fn raw_for_physical(physical: f64, scale: f64) -> i64 {
+/// Invert a spec's transform to get the raw count a device would report for
+/// `physical`: `raw = (physical - offset) / scale`, the inverse of
+/// `FormatField::apply_transform`. A non-positive or non-finite scale is
+/// meaningless as a divisor, so the physical value passes through unchanged
+/// rather than producing an infinity.
+fn raw_for_physical(physical: f64, scale: f64, offset: f64) -> i64 {
+    let offset = if offset.is_finite() { offset } else { 0.0 };
     if scale.is_finite() && scale > 0.0 {
-        (physical / scale).round() as i64
+        ((physical - offset) / scale).round() as i64
     } else {
         physical.round() as i64
     }
@@ -223,6 +256,14 @@ fn default_uint16_for_name(name: &str) -> u16 {
         5500 // 55.00% if scaled
     } else if lower.contains("lux") || lower.contains("light") {
         500
+    } else if lower.contains("radon") {
+        // A healthy-house 55 Bq/m³ (the fields are raw becquerels): the demo
+        // should look like a home, not an incident.
+        55
+    } else if lower.contains("co2") {
+        650 // occupied-room ppm
+    } else if lower.contains("voc") {
+        120 // ppb
     } else {
         100
     }
@@ -469,6 +510,122 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(generate_defaults(&fields), 22i16.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn value_offset_is_inverted_too() {
+        // The Wave Mini's temperature is centikelvin: `scale: 0.01,
+        // value_offset: -273.15`. Inverting only the scale would send the
+        // count for 22 centi-units — which a reader decodes to −251 °C.
+        // raw = (22 − (−273.15)) / 0.01 = 29515.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "temperature".into(),
+            field_type: ValueType::Uint16,
+            scale: Some(0.01),
+            value_offset: Some(-273.15),
+            unit: Some("°C".into()),
+            ..Default::default()
+        }];
+        assert_eq!(generate_defaults(&fields), 29515u16.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn offset_only_transform_still_lands_on_the_nominal_reading() {
+        // A field with `value_offset` but no `scale` decodes as `raw + offset`,
+        // so the simulator must send `nominal − offset` rather than fall back
+        // to a raw constant the offset would then distort.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "temperature".into(),
+            field_type: ValueType::Int16,
+            value_offset: Some(-40.0),
+            ..Default::default()
+        }];
+        assert_eq!(generate_defaults(&fields), 62i16.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn pressure_nominal_follows_the_declared_unit() {
+        // "Plausible" pressure spans three orders of magnitude depending on
+        // unit. The SIG pressure characteristic (uint32, 0.1 Pa resolution,
+        // spec'd here as scale 0.001 → hPa) should demo sea level, not the
+        // stratosphere.
+        let hpa = FormatField {
+            offset: 0,
+            length: 4,
+            name: "pressure".into(),
+            field_type: ValueType::Uint32,
+            scale: Some(0.001),
+            unit: Some("hPa".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            generate_defaults(std::slice::from_ref(&hpa)),
+            1_013_000u32.to_le_bytes().to_vec()
+        );
+
+        // Airthings' combined packet declares pressure in raw pascals at
+        // scale 2 — 50650 × 2 = 101300 Pa, sea level again.
+        let pa = FormatField {
+            offset: 0,
+            length: 2,
+            name: "pressure".into(),
+            field_type: ValueType::Uint16,
+            scale: Some(2.0),
+            unit: Some("Pa".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            generate_defaults(std::slice::from_ref(&pa)),
+            50650u16.to_le_bytes().to_vec()
+        );
+    }
+
+    #[test]
+    fn air_quality_fields_default_to_healthy_home_values() {
+        // Radon/CO₂/VOC fields carry no scale (raw counts are the unit), so
+        // they take the uint16 name defaults. The demo should look like a
+        // home, not an incident — and 100 Bq/m³ sat exactly on the radon
+        // "fair" line.
+        let field = |name: &str| FormatField {
+            offset: 0,
+            length: 2,
+            name: name.into(),
+            field_type: ValueType::Uint16,
+            ..Default::default()
+        };
+        for (name, want) in [
+            ("radon_24h_avg", 55u16),
+            ("radon_longterm_avg", 55),
+            ("co2", 650),
+            ("voc", 120),
+        ] {
+            assert_eq!(
+                generate_defaults(std::slice::from_ref(&field(name))),
+                want.to_le_bytes().to_vec(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn dew_point_reads_as_dew_point_not_room_temperature() {
+        // "dew_point" contains no "temp", but the rule is ordered anyway:
+        // a dew-point field must not take the 22 °C room nominal, which
+        // would demo a swamp.
+        let fields = vec![FormatField {
+            offset: 0,
+            length: 2,
+            name: "dew_point".into(),
+            field_type: ValueType::Int16,
+            scale: Some(0.01),
+            unit: Some("°C".into()),
+            ..Default::default()
+        }];
+        assert_eq!(generate_defaults(&fields), 1200i16.to_le_bytes().to_vec());
     }
 
     /// H1 regression: the parser deliberately tolerates a fixed-width type

@@ -668,8 +668,13 @@ same YAML skip the parse and clone the inner `DeviceSpec` from the cached
 The default for a field is chosen in this order:
 1. the field's explicit `mock_default` in the YAML spec (if present and in range
    for the field's type), then
-2. a name-based heuristic (e.g. a field whose name contains `brightness` → 80,
-   `battery`/`percent` → 85, `temp` → 2200, a `bool` field → on), then
+2. a name-based heuristic. A field declaring a transform (`scale` /
+   `value_offset`) gets a plausible *physical* reading mapped back through the
+   inverse transform — `temp` → 22 °C whatever the encoding, including the
+   Wave Mini's centikelvin; `pressure` → sea level in whichever unit the field
+   declares. A field with no transform gets a raw constant (`brightness` → 80,
+   `battery`/`percent` → 85, `radon` → 55, `co2` → 650, a `bool` field → on).
+   Then
 3. zero.
 
 So to make a mock device return a specific value, set `mock_default` on the

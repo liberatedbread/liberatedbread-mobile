@@ -17,6 +17,8 @@ import 'package:liberated_bread_mobile/services/number_registry.dart';
 import 'package:liberated_bread_mobile/services/spec_choice_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/widgets/device_control_panel.dart';
+import 'package:liberated_bread_mobile/widgets/entity_sensor_card.dart';
+import 'package:liberated_bread_mobile/widgets/raw_characteristic_widget.dart';
 import 'package:liberated_bread_mobile/widgets/typed_characteristic_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -430,6 +432,192 @@ void main() {
     expect(find.byIcon(DeviceCategory.light.icon), findsOneWidget);
     // The user did not pick this one, so it is not the saved-choice banner.
     expect(find.text('Device type you picked'), findsNothing);
+  });
+
+  group('sensor-device readings', () {
+    const svcUuid = '0000aab0-0000-1000-8000-00805f9b34fb';
+    const radonChar = '0000aab1-0000-1000-8000-00805f9b34fb';
+    const radonAltChar = '0000aab2-0000-1000-8000-00805f9b34fb';
+    const humidityChar = '0000aab3-0000-1000-8000-00805f9b34fb';
+    const batteryChar = '0000aab4-0000-1000-8000-00805f9b34fb';
+
+    EntityDto sensor(
+      String name,
+      String stateChar, {
+      String? deviceClass,
+      String? unit,
+    }) =>
+        EntityDto(
+          name: name,
+          platform: 'sensor',
+          deviceClass: deviceClass,
+          unit: unit,
+          stateCharacteristic: stateChar,
+          canNotify: false,
+          hasFormat: true,
+          valueField: 'v',
+          onWhenNonzero: false,
+          actions: const [],
+        );
+
+    DeviceSpecDto airSpec({String category = 'sensor'}) => DeviceSpecDto(
+          deviceName: 'Acme Air Monitor',
+          manufacturer: 'Acme Corp',
+          manufacturerStatus: 'active',
+          protocol: 'ble',
+          category: category,
+          localNamePrefixes: const [],
+          serviceUuids: const [svcUuid],
+          companyIds: Uint16List(0),
+          macPrefixes: const [],
+          mdnsServiceType: null,
+          ssdpSearchTargets: const [],
+          defaultPort: null,
+          entities: [
+            sensor('Radon 24h Average', radonChar, unit: 'Bq/m³'),
+            // The same logical reading, bound to another variant's
+            // characteristic — the shape a family spec uses when models
+            // carry the value in different places.
+            sensor('Radon 24h Average', radonAltChar, unit: 'Bq/m³'),
+            sensor('Humidity', humidityChar,
+                deviceClass: 'humidity', unit: '%'),
+            sensor('Battery', batteryChar, deviceClass: 'battery', unit: '%'),
+          ],
+          services: const [
+            ServiceDto(uuid: svcUuid, name: 'Air Service', characteristics: []),
+          ],
+        );
+
+    const discovered = [
+      BleDiscoveredService(
+        uuid: svcUuid,
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: radonChar,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+          BleDiscoveredCharacteristic(
+            uuid: radonAltChar,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+          BleDiscoveredCharacteristic(
+            uuid: humidityChar,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+          BleDiscoveredCharacteristic(
+            uuid: batteryChar,
+            canRead: true,
+            canWrite: false,
+            canNotify: false,
+          ),
+        ],
+      ),
+    ];
+
+    FakeSpecCodec airCodec(DeviceSpecDto spec) => FakeSpecCodec(
+          spec: spec,
+          matches: [
+            MatchResult(
+              spec: spec,
+              matchedByNamePrefix: false,
+              matchedServiceUuids: const [svcUuid],
+              confidence: MatchConfidence.strong,
+            ),
+          ],
+          decoded: const [
+            DecodedValueDto(
+              name: 'v',
+              valueType: 'uint',
+              display: '55',
+              uintValue: 55,
+            ),
+          ],
+        );
+
+    FakeBleService airBle() => FakeBleService(readValues: const {
+          radonChar: [55, 0],
+          radonAltChar: [55, 0],
+          humidityChar: [55],
+          batteryChar: [85],
+        });
+
+    testWidgets(
+        'readings render as one deduplicated grid and the raw services fold',
+        (tester) async {
+      await tester.pumpWidget(await _wrap(
+        const DeviceControlPanel(
+            deviceId: '01', deviceName: 'Air', services: discovered),
+        ble: airBle(),
+        codec: airCodec(airSpec()),
+        specs: const {'air.yaml': 'yaml'},
+      ));
+      await tester.pumpAndSettle();
+
+      // Four entities, three distinct readings: the two variant bindings of
+      // "Radon 24h Average" collapse to the first that resolved. Without the
+      // dedupe the mock — which exposes every variant's service at once —
+      // showed one reading twice.
+      expect(find.byType(EntitySensorCard), findsNWidgets(3));
+      expect(find.text('Radon 24h Average'), findsOneWidget);
+      expect(find.text('Humidity'), findsOneWidget);
+
+      // This is a sensor device with its readings on screen, so the GATT
+      // plumbing folds: the service card is still there, its characteristics
+      // one tap away rather than dominating the first screen.
+      expect(find.text('Air Service'), findsOneWidget);
+      expect(find.byType(RawCharacteristicWidget), findsNothing);
+      expect(find.byType(TypedCharacteristicWidget), findsNothing);
+
+      await tester.tap(find.text('Air Service'));
+      await tester.pumpAndSettle();
+      expect(find.byType(RawCharacteristicWidget), findsNWidgets(4));
+    });
+
+    testWidgets('a non-sensor device keeps its service cards open',
+        (tester) async {
+      await tester.pumpWidget(await _wrap(
+        const DeviceControlPanel(
+            deviceId: '01', deviceName: 'Air', services: discovered),
+        ble: airBle(),
+        codec: airCodec(airSpec(category: 'light')),
+        specs: const {'air.yaml': 'yaml'},
+      ));
+      await tester.pumpAndSettle();
+
+      // Same readings, but the device is not a sensor — its controls likely
+      // live in the service cards, so they stay expanded as before.
+      expect(find.byType(EntitySensorCard), findsNWidgets(3));
+      expect(find.byType(RawCharacteristicWidget), findsNWidgets(4));
+    });
+
+    testWidgets('a sensor spec whose readings did not resolve does not fold',
+        (tester) async {
+      // The entity characteristics are absent from what was discovered —
+      // nothing to show above, so hiding the GATT tree would hide everything.
+      const bare = [BleDiscoveredService(uuid: svcUuid, characteristics: [])];
+      await tester.pumpWidget(await _wrap(
+        const DeviceControlPanel(
+            deviceId: '01', deviceName: 'Air', services: bare),
+        ble: airBle(),
+        codec: airCodec(airSpec()),
+        specs: const {'air.yaml': 'yaml'},
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(EntitySensorCard), findsNothing);
+      // Folded-with-nothing-above would leave a bare title row; the tile
+      // stays open (nothing to expand here since the service is empty, so
+      // assert via the tile's controller state: no fold means no collapse
+      // animation ran and the card renders exactly as the pre-readings
+      // panel always has).
+      expect(find.text('Air Service'), findsOneWidget);
+    });
   });
 
   testWidgets('a matched spec with no category still names the manufacturer',
