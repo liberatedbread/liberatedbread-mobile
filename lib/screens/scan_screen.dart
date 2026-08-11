@@ -224,13 +224,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   /// Start scanning again unless something says not to.
   ///
   /// Every automatic resume — a tab coming back, the app returning from the
-  /// background, a pop off the device screen — goes through here, because they
-  /// share the same three reasons to stay off: the user stopped the scan, this
-  /// is not the visible tab, or a device screen is open in front of us. That
-  /// last one is not hypothetical: backgrounding the app while connected and
-  /// coming back would otherwise restart the radio behind the device screen,
-  /// undoing the stop [_connect] performs precisely to keep the connection off
-  /// a scanning adapter.
+  /// background, a pop off the device screen, the radio coming back — goes
+  /// through here, because they share the same reasons to stay off: the user
+  /// stopped the scan, this is not the visible tab, or a device screen is
+  /// open in front of us. That last one is not hypothetical: backgrounding
+  /// the app while connected and coming back would otherwise restart the
+  /// radio behind the device screen, undoing the stop [_connect] performs
+  /// precisely to keep the connection off a scanning adapter. It covers the
+  /// whole pushed stack, Find Device included — that screen navigates by the
+  /// connection's RSSI, and a scan underneath it would add radio contention
+  /// to the readings while being unable to see a connected (and therefore
+  /// non-advertising) device at all.
   /// Always ambient: nothing that resumes by itself gets to claim the user
   /// just asked for it — the low-latency burst is the Scan button's alone.
   void _resumeIfIdle() {

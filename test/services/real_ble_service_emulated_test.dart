@@ -438,6 +438,41 @@ void main() {
       expect(second.errors, isEmpty);
     });
 
+    test('a teardown during an in-flight refresh does not revive the scan',
+        () async {
+      // Cancelling the refresh Timer cannot reach a callback that has already
+      // fired and is awaiting startScan. Without a teardown check inside the
+      // callback, that restart completes AFTER the consumer cancelled — and
+      // then reschedules itself, leaving a radio scanning forever for nobody.
+      service.continuousScanRefreshInterval = const Duration(milliseconds: 40);
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final result = startContinuous();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      // Slow the platform down so the next refresh is mid-startScan when the
+      // teardown lands.
+      ble.latency = const Duration(milliseconds: 60);
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      await service.stopScan();
+      ble.latency = Duration.zero;
+
+      // Let the in-flight restart finish and any (buggy) reschedule fire.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      final startsAfterSettle =
+          ble.platformCalls.where((c) => c == 'startScan').length;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(ble.platformCalls.where((c) => c == 'startScan').length,
+          startsAfterSettle,
+          reason: 'no further restarts once the scan is over');
+      final calls = ble.platformCalls;
+      expect(calls.lastIndexOf('stopScan'),
+          greaterThan(calls.lastIndexOf('startScan')),
+          reason: 'whatever the in-flight restart revived was put back down; '
+              'calls were $calls');
+      expect(result.done, [true]);
+    });
+
     test('restarts the platform scan so it cannot go opportunistic', () async {
       // Android downgrades a scan that has been running for 30 minutes to
       // opportunistic — callbacks still registered, radio no longer driven.

@@ -54,6 +54,31 @@ void main() {
       expect(manager.devices[2].id, equals('1'));
     });
 
+    test('addOrUpdate keeps the session\'s first discoveredAt', () {
+      // Each scan invocation stamps first-seen from its own start, and the
+      // scan restarts routinely (burst downshift, tab return, resume). Taking
+      // the restarted scan's stamp would re-order same-band rows by
+      // post-restart arrival — the reshuffle the discoveredAt tie-break
+      // exists to prevent.
+      final first = makeDevice(rssi: -60);
+      manager.addOrUpdate(first);
+      final rediscovered = IoTDevice(
+        id: first.id,
+        name: 'Test',
+        rssi: -40,
+        isConnectable: true,
+        discoveredAt: now.add(const Duration(minutes: 2)),
+        lastSeen: now.add(const Duration(minutes: 2)),
+      );
+      manager.addOrUpdate(rediscovered);
+
+      final kept = manager.getById(first.id)!;
+      expect(kept.discoveredAt, first.discoveredAt,
+          reason: 'a restart does not make a known device newly discovered');
+      expect(kept.rssi, -40, reason: 'everything else is the fresh sighting');
+      expect(kept.lastSeen, rediscovered.lastSeen);
+    });
+
     test('getById returns null when not found', () {
       expect(manager.getById('nope'), isNull);
     });

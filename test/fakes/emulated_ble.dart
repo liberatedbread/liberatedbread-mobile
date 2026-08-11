@@ -788,6 +788,10 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
       _scanning = false;
       throw refusal;
     }
+    // Honour [latency] like stopScan does, so a test can hold a start
+    // genuinely in flight and interleave something else with it — the shape
+    // of every teardown-races-restart bug.
+    if (latency > Duration.zero) await Future<void>.delayed(latency);
     _scanning = true;
     final failure = scanError;
     if (failure != null) {

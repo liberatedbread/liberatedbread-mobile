@@ -53,7 +53,26 @@ class DeviceManager {
   int get count => _devices.length;
 
   void addOrUpdate(IoTDevice device) {
-    _devices[device.id] = device;
+    final known = _devices[device.id];
+    // A known device keeps its original discoveredAt. Each scan invocation
+    // stamps first-seen from its own start — and the scan restarts routinely
+    // (the burst downshift, a tab return, a lifecycle resume) — so taking the
+    // new stamp would reset every kept row's age to post-restart arrival
+    // order, reshuffling same-band rows once per restart. The list's ordering
+    // promises a row moves only when the device genuinely does; the session's
+    // first sighting is the stamp that keeps that promise.
+    _devices[device.id] = known == null
+        ? device
+        : IoTDevice(
+            id: device.id,
+            name: device.name,
+            rssi: device.rssi,
+            isConnectable: device.isConnectable,
+            discoveredAt: known.discoveredAt,
+            lastSeen: device.lastSeen,
+            serviceUuids: device.serviceUuids,
+            companyIds: device.companyIds,
+          );
   }
 
   IoTDevice? getById(String id) => _devices[id];
