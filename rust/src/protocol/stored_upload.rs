@@ -1,0 +1,383 @@
+// Copyright 2026 Pigs Can Fly Labs LLC
+// SPDX-License-Identifier: Apache-2.0
+//
+//! The device-independent half of persisting content ON a device so it plays
+//! standalone after disconnect — the storage counterpart to
+//! [`super::image_upload`] (which streams live frames).
+//!
+//! # Where the line is
+//!
+//! Storing content splits the same way an image upload does: a
+//! device-specific CONTAINER format, and a shared TRANSPORT.
+//!
+//! ```text
+//!   build container ─────────▶ carry over transport ─────▶ (optional) play it
+//!   [spec: container_format]    [spec: uploader char,        [spec: play_command]
+//!    → a registered encoder]     file_type, frame_size]        by stored id
+//! ```
+//!
+//! A spec declares a `stored_upload` feature naming its `container_format`; this
+//! module resolves that to a registered [`StoredContainerEncoder`], builds the
+//! blob, and hands it to [`super::daniao_upload`] to packetize onto the
+//! Uploader characteristic. Adding a device with its own persisted format is a
+//! new encoder here plus a spec — the transport and this pipeline are reused.
+//!
+//! The container format itself stays in Rust for the same reason a pixel codec
+//! does: it is protobuf + CRC assembly over a base template, which YAML cannot
+//! express without inventing a bytecode.
+
+use super::daniao::fragment_packet;
+use super::daniao_store::{self, StoredProgram};
+use super::daniao_upload;
+use super::image_upload::FragmentRequest;
+use super::EncodedWrite;
+use crate::codec::types::encode_command;
+use crate::error::ProtocolError;
+use crate::spec::types::{Characteristic, DeviceSpec, Feature};
+use std::collections::HashMap;
+
+/// A named container encoder — the entry a spec's `stored_upload.container_format`
+/// resolves to. Mirrors [`super::ImageUploadHandler`] for the persisted path;
+/// only the container layout is device-specific, the transport is shared.
+pub struct StoredContainerEncoder {
+    pub name: &'static str,
+    /// Build the file blob to persist from a canvas + playback options.
+    pub build_image: fn(&StoredProgram<'_>) -> Result<Vec<u8>, ProtocolError>,
+}
+
+/// Every implemented stored-content container encoder. Single source of truth
+/// for both the DTO's `encodable` flag and the encode dispatch, so a format
+/// cannot be advertised without an encoder behind it.
+const CONTAINER_ENCODERS: &[StoredContainerEncoder] = &[StoredContainerEncoder {
+    name: "daniao_amx",
+    build_image: daniao_store::build_image_container,
+}];
+
+/// Look up the implemented encoder for a `container_format` name.
+pub fn container_encoder(name: &str) -> Option<&'static StoredContainerEncoder> {
+    CONTAINER_ENCODERS.iter().find(|e| e.name == name)
+}
+
+/// The `stored_upload` feature of a spec, if it declares one.
+pub fn stored_feature(spec: &DeviceSpec) -> Option<&Feature> {
+    spec.features
+        .iter()
+        .find(|f| f.feature_type == "stored_upload")
+}
+
+/// The ordered BLE writes that persist one image and (optionally) play it.
+pub struct StoredUploadPlan {
+    /// The GATT service every write's characteristic belongs to (the platform's
+    /// single custom service carries both the uploader and command channels).
+    pub service_uuid: String,
+    /// Writes to the Uploader characteristic, in order: START then DATA packets.
+    pub upload_writes: Vec<EncodedWrite>,
+    /// The play-by-id command, fragment-framed and ready to write, when the
+    /// spec declares a `play_command`. Sent after the upload completes.
+    pub play_write: Option<EncodedWrite>,
+    /// The stored id the caller can later address the item by.
+    pub cid: u32,
+}
+
+/// Build the full plan to store `program`'s canvas on `spec`'s device.
+///
+/// Spec-driven throughout: the container format, transport file kind and packet
+/// size, and the play command all come from the `stored_upload` feature. The
+/// only thing this module knows that the spec cannot state is how to assemble
+/// the container bytes, which is what the registered encoder is for.
+pub fn encode_stored_image(
+    spec: &DeviceSpec,
+    program: &StoredProgram<'_>,
+) -> Result<StoredUploadPlan, ProtocolError> {
+    let feature = stored_feature(spec).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
+        reason: "spec declares no stored_upload feature".to_string(),
+    })?;
+    let format = feature.container_format.as_deref().ok_or_else(|| {
+        ProtocolError::ImageUploadUnsupported {
+            reason: "stored_upload feature names no container_format".to_string(),
+        }
+    })?;
+    let encoder =
+        container_encoder(format).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
+            reason: format!("no container encoder registered for '{format}' in this build"),
+        })?;
+
+    let container = (encoder.build_image)(program)?;
+
+    // Transport: the file kind and packet size are the spec's to state; the
+    // uploader characteristic is resolved from the spec inside encode_upload.
+    let file_type = feature.file_type.unwrap_or(3);
+    let frame_size = feature
+        .frame_size
+        .map(|n| n as usize)
+        .unwrap_or(daniao_upload::DEFAULT_FRAME_SIZE);
+    // The transfer id is echoed by the device; the low byte of the cid is a
+    // fine, stable choice (the vendor uses a rolling counter, which the device
+    // only needs to match within one transfer).
+    let id = (program.cid & 0xFF) as u8;
+    let transfer = daniao_upload::encode_upload(
+        spec,
+        id,
+        file_type,
+        program.cid,
+        &container,
+        None,
+        frame_size,
+    )?;
+
+    let service_uuid =
+        service_for_characteristic(spec, &transfer.characteristic_uuid).ok_or_else(|| {
+            ProtocolError::ImageUploadUnsupported {
+                reason: "the uploader characteristic belongs to no service".to_string(),
+            }
+        })?;
+
+    let play_write = match feature.play_command.as_deref() {
+        Some(command) => Some(build_play_write(spec, command, program.cid)?),
+        None => None,
+    };
+
+    Ok(StoredUploadPlan {
+        service_uuid,
+        upload_writes: transfer.writes,
+        play_write,
+        cid: program.cid,
+    })
+}
+
+/// The UUID of the service that declares `char_uuid`. Every write in a stored
+/// upload targets one custom service, so resolving it once here spares the
+/// caller a spec walk per write.
+fn service_for_characteristic(spec: &DeviceSpec, char_uuid: &str) -> Option<String> {
+    for service in &spec.services {
+        if service
+            .characteristics
+            .iter()
+            .any(|c| c.uuid.eq_ignore_ascii_case(char_uuid))
+        {
+            return Some(service.uuid.clone());
+        }
+    }
+    None
+}
+
+/// Encode the play-by-id command and wrap it in the command channel's fragment
+/// framing, so it is honoured (the controller ignores unframed command writes).
+///
+/// The command's bytes come from its spec template — the effect id rides in as
+/// `effect_id` (the vendor's `SimpleMessage.i1`) with `slot` defaulting to 0 —
+/// so the message-type and header bytes stay in the YAML, not here.
+fn build_play_write(
+    spec: &DeviceSpec,
+    command_name: &str,
+    cid: u32,
+) -> Result<EncodedWrite, ProtocolError> {
+    let (characteristic, tag) =
+        command_channel(spec, command_name).ok_or_else(|| ProtocolError::CommandNotFound {
+            uuid: "<any>".to_string(),
+            command: command_name.to_string(),
+        })?;
+    let commands = characteristic
+        .commands
+        .as_ref()
+        .ok_or_else(|| ProtocolError::NoCommands {
+            uuid: characteristic.uuid.clone(),
+        })?;
+    let command = commands
+        .get(command_name)
+        .ok_or_else(|| ProtocolError::CommandNotFound {
+            uuid: characteristic.uuid.clone(),
+            command: command_name.to_string(),
+        })?;
+
+    let params = HashMap::from([
+        ("effect_id".to_string(), cid as f64),
+        ("slot".to_string(), 0.0),
+    ]);
+    let dnx = encode_command(command, &params)?;
+
+    // One logical packet, so one fragment: give the framer capacity for the
+    // whole payload. tag comes from the characteristic's framing (0 on the
+    // command channel).
+    let parts = fragment_packet(FragmentRequest {
+        packet: &dnx,
+        serial: 0,
+        tag,
+        capacity: dnx.len().max(1),
+    });
+    // A single-packet command never splits; take the one fragment.
+    let bytes = parts.into_iter().next().unwrap_or(dnx);
+    Ok(EncodedWrite {
+        characteristic_uuid: characteristic.uuid.clone(),
+        bytes,
+    })
+}
+
+/// The characteristic carrying `command_name`, plus its fragment channel tag.
+///
+/// Resolves by which characteristic declares the command rather than by a
+/// hardcoded UUID, so the play command can live on whichever channel the spec
+/// puts it. The tag is the characteristic's `framing.channel_tag` (0 for the
+/// Daniao command channel), defaulting to 0 when unstated.
+fn command_channel<'a>(
+    spec: &'a DeviceSpec,
+    command_name: &str,
+) -> Option<(&'a Characteristic, u8)> {
+    for service in &spec.services {
+        for characteristic in &service.characteristics {
+            let has_command = characteristic
+                .commands
+                .as_ref()
+                .is_some_and(|c| c.contains_key(command_name));
+            if !has_command {
+                continue;
+            }
+            let tag = characteristic
+                .framing
+                .as_ref()
+                .and_then(|f| f.get("channel_tag"))
+                .and_then(|t| t.as_u64())
+                .unwrap_or(0) as u8;
+            return Some((characteristic, tag));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::daniao_store::{ImageLayer, Scroll};
+    use crate::spec::parser::parse_device_spec;
+
+    const SPEC: &str = r#"
+device:
+  name: "SmartDawn"
+  manufacturer: "Daniao"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "light"
+  identification:
+    local_name_prefix: "DN"
+protocol_handler: "daniao_ddp"
+features:
+  - type: "stored_upload"
+    container_format: "daniao_amx"
+    file_type: 3
+    frame_size: 500
+    play_command: "play_effect"
+services:
+  - uuid: "00000074-1972-1925-3022-077119514e44"
+    name: "Daniao DDP Service"
+    characteristics:
+      - uuid: "01020074-1972-1925-3022-077119514e44"
+        name: "DDP Write"
+        properties: ["write"]
+        framing: { scheme: "daniao_fragment", channel_tag: 0 }
+        commands:
+          play_effect:
+            description: "Play a stored effect by id."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2E, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{effect_id}", 0x10, "{slot}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              effect_id: { type: "varint", min: 0 }
+              slot: { type: "varint", min: 0, default: 0 }
+      - uuid: "02020074-1972-1925-3022-077119514e44"
+        name: "BIN Write"
+        properties: ["write"]
+        framing: { scheme: "daniao_fragment" }
+      - uuid: "27923001-2072-1925-3022-077119514e44"
+        name: "Uploader"
+        properties: ["write"]
+"#;
+
+    fn spec() -> DeviceSpec {
+        parse_device_spec(SPEC).unwrap()
+    }
+
+    fn red_2x2() -> Vec<u8> {
+        let mut v = Vec::new();
+        for _ in 0..4 {
+            v.extend_from_slice(&[0xFF, 0, 0]);
+        }
+        v
+    }
+
+    fn program<'a>(rgb: &'a [u8]) -> StoredProgram<'a> {
+        StoredProgram {
+            name: "hi",
+            cid: 79009,
+            time_secs: 10,
+            scroll: Scroll::None,
+            speed: 3,
+            image: ImageLayer {
+                width: 2,
+                height: 2,
+                rgb,
+            },
+        }
+    }
+
+    #[test]
+    fn plan_has_uploader_writes_targeting_the_uploader_characteristic() {
+        let rgb = red_2x2();
+        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
+        assert!(!plan.upload_writes.is_empty());
+        assert!(plan
+            .upload_writes
+            .iter()
+            .all(|w| w.characteristic_uuid == "27923001-2072-1925-3022-077119514e44"));
+        assert_eq!(plan.service_uuid, "00000074-1972-1925-3022-077119514e44");
+        assert_eq!(plan.cid, 79009);
+    }
+
+    #[test]
+    fn play_write_is_fragment_framed_and_plays_by_cid() {
+        let rgb = red_2x2();
+        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
+        let play = plan.play_write.expect("play_command declared");
+        assert_eq!(
+            play.characteristic_uuid,
+            "01020074-1972-1925-3022-077119514e44"
+        );
+        // 4-byte fragment header [serial, total, remaining, tag] then the DNX
+        // packet. One packet -> total 1, remaining 0, tag 0.
+        assert_eq!(&play.bytes[0..4], &[0, 1, 0, 0]);
+        let dnx = &play.bytes[4..];
+        assert_eq!(dnx[0], 0xF0, "DNX flag");
+        assert_eq!(&dnx[6..8], &[0x0A, 0x2E], "mt = M_PLAY_EFFECT (2606)");
+        // Payload SimpleMessage {i1: cid=79009, i2: 0} -> 08 a1 e9 04 10 00.
+        assert_eq!(
+            &dnx[dnx.len() - 6..],
+            &[0x08, 0xA1, 0xE9, 0x04, 0x10, 0x00],
+            "play payload matches the capture's PLAY_EFFECT by cid"
+        );
+    }
+
+    #[test]
+    fn missing_stored_feature_is_a_clean_error() {
+        let bare = parse_device_spec(
+            r#"
+device:
+  name: "X"
+  manufacturer: "Y"
+  manufacturer_status: "active"
+  protocol: "ble"
+services:
+  - uuid: "00000074-1972-1925-3022-077119514e44"
+    name: "S"
+    characteristics:
+      - uuid: "27923001-2072-1925-3022-077119514e44"
+        name: "Uploader"
+        properties: ["write"]
+"#,
+        )
+        .unwrap();
+        let rgb = red_2x2();
+        assert!(encode_stored_image(&bare, &program(&rgb)).is_err());
+    }
+}

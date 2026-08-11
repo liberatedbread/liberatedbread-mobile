@@ -170,12 +170,18 @@ int? parseCanvasSize(String input, {int? max}) {
 class LedImageWidget extends ConsumerStatefulWidget {
   final String deviceId;
   final ImageUploadDto imageUpload;
+
+  /// The spec's device-side STORAGE capability, when it declares one — lets the
+  /// editor persist the canvas as a standalone microapp that plays after
+  /// disconnect. `null` for devices that only take live frames.
+  final StoredUploadDto? storedUpload;
   final String specYaml;
 
   const LedImageWidget({
     super.key,
     required this.deviceId,
     required this.imageUpload,
+    this.storedUpload,
     required this.specYaml,
   });
 
@@ -220,6 +226,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   int _streamEpoch = 0;
   bool _sending = false;
   int _frameSequence = 0;
+
+  /// True while a device-side STORAGE upload is in flight; disables the editor's
+  /// controls the same way [_sending] does for a live send.
+  bool _saving = false;
 
   /// Bumped on every edit that mutates pixel bytes in place, so the painter
   /// can detect changes the buffer identity cannot (see [_GridPainter]).
@@ -637,6 +647,93 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     }
   }
 
+  /// Whether this device can persist the canvas as a standalone microapp — the
+  /// spec declares a `stored_upload` feature AND this build can encode its
+  /// container. Mirrors [ImageUploadDto.encodable] for the live path.
+  bool get _canStore => widget.storedUpload?.encodable ?? false;
+
+  /// Persist the current frame on the device so it plays after disconnect.
+  ///
+  /// Prompts for a name and scroll, encodes the "DN" container + uploader
+  /// transport in Rust, streams the uploader writes, then plays the stored item
+  /// by its id. A single picture — the frame currently shown — is stored;
+  /// on-device "animation" is the scroll of that picture (the vendor's model).
+  Future<void> _saveToDevice() async {
+    final options = await showDialog<_StoredSaveOptions>(
+      context: context,
+      builder: (_) => const _StoredSaveDialog(),
+    );
+    if (options == null || !mounted) return;
+
+    // Snapshot the frame BY COPY and its geometry now: the encode + writes run
+    // across awaits and the paint gesture stays live, so aliasing the buffer
+    // would let a mid-save edit leak into what gets stored.
+    final rgb = Uint8List.fromList(_frames[_current]);
+    final width = _width;
+    final height = _height;
+    final specYaml = widget.specYaml;
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final codec = ref.read(specCodecProvider);
+      final ble = ref.read(bleServiceProvider);
+      // A novel, app-chosen id in a high band, unlikely to collide with the
+      // device's catalogue effects (hardware accepts ids it has never seen).
+      final cid = 900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
+      final plan = await codec.encodeStoredImage(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        name: options.name,
+        cid: cid,
+        timeSecs: options.timeSecs,
+        scroll: options.scroll,
+        speed: options.speed,
+      );
+      Log.ble
+          .info('storing "${options.name}" (cid $cid) to ${widget.deviceId}: '
+              '${plan.uploadWrites.length} uploader writes');
+      for (final write in plan.uploadWrites) {
+        await ble.writeCharacteristic(
+          widget.deviceId,
+          plan.serviceUuid,
+          write.characteristicUuid,
+          write.bytes,
+        );
+      }
+      // Play it immediately, matching the vendor's store-then-show. The stored
+      // item persists regardless; this only confirms it and shows it now.
+      final play = plan.playWrite;
+      if (play != null) {
+        await ble.writeCharacteristic(
+          widget.deviceId,
+          plan.serviceUuid,
+          play.characteristicUuid,
+          play.bytes,
+        );
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Saved "${options.name}" to the device.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = friendlyErrorText(
+              e,
+              context: 'store image on ${widget.deviceId}',
+              fallback: 'Could not save the image to the device.',
+            ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin contract.
@@ -702,7 +799,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   ButtonSegment(value: true, label: Text('Animation')),
                 ],
                 selected: {_animationMode},
-                onSelectionChanged: _streaming
+                onSelectionChanged: _streaming || _saving
                     ? null
                     : (selection) => _setAnimationMode(selection.first),
               ),
@@ -714,7 +811,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                 height: _height,
                 maxWidth: _spec.maxWidth,
                 maxHeight: _spec.maxHeight,
-                enabled: !_streaming && !_sending,
+                enabled: !_streaming && !_sending && !_saving,
                 onWidthChanged: (w) => _resizeCanvas(width: w),
                 onHeightChanged: (h) => _resizeCanvas(height: h),
               ),
@@ -737,7 +834,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             Align(
               alignment: Alignment.centerLeft,
               child: PopupMenuButton<LedDesign>(
-                enabled: !_streaming && !_sending,
+                enabled: !_streaming && !_sending && !_saving,
                 onSelected: _loadDesign,
                 itemBuilder: (context) => [
                   for (final d in _designs)
@@ -823,13 +920,146 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                 child: FilledButton.icon(
                   icon: Icon(icon),
                   label: Text(label),
-                  onPressed: _sending ? null : action,
+                  // Not gated on _streaming: in animation mode this button IS
+                  // the Stop-streaming toggle and must stay live while a stream
+                  // runs. _saving disables it (the link is busy with an upload).
+                  onPressed: _sending || _saving ? null : action,
                 ),
               );
             }),
+            // Device-side STORAGE: persist the current frame so it plays
+            // standalone after disconnect. Separate from the live Send/Stream
+            // above — that pushes pixels for as long as the app holds the link;
+            // this writes a microapp the device keeps.
+            if (_canStore) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.save_alt),
+                  label: Text(_saving ? 'Saving…' : 'Save to device'),
+                  onPressed:
+                      _sending || _saving || _streaming ? null : _saveToDevice,
+                ),
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+}
+
+/// What the user chose in the "Save to device" dialog.
+class _StoredSaveOptions {
+  final String name;
+  final String scroll;
+  final int speed;
+  final int timeSecs;
+
+  const _StoredSaveOptions({
+    required this.name,
+    required this.scroll,
+    required this.speed,
+    required this.timeSecs,
+  });
+}
+
+/// Collects a name and scroll direction for a device-stored microapp.
+///
+/// Scroll is the device's only "animation" for a stored still: none shows the
+/// picture in place, a direction scrolls it. Speed and duration keep sensible
+/// defaults rather than crowding the dialog.
+class _StoredSaveDialog extends StatefulWidget {
+  const _StoredSaveDialog();
+
+  @override
+  State<_StoredSaveDialog> createState() => _StoredSaveDialogState();
+}
+
+class _StoredSaveDialogState extends State<_StoredSaveDialog> {
+  final _nameController = TextEditingController(text: 'My design');
+  // Values match the Rust FFI's `scroll` vocabulary.
+  String _scroll = 'none';
+
+  static const _scrollLabels = {
+    'none': 'No scroll',
+    'left': 'Scroll left',
+    'right': 'Scroll right',
+    'up': 'Scroll up',
+    'down': 'Scroll down',
+  };
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Save to device'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Store this frame on the device so it plays on its own, even after '
+            'you disconnect.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            textInputAction: TextInputAction.done,
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: const Key('stored-scroll-dropdown'),
+            initialValue: _scroll,
+            decoration: const InputDecoration(
+              labelText: 'Motion',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: [
+              for (final entry in _scrollLabels.entries)
+                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+            ],
+            onChanged: (v) => setState(() => _scroll = v ?? 'none'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final name = _nameController.text.trim();
+            Navigator.of(context).pop(_StoredSaveOptions(
+              name: name.isEmpty ? 'My design' : name,
+              scroll: _scroll,
+              // Sensible defaults: a mid slider speed and a 10s run.
+              speed: 5,
+              timeSecs: 10,
+            ));
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

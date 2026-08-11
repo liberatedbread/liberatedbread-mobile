@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `resolve_query_source`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -55,17 +55,6 @@ Future<SoapRequestDto> renderNetworkCommand(
         required String commandName,
         required Map<String, String> values}) =>
     RustLib.instance.api.crateApiDeviceApiRenderNetworkCommand(
-        specYaml: specYaml, commandName: commandName, values: values);
-
-/// Render a named `transport: http` command from the spec's `commands` block
-/// into a sendable request — [`render_network_command`]'s sibling for the
-/// transport with no envelope. A SOAP command handed here is declined, and
-/// vice versa; the action's `transport` field says which to call.
-Future<HttpRequestDto> renderNetworkHttpCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkHttpCommand(
         specYaml: specYaml, commandName: commandName, values: values);
 
 /// Render the argument-less request that reads a state command's values —
@@ -179,6 +168,40 @@ Future<ImageWritePlanDto> encodeImageFrame(
         rgb: rgb,
         frameIndex: frameIndex,
         maxPayloadPerWrite: maxPayloadPerWrite);
+
+/// Encode the BLE writes that PERSIST a picture on the device so it plays
+/// standalone after disconnect, dispatched on the spec's `stored_upload`
+/// feature.
+///
+/// `rgb` is the canvas, row-major `width * height * 3`, already reduced to at
+/// most 16 distinct colours (the editor quantises before calling). `name` is
+/// the label stored on the device, `cid` the id it is stored under (novel ids
+/// are accepted), `time_secs` the run/scroll duration, `scroll` one of
+/// `none`/`left`/`right`/`up`/`down`, and `speed` the scroll-speed byte.
+///
+/// Returns the ordered Uploader-characteristic writes plus, when the spec
+/// declares a `play_command`, a fragment-framed write that plays the item
+/// immediately. Errors are typed and user-presentable.
+Future<StoredUploadPlanDto> encodeStoredImage(
+        {required String specYaml,
+        required int width,
+        required int height,
+        required List<int> rgb,
+        required String name,
+        required int cid,
+        required int timeSecs,
+        required String scroll,
+        required int speed}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeStoredImage(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        name: name,
+        cid: cid,
+        timeSecs: timeSecs,
+        scroll: scroll,
+        speed: speed);
 
 /// Decode raw bytes from a BLE read/notify into named values.
 ///
@@ -464,6 +487,12 @@ class DeviceSpecDto {
   /// image widget; `None` for devices without a pixel surface.
   final ImageUploadDto? imageUpload;
 
+  /// The spec's `stored_upload` feature, when it declares one — device-side
+  /// storage of a picture that plays standalone after disconnect. Drives the
+  /// LED editor's "Save to device" action; `None` for devices that only take
+  /// live frames.
+  final StoredUploadDto? storedUpload;
+
   const DeviceSpecDto({
     required this.deviceName,
     required this.manufacturer,
@@ -481,6 +510,7 @@ class DeviceSpecDto {
     required this.services,
     required this.entities,
     this.imageUpload,
+    this.storedUpload,
   });
 
   @override
@@ -500,7 +530,8 @@ class DeviceSpecDto {
       defaultPort.hashCode ^
       services.hashCode ^
       entities.hashCode ^
-      imageUpload.hashCode;
+      imageUpload.hashCode ^
+      storedUpload.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -522,7 +553,8 @@ class DeviceSpecDto {
           defaultPort == other.defaultPort &&
           services == other.services &&
           entities == other.entities &&
-          imageUpload == other.imageUpload;
+          imageUpload == other.imageUpload &&
+          storedUpload == other.storedUpload;
 }
 
 /// One resolved control action: which command a role sends and what the UI
@@ -806,41 +838,6 @@ class FormatFieldDto {
           length == other.length;
 }
 
-/// A rendered plain-HTTP request, ready for Dart to send.
-///
-/// The sibling of [`SoapRequestDto`] for transports where the method and the
-/// path ARE the request — Roku ECP's keypresses. The address is the caller's:
-/// discovery already knows the host and port.
-class HttpRequestDto {
-  /// `GET` | `POST` | …, as the spec spelled it.
-  final String method;
-
-  /// Path with every placeholder substituted, starting with `/`.
-  final String path;
-
-  /// Request body — empty for the ECP style, carried for the day a spec
-  /// declares one.
-  final String body;
-
-  const HttpRequestDto({
-    required this.method,
-    required this.path,
-    required this.body,
-  });
-
-  @override
-  int get hashCode => method.hashCode ^ path.hashCode ^ body.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is HttpRequestDto &&
-          runtimeType == other.runtimeType &&
-          method == other.method &&
-          path == other.path &&
-          body == other.body;
-}
-
 /// A spec's declared image/animation capability, plus whether this crate can
 /// actually encode uploads for it.
 ///
@@ -1074,18 +1071,12 @@ class MatchResult {
 
 /// One resolved control action on a network entity.
 class NetworkActionDto {
-  /// `turn_on` | `turn_off` | `press` | `set_value` | `select_option` | …
+  /// `turn_on` | `turn_off` | `set_value` | `select_option` | …
   final String role;
 
   /// Name in the spec's top-level `commands` block; what
   /// [`render_network_command`] takes.
   final String commandName;
-
-  /// `soap` | `http` — which renderer and which wire client the send goes
-  /// through. Carried per action rather than per device because one spec
-  /// may mix transports; the caller dispatches on this instead of
-  /// rediscovering it from a failed render.
-  final String transport;
 
   /// The parameters the UI supplies — at most one today (the picked option,
   /// the chosen number). Empty for a fixed action.
@@ -1102,7 +1093,6 @@ class NetworkActionDto {
   const NetworkActionDto({
     required this.role,
     required this.commandName,
-    required this.transport,
     required this.userParams,
     required this.readBack,
     this.min,
@@ -1113,7 +1103,6 @@ class NetworkActionDto {
   int get hashCode =>
       role.hashCode ^
       commandName.hashCode ^
-      transport.hashCode ^
       userParams.hashCode ^
       readBack.hashCode ^
       min.hashCode ^
@@ -1126,7 +1115,6 @@ class NetworkActionDto {
           runtimeType == other.runtimeType &&
           role == other.role &&
           commandName == other.commandName &&
-          transport == other.transport &&
           userParams == other.userParams &&
           readBack == other.readBack &&
           min == other.min &&
@@ -1208,14 +1196,6 @@ class NetworkEntityDto {
   /// Option table for a `select`, in declaration order. Empty otherwise.
   final List<NetworkOptionDto> options;
 
-  /// Where a `select` fetches options the spec could not enumerate (the
-  /// installed-channel list). None for statically-optioned entities.
-  final QuerySourceDto? optionsSource;
-
-  /// Where such a select reads which option is current. None means the
-  /// control launches without showing a current selection.
-  final QuerySourceDto? stateSource;
-
   /// Sendable actions, role order. Empty for a pure reading.
   final List<NetworkActionDto> actions;
   final double? setpointMin;
@@ -1232,8 +1212,6 @@ class NetworkEntityDto {
     required this.stateCommand,
     this.valueField,
     required this.options,
-    this.optionsSource,
-    this.stateSource,
     required this.actions,
     this.setpointMin,
     this.setpointMax,
@@ -1251,8 +1229,6 @@ class NetworkEntityDto {
       stateCommand.hashCode ^
       valueField.hashCode ^
       options.hashCode ^
-      optionsSource.hashCode ^
-      stateSource.hashCode ^
       actions.hashCode ^
       setpointMin.hashCode ^
       setpointMax.hashCode ^
@@ -1272,8 +1248,6 @@ class NetworkEntityDto {
           stateCommand == other.stateCommand &&
           valueField == other.valueField &&
           options == other.options &&
-          optionsSource == other.optionsSource &&
-          stateSource == other.stateSource &&
           actions == other.actions &&
           setpointMin == other.setpointMin &&
           setpointMax == other.setpointMax &&
@@ -1551,43 +1525,6 @@ class ProfileInfoDto {
           characteristics == other.characteristics;
 }
 
-/// A resolved XML query source: the request to make and how to read entries
-/// out of its response.
-///
-/// The spec's `options_source`/`state_source` with the endpoint join already
-/// done — the entity names an endpoint, this carries that endpoint's method
-/// and path so Dart never joins the two blocks by name. The contract for the
-/// response is the schema's: every element whose local name is [`Self::item`]
-/// is one entry, the attribute named [`Self::value_attribute`] is its raw
-/// value, the element's trimmed text is its label.
-class QuerySourceDto {
-  final String method;
-  final String path;
-  final String item;
-  final String valueAttribute;
-
-  const QuerySourceDto({
-    required this.method,
-    required this.path,
-    required this.item,
-    required this.valueAttribute,
-  });
-
-  @override
-  int get hashCode =>
-      method.hashCode ^ path.hashCode ^ item.hashCode ^ valueAttribute.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is QuerySourceDto &&
-          runtimeType == other.runtimeType &&
-          method == other.method &&
-          path == other.path &&
-          item == other.item &&
-          valueAttribute == other.valueAttribute;
-}
-
 /// One spec that a scanned device might be, and why we think so.
 class ScanMatch {
   /// Position of the matched identity in the list that was passed in, so the
@@ -1845,4 +1782,80 @@ class SpecIdentityDto {
           mdnsServiceType == other.mdnsServiceType &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
           defaultPort == other.defaultPort;
+}
+
+/// A spec's declared device-side STORAGE capability: whether this device can
+/// persist content that plays standalone after disconnect, and whether this
+/// build can encode the container it wants.
+///
+/// The split mirrors [`ImageUploadDto`]: storing is *declarative* (a spec says
+/// it can), while encoding needs a `container_format` this crate implements.
+/// The UI offers "Save to device" only when [`Self::encodable`].
+class StoredUploadDto {
+  /// The spec's `container_format` name, e.g. `daniao_amx`.
+  final String? containerFormat;
+
+  /// True when [`Self::container_format`] names a container encoder this crate
+  /// implements — i.e. `encode_stored_image` will succeed rather than error.
+  final bool encodable;
+
+  const StoredUploadDto({
+    this.containerFormat,
+    required this.encodable,
+  });
+
+  @override
+  int get hashCode => containerFormat.hashCode ^ encodable.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StoredUploadDto &&
+          runtimeType == other.runtimeType &&
+          containerFormat == other.containerFormat &&
+          encodable == other.encodable;
+}
+
+/// The BLE writes that persist one image on the device, in send order, plus the
+/// optional command that plays it immediately after.
+class StoredUploadPlanDto {
+  /// The GATT service every write's characteristic belongs to.
+  final String serviceUuid;
+
+  /// Writes to the Uploader characteristic: a START packet then DATA packets.
+  /// The caller sends them back-to-back to the one characteristic.
+  final List<ImageWriteDto> uploadWrites;
+
+  /// The play-by-id command, fragment-framed and ready to write, when the
+  /// spec declares a `play_command`. Sent once the upload completes so the
+  /// stored item shows immediately (it also persists without this).
+  final ImageWriteDto? playWrite;
+
+  /// The id the stored item now lives under; the device can be told to play
+  /// it again by this later.
+  final int cid;
+
+  const StoredUploadPlanDto({
+    required this.serviceUuid,
+    required this.uploadWrites,
+    this.playWrite,
+    required this.cid,
+  });
+
+  @override
+  int get hashCode =>
+      serviceUuid.hashCode ^
+      uploadWrites.hashCode ^
+      playWrite.hashCode ^
+      cid.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is StoredUploadPlanDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          uploadWrites == other.uploadWrites &&
+          playWrite == other.playWrite &&
+          cid == other.cid;
 }

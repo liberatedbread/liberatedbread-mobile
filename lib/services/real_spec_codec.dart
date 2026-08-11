@@ -160,4 +160,28 @@ class RealSpecCodec implements SpecCodec {
         entityName: entityName,
         returned: returned,
       );
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredImage({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) =>
+      rust.encodeStoredImage(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: rgb,
+        name: name,
+        cid: cid,
+        timeSecs: timeSecs,
+        scroll: scroll,
+        speed: speed,
+      );
 }
