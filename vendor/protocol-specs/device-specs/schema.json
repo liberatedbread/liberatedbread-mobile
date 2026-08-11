@@ -913,6 +913,7 @@
                       "none",
                       "softap_http",
                       "softap_soap",
+                      "softap_udp",
                       "ble_provisioning",
                       "ble_direct",
                       "wps",
@@ -923,7 +924,7 @@
                       "button_pairing",
                       "cloud_account"
                     ],
-                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP or SOAP; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
+                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP or a UDP datagram protocol; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
                   },
                   "description": { "type": "string" },
                   "softap": {
@@ -935,7 +936,7 @@
                       "open_network": { "type": "boolean", "description": "True when the setup AP has no passphrase." },
                       "passphrase_source": { "type": "string", "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')." },
                       "gateway_ip": { "type": "string", "description": "IP the device answers on while hosting the setup AP." },
-                      "port": { "type": "integer", "description": "TCP port of the setup API on the setup AP." },
+                      "port": { "type": "integer", "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap, UDP for softap_udp." },
                       "credential_encryption": {
                         "type": "object",
                         "description": "How the WiFi passphrase is protected on the wire during provisioning.",
@@ -1178,8 +1179,26 @@
         "properties": {
           "type": {
             "type": "string",
-            "enum": ["image_upload", "firmware_update", "audio_upload"],
-            "description": "Capability type."
+            "enum": ["image_upload", "firmware_update", "audio_upload", "stored_upload"],
+            "description": "Capability type. `stored_upload` persists content ON the device so it plays standalone after disconnect (distinct from `image_upload`, which streams live frames)."
+          },
+          "container_format": {
+            "type": "string",
+            "description": "Names the consumer-side encoder that builds the persisted file blob for a `stored_upload` (e.g. `daniao_amx`). Like `protocol_handler` for the live path: the container layout (protobuf + CRC over a base template) cannot be declarative, so the spec names an algorithm the consumer implements."
+          },
+          "file_type": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The transport's file-kind tag for a `stored_upload` (Daniao's UploadRequest.type: 3 = animation/microapp, 0 = effect .eff)."
+          },
+          "frame_size": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Payload bytes per data packet for a `stored_upload`'s transport, when the device fixes one (Daniao's is 500)."
+          },
+          "play_command": {
+            "type": "string",
+            "description": "Command (named from a characteristic's `commands`) that plays a stored item by its id right after a `stored_upload` — the vendor's store-then-show. Absent means store without auto-playing."
           },
           "max_width": {
             "type": "integer",
@@ -1595,6 +1614,11 @@
           "service": {
             "type": "string",
             "description": "Service the action belongs to, as the device names it — for SOAP/UPnP a serviceType URN like 'urn:Belkin:service:basicevent:1'. The machine-readable form of what `description` was already stating in prose, and the key a client resolves the real control URL by from the device's own service list (published paths move across firmware generations, so `path` here is convention, not address). State it on every endpoint an entity's `state_command` names: without it, a consumer that must build a SOAPACTION header for a state read has nowhere to get the URN but prose."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "sunset", "unverified"],
+            "description": "Whether the endpoint can be built against. 'sunset' records one the vendor removed (Roku dropped /search/browse in OS 12.0): kept for older firmware, but a consumer must not offer a control on it. 'unverified' records one whose existence rests on a probe or a capture rather than documentation or replay (SmartThings' port-8081 root). Absent means active and usable."
           },
           "request_body": {
             "type": "object",
@@ -2365,7 +2389,12 @@
           },
           "path": {
             "type": "string",
-            "description": "Request path, for transports that address by path rather than by service. Prefer resolving it from the device where the protocol offers a way to; state it here when the path is fixed."
+            "description": "Request path, for transports that address by path rather than by service. Prefer resolving it from the device where the protocol offers a way to; state it here when the path is fixed. May contain '{name}' placeholders substituted from `parameters`, exactly as `arguments` values are -- Roku's whole control surface is the path (`/keypress/PowerOn`), so the path is where an invocation's chosen value lives."
+          },
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+            "description": "HTTP method for a `transport: http` command, spelled as the wire wants it. Stated on the command -- not resolved from `http_endpoints` -- because the command is the executable half: a consumer must be able to send it without joining two blocks by name. Should agree with the `method` of the endpoint entry that documents the action; omit for transports that have no method."
           },
           "arguments": {
             "type": "object",
@@ -2431,11 +2460,42 @@
       "items": {
         "type": "object",
         "required": ["platform", "name"],
+        "allOf": [
+          {
+            "$comment": "The button contract, enforced rather than only described: a button binds exactly one role, `press`, and carries no state binding. Without this the platform's own description is the only thing saying so, and a spec outside this repository -- which our pytest suite never sees -- could validate a button with no commands at all, or a `turn_on` a consumer has no button semantics for, and ship a control that does nothing when pressed. Stated as a conditional so every other platform is untouched.",
+            "if": {
+              "properties": { "platform": { "const": "button" } },
+              "required": ["platform"]
+            },
+            "then": {
+              "required": ["commands"],
+              "properties": {
+                "commands": {
+                  "type": "object",
+                  "required": ["press"],
+                  "propertyNames": { "const": "press" }
+                }
+              },
+              "not": {
+                "anyOf": [
+                  { "required": ["state_topic"] },
+                  { "required": ["state_endpoint"] },
+                  { "required": ["state_command"] },
+                  { "required": ["state_path"] },
+                  { "required": ["state_mapping"] },
+                  { "required": ["state_characteristic"] },
+                  { "required": ["state_source"] },
+                  { "required": ["options_source"] }
+                ]
+              }
+            }
+          }
+        ],
         "properties": {
           "platform": {
             "type": "string",
-            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select"],
-            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar."
+            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select", "button"],
+            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar, 'button' for momentary actions with no state to read back -- a Roku remote key is pressed, not turned on. A `button` entity binds exactly one role, `press`, whose command must have no caller-supplied blanks, and it is the one platform excused from naming a state source: statelessness is the honest description of a keypress."
           },
           "name": {
             "type": "string"
@@ -2543,6 +2603,26 @@
           "state_mapping": {
             "type": "object",
             "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
+          },
+          "options_source": {
+            "type": "object",
+            "required": ["command", "item", "value"],
+            "description": "Where a `select` gets options the spec cannot enumerate, because they live on the device: Roku's installed channels are whatever the owner installed, not a table this file could keep. `command` names an `http_endpoints` entry (its method and path are the request); the response is XML, and the contract is deliberately tiny -- every element whose LOCAL NAME equals `item`, anywhere in the document, is one option; the attribute named by `value` carries the option's raw value (what the select_option command's one parameter receives); the element's own text, trimmed, is the label a user sees. An element missing the value attribute is skipped. A select carrying this key needs no static `options` table and -- uniquely among selects -- no state binding to be offered: the options ARE its surface, and `state_source` below is how it also shows which one is current.",
+            "properties": {
+              "command": { "type": "string", "description": "Name of the `http_endpoints` entry to fetch, e.g. 'Installed Apps'." },
+              "item": { "type": "string", "description": "Local element name matched anywhere in the response document; one element, one option." },
+              "value": { "type": "string", "description": "Attribute carrying the option's raw value." }
+            }
+          },
+          "state_source": {
+            "type": "object",
+            "required": ["command", "item", "value"],
+            "description": "Where a dynamically-optioned `select` reads which option is current, in exactly `options_source`'s shape and contract: fetch the named endpoint, find the first element with `item`'s local name, read the `value` attribute -- that raw value matches an option's. An element without the attribute means no option is current (Roku's home screen reports an <app> with no id), which a consumer shows as nothing selected rather than an error. Optional on purpose: a launcher without it still launches.",
+            "properties": {
+              "command": { "type": "string", "description": "Name of the `http_endpoints` entry to fetch, e.g. 'Active App'." },
+              "item": { "type": "string", "description": "Local element name of the element carrying the current selection." },
+              "value": { "type": "string", "description": "Attribute carrying the current raw value, matched against option values." }
+            }
           },
           "commands": {
             "type": "object"

@@ -21,6 +21,29 @@ device:
     query/tv-channels and query/tv-active-channel commands additionally
     require Settings > System > Advanced system settings > "Control by
     mobile apps" = Enabled; query endpoints such as device-info remain open.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md"
+        title: "Roku — External Control Protocol (ECP)"
+        covers: >
+          SSDP discovery, the keypress/keydown/keyup key vocabulary, launch
+          and input endpoints, and the OS 12.0 search sunset notice.
+      - url: "https://sdkdocs-archive.roku.com/External-Control-API_1611563.html"
+        title: "Roku SDK documentation archive — External Control API"
+        covers: >
+          The older command table, including query endpoints the current doc
+          no longer lists.
+    notes: >
+      Roku publishes ECP and encourages third-party clients, which makes this
+      one of the registry's rare documented_api entries. reverse_engineered is
+      still true because the published surface is partial: /query/apps and
+      /query/active-app were dropped from the current doc's command table yet
+      remain live on the observed OS 15.2.4 fleet, and the OS 14.1 "Control by
+      mobile apps" gate below is recorded from community reports and live
+      behaviour, not from the ECP document.
+
   identification:
     ssdp_search_targets:
       - "roku:ecp"
@@ -156,6 +179,16 @@ device:
       characteristics:
         - "Live device Sharting Around the House With Mr. Farts observed on Ethernet with Roku OS 15.2.4."
 
+helpful_urls:
+  - title: "Roku External Control Protocol — official developer documentation"
+    url: "https://developer.roku.com/docs/developer-program/dev-tools/external-control-api.md"
+  - title: "python-rokuecp — asynchronous Python ECP client (Home Assistant's backend)"
+    url: "https://github.com/ctalkington/python-rokuecp"
+  - title: "Home Assistant Roku integration"
+    url: "https://www.home-assistant.io/integrations/roku/"
+  - title: "RoMote — open-source Android ECP remote"
+    url: "https://github.com/wseemann/RoMote"
+
 evidence:
   live_lan_probe:
     date: "2026-07-16"
@@ -189,6 +222,75 @@ evidence:
         link: "wifi"
         software_version: "15.2.4"
 
+# Everything needed to build an ECP request byte for byte, in the role
+# soap_common plays for Wemo. ECP is deliberately plain: the whole request is
+# the method and the path, and the chosen value (which key, which app) lives
+# in the path itself rather than in a body.
+ecp_common:
+  transport: "HTTP"
+  request_format:
+    description: >
+      Requests go to http://<ip>:8060<path>, where <ip> comes from SSDP
+      discovery (the LOCATION header is http://<ip>:8060/). Command POSTs
+      carry an EMPTY body: no Content-Type, no payload, no SOAPACTION — the
+      path is the entire instruction. No authentication exists at any firmware
+      level; see device.setup.credentials.
+    http:
+      url: "http://<ip>:8060<path>"
+      headers: >
+        None required. The device applies its own Host-header sanity check
+        (requests must come from a private/LAN address); a client on the same
+        network sends nothing special to pass it.
+      body: "Empty for every POST command."
+    escaping: >
+      Literal text entry uses the Lit_ key form: POST /keypress/Lit_a types
+      'a', and any UTF-8 character rides percent-encoded after the prefix —
+      /keypress/Lit_%20 is a space. Only the character is percent-encoded;
+      the Lit_ prefix itself is literal.
+  response_format:
+    description: >
+      Command endpoints answer 200 OK with an empty body on success; query
+      endpoints answer XML. A 403 Forbidden means the "Control by mobile
+      apps" gate below is closed — surface that as "enable control on the
+      TV", not as a network failure.
+    gating:
+      setting: >
+        Settings > System > Advanced system settings > "Control by mobile
+        apps", introduced in Roku OS 14.1.
+      description: >
+        The gate does NOT split along command/query lines, which is the
+        trap: it covers the three key endpoints plus three of the queries,
+        and leaves launching and the identity/app queries open. So a client
+        must not suppress the whole control surface on one 403, nor assume
+        a query cannot return one. The lists below name `http_endpoints`
+        entries, so a consumer filters on data rather than parsing this
+        paragraph.
+      gated:
+        - "Keypress"
+        - "Keydown"
+        - "Keyup"
+        - "App Icon"
+        - "TV Channels"
+        - "TV Active Channel"
+      open:
+        - "Device Info"
+        - "Installed Apps"
+        - "Active App"
+        - "Media Player"
+        - "Launch App"
+        - "Install App"
+        - "Custom Input"
+      open_notes: >
+        The gate notice enumerates what it covers, so `open` is everything
+        else — that is the rule these lists follow, not a per-endpoint
+        observation. Launching is open on the observed OS 15.2.4 fleet,
+        which is what makes a channel launcher work on a TV whose remote
+        keys are all refused, and the identity and app queries being open is
+        what lets that launcher build its list at all. Custom Input is open
+        by the same enumeration rule but is the one entry here this project
+        has not exercised: it forwards to whatever app is running, so there
+        is no reply that distinguishes "delivered" from "ignored".
+
 http_endpoints:
   - method: "GET"
     path: "/query/device-info"
@@ -206,17 +308,35 @@ http_endpoints:
     description: >
       XML list of installed Roku channels and launchable app IDs. Dropped from
       the current official ECP doc's command table but still live on-device
-      (used by python-rokuecp / Home Assistant).
+      (used by python-rokuecp / Home Assistant). One <app> element per
+      channel: the id attribute is what /launch/{app_id} takes, and the
+      element text is the display name. NOT gated by "Control by mobile
+      apps" — the list is readable even when every keypress answers 403.
     response_body:
       content_type: "application/xml"
+      example: |
+        <apps>
+          <app id="12" subtype="ndka" type="appl" version="4.1.218">Netflix</app>
+          <app id="837" subtype="ndka" type="appl" version="1.0.80">YouTube</app>
+          <app id="551012" subtype="ndka" type="appl" version="9.0.1">Apple TV</app>
+        </apps>
   - method: "GET"
     path: "/query/active-app"
     name: "Active App"
     description: >
       Current foreground app and active media context. Dropped from the
-      current official ECP doc's command table but still live on-device.
+      current official ECP doc's command table but still live on-device, and
+      not gated by "Control by mobile apps". The <app> element matches the
+      Installed Apps shape — except on the home screen and in the
+      screensaver, where it carries no id attribute at all (the text is just
+      "Roku"): a consumer matching the current channel by id must treat a
+      missing attribute as "none of them", not as an error.
     response_body:
       content_type: "application/xml"
+      example: |
+        <active-app>
+          <app id="837" subtype="ndka" type="appl" version="1.0.80">YouTube</app>
+        </active-app>
   - method: "GET"
     path: "/query/media-player"
     name: "Media Player"
@@ -227,15 +347,62 @@ http_endpoints:
     path: "/keypress/{key}"
     name: "Keypress"
     description: >
-      Send a remote-control key such as Home, Back, Select, Up, Down, Left,
-      Right, Play, Rev, or Fwd. TV input switching also lives here:
-      InputHDMI1-InputHDMI4, InputTuner, InputAV1. Since Roku OS 14.1 this
-      endpoint requires Settings > System > Advanced system settings >
-      "Control by mobile apps" = Enabled.
+      Press and release one remote key. The full key vocabulary, from the
+      official ECP doc: Home, Rev, Fwd, Play, Select, Left, Right, Down, Up,
+      Back, InstantReplay, Info, Backspace, Search, Enter, FindRemote on
+      every device; VolumeUp, VolumeDown, VolumeMute, PowerOn, PowerOff,
+      ChannelUp, ChannelDown, InputTuner, InputHDMI1-InputHDMI4, InputAV1 on
+      Roku TVs; and Lit_<percent-encoded char> for literal text
+      (ecp_common.request_format.escaping). The `commands` block below names
+      one invocation per key so entities have something to bind. Since Roku
+      OS 14.1 this endpoint requires Settings > System > Advanced system
+      settings > "Control by mobile apps" = Enabled.
+  - method: "POST"
+    path: "/keydown/{key}"
+    name: "Keydown"
+    description: >
+      Press and hold a key from the same vocabulary as Keypress; pair with
+      Keyup to release. What a long-press on a remote button sends. Gated by
+      "Control by mobile apps" exactly as Keypress is.
+  - method: "POST"
+    path: "/keyup/{key}"
+    name: "Keyup"
+    description: "Release a key held by Keydown. Gated like Keypress."
+  - method: "GET"
+    path: "/query/icon/{app_id}"
+    name: "App Icon"
+    description: >
+      Channel icon as a binary image for an app ID from /query/apps. Since
+      Roku OS 14.1 gated by "Control by mobile apps" (unlike the other query
+      endpoints).
+    response_body:
+      content_type: "image/png"
+  - method: "GET"
+    path: "/query/tv-channels"
+    name: "TV Channels"
+    description: >
+      Available TV tuner channels (Roku TV only). Since Roku OS 14.1 gated by
+      "Control by mobile apps".
+    response_body:
+      content_type: "application/xml"
+  - method: "GET"
+    path: "/query/tv-active-channel"
+    name: "TV Active Channel"
+    description: >
+      Currently tuned channel with signal details (Roku TV only). Since Roku
+      OS 14.1 gated by "Control by mobile apps".
+    response_body:
+      content_type: "application/xml"
   - method: "POST"
     path: "/launch/{app_id}"
     name: "Launch App"
-    description: "Launch an installed Roku app by app ID from /query/apps."
+    description: >
+      Launch an installed Roku app by app ID from /query/apps. Accepts
+      optional deep-link query parameters (contentID, mediaType).
+  - method: "POST"
+    path: "/install/{app_id}"
+    name: "Install App"
+    description: "Open the Channel Store page for an app ID."
   - method: "POST"
     path: "/search/browse?keyword={keyword}"
     name: "Search Browse"
@@ -254,16 +421,444 @@ http_endpoints:
       TV inputs — input switching is POST /keypress/InputHDMI1..4,
       InputTuner, or InputAV1.
 
+# One invocation per remote key, in the shape entities can bind: a `press`
+# role needs a command with no caller-supplied blanks (a button has nothing to
+# fill one with), so each key is its own command with the key already in the
+# path — the catalogue's one-command-per-option convention, applied to a
+# remote. Every command here is an instance of the Keypress endpoint above;
+# all of them share its OS 14.1 "Control by mobile apps" gate.
+#
+# Verification is "reported" throughout: the vocabulary is the official ECP
+# document's and every entry is exercised daily by python-rokuecp and Home
+# Assistant, but this project has not replayed each key against its own fleet.
+commands:
+  # -- Power. TV-class keys: streaming sticks and players ignore them unless
+  #    the player is controlling the TV (supports-tv-power-control in
+  #    /query/device-info, Roku OS 15). PowerOn only works from the warm
+  #    standby a TV sits in after PowerOff ("Fast TV Start" keeps it warm
+  #    longer); a TV cut off at the wall is beyond any network command.
+  press_power_on:
+    description: "Wake a Roku TV from standby."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/PowerOn"
+    action: "Keypress"
+    verification: "reported"
+  press_power_off:
+    description: "Put a Roku TV into standby."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/PowerOff"
+    action: "Keypress"
+    verification: "reported"
+
+  # -- Navigation.
+  press_back:
+    description: "Go back one screen."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Back"
+    action: "Keypress"
+    verification: "reported"
+  press_home:
+    description: "Return to the home screen. Also wakes the display from screensaver."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Home"
+    action: "Keypress"
+    verification: "reported"
+  press_up:
+    description: "D-pad up."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Up"
+    action: "Keypress"
+    verification: "reported"
+  press_down:
+    description: "D-pad down."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Down"
+    action: "Keypress"
+    verification: "reported"
+  press_left:
+    description: "D-pad left."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Left"
+    action: "Keypress"
+    verification: "reported"
+  press_right:
+    description: "D-pad right."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Right"
+    action: "Keypress"
+    verification: "reported"
+  press_select:
+    description: "OK — select the focused item."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Select"
+    action: "Keypress"
+    verification: "reported"
+  press_instant_replay:
+    description: "Jump back a few seconds in playback (the replay key)."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/InstantReplay"
+    action: "Keypress"
+    verification: "reported"
+  press_info:
+    description: "The * key: options for the focused item."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Info"
+    action: "Keypress"
+    verification: "reported"
+
+  # -- Playback transport.
+  press_rev:
+    description: "Rewind; press repeatedly for faster speeds."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Rev"
+    action: "Keypress"
+    verification: "reported"
+  press_play:
+    description: "Play/pause toggle — one key serves both."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Play"
+    action: "Keypress"
+    verification: "reported"
+  press_fwd:
+    description: "Fast-forward; press repeatedly for faster speeds."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Fwd"
+    action: "Keypress"
+    verification: "reported"
+
+  # -- Volume. TV-class keys, as with power.
+  press_volume_down:
+    description: "Volume down one step (Roku TV)."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/VolumeDown"
+    action: "Keypress"
+    verification: "reported"
+  press_volume_up:
+    description: "Volume up one step (Roku TV)."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/VolumeUp"
+    action: "Keypress"
+    verification: "reported"
+  press_volume_mute:
+    description: "Mute toggle (Roku TV)."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/VolumeMute"
+    action: "Keypress"
+    verification: "reported"
+
+  # -- Live TV (Roku TV with the tuner input active).
+  press_channel_up:
+    description: "Next tuner channel (Roku TV, tuner input)."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/ChannelUp"
+    action: "Keypress"
+    verification: "reported"
+  press_channel_down:
+    description: "Previous tuner channel (Roku TV, tuner input)."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/ChannelDown"
+    action: "Keypress"
+    verification: "reported"
+
+  # -- Search and remote finding.
+  press_search:
+    description: "Open Roku search."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Search"
+    action: "Keypress"
+    verification: "reported"
+  press_find_remote:
+    description: >
+      Make the paired remote chirp, on hardware whose remote supports being
+      found. Other devices answer 200 and do nothing.
+    transport: "http"
+    method: "POST"
+    path: "/keypress/FindRemote"
+    action: "Keypress"
+    verification: "reported"
+
+  # -- Input switching (Roku TV). These are keypress keys, not /input — that
+  #    endpoint is the sensor channel and switches nothing.
+  press_input_hdmi1:
+    description: "Switch a Roku TV to HDMI 1."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/InputHDMI1"
+    action: "Keypress"
+    verification: "reported"
+  press_input_hdmi2:
+    description: "Switch a Roku TV to HDMI 2."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/InputHDMI2"
+    action: "Keypress"
+    verification: "reported"
+  press_input_hdmi3:
+    description: "Switch a Roku TV to HDMI 3."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/InputHDMI3"
+    action: "Keypress"
+    verification: "reported"
+  press_input_hdmi4:
+    description: "Switch a Roku TV to HDMI 4."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/InputHDMI4"
+    action: "Keypress"
+    verification: "reported"
+  press_input_av1:
+    description: "Switch a Roku TV to the composite (AV) input."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/InputAV1"
+    action: "Keypress"
+    verification: "reported"
+  press_input_tuner:
+    description: "Switch a Roku TV to the antenna/tuner input."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/InputTuner"
+    action: "Keypress"
+    verification: "reported"
+
+  # -- Channels. The one command here that takes a caller value: which
+  #    channel, by the id the Installed Apps query returned.
+  launch_app:
+    description: >
+      Launch an installed channel by app id. Ids come from the Installed
+      Apps query; the Channel entity below joins the two. Launching is NOT
+      gated by "Control by mobile apps" on the observed fleet — the gate
+      lists keypress/keydown/keyup, icon and the tv-channel queries.
+    transport: "http"
+    method: "POST"
+    path: "/launch/{app_id}"
+    action: "Launch App"
+    parameters:
+      app_id:
+        type: "string"
+        required: true
+        description: >
+          The id attribute of an <app> element from /query/apps, e.g. "12"
+          for Netflix. Numeric today, but the doc calls it an id, not a
+          number — treat it as an opaque string.
+    verification: "reported"
+
+# The remote, as controls. Declaration order is layout order — power, then
+# navigation, then transport, then volume, live TV, and inputs — which is the
+# order the buttons sit on Roku's own remotes and in the official app.
+#
+# Buttons are deliberately unscoped by variant even though half the keys are
+# TV-class: every observed device is a Roku TV, all Roku devices answer the
+# same roku:ecp search target (so SSDP cannot tell a TV from a stick), and a
+# player sent a TV key answers 200 and ignores it — a harmless no-op, where
+# hiding the keys on an unidentified TV would cost real controls. A consumer
+# that later learns is-tv from /query/device-info may hide the TV groups on
+# players; the notes on each say which those are.
 entities:
+  - platform: "button"
+    name: "Power On"
+    icon: "mdi:power"
+    commands:
+      press: "press_power_on"
+    notes: "TV-class key; see commands.press_power_on for the standby caveat."
+  - platform: "button"
+    name: "Power Off"
+    icon: "mdi:power-off"
+    commands:
+      press: "press_power_off"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "Back"
+    icon: "mdi:arrow-u-left-top"
+    commands:
+      press: "press_back"
+  - platform: "button"
+    name: "Home"
+    icon: "mdi:home"
+    commands:
+      press: "press_home"
+  - platform: "button"
+    name: "Up"
+    icon: "mdi:chevron-up"
+    commands:
+      press: "press_up"
+  - platform: "button"
+    name: "Left"
+    icon: "mdi:chevron-left"
+    commands:
+      press: "press_left"
+  - platform: "button"
+    name: "OK"
+    commands:
+      press: "press_select"
+  - platform: "button"
+    name: "Right"
+    icon: "mdi:chevron-right"
+    commands:
+      press: "press_right"
+  - platform: "button"
+    name: "Down"
+    icon: "mdi:chevron-down"
+    commands:
+      press: "press_down"
+  - platform: "button"
+    name: "Replay"
+    icon: "mdi:replay"
+    commands:
+      press: "press_instant_replay"
+  - platform: "button"
+    name: "Options"
+    icon: "mdi:asterisk"
+    commands:
+      press: "press_info"
+    notes: "The * key. Named Options because that is what it does; Info is the wire spelling."
+  - platform: "button"
+    name: "Rewind"
+    icon: "mdi:rewind"
+    commands:
+      press: "press_rev"
+  - platform: "button"
+    name: "Play/Pause"
+    icon: "mdi:play-pause"
+    commands:
+      press: "press_play"
+  - platform: "button"
+    name: "Fast Forward"
+    icon: "mdi:fast-forward"
+    commands:
+      press: "press_fwd"
+  - platform: "button"
+    name: "Volume Down"
+    icon: "mdi:volume-minus"
+    commands:
+      press: "press_volume_down"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "Mute"
+    icon: "mdi:volume-mute"
+    commands:
+      press: "press_volume_mute"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "Volume Up"
+    icon: "mdi:volume-plus"
+    commands:
+      press: "press_volume_up"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "Channel Up"
+    icon: "mdi:chevron-double-up"
+    commands:
+      press: "press_channel_up"
+    notes: "TV-class key; meaningful on the tuner input."
+  - platform: "button"
+    name: "Channel Down"
+    icon: "mdi:chevron-double-down"
+    commands:
+      press: "press_channel_down"
+    notes: "TV-class key; meaningful on the tuner input."
+  - platform: "button"
+    name: "Search"
+    icon: "mdi:magnify"
+    commands:
+      press: "press_search"
+  - platform: "button"
+    name: "Find Remote"
+    icon: "mdi:remote"
+    commands:
+      press: "press_find_remote"
+  - platform: "button"
+    name: "HDMI 1"
+    icon: "mdi:hdmi-port"
+    commands:
+      press: "press_input_hdmi1"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "HDMI 2"
+    icon: "mdi:hdmi-port"
+    commands:
+      press: "press_input_hdmi2"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "HDMI 3"
+    icon: "mdi:hdmi-port"
+    commands:
+      press: "press_input_hdmi3"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "HDMI 4"
+    icon: "mdi:hdmi-port"
+    commands:
+      press: "press_input_hdmi4"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "AV"
+    icon: "mdi:video-input-component"
+    commands:
+      press: "press_input_av1"
+    notes: "TV-class key."
+  - platform: "button"
+    name: "Antenna"
+    icon: "mdi:antenna"
+    commands:
+      press: "press_input_tuner"
+    notes: "TV-class key."
+
+  # The channel picker: a select whose options are whatever the device says
+  # it has installed, not a table this file could ever keep current. The two
+  # sources use the same tiny XML contract — every element with the item's
+  # local name is one entry, the named attribute is the raw value, the
+  # element text is the label — and both queries stay readable when the
+  # keypress gate is closed, so the list loads even on a TV that refuses
+  # control. Selecting an option IS launching it; there is no set-without-
+  # switch semantics here.
+  - platform: "select"
+    name: "Channel"
+    icon: "mdi:apps"
+    options_source:
+      command: "Installed Apps"
+      item: "app"
+      value: "id"
+    state_source:
+      command: "Active App"
+      item: "app"
+      value: "id"
+    commands:
+      select_option: "launch_app"
+    notes: >
+      Roku's own UI calls these channels, so the entity does too. On the home
+      screen the Active App element has no id attribute — the current
+      selection is then simply none of the options, which is the honest
+      answer. Launching a channel that is already foreground restarts or
+      resumes it, per the device.
+
+  # State surfaces, for a consumer that can read XML. Not bound to controls
+  # yet: the topic alone identifies the reading, per the state_topic contract.
   - platform: "sensor"
     name: "Active App"
     state_topic: "/query/active-app"
   - platform: "sensor"
     name: "Media Player"
     state_topic: "/query/media-player"
-  - platform: "select"
-    name: "Input Source"
-    commands:
-      # TV input switching uses keypress keys InputHDMI1-4, InputTuner, InputAV1.
-      select_option: "/keypress/{input_key}"
 
