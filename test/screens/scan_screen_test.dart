@@ -236,6 +236,42 @@ void main() {
           reason: 'the device screen is still open; the radio stays off');
     });
 
+    testWidgets('the find flow keeps its RSSI ping and the scan stays off',
+        (tester) async {
+      // The Find Device view navigates by pinging the CONNECTION's RSSI once
+      // a second — a connected peripheral stops advertising, so no amount of
+      // scanning can see it, and a scan restarting behind the route would
+      // only add radio contention to the very readings the user is walking
+      // by. This walks the real stack (scan list → device screen → find) and
+      // checks both halves survive a background/resume cycle.
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01', name: 'ACME_A')],
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('ACME_A'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Find device'));
+      await tester.pumpAndSettle();
+
+      final scansBefore = fake.scanTimeouts.length;
+      final pingsBefore = fake.rssiReadCount;
+      expect(pingsBefore, greaterThan(0),
+          reason: 'the find screen pings the device from the moment it opens');
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump(const Duration(seconds: 2));
+
+      expect(fake.scanTimeouts, hasLength(scansBefore),
+          reason: 'no scan may start behind the find screen: it cannot see '
+              'a connected device and competes with the link being measured');
+      expect(fake.rssiReadCount, greaterThan(pingsBefore),
+          reason: 'the aliveness ping keeps running');
+    });
+
     testWidgets('a scan the user stopped is not resurrected by the OS',
         (tester) async {
       final fake = FakeBleService(
