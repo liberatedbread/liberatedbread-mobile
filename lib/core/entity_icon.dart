@@ -37,6 +37,10 @@ const Map<String, IconData> _mdiGlyphs = {
   'mdi:radioactive': Icons.blur_on,
   'mdi:molecule-co2': Icons.co2,
   'mdi:water-thermometer': Icons.dew_point,
+  // Airthings' ambient light reports raw counts, not lux, so its entity
+  // carries an icon instead of an `illuminance` device class — same glyph
+  // that class would have implied.
+  'mdi:brightness-5': Icons.light_mode_outlined,
 };
 
 /// The fallback that predates entity icons: what a reading's `device_class`
