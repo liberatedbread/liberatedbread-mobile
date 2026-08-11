@@ -57,6 +57,12 @@ class FakeSpecCodec implements SpecCodec {
   /// pixels, targeting service 'srv' / characteristic 'chr'.
   final ImageWritePlanDto? imagePlan;
 
+  /// Returned by [encodeStoredImage]; defaults to a single uploader write plus
+  /// a play write, so a widget test can drive the "Save to device" flow.
+  final StoredUploadPlanDto? storedPlan;
+
+  final Object? encodeStoredError;
+
   final List<
           ({String charUuid, String commandName, Map<String, double> params})>
       encodeCalls = [];
@@ -106,6 +112,20 @@ class FakeSpecCodec implements SpecCodec {
   NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
       networkReading;
 
+  /// Every [encodeStoredImage] call, in order, for assertions.
+  final List<
+      ({
+        String specYaml,
+        int width,
+        int height,
+        List<int> rgb,
+        String name,
+        int cid,
+        int timeSecs,
+        String scroll,
+        int speed,
+      })> encodeStoredCalls = [];
+
   FakeSpecCodec({
     this.spec,
     this.matches = const [],
@@ -119,6 +139,10 @@ class FakeSpecCodec implements SpecCodec {
     this.decodeError,
     this.encodeImageError,
     this.imagePlan,
+    this.storedPlan,
+    this.storedPlay,
+    this.storedUploadEvents,
+    this.encodeStoredError,
     this.encodeEntityValueError,
     this.entityWrite,
     this.networkEntities,
@@ -296,4 +320,156 @@ class FakeSpecCodec implements SpecCodec {
     required Map<String, String> returned,
   }) async =>
       networkReading?.call(entityName, returned);
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredImage({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) async {
+    encodeStoredCalls.add((
+      specYaml: specYaml,
+      width: width,
+      height: height,
+      rgb: List.of(rgb),
+      name: name,
+      cid: cid,
+      timeSecs: timeSecs,
+      scroll: scroll,
+      speed: speed,
+    ));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return storedPlan ?? _defaultStoredPlan(cid, rgb);
+  }
+
+  /// Every [encodeStoredText] call, in order.
+  final List<
+      ({
+        String name,
+        int cid,
+        int textWidth,
+        int textHeight,
+        String scroll
+      })> encodeTextCalls = [];
+
+  /// Every [encodeStoredAnimation] call, in order.
+  final List<
+      ({
+        String name,
+        int cid,
+        int width,
+        int height,
+        int frameCount,
+        int frameMs
+      })> encodeAnimationCalls = [];
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredText({
+    required String specYaml,
+    required int textWidth,
+    required int textHeight,
+    required List<int> bits,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) async {
+    encodeTextCalls.add((
+      name: name,
+      cid: cid,
+      textWidth: textWidth,
+      textHeight: textHeight,
+      scroll: scroll,
+    ));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return storedPlan ?? _defaultStoredPlan(cid, bits);
+  }
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required String name,
+    required int cid,
+    required int frameMs,
+  }) async {
+    encodeAnimationCalls.add((
+      name: name,
+      cid: cid,
+      width: width,
+      height: height,
+      frameCount: frames.length,
+      frameMs: frameMs,
+    ));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return storedPlan ?? _defaultStoredPlan(cid, const [7]);
+  }
+
+  /// Maps a raw response-characteristic notification to an upload event; a
+  /// test that exercises the wait-for-commit path supplies this. Defaults to
+  /// "every notification is the completion", so a test only has to emit one
+  /// byte on the notify stream.
+  StoredUploadEventDto? Function(List<int> bytes)? storedUploadEvents;
+
+  /// Every notification [decodeStoredUploadEvent] was asked about.
+  final List<List<int>> decodeUploadEventCalls = [];
+
+  @override
+  Future<StoredUploadEventDto?> decodeStoredUploadEvent({
+    required String specYaml,
+    required List<int> bytes,
+  }) async {
+    decodeUploadEventCalls.add(List.of(bytes));
+    final map = storedUploadEvents;
+    if (map != null) return map(bytes);
+    return StoredUploadEventDto(
+      kind: StoredUploadEventKind.complete,
+      code: BigInt.zero,
+      resumeOffset: BigInt.zero,
+      progress: BigInt.zero,
+    );
+  }
+
+  /// Returned by [encodeStoredPlay]; defaults to a single framed write on the
+  /// command channel, mirroring [_defaultStoredPlan]'s play write.
+  final StoredPlayDto? storedPlay;
+
+  /// Every cid [encodeStoredPlay] was asked to replay, in call order.
+  final List<int> encodeStoredPlayCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeStoredPlay({
+    required String specYaml,
+    required int cid,
+  }) async {
+    encodeStoredPlayCalls.add(cid);
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return storedPlay ??
+        StoredPlayDto(
+          serviceUuid: 'srv',
+          write: ImageWriteDto(
+              characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [2])),
+        );
+  }
+
+  StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
+      StoredUploadPlanDto(
+        serviceUuid: 'srv',
+        uploadWrites: [
+          ImageWriteDto(
+              characteristicUuid: 'uploader', bytes: Uint8List.fromList(body)),
+        ],
+        playWrite: ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [1])),
+        cid: cid,
+      );
 }

@@ -67,6 +67,11 @@ pub struct DeviceSpecDto {
     /// a raster image and possibly animations. Drives the app's generic LED
     /// image widget; `None` for devices without a pixel surface.
     pub image_upload: Option<ImageUploadDto>,
+    /// The spec's `stored_upload` feature, when it declares one — device-side
+    /// storage of a picture that plays standalone after disconnect. Drives the
+    /// LED editor's "Save to device" action; `None` for devices that only take
+    /// live frames.
+    pub stored_upload: Option<StoredUploadDto>,
 }
 
 /// A spec's declared image/animation capability, plus whether this crate can
@@ -100,6 +105,22 @@ pub struct ImageUploadDto {
     pub default_frame_interval_ms: Option<u32>,
 }
 
+/// A spec's declared device-side STORAGE capability: whether this device can
+/// persist content that plays standalone after disconnect, and whether this
+/// build can encode the container it wants.
+///
+/// The split mirrors [`ImageUploadDto`]: storing is *declarative* (a spec says
+/// it can), while encoding needs a `container_format` this crate implements.
+/// The UI offers "Save to device" only when [`Self::encodable`].
+#[derive(Debug, Clone)]
+pub struct StoredUploadDto {
+    /// The spec's `container_format` name, e.g. `daniao_amx`.
+    pub container_format: Option<String>,
+    /// True when [`Self::container_format`] names a container encoder this crate
+    /// implements — i.e. `encode_stored_image` will succeed rather than error.
+    pub encodable: bool,
+}
+
 /// One BLE write of an image frame: the bytes and the characteristic they go
 /// to. Per-write targets because the doodle flow spans channels (session-open
 /// on the command characteristic, pixels on the bulk one).
@@ -107,6 +128,65 @@ pub struct ImageUploadDto {
 pub struct ImageWriteDto {
     pub characteristic_uuid: String,
     pub bytes: Vec<u8>,
+}
+
+/// The BLE writes that persist one image on the device, in send order, plus the
+/// optional command that plays it immediately after.
+#[derive(Debug, Clone)]
+pub struct StoredUploadPlanDto {
+    /// The GATT service every write's characteristic belongs to.
+    pub service_uuid: String,
+    /// Writes to the Uploader characteristic: a START packet then DATA packets.
+    /// The caller sends them back-to-back to the one characteristic.
+    pub upload_writes: Vec<ImageWriteDto>,
+    /// The play-by-id command, fragment-framed and ready to write, when the
+    /// spec declares a `play_command`. Sent once the upload completes so the
+    /// stored item shows immediately (it also persists without this).
+    pub play_write: Option<ImageWriteDto>,
+    /// Where the device answers the upload, when the spec names it. Subscribe
+    /// here before the first upload write and hold `play_write` until
+    /// [`decode_stored_upload_event`] reports completion — the device plays a
+    /// cid only once it has committed it, so an early play is a silent no-op.
+    pub response_characteristic_uuid: Option<String>,
+    /// The id the stored item now lives under; the device can be told to play
+    /// it again by this later.
+    pub cid: u32,
+}
+
+/// What one notification on the stored-upload response characteristic said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredUploadEventKind {
+    /// The device accepts the transfer; `resume_offset` says where to start.
+    StartAccepted,
+    /// The device refuses the transfer (`code` is its error).
+    StartRejected,
+    /// Transfer progress (`progress` is the device's counter).
+    Progress,
+    /// The item is committed and playable — safe to send the play write now.
+    Complete,
+    /// The transfer failed device-side (`code` is its error).
+    Failed,
+}
+
+/// A decoded stored-upload response. Fields not named by [`kind`] are 0.
+#[derive(Debug, Clone)]
+pub struct StoredUploadEventDto {
+    pub kind: StoredUploadEventKind,
+    /// Device error code, for `StartRejected` / `Failed`.
+    pub code: u64,
+    /// Byte offset to resume from, for `StartAccepted` (0 = fresh).
+    pub resume_offset: u64,
+    /// The device's progress counter, for `Progress`.
+    pub progress: u64,
+}
+
+/// The single play-by-cid write for RE-triggering an already stored item.
+#[derive(Debug, Clone)]
+pub struct StoredPlayDto {
+    /// The GATT service the write's characteristic belongs to.
+    pub service_uuid: String,
+    /// The framed play command, ready to write.
+    pub write: ImageWriteDto,
 }
 
 /// The BLE writes that push one image frame to a device, in send order.
@@ -542,6 +622,23 @@ fn image_upload_dto(spec: &DeviceSpec) -> Option<ImageUploadDto> {
     })
 }
 
+/// Build the stored-upload DTO from a spec's `stored_upload` feature.
+///
+/// `encodable` is the same registry check `encode_stored_image` dispatches on,
+/// so a container format can never be advertised as storable without an encoder
+/// behind it.
+fn stored_upload_dto(spec: &DeviceSpec) -> Option<StoredUploadDto> {
+    let feature = crate::protocol::stored_upload::stored_feature(spec)?;
+    let container_format = feature.container_format.clone();
+    let encodable = container_format
+        .as_deref()
+        .is_some_and(crate::protocol::stored_container_encodable);
+    Some(StoredUploadDto {
+        container_format,
+        encodable,
+    })
+}
+
 impl From<&DeviceSpecDto> for SpecIdentityDto {
     fn from(spec: &DeviceSpecDto) -> Self {
         Self {
@@ -564,6 +661,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
         let ident = spec.device.identification.as_ref();
         Self {
             image_upload: image_upload_dto(spec),
+            stored_upload: stored_upload_dto(spec),
             device_name: spec.device.name.clone(),
             manufacturer: spec.device.manufacturer.clone(),
             manufacturer_status: spec.device.manufacturer_status.to_string(),
@@ -2028,6 +2126,217 @@ pub fn encode_image_frame(
             })
             .collect(),
     })
+}
+
+/// Encode the BLE writes that PERSIST a picture on the device so it plays
+/// standalone after disconnect, dispatched on the spec's `stored_upload`
+/// feature.
+///
+/// `rgb` is the canvas, row-major `width * height * 3`, already reduced to at
+/// most 16 distinct colours (the editor quantises before calling). `name` is
+/// the label stored on the device, `cid` the id it is stored under (novel ids
+/// are accepted), `time_secs` the run/scroll duration, `scroll` one of
+/// `none`/`left`/`right`/`up`/`down`, and `speed` the scroll-speed byte.
+///
+/// Returns the ordered Uploader-characteristic writes plus, when the spec
+/// declares a `play_command`, a fragment-framed write that plays the item
+/// immediately. Errors are typed and user-presentable.
+// The flat argument list is the FFI surface flutter_rust_bridge exposes to
+// Dart; grouping into a struct would churn the generated bindings.
+#[allow(clippy::too_many_arguments)]
+pub fn encode_stored_image(
+    spec_yaml: String,
+    width: u32,
+    height: u32,
+    rgb: Vec<u8>,
+    name: String,
+    cid: u32,
+    time_secs: u32,
+    scroll: String,
+    speed: u32,
+) -> anyhow::Result<StoredUploadPlanDto> {
+    use crate::protocol::daniao_store::{ImageLayer, StoredProgram};
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let program = StoredProgram {
+        name: &name,
+        cid,
+        time_secs,
+        scroll: scroll_from_str(&scroll),
+        // The scroll-speed byte is a small slider value; clamp defensively so a
+        // stray large value can't wrap when narrowed to the wire's u8.
+        speed: speed.min(u8::MAX as u32) as u8,
+        image: ImageLayer {
+            width,
+            height,
+            rgb: &rgb,
+        },
+    };
+    let plan = crate::protocol::stored_upload::encode_stored_image(&spec, &program)?;
+    Ok(stored_plan_to_dto(plan))
+}
+
+/// Encode the BLE writes that PERSIST a scrolling-text marquee on the device.
+///
+/// `bits` is the rendered text bitmap — one byte per pixel (`0` off, non-zero
+/// lit), row-major, `text_width * text_height` bytes. The width is usually
+/// wider than the panel so the text scrolls. The caller (the UI) rasterises the
+/// string; everything else matches [`encode_stored_image`].
+#[allow(clippy::too_many_arguments)]
+pub fn encode_stored_text(
+    spec_yaml: String,
+    text_width: u32,
+    text_height: u32,
+    bits: Vec<u8>,
+    name: String,
+    cid: u32,
+    time_secs: u32,
+    scroll: String,
+    speed: u32,
+) -> anyhow::Result<StoredUploadPlanDto> {
+    use crate::protocol::daniao_store::{StoredText, TextContent};
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let program = StoredText {
+        name: &name,
+        cid,
+        time_secs,
+        scroll: scroll_from_str(&scroll),
+        speed: speed.min(u8::MAX as u32) as u8,
+        text: TextContent {
+            width: text_width,
+            height: text_height,
+            bits: &bits,
+        },
+    };
+    let plan = crate::protocol::stored_upload::encode_stored_text(&spec, &program)?;
+    Ok(stored_plan_to_dto(plan))
+}
+
+/// Encode the BLE writes that PERSIST a multi-frame animation on the device.
+///
+/// `frames` are the screens in play order, each row-major RGB888
+/// `width * height * 3` bytes. Stored as the vendor's raw `.eff` animation
+/// (a different container from the still/scrolling microapp), played by cid.
+pub fn encode_stored_animation(
+    spec_yaml: String,
+    width: u32,
+    height: u32,
+    frames: Vec<Vec<u8>>,
+    name: String,
+    cid: u32,
+    frame_ms: u32,
+) -> anyhow::Result<StoredUploadPlanDto> {
+    use crate::protocol::daniao_store::StoredAnimation;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let frame_refs: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    // The container stores a frame RATE; the editor thinks in the interval
+    // its preview slider sets. Round to the nearest fps and clamp into the
+    // header byte's range so a slow slider cannot wrap to a fast animation.
+    let fps = (1000 + frame_ms / 2)
+        .checked_div(frame_ms)
+        // An unset (0) interval falls back to the vendor's own rate.
+        .map_or(20, |per_sec| per_sec.clamp(1, 255)) as u8;
+    let anim = StoredAnimation {
+        name: &name,
+        cid,
+        width,
+        height,
+        frames: &frame_refs,
+        fps,
+    };
+    let plan = crate::protocol::stored_upload::encode_stored_animation(&spec, &anim)?;
+    Ok(stored_plan_to_dto(plan))
+}
+
+/// Decode one notification from the stored-upload response characteristic.
+///
+/// Returns `None` for anything that is not an upload event — other state
+/// pushes share the channel, and a caller filters by just ignoring `None`.
+/// The spec is taken so this dispatches like the encoders do; today the one
+/// implemented response format is Daniao's.
+pub fn decode_stored_upload_event(
+    spec_yaml: String,
+    bytes: Vec<u8>,
+) -> anyhow::Result<Option<StoredUploadEventDto>> {
+    use crate::protocol::daniao_upload::{parse_upload_event, UploadEvent};
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    if crate::protocol::stored_upload::stored_feature(&spec).is_none() {
+        anyhow::bail!("spec declares no stored_upload feature");
+    }
+    Ok(parse_upload_event(&bytes).map(|event| match event {
+        UploadEvent::StartAccepted { resume_offset } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::StartAccepted,
+            code: 0,
+            resume_offset,
+            progress: 0,
+        },
+        UploadEvent::StartRejected { code } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::StartRejected,
+            code,
+            resume_offset: 0,
+            progress: 0,
+        },
+        UploadEvent::Progress { value } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::Progress,
+            code: 0,
+            resume_offset: 0,
+            progress: value,
+        },
+        UploadEvent::Complete => StoredUploadEventDto {
+            kind: StoredUploadEventKind::Complete,
+            code: 0,
+            resume_offset: 0,
+            progress: 0,
+        },
+        UploadEvent::Failed { code } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::Failed,
+            code,
+            resume_offset: 0,
+            progress: 0,
+        },
+    }))
+}
+
+/// Encode the play-by-cid command for RE-triggering a previously stored item
+/// — the replay path, no upload involved.
+pub fn encode_stored_play(spec_yaml: String, cid: u32) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) = crate::protocol::stored_upload::encode_stored_play(&spec, cid)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Parse the FFI `scroll` string into the codec's enum (unknown -> no scroll).
+fn scroll_from_str(scroll: &str) -> crate::protocol::daniao_store::Scroll {
+    use crate::protocol::daniao_store::Scroll;
+    match scroll {
+        "left" => Scroll::Left,
+        "right" => Scroll::Right,
+        "up" => Scroll::Up,
+        "down" => Scroll::Down,
+        _ => Scroll::None,
+    }
+}
+
+/// Map a protocol-layer stored-upload plan onto its FFI DTO.
+fn stored_plan_to_dto(
+    plan: crate::protocol::stored_upload::StoredUploadPlan,
+) -> StoredUploadPlanDto {
+    let to_dto = |w: crate::protocol::EncodedWrite| ImageWriteDto {
+        characteristic_uuid: w.characteristic_uuid,
+        bytes: w.bytes,
+    };
+    StoredUploadPlanDto {
+        service_uuid: plan.service_uuid,
+        upload_writes: plan.upload_writes.into_iter().map(to_dto).collect(),
+        play_write: plan.play_write.map(to_dto),
+        response_characteristic_uuid: plan.response_characteristic_uuid,
+        cid: plan.cid,
+    }
 }
 
 /// Decode raw bytes from a BLE read/notify into named values.

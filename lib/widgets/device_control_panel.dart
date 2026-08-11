@@ -188,6 +188,7 @@ class DeviceControlPanel extends ConsumerWidget {
           key: const ValueKey('led-image-editor'),
           deviceId: deviceId,
           imageUpload: match.spec.imageUpload!,
+          storedUpload: match.spec.storedUpload,
           specYaml: match.yaml,
         ),
       // A treadmill gets its transport-and-speed card above everything else:

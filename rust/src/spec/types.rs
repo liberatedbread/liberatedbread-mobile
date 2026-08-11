@@ -136,6 +136,32 @@ pub struct Feature {
     pub min_frame_interval_ms: Option<u32>,
     #[serde(default)]
     pub default_frame_interval_ms: Option<u32>,
+    /// Names the consumer-side container encoder a `stored_upload` feature uses
+    /// to build the persisted file blob (e.g. `daniao_amx`). Like
+    /// `protocol_handler` for the live path, the format cannot be expressed
+    /// declaratively — it is protobuf assembly + CRC over a base template — so
+    /// the spec names an algorithm and the Rust core runs it.
+    #[serde(default)]
+    pub container_format: Option<String>,
+    /// The transport's file-kind tag for a stored upload (Daniao's
+    /// `UploadRequest.type`: 3 = animation/microapp, 0 = effect `.eff`).
+    #[serde(default)]
+    pub file_type: Option<u32>,
+    /// Payload bytes per uploader DATA packet, when the device's transport
+    /// fixes one. Daniao's is 500.
+    #[serde(default)]
+    pub frame_size: Option<u32>,
+    /// Command (named from this characteristic's `commands`) that plays a
+    /// stored item by its id right after upload — the vendor app's
+    /// store-then-show. Absent means the client stores without auto-playing.
+    #[serde(default)]
+    pub play_command: Option<String>,
+    /// Characteristic UUID the device answers a stored upload on (Daniao: the
+    /// DDP Notify char carrying M_UPLOAD_START_RESPONSE and
+    /// M_UPLOAD_COMPLETE). A client waits for the completion there before
+    /// sending `play_command` — playing an uncommitted cid is a silent no-op.
+    #[serde(default)]
+    pub response_characteristic: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }

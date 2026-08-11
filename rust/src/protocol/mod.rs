@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 pub mod daniao;
+pub mod daniao_store;
+pub mod daniao_upload;
 pub mod dispatch;
 pub mod generic;
 pub mod http;
 pub mod image_upload;
 pub mod profiles;
 pub mod soap;
+pub mod stored_upload;
 pub mod traits;
 
 use crate::error::ProtocolError;
@@ -64,4 +67,12 @@ const IMAGE_UPLOAD_HANDLERS: &[ImageUploadHandler] = &[ImageUploadHandler {
 /// Look up the implemented handler for a spec's `protocol_handler` name.
 pub fn image_upload_handler(name: &str) -> Option<&'static ImageUploadHandler> {
     IMAGE_UPLOAD_HANDLERS.iter().find(|h| h.name == name)
+}
+
+/// Whether this build can encode the persisted container a spec's
+/// `stored_upload.container_format` names — the storage counterpart to
+/// [`image_upload_handler`], read by the DTO's `encodable` flag and the encode
+/// path alike so a format cannot be advertised without an encoder behind it.
+pub fn stored_container_encodable(container_format: &str) -> bool {
+    stored_upload::container_encoder(container_format).is_some()
 }
