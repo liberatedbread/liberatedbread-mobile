@@ -220,6 +220,70 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets(
+      'the failed state offers Try to find, and it lands in the find '
+      'screen once the connect succeeds', (tester) async {
+    // A failed connect usually MEANS out of range or powered off — "where is
+    // it?" is the question that state poses, so the find affordance belongs
+    // on it, not only on the connected header. Finding needs a live link for
+    // its RSSI ping, so the button is connect-first: hence "Try".
+    final fake = FakeBleService(connectError: StateError('out of range'));
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+
+    // Twice: the app-bar status line and the state card both say it.
+    expect(find.text('Connection failed'), findsNWidgets(2));
+    expect(find.text('Try to find device'), findsOneWidget);
+
+    // The user moved closer: the retry connect works now.
+    fake.connectError = null;
+    await tester.tap(find.text('Try to find device'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FindDeviceScreen), findsOneWidget);
+  });
+
+  testWidgets(
+      'a failed Try to find stays on the error state, and a later '
+      'plain Retry does not surprise-open the find screen', (tester) async {
+    final fake = FakeBleService(connectError: StateError('still out of range'));
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Try to find device'));
+    await tester.pumpAndSettle();
+    expect(find.byType(FindDeviceScreen), findsNothing);
+    expect(find.text('Connection failed'), findsNWidgets(2));
+
+    // The intent to find died with its attempt: a Retry pressed later is a
+    // request for the controls screen, not the locator.
+    fake.connectError = null;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FindDeviceScreen), findsNothing);
+    expect(find.text('Find device'), findsOneWidget,
+        reason: 'the ready header, with its usual find button');
+  });
+
+  testWidgets('the disconnected state offers Try to find too', (tester) async {
+    final conn = StreamController<BleConnectionState>.broadcast();
+    addTearDown(conn.close);
+    final fake = FakeBleService(connectionStateStream: conn.stream);
+    await tester.pumpWidget(_wrap(fake));
+    await tester.pumpAndSettle();
+
+    conn.add(BleConnectionState.disconnected);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Device disconnected'), findsOneWidget);
+    expect(find.text('Try to find device'), findsOneWidget);
+
+    await tester.tap(find.text('Try to find device'));
+    await tester.pumpAndSettle();
+    expect(find.byType(FindDeviceScreen), findsOneWidget);
+  });
+
   testWidgets('an unexpected disconnect flips to the reconnect state',
       (tester) async {
     final conn = StreamController<BleConnectionState>.broadcast();

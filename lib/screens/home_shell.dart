@@ -29,12 +29,20 @@ class _HomeShellState extends State<HomeShell> {
       // progress and a list of results, and rebuilding those from scratch every
       // time someone glances at another tab would throw away a scan they are
       // in the middle of.
+      //
+      // Keeping a tab alive is not the same as letting it work, though. The BLE
+      // scan runs continuously, and it is the most expensive thing this app
+      // does; running it for a list that is three layers deep in a stack, behind
+      // the Wi-Fi tab someone is reading, is spending battery on results nobody
+      // can see. So the Nearby tab is told whether it is the visible one, and
+      // pauses its radio when it is not — while keeping its state, which is why
+      // the IndexedStack is here in the first place.
       body: IndexedStack(
         index: _index,
-        children: const [
-          ScanScreen(),
-          SavedDevicesScreen(),
-          WifiScanScreen(),
+        children: [
+          ScanScreen(active: _index == 0),
+          const SavedDevicesScreen(),
+          const WifiScanScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(

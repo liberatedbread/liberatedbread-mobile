@@ -485,9 +485,25 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   /// delivers one: as an unsuccessful scan response.
   EmulatedGattError? scanError;
 
+  /// Injected REFUSAL of the next `startScan` — the request never starts a
+  /// scan at all, as when Android answers `startScan` with an error string.
+  ///
+  /// Distinct from [scanError], and the distinction matters: a refusal
+  /// propagates out of `FlutterBluePlus.startScan` itself, which unwinds its
+  /// own scan state on the way, so the caller is left with no scan running
+  /// rather than a running scan that reported a failure.
+  Object? startScanRefusal;
+
   /// Requests seen, newest last. Lets a test assert that the app stopped a
   /// native scan, or connected exactly once.
   final List<String> platformCalls = [];
+
+  /// Settings the most recent `startScan` was asked for.
+  ///
+  /// The shape of a scan is as load-bearing as its results: without continuous
+  /// updates a real controller reports each device once and then suppresses it,
+  /// which no amount of listening on this side can undo.
+  BmScanSettings? lastScanSettings;
 
   /// How long the emulated controller takes to answer. Zero keeps tests fast;
   /// raise it to open a window where a request is genuinely in flight.
@@ -546,7 +562,9 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
     await Future<void>.delayed(Duration.zero);
     _peripherals.clear();
     platformCalls.clear();
+    lastScanSettings = null;
     scanError = null;
+    startScanRefusal = null;
     latency = Duration.zero;
     _scanning = false;
     adapterState = BmAdapterStateEnum.on;
@@ -763,6 +781,17 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   @override
   Future<bool> startScan(BmScanSettings request) async {
     platformCalls.add('startScan');
+    lastScanSettings = request;
+    final refusal = startScanRefusal;
+    if (refusal != null) {
+      startScanRefusal = null;
+      _scanning = false;
+      throw refusal;
+    }
+    // Honour [latency] like stopScan does, so a test can hold a start
+    // genuinely in flight and interleave something else with it — the shape
+    // of every teardown-races-restart bug.
+    if (latency > Duration.zero) await Future<void>.delayed(latency);
     _scanning = true;
     final failure = scanError;
     if (failure != null) {
@@ -791,6 +820,10 @@ final class EmulatedBleAdapter extends FlutterBluePlusPlatform {
   Future<bool> stopScan(BmStopScanRequest request) async {
     platformCalls.add('stopScan');
     _scanning = false;
+    // Honour [latency] the way the request-carrying calls do, so a test can
+    // hold a stop genuinely in flight and run something else during it. Skipped
+    // entirely at zero so the default timing of every other test is unchanged.
+    if (latency > Duration.zero) await Future<void>.delayed(latency);
     return true;
   }
 

@@ -8,6 +8,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../core/find_device.dart' show signalBars;
+
 /// Section label with a count pill, e.g. "Found · 2".
 class SectionHeader extends StatelessWidget {
   final String label;
@@ -76,6 +78,21 @@ class DeviceListTile extends StatelessWidget {
   /// identification.
   final String? description;
 
+  /// Whether this device has stopped being heard from.
+  ///
+  /// Replaces the signal meter with a warning glyph, because the two say
+  /// contradictory things: the bars would report a signal strength measured
+  /// back when the device was last on air, drawn identically to one measured a
+  /// moment ago. A row is kept rather than dropped — advertising is lossy and
+  /// the device is probably still there — but it should not claim a signal it
+  /// no longer has.
+  final bool stale;
+
+  /// Spelled-out reason for the [stale] glyph, e.g. "No advertisement for 2m".
+  /// Surfaces as the icon's tooltip and its semantic label, so the warning is
+  /// not shape-only.
+  final String? staleReason;
+
   const DeviceListTile({
     super.key,
     required this.title,
@@ -89,6 +106,8 @@ class DeviceListTile extends StatelessWidget {
     this.badge,
     this.badgeIsClaim = false,
     this.description,
+    this.stale = false,
+    this.staleReason,
   });
 
   @override
@@ -154,7 +173,18 @@ class DeviceListTile extends StatelessWidget {
                     const SizedBox(height: 4),
                     Row(
                       children: [
-                        if (rssi != null) ...[
+                        if (stale) ...[
+                          Tooltip(
+                            message: staleReason ?? 'Not seen recently',
+                            child: Icon(
+                              Icons.warning_amber_rounded,
+                              size: 16,
+                              color: scheme.error,
+                              semanticLabel: staleReason ?? 'Not seen recently',
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ] else if (rssi != null) ...[
                           _SignalBars(rssi: rssi!, color: scheme.secondary),
                           const SizedBox(width: 8),
                         ],
@@ -260,12 +290,10 @@ class _SignalBars extends StatelessWidget {
 
   const _SignalBars({required this.rssi, required this.color});
 
-  int get _filled {
-    if (rssi >= -60) return 4;
-    if (rssi >= -70) return 3;
-    if (rssi >= -80) return 2;
-    return 1;
-  }
+  // Shared with the scan list's ordering, deliberately: the bars a row draws
+  // and the band it sorts into must be the same judgement, or a row can sit
+  // above another while showing fewer bars.
+  int get _filled => signalBars(rssi);
 
   @override
   Widget build(BuildContext context) {

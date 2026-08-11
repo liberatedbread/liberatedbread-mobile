@@ -30,11 +30,20 @@ class _FailingBleService implements BleService {
       throw const _ConnectFailure('mock rssi failure');
 
   @override
-  Stream<IoTDevice> scan({Duration timeout = const Duration(seconds: 10)}) =>
+  Stream<IoTDevice> scan({
+    Duration? timeout = const Duration(seconds: 10),
+    ScanIntensity intensity = ScanIntensity.active,
+  }) =>
       const Stream.empty();
 
   @override
   Future<void> stopScan() async {}
+
+  // Never emits: the scripted scan states are the point of these doubles, and
+  // an adapter event that quietly cleared one mid-screenshot would make the
+  // walkthrough assert against a state it no longer shows.
+  @override
+  Stream<bool> adapterReady() => const Stream.empty();
 
   @override
   Future<void> connect(String deviceId) async {

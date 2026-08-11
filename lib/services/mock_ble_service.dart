@@ -214,10 +214,28 @@ class MockBleService implements BleService {
   @override
   Future<bool> requestPermissions() async => true;
 
+  /// The one mock device that stops advertising after it is first seen.
+  ///
+  /// Demo mode is where the scan screen's states get looked at, and "this
+  /// device has gone quiet" is one of them. Rather than paint a fake warning,
+  /// the anonymous device simply stops broadcasting once a continuous scan has
+  /// found it — the same thing a real device does when it is carried out of
+  /// range — and the screen reaches the stale state the honest way.
+  static const _goesQuietId = 'C4:7C:8D:61:22:04';
+
+  /// How often a continuous mock scan re-advertises a device that is still
+  /// present, standing in for the real radio's advertisement interval. Well
+  /// inside `DeviceManager.staleAfter`, so devices that are still there stay
+  /// looking that way.
+  static const _mockAdvertiseInterval = Duration(seconds: 3);
+
+  // [intensity] is accepted and ignored: the pretend radio has no duty cycle
+  // to trade against, so demo mode behaves identically either way.
   @override
   Stream<IoTDevice> scan({
-    Duration timeout =
+    Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
+    ScanIntensity intensity = ScanIntensity.active,
   }) async* {
     // Fresh mock state per scan when Rust is driving the simulator.
     if (rustAvailable) {
@@ -225,25 +243,45 @@ class MockBleService implements BleService {
         await rust.mockReset();
       } catch (_) {/* keep going with Dart fallback */}
     }
+    IoTDevice advertise(_MockDeviceDef device) => IoTDevice(
+          id: device.id,
+          name: device.name,
+          rssi: device.rssi + _random.nextInt(10) - 5,
+          isConnectable: true,
+          discoveredAt: DateTime.now(),
+          serviceUuids: device.serviceUuids,
+          companyIds: device.companyIds,
+        );
+
     for (final device in _mockDevices) {
       await Future<void>.delayed(const Duration(milliseconds: 400));
-      yield IoTDevice(
-        id: device.id,
-        name: device.name,
-        rssi: device.rssi + _random.nextInt(10) - 5,
-        isConnectable: true,
-        discoveredAt: DateTime.now(),
-        serviceUuids: device.serviceUuids,
-        companyIds: device.companyIds,
-      );
+      yield advertise(device);
     }
-    // Duration division, not `inSeconds ~/ 3`, which truncates to zero for
-    // sub-3-second timeouts.
-    await Future<void>.delayed(timeout ~/ 3);
+    if (timeout != null) {
+      // Duration division, not `inSeconds ~/ 3`, which truncates to zero for
+      // sub-3-second timeouts.
+      await Future<void>.delayed(timeout ~/ 3);
+      return;
+    }
+    // Continuous: keep advertising until the consumer cancels, exactly as the
+    // real service does. Without this, demo mode would show every device
+    // ageing into the stale state a minute after launch.
+    final live = _mockDevices.where((d) => d.id != _goesQuietId).toList();
+    while (true) {
+      await Future<void>.delayed(_mockAdvertiseInterval);
+      for (final device in live) {
+        yield advertise(device);
+      }
+    }
   }
 
   @override
   Future<void> stopScan() async {}
+
+  // The pretend radio is always on: demo mode has no quick-settings toggle to
+  // recover from, so a single closing `true` satisfies the replay contract.
+  @override
+  Stream<bool> adapterReady() => Stream.value(true);
 
   @override
   Future<void> connect(String deviceId) async {

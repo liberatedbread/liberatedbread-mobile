@@ -6,7 +6,6 @@
 // Launch via:
 //   flutter test integration_test/mock_flow_test.dart \
 //     --dart-define=LIBERATED_BREAD_MOCK=true
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -64,18 +63,13 @@ void main() {
         child: const LiberatedBreadApp(),
       ),
     );
-    // The shell before a scan starts does settle, and this is the one place the
-    // test wants it to — the app must be fully built before the FAB is tapped.
-    // Bounded anyway: an idle animation appearing here later should fail the
-    // test in seconds, not stall the job for ten minutes.
-    await tester.pumpAndSettle(
-      const Duration(milliseconds: 100),
-      EnginePhase.sendSemanticsUpdate,
-      const Duration(seconds: 30),
-    );
-
-    // Start scan from the FAB. The mock emits a device every ~400ms.
-    await tester.tap(find.byType(FloatingActionButton));
+    // No pumpAndSettle, not even here: the scan starts with the screen, so
+    // there is no settled frame between launch and the first result — the
+    // radar is already sweeping by the time the first pump returns.
+    //
+    // Nothing is tapped to begin, either. That IS the behaviour under test at
+    // this point: the app looks for devices on its own, and the mock emits one
+    // every ~400ms from the moment the screen appears.
     await _pumpUntil(tester, find.text('ACME_Living_Room'));
     await _pumpUntil(tester, find.text('ACME_Bedroom'));
 
