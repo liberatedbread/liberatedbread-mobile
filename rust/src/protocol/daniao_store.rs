@@ -814,7 +814,7 @@ mod tests {
             0xFF, 0, 0, 0xFF, 0, 0, // row 0: red, red
             0, 0xFF, 0, 0, 0xFF, 0, // row 1: green, green
         ];
-        let f1 = vec![0u8, 0, 0xFF].repeat(4);
+        let f1 = [0u8, 0, 0xFF].repeat(4);
         let frames: Vec<&[u8]> = vec![&f0, &f1];
         let buf = build_animation_container(&StoredAnimation {
             name: "anim",

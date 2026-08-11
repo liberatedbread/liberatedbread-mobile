@@ -19,6 +19,7 @@
 //!   crc8 covers the WHOLE packet (header included, with the crc byte zeroed).
 //! - DATA packet:  `field` = remaining (counts down packetnum-1 → 0); body =
 //!   up to `framesize` payload bytes; the crc8 covers the PAYLOAD ONLY.
+//!
 //! CRC8 is polynomial 0x97, MSB-first, init 0, no reflection/final-xor.
 //!
 //! This module encodes the TRANSPORT for an already-built file blob (e.g. a
