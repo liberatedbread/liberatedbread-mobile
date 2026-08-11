@@ -1473,55 +1473,102 @@ class _CanvasSizeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget field({
-      required Key key,
-      required String label,
-      required int value,
-      required int? max,
-      required ValueChanged<int> onChanged,
-    }) {
-      return Expanded(
-        child: TextFormField(
-          // Keyed by the committed value so an external change (or a clamp)
-          // rebuilds the field showing the real size instead of stale text.
-          key: key,
-          initialValue: '$value',
-          enabled: enabled,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: max == null ? label : '$label (1-$max)',
-            border: const OutlineInputBorder(),
-            isDense: true,
-          ),
-          // Commit on submit only: committing per keystroke would rebuild
-          // the value-keyed field mid-typing ("25" would commit at "2" and
-          // drop focus). Unparseable input keeps the previous canvas.
-          onFieldSubmitted: (input) {
-            final parsed = parseCanvasSize(input, max: max);
-            if (parsed != null) onChanged(parsed);
-          },
-        ),
-      );
-    }
-
     return Row(
       children: [
-        field(
-          key: ValueKey('led-canvas-width-$width'),
-          label: 'Width',
-          value: width,
-          max: maxWidth,
-          onChanged: onWidthChanged,
+        Expanded(
+          child: _CanvasSizeField(
+            label: 'Width',
+            value: width,
+            max: maxWidth,
+            enabled: enabled,
+            onChanged: onWidthChanged,
+          ),
         ),
         const SizedBox(width: 10),
-        field(
-          key: ValueKey('led-canvas-height-$height'),
-          label: 'Height',
-          value: height,
-          max: maxHeight,
-          onChanged: onHeightChanged,
+        Expanded(
+          child: _CanvasSizeField(
+            label: 'Height',
+            value: height,
+            max: maxHeight,
+            enabled: enabled,
+            onChanged: onHeightChanged,
+          ),
         ),
       ],
+    );
+  }
+}
+
+/// One canvas-dimension entry field, owning its text so it can SNAP BACK.
+///
+/// This replaced a stateless field keyed by the committed value: that shape
+/// only reset its text when the committed size changed, so submitting "abc"
+/// (or a value that clamps to the current size) left the bogus text on
+/// screen over a canvas that had kept its old dimensions. The text now
+/// always resettles to the committed value: on unparseable input, on a
+/// clamp that lands where the canvas already is, and on an external change.
+class _CanvasSizeField extends StatefulWidget {
+  final String label;
+  final int value;
+  final int? max;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+
+  const _CanvasSizeField({
+    required this.label,
+    required this.value,
+    required this.max,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  State<_CanvasSizeField> createState() => _CanvasSizeFieldState();
+}
+
+class _CanvasSizeFieldState extends State<_CanvasSizeField> {
+  late final TextEditingController _controller =
+      TextEditingController(text: '${widget.value}');
+
+  @override
+  void didUpdateWidget(_CanvasSizeField old) {
+    super.didUpdateWidget(old);
+    if (old.value != widget.value) _controller.text = '${widget.value}';
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: _controller,
+      enabled: widget.enabled,
+      keyboardType: TextInputType.number,
+      decoration: InputDecoration(
+        labelText:
+            widget.max == null ? widget.label : '${widget.label} (1-${widget.max})',
+        border: const OutlineInputBorder(),
+        isDense: true,
+      ),
+      // Commit on submit only: committing per keystroke would resize the
+      // canvas mid-typing ("25" would commit at "2").
+      onFieldSubmitted: (input) {
+        final parsed = parseCanvasSize(input, max: widget.max);
+        if (parsed == null) {
+          _controller.text = '${widget.value}';
+          return;
+        }
+        // Settle the text to what was actually committed, which on a clamp
+        // is not what was typed — and when the clamp lands on the current
+        // size, didUpdateWidget never fires, so this write is the only
+        // thing standing between "999" on screen and a 64-pixel canvas.
+        _controller.text = '$parsed';
+        if (parsed != widget.value) widget.onChanged(parsed);
+      },
     );
   }
 }
