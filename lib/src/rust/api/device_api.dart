@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `stored_upload_dto`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -34,45 +34,6 @@ Future<EntityWriteDto> encodeEntityValue(
         required double value}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeEntityValue(
         specYaml: specYaml, entityName: entityName, value: value);
-
-/// The controls a spec declares for one discovered network device.
-///
-/// `ssdp_targets` is what the device itself answered to — it is how a family
-/// spec's variant-scoped entities are narrowed to the model actually found.
-/// A Wemo plug must not grow a Cook Mode picker because its spec also covers
-/// a slow cooker; when the model cannot be identified at all, scoped entities
-/// are dropped rather than guessed.
-Future<List<NetworkEntityDto>> networkEntitiesForDevice(
-        {required String specYaml, required List<String> ssdpTargets}) =>
-    RustLib.instance.api.crateApiDeviceApiNetworkEntitiesForDevice(
-        specYaml: specYaml, ssdpTargets: ssdpTargets);
-
-/// Render a named command from the spec's `commands` block into a POSTable
-/// request. `values` supplies the parameters the caller owns plus any
-/// read-back values it fetched; the spec's defaults fill the rest.
-Future<SoapRequestDto> renderNetworkCommand(
-        {required String specYaml,
-        required String commandName,
-        required Map<String, String> values}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkCommand(
-        specYaml: specYaml, commandName: commandName, values: values);
-
-/// Render the argument-less request that reads a state command's values —
-/// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
-Future<SoapRequestDto> renderNetworkStateRequest(
-        {required String specYaml, required String stateCommand}) =>
-    RustLib.instance.api.crateApiDeviceApiRenderNetworkStateRequest(
-        specYaml: specYaml, stateCommand: stateCommand);
-
-/// Decode one entity's state from the name→value pairs a state call
-/// returned. `None` when the reply did not carry the entity's value — which
-/// renders as unknown, never as a fabricated zero.
-Future<NetworkReadingDto?> readNetworkEntity(
-        {required String specYaml,
-        required String entityName,
-        required Map<String, String> returned}) =>
-    RustLib.instance.api.crateApiDeviceApiReadNetworkEntity(
-        specYaml: specYaml, entityName: entityName, returned: returned);
 
 /// Find every spec matching a device we are already talking to, with the
 /// reasons it matched.
@@ -203,6 +164,53 @@ Future<StoredUploadPlanDto> encodeStoredImage(
         scroll: scroll,
         speed: speed);
 
+/// Encode the BLE writes that PERSIST a scrolling-text marquee on the device.
+///
+/// `bits` is the rendered text bitmap — one byte per pixel (`0` off, non-zero
+/// lit), row-major, `text_width * text_height` bytes. The width is usually
+/// wider than the panel so the text scrolls. The caller (the UI) rasterises the
+/// string; everything else matches [`encode_stored_image`].
+Future<StoredUploadPlanDto> encodeStoredText(
+        {required String specYaml,
+        required int textWidth,
+        required int textHeight,
+        required List<int> bits,
+        required String name,
+        required int cid,
+        required int timeSecs,
+        required String scroll,
+        required int speed}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeStoredText(
+        specYaml: specYaml,
+        textWidth: textWidth,
+        textHeight: textHeight,
+        bits: bits,
+        name: name,
+        cid: cid,
+        timeSecs: timeSecs,
+        scroll: scroll,
+        speed: speed);
+
+/// Encode the BLE writes that PERSIST a multi-frame animation on the device.
+///
+/// `frames` are the screens in play order, each row-major RGB888
+/// `width * height * 3` bytes. Stored as the vendor's raw `.eff` animation
+/// (a different container from the still/scrolling microapp), played by cid.
+Future<StoredUploadPlanDto> encodeStoredAnimation(
+        {required String specYaml,
+        required int width,
+        required int height,
+        required List<Uint8List> frames,
+        required String name,
+        required int cid}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeStoredAnimation(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        frames: frames,
+        name: name,
+        cid: cid);
+
 /// Decode raw bytes from a BLE read/notify into named values.
 ///
 /// Provide either `spec_yaml` (custom device) or `service_uuid` (standard
@@ -298,16 +306,6 @@ class CommandDto {
   /// locator.
   final String? locate;
 
-  /// The spec flags this opcode as able to damage hardware or carry other
-  /// consequences (a treadmill's calibration, a factory reset). A signpost
-  /// for a UI confirmation, NOT a gate: the command still encodes, the app
-  /// decides how to ask.
-  final bool advanced;
-
-  /// The text to show at the opt-in point when `advanced` is set. Free text
-  /// from the spec, because the right warning is device-specific.
-  final String? advancedReason;
-
   const CommandDto({
     required this.name,
     required this.description,
@@ -316,8 +314,6 @@ class CommandDto {
     required this.isEncodable,
     this.unsupportedEncoding,
     this.locate,
-    required this.advanced,
-    this.advancedReason,
   });
 
   @override
@@ -328,9 +324,7 @@ class CommandDto {
       isFixed.hashCode ^
       isEncodable.hashCode ^
       unsupportedEncoding.hashCode ^
-      locate.hashCode ^
-      advanced.hashCode ^
-      advancedReason.hashCode;
+      locate.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -343,9 +337,7 @@ class CommandDto {
           isFixed == other.isFixed &&
           isEncodable == other.isEncodable &&
           unsupportedEncoding == other.unsupportedEncoding &&
-          locate == other.locate &&
-          advanced == other.advanced &&
-          advancedReason == other.advancedReason;
+          locate == other.locate;
 }
 
 /// A decoded value from a characteristic read.
@@ -1069,58 +1061,6 @@ class MatchResult {
           confidence == other.confidence;
 }
 
-/// One resolved control action on a network entity.
-class NetworkActionDto {
-  /// `turn_on` | `turn_off` | `set_value` | `select_option` | …
-  final String role;
-
-  /// Name in the spec's top-level `commands` block; what
-  /// [`render_network_command`] takes.
-  final String commandName;
-
-  /// The parameters the UI supplies — at most one today (the picked option,
-  /// the chosen number). Empty for a fixed action.
-  final List<String> userParams;
-
-  /// Values to read from the device and pass along with the send. Not
-  /// optional bookkeeping: skipping these clears settings.
-  final List<NetworkReadBackDto> readBack;
-
-  /// Declared bounds of the value parameter, in the wire's own units.
-  final double? min;
-  final double? max;
-
-  const NetworkActionDto({
-    required this.role,
-    required this.commandName,
-    required this.userParams,
-    required this.readBack,
-    this.min,
-    this.max,
-  });
-
-  @override
-  int get hashCode =>
-      role.hashCode ^
-      commandName.hashCode ^
-      userParams.hashCode ^
-      readBack.hashCode ^
-      min.hashCode ^
-      max.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NetworkActionDto &&
-          runtimeType == other.runtimeType &&
-          role == other.role &&
-          commandName == other.commandName &&
-          userParams == other.userParams &&
-          readBack == other.readBack &&
-          min == other.min &&
-          max == other.max;
-}
-
 /// What a scanner saw about one device on the local network.
 ///
 /// The Wi-Fi counterpart of [`ScannedDeviceDto`]. Separate because the signals
@@ -1171,206 +1111,6 @@ class NetworkDeviceDto {
           port == other.port;
 }
 
-/// A spec-declared control or reading on a network device: what to draw,
-/// where its state comes from, and what each role sends.
-class NetworkEntityDto {
-  final String name;
-  final String? platform;
-  final String? deviceClass;
-  final String? icon;
-  final String? unit;
-
-  /// Conventional path of the state endpoint. A fallback for display and
-  /// for a client that has not fetched the description yet — the real
-  /// address comes from the device's own service list.
-  final String? stateEndpoint;
-
-  /// Action whose reply carries this entity's state. Pass to
-  /// [`render_network_state_request`]; one call serves every entity bound
-  /// to the same command.
-  final String stateCommand;
-
-  /// Name of the returned value carrying the reading.
-  final String? valueField;
-
-  /// Option table for a `select`, in declaration order. Empty otherwise.
-  final List<NetworkOptionDto> options;
-
-  /// Sendable actions, role order. Empty for a pure reading.
-  final List<NetworkActionDto> actions;
-  final double? setpointMin;
-  final double? setpointMax;
-  final double? setpointStep;
-
-  const NetworkEntityDto({
-    required this.name,
-    this.platform,
-    this.deviceClass,
-    this.icon,
-    this.unit,
-    this.stateEndpoint,
-    required this.stateCommand,
-    this.valueField,
-    required this.options,
-    required this.actions,
-    this.setpointMin,
-    this.setpointMax,
-    this.setpointStep,
-  });
-
-  @override
-  int get hashCode =>
-      name.hashCode ^
-      platform.hashCode ^
-      deviceClass.hashCode ^
-      icon.hashCode ^
-      unit.hashCode ^
-      stateEndpoint.hashCode ^
-      stateCommand.hashCode ^
-      valueField.hashCode ^
-      options.hashCode ^
-      actions.hashCode ^
-      setpointMin.hashCode ^
-      setpointMax.hashCode ^
-      setpointStep.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NetworkEntityDto &&
-          runtimeType == other.runtimeType &&
-          name == other.name &&
-          platform == other.platform &&
-          deviceClass == other.deviceClass &&
-          icon == other.icon &&
-          unit == other.unit &&
-          stateEndpoint == other.stateEndpoint &&
-          stateCommand == other.stateCommand &&
-          valueField == other.valueField &&
-          options == other.options &&
-          actions == other.actions &&
-          setpointMin == other.setpointMin &&
-          setpointMax == other.setpointMax &&
-          setpointStep == other.setpointStep;
-}
-
-/// One option of a network `select` control: the raw wire value and the label
-/// a user sees. `raw` is a string because that is how it goes on the wire —
-/// the Crock-Pot's `51` is SOAP text, not a byte.
-class NetworkOptionDto {
-  final String raw;
-  final String label;
-
-  const NetworkOptionDto({
-    required this.raw,
-    required this.label,
-  });
-
-  @override
-  int get hashCode => raw.hashCode ^ label.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NetworkOptionDto &&
-          runtimeType == other.runtimeType &&
-          raw == other.raw &&
-          label == other.label;
-}
-
-/// A defaulted command parameter whose real value the client must read from
-/// the device before sending — parsed out of the spec's
-/// `source: "state:<command>.<field>"` so Dart never parses that string.
-///
-/// This is the Crock-Pot rule: `SetCrockpotState` carries mode and cook time
-/// together, so a control changing one must fetch the other and send it back,
-/// or the write clears a setting the user never touched.
-class NetworkReadBackDto {
-  /// Parameter of the command being sent that this value fills.
-  final String param;
-
-  /// State command whose reply carries the current value.
-  final String command;
-
-  /// Name of the returned value to read.
-  final String field;
-
-  const NetworkReadBackDto({
-    required this.param,
-    required this.command,
-    required this.field,
-  });
-
-  @override
-  int get hashCode => param.hashCode ^ command.hashCode ^ field.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NetworkReadBackDto &&
-          runtimeType == other.runtimeType &&
-          param == other.param &&
-          command == other.command &&
-          field == other.field;
-}
-
-/// One entity's decoded state.
-class NetworkReadingDto {
-  final NetworkReadingKind kind;
-  final bool? isOn;
-  final String? label;
-  final double? number;
-
-  /// The raw value the reading came from, always present — it is what an
-  /// unknown option displays, and what a bug report needs.
-  final String raw;
-
-  const NetworkReadingDto({
-    required this.kind,
-    this.isOn,
-    this.label,
-    this.number,
-    required this.raw,
-  });
-
-  @override
-  int get hashCode =>
-      kind.hashCode ^
-      isOn.hashCode ^
-      label.hashCode ^
-      number.hashCode ^
-      raw.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is NetworkReadingDto &&
-          runtimeType == other.runtimeType &&
-          kind == other.kind &&
-          isOn == other.isOn &&
-          label == other.label &&
-          number == other.number &&
-          raw == other.raw;
-}
-
-/// What kind of value a network entity reading is.
-enum NetworkReadingKind {
-  /// A switch/binary sensor; `is_on` carries the answer.
-  onOff,
-
-  /// A `select` whose raw value matched its option table; `label` is what
-  /// to show.
-  option,
-
-  /// A `select` whose raw value matched nothing. Shown as unknown, never
-  /// folded into the first option — on the Crock-Pot that fold reads "off"
-  /// while the thing is heating.
-  unknownOption,
-  number,
-  text,
-  ;
-}
-
 class ParameterDto {
   final String name;
   final String valueType;
@@ -1389,34 +1129,6 @@ class ParameterDto {
   /// conversion below).
   final List<String>? labels;
 
-  /// Multiplier of the parameter's linear transform, when the spec declares
-  /// one. A treadmill's `speed` is wire-units with `scale: 0.1` and
-  /// `unit: km/h`: the UI works in km/h and the encoder inverts the
-  /// transform. Same semantics as [`DecodedValueDto::scale`].
-  final double? scale;
-
-  /// Additive term completing the parameter's transform,
-  /// `value = raw * scale + value_offset`. Same semantics as
-  /// [`DecodedValueDto::value_offset`].
-  final double? valueOffset;
-
-  /// Unit symbol the parameter's value is expressed in after the transform
-  /// (`km/h`, `%`, ...), so the UI can label a slider without hardcoding
-  /// per-device knowledge.
-  final String? unit;
-
-  /// Value the encoder substitutes when the caller supplies nothing — the
-  /// reason a speed slider does not need to know the protocol's `flag`
-  /// byte. Surfaced so the UI can pre-fill or omit the control entirely.
-  final PlatformInt64? default_;
-
-  /// Transport role the encoder fills rather than the caller
-  /// (`packet_length` | `sequence` | `checksum`), rendered as the spec's
-  /// snake_case wire string. When set, the UI must NOT offer a control for
-  /// this parameter — a "checksum" slider is nonsense, and that exact bug
-  /// is why this field exists. `None` for ordinary caller-owned parameters.
-  final String? auto;
-
   const ParameterDto({
     required this.name,
     required this.valueType,
@@ -1424,11 +1136,6 @@ class ParameterDto {
     this.max,
     this.allowed,
     this.labels,
-    this.scale,
-    this.valueOffset,
-    this.unit,
-    this.default_,
-    this.auto,
   });
 
   @override
@@ -1438,12 +1145,7 @@ class ParameterDto {
       min.hashCode ^
       max.hashCode ^
       allowed.hashCode ^
-      labels.hashCode ^
-      scale.hashCode ^
-      valueOffset.hashCode ^
-      unit.hashCode ^
-      default_.hashCode ^
-      auto.hashCode;
+      labels.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1455,12 +1157,7 @@ class ParameterDto {
           min == other.min &&
           max == other.max &&
           allowed == other.allowed &&
-          labels == other.labels &&
-          scale == other.scale &&
-          valueOffset == other.valueOffset &&
-          unit == other.unit &&
-          default_ == other.default_ &&
-          auto == other.auto;
+          labels == other.labels;
 }
 
 /// A characteristic within a standard profile.
@@ -1663,50 +1360,6 @@ class ServiceDto {
           uuid == other.uuid &&
           name == other.name &&
           characteristics == other.characteristics;
-}
-
-/// A rendered SOAP request, ready for Dart to POST.
-class SoapRequestDto {
-  /// serviceType URN — the key the control URL is resolved by from the
-  /// device's own serviceList. Never trust a path over this.
-  final String service;
-  final String action;
-
-  /// The SOAPACTION header value, quotes included (they are part of it).
-  final String soapAction;
-
-  /// Conventional control path, when the spec states one.
-  final String? path;
-
-  /// The exact request body to send.
-  final String body;
-
-  const SoapRequestDto({
-    required this.service,
-    required this.action,
-    required this.soapAction,
-    this.path,
-    required this.body,
-  });
-
-  @override
-  int get hashCode =>
-      service.hashCode ^
-      action.hashCode ^
-      soapAction.hashCode ^
-      path.hashCode ^
-      body.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is SoapRequestDto &&
-          runtimeType == other.runtimeType &&
-          service == other.service &&
-          action == other.action &&
-          soapAction == other.soapAction &&
-          path == other.path &&
-          body == other.body;
 }
 
 /// The identifying fields of a spec, without the services, characteristics and

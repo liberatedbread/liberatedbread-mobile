@@ -2087,20 +2087,13 @@ pub fn encode_stored_image(
     scroll: String,
     speed: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
-    use crate::protocol::daniao_store::{ImageLayer, Scroll, StoredProgram};
+    use crate::protocol::daniao_store::{ImageLayer, StoredProgram};
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let scroll = match scroll.as_str() {
-        "left" => Scroll::Left,
-        "right" => Scroll::Right,
-        "up" => Scroll::Up,
-        "down" => Scroll::Down,
-        _ => Scroll::None,
-    };
     let program = StoredProgram {
         name: &name,
         cid,
         time_secs,
-        scroll,
+        scroll: scroll_from_str(&scroll),
         // The scroll-speed byte is a small slider value; clamp defensively so a
         // stray large value can't wrap when narrowed to the wire's u8.
         speed: speed.min(u8::MAX as u32) as u8,
@@ -2111,16 +2104,97 @@ pub fn encode_stored_image(
         },
     };
     let plan = crate::protocol::stored_upload::encode_stored_image(&spec, &program)?;
+    Ok(stored_plan_to_dto(plan))
+}
+
+/// Encode the BLE writes that PERSIST a scrolling-text marquee on the device.
+///
+/// `bits` is the rendered text bitmap — one byte per pixel (`0` off, non-zero
+/// lit), row-major, `text_width * text_height` bytes. The width is usually
+/// wider than the panel so the text scrolls. The caller (the UI) rasterises the
+/// string; everything else matches [`encode_stored_image`].
+pub fn encode_stored_text(
+    spec_yaml: String,
+    text_width: u32,
+    text_height: u32,
+    bits: Vec<u8>,
+    name: String,
+    cid: u32,
+    time_secs: u32,
+    scroll: String,
+    speed: u32,
+) -> anyhow::Result<StoredUploadPlanDto> {
+    use crate::protocol::daniao_store::{StoredText, TextContent};
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let program = StoredText {
+        name: &name,
+        cid,
+        time_secs,
+        scroll: scroll_from_str(&scroll),
+        speed: speed.min(u8::MAX as u32) as u8,
+        text: TextContent {
+            width: text_width,
+            height: text_height,
+            bits: &bits,
+        },
+    };
+    let plan = crate::protocol::stored_upload::encode_stored_text(&spec, &program)?;
+    Ok(stored_plan_to_dto(plan))
+}
+
+/// Encode the BLE writes that PERSIST a multi-frame animation on the device.
+///
+/// `frames` are the screens in play order, each row-major RGB888
+/// `width * height * 3` bytes. Stored as the vendor's raw `.eff` animation
+/// (a different container from the still/scrolling microapp), played by cid.
+pub fn encode_stored_animation(
+    spec_yaml: String,
+    width: u32,
+    height: u32,
+    frames: Vec<Vec<u8>>,
+    name: String,
+    cid: u32,
+) -> anyhow::Result<StoredUploadPlanDto> {
+    use crate::protocol::daniao_store::StoredAnimation;
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let frame_refs: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    let anim = StoredAnimation {
+        name: &name,
+        cid,
+        width,
+        height,
+        frames: &frame_refs,
+    };
+    let plan = crate::protocol::stored_upload::encode_stored_animation(&spec, &anim)?;
+    Ok(stored_plan_to_dto(plan))
+}
+
+/// Parse the FFI `scroll` string into the codec's enum (unknown -> no scroll).
+fn scroll_from_str(scroll: &str) -> crate::protocol::daniao_store::Scroll {
+    use crate::protocol::daniao_store::Scroll;
+    match scroll {
+        "left" => Scroll::Left,
+        "right" => Scroll::Right,
+        "up" => Scroll::Up,
+        "down" => Scroll::Down,
+        _ => Scroll::None,
+    }
+}
+
+/// Map a protocol-layer stored-upload plan onto its FFI DTO.
+fn stored_plan_to_dto(
+    plan: crate::protocol::stored_upload::StoredUploadPlan,
+) -> StoredUploadPlanDto {
     let to_dto = |w: crate::protocol::EncodedWrite| ImageWriteDto {
         characteristic_uuid: w.characteristic_uuid,
         bytes: w.bytes,
     };
-    Ok(StoredUploadPlanDto {
+    StoredUploadPlanDto {
         service_uuid: plan.service_uuid,
         upload_writes: plan.upload_writes.into_iter().map(to_dto).collect(),
         play_write: plan.play_write.map(to_dto),
         cid: plan.cid,
-    })
+    }
 }
 
 /// Decode raw bytes from a BLE read/notify into named values.

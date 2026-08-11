@@ -79,16 +79,49 @@ pub struct StoredUploadPlan {
     pub cid: u32,
 }
 
-/// Build the full plan to store `program`'s canvas on `spec`'s device.
-///
-/// Spec-driven throughout: the container format, transport file kind and packet
-/// size, and the play command all come from the `stored_upload` feature. The
-/// only thing this module knows that the spec cannot state is how to assemble
-/// the container bytes, which is what the registered encoder is for.
+/// Store `program`'s canvas as a standalone picture microapp ("DN" AMX,
+/// `file_type` 3).
 pub fn encode_stored_image(
     spec: &DeviceSpec,
     program: &StoredProgram<'_>,
 ) -> Result<StoredUploadPlan, ProtocolError> {
+    let feature = require_stored_feature(spec)?;
+    let container = daniao_store::build_image_container(program)?;
+    let file_type = feature.file_type.unwrap_or(3);
+    assemble_plan(spec, feature, &container, program.cid, file_type, None)
+}
+
+/// Store a scrolling-text marquee ("DN" AMX text layer, same `file_type` as an
+/// image microapp).
+pub fn encode_stored_text(
+    spec: &DeviceSpec,
+    program: &daniao_store::StoredText<'_>,
+) -> Result<StoredUploadPlan, ProtocolError> {
+    let feature = require_stored_feature(spec)?;
+    let container = daniao_store::build_text_container(program)?;
+    let file_type = feature.file_type.unwrap_or(3);
+    assemble_plan(spec, feature, &container, program.cid, file_type, None)
+}
+
+/// Store a multi-frame animation (raw "DNMX" `.eff`).
+///
+/// The `.eff` animation uploads as file kind 0 with a `<cid>.eff` path — a
+/// Daniao platform fact tied to THIS container kind, not the spec's default
+/// `file_type` (which is the AMX microapp's 3). Both are played back the same
+/// way (by cid).
+pub fn encode_stored_animation(
+    spec: &DeviceSpec,
+    anim: &daniao_store::StoredAnimation<'_>,
+) -> Result<StoredUploadPlan, ProtocolError> {
+    let feature = require_stored_feature(spec)?;
+    let container = daniao_store::build_animation_container(anim)?;
+    let path = format!("{}.eff", anim.cid);
+    assemble_plan(spec, feature, &container, anim.cid, 0, Some(&path))
+}
+
+/// Validate that `spec` declares a `stored_upload` feature whose
+/// `container_format` this build implements, returning the feature.
+fn require_stored_feature(spec: &DeviceSpec) -> Result<&Feature, ProtocolError> {
     let feature = stored_feature(spec).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
         reason: "spec declares no stored_upload feature".to_string(),
     })?;
@@ -97,16 +130,23 @@ pub fn encode_stored_image(
             reason: "stored_upload feature names no container_format".to_string(),
         }
     })?;
-    let encoder =
-        container_encoder(format).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
-            reason: format!("no container encoder registered for '{format}' in this build"),
-        })?;
+    container_encoder(format).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
+        reason: format!("no container encoder registered for '{format}' in this build"),
+    })?;
+    Ok(feature)
+}
 
-    let container = (encoder.build_image)(program)?;
-
-    // Transport: the file kind and packet size are the spec's to state; the
-    // uploader characteristic is resolved from the spec inside encode_upload.
-    let file_type = feature.file_type.unwrap_or(3);
+/// Carry a finished container over the uploader transport and, when the spec
+/// declares a `play_command`, tack on the play-by-cid write. Shared by every
+/// stored kind — only the container bytes, file kind and path differ.
+fn assemble_plan(
+    spec: &DeviceSpec,
+    feature: &Feature,
+    container: &[u8],
+    cid: u32,
+    file_type: u32,
+    path: Option<&str>,
+) -> Result<StoredUploadPlan, ProtocolError> {
     let frame_size = feature
         .frame_size
         .map(|n| n as usize)
@@ -114,16 +154,9 @@ pub fn encode_stored_image(
     // The transfer id is echoed by the device; the low byte of the cid is a
     // fine, stable choice (the vendor uses a rolling counter, which the device
     // only needs to match within one transfer).
-    let id = (program.cid & 0xFF) as u8;
-    let transfer = daniao_upload::encode_upload(
-        spec,
-        id,
-        file_type,
-        program.cid,
-        &container,
-        None,
-        frame_size,
-    )?;
+    let id = (cid & 0xFF) as u8;
+    let transfer =
+        daniao_upload::encode_upload(spec, id, file_type, cid, container, path, frame_size)?;
 
     let service_uuid =
         service_for_characteristic(spec, &transfer.characteristic_uuid).ok_or_else(|| {
@@ -133,7 +166,7 @@ pub fn encode_stored_image(
         })?;
 
     let play_write = match feature.play_command.as_deref() {
-        Some(command) => Some(build_play_write(spec, command, program.cid)?),
+        Some(command) => Some(build_play_write(spec, command, cid)?),
         None => None,
     };
 
@@ -141,7 +174,7 @@ pub fn encode_stored_image(
         service_uuid,
         upload_writes: transfer.writes,
         play_write,
-        cid: program.cid,
+        cid,
     })
 }
 
@@ -356,6 +389,57 @@ services:
             &[0x08, 0xA1, 0xE9, 0x04, 0x10, 0x00],
             "play payload matches the capture's PLAY_EFFECT by cid"
         );
+    }
+
+    #[test]
+    fn text_and_animation_reuse_the_transport_and_play() {
+        use crate::protocol::daniao_store::{StoredAnimation, StoredText, TextContent};
+        let s = spec();
+
+        let bits = vec![1u8; 32 * 12];
+        let text_plan = encode_stored_text(
+            &s,
+            &StoredText {
+                name: "hi",
+                cid: 900010,
+                time_secs: 8,
+                scroll: Scroll::Left,
+                speed: 4,
+                text: TextContent {
+                    width: 32,
+                    height: 12,
+                    bits: &bits,
+                },
+            },
+        )
+        .unwrap();
+        assert!(text_plan
+            .upload_writes
+            .iter()
+            .all(|w| w.characteristic_uuid == "27923001-2072-1925-3022-077119514e44"));
+        assert!(text_plan.play_write.is_some());
+
+        let frame = vec![0u8; 2 * 2 * 3];
+        let frames: Vec<&[u8]> = vec![&frame, &frame];
+        let anim_plan = encode_stored_animation(
+            &s,
+            &StoredAnimation {
+                name: "a",
+                cid: 900011,
+                width: 2,
+                height: 2,
+                frames: &frames,
+            },
+        )
+        .unwrap();
+        // START packet's UploadRequest carries the .eff path (field 8, tag 0x42)
+        // and file kind 0 — the animation transport differs from the AMX one.
+        let start = &anim_plan.upload_writes[0].bytes;
+        assert!(
+            start.contains(&0x42),
+            "animation START includes the .eff path"
+        );
+        assert_eq!(anim_plan.cid, 900011);
     }
 
     #[test]

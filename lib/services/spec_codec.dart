@@ -211,4 +211,34 @@ abstract class SpecCodec {
     required String scroll,
     required int speed,
   });
+
+  /// Encode the BLE writes that persist a scrolling-text marquee on the device.
+  ///
+  /// [bits] is the rendered text bitmap — one byte per pixel (`0` off, non-zero
+  /// lit), row-major, `textWidth * textHeight` bytes. The width is usually wider
+  /// than the panel so the text scrolls.
+  Future<StoredUploadPlanDto> encodeStoredText({
+    required String specYaml,
+    required int textWidth,
+    required int textHeight,
+    required List<int> bits,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  });
+
+  /// Encode the BLE writes that persist a multi-frame animation on the device.
+  ///
+  /// [frames] are the screens in play order, each row-major RGB888
+  /// `width * height * 3` bytes, ≤16 colours each.
+  Future<StoredUploadPlanDto> encodeStoredAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required String name,
+    required int cid,
+  });
 }
