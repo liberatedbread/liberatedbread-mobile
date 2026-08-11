@@ -823,6 +823,91 @@ pub fn network_entities(spec: &DeviceSpec) -> Vec<&Entity> {
         .collect()
 }
 
+/// [`network_entities`], further narrowed to the variants a device's own SSDP
+/// answers say it is.
+///
+/// One spec covers a whole family — wemo-devices spans plugs, dimmers, a
+/// bridge and a slow cooker — and its entities carry `variants` lists saying
+/// which models each control applies to. A device announces its model in the
+/// search targets it answers (`urn:Belkin:device:crockpot:1`), so the two can
+/// be joined: a variant matches when any target equals its
+/// `identification.device_type` (or an alternate), and an entity survives
+/// when it is unscoped or names a matched variant.
+///
+/// The failure this exists to prevent is concrete: without it, every Wemo
+/// plug gets a Cook Mode picker whose writes the plug answers with a SOAP
+/// fault — or worse, doesn't. When no variant matches at all, scoped entities
+/// are dropped rather than shown: an unidentified model gets no controls
+/// instead of a stranger's.
+pub fn network_entities_for_targets<'a>(
+    spec: &'a DeviceSpec,
+    ssdp_targets: &[String],
+) -> Vec<&'a Entity> {
+    let matched = matched_variant_names(spec, ssdp_targets);
+    network_entities(spec)
+        .into_iter()
+        .filter(|entity| match entity_variants(entity) {
+            None => true,
+            Some(scoped) => scoped.iter().any(|name| matched.contains(name)),
+        })
+        .collect()
+}
+
+/// Names of the `device.variants` entries whose declared device type (or an
+/// alternate) appears among the SSDP targets a device answered to.
+fn matched_variant_names(spec: &DeviceSpec, ssdp_targets: &[String]) -> Vec<String> {
+    let Some(variants) = spec.device.variants.as_ref().and_then(|v| v.as_sequence()) else {
+        return Vec::new();
+    };
+    variants
+        .iter()
+        .filter_map(|variant| {
+            let identification = variant.get("identification")?;
+            let mut types: Vec<&str> = identification
+                .get("device_type")
+                .and_then(|t| t.as_str())
+                .into_iter()
+                .collect();
+            if let Some(alternates) = identification
+                .get("alternate_device_types")
+                .and_then(|a| a.as_sequence())
+            {
+                types.extend(alternates.iter().filter_map(|t| t.as_str()));
+            }
+            let hit = types
+                .iter()
+                .any(|t| ssdp_targets.iter().any(|s| s.eq_ignore_ascii_case(t)));
+            if !hit {
+                return None;
+            }
+            // Display name first: that is what entity `variants` lists cite
+            // (the spec's own tests hold it to that), with `model` accepted
+            // for a spec that scopes by model number instead.
+            variant
+                .get("name")
+                .or_else(|| variant.get("model"))
+                .and_then(|n| n.as_str())
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+/// An entity's `variants` scoping list, or `None` when it is unscoped.
+///
+/// `Some(vec![])` and `None` are different on purpose, mirroring the schema:
+/// an empty list would claim "applies to no model at all", and the schema
+/// forbids writing one (`minItems: 1`) precisely because it always means a
+/// half-deleted edit rather than an intention.
+fn entity_variants(entity: &Entity) -> Option<Vec<String>> {
+    let value = entity.extensions.get("variants")?;
+    let list = value.as_sequence()?;
+    Some(
+        list.iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

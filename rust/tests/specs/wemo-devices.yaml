@@ -1812,6 +1812,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/basicevent1"
     name: "SetBinaryState"
+    service: "urn:Belkin:service:basicevent:1"
     description: >
       Universal SOAP action for relay/light on/off. Required SOAPACTION header:
       "urn:Belkin:service:basicevent:1#SetBinaryState". Dimmers may include a
@@ -1831,6 +1832,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/basicevent1"
     name: "GetBinaryState"
+    service: "urn:Belkin:service:basicevent:1"
     description: >
       Universal SOAP action for current binary state. Required SOAPACTION
       header: "urn:Belkin:service:basicevent:1#GetBinaryState".
@@ -1857,6 +1859,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/basicevent1"
     name: "GetCrockpotState"
+    service: "urn:Belkin:service:basicevent:1"
     description: >
       Crock-Pot only. The device's whole state in one call. Required
       SOAPACTION header:
@@ -1897,6 +1900,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/basicevent1"
     name: "SetCrockpotState"
+    service: "urn:Belkin:service:basicevent:1"
     description: >
       Crock-Pot only. Sets mode and cook time together — there is no action
       that sets one of them. Required SOAPACTION header:
@@ -1923,6 +1927,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/metainfo1"
     name: "GetMetaInfo"
+    service: "urn:Belkin:service:metainfo:1"
     description: >
       Device metadata. Required SOAPACTION header:
       "urn:Belkin:service:metainfo:1#GetMetaInfo". Takes no arguments.
@@ -1936,6 +1941,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/timesync1"
     name: "TimeSync"
+    service: "urn:Belkin:service:timesync:1"
     description: >
       Set the device clock, which local rules and timers depend on. Required
       SOAPACTION header: "urn:Belkin:service:timesync:1#TimeSync".
@@ -1950,6 +1956,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/deviceinfo1"
     name: "GetDeviceInformation"
+    service: "urn:Belkin:service:deviceinfo:1"
     description: >
       Extended device information. Required SOAPACTION header:
       "urn:Belkin:service:deviceinfo:1#GetDeviceInformation". Not present on
@@ -1959,6 +1966,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/insight1"
     name: "GetInsightParams"
+    service: "urn:Belkin:service:insight:1"
     description: >
       Insight-only SOAP action. Required SOAPACTION header:
       "urn:Belkin:service:insight:1#GetInsightParams".
@@ -1974,6 +1982,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/deviceevent1"
     name: "GetAttributes / SetAttributes"
+    service: "urn:Belkin:service:deviceevent:1"
     description: >
       Attribute-based appliance surface used by Maker, Coffee Maker, Heater,
       Air Purifier, and Humidifier classes. Required SOAPACTION header uses
@@ -1982,6 +1991,7 @@ http_endpoints:
   - method: "POST"
     path: "/upnp/control/bridge1"
     name: "Bridge Device Control"
+    service: "urn:Belkin:service:bridge:1"
     description: >
       Wemo Link bridge actions for paired bulbs and groups, including
       GetEndDevicesWithStatus, GetDeviceStatus, and SetDeviceStatus.

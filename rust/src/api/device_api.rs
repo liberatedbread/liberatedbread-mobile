@@ -912,6 +912,316 @@ pub fn encode_entity_value(
     })
 }
 
+// ── Network (SOAP) control ──────────────────────────────────────────────────
+//
+// The same three jobs the BLE surface does — list the controls, encode a
+// write, decode a reading — for a device whose control surface is SOAP
+// actions rather than GATT characteristics. The split with Dart mirrors the
+// BLE one exactly: Dart owns the I/O (fetch setup.xml, resolve the control
+// URL from the device's own service list, POST, parse the reply into
+// name→value pairs) and this side owns everything the spec knows.
+
+/// One option of a network `select` control: the raw wire value and the label
+/// a user sees. `raw` is a string because that is how it goes on the wire —
+/// the Crock-Pot's `51` is SOAP text, not a byte.
+#[derive(Debug, Clone)]
+pub struct NetworkOptionDto {
+    pub raw: String,
+    pub label: String,
+}
+
+/// A defaulted command parameter whose real value the client must read from
+/// the device before sending — parsed out of the spec's
+/// `source: "state:<command>.<field>"` so Dart never parses that string.
+///
+/// This is the Crock-Pot rule: `SetCrockpotState` carries mode and cook time
+/// together, so a control changing one must fetch the other and send it back,
+/// or the write clears a setting the user never touched.
+#[derive(Debug, Clone)]
+pub struct NetworkReadBackDto {
+    /// Parameter of the command being sent that this value fills.
+    pub param: String,
+    /// State command whose reply carries the current value.
+    pub command: String,
+    /// Name of the returned value to read.
+    pub field: String,
+}
+
+/// One resolved control action on a network entity.
+#[derive(Debug, Clone)]
+pub struct NetworkActionDto {
+    /// `turn_on` | `turn_off` | `set_value` | `select_option` | …
+    pub role: String,
+    /// Name in the spec's top-level `commands` block; what
+    /// [`render_network_command`] takes.
+    pub command_name: String,
+    /// The parameters the UI supplies — at most one today (the picked option,
+    /// the chosen number). Empty for a fixed action.
+    pub user_params: Vec<String>,
+    /// Values to read from the device and pass along with the send. Not
+    /// optional bookkeeping: skipping these clears settings.
+    pub read_back: Vec<NetworkReadBackDto>,
+    /// Declared bounds of the value parameter, in the wire's own units.
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+/// A spec-declared control or reading on a network device: what to draw,
+/// where its state comes from, and what each role sends.
+#[derive(Debug, Clone)]
+pub struct NetworkEntityDto {
+    pub name: String,
+    pub platform: Option<String>,
+    pub device_class: Option<String>,
+    pub icon: Option<String>,
+    pub unit: Option<String>,
+    /// Conventional path of the state endpoint. A fallback for display and
+    /// for a client that has not fetched the description yet — the real
+    /// address comes from the device's own service list.
+    pub state_endpoint: Option<String>,
+    /// Action whose reply carries this entity's state. Pass to
+    /// [`render_network_state_request`]; one call serves every entity bound
+    /// to the same command.
+    pub state_command: String,
+    /// Name of the returned value carrying the reading.
+    pub value_field: Option<String>,
+    /// Option table for a `select`, in declaration order. Empty otherwise.
+    pub options: Vec<NetworkOptionDto>,
+    /// Sendable actions, role order. Empty for a pure reading.
+    pub actions: Vec<NetworkActionDto>,
+    pub setpoint_min: Option<f64>,
+    pub setpoint_max: Option<f64>,
+    pub setpoint_step: Option<f64>,
+}
+
+/// A rendered SOAP request, ready for Dart to POST.
+#[derive(Debug, Clone)]
+pub struct SoapRequestDto {
+    /// serviceType URN — the key the control URL is resolved by from the
+    /// device's own serviceList. Never trust a path over this.
+    pub service: String,
+    pub action: String,
+    /// The SOAPACTION header value, quotes included (they are part of it).
+    pub soap_action: String,
+    /// Conventional control path, when the spec states one.
+    pub path: Option<String>,
+    /// The exact request body to send.
+    pub body: String,
+}
+
+/// What kind of value a network entity reading is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkReadingKind {
+    /// A switch/binary sensor; `is_on` carries the answer.
+    OnOff,
+    /// A `select` whose raw value matched its option table; `label` is what
+    /// to show.
+    Option,
+    /// A `select` whose raw value matched nothing. Shown as unknown, never
+    /// folded into the first option — on the Crock-Pot that fold reads "off"
+    /// while the thing is heating.
+    UnknownOption,
+    Number,
+    Text,
+}
+
+/// One entity's decoded state.
+#[derive(Debug, Clone)]
+pub struct NetworkReadingDto {
+    pub kind: NetworkReadingKind,
+    pub is_on: Option<bool>,
+    pub label: Option<String>,
+    pub number: Option<f64>,
+    /// The raw value the reading came from, always present — it is what an
+    /// unknown option displays, and what a bug report needs.
+    pub raw: String,
+}
+
+impl NetworkActionDto {
+    fn from(action: &bindings::NetworkAction<'_>) -> Self {
+        Self {
+            role: action.role.to_string(),
+            command_name: action.command_name.to_string(),
+            user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
+            read_back: action
+                .read_back
+                .iter()
+                .filter_map(|(param, source)| {
+                    // "state:<command>.<field>". A source in a shape this
+                    // does not understand is dropped rather than guessed at:
+                    // the caller then simply cannot pre-fill that parameter,
+                    // and the spec's `default` carries the send.
+                    let rest = source.strip_prefix("state:")?;
+                    let (command, field) = rest.split_once('.')?;
+                    Some(NetworkReadBackDto {
+                        param: (*param).to_string(),
+                        command: command.to_string(),
+                        field: field.to_string(),
+                    })
+                })
+                .collect(),
+            min: action.min,
+            max: action.max,
+        }
+    }
+}
+
+/// The controls a spec declares for one discovered network device.
+///
+/// `ssdp_targets` is what the device itself answered to — it is how a family
+/// spec's variant-scoped entities are narrowed to the model actually found.
+/// A Wemo plug must not grow a Cook Mode picker because its spec also covers
+/// a slow cooker; when the model cannot be identified at all, scoped entities
+/// are dropped rather than guessed.
+pub fn network_entities_for_device(
+    spec_yaml: String,
+    ssdp_targets: Vec<String>,
+) -> anyhow::Result<Vec<NetworkEntityDto>> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    Ok(bindings::network_entities_for_targets(&spec, &ssdp_targets)
+        .into_iter()
+        .map(|entity| {
+            let actions = bindings::resolve_network_actions(&spec, entity);
+            NetworkEntityDto {
+                name: entity.name.clone(),
+                platform: entity.platform.clone(),
+                device_class: entity.device_class.clone(),
+                icon: entity.icon.clone(),
+                unit: entity.unit.clone(),
+                state_endpoint: entity.state_endpoint.clone(),
+                // Guaranteed present: `network_entities_for_targets` only
+                // yields entities that name one.
+                state_command: entity.state_command.clone().unwrap_or_default(),
+                value_field: entity.value_field().map(str::to_string),
+                options: entity
+                    .options()
+                    .into_iter()
+                    .map(|(raw, label)| NetworkOptionDto { raw, label })
+                    .collect(),
+                actions: actions.iter().map(NetworkActionDto::from).collect(),
+                setpoint_min: entity.setpoint_min().or_else(|| {
+                    actions
+                        .iter()
+                        .find(|a| a.role == "set_value")
+                        .and_then(|a| a.min)
+                }),
+                setpoint_max: entity.setpoint_max().or_else(|| {
+                    actions
+                        .iter()
+                        .find(|a| a.role == "set_value")
+                        .and_then(|a| a.max)
+                }),
+                setpoint_step: entity.setpoint_step(),
+            }
+        })
+        .collect())
+}
+
+/// Render a named command from the spec's `commands` block into a POSTable
+/// request. `values` supplies the parameters the caller owns plus any
+/// read-back values it fetched; the spec's defaults fill the rest.
+pub fn render_network_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<SoapRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request =
+        crate::protocol::soap::render_request(&spec, &command_name, &values.into_iter().collect())?;
+    Ok(SoapRequestDto::from(request))
+}
+
+/// Render the argument-less request that reads a state command's values —
+/// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
+pub fn render_network_state_request(
+    spec_yaml: String,
+    state_command: String,
+) -> anyhow::Result<SoapRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request = crate::protocol::soap::render_state_request(&spec, &state_command)?;
+    Ok(SoapRequestDto::from(request))
+}
+
+impl From<crate::protocol::soap::SoapRequest> for SoapRequestDto {
+    fn from(request: crate::protocol::soap::SoapRequest) -> Self {
+        Self {
+            service: request.service,
+            action: request.action,
+            soap_action: request.soap_action,
+            path: request.path,
+            body: request.body,
+        }
+    }
+}
+
+/// Decode one entity's state from the name→value pairs a state call
+/// returned. `None` when the reply did not carry the entity's value — which
+/// renders as unknown, never as a fabricated zero.
+pub fn read_network_entity(
+    spec_yaml: String,
+    entity_name: String,
+    returned: HashMap<String, String>,
+) -> anyhow::Result<Option<NetworkReadingDto>> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let entity = spec
+        .entities
+        .iter()
+        .find(|e| e.name == entity_name)
+        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
+    let returned = returned.into_iter().collect();
+    Ok(
+        crate::protocol::soap::read_entity(&spec, entity, &returned).map(|reading| {
+            use crate::protocol::soap::EntityReading;
+            match reading {
+                EntityReading::OnOff(on) => NetworkReadingDto {
+                    kind: NetworkReadingKind::OnOff,
+                    is_on: Some(on),
+                    label: None,
+                    number: None,
+                    raw: if on { "1" } else { "0" }.to_string(),
+                },
+                EntityReading::Option { raw, label } => NetworkReadingDto {
+                    kind: NetworkReadingKind::Option,
+                    is_on: None,
+                    label: Some(label),
+                    number: None,
+                    raw,
+                },
+                EntityReading::UnknownOption { raw } => NetworkReadingDto {
+                    kind: NetworkReadingKind::UnknownOption,
+                    is_on: None,
+                    label: None,
+                    number: None,
+                    raw,
+                },
+                EntityReading::Number(n) => NetworkReadingDto {
+                    kind: NetworkReadingKind::Number,
+                    is_on: None,
+                    label: None,
+                    number: Some(n),
+                    raw: format_number(n),
+                },
+                EntityReading::Text(raw) => NetworkReadingDto {
+                    kind: NetworkReadingKind::Text,
+                    is_on: None,
+                    label: None,
+                    number: None,
+                    raw,
+                },
+            }
+        }),
+    )
+}
+
+/// A number as its shortest honest string: `240` not `240.0`, `53.2` intact.
+fn format_number(n: f64) -> String {
+    if n.fract() == 0.0 && n.abs() < 1e15 {
+        format!("{}", n as i64)
+    } else {
+        n.to_string()
+    }
+}
+
 /// The axes on which one spec identity matched one observation. Every field is
 /// empty/false when nothing matched at all.
 ///

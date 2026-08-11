@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -1327585841;
+  int get rustContentHash => 795992558;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -134,6 +134,22 @@ abstract class RustLibApi extends BaseApi {
       {required String deviceId,
       required String charUuid,
       required List<int> value});
+
+  Future<List<NetworkEntityDto>> crateApiDeviceApiNetworkEntitiesForDevice(
+      {required String specYaml, required List<String> ssdpTargets});
+
+  Future<NetworkReadingDto?> crateApiDeviceApiReadNetworkEntity(
+      {required String specYaml,
+      required String entityName,
+      required Map<String, String> returned});
+
+  Future<SoapRequestDto> crateApiDeviceApiRenderNetworkCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values});
+
+  Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
+      {required String specYaml, required String stateCommand});
 }
 
 class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
@@ -510,10 +526,131 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         argNames: ['deviceId', 'charUuid', 'value'],
       );
 
+  @override
+  Future<List<NetworkEntityDto>> crateApiDeviceApiNetworkEntitiesForDevice(
+      {required String specYaml, required List<String> ssdpTargets}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_list_String(ssdpTargets, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 13, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_network_entity_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiNetworkEntitiesForDeviceConstMeta,
+      argValues: [specYaml, ssdpTargets],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiNetworkEntitiesForDeviceConstMeta =>
+      const TaskConstMeta(
+        debugName: 'network_entities_for_device',
+        argNames: ['specYaml', 'ssdpTargets'],
+      );
+
+  @override
+  Future<NetworkReadingDto?> crateApiDeviceApiReadNetworkEntity(
+      {required String specYaml,
+      required String entityName,
+      required Map<String, String> returned}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(entityName, serializer);
+        sse_encode_Map_String_String_None(returned, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 14, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_box_autoadd_network_reading_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiReadNetworkEntityConstMeta,
+      argValues: [specYaml, entityName, returned],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiReadNetworkEntityConstMeta =>
+      const TaskConstMeta(
+        debugName: 'read_network_entity',
+        argNames: ['specYaml', 'entityName', 'returned'],
+      );
+
+  @override
+  Future<SoapRequestDto> crateApiDeviceApiRenderNetworkCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(commandName, serializer);
+        sse_encode_Map_String_String_None(values, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 15, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_soap_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkCommandConstMeta,
+      argValues: [specYaml, commandName, values],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_command',
+        argNames: ['specYaml', 'commandName', 'values'],
+      );
+
+  @override
+  Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
+      {required String specYaml, required String stateCommand}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(stateCommand, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 16, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_soap_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkStateRequestConstMeta,
+      argValues: [specYaml, stateCommand],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkStateRequestConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_state_request',
+        argNames: ['specYaml', 'stateCommand'],
+      );
+
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return AnyhowException(raw as String);
+  }
+
+  @protected
+  Map<String, String> dco_decode_Map_String_String_None(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return Map.fromEntries(dco_decode_list_record_string_string(raw)
+        .map((e) => MapEntry(e.$1, e.$2)));
   }
 
   @protected
@@ -569,6 +706,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkDeviceDto dco_decode_box_autoadd_network_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_network_device_dto(raw);
+  }
+
+  @protected
+  NetworkReadingDto dco_decode_box_autoadd_network_reading_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_network_reading_dto(raw);
   }
 
   @protected
@@ -877,6 +1020,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<NetworkActionDto> dco_decode_list_network_action_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_network_action_dto).toList();
+  }
+
+  @protected
+  List<NetworkEntityDto> dco_decode_list_network_entity_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_network_entity_dto).toList();
+  }
+
+  @protected
+  List<NetworkOptionDto> dco_decode_list_network_option_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_network_option_dto).toList();
+  }
+
+  @protected
+  List<NetworkReadBackDto> dco_decode_list_network_read_back_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_network_read_back_dto)
+        .toList();
+  }
+
+  @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_parameter_dto).toList();
@@ -925,6 +1094,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<(String, double)> dco_decode_list_record_string_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_record_string_f_64).toList();
+  }
+
+  @protected
+  List<(String, String)> dco_decode_list_record_string_string(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_record_string_string).toList();
   }
 
   @protected
@@ -984,6 +1159,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  NetworkActionDto dco_decode_network_action_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return NetworkActionDto(
+      role: dco_decode_String(arr[0]),
+      commandName: dco_decode_String(arr[1]),
+      userParams: dco_decode_list_String(arr[2]),
+      readBack: dco_decode_list_network_read_back_dto(arr[3]),
+      min: dco_decode_opt_box_autoadd_f_64(arr[4]),
+      max: dco_decode_opt_box_autoadd_f_64(arr[5]),
+    );
+  }
+
+  @protected
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -996,6 +1187,75 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       ssdpTargets: dco_decode_list_String(arr[3]),
       port: dco_decode_opt_box_autoadd_u_16(arr[4]),
     );
+  }
+
+  @protected
+  NetworkEntityDto dco_decode_network_entity_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 13)
+      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    return NetworkEntityDto(
+      name: dco_decode_String(arr[0]),
+      platform: dco_decode_opt_String(arr[1]),
+      deviceClass: dco_decode_opt_String(arr[2]),
+      icon: dco_decode_opt_String(arr[3]),
+      unit: dco_decode_opt_String(arr[4]),
+      stateEndpoint: dco_decode_opt_String(arr[5]),
+      stateCommand: dco_decode_String(arr[6]),
+      valueField: dco_decode_opt_String(arr[7]),
+      options: dco_decode_list_network_option_dto(arr[8]),
+      actions: dco_decode_list_network_action_dto(arr[9]),
+      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[10]),
+      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[11]),
+      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[12]),
+    );
+  }
+
+  @protected
+  NetworkOptionDto dco_decode_network_option_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return NetworkOptionDto(
+      raw: dco_decode_String(arr[0]),
+      label: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  NetworkReadBackDto dco_decode_network_read_back_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return NetworkReadBackDto(
+      param: dco_decode_String(arr[0]),
+      command: dco_decode_String(arr[1]),
+      field: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
+  NetworkReadingDto dco_decode_network_reading_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return NetworkReadingDto(
+      kind: dco_decode_network_reading_kind(arr[0]),
+      isOn: dco_decode_opt_box_autoadd_bool(arr[1]),
+      label: dco_decode_opt_String(arr[2]),
+      number: dco_decode_opt_box_autoadd_f_64(arr[3]),
+      raw: dco_decode_String(arr[4]),
+    );
+  }
+
+  @protected
+  NetworkReadingKind dco_decode_network_reading_kind(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return NetworkReadingKind.values[raw as int];
   }
 
   @protected
@@ -1032,6 +1292,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_mac_prefix_dto(raw);
+  }
+
+  @protected
+  NetworkReadingDto? dco_decode_opt_box_autoadd_network_reading_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_network_reading_dto(raw);
   }
 
   @protected
@@ -1116,6 +1383,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  (String, String) dco_decode_record_string_string(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2) {
+      throw Exception('Expected 2 elements, got ${arr.length}');
+    }
+    return (
+      dco_decode_String(arr[0]),
+      dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   ScanMatch dco_decode_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1159,6 +1439,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       uuid: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
       characteristics: dco_decode_list_characteristic_dto(arr[2]),
+    );
+  }
+
+  @protected
+  SoapRequestDto dco_decode_soap_request_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return SoapRequestDto(
+      service: dco_decode_String(arr[0]),
+      action: dco_decode_String(arr[1]),
+      soapAction: dco_decode_String(arr[2]),
+      path: dco_decode_opt_String(arr[3]),
+      body: dco_decode_String(arr[4]),
     );
   }
 
@@ -1211,6 +1506,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_String(deserializer);
     return AnyhowException(inner);
+  }
+
+  @protected
+  Map<String, String> sse_decode_Map_String_String_None(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_list_record_string_string(deserializer);
+    return Map.fromEntries(inner.map((e) => MapEntry(e.$1, e.$2)));
   }
 
   @protected
@@ -1271,6 +1574,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_network_device_dto(deserializer));
+  }
+
+  @protected
+  NetworkReadingDto sse_decode_box_autoadd_network_reading_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_network_reading_dto(deserializer));
   }
 
   @protected
@@ -1705,6 +2015,58 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<NetworkActionDto> sse_decode_list_network_action_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <NetworkActionDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_network_action_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<NetworkEntityDto> sse_decode_list_network_entity_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <NetworkEntityDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_network_entity_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<NetworkOptionDto> sse_decode_list_network_option_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <NetworkOptionDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_network_option_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<NetworkReadBackDto> sse_decode_list_network_read_back_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <NetworkReadBackDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_network_read_back_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ParameterDto> sse_decode_list_parameter_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1785,6 +2147,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<(String, String)> sse_decode_list_record_string_string(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <(String, String)>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_record_string_string(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1859,6 +2234,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  NetworkActionDto sse_decode_network_action_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_role = sse_decode_String(deserializer);
+    var var_commandName = sse_decode_String(deserializer);
+    var var_userParams = sse_decode_list_String(deserializer);
+    var var_readBack = sse_decode_list_network_read_back_dto(deserializer);
+    var var_min = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_max = sse_decode_opt_box_autoadd_f_64(deserializer);
+    return NetworkActionDto(
+        role: var_role,
+        commandName: var_commandName,
+        userParams: var_userParams,
+        readBack: var_readBack,
+        min: var_min,
+        max: var_max);
+  }
+
+  @protected
   NetworkDeviceDto sse_decode_network_device_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_name = sse_decode_String(deserializer);
@@ -1872,6 +2265,82 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serviceTypes: var_serviceTypes,
         ssdpTargets: var_ssdpTargets,
         port: var_port);
+  }
+
+  @protected
+  NetworkEntityDto sse_decode_network_entity_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_platform = sse_decode_opt_String(deserializer);
+    var var_deviceClass = sse_decode_opt_String(deserializer);
+    var var_icon = sse_decode_opt_String(deserializer);
+    var var_unit = sse_decode_opt_String(deserializer);
+    var var_stateEndpoint = sse_decode_opt_String(deserializer);
+    var var_stateCommand = sse_decode_String(deserializer);
+    var var_valueField = sse_decode_opt_String(deserializer);
+    var var_options = sse_decode_list_network_option_dto(deserializer);
+    var var_actions = sse_decode_list_network_action_dto(deserializer);
+    var var_setpointMin = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_setpointMax = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_setpointStep = sse_decode_opt_box_autoadd_f_64(deserializer);
+    return NetworkEntityDto(
+        name: var_name,
+        platform: var_platform,
+        deviceClass: var_deviceClass,
+        icon: var_icon,
+        unit: var_unit,
+        stateEndpoint: var_stateEndpoint,
+        stateCommand: var_stateCommand,
+        valueField: var_valueField,
+        options: var_options,
+        actions: var_actions,
+        setpointMin: var_setpointMin,
+        setpointMax: var_setpointMax,
+        setpointStep: var_setpointStep);
+  }
+
+  @protected
+  NetworkOptionDto sse_decode_network_option_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_raw = sse_decode_String(deserializer);
+    var var_label = sse_decode_String(deserializer);
+    return NetworkOptionDto(raw: var_raw, label: var_label);
+  }
+
+  @protected
+  NetworkReadBackDto sse_decode_network_read_back_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_param = sse_decode_String(deserializer);
+    var var_command = sse_decode_String(deserializer);
+    var var_field = sse_decode_String(deserializer);
+    return NetworkReadBackDto(
+        param: var_param, command: var_command, field: var_field);
+  }
+
+  @protected
+  NetworkReadingDto sse_decode_network_reading_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_kind = sse_decode_network_reading_kind(deserializer);
+    var var_isOn = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_label = sse_decode_opt_String(deserializer);
+    var var_number = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_raw = sse_decode_String(deserializer);
+    return NetworkReadingDto(
+        kind: var_kind,
+        isOn: var_isOn,
+        label: var_label,
+        number: var_number,
+        raw: var_raw);
+  }
+
+  @protected
+  NetworkReadingKind sse_decode_network_reading_kind(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return NetworkReadingKind.values[inner];
   }
 
   @protected
@@ -1937,6 +2406,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_mac_prefix_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  NetworkReadingDto? sse_decode_opt_box_autoadd_network_reading_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_network_reading_dto(deserializer));
     } else {
       return null;
     }
@@ -2044,6 +2525,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  (String, String) sse_decode_record_string_string(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_field0 = sse_decode_String(deserializer);
+    var var_field1 = sse_decode_String(deserializer);
+    return (var_field0, var_field1);
+  }
+
+  @protected
   ScanMatch sse_decode_scan_match(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_specIndex = sse_decode_u_32(deserializer);
@@ -2092,6 +2582,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_characteristics = sse_decode_list_characteristic_dto(deserializer);
     return ServiceDto(
         uuid: var_uuid, name: var_name, characteristics: var_characteristics);
+  }
+
+  @protected
+  SoapRequestDto sse_decode_soap_request_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_service = sse_decode_String(deserializer);
+    var var_action = sse_decode_String(deserializer);
+    var var_soapAction = sse_decode_String(deserializer);
+    var var_path = sse_decode_opt_String(deserializer);
+    var var_body = sse_decode_String(deserializer);
+    return SoapRequestDto(
+        service: var_service,
+        action: var_action,
+        soapAction: var_soapAction,
+        path: var_path,
+        body: var_body);
   }
 
   @protected
@@ -2148,6 +2654,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       AnyhowException self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.message, serializer);
+  }
+
+  @protected
+  void sse_encode_Map_String_String_None(
+      Map<String, String> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_record_string_string(
+        self.entries.map((e) => (e.key, e.value)).toList(), serializer);
   }
 
   @protected
@@ -2208,6 +2722,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       NetworkDeviceDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_network_device_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_network_reading_dto(
+      NetworkReadingDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_network_reading_dto(self, serializer);
   }
 
   @protected
@@ -2514,6 +3035,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_network_action_dto(
+      List<NetworkActionDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_network_action_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_network_entity_dto(
+      List<NetworkEntityDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_network_entity_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_network_option_dto(
+      List<NetworkOptionDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_network_option_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_network_read_back_dto(
+      List<NetworkReadBackDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_network_read_back_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_parameter_dto(
       List<ParameterDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2587,6 +3148,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_record_string_string(
+      List<(String, String)> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_record_string_string(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_scan_match(
       List<ScanMatch> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2647,6 +3218,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_network_action_dto(
+      NetworkActionDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.role, serializer);
+    sse_encode_String(self.commandName, serializer);
+    sse_encode_list_String(self.userParams, serializer);
+    sse_encode_list_network_read_back_dto(self.readBack, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.min, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.max, serializer);
+  }
+
+  @protected
   void sse_encode_network_device_dto(
       NetworkDeviceDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2655,6 +3238,60 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.serviceTypes, serializer);
     sse_encode_list_String(self.ssdpTargets, serializer);
     sse_encode_opt_box_autoadd_u_16(self.port, serializer);
+  }
+
+  @protected
+  void sse_encode_network_entity_dto(
+      NetworkEntityDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_opt_String(self.platform, serializer);
+    sse_encode_opt_String(self.deviceClass, serializer);
+    sse_encode_opt_String(self.icon, serializer);
+    sse_encode_opt_String(self.unit, serializer);
+    sse_encode_opt_String(self.stateEndpoint, serializer);
+    sse_encode_String(self.stateCommand, serializer);
+    sse_encode_opt_String(self.valueField, serializer);
+    sse_encode_list_network_option_dto(self.options, serializer);
+    sse_encode_list_network_action_dto(self.actions, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.setpointMin, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.setpointMax, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.setpointStep, serializer);
+  }
+
+  @protected
+  void sse_encode_network_option_dto(
+      NetworkOptionDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.raw, serializer);
+    sse_encode_String(self.label, serializer);
+  }
+
+  @protected
+  void sse_encode_network_read_back_dto(
+      NetworkReadBackDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.param, serializer);
+    sse_encode_String(self.command, serializer);
+    sse_encode_String(self.field, serializer);
+  }
+
+  @protected
+  void sse_encode_network_reading_dto(
+      NetworkReadingDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_network_reading_kind(self.kind, serializer);
+    sse_encode_opt_box_autoadd_bool(self.isOn, serializer);
+    sse_encode_opt_String(self.label, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.number, serializer);
+    sse_encode_String(self.raw, serializer);
+  }
+
+  @protected
+  void sse_encode_network_reading_kind(
+      NetworkReadingKind self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
   }
 
   @protected
@@ -2717,6 +3354,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_mac_prefix_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_network_reading_dto(
+      NetworkReadingDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_network_reading_dto(self, serializer);
     }
   }
 
@@ -2803,6 +3451,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_record_string_string(
+      (String, String) self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.$1, serializer);
+    sse_encode_String(self.$2, serializer);
+  }
+
+  @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self.specIndex, serializer);
@@ -2834,6 +3490,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.uuid, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_list_characteristic_dto(self.characteristics, serializer);
+  }
+
+  @protected
+  void sse_encode_soap_request_dto(
+      SoapRequestDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.service, serializer);
+    sse_encode_String(self.action, serializer);
+    sse_encode_String(self.soapAction, serializer);
+    sse_encode_opt_String(self.path, serializer);
+    sse_encode_String(self.body, serializer);
   }
 
   @protected
