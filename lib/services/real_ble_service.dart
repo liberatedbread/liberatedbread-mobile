@@ -681,6 +681,17 @@ class RealBleService implements BleService {
   }
 
   @override
+  Stream<bool> adapterReady() => FlutterBluePlus.adapterState
+      // The same "only `on` is scannable" judgement adapterStateError makes;
+      // reduced to a bool because the one consumer (the scan screen's
+      // auto-recovery) needs "may I scan now", not which way it can't.
+      .map((state) => state == BluetoothAdapterState.on)
+      // fbp re-emits the latest state to every new listener, so the current
+      // answer arrives first; distinct() keeps intermediate states
+      // (turningOn -> on) from reading as two transitions.
+      .distinct();
+
+  @override
   Future<void> stopScan() async {
     Log.ble.info('scan stopped by request');
     // Claim the scan that is running NOW, before the platform call is awaited.

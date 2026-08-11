@@ -53,6 +53,18 @@ heading.
   30-minute-old scan into an opportunistic one, and it notices the radio being
   switched off underneath it rather than sitting there claiming to search.
 
+  Two more habits the session-long shape demands. Bluetooth switched back on
+  resumes the scan by itself: on Android the radio is toggled from quick
+  settings without the app ever losing focus, so no lifecycle event announces
+  the fix, and the screen otherwise kept showing "Bluetooth is turned off" —
+  with a Retry button — for a problem the user had already solved. A new
+  `BleService.adapterReady()` stream carries the signal, and the resume runs
+  through the same guard as every other automatic restart, so it never
+  overrides a user's stop. And the off-tab stop waits two seconds before
+  touching the radio: every return to the tab is a native scan start, Android
+  blocks an app that starts more than five scans in thirty seconds, and a
+  glance at the Saved tab should not spend one of them.
+
   The FAB now says what there is to do rather than what is happening. While a
   scan runs it is a small round stop button — the radar already reads as
   "scanning", and a full-width bar over the results would be shouting an offer
@@ -67,10 +79,11 @@ heading.
   wanders a few dB while nothing physically moves, so neighbouring rows traded
   places continuously and the row under a finger could change between deciding
   to tap and tapping. Ordering is now by the same four-step band the signal
-  meter draws (one `signalBars` for both, so a row can never sit above another
-  while showing fewer bars), then by which device was found first. Both keys
-  are things that do not move, so a row changes position only when the device
-  genuinely does.
+  meter draws — one `signalBars` behind the meter, the ordering, and the
+  "Strong/Good/Fair/Weak signal" caption, which previously carried its own
+  thresholds and could say "Good" over two bars — then by which device was
+  found first. Both keys are things that do not move, so a row changes
+  position only when the device genuinely does.
 
 - **Devices that have gone quiet are flagged instead of quietly disappearing.**
   A row used to be dropped after sitting out two scan windows, which meant a

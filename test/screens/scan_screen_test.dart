@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -256,6 +257,83 @@ void main() {
     });
   });
 
+  group('radio recovery', () {
+    testWidgets('resumes by itself when Bluetooth comes back on',
+        (tester) async {
+      // On Android the radio is toggled from quick settings, without the app
+      // ever losing focus — no lifecycle event will announce the fix. The
+      // adapter stream is the only messenger.
+      // Broadcast: matches fbp's adapterState, and a single-subscription
+      // controller that never gains a listener hangs its own close() in
+      // teardown — turning a would-be assertion failure into a timeout.
+      final radio = StreamController<bool>.broadcast();
+      addTearDown(radio.close);
+      final fake = FakeBleService(
+        scanError: const BleUnavailableException(),
+        adapterReadyStream: radio.stream,
+        devicesToEmit: [_device('01', name: 'ACME_A')],
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Bluetooth is turned off'), findsOneWidget);
+
+      fake.scanError = null; // the radio works again
+      radio.add(true);
+      await tester.pumpAndSettle();
+
+      expect(find.text('ACME_A'), findsOneWidget);
+      expect(find.textContaining('Bluetooth is turned off'), findsNothing);
+      expect(fake.scanTimeouts, hasLength(2));
+    });
+
+    testWidgets('does not resurrect a scan the user stopped', (tester) async {
+      // Broadcast: matches fbp's adapterState, and a single-subscription
+      // controller that never gains a listener hangs its own close() in
+      // teardown — turning a would-be assertion failure into a timeout.
+      final radio = StreamController<bool>.broadcast();
+      addTearDown(radio.close);
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01')],
+        scanStepDelay: const Duration(milliseconds: 200),
+        adapterReadyStream: radio.stream,
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+
+      radio.add(true);
+      await tester.pumpAndSettle();
+
+      expect(fake.scanTimeouts, hasLength(1),
+          reason: 'a ready radio is an opportunity, not an instruction');
+    });
+
+    testWidgets('a ready signal during a healthy scan changes nothing',
+        (tester) async {
+      // fbp replays the current adapter state to every new listener, so this
+      // exact event arrives moments after every launch.
+      // Broadcast: matches fbp's adapterState, and a single-subscription
+      // controller that never gains a listener hangs its own close() in
+      // teardown — turning a would-be assertion failure into a timeout.
+      final radio = StreamController<bool>.broadcast();
+      addTearDown(radio.close);
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01')],
+        scanHold: Completer<void>(),
+        adapterReadyStream: radio.stream,
+      );
+      await tester.pumpWidget(_wrap(fake));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      radio.add(true);
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(fake.scanTimeouts, hasLength(1));
+      expect(fake.stopScanCount, 0);
+    });
+  });
+
   group('tab visibility', () {
     /// The screen as the shell mounts it: alive either way, told whether it is
     /// the tab being looked at.
@@ -279,21 +357,50 @@ void main() {
 
     testWidgets('leaving the tab pauses the scan and returning resumes it',
         (tester) async {
+      // scanHold keeps the fake's scan open, the way the real continuous
+      // scan stays open, so the deferred stop finds one running.
       final fake = FakeBleService(
         devicesToEmit: [_device('01')],
-        scanStepDelay: const Duration(milliseconds: 200),
+        scanHold: Completer<void>(),
       );
       await tester.pumpWidget(wrapActive(fake, active: true));
       await tester.pump(const Duration(milliseconds: 50));
       expect(fake.scanTimeouts, hasLength(1));
 
       await tester.pumpWidget(wrapActive(fake, active: false));
-      await tester.pumpAndSettle();
+      // The stop is deferred a couple of seconds so a glance away does not
+      // cycle the radio; a real departure outlasts it.
+      await tester.pump(const Duration(seconds: 3));
       expect(fake.stopScanCount, greaterThan(0));
 
       await tester.pumpWidget(wrapActive(fake, active: true));
-      await tester.pumpAndSettle();
+      // Bounded pumps, not pumpAndSettle: the resumed scan holds the radar
+      // animation live, so there is no settled frame to wait for.
+      await tester.pump(const Duration(milliseconds: 100));
       expect(fake.scanTimeouts, hasLength(2));
+    });
+
+    testWidgets('a quick glance at another tab never touches the radio',
+        (tester) async {
+      // Every return is a native scan START, and Android blocks an app that
+      // starts more than five in thirty seconds — so a fidgety afternoon of
+      // tab flipping must not become a stop/start each way.
+      final fake = FakeBleService(
+        devicesToEmit: [_device('01')],
+        scanHold: Completer<void>(),
+      );
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.pumpWidget(wrapActive(fake, active: false));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpWidget(wrapActive(fake, active: true));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(fake.stopScanCount, 0,
+          reason: 'the glance ended inside the grace window');
+      expect(fake.scanTimeouts, hasLength(1),
+          reason: 'the original scan never stopped, so nothing restarted');
     });
 
     testWidgets('what the scan already found survives the trip',

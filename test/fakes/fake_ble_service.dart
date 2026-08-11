@@ -17,7 +17,10 @@ class FakeBleService implements BleService {
   final List<BleDiscoveredService> servicesToReturn;
   final Map<String, List<int>> readValues;
   final Duration scanStepDelay;
-  final Object? scanError;
+
+  /// Thrown by the next [scan]. Mutable so a test can fail one scan and let
+  /// the retry succeed — which is the shape of every recovery the screen has.
+  Object? scanError;
   final Object? connectError;
   final Object? discoverError;
   final Object? readError;
@@ -37,6 +40,13 @@ class FakeBleService implements BleService {
   /// When set, [discoverServices] awaits this before resolving.
   final Completer<void>? discoverGate;
 
+  /// When set, [scan] stays open after emitting [devicesToEmit], the way the
+  /// real continuous scan stays open, until this completes (or the consumer
+  /// cancels). A completer's future is not a timer, so a test can end while
+  /// the scan is still "running" without tripping the pending-timer check —
+  /// which a long [scanStepDelay] hold cannot do.
+  final Completer<void>? scanHold;
+
   /// Returned by [mtu]; the BLE minimum unless a test raises it.
   final int mtuToReturn;
 
@@ -46,6 +56,10 @@ class FakeBleService implements BleService {
 
   /// When set, [readRssi] throws it instead of returning a value.
   final Object? rssiError;
+
+  /// What [adapterReady] returns; defaults to a stream that never emits, so
+  /// no widget test gets a surprise auto-resume it did not script.
+  final Stream<bool>? adapterReadyStream;
 
   /// Reads served successfully before [rssiError] starts being thrown. Lets a
   /// test exercise the mid-session transition — samples accumulate, THEN the
@@ -81,11 +95,13 @@ class FakeBleService implements BleService {
     this.connectionStateStream,
     this.connectGate,
     this.discoverGate,
+    this.scanHold,
     this.mtuToReturn = 23,
     this.writeGate,
     this.rssiValues = const [],
     this.rssiError,
     this.rssiErrorAfter = 0,
+    this.adapterReadyStream,
   });
 
   @override
@@ -117,12 +133,17 @@ class FakeBleService implements BleService {
       }
       yield d;
     }
+    if (scanHold != null) await scanHold!.future;
   }
 
   @override
   Future<void> stopScan() async {
     stopScanCount++;
   }
+
+  @override
+  Stream<bool> adapterReady() =>
+      adapterReadyStream ?? const Stream<bool>.empty();
 
   @override
   Future<void> connect(String deviceId) async {
