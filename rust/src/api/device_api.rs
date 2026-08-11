@@ -990,11 +990,16 @@ pub struct NetworkReadBackDto {
 /// One resolved control action on a network entity.
 #[derive(Debug, Clone)]
 pub struct NetworkActionDto {
-    /// `turn_on` | `turn_off` | `set_value` | `select_option` | …
+    /// `turn_on` | `turn_off` | `press` | `set_value` | `select_option` | …
     pub role: String,
     /// Name in the spec's top-level `commands` block; what
     /// [`render_network_command`] takes.
     pub command_name: String,
+    /// `soap` | `http` — which renderer and which wire client the send goes
+    /// through. Carried per action rather than per device because one spec
+    /// may mix transports; the caller dispatches on this instead of
+    /// rediscovering it from a failed render.
+    pub transport: String,
     /// The parameters the UI supplies — at most one today (the picked option,
     /// the chosen number). Empty for a fixed action.
     pub user_params: Vec<String>,
@@ -1082,6 +1087,11 @@ impl NetworkActionDto {
         Self {
             role: action.role.to_string(),
             command_name: action.command_name.to_string(),
+            transport: action
+                .command
+                .transport
+                .clone()
+                .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string()),
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
             read_back: action
                 .read_back
@@ -1129,8 +1139,11 @@ pub fn network_entities_for_device(
                 icon: entity.icon.clone(),
                 unit: entity.unit.clone(),
                 state_endpoint: entity.state_endpoint.clone(),
-                // Guaranteed present: `network_entities_for_targets` only
-                // yields entities that name one.
+                // Present for every stateful entity —
+                // `network_entities_for_targets` requires it of them. Empty
+                // for a `button`, which has no state to poll; a caller
+                // gathering state commands must skip the empty string rather
+                // than render a request from it.
                 state_command: entity.state_command.clone().unwrap_or_default(),
                 value_field: entity.value_field().map(str::to_string),
                 options: entity
@@ -1154,6 +1167,10 @@ pub fn network_entities_for_device(
                 setpoint_step: entity.setpoint_step(),
             }
         })
+        // A stateless entity that resolved no sendable action is nothing at
+        // all — no reading to show, no button to press. A stateful one still
+        // renders as a reading, so only the stateless kind is dropped.
+        .filter(|entity| !entity.state_command.is_empty() || !entity.actions.is_empty())
         .collect())
 }
 
@@ -1169,6 +1186,47 @@ pub fn render_network_command(
     let request =
         crate::protocol::soap::render_request(&spec, &command_name, &values.into_iter().collect())?;
     Ok(SoapRequestDto::from(request))
+}
+
+/// A rendered plain-HTTP request, ready for Dart to send.
+///
+/// The sibling of [`SoapRequestDto`] for transports where the method and the
+/// path ARE the request — Roku ECP's keypresses. The address is the caller's:
+/// discovery already knows the host and port.
+#[derive(Debug, Clone)]
+pub struct HttpRequestDto {
+    /// `GET` | `POST` | …, as the spec spelled it.
+    pub method: String,
+    /// Path with every placeholder substituted, starting with `/`.
+    pub path: String,
+    /// Request body — empty for the ECP style, carried for the day a spec
+    /// declares one.
+    pub body: String,
+}
+
+impl From<crate::protocol::http::HttpRequest> for HttpRequestDto {
+    fn from(request: crate::protocol::http::HttpRequest) -> Self {
+        Self {
+            method: request.method,
+            path: request.path,
+            body: request.body,
+        }
+    }
+}
+
+/// Render a named `transport: http` command from the spec's `commands` block
+/// into a sendable request — [`render_network_command`]'s sibling for the
+/// transport with no envelope. A SOAP command handed here is declined, and
+/// vice versa; the action's `transport` field says which to call.
+pub fn render_network_http_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<HttpRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request =
+        crate::protocol::http::render_request(&spec, &command_name, &values.into_iter().collect())?;
+    Ok(HttpRequestDto::from(request))
 }
 
 /// Render the argument-less request that reads a state command's values —

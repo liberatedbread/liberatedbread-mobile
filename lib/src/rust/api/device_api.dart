@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -55,6 +55,17 @@ Future<SoapRequestDto> renderNetworkCommand(
         required String commandName,
         required Map<String, String> values}) =>
     RustLib.instance.api.crateApiDeviceApiRenderNetworkCommand(
+        specYaml: specYaml, commandName: commandName, values: values);
+
+/// Render a named `transport: http` command from the spec's `commands` block
+/// into a sendable request — [`render_network_command`]'s sibling for the
+/// transport with no envelope. A SOAP command handed here is declined, and
+/// vice versa; the action's `transport` field says which to call.
+Future<HttpRequestDto> renderNetworkHttpCommand(
+        {required String specYaml,
+        required String commandName,
+        required Map<String, String> values}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderNetworkHttpCommand(
         specYaml: specYaml, commandName: commandName, values: values);
 
 /// Render the argument-less request that reads a state command's values —
@@ -795,6 +806,41 @@ class FormatFieldDto {
           length == other.length;
 }
 
+/// A rendered plain-HTTP request, ready for Dart to send.
+///
+/// The sibling of [`SoapRequestDto`] for transports where the method and the
+/// path ARE the request — Roku ECP's keypresses. The address is the caller's:
+/// discovery already knows the host and port.
+class HttpRequestDto {
+  /// `GET` | `POST` | …, as the spec spelled it.
+  final String method;
+
+  /// Path with every placeholder substituted, starting with `/`.
+  final String path;
+
+  /// Request body — empty for the ECP style, carried for the day a spec
+  /// declares one.
+  final String body;
+
+  const HttpRequestDto({
+    required this.method,
+    required this.path,
+    required this.body,
+  });
+
+  @override
+  int get hashCode => method.hashCode ^ path.hashCode ^ body.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is HttpRequestDto &&
+          runtimeType == other.runtimeType &&
+          method == other.method &&
+          path == other.path &&
+          body == other.body;
+}
+
 /// A spec's declared image/animation capability, plus whether this crate can
 /// actually encode uploads for it.
 ///
@@ -1028,12 +1074,18 @@ class MatchResult {
 
 /// One resolved control action on a network entity.
 class NetworkActionDto {
-  /// `turn_on` | `turn_off` | `set_value` | `select_option` | …
+  /// `turn_on` | `turn_off` | `press` | `set_value` | `select_option` | …
   final String role;
 
   /// Name in the spec's top-level `commands` block; what
   /// [`render_network_command`] takes.
   final String commandName;
+
+  /// `soap` | `http` — which renderer and which wire client the send goes
+  /// through. Carried per action rather than per device because one spec
+  /// may mix transports; the caller dispatches on this instead of
+  /// rediscovering it from a failed render.
+  final String transport;
 
   /// The parameters the UI supplies — at most one today (the picked option,
   /// the chosen number). Empty for a fixed action.
@@ -1050,6 +1102,7 @@ class NetworkActionDto {
   const NetworkActionDto({
     required this.role,
     required this.commandName,
+    required this.transport,
     required this.userParams,
     required this.readBack,
     this.min,
@@ -1060,6 +1113,7 @@ class NetworkActionDto {
   int get hashCode =>
       role.hashCode ^
       commandName.hashCode ^
+      transport.hashCode ^
       userParams.hashCode ^
       readBack.hashCode ^
       min.hashCode ^
@@ -1072,6 +1126,7 @@ class NetworkActionDto {
           runtimeType == other.runtimeType &&
           role == other.role &&
           commandName == other.commandName &&
+          transport == other.transport &&
           userParams == other.userParams &&
           readBack == other.readBack &&
           min == other.min &&

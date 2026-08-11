@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 795992558;
+  int get rustContentHash => 890017412;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -144,6 +144,11 @@ abstract class RustLibApi extends BaseApi {
       required Map<String, String> returned});
 
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values});
+
+  Future<HttpRequestDto> crateApiDeviceApiRenderNetworkHttpCommand(
       {required String specYaml,
       required String commandName,
       required Map<String, String> values});
@@ -614,6 +619,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<HttpRequestDto> crateApiDeviceApiRenderNetworkHttpCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(commandName, serializer);
+        sse_encode_Map_String_String_None(values, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 16, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_http_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkHttpCommandConstMeta,
+      argValues: [specYaml, commandName, values],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkHttpCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_http_command',
+        argNames: ['specYaml', 'commandName', 'values'],
+      );
+
+  @override
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand}) {
     return handler.executeNormal(NormalTask(
@@ -622,7 +657,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(specYaml, serializer);
         sse_encode_String(stateCommand, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 16, port: port_);
+            funcId: 17, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_soap_request_dto,
@@ -899,6 +934,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HttpRequestDto dco_decode_http_request_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return HttpRequestDto(
+      method: dco_decode_String(arr[0]),
+      path: dco_decode_String(arr[1]),
+      body: dco_decode_String(arr[2]),
+    );
+  }
+
+  @protected
   int dco_decode_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1164,15 +1212,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkActionDto dco_decode_network_action_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
     return NetworkActionDto(
       role: dco_decode_String(arr[0]),
       commandName: dco_decode_String(arr[1]),
-      userParams: dco_decode_list_String(arr[2]),
-      readBack: dco_decode_list_network_read_back_dto(arr[3]),
-      min: dco_decode_opt_box_autoadd_f_64(arr[4]),
-      max: dco_decode_opt_box_autoadd_f_64(arr[5]),
+      transport: dco_decode_String(arr[2]),
+      userParams: dco_decode_list_String(arr[3]),
+      readBack: dco_decode_list_network_read_back_dto(arr[4]),
+      min: dco_decode_opt_box_autoadd_f_64(arr[5]),
+      max: dco_decode_opt_box_autoadd_f_64(arr[6]),
     );
   }
 
@@ -1826,6 +1875,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  HttpRequestDto sse_decode_http_request_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_method = sse_decode_String(deserializer);
+    var var_path = sse_decode_String(deserializer);
+    var var_body = sse_decode_String(deserializer);
+    return HttpRequestDto(method: var_method, path: var_path, body: var_body);
+  }
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getInt32();
@@ -2249,6 +2307,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_role = sse_decode_String(deserializer);
     var var_commandName = sse_decode_String(deserializer);
+    var var_transport = sse_decode_String(deserializer);
     var var_userParams = sse_decode_list_String(deserializer);
     var var_readBack = sse_decode_list_network_read_back_dto(deserializer);
     var var_min = sse_decode_opt_box_autoadd_f_64(deserializer);
@@ -2256,6 +2315,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return NetworkActionDto(
         role: var_role,
         commandName: var_commandName,
+        transport: var_transport,
         userParams: var_userParams,
         readBack: var_readBack,
         min: var_min,
@@ -2904,6 +2964,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_http_request_dto(
+      HttpRequestDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.method, serializer);
+    sse_encode_String(self.path, serializer);
+    sse_encode_String(self.body, serializer);
+  }
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt32(self);
@@ -3246,6 +3315,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.role, serializer);
     sse_encode_String(self.commandName, serializer);
+    sse_encode_String(self.transport, serializer);
     sse_encode_list_String(self.userParams, serializer);
     sse_encode_list_network_read_back_dto(self.readBack, serializer);
     sse_encode_opt_box_autoadd_f_64(self.min, serializer);
