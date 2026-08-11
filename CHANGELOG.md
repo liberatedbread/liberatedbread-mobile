@@ -101,6 +101,18 @@ heading.
   found first. Both keys are things that do not move, so a row changes
   position only when the device genuinely does.
 
+- **Every dead-end on the device screen offers "Try to find device".** The
+  hot/cold locator was only reachable from the connected header — but a
+  FAILED or LOST connection is when "where is this thing?" is the actual
+  question, since it usually means out of range or powered off. The
+  connection-failed and disconnected states now carry a quieter second
+  button under their Retry/Reconnect: it re-attempts the connect (the
+  locator pings the live link's RSSI, so finding is connect-first — hence
+  "try") and lands straight in the find screen when the link comes up. A
+  failed attempt returns to the error state, which is itself an answer to
+  "is it near me", and a later plain Retry does not surprise-open the
+  locator.
+
 - **Devices that have gone quiet are flagged instead of quietly disappearing.**
   A row used to be dropped after sitting out two scan windows, which meant a
   device that had been unplugged looked exactly like one that had never been

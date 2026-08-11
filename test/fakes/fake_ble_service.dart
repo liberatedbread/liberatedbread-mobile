@@ -21,7 +21,9 @@ class FakeBleService implements BleService {
   /// Thrown by the next [scan]. Mutable so a test can fail one scan and let
   /// the retry succeed — which is the shape of every recovery the screen has.
   Object? scanError;
-  final Object? connectError;
+
+  /// Thrown by [connect]. Mutable for the same reason as [scanError].
+  Object? connectError;
   final Object? discoverError;
   final Object? readError;
 
