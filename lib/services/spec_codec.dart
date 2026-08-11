@@ -27,6 +27,9 @@ export '../src/rust/api/device_api.dart'
         ImageWritePlanDto,
         StoredUploadDto,
         StoredUploadPlanDto,
+        StoredUploadEventDto,
+        StoredUploadEventKind,
+        StoredPlayDto,
         MatchResult,
         MatchConfidence,
         MacPrefixDto,
@@ -232,13 +235,32 @@ abstract class SpecCodec {
   /// Encode the BLE writes that persist a multi-frame animation on the device.
   ///
   /// [frames] are the screens in play order, each row-major RGB888
-  /// `width * height * 3` bytes, ≤16 colours each.
+  /// `width * height * 3` bytes, ≤16 colours each. [frameMs] is the editor's
+  /// preview interval; the container stores the matching frame rate so the
+  /// device plays at the speed the user tuned on screen (0 falls back to the
+  /// vendor's 20 fps).
   Future<StoredUploadPlanDto> encodeStoredAnimation({
     required String specYaml,
     required int width,
     required int height,
     required List<List<int>> frames,
     required String name,
+    required int cid,
+    required int frameMs,
+  });
+
+  /// Decode one notification from the stored-upload response characteristic
+  /// (the plan's `responseCharacteristicUuid`) into an upload event, or null
+  /// when the notification is some other push sharing the channel.
+  Future<StoredUploadEventDto?> decodeStoredUploadEvent({
+    required String specYaml,
+    required List<int> bytes,
+  });
+
+  /// The play-by-cid write that RE-triggers an already stored design — the
+  /// replay list's whole wire footprint.
+  Future<StoredPlayDto> encodeStoredPlay({
+    required String specYaml,
     required int cid,
   });
 }

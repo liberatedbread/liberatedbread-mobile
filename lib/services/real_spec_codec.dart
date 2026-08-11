@@ -217,6 +217,7 @@ class RealSpecCodec implements SpecCodec {
     required List<List<int>> frames,
     required String name,
     required int cid,
+    required int frameMs,
   }) =>
       rust.encodeStoredAnimation(
         specYaml: specYaml,
@@ -225,5 +226,23 @@ class RealSpecCodec implements SpecCodec {
         frames: frames.map(Uint8List.fromList).toList(),
         name: name,
         cid: cid,
+        frameMs: frameMs,
       );
+
+  @override
+  Future<StoredUploadEventDto?> decodeStoredUploadEvent({
+    required String specYaml,
+    required List<int> bytes,
+  }) =>
+      rust.decodeStoredUploadEvent(
+        specYaml: specYaml,
+        bytes: Uint8List.fromList(bytes),
+      );
+
+  @override
+  Future<StoredPlayDto> encodeStoredPlay({
+    required String specYaml,
+    required int cid,
+  }) =>
+      rust.encodeStoredPlay(specYaml: specYaml, cid: cid);
 }

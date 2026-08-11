@@ -142,6 +142,11 @@ pub struct StoredAnimation<'a> {
     pub height: u32,
     /// Each frame is row-major RGB888, `width * height * 3` bytes, in play order.
     pub frames: &'a [&'a [u8]],
+    /// Playback rate, frames per second (both container headers carry it).
+    /// The vendor's own captures use 20; the editor derives it from the
+    /// preview's frame interval so the stored item plays at the speed the
+    /// user tuned on screen.
+    pub fps: u8,
 }
 
 /// The largest palette the image layer's 4-bit indices can address.
@@ -302,6 +307,11 @@ pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, 
             reason: "animation has no frames".to_string(),
         });
     }
+    if anim.fps == 0 {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: "animation frame rate must be at least 1 fps".to_string(),
+        });
+    }
     for (i, frame) in anim.frames.iter().enumerate() {
         if frame.len() != frame_px {
             return Err(ProtocolError::ImageDimensionsInvalid {
@@ -340,7 +350,7 @@ pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, 
     // [18..22] timestamp — left 0; it is metadata the device does not key on,
     // and a deterministic build is worth more than a clock read here.
     write_name(&mut buf, 38, anim.name, 24);
-    buf[124] = 20;
+    buf[124] = anim.fps;
     // Item descriptor @128: offset of the DNX2 block, the (4-padded) frame size,
     // the frame count, then the vendor's [0,0,1,_,_,0] trailer.
     write_u32_le(&mut buf, 128, 4096);
@@ -368,7 +378,7 @@ pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, 
     write_u16_le(&mut buf, h + 15, anim.height as u16);
     write_name(&mut buf, h + 56, anim.name, 32);
     buf[h + 157] = 1;
-    buf[h + 158] = 20;
+    buf[h + 158] = anim.fps;
 
     // ── Frames (from offset 8192), each column-major, padded to `stride` ──
     for frame in anim.frames {
@@ -822,11 +832,16 @@ mod tests {
             width: 2,
             height: 2,
             frames: &frames,
+            fps: 5,
         })
         .unwrap();
 
         assert_eq!(buf.len() % 4096, 0);
         assert_eq!(&buf[0..4], b"DNMX");
+        // The play rate rides in BOTH headers — the editor's preview interval,
+        // not the vendor capture's constant 20.
+        assert_eq!(buf[124], 5, "DNMX frame rate");
+        assert_eq!(buf[4096 + 158], 5, "DNX2 frame rate");
         assert_eq!(buf[4], 3, "frame fits a u16 size field");
         assert_eq!(&buf[6..8], &2u16.to_le_bytes(), "width");
         assert_eq!(&buf[8..10], &2u16.to_le_bytes(), "height");
@@ -859,6 +874,7 @@ mod tests {
             width: 2,
             height: 2,
             frames: &[],
+            fps: 20,
         })
         .is_err());
 
@@ -870,8 +886,24 @@ mod tests {
             width: 2,
             height: 2,
             frames: &frames,
+            fps: 20,
         })
         .is_err());
+
+        let frame = vec![0u8; 12];
+        let one: Vec<&[u8]> = vec![&frame];
+        assert!(
+            build_animation_container(&StoredAnimation {
+                name: "x",
+                cid: 1,
+                width: 2,
+                height: 2,
+                frames: &one,
+                fps: 0,
+            })
+            .is_err(),
+            "a zero frame rate would store an unplayable item"
+        );
     }
 
     #[test]
