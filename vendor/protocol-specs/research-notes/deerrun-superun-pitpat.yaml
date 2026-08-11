@@ -6,7 +6,8 @@ device:
   id: deerrun-superun-pitpat
   name: DeerRun / SupeRun Walking Pad (PitPat platform)
   manufacturer: DeerRun / SupeRun (app by Joyfit Inc.)
-  category: treadmill_walking_pad
+  type: treadmill  # walking pad / under-desk treadmill
+  category: treadmill
   safety_class: MEDIUM  # motorised moving belt; speed commands affect a person in motion
 
 transport:

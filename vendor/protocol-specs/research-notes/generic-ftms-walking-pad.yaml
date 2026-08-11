@@ -6,7 +6,8 @@ device:
   id: generic-ftms-walking-pad
   name: Generic FTMS Walking Pad (Mobvoi Home Walking Pad and similar)
   manufacturer: Various (Mobvoi for the documented unit)
-  category: treadmill_walking_pad
+  type: treadmill  # walking pad / under-desk treadmill
+  category: treadmill
   safety_class: MEDIUM  # motorised moving belt, unauthenticated standard protocol
 
 transport:
