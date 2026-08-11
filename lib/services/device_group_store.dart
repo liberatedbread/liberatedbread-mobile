@@ -123,6 +123,25 @@ class DeviceGroupStore {
     return groups;
   }
 
+  /// Remove [deviceId] from every group's membership, returning the new
+  /// list. Called when a device is forgotten: without this, the membership
+  /// would lie dormant and silently resurrect the moment the same device is
+  /// saved again. Groups are kept even when they empty out — the user built
+  /// the container, and forgetting one member shouldn't delete it.
+  Future<List<DeviceGroup>> removeDevice(String deviceId) async {
+    final groups = [
+      for (final group in load())
+        group.deviceIds.contains(deviceId)
+            ? group.copyWith(deviceIds: [
+                for (final id in group.deviceIds)
+                  if (id != deviceId) id,
+              ])
+            : group,
+    ];
+    await _write(groups);
+    return groups;
+  }
+
   Future<void> _write(List<DeviceGroup> groups) => _prefs.setString(
       _key, jsonEncode(groups.map((g) => g.toJson()).toList()));
 }

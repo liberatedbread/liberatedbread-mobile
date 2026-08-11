@@ -47,10 +47,16 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
     final notifier = ref.read(deviceGroupsProvider.notifier);
     final existing = widget.group;
     // Membership keeps the saved-devices order (recency), not tap order —
-    // the run executes in list order and recency is at least a meaningful one.
+    // the run executes in list order and recency is at least a meaningful
+    // one. Filtered exactly like the checklist above: a selected id whose
+    // device has since recorded a non-groupable category (or been forgotten)
+    // is invisible on this screen and must not be silently re-serialized.
     final ordered = [
       for (final device in ref.read(savedDevicesProvider))
-        if (_selected.contains(device.id)) device.id,
+        if (_selected.contains(device.id) &&
+            !kNonGroupableCategories
+                .contains(DeviceCategory.parse(device.category)))
+          device.id,
     ];
     if (existing == null) {
       await notifier.create(name: name, deviceIds: ordered);
