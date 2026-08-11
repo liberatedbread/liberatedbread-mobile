@@ -193,27 +193,34 @@ pub struct SpecCommand {
 }
 
 impl SpecCommand {
-    /// Parameters the caller must supply: the ones the spec does not default.
+    /// Parameters the caller supplies: the ones that are neither a spec
+    /// constant (`default`) nor a device read-back (`source`).
     ///
     /// The gate every control passes before it is drawn. A command with two
     /// blanks cannot be sent by a control that owns one value, and drawing it
-    /// anyway puts a button on screen that fails when pressed.
+    /// anyway puts a button on screen that fails when pressed. A `source`
+    /// parameter is not a blank — the client knows where to fetch it — but it
+    /// is also not defaulted: rendering without the fetched value FAILS, by
+    /// the spec's own rule, rather than quietly substituting anything. The
+    /// first Wemo spec paired every `source` with `default: 0`, and the
+    /// failure mode of honouring that default was a cleared cook timer (or a
+    /// stopped cooker) whenever a read-back silently failed.
     pub fn user_params(&self) -> Vec<&str> {
         self.parameters
             .iter()
-            .filter(|(_, p)| p.default.is_none())
+            .filter(|(_, p)| p.default.is_none() && p.source.is_none())
             .map(|(name, _)| name.as_str())
             .collect()
     }
 
-    /// Parameters that carry a defaulted value the client is expected to read
-    /// back from the device first, as (parameter, `source`) pairs.
+    /// Parameters whose value the client must read from the device as part of
+    /// the send, as (parameter, `source`) pairs.
     ///
     /// This is the difference between a working Crock-Pot control and one that
     /// wipes the cook timer: `SetCrockpotState` carries mode and time
     /// together, so changing the mode means reading the time back and sending
-    /// it along. The default is the fallback for a client that cannot, not the
-    /// intended value.
+    /// it along. Mandatory, not advisory — these parameters carry no default,
+    /// so a send that skips the read-back errors instead of inventing a value.
     pub fn read_back_params(&self) -> Vec<(&str, &str)> {
         self.parameters
             .iter()

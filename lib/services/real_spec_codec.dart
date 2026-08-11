@@ -114,7 +114,8 @@ class RealSpecCodec implements SpecCodec {
     required String specYaml,
     required List<String> ssdpTargets,
   }) =>
-      rust.networkEntitiesForDevice(specYaml: specYaml, ssdpTargets: ssdpTargets);
+      rust.networkEntitiesForDevice(
+          specYaml: specYaml, ssdpTargets: ssdpTargets);
 
   @override
   Future<SoapRequestDto> renderNetworkCommand({
@@ -133,7 +134,8 @@ class RealSpecCodec implements SpecCodec {
     required String specYaml,
     required String stateCommand,
   }) =>
-      rust.renderNetworkStateRequest(specYaml: specYaml, stateCommand: stateCommand);
+      rust.renderNetworkStateRequest(
+          specYaml: specYaml, stateCommand: stateCommand);
 
   @override
   Future<NetworkReadingDto?> readNetworkEntity({
