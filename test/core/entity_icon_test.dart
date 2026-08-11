@@ -73,5 +73,32 @@ void main() {
       expect(entityIcon(_entity(icon: '   ')), Icons.sensors);
       expect(entityIcon(_entity(icon: 'MDI:Heat-Wave')), Icons.waves);
     });
+
+    test('air-quality classes and icons draw as themselves, not as "sensor"',
+        () {
+      // The Airthings family: radon asks for mdi:radioactive (there is no
+      // radon device class to imply anything), CO₂/VOC/pressure lean on
+      // their classes. All of these rendered as the generic sensors glyph
+      // before, which made a six-tile air dashboard read as six copies of
+      // the same reading.
+      expect(entityIcon(_entity(icon: 'mdi:radioactive')), Icons.blur_on);
+      expect(
+          entityIcon(_entity(icon: 'mdi:water-thermometer')), Icons.dew_point);
+      expect(entityIcon(_entity(icon: 'mdi:molecule-co2')), Icons.co2);
+      expect(entityIcon(_entity(deviceClass: 'carbon_dioxide')), Icons.co2);
+      expect(
+        entityIcon(_entity(deviceClass: 'volatile_organic_compounds_parts')),
+        Icons.science_outlined,
+      );
+      expect(
+        entityIcon(_entity(deviceClass: 'volatile_organic_compounds')),
+        Icons.science_outlined,
+      );
+      expect(entityIcon(_entity(deviceClass: 'atmospheric_pressure')),
+          Icons.speed);
+      expect(entityIcon(_entity(deviceClass: 'pm25')), Icons.grain);
+      expect(entityIcon(_entity(deviceClass: 'illuminance')),
+          Icons.light_mode_outlined);
+    });
   });
 }

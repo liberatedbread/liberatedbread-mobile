@@ -372,6 +372,42 @@ heading.
 
 ### Added
 
+- **Sensor devices read as dashboards, not as GATT dumps.** Three changes
+  that land together on anything the catalogue classes as a sensor — an
+  Airthings Wave, a SensorPush, a Miflora:
+  - *A readings grid.* Two or more numeric readings render as compact tiles,
+    two or three abreast, instead of a scroll of full-width banners — an
+    Airthings Wave Plus's radon, CO₂, VOC, temperature, humidity, pressure
+    and battery are one glance now. A lone reading keeps the roomier row,
+    and binary sensors keep their full-width on/off presentation.
+  - *Verdict chips.* Readings whose healthy range is established carry a
+    colored Good/Fair/Poor chip beside the value, because "934 ppm" answers
+    a question nobody asked. Bands and their sources live in
+    `core/sensor_reading_level.dart`: radon 100/150 Bq/m³ (WHO reference
+    level / Airthings' own shipped defaults), CO₂ 800/1000 ppm and VOC
+    250/2000 ppb (Airthings defaults), humidity 25/30/60/70 %, PM2.5 10/25
+    and PM10 20/50 µg/m³ (around the WHO 2021 guidelines), battery 20/10 %.
+    Quantities with no honest band — temperature, pressure — show the
+    number alone, and a healthy battery keeps quiet rather than fishing for
+    praise. Chips are keyed on device_class *plus unit* so a band can never
+    judge a value in a unit it does not hold in, and radon is keyed on its
+    unit alone — older catalogue copies mislabeled it as a VOC class, and
+    Bq/m³ must never be read against a ppb band.
+  - *Folded plumbing.* When a matched sensor device has readings on screen,
+    the raw service cards start folded — the first screen is radon and CO₂,
+    not the OAD firmware-update service. Still one tap away, and every
+    other device category keeps expanded cards.
+
+  With them, one logical reading declared once per variant binding (the
+  shape the Airthings family spec now uses) renders once instead of once
+  per binding, air-quality entities get real glyphs (radon, CO₂, VOC,
+  particulates, dew point, illuminance) instead of the generic sensor dot,
+  and the mock simulator demos a healthy home — it now inverts
+  `value_offset` as well as `scale` (the Wave Mini's centikelvin
+  temperature decoded to −251 °C before), picks sea-level pressure in
+  whichever unit the spec declares, and defaults radon/CO₂/VOC to values a
+  house would actually show.
+
 - **The core can drive a device that has no GATT at all.** Everything the app
   controls today is BLE: an entity binds a characteristic, a role resolves to
   a command on it, and the command becomes bytes. A Wemo plug has none of
