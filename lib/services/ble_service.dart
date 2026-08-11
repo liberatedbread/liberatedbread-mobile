@@ -75,6 +75,24 @@ class BlePairingRequiredException implements UserFacingException {
   String toString() => message;
 }
 
+/// How hard [BleService.scan] should drive the radio.
+///
+/// The dial is real only on Android, where scan mode sets the radio's duty
+/// cycle — balanced listens roughly a quarter of the time, low latency all of
+/// it. Apple platforms expose no equivalent, so there the two are the same
+/// scan; the enum still names the caller's intent, which is what the screen's
+/// burst-then-downshift logic runs on.
+enum ScanIntensity {
+  /// The user just pressed Scan and is watching the list: discovery latency
+  /// is the product, so the radio listens continuously.
+  active,
+
+  /// The app is keeping watch on its own — nobody asked for this particular
+  /// moment of scanning, so it duty-cycles the radio and takes the slightly
+  /// later discoveries.
+  ambient,
+}
+
 /// Abstract interface for BLE operations.
 abstract class BleService {
   /// Request runtime permissions for BLE scanning.
@@ -91,9 +109,14 @@ abstract class BleService {
   ///
   /// Devices are re-reported as they keep advertising, so a consumer can tell a
   /// device still on air from one that has gone quiet — see [IoTDevice.lastSeen].
+  ///
+  /// [intensity] says whose idea this scan was — see [ScanIntensity]. Defaults
+  /// to [ScanIntensity.active], which is the pre-dial behaviour, so a caller
+  /// that has not opted into duty-cycling never gets it by surprise.
   Stream<IoTDevice> scan({
     Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
+    ScanIntensity intensity = ScanIntensity.active,
   });
 
   /// Stop an in-progress scan.

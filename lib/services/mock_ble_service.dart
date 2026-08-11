@@ -229,10 +229,13 @@ class MockBleService implements BleService {
   /// looking that way.
   static const _mockAdvertiseInterval = Duration(seconds: 3);
 
+  // [intensity] is accepted and ignored: the pretend radio has no duty cycle
+  // to trade against, so demo mode behaves identically either way.
   @override
   Stream<IoTDevice> scan({
     Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
+    ScanIntensity intensity = ScanIntensity.active,
   }) async* {
     // Fresh mock state per scan when Rust is driving the simulator.
     if (rustAvailable) {

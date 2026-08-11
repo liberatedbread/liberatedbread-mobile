@@ -439,6 +439,27 @@ void main() {
     });
   });
 
+  group('scan intensity mapping', () {
+    test('an active scan listens continuously', () {
+      // The user pressed Scan and is watching: discovery latency is the
+      // product, so the radio stays in Android's low-latency mode and the
+      // firehose is thinned by the divisor instead.
+      expect(androidScanModeFor(ScanIntensity.active).value,
+          AndroidScanMode.lowLatency.value);
+      expect(continuousDivisorFor(ScanIntensity.active), continuousScanDivisor);
+    });
+
+    test('an ambient scan duty-cycles and stops thinning receptions', () {
+      // Self-started scanning takes the balanced duty cycle — the single
+      // biggest energy saving the scan has — and drops the divisor, because
+      // the duty cycle has already thinned receptions at the radio and
+      // stacking the two would double a sleepy sensor's reception gaps.
+      expect(androidScanModeFor(ScanIntensity.ambient).value,
+          AndroidScanMode.balanced.value);
+      expect(continuousDivisorFor(ScanIntensity.ambient), 1);
+    });
+  });
+
   group('shouldStopNativeScanOnCancel (N1 re-entrancy guard)', () {
     // Distinct objects stand in for scan subscriptions; identity is what the
     // guard compares.

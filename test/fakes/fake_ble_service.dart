@@ -112,6 +112,10 @@ class FakeBleService implements BleService {
   /// see that it did.
   final List<Duration?> scanTimeouts = [];
 
+  /// Intensities [scan] was called with, parallel to [scanTimeouts]. How a
+  /// test tells an ambient self-start from the burst a Scan press buys.
+  final List<ScanIntensity> scanIntensities = [];
+
   // Matches the fixed RealBleService contract: devices stream in during the
   // scan window and the stream closes only when the window ends (here: when
   // there is nothing left to emit) — never early with results still pending.
@@ -124,8 +128,10 @@ class FakeBleService implements BleService {
   Stream<IoTDevice> scan({
     Duration? timeout =
         const Duration(seconds: AppConstants.defaultScanDuration),
+    ScanIntensity intensity = ScanIntensity.active,
   }) async* {
     scanTimeouts.add(timeout);
+    scanIntensities.add(intensity);
     if (scanError != null) throw scanError!;
     for (final d in devicesToEmit) {
       if (scanStepDelay > Duration.zero) {

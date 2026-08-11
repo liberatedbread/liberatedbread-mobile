@@ -464,7 +464,10 @@ class _UnmatchedBleService implements BleService {
   Future<int> readRssi(String deviceId) async => -60;
 
   @override
-  Stream<IoTDevice> scan({Duration? timeout = const Duration(seconds: 10)}) =>
+  Stream<IoTDevice> scan({
+    Duration? timeout = const Duration(seconds: 10),
+    ScanIntensity intensity = ScanIntensity.active,
+  }) =>
       const Stream.empty();
 
   @override
@@ -539,7 +542,10 @@ class _ScriptedBleService implements BleService {
   Future<int> readRssi(String deviceId) async => -60;
 
   @override
-  Stream<IoTDevice> scan({Duration? timeout = const Duration(seconds: 10)}) {
+  Stream<IoTDevice> scan({
+    Duration? timeout = const Duration(seconds: 10),
+    ScanIntensity intensity = ScanIntensity.active,
+  }) {
     if (scanError case final Object error) {
       return Stream<IoTDevice>.error(error);
     }

@@ -38,9 +38,25 @@ heading.
   rest of this possible: without it Android suppresses same-payload
   advertisements and Apple platforms coalesce duplicates, so a device is
   reported once and there is no way to tell "still here" from "switched off an
-  hour ago". A divisor of 2 halves the resulting traffic, the coalescer only
-  passes on a change or a five-second heartbeat, and the list repaints at most
-  every 400ms — except for a newly-found device, which repaints at once.
+  hour ago". The coalescer only passes on a change or a five-second heartbeat,
+  and the list repaints at most every 400ms — except for a newly-found device,
+  which repaints at once.
+
+  How hard the radio listens depends on whose idea the scan was
+  (`ScanIntensity`). Everything the screen starts by itself — launch, a tab
+  or lifecycle resume, the radio coming back — runs *ambient*: Android's
+  balanced scan mode, which duty-cycles the radio to roughly a quarter and is
+  the single biggest energy saving the scan has. Pressing Scan (or a Retry)
+  buys an *active* burst: thirty seconds of continuous low-latency listening
+  — someone hunting for a device right now should not wait on a duty cycle —
+  after which the scan seamlessly downshifts to ambient, because a mode that
+  one tap re-pins for the whole session would hinge the energy story on
+  nobody pressing the tab's most prominent button. The advertisement divisor
+  (2, to halve platform-channel traffic) now applies only to active scans:
+  balanced has already thinned receptions at the radio, and stacking the two
+  would double a sleepy sensor's reception gaps. Apple platforms expose no
+  scan-mode knob, so there the intensity changes nothing and the cost stays
+  bounded by the tab/lifecycle gating.
 
   A scan that never ends has to be careful about when it runs, so it does not:
   it pauses while the app is in the background (where the OS would not deliver
@@ -90,11 +106,16 @@ heading.
   device that had been unplugged looked exactly like one that had never been
   found — the row was simply gone. Every device now carries `lastSeen` (the
   advertisement's own timestamp, so a silent device is not refreshed by a
-  neighbour's traffic), and silence is read in two stages: past 40 seconds the
+  neighbour's traffic), and silence is read in two stages: past 90 seconds the
   row gets a warning glyph, says how long it has been quiet, drops its signal
   meter — that reading is a memory, not a measurement — and sinks below the
   devices still being heard; past five minutes it is dropped, since by then a
-  tap on it can only end in a connect timeout.
+  tap on it can only end in a connect timeout. Ninety seconds rather than the
+  forty this branch first shipped, because the ambient scan's duty cycle
+  lengthens honest reception gaps: a sleepy sensor advertising every 10s is
+  caught on average once per ~40s under a quarter duty cycle, and a threshold
+  sized for continuous listening would flicker warnings over devices that are
+  quietly fine.
 
 - **Image upload is a generic pipeline now, not a SmartDawn one.** Seven
   devices in the catalogue declare an `image_upload` feature across six

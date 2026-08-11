@@ -22,14 +22,18 @@ class DeviceManager {
   /// Silence beyond which a device is shown with a warning rather than as a
   /// live result.
   ///
-  /// Sized for slow advertisers, not for chatty ones. Most peripherals
-  /// advertise several times a second, but sleepy sensors go 10s or more
-  /// between packets, and the scan halves the reports it takes for those (see
-  /// `continuousScanDivisor`) — so the honest floor is somewhere north of 20s.
-  /// 40s clears that with room for a couple of dropped packets, and is still
-  /// short enough that a device someone just unplugged is flagged while they
-  /// are still looking at the screen.
-  static const Duration staleAfter = Duration(seconds: 40);
+  /// Sized for the AMBIENT scan the tab runs on its own, which duty-cycles
+  /// the radio (Android's balanced mode listens roughly a quarter of the
+  /// time), not for the continuous listen a Scan press buys. Under a 25% duty
+  /// cycle each advertisement has about a one-in-four chance of landing in a
+  /// listening window, so a sleepy sensor advertising every 10s is caught on
+  /// average once per ~40s — with unlucky stretches well beyond. A threshold
+  /// that read honestly under continuous listening (40s did) would flicker
+  /// warnings over sleepy devices that are quietly fine. 90s puts the common
+  /// unlucky gaps inside the threshold; the price is that an unplugged device
+  /// takes a minute and a half to be flagged instead of forty seconds, which
+  /// is still while the user is at the screen wondering about it.
+  static const Duration staleAfter = Duration(seconds: 90);
 
   /// Silence beyond which a device is dropped from the list entirely.
   ///
