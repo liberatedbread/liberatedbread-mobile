@@ -437,6 +437,14 @@ class RealBleService implements BleService {
     // Watches for the radio going away under a continuous scan (see below);
     // null for a bounded scan, whose adapter check at the top is enough.
     StreamSubscription<BluetoothAdapterState>? adapterSub;
+    // Set the moment any teardown path begins (every one funnels through
+    // cancelSub). Distinct from `cancelled`, which only marks a consumer-side
+    // cancel: a stopScan() or a superseding scan tears down without one. The
+    // refresh callback checks this, because cancelling its Timer cannot reach
+    // a callback that has already fired and is mid-await — without the check,
+    // that callback restarts the native scan nobody is listening to and then
+    // reschedules itself, forever.
+    var tornDown = false;
     // Set when the consumer lets go. Setup is a chain of awaits — permissions,
     // adapter state, tearing down a previous scan — and a cancel arriving
     // during it finds nothing to cancel: `sub` does not exist yet, so onCancel
@@ -452,6 +460,7 @@ class RealBleService implements BleService {
     }
 
     Future<void> cancelSub() async {
+      tornDown = true;
       refresh?.cancel();
       refresh = null;
       try {
@@ -640,12 +649,29 @@ class RealBleService implements BleService {
           // cause was the radio going away, the adapter watch above has already
           // ended the scan and this timer is cancelled with it.)
           void scheduleRefresh(Duration after) {
+            if (tornDown) return;
             refresh = Timer(after, () async {
+              if (tornDown) return;
               Log.ble.debug('refreshing the continuous scan');
               try {
                 await startNative();
+                if (tornDown) {
+                  // The scan ended while this restart was in flight, so the
+                  // restart just revived a radio nobody is listening to. Put
+                  // it back down — unless a newer scan has installed itself,
+                  // in which case the radio is its business now.
+                  if (_scanSubscription == null) {
+                    try {
+                      await FlutterBluePlus.stopScan();
+                    } catch (_) {
+                      // Best-effort: teardown-time cleanup must not throw.
+                    }
+                  }
+                  return;
+                }
                 scheduleRefresh(continuousScanRefreshInterval);
               } catch (e) {
+                if (tornDown) return;
                 Log.ble.warning(
                     'continuous scan refresh failed; nothing is scanning '
                     'until the retry in '
