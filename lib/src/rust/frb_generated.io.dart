@@ -24,6 +24,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   AnyhowException dco_decode_AnyhowException(dynamic raw);
 
   @protected
+  Map<String, String> dco_decode_Map_String_String_None(dynamic raw);
+
+  @protected
   Map<String, double> dco_decode_Map_String_f_64_None(dynamic raw);
 
   @protected
@@ -49,6 +52,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkDeviceDto dco_decode_box_autoadd_network_device_dto(dynamic raw);
+
+  @protected
+  NetworkReadingDto dco_decode_box_autoadd_network_reading_dto(dynamic raw);
 
   @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
@@ -135,6 +141,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MatchResult> dco_decode_list_match_result(dynamic raw);
 
   @protected
+  List<NetworkActionDto> dco_decode_list_network_action_dto(dynamic raw);
+
+  @protected
+  List<NetworkEntityDto> dco_decode_list_network_entity_dto(dynamic raw);
+
+  @protected
+  List<NetworkOptionDto> dco_decode_list_network_option_dto(dynamic raw);
+
+  @protected
+  List<NetworkReadBackDto> dco_decode_list_network_read_back_dto(dynamic raw);
+
+  @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw);
 
   @protected
@@ -160,6 +178,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<(String, double)> dco_decode_list_record_string_f_64(dynamic raw);
 
   @protected
+  List<(String, String)> dco_decode_list_record_string_string(dynamic raw);
+
+  @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
 
   @protected
@@ -181,7 +202,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MatchResult dco_decode_match_result(dynamic raw);
 
   @protected
+  NetworkActionDto dco_decode_network_action_dto(dynamic raw);
+
+  @protected
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw);
+
+  @protected
+  NetworkEntityDto dco_decode_network_entity_dto(dynamic raw);
+
+  @protected
+  NetworkOptionDto dco_decode_network_option_dto(dynamic raw);
+
+  @protected
+  NetworkReadBackDto dco_decode_network_read_back_dto(dynamic raw);
+
+  @protected
+  NetworkReadingDto dco_decode_network_reading_dto(dynamic raw);
+
+  @protected
+  NetworkReadingKind dco_decode_network_reading_kind(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -200,6 +239,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw);
+
+  @protected
+  NetworkReadingDto? dco_decode_opt_box_autoadd_network_reading_dto(
+      dynamic raw);
 
   @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
@@ -226,6 +269,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, double) dco_decode_record_string_f_64(dynamic raw);
 
   @protected
+  (String, String) dco_decode_record_string_string(dynamic raw);
+
+  @protected
   ScanMatch dco_decode_scan_match(dynamic raw);
 
   @protected
@@ -233,6 +279,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ServiceDto dco_decode_service_dto(dynamic raw);
+
+  @protected
+  SoapRequestDto dco_decode_soap_request_dto(dynamic raw);
 
   @protected
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw);
@@ -251,6 +300,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+
+  @protected
+  Map<String, String> sse_decode_Map_String_String_None(
+      SseDeserializer deserializer);
 
   @protected
   Map<String, double> sse_decode_Map_String_f_64_None(
@@ -281,6 +334,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkDeviceDto sse_decode_box_autoadd_network_device_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkReadingDto sse_decode_box_autoadd_network_reading_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -377,6 +434,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<MatchResult> sse_decode_list_match_result(SseDeserializer deserializer);
 
   @protected
+  List<NetworkActionDto> sse_decode_list_network_action_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<NetworkEntityDto> sse_decode_list_network_entity_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<NetworkOptionDto> sse_decode_list_network_option_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<NetworkReadBackDto> sse_decode_list_network_read_back_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<ParameterDto> sse_decode_list_parameter_dto(
       SseDeserializer deserializer);
 
@@ -405,6 +478,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<(String, String)> sse_decode_list_record_string_string(
+      SseDeserializer deserializer);
+
+  @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer);
 
   @protected
@@ -428,7 +505,28 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   MatchResult sse_decode_match_result(SseDeserializer deserializer);
 
   @protected
+  NetworkActionDto sse_decode_network_action_dto(SseDeserializer deserializer);
+
+  @protected
   NetworkDeviceDto sse_decode_network_device_dto(SseDeserializer deserializer);
+
+  @protected
+  NetworkEntityDto sse_decode_network_entity_dto(SseDeserializer deserializer);
+
+  @protected
+  NetworkOptionDto sse_decode_network_option_dto(SseDeserializer deserializer);
+
+  @protected
+  NetworkReadBackDto sse_decode_network_read_back_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkReadingDto sse_decode_network_reading_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkReadingKind sse_decode_network_reading_kind(
+      SseDeserializer deserializer);
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
@@ -448,6 +546,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkReadingDto? sse_decode_opt_box_autoadd_network_reading_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -476,6 +578,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
 
   @protected
+  (String, String) sse_decode_record_string_string(
+      SseDeserializer deserializer);
+
+  @protected
   ScanMatch sse_decode_scan_match(SseDeserializer deserializer);
 
   @protected
@@ -483,6 +589,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ServiceDto sse_decode_service_dto(SseDeserializer deserializer);
+
+  @protected
+  SoapRequestDto sse_decode_soap_request_dto(SseDeserializer deserializer);
 
   @protected
   SpecIdentityDto sse_decode_spec_identity_dto(SseDeserializer deserializer);
@@ -502,6 +611,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_AnyhowException(
       AnyhowException self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_Map_String_String_None(
+      Map<String, String> self, SseSerializer serializer);
 
   @protected
   void sse_encode_Map_String_f_64_None(
@@ -534,6 +647,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_network_device_dto(
       NetworkDeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_network_reading_dto(
+      NetworkReadingDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_scanned_device_dto(
@@ -638,6 +755,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<MatchResult> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_network_action_dto(
+      List<NetworkActionDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_network_entity_dto(
+      List<NetworkEntityDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_network_option_dto(
+      List<NetworkOptionDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_network_read_back_dto(
+      List<NetworkReadBackDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_parameter_dto(
       List<ParameterDto> self, SseSerializer serializer);
 
@@ -669,6 +802,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<(String, double)> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_record_string_string(
+      List<(String, String)> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_scan_match(
       List<ScanMatch> self, SseSerializer serializer);
 
@@ -695,8 +832,32 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_match_result(MatchResult self, SseSerializer serializer);
 
   @protected
+  void sse_encode_network_action_dto(
+      NetworkActionDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_network_device_dto(
       NetworkDeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_entity_dto(
+      NetworkEntityDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_option_dto(
+      NetworkOptionDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_read_back_dto(
+      NetworkReadBackDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_reading_dto(
+      NetworkReadingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_reading_kind(
+      NetworkReadingKind self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
@@ -718,6 +879,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_mac_prefix_dto(
       MacPrefixDto? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_network_reading_dto(
+      NetworkReadingDto? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
@@ -748,6 +913,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       (String, double) self, SseSerializer serializer);
 
   @protected
+  void sse_encode_record_string_string(
+      (String, String) self, SseSerializer serializer);
+
+  @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer);
 
   @protected
@@ -756,6 +925,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_service_dto(ServiceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_soap_request_dto(
+      SoapRequestDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_spec_identity_dto(
