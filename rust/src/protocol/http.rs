@@ -21,6 +21,24 @@ use crate::spec::types::{scalar_to_string, DeviceSpec, SpecCommand};
 /// The transport a command must declare to be sendable from here.
 pub const TRANSPORT: &str = "http";
 
+/// The methods a client of this transport is expected to implement, and so
+/// the ones a control may be offered for.
+///
+/// The command schema allows PUT, DELETE and PATCH as well; nothing in the
+/// catalogue uses them, and the app's HTTP client sends only these two. The
+/// list lives here, beside the renderer, so the capability gate and the
+/// transport cannot drift into disagreeing — a control resolved for a method
+/// nothing can send is a button whose every press fails, which is precisely
+/// what the gate exists to prevent.
+pub const SENDABLE_METHODS: &[&str] = &["GET", "POST"];
+
+/// Whether a client of this transport can send `method`.
+pub fn is_sendable_method(method: &str) -> bool {
+    SENDABLE_METHODS
+        .iter()
+        .any(|known| method.eq_ignore_ascii_case(known))
+}
+
 /// A rendered request, ready for whatever the caller uses to speak HTTP.
 ///
 /// The address is the caller's: discovery already knows the host and port
@@ -133,6 +151,28 @@ fn resolve_param(
         .and_then(|p| p.default.as_ref())
         .and_then(scalar_to_string)
         .ok_or_else(|| ProtocolError::ParameterMissing(format!("{command_name}.{param}")))
+}
+
+/// The request an `http_endpoints` entry describes: its method and path.
+///
+/// The join `options_source`/`state_source` make by `command` name. Returns
+/// nothing for an endpoint that is absent, incompletely declared, or marked
+/// `sunset` — a query source pointing at a removed endpoint is a list that
+/// can never load, and resolving it would put that dead list on screen.
+pub fn endpoint_request(spec: &DeviceSpec, name: &str) -> Option<(String, String)> {
+    let endpoint = spec
+        .extensions
+        .get("http_endpoints")?
+        .as_sequence()?
+        .iter()
+        .find(|entry| entry.get("name").and_then(|n| n.as_str()) == Some(name))?
+        .clone();
+    if endpoint.get("status").and_then(|s| s.as_str()) == Some("sunset") {
+        return None;
+    }
+    let method = endpoint.get("method")?.as_str()?;
+    let path = endpoint.get("path")?.as_str()?;
+    Some((method.to_string(), path.to_string()))
 }
 
 /// Percent-encode one substituted value for a path segment.

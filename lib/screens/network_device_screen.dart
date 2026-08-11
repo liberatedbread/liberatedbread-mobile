@@ -7,9 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/entity_icon.dart';
 import '../core/error_text.dart';
+import '../core/log.dart';
 import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../services/http_control_service.dart';
+import '../services/query_source_reader.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 
@@ -58,6 +61,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// press must not wait for a slow PowerOn to settle, and two in-flight
   /// sends clearing one shared flag would re-enable both early.
   final Set<String> _sending = {};
+
+  /// Options fetched from the device for entities that declare an
+  /// `options_source` — the installed-channel list — by entity name.
+  final Map<String, List<QueryEntry>> _fetchedOptions = {};
+
+  /// Which of those options is current, by entity name. Absent means the
+  /// device named none: on Roku's home screen no channel is foreground, and
+  /// showing nothing selected is the true answer.
+  final Map<String, String?> _currentOption = {};
+
+  /// Whether the device refused a command while its queries kept answering —
+  /// the "control by mobile apps" gate. Sticky for the screen's life so the
+  /// note stays up after the error text is replaced by the next attempt.
+  bool _controlRefused = false;
+
   bool _loading = true;
   String? _error;
 
@@ -113,6 +131,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             await client.fetchDescription(widget.device.host, port);
         await _refreshState();
       }
+      await _refreshQuerySources();
       if (mounted) setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
@@ -157,6 +176,49 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Fetch the option lists — and current selections — that live on the
+  /// device rather than in the spec.
+  ///
+  /// Separate from [_refreshState] because it is a different transport and a
+  /// different failure: these are plain GETs whose answers are XML lists, and
+  /// on the devices this exists for they keep answering even when commands
+  /// are refused. So a failure here costs the list and nothing else — the
+  /// buttons beside it still work, and the screen must not become an error
+  /// page over a channel list.
+  Future<void> _refreshQuerySources() async {
+    final client = ref.read(httpControlClientProvider);
+    final port = widget.device.port;
+    if (port == null) return;
+
+    for (final entity in _entities) {
+      final options = entity.optionsSource;
+      if (options == null) continue;
+      try {
+        final body = await client.send(
+          widget.device.host,
+          port,
+          HttpRequestDto(
+              method: options.method, path: options.path, body: ''),
+        );
+        _fetchedOptions[entity.name] = readQuerySource(body, options);
+
+        final state = entity.stateSource;
+        if (state == null) continue;
+        final current = await client.send(
+          widget.device.host,
+          port,
+          HttpRequestDto(method: state.method, path: state.path, body: ''),
+        );
+        _currentOption[entity.name] = readCurrentValue(current, state);
+      } catch (e) {
+        // Logged, not surfaced: an absent list is visible on its own, and a
+        // banner about it would bury the controls that do work.
+        Log.net.debug('query source failed for ${entity.name}: $e');
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
   /// Send one action, with its read-back values fetched fresh first.
   Future<void> _send(
     NetworkEntityDto entity,
@@ -182,9 +244,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // whatever state this screen polls; a remote of stateless buttons has
       // none.
       if (_stateCommands.isNotEmpty) await _refreshState();
+      // A launch changes which option is current, and nothing else reports
+      // that — re-read the selection the device now names.
+      if (entity.stateSource != null) await _refreshQuerySources();
     } catch (e) {
       if (!mounted) return;
       setState(() {
+        // A refusal is a device setting, not a transient failure: remember it
+        // so the screen can explain the gate instead of leaving the user to
+        // read one error at a time.
+        if (e is ControlRefusedException) _controlRefused = true;
         _error = friendlyErrorText(
           e,
           context: 'device control',
@@ -315,6 +384,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ),
               ),
             ] else ...[
+              // The device answered our questions but refused a command. That
+              // is a setting on the device, and saying so beats leaving the
+              // user to conclude the app is broken — discovery worked, the
+              // lists loaded, only control is gated.
+              if (_controlRefused) ...[
+                _controlGateNote(),
+                const SizedBox(height: 12),
+              ],
               // The remote's buttons share one card: twenty-seven separate
               // cards would bury the D-pad below the fold, and a remote is
               // one control surface, not a list of readings.
@@ -338,6 +415,55 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   List<NetworkEntityDto> get _buttons =>
       _entities.where((entity) => entity.platform == 'button').toList();
+
+  /// The note shown once a device has refused a command.
+  ///
+  /// Deliberately says what still worked. A user whose TV ignores every
+  /// button is entitled to wonder whether the app found the right device at
+  /// all; naming the setting — and pointing out that finding it and reading
+  /// from it both succeeded — turns a mystery into one toggle to flip.
+  Widget _controlGateNote() {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline, color: scheme.onSecondaryContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'The device is refusing commands',
+                    style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSecondaryContainer),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'It answered discovery and lets this app read from it, so '
+                    'the connection is fine — it just will not take commands '
+                    'over the network yet. On a Roku that is Settings > '
+                    'System > Advanced system settings > "Control by mobile '
+                    'apps"; other devices word it as network or external '
+                    'control. Enable it there, then try again.',
+                    style: text.bodySmall
+                        ?.copyWith(color: scheme.onSecondaryContainer),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _entityCard(NetworkEntityDto entity) {
     switch (entity.platform) {
@@ -459,8 +585,23 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final reading = _readings[entity.name];
     final action = _actionFor(entity, 'select_option');
     final busy = _sending.contains(entity.name);
-    final currentRaw =
-        reading?.kind == NetworkReadingKind.option ? reading?.raw : null;
+    // Options either come from the spec's own table or from the device, and
+    // where they came from decides how "which is current" is answered: a
+    // spec-optioned select decodes it from a state reading, a device-optioned
+    // one is told directly by the query the options came from.
+    final fetched = _fetchedOptions[entity.name];
+    final options = fetched != null
+        ? [
+            for (final entry in fetched)
+              if (entry.value != null)
+                NetworkOptionDto(
+                    raw: entry.value!,
+                    label: entry.label.isEmpty ? entry.value! : entry.label),
+          ]
+        : entity.options;
+    final currentRaw = fetched != null
+        ? _currentOption[entity.name]
+        : (reading?.kind == NetworkReadingKind.option ? reading?.raw : null);
 
     return _card(
       child: Column(
@@ -493,11 +634,25 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
+          // A device-sourced list that came back empty is worth a word: the
+          // chips are simply absent otherwise, which reads as a bug rather
+          // than as a device that answered with nothing.
+          if (entity.optionsSource != null && options.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                _loading
+                    ? 'Asking the device...'
+                    : 'The device listed nothing here.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              for (final option in entity.options)
+              for (final option in options)
                 ChoiceChip(
                   label: Text(option.label),
                   selected: option.raw == currentRaw,

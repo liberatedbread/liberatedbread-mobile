@@ -236,6 +236,19 @@ impl SpecCommand {
     }
 }
 
+/// An entity's XML query source: which catalogue endpoint to fetch and how
+/// to read entries out of its response. The schema's `options_source` /
+/// `state_source` contract, verbatim.
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuerySource {
+    /// Name of the `http_endpoints` entry to fetch.
+    pub command: String,
+    /// Local element name matched anywhere in the response document.
+    pub item: String,
+    /// Attribute carrying the entry's raw value.
+    pub value: String,
+}
+
 /// One parameter of a [`SpecCommand`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct SpecCommandParameter {
@@ -416,6 +429,17 @@ pub struct Entity {
     /// returned value is a structure rather than the value itself.
     #[serde(default)]
     pub state_path: Option<String>,
+    /// Where a `select` gets options the spec cannot enumerate because they
+    /// live on the device — Roku's installed channels. Fetch the named
+    /// endpoint; every element with `item`'s local name is one option, the
+    /// `value` attribute its raw value, the element text its label.
+    #[serde(default)]
+    pub options_source: Option<QuerySource>,
+    /// Where a dynamically-optioned `select` reads which option is current,
+    /// in [`Self::options_source`]'s exact shape. An element without the
+    /// value attribute means no option is current (Roku's home screen).
+    #[serde(default)]
+    pub state_source: Option<QuerySource>,
     /// Characteristic the entity's writes target when it differs from
     /// `state_characteristic` (spider-farmer's grow light) — and the first
     /// place role commands are looked up when resolving control bindings.

@@ -33,7 +33,13 @@ class HttpControlClient {
   /// policy ("network control disabled") rather than a network failure, and
   /// the caller should say so instead of suggesting a rescan.
   Future<String> send(String host, int port, HttpRequestDto request) async {
-    final uri = Uri(scheme: 'http', host: host, port: port, path: request.path);
+    // Resolved against the device's address rather than assembled with
+    // `Uri(path: ...)`, which treats the whole rendered target as path data:
+    // a target carrying a query string (the spec's `/input?name=value`) comes
+    // out as `/input%3Fname=value`, a path the device has never heard of. The
+    // renderer already produced a valid relative reference — percent-encoding
+    // included — so resolving preserves both halves as written.
+    final uri = Uri.parse('http://$host:$port').resolve(request.path);
     final http.Response response;
     switch (request.method.toUpperCase()) {
       case 'GET':

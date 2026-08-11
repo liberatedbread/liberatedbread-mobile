@@ -34,6 +34,45 @@ void main() {
     expect(seen.body, isEmpty);
   });
 
+  test('a rendered query string stays a query, not path data', () async {
+    // The spec's /input endpoint carries its arguments in the query. Built
+    // with Uri(path: ...) the '?' encodes as %3F and the device sees a path
+    // it has never heard of.
+    late http.Request seen;
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async {
+        seen = request;
+        return http.Response('', 200);
+      }),
+    );
+
+    await client.send(
+        '10.0.0.9',
+        8060,
+        const HttpRequestDto(
+            method: 'POST', path: '/input?acceleration.x=0.0', body: ''));
+
+    expect(seen.url.path, '/input');
+    expect(seen.url.query, 'acceleration.x=0.0');
+  });
+
+  test('a rendered percent-escape is not escaped again', () async {
+    // The Rust renderer already encoded the value (Lit_%20 is a space); a
+    // second pass would send Lit_%2520 and type a literal "%20".
+    late http.Request seen;
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async {
+        seen = request;
+        return http.Response('', 200);
+      }),
+    );
+
+    await client.send('10.0.0.9', 8060,
+        const HttpRequestDto(method: 'POST', path: '/keypress/Lit_%20', body: ''));
+
+    expect(seen.url.toString(), 'http://10.0.0.9:8060/keypress/Lit_%20');
+  });
+
   test('a GET returns the response body for query endpoints', () async {
     final client = HttpControlClient(
       httpClient: MockClient((request) async {

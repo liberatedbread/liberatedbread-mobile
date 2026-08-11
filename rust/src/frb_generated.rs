@@ -1548,6 +1548,10 @@ impl SseDecode for crate::api::device_api::NetworkEntityDto {
         let mut var_valueField = <Option<String>>::sse_decode(deserializer);
         let mut var_options =
             <Vec<crate::api::device_api::NetworkOptionDto>>::sse_decode(deserializer);
+        let mut var_optionsSource =
+            <Option<crate::api::device_api::QuerySourceDto>>::sse_decode(deserializer);
+        let mut var_stateSource =
+            <Option<crate::api::device_api::QuerySourceDto>>::sse_decode(deserializer);
         let mut var_actions =
             <Vec<crate::api::device_api::NetworkActionDto>>::sse_decode(deserializer);
         let mut var_setpointMin = <Option<f64>>::sse_decode(deserializer);
@@ -1563,6 +1567,8 @@ impl SseDecode for crate::api::device_api::NetworkEntityDto {
             state_command: var_stateCommand,
             value_field: var_valueField,
             options: var_options,
+            options_source: var_optionsSource,
+            state_source: var_stateSource,
             actions: var_actions,
             setpoint_min: var_setpointMin,
             setpoint_max: var_setpointMax,
@@ -1713,6 +1719,19 @@ impl SseDecode for Option<crate::api::device_api::NetworkReadingDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::QuerySourceDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::QuerySourceDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<u16> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1816,6 +1835,22 @@ impl SseDecode for crate::api::device_api::ProfileInfoDto {
             service_uuid: var_serviceUuid,
             profile_name: var_profileName,
             characteristics: var_characteristics,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::QuerySourceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_method = <String>::sse_decode(deserializer);
+        let mut var_path = <String>::sse_decode(deserializer);
+        let mut var_item = <String>::sse_decode(deserializer);
+        let mut var_valueAttribute = <String>::sse_decode(deserializer);
+        return crate::api::device_api::QuerySourceDto {
+            method: var_method,
+            path: var_path,
+            item: var_item,
+            value_attribute: var_valueAttribute,
         };
     }
 }
@@ -2555,6 +2590,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkEntityDto 
             self.state_command.into_into_dart().into_dart(),
             self.value_field.into_into_dart().into_dart(),
             self.options.into_into_dart().into_dart(),
+            self.options_source.into_into_dart().into_dart(),
+            self.state_source.into_into_dart().into_dart(),
             self.actions.into_into_dart().into_dart(),
             self.setpoint_min.into_into_dart().into_dart(),
             self.setpoint_max.into_into_dart().into_dart(),
@@ -2738,6 +2775,29 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ProfileInfoDto>
     for crate::api::device_api::ProfileInfoDto
 {
     fn into_into_dart(self) -> crate::api::device_api::ProfileInfoDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::QuerySourceDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.method.into_into_dart().into_dart(),
+            self.path.into_into_dart().into_dart(),
+            self.item.into_into_dart().into_dart(),
+            self.value_attribute.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::QuerySourceDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::QuerySourceDto>
+    for crate::api::device_api::QuerySourceDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::QuerySourceDto {
         self
     }
 }
@@ -3443,6 +3503,11 @@ impl SseEncode for crate::api::device_api::NetworkEntityDto {
         <String>::sse_encode(self.state_command, serializer);
         <Option<String>>::sse_encode(self.value_field, serializer);
         <Vec<crate::api::device_api::NetworkOptionDto>>::sse_encode(self.options, serializer);
+        <Option<crate::api::device_api::QuerySourceDto>>::sse_encode(
+            self.options_source,
+            serializer,
+        );
+        <Option<crate::api::device_api::QuerySourceDto>>::sse_encode(self.state_source, serializer);
         <Vec<crate::api::device_api::NetworkActionDto>>::sse_encode(self.actions, serializer);
         <Option<f64>>::sse_encode(self.setpoint_min, serializer);
         <Option<f64>>::sse_encode(self.setpoint_max, serializer);
@@ -3567,6 +3632,16 @@ impl SseEncode for Option<crate::api::device_api::NetworkReadingDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::QuerySourceDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::QuerySourceDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<u16> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3644,6 +3719,16 @@ impl SseEncode for crate::api::device_api::ProfileInfoDto {
             self.characteristics,
             serializer,
         );
+    }
+}
+
+impl SseEncode for crate::api::device_api::QuerySourceDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.method, serializer);
+        <String>::sse_encode(self.path, serializer);
+        <String>::sse_encode(self.item, serializer);
+        <String>::sse_encode(self.value_attribute, serializer);
     }
 }
 

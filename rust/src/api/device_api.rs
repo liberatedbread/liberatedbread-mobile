@@ -1011,6 +1011,23 @@ pub struct NetworkActionDto {
     pub max: Option<f64>,
 }
 
+/// A resolved XML query source: the request to make and how to read entries
+/// out of its response.
+///
+/// The spec's `options_source`/`state_source` with the endpoint join already
+/// done — the entity names an endpoint, this carries that endpoint's method
+/// and path so Dart never joins the two blocks by name. The contract for the
+/// response is the schema's: every element whose local name is [`Self::item`]
+/// is one entry, the attribute named [`Self::value_attribute`] is its raw
+/// value, the element's trimmed text is its label.
+#[derive(Debug, Clone)]
+pub struct QuerySourceDto {
+    pub method: String,
+    pub path: String,
+    pub item: String,
+    pub value_attribute: String,
+}
+
 /// A spec-declared control or reading on a network device: what to draw,
 /// where its state comes from, and what each role sends.
 #[derive(Debug, Clone)]
@@ -1032,6 +1049,12 @@ pub struct NetworkEntityDto {
     pub value_field: Option<String>,
     /// Option table for a `select`, in declaration order. Empty otherwise.
     pub options: Vec<NetworkOptionDto>,
+    /// Where a `select` fetches options the spec could not enumerate (the
+    /// installed-channel list). None for statically-optioned entities.
+    pub options_source: Option<QuerySourceDto>,
+    /// Where such a select reads which option is current. None means the
+    /// control launches without showing a current selection.
+    pub state_source: Option<QuerySourceDto>,
     /// Sendable actions, role order. Empty for a pure reading.
     pub actions: Vec<NetworkActionDto>,
     pub setpoint_min: Option<f64>,
@@ -1116,6 +1139,25 @@ impl NetworkActionDto {
     }
 }
 
+/// Resolve an entity's query source against the spec's endpoint catalogue.
+///
+/// None when the entity declares none, and also when the named endpoint is
+/// missing or sunset — the same rule the admission gate applies, so a source
+/// this returns is always fetchable as declared.
+fn resolve_query_source(
+    spec: &crate::spec::types::DeviceSpec,
+    source: Option<&crate::spec::types::QuerySource>,
+) -> Option<QuerySourceDto> {
+    let source = source?;
+    let (method, path) = crate::protocol::http::endpoint_request(spec, &source.command)?;
+    Some(QuerySourceDto {
+        method,
+        path,
+        item: source.item.clone(),
+        value_attribute: source.value.clone(),
+    })
+}
+
 /// The controls a spec declares for one discovered network device.
 ///
 /// `ssdp_targets` is what the device itself answered to — it is how a family
@@ -1151,6 +1193,8 @@ pub fn network_entities_for_device(
                     .into_iter()
                     .map(|(raw, label)| NetworkOptionDto { raw, label })
                     .collect(),
+                options_source: resolve_query_source(&spec, entity.options_source.as_ref()),
+                state_source: resolve_query_source(&spec, entity.state_source.as_ref()),
                 actions: actions.iter().map(NetworkActionDto::from).collect(),
                 setpoint_min: entity.setpoint_min().or_else(|| {
                     actions

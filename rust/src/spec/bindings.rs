@@ -756,7 +756,7 @@ pub fn resolve_network_actions<'a>(
     spec: &'a DeviceSpec,
     entity: &'a Entity,
 ) -> Vec<NetworkAction<'a>> {
-    if entity.state_command.is_none() && !is_stateless_platform(entity) {
+    if !on_network_surface(spec, entity) {
         return Vec::new();
     }
     let platform = entity.platform.as_deref().unwrap_or_default();
@@ -802,9 +802,15 @@ fn qualify_network<'a>(
             }
         }
         http::TRANSPORT => {
-            if command.method.is_none() || command.path.is_none() {
-                return None;
+            // The method must be one a client of this transport can actually
+            // send, not merely present: the schema allows PUT/DELETE/PATCH,
+            // and resolving a control for one would put a button on screen
+            // whose every press fails inside the client.
+            match command.method.as_deref() {
+                Some(method) if http::is_sendable_method(method) => {}
+                _ => return None,
             }
+            command.path.as_ref()?;
         }
         _ => return None,
     }
@@ -830,30 +836,36 @@ fn qualify_network<'a>(
     })
 }
 
-/// Whether an entity's platform has no state by nature, exempting it from
-/// the where-does-your-reading-come-from rule.
+/// Whether an entity belongs on the network control surface at all.
 ///
-/// One platform qualifies: a `button` is momentary — pressed, not on — so
-/// statelessness is its honest description, where on a switch it would mean
-/// a control that can never update. The schema makes the same carve-out in
-/// the same words.
-fn is_stateless_platform(entity: &Entity) -> bool {
-    entity.platform.as_deref() == Some("button")
+/// The honesty rule with its two carve-outs: an entity is listed when it
+/// says where its reading comes from (`state_command`), because a control
+/// that can never update is worse than an absent one — except a `button`,
+/// which is momentary and has no resulting state to read, and a `select`
+/// carrying an `options_source`, whose device-fetched options ARE its
+/// surface (the schema says so in the same words). Requiring state of
+/// either would just push spec authors to invent fake bindings.
+///
+/// The options-source carve-out demands the source actually resolve — the
+/// named endpoint present and not sunset — because a select admitted on the
+/// strength of a list that can never load is exactly the dead control the
+/// rule exists to keep off screen.
+fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
+    entity.state_command.is_some()
+        || entity.platform.as_deref() == Some("button")
+        || entity
+            .options_source
+            .as_ref()
+            .is_some_and(|source| http::endpoint_request(spec, &source.command).is_some())
 }
 
-/// Entities a spec drives over the network: those that name a state command,
-/// plus the stateless platform that has nothing to name.
-///
-/// The network counterpart of [`DeviceSpec::resolved_entities`], and it
-/// applies the same honesty rule — an entity is listed only if it says where
-/// its reading comes from, because a control that can never update is worse
-/// than an absent one. A `button` passes without a state source because a
-/// keypress HAS no resulting state to read; requiring one would just push
-/// spec authors to invent a fake binding.
+/// Entities a spec drives over the network — see [`on_network_surface`] for
+/// the admission rule. The network counterpart of
+/// [`DeviceSpec::resolved_entities`].
 pub fn network_entities(spec: &DeviceSpec) -> Vec<&Entity> {
     spec.entities
         .iter()
-        .filter(|entity| entity.state_command.is_some() || is_stateless_platform(entity))
+        .filter(|e| on_network_surface(spec, e))
         .collect()
 }
 
@@ -1769,6 +1781,46 @@ entities:
         );
         let entities = network_entities(&spec);
         assert!(resolve_network_actions(&spec, entities[0]).is_empty());
+    }
+
+    /// A method the schema allows but no client of this transport sends is
+    /// the same dead control as a missing one, and must be gated the same.
+    #[test]
+    fn an_http_command_using_an_unsendable_method_resolves_nothing() {
+        for method in ["PUT", "DELETE", "PATCH"] {
+            let spec = network_spec(&format!(
+                r#"
+  press_me:
+    description: A method no client here implements.
+    transport: http
+    method: {method}
+    path: /keypress/Select
+"#
+            ));
+            let entities = network_entities(&spec);
+            assert!(
+                resolve_network_actions(&spec, entities[0]).is_empty(),
+                "{method} must not resolve a control"
+            );
+        }
+        // And the sendable ones still do, case-insensitively.
+        for method in ["POST", "get"] {
+            let spec = network_spec(&format!(
+                r#"
+  press_me:
+    description: A method the client implements.
+    transport: http
+    method: {method}
+    path: /keypress/Select
+"#
+            ));
+            let entities = network_entities(&spec);
+            assert_eq!(
+                resolve_network_actions(&spec, entities[0]).len(),
+                1,
+                "{method} must resolve"
+            );
+        }
     }
 
     /// A stateless platform that is NOT button keeps the old rule: a switch

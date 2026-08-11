@@ -273,17 +273,35 @@ http_endpoints:
     description: >
       XML list of installed Roku channels and launchable app IDs. Dropped from
       the current official ECP doc's command table but still live on-device
-      (used by python-rokuecp / Home Assistant).
+      (used by python-rokuecp / Home Assistant). One <app> element per
+      channel: the id attribute is what /launch/{app_id} takes, and the
+      element text is the display name. NOT gated by "Control by mobile
+      apps" — the list is readable even when every keypress answers 403.
     response_body:
       content_type: "application/xml"
+      example: |
+        <apps>
+          <app id="12" subtype="ndka" type="appl" version="4.1.218">Netflix</app>
+          <app id="837" subtype="ndka" type="appl" version="1.0.80">YouTube</app>
+          <app id="551012" subtype="ndka" type="appl" version="9.0.1">Apple TV</app>
+        </apps>
   - method: "GET"
     path: "/query/active-app"
     name: "Active App"
     description: >
       Current foreground app and active media context. Dropped from the
-      current official ECP doc's command table but still live on-device.
+      current official ECP doc's command table but still live on-device, and
+      not gated by "Control by mobile apps". The <app> element matches the
+      Installed Apps shape — except on the home screen and in the
+      screensaver, where it carries no id attribute at all (the text is just
+      "Roku"): a consumer matching the current channel by id must treat a
+      missing attribute as "none of them", not as an error.
     response_body:
       content_type: "application/xml"
+      example: |
+        <active-app>
+          <app id="837" subtype="ndka" type="appl" version="1.0.80">YouTube</app>
+        </active-app>
   - method: "GET"
     path: "/query/media-player"
     name: "Media Player"
@@ -589,6 +607,28 @@ commands:
     action: "Keypress"
     verification: "reported"
 
+  # -- Channels. The one command here that takes a caller value: which
+  #    channel, by the id the Installed Apps query returned.
+  launch_app:
+    description: >
+      Launch an installed channel by app id. Ids come from the Installed
+      Apps query; the Channel entity below joins the two. Launching is NOT
+      gated by "Control by mobile apps" on the observed fleet — the gate
+      lists keypress/keydown/keyup, icon and the tv-channel queries.
+    transport: "http"
+    method: "POST"
+    path: "/launch/{app_id}"
+    action: "Launch App"
+    parameters:
+      app_id:
+        type: "string"
+        required: true
+        description: >
+          The id attribute of an <app> element from /query/apps, e.g. "12"
+          for Netflix. Numeric today, but the doc calls it an id, not a
+          number — treat it as an opaque string.
+    verification: "reported"
+
 # The remote, as controls. Declaration order is layout order — power, then
 # navigation, then transport, then volume, live TV, and inputs — which is the
 # order the buttons sit on Roku's own remotes and in the official app.
@@ -749,6 +789,34 @@ entities:
     commands:
       press: "press_input_tuner"
     notes: "TV-class key."
+
+  # The channel picker: a select whose options are whatever the device says
+  # it has installed, not a table this file could ever keep current. The two
+  # sources use the same tiny XML contract — every element with the item's
+  # local name is one entry, the named attribute is the raw value, the
+  # element text is the label — and both queries stay readable when the
+  # keypress gate is closed, so the list loads even on a TV that refuses
+  # control. Selecting an option IS launching it; there is no set-without-
+  # switch semantics here.
+  - platform: "select"
+    name: "Channel"
+    icon: "mdi:apps"
+    options_source:
+      command: "Installed Apps"
+      item: "app"
+      value: "id"
+    state_source:
+      command: "Active App"
+      item: "app"
+      value: "id"
+    commands:
+      select_option: "launch_app"
+    notes: >
+      Roku's own UI calls these channels, so the entity does too. On the home
+      screen the Active App element has no id attribute — the current
+      selection is then simply none of the options, which is the honest
+      answer. Launching a channel that is already foreground restarts or
+      resumes it, per the device.
 
   # State surfaces, for a consumer that can read XML. Not bound to controls
   # yet: the topic alone identifies the reading, per the state_topic contract.
