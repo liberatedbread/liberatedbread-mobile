@@ -14,22 +14,47 @@ class SavedDevice {
   final String name;
   final DateTime lastSeen;
 
+  /// The matched spec's `device.category` wire string ("light", "sensor", …),
+  /// recorded once a spec match resolves during a connection. Kept as the raw
+  /// string rather than a parsed enum for the same reason the Rust core does:
+  /// a spec pack newer than this build may use categories the enum has not
+  /// heard of yet, and they must survive a save/load round trip.
+  final String? category;
+
+  /// Identity key of the matched spec (`specKeyFor` in
+  /// device_spec_match_provider.dart), so group operations can find the spec
+  /// for a device that is currently out of range. Null until a match has been
+  /// recorded — including every record saved before these fields existed.
+  final String? specKey;
+
   const SavedDevice({
     required this.id,
     required this.name,
     required this.lastSeen,
+    this.category,
+    this.specKey,
   });
 
-  SavedDevice copyWith({String? name, DateTime? lastSeen}) => SavedDevice(
+  SavedDevice copyWith({
+    String? name,
+    DateTime? lastSeen,
+    String? category,
+    String? specKey,
+  }) =>
+      SavedDevice(
         id: id,
         name: name ?? this.name,
         lastSeen: lastSeen ?? this.lastSeen,
+        category: category ?? this.category,
+        specKey: specKey ?? this.specKey,
       );
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'lastSeen': lastSeen.toIso8601String(),
+        if (category != null) 'category': category,
+        if (specKey != null) 'specKey': specKey,
       };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
@@ -38,12 +63,16 @@ class SavedDevice {
     final id = json['id'];
     final name = json['name'];
     final lastSeen = json['lastSeen'];
+    final category = json['category'];
+    final specKey = json['specKey'];
     if (id is! String || id.isEmpty || name is! String) return null;
     final parsed = lastSeen is String ? DateTime.tryParse(lastSeen) : null;
     return SavedDevice(
       id: id,
       name: name,
       lastSeen: parsed ?? DateTime.fromMillisecondsSinceEpoch(0),
+      category: category is String && category.isNotEmpty ? category : null,
+      specKey: specKey is String && specKey.isNotEmpty ? specKey : null,
     );
   }
 

@@ -35,13 +35,40 @@ class SavedDevicesNotifier extends StateNotifier<List<SavedDevice>> {
   }
 
   /// Records a successful connection, refreshing the name and last-seen stamp
-  /// so the History list orders by genuine recency.
+  /// so the History list orders by genuine recency. Merges into any existing
+  /// record rather than replacing it — a plain replace would silently drop
+  /// the category/specKey a previous connection recorded.
   Future<void> touch({
     required String id,
     required String name,
     required DateTime seenAt,
-  }) =>
-      save(SavedDevice(id: id, name: name, lastSeen: seenAt));
+  }) {
+    final existing = state.where((d) => d.id == id).firstOrNull;
+    return save(existing?.copyWith(name: name, lastSeen: seenAt) ??
+        SavedDevice(id: id, name: name, lastSeen: seenAt));
+  }
+
+  /// Records which spec a connected device matched, so grouping can classify
+  /// the device later while it is out of range. Both fields are replaced
+  /// together (not merged field-by-field): they describe one match, and
+  /// keeping a stale category next to a fresh specKey would mislabel the
+  /// device. No-op for devices that were never saved.
+  Future<void> recordMatch({
+    required String id,
+    required String? category,
+    required String specKey,
+  }) async {
+    final existing = state.where((d) => d.id == id).firstOrNull;
+    if (existing == null) return;
+    if (existing.category == category && existing.specKey == specKey) return;
+    await save(SavedDevice(
+      id: existing.id,
+      name: existing.name,
+      lastSeen: existing.lastSeen,
+      category: category,
+      specKey: specKey,
+    ));
+  }
 
   bool contains(String id) => state.any((d) => d.id == id);
 }
