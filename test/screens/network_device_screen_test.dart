@@ -17,6 +17,7 @@ import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
+import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
@@ -75,6 +76,7 @@ const _entities = [
     actions: [
       NetworkActionDto(
         role: 'turn_on',
+        transport: 'soap',
         commandName: 'crockpot_turn_on',
         userParams: [],
         readBack: [
@@ -84,6 +86,7 @@ const _entities = [
       ),
       NetworkActionDto(
         role: 'turn_off',
+        transport: 'soap',
         commandName: 'crockpot_turn_off',
         userParams: [],
         readBack: [],
@@ -104,6 +107,7 @@ const _entities = [
     actions: [
       NetworkActionDto(
         role: 'select_option',
+        transport: 'soap',
         commandName: 'set_cook_mode',
         userParams: ['mode'],
         readBack: [
@@ -307,5 +311,153 @@ void main() {
 
     expect(find.byType(Switch), findsNothing);
     expect(find.textContaining('Could not reach'), findsOneWidget);
+  });
+
+  // ── The other transport: a remote of stateless plain-HTTP buttons ────────
+  //
+  // Roku-shaped: every entity is a `button` whose press renders to
+  // POST /keypress/<Key>. No setup.xml, no state polling — the screen must
+  // work without ever fetching a description, and a 403 is a settings
+  // problem, not a network one.
+  group('plain-HTTP remote', () {
+    final rokuDevice = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const remoteEntities = [
+      NetworkEntityDto(
+        name: 'Power On',
+        platform: 'button',
+        icon: 'mdi:power',
+        stateCommand: '',
+        options: [],
+        actions: [
+          NetworkActionDto(
+            role: 'press',
+            commandName: 'press_power_on',
+            transport: 'http',
+            userParams: [],
+            readBack: [],
+          ),
+        ],
+      ),
+      NetworkEntityDto(
+        name: 'Home',
+        platform: 'button',
+        icon: 'mdi:home',
+        stateCommand: '',
+        options: [],
+        actions: [
+          NetworkActionDto(
+            role: 'press',
+            commandName: 'press_home',
+            transport: 'http',
+            userParams: [],
+            readBack: [],
+          ),
+        ],
+      ),
+    ];
+
+    /// Requests the virtual Roku received, and its canned answer.
+    Future<void> pumpRemote(
+      WidgetTester tester, {
+      required List<http.Request> received,
+      int statusCode = 200,
+    }) async {
+      codec = FakeSpecCodec(
+        networkEntities: (_) => remoteEntities,
+        networkHttpRequest: (name, _) => HttpRequestDto(
+          method: 'POST',
+          path: switch (name) {
+            'press_power_on' => '/keypress/PowerOn',
+            'press_home' => '/keypress/Home',
+            _ => '/keypress/$name',
+          },
+          body: '',
+        ),
+      );
+      final roku = MockClient((request) async {
+        received.add(request);
+        return http.Response('', statusCode);
+      });
+      // The SOAP client MUST go unused: a Roku serves no setup.xml, and a
+      // screen that asks for one turns the remote into an error screen.
+      final soap = MockClient((request) async {
+        fail('the description was fetched for a device that needs none: '
+            '${request.url}');
+      });
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider
+              .overrideWithValue(SoapControlClient(httpClient: soap)),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: roku)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: remoteEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('renders the remote without fetching any description',
+        (tester) async {
+      final received = <http.Request>[];
+      await pumpRemote(tester, received: received);
+
+      // One Remote card carrying every button, ready with no I/O at all.
+      expect(find.text('Remote'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Power On'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Home'), findsOneWidget);
+      expect(received, isEmpty);
+      expect(find.textContaining('Could not reach'), findsNothing);
+    });
+
+    testWidgets('pressing a button POSTs the rendered keypress',
+        (tester) async {
+      final received = <http.Request>[];
+      await pumpRemote(tester, received: received);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Power On'));
+      await tester.pumpAndSettle();
+
+      final call = codec.renderNetworkHttpCommandCalls.single;
+      expect(call.commandName, 'press_power_on');
+      expect(call.values, isEmpty);
+
+      final request = received.single;
+      expect(request.method, 'POST');
+      expect(request.url.toString(), 'http://10.0.0.9:8060/keypress/PowerOn');
+      expect(request.body, isEmpty);
+      // Nothing about a keypress warrants a state poll afterwards.
+      expect(received, hasLength(1));
+    });
+
+    testWidgets('a 403 explains the device-side setting', (tester) async {
+      final received = <http.Request>[];
+      await pumpRemote(tester, received: received, statusCode: 403);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Home'));
+      await tester.pumpAndSettle();
+
+      // The wording is the ControlRefusedException's: a settings problem on
+      // the device, not a network failure and not the generic fallback.
+      expect(find.textContaining('control by mobile apps'), findsOneWidget);
+      expect(find.textContaining('did not accept'), findsNothing);
+    });
   });
 }

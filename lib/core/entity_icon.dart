@@ -41,13 +41,39 @@ const Map<String, IconData> _mdiGlyphs = {
   // carries an icon instead of an `illuminance` device class — same glyph
   // that class would have implied.
   'mdi:brightness-5': Icons.light_mode_outlined,
+  // The remote-control vocabulary, added with the Roku spec's buttons.
+  'mdi:power': Icons.power_settings_new,
+  'mdi:power-off': Icons.power_off,
+  'mdi:arrow-u-left-top': Icons.undo,
+  'mdi:home': Icons.home_outlined,
+  'mdi:chevron-up': Icons.keyboard_arrow_up,
+  'mdi:chevron-down': Icons.keyboard_arrow_down,
+  'mdi:chevron-left': Icons.keyboard_arrow_left,
+  'mdi:chevron-right': Icons.keyboard_arrow_right,
+  'mdi:replay': Icons.replay,
+  // The medical asterisk is the one asterisk in the Material font, and an
+  // asterisk is exactly what Roku's Options key looks like.
+  'mdi:asterisk': Icons.emergency,
+  'mdi:rewind': Icons.fast_rewind,
+  'mdi:play-pause': Icons.play_arrow,
+  'mdi:fast-forward': Icons.fast_forward,
+  'mdi:volume-plus': Icons.volume_up,
+  'mdi:volume-minus': Icons.volume_down,
+  'mdi:volume-mute': Icons.volume_off,
+  'mdi:chevron-double-up': Icons.keyboard_double_arrow_up,
+  'mdi:chevron-double-down': Icons.keyboard_double_arrow_down,
+  'mdi:magnify': Icons.search,
+  'mdi:remote': Icons.settings_remote,
+  'mdi:hdmi-port': Icons.settings_input_hdmi,
+  'mdi:video-input-component': Icons.settings_input_component,
+  'mdi:antenna': Icons.settings_input_antenna,
 };
 
 /// The fallback that predates entity icons: what a reading's `device_class`
 /// implies. Still the answer for the overwhelming majority of entities, since
 /// stating an icon is only worth it when the device class does not already
 /// say the right thing.
-IconData _byDeviceClass(String? deviceClass, IconData fallback) =>
+IconData? _byDeviceClass(String? deviceClass, IconData? fallback) =>
     switch (deviceClass) {
       'temperature' => Icons.thermostat,
       'battery' => Icons.battery_full,
@@ -77,11 +103,28 @@ IconData _byDeviceClass(String? deviceClass, IconData fallback) =>
 ///
 /// Never throws and never returns null: an icon is decoration, and losing a
 /// reading over one would be a poor trade.
-IconData entityIcon(EntityDto entity, {IconData fallback = Icons.sensors}) {
-  final declared = entity.icon?.trim().toLowerCase();
+IconData entityIcon(EntityDto entity, {IconData fallback = Icons.sensors}) =>
+    entityIconFor(
+        icon: entity.icon,
+        deviceClass: entity.deviceClass,
+        fallback: fallback)!;
+
+/// [entityIcon] for callers holding the fields rather than a BLE [EntityDto] —
+/// the network entity DTO carries the same `icon`/`device_class` pair under a
+/// different type, and the resolution rule must not fork by transport.
+///
+/// Returns null (rather than [fallback]) when nothing resolves and no
+/// [fallback] is given, so a caller that would rather show no glyph than a
+/// generic one can tell the difference.
+IconData? entityIconFor({
+  String? icon,
+  String? deviceClass,
+  IconData? fallback,
+}) {
+  final declared = icon?.trim().toLowerCase();
   if (declared != null && declared.isNotEmpty) {
     final glyph = _mdiGlyphs[declared];
     if (glyph != null) return glyph;
   }
-  return _byDeviceClass(entity.deviceClass, fallback);
+  return _byDeviceClass(deviceClass, fallback);
 }
