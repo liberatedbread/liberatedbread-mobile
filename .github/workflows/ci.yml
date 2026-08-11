@@ -9,6 +9,15 @@ on:
 permissions:
   contents: read
 
+# Only one run per ref at a time. Without this, a batch push of several commits
+# to main starts one run per commit, and their deploy jobs race to force-push
+# gh-pages: the loser dies on "cannot lock ref 'refs/heads/gh-pages'". Runs are
+# created in push order, so cancelling the older run leaves the newest commit —
+# the one whose docs should be live — as the only deployer.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
