@@ -30,6 +30,7 @@ METHOD_TYPES = {
     "none",
     "softap_http",
     "softap_soap",
+    "softap_udp",
     "ble_provisioning",
     "ble_direct",
     "wps",
@@ -807,6 +808,69 @@ def test_the_schema_rejects_an_advanced_locator():
     assert list(validator.iter_errors(both)), (
         "a command may not be both `advanced` and a `locate` action"
     )
+
+
+def test_the_schema_enforces_the_button_contract():
+    """A button binds exactly `press`, and carries no state binding.
+
+    The platform's description says so; this proves the schema *enforces* it,
+    which is what a consumer validating a spec from outside this repository
+    relies on. Our own pytest suite never sees those files, so a button with
+    no commands — or a `turn_on` nothing renders as a button — would ship as
+    a control that does nothing when pressed.
+    """
+    validator = Draft202012Validator(_schema())
+    spec = load(DEVICES_DIR / "roku-ecp.yaml")
+    assert not list(validator.iter_errors(spec)), "the fixture must be valid"
+
+    def with_button(entity: dict) -> dict:
+        broken = copy.deepcopy(spec)
+        broken["entities"] = [entity]
+        return broken
+
+    good = {"platform": "button", "name": "B", "commands": {"press": "press_home"}}
+    assert not list(validator.iter_errors(with_button(good)))
+
+    for label, entity in (
+        ("no commands at all", {"platform": "button", "name": "B"}),
+        (
+            "a role that is not press",
+            {"platform": "button", "name": "B", "commands": {"turn_on": "press_home"}},
+        ),
+        (
+            "a second role beside press",
+            {
+                "platform": "button",
+                "name": "B",
+                "commands": {"press": "press_home", "turn_on": "press_home"},
+            },
+        ),
+        ("a state binding", {**good, "state_topic": "/query/active-app"}),
+    ):
+        assert list(validator.iter_errors(with_button(entity))), (
+            f"the schema must reject a button with {label}"
+        )
+
+
+def test_button_presses_name_a_declared_command(specs):
+    """And the half a schema cannot check: the bound name resolves.
+
+    `press: press_home` is only a control if `press_home` exists. The schema
+    sees a string either way, so the binding is checked here, across every
+    spec in the catalogue rather than one device's own test file.
+    """
+    for device_id, spec in specs.items():
+        declared = set(spec.get("commands") or {})
+        for characteristic in _characteristics(spec):
+            declared |= set(characteristic.get("commands") or {})
+        for entity in spec.get("entities") or []:
+            if entity.get("platform") != "button":
+                continue
+            bound = (entity.get("commands") or {}).get("press")
+            assert bound in declared, (
+                f"{device_id}: button {entity.get('name')!r} presses "
+                f"{bound!r}, which no command declares"
+            )
 
 
 def test_endianness_is_declared_the_same_way_everywhere():

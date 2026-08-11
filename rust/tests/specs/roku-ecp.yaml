@@ -249,12 +249,47 @@ ecp_common:
       the Lit_ prefix itself is literal.
   response_format:
     description: >
-      Command endpoints (keypress/keydown/keyup/launch/install) answer
-      200 OK with an empty body on success. Since Roku OS 14.1 they answer
-      403 Forbidden when Settings > System > Advanced system settings >
-      "Control by mobile apps" is Disabled — surface that as "enable control
-      on the TV", not as a network failure. Query endpoints answer XML and
-      remain open regardless of that setting.
+      Command endpoints answer 200 OK with an empty body on success; query
+      endpoints answer XML. A 403 Forbidden means the "Control by mobile
+      apps" gate below is closed — surface that as "enable control on the
+      TV", not as a network failure.
+    gating:
+      setting: >
+        Settings > System > Advanced system settings > "Control by mobile
+        apps", introduced in Roku OS 14.1.
+      description: >
+        The gate does NOT split along command/query lines, which is the
+        trap: it covers the three key endpoints plus three of the queries,
+        and leaves launching and the identity/app queries open. So a client
+        must not suppress the whole control surface on one 403, nor assume
+        a query cannot return one. The lists below name `http_endpoints`
+        entries, so a consumer filters on data rather than parsing this
+        paragraph.
+      gated:
+        - "Keypress"
+        - "Keydown"
+        - "Keyup"
+        - "App Icon"
+        - "TV Channels"
+        - "TV Active Channel"
+      open:
+        - "Device Info"
+        - "Installed Apps"
+        - "Active App"
+        - "Media Player"
+        - "Launch App"
+        - "Install App"
+        - "Custom Input"
+      open_notes: >
+        The gate notice enumerates what it covers, so `open` is everything
+        else — that is the rule these lists follow, not a per-endpoint
+        observation. Launching is open on the observed OS 15.2.4 fleet,
+        which is what makes a channel launcher work on a TV whose remote
+        keys are all refused, and the identity and app queries being open is
+        what lets that launcher build its list at all. Custom Input is open
+        by the same enumeration rule but is the one entry here this project
+        has not exercised: it forwards to whatever app is running, so there
+        is no reply that distinguishes "delivered" from "ignored".
 
 http_endpoints:
   - method: "GET"

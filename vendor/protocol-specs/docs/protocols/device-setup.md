@@ -32,6 +32,7 @@ on them directly.
 | `none` / `ble_direct` | Nothing to provision. Power on, scan, connect. | Yes — trivially |
 | `softap_http` | Device hosts a temporary AP; credentials go over a local HTTP API | Yes, if the API is documented |
 | `softap_soap` | Same, but the setup API is UPnP/SOAP (Wemo) | Yes — see [Wemo setup](../devices/wemo-setup.md) |
+| `softap_udp` | Same, but credentials go over a UDP datagram protocol (legacy LIFX) | Yes, if the messages are documented |
 | `ble_provisioning` | Credentials pushed over GATT from a phone or hub | Yes, if the GATT protocol is documented |
 | `wps` / `smartconfig` | Credentials delivered at the WiFi layer (button, or broadcast-encoded) | Partly — brittle and often removed |
 | `wired` | Ethernet only; no wireless credentials exist | Yes — plug it in |
@@ -271,7 +272,7 @@ Rules of thumb:
 | [Roku ECP](../devices/roku-ecp.md) | Yes | `device_ui` | Yes — on-screen | High |
 | [Enphase Envoy](../devices/enphase-envoy.md) | Yes | `wired` / `softap_http` | Yes — local web UI | Low |
 | [Dyson purifier](../devices/dyson-air-purifier.md) | Yes | `softap_http` | No — reset and reprovision | Medium |
-| [LIFX Z](../devices/lifx-z.md) | Yes | `softap_http` (uncaptured) | No — five power cycles | Low |
+| [LIFX Z](../devices/lifx-z.md) | Yes | `softap_udp` (legacy protocol docs, unverified) | No — five power cycles | Low |
 | [SmartThings Hub v2](../devices/smartthings-hub-v2.md) | Yes | `wired` + `cloud_account` | Yes — cable move | Low |
 | [Rachio Controller](../devices/rachio-controller.md) | Yes | uncaptured | Unknown | Low |
 | [Frigidaire ACs](../devices/frigidaire-ac.md) | Yes | `cloud_account` | No — cloud-bound | Low |
