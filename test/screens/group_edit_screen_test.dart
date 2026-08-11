@@ -131,7 +131,8 @@ void main() {
     expect(updated.deviceIds, ['AA:01', 'AA:02']);
   });
 
-  testWidgets('saving purges a member that became non-groupable while '
+  testWidgets(
+      'saving purges a member that became non-groupable while '
       'hidden from the checklist', (tester) async {
     // The Wave was in the group when it was unidentified; it has since
     // recorded a vehicle category, so the checklist no longer shows it —

@@ -85,8 +85,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       'saved_devices_v1':
           '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
-      'device_groups_v1':
-          '[{"id":"g1","name":"Room","deviceIds":["aa","bb"]}]',
+      'device_groups_v1': '[{"id":"g1","name":"Room","deviceIds":["aa","bb"]}]',
     });
     _prefs = await SharedPreferences.getInstance();
 
