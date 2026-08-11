@@ -1190,16 +1190,21 @@ timing:
 # consumer keyed on discovered characteristics naturally picks the one binding
 # the connected unit actually has.
 #
-# Temperature and humidity use the same multi-binding shape, ordered by trust:
-# the combined-packet bindings come FIRST because that packet is what the
-# vendor app itself reads and the one source verified against live traffic
-# (capture: 22.6 °C / 53.5 %RH on Wave Gen 2), while the SIG
-# environmental-sensing characteristics (2A6E/2A6F) are app-derived and were
-# not observed on this family's hardware. A first-match consumer on a unit
-# carrying both therefore reads the proven source; the SIG binding still
-# serves Wave Gen 1 (whose combined packet has no recovered format — the
-# vendor's own wave-reader reads 2A6E/2A6F on Gen 1) and any model without a
-# decodable combined packet.
+# Temperature and humidity use the same multi-binding shape, and the variant
+# scoping is the source of truth for which binding serves which model: the
+# combined-packet bindings carry the variants whose packet is decodable
+# (Gen 2 / Plus / Mini — the packet the vendor app itself reads, and the one
+# source verified against live traffic: 22.6 °C / 53.5 %RH on Wave Gen 2),
+# while the SIG environmental-sensing bindings (2A6E/2A6F, app-derived and
+# unobserved in capture) are scoped to the models with no decodable combined
+# packet — Wave Gen 1 (the vendor's own wave-reader reads exactly these) and
+# View Plus. Every variant resolves exactly one binding per reading; nothing
+# relies on an implicit "first match wins" rule. The combined bindings are
+# still listed first deliberately: a consumer keyed on discovered
+# characteristics rather than variants (this repo's mobile app) can meet
+# hardware exposing BOTH interfaces — the Mini documents the SIG
+# characteristics alongside its packet — and taking the first resolved
+# binding then reads the source the vendor's own tooling trusts.
 entities:
   - platform: "sensor"
     name: "Radon 24h Average"
@@ -1338,10 +1343,14 @@ entities:
     device_class: "temperature"
     unit: "°C"
     state_characteristic: "00002a6e-0000-1000-8000-00805f9b34fb"
+    variants: ["Wave (Gen 1)", "View Plus"]
     notes: >
-      SIG-characteristic binding: the primary source on Wave Gen 1 (the
-      vendor's wave-reader reads exactly this), the fallback everywhere
-      else. App-derived; unobserved in capture.
+      SIG-characteristic binding, scoped to the models with no decodable
+      combined packet: Gen 1 (the vendor's wave-reader reads exactly this;
+      its combined characteristic has no recovered format) and View Plus
+      (no model-specific characteristics recovered at all). Unscoped, this
+      entity applied to every variant and doubled the reading beside the
+      combined-packet bindings above. App-derived; unobserved in capture.
 
   - platform: "sensor"
     name: "Humidity"
@@ -1379,9 +1388,10 @@ entities:
     device_class: "humidity"
     unit: "%"
     state_characteristic: "00002a6f-0000-1000-8000-00805f9b34fb"
+    variants: ["Wave (Gen 1)", "View Plus"]
     notes: >
-      SIG-characteristic binding: primary on Wave Gen 1, fallback
-      elsewhere, same reasoning as the temperature entity above.
+      SIG-characteristic binding, scoped to the models with no decodable
+      combined packet — same reasoning as the temperature entity above.
 
   - platform: "sensor"
     name: "Pressure"
