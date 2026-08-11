@@ -130,27 +130,36 @@ Uint8List resizeFrame(
 
 /// Starting canvas dimension for a device-reported panel the app hasn't
 /// queried yet: a common small size, clamped to the spec's platform bound.
-/// Pure for tests.
-int initialCanvasSize(int? max) => max == null || max >= 16 ? 16 : max;
+/// A bound below 1 is a malformed spec (spec packs are refreshable input);
+/// floor it rather than divide the grid by zero. Pure for tests.
+int initialCanvasSize(int? max) {
+  if (max == null || max >= 16) return 16;
+  return max < 1 ? 1 : max;
+}
 
 /// Parse a user-entered canvas dimension, clamped to `1..max`.
 ///
 /// Free-form entry rather than a preset list: real panels report sizes like
 /// 25x50, and forcing the nearest preset shears every row on the device (the
 /// display buffer is row-major at the device's true width). Returns null for
-/// non-numeric input so the caller can keep the previous size. Pure for
-/// tests.
+/// non-numeric input so the caller can keep the previous size. A declared
+/// `max` below 1 is malformed spec data; treat it as 1 rather than hand
+/// `clamp` an inverted range, which throws. Pure for tests.
 int? parseCanvasSize(String input, {int? max}) {
   final value = int.tryParse(input.trim());
   if (value == null) return null;
-  return value.clamp(1, max ?? 255);
+  final ceiling = max == null ? 255 : (max < 1 ? 1 : max);
+  return value.clamp(1, ceiling);
 }
 
 /// Animation-rate slider bounds and initial value in milliseconds per frame,
 /// from the spec's declared limits with usable defaults where it is silent.
-/// Pure for tests.
+/// A declared interval at or below zero would spin the preview timer and the
+/// stream loop flat out; 16 ms (~60 fps) is faster than any real panel and
+/// keeps both loops sane. Pure for tests.
 ({int min, int max, int initial}) frameIntervalBoundsMs(ImageUploadDto spec) {
-  final min = spec.minFrameIntervalMs ?? 50;
+  final declared = spec.minFrameIntervalMs ?? 50;
+  final min = declared < 16 ? 16 : declared;
   final max = min > 2000 ? min : 2000;
   final initial = (spec.defaultFrameIntervalMs ?? 200).clamp(min, max);
   return (min: min, max: max, initial: initial);
@@ -266,6 +275,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         ? initialCanvasSize(_spec.maxHeight)
         : (_spec.maxHeight ?? 16);
     _intervalMs = frameIntervalBoundsMs(_spec).initial;
+    // A spec refresh can withdraw animation support; the mode toggle unmounts
+    // then, so the flag must fall back too or the frame controls and stream
+    // button linger with no way back to Static.
+    _animationMode = _animationMode && _spec.animation;
     _frames
       ..clear()
       ..add(Uint8List(_width * _height * 3));

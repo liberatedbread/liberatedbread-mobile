@@ -61,10 +61,55 @@ _fev_installed_version() {
     | sed 's/.*"\([^"]*\)"$/\1/'
 }
 
+# Take (or steal, when its owner is dead) the upgrade lock at $1. This file is
+# SOURCED by the run scripts, so an INT/TERM trap here would hijack the
+# caller's shell — an interrupted swap therefore cannot clean up after itself,
+# and the lock plus _fev_heal_interrupted below are how the next run recovers
+# instead. The lock also keeps two concurrent run*.sh from interleaving their
+# swaps, which could nest one SDK inside the other. Non-zero when another live
+# process holds it.
+_fev_lock() {
+  local lock="$1" pid
+  if mkdir "$lock" 2>/dev/null; then
+    printf '%s\n' "$$" > "$lock/pid"
+    return 0
+  fi
+  pid="$(cat "$lock/pid" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    return 1
+  fi
+  # The owner died (an interrupted upgrade cannot release — see above).
+  rm -rf "$lock"
+  mkdir "$lock" 2>/dev/null || return 1
+  printf '%s\n' "$$" > "$lock/pid"
+}
+
+# Repair what an interrupted _fev_install left behind at the default SDK
+# location: a kill between "move the old SDK aside" and "move the new one in"
+# leaves no SDK at $1, the previous one stranded at $1.old.<pid>, and a
+# multi-GB staging dir next to it. Restore the newest backup when the SDK is
+# gone, then sweep leftovers — callers hold the upgrade lock, so nothing here
+# can race a live swap's backup.
+_fev_heal_interrupted() {
+  local home="$1" backup leftover
+  if [ ! -e "$home" ]; then
+    backup="$(ls -td "${home}".old.* 2>/dev/null | head -n 1)"
+    if [ -n "$backup" ] && [ -d "$backup" ]; then
+      warn "Restoring the Flutter SDK from an interrupted upgrade (${backup})."
+      mv "$backup" "$home" || warn "Could not restore ${backup}; run ./scripts/setup.sh."
+    fi
+  fi
+  for leftover in "${home}".old.* "$(dirname "$home")"/.flutter-upgrade.*; do
+    [ -e "$leftover" ] || continue
+    rm -rf "$leftover"
+  done
+  return 0
+}
+
 # Download Flutter $1 and swap it into FLUTTER_HOME ($2). Everything is staged
 # in a temp dir and only moved into place once the download AND extraction have
 # succeeded, so a failure leaves the existing SDK untouched. Non-zero on any
-# failure (with the reason already reported).
+# failure (with the reason already reported). Callers hold the upgrade lock.
 _fev_install() {
   local version="$1" home="$2"
   local os archive url parent stage backup
@@ -175,6 +220,17 @@ flutter_ensure_ci_version() {
     return 0
   fi
 
+  # Before anything looks at $home: put back what an interrupted previous
+  # upgrade may have torn down, or the ownership check below would conclude
+  # "no SDK of ours here" about an SDK that is merely mid-swap. Only ever at
+  # the default project-managed location, under the same lock the swap takes;
+  # skipped silently when a live upgrade holds it.
+  local upgrade_lock="${default_home}.upgrade-lock"
+  if _fev_lock "$upgrade_lock"; then
+    _fev_heal_interrupted "$default_home"
+    rm -rf "$upgrade_lock"
+  fi
+
   # Resolve the paths we compare, following symlinks where possible.
   local resolved="" home_real="$home" default_real="$default_home"
   if command -v readlink >/dev/null 2>&1; then
@@ -236,11 +292,17 @@ flutter_ensure_ci_version() {
     log "Installing Flutter ${want} (CI's pin) at ${home}..."
   fi
 
+  if ! _fev_lock "$upgrade_lock"; then
+    warn "Another Flutter upgrade appears to be running; leaving it to finish."
+    return 0
+  fi
   if ! _fev_install "$want" "$home"; then
+    rm -rf "$upgrade_lock"
     warn "Auto-upgrade to Flutter ${want} failed; continuing with the existing SDK."
     warn "Re-run ./scripts/setup.sh once the network is back to fix it."
     return 0
   fi
+  rm -rf "$upgrade_lock"
 
   # Flutter shells out to git inside its SDK; mark the freshly extracted tree
   # safe when it is owned by another user (common in containers) so that

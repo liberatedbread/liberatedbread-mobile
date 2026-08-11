@@ -50,7 +50,12 @@ Map<String, String> parseSsdpHeaders(String payload) {
   if (location == null || location.isEmpty) return null;
   final uri = Uri.tryParse(location);
   if (uri == null || uri.host.isEmpty) return null;
-  return (host: uri.host, port: uri.hasPort ? uri.port : null);
+  // `http://host/desc.xml` with no explicit port advertises the scheme
+  // default, and `Uri.port` resolves it (80 for http, 443 for https);
+  // it returns 0 only when the scheme has no default. Reporting null for
+  // an implicit :80 made the control path refuse a device that stated
+  // its port fine.
+  return (host: uri.host, port: uri.port == 0 ? null : uri.port);
 }
 
 /// Turn an mDNS TXT record's entries into a map, lowercasing keys.
@@ -280,7 +285,11 @@ class RealNetworkScanService implements NetworkScanService {
     try {
       await for (final PtrResourceRecord type in client
           .lookup<PtrResourceRecord>(
-              ResourceRecordQuery.serverPointer(_serviceEnumerationQuery))
+              ResourceRecordQuery.serverPointer(_serviceEnumerationQuery),
+              // lookup() has its own internal 5 s default that closes the
+              // stream regardless of the .timeout below; pass the real
+              // budget or a long scan is silently capped at 5 s.
+              timeout: phase)
           .timeout(phase, onTimeout: (sink) => sink.close())) {
         heard = true;
         if (session.stopped || DateTime.now().isAfter(deadline)) break;
@@ -337,7 +346,8 @@ class RealNetworkScanService implements NetworkScanService {
     if (!clientLive()) return;
     await for (final PtrResourceRecord instance in client
         .lookup<PtrResourceRecord>(
-            ResourceRecordQuery.serverPointer(serviceType))
+            ResourceRecordQuery.serverPointer(serviceType),
+            timeout: timeout)
         .timeout(timeout, onTimeout: (sink) => sink.close())) {
       if (!clientLive()) return;
       // TXT and SRV are independent queries; run them together. A device that
@@ -352,7 +362,8 @@ class RealNetworkScanService implements NetworkScanService {
           if (!clientLive()) return;
           await for (final TxtResourceRecord record in client
               .lookup<TxtResourceRecord>(
-                  ResourceRecordQuery.text(instance.domainName))
+                  ResourceRecordQuery.text(instance.domainName),
+                  timeout: timeout)
               .timeout(timeout, onTimeout: (sink) => sink.close())) {
             txt.addAll(parseTxtRecord(record.text.split(RegExp(r'[\r\n]+'))));
           }
@@ -361,7 +372,8 @@ class RealNetworkScanService implements NetworkScanService {
           if (!clientLive()) return;
           await for (final SrvResourceRecord srv in client
               .lookup<SrvResourceRecord>(
-                  ResourceRecordQuery.service(instance.domainName))
+                  ResourceRecordQuery.service(instance.domainName),
+                  timeout: timeout)
               .timeout(timeout, onTimeout: (sink) => sink.close())) {
             if (session.stopped) return;
             srvRecords.add(srv);
@@ -373,7 +385,8 @@ class RealNetworkScanService implements NetworkScanService {
         if (!clientLive()) return;
         await for (final IPAddressResourceRecord address in client
             .lookup<IPAddressResourceRecord>(
-                ResourceRecordQuery.addressIPv4(srv.target))
+                ResourceRecordQuery.addressIPv4(srv.target),
+                timeout: timeout)
             .timeout(timeout, onTimeout: (sink) => sink.close())) {
           emit(NetworkDevice(
             host: address.address.address,
@@ -445,14 +458,24 @@ class RealNetworkScanService implements NetworkScanService {
         heard = true;
         final headers = parseSsdpHeaders(String.fromCharCodes(datagram.data));
         final location = parseSsdpLocation(headers['location']);
+        final searchTarget = headers['st'] ?? headers['nt'];
+        // A datagram none of whose headers parsed still counts as "heard"
+        // (the port is live) but is not a device: emitting a row per
+        // arbitrary packet lets one hostile responder mint an unbounded
+        // device list out of noise.
+        if (location == null &&
+            searchTarget == null &&
+            headers['server'] == null) {
+          continue;
+        }
         // Prefer the LOCATION host: a device behind a proxy or on a second
         // interface answers from an address its own service does not live on.
         final host = location?.host ?? datagram.address.address;
-        final searchTarget = headers['st'] ?? headers['nt'];
         emit(NetworkDevice(
           host: host,
           name: '',
           port: location?.port,
+          ssdpPort: location?.port,
           ssdpTargets: [if (searchTarget != null) searchTarget],
           server: headers['server'],
           sources: const {NetworkDiscoverySource.ssdp},

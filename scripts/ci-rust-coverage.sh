@@ -80,8 +80,11 @@ fi
 # compares a report missing every Rust line against a base that had them — a
 # coverage cliff with no change behind it. The same guard
 # scripts/ci-netdisco-tests.sh carries, for the same reason.
-records="$(grep -c '^SF:' "$COVERAGE_PATH" 2>/dev/null || echo 0)"
-if [ "$records" -lt 1 ]; then
+# grep -c prints its count (0 included) even when it exits non-zero, so the
+# fallback must not print a second number: `|| echo 0` turned $records into
+# "0\n0", the -lt test errored, and the guard passed the empty report through.
+records="$(grep -c '^SF:' "$COVERAGE_PATH" 2>/dev/null || true)"
+if [ "${records:-0}" -lt 1 ]; then
   echo "::error::${COVERAGE_PATH} lists no source files, so this job would upload an empty report." >&2
   exit 1
 fi

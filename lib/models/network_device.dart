@@ -37,8 +37,19 @@ class NetworkDevice {
   /// serial number, which makes it a far better identity than the address.
   final String? hostname;
 
-  /// TCP port the advertised service listens on.
+  /// TCP port the advertised service listens on. In a merge an mDNS SRV
+  /// port wins over one that merely restates the SSDP LOCATION, and within
+  /// one transport the first sighting wins — so a device heard on both
+  /// transports reads the same regardless of which answered first. Display
+  /// material, not a contract; control paths use [ssdpPort].
   final int? port;
+
+  /// The port from the SSDP `LOCATION` URL specifically, when this device
+  /// was sighted over SSDP with one. Kept apart from [port] because the
+  /// UPnP control path (setup.xml, SOAP) is only defined against this port:
+  /// a device announcing `_http._tcp` on 80 over mDNS and its UPnP surface
+  /// on 49153 must not have the merge order decide which one control uses.
+  final int? ssdpPort;
 
   /// mDNS service types this device advertises, e.g. `_hue._tcp.local`.
   final List<String> serviceTypes;
@@ -65,6 +76,7 @@ class NetworkDevice {
     required this.discoveredAt,
     this.hostname,
     this.port,
+    this.ssdpPort,
     this.serviceTypes = const [],
     this.ssdpTargets = const [],
     this.server,
@@ -111,13 +123,21 @@ class NetworkDevice {
         for (var i = 0; i < hex.length; i += 2) hex.substring(i, i + 2)
       ].join(':');
 
+  /// This sighting's port when it says more than the SSDP LOCATION did —
+  /// i.e. an mDNS SRV port. See [mergedWith].
+  int? get _servicePort => port != null && port != ssdpPort ? port : null;
+
   /// Merge another sighting of the same host, so a device answering on both
   /// mDNS and SSDP becomes one row carrying everything both said.
   NetworkDevice mergedWith(NetworkDevice other) => NetworkDevice(
         host: host,
         name: name.isNotEmpty ? name : other.name,
         hostname: hostname ?? other.hostname,
-        port: port ?? other.port,
+        // A port that is not just the LOCATION port restated came from an
+        // mDNS SRV record — the more specific claim, and preferring it keeps
+        // the merged row independent of which transport answered first.
+        port: _servicePort ?? other._servicePort ?? port ?? other.port,
+        ssdpPort: ssdpPort ?? other.ssdpPort,
         serviceTypes: {...serviceTypes, ...other.serviceTypes}.toList(),
         ssdpTargets: {...ssdpTargets, ...other.ssdpTargets}.toList(),
         server: server ?? other.server,
@@ -156,6 +176,7 @@ class NetworkDevice {
       other.name == name &&
       other.hostname == hostname &&
       other.port == port &&
+      other.ssdpPort == ssdpPort &&
       other.server == server &&
       setEquals(other.sources, sources) &&
       listEquals(other.serviceTypes, serviceTypes) &&

@@ -590,18 +590,25 @@ pub(crate) fn coerce_param(
     }
 }
 
-/// Encode one numeric value as the little-endian bytes of `ty`.
+/// Encode one numeric value as the bytes of `ty`.
 ///
 /// The direct-write counterpart of [`encode_command`]: a `number` entity
 /// whose spec nominates a writable characteristic with a single-field format
 /// has no command to place its bytes, so the value *is* the payload. Range
 /// and integrality are checked exactly as a template parameter's would be, so
 /// an out-of-range setpoint fails here rather than on the wire.
-pub fn encode_scalar(value: f64, ty: &ValueType, name: &str) -> Result<Vec<u8>, ProtocolError> {
+///
+/// `big_endian` is the format field's own declaration: the byte order the
+/// decode side already honors must be the one the write takes, or a big
+/// -endian uint16 setpoint reads correctly and writes byte-swapped.
+pub fn encode_scalar(
+    value: f64,
+    ty: &ValueType,
+    name: &str,
+    big_endian: bool,
+) -> Result<Vec<u8>, ProtocolError> {
     let mut bytes = Vec::new();
-    // Setpoint scalars have no endianness declaration of their own; keep the
-    // established little-endian behavior for multi-byte widths.
-    append_typed(&mut bytes, coerce_param(value, ty, name)?, false);
+    append_typed(&mut bytes, coerce_param(value, ty, name)?, big_endian);
     Ok(bytes)
 }
 
@@ -1765,5 +1772,17 @@ mod tests {
             }
             other => panic!("expected BufferTooShort, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn encode_scalar_honors_declared_byte_order() {
+        // A direct-write setpoint must take the byte order the field
+        // declares — the decode side already honors it, and a field that
+        // reads correctly but writes byte-swapped would set 0x012C (300)
+        // as 0x2C01 (11265).
+        let le = encode_scalar(300.0, &ValueType::Uint16, "target", false).unwrap();
+        assert_eq!(le, vec![0x2C, 0x01]);
+        let be = encode_scalar(300.0, &ValueType::Uint16, "target", true).unwrap();
+        assert_eq!(be, vec![0x01, 0x2C]);
     }
 }

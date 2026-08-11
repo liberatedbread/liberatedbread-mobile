@@ -218,11 +218,28 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
   /// speed reading to open from, so it opens at the bottom of the range.
   double? _speedDisplay;
 
-  /// Label of the send currently in flight; all controls disable while one
-  /// is, so a double-tap cannot interleave two writes to a moving belt.
+  /// Label of the send currently in flight; the speed and Start/Pause
+  /// controls disable while one is, so a double-tap cannot interleave two
+  /// writes to a moving belt. Stop is deliberately NOT gated on this — see
+  /// [_stopInFlight].
   String? _sending;
+
+  /// Monotonic id of the newest send; see the ticket check in [_send].
+  int _sendTicket = 0;
   String? _status;
   bool _failed = false;
+
+  /// Stop must never wait behind another write: a speed write can stall for
+  /// many seconds behind the BLE stack's mutex, and that is exactly the
+  /// moment the belt is moving under someone. Stop therefore overlaps any
+  /// in-flight send; only a second Stop is held back. (The find screen makes
+  /// the same call for its ring-stop button, for the same reason.)
+  bool _stopInFlight = false;
+
+  /// Commands whose advanced-command warning has been acknowledged this
+  /// session. Mirrors TypedCommandWidget: the flag is a signpost, not a
+  /// gate, so each command asks once.
+  final Set<String> _advancedAcked = {};
 
   Future<void> _send({
     required String serviceUuid,
@@ -231,6 +248,12 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
     required Map<String, double> params,
     required String label,
   }) async {
+    // A Stop overlapping a stalled ordinary write makes two sends share
+    // [_sending]; only the newest owns it. Without the ticket, the stalled
+    // write's completion cleared the flag while Stop was still queued
+    // behind it — unlocking Start exactly when a confirmed Start would
+    // queue AFTER the emergency stop and restart the belt.
+    final ticket = ++_sendTicket;
     setState(() {
       _sending = label;
       _status = null;
@@ -254,7 +277,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
       );
       if (mounted) {
         setState(() {
-          _sending = null;
+          if (_sendTicket == ticket) _sending = null;
           _status = 'Sent $label';
           _failed = false;
         });
@@ -272,7 +295,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
           fallback: 'The treadmill did not accept that command.',
         );
         setState(() {
-          _sending = null;
+          if (_sendTicket == ticket) _sending = null;
           _status = text;
           _failed = true;
         });
@@ -296,6 +319,91 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
             verb.params.isEmpty ? verb.command.name : _verbLabel(verb)),
       );
 
+  /// Show the spec's advanced-command warning once per command, mirroring
+  /// TypedCommandWidget. Returns whether to proceed. Stop never routes
+  /// through here: an emergency halt must not wait on a dialog.
+  Future<bool> _ackAdvanced(CommandDto command) async {
+    if (!command.advanced || _advancedAcked.contains(command.name)) {
+      return true;
+    }
+    final reason = command.advancedReason;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: Icon(
+          Icons.warning_amber_rounded,
+          color: Theme.of(context).colorScheme.error,
+        ),
+        title: Text(humanizeName(command.name)),
+        content: Text(
+          reason != null && reason.trim().isNotEmpty
+              ? reason
+              : 'The spec marks this as an advanced command.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (result == true) _advancedAcked.add(command.name);
+    return result ?? false;
+  }
+
+  /// Start asks every time, not once: it sets motorised equipment moving
+  /// under a person, and FTMS start_or_resume on some pads resumes at the
+  /// previous speed rather than the minimum.
+  Future<void> _startBelt(_ResolvedVerb verb) async {
+    if (!await _ackAdvanced(verb.command) || !mounted) return;
+    final resumes = verb.command.name == 'start_or_resume';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Start the belt?'),
+        content: Text(
+          resumes
+              ? 'The belt will start moving, possibly at its previous '
+                  'speed rather than the minimum.'
+              : 'The belt will start moving.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.of(context).pop(true),
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Start'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _sendVerb(verb);
+  }
+
+  Future<void> _pauseBelt(_ResolvedVerb verb) async {
+    if (!await _ackAdvanced(verb.command) || !mounted) return;
+    await _sendVerb(verb);
+  }
+
+  /// See [_stopInFlight] for why this ignores [_sending].
+  Future<void> _stopBelt(_ResolvedVerb verb) async {
+    setState(() => _stopInFlight = true);
+    try {
+      await _sendVerb(verb);
+    } finally {
+      if (mounted) setState(() => _stopInFlight = false);
+    }
+  }
+
   /// What to call a verb that shares its command with another (stop_or_pause
   /// sends Stop and Pause through one opcode): the button's word, not the
   /// command's name, so the status line says what the user tapped.
@@ -305,7 +413,8 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
         _ => verb.command.name,
       };
 
-  Future<void> _sendSpeed(_ResolvedSpeed speed, double display) {
+  Future<void> _sendSpeed(_ResolvedSpeed speed, double display) async {
+    if (!await _ackAdvanced(speed.command) || !mounted) return;
     // Back across the presentation transform: the card displays km/h, the
     // encoder validates and coerces the RAW value (raw min/max, integer
     // counts). Only the speed parameter is supplied; encoder-filled (auto)
@@ -442,7 +551,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: _sending == null
-                          ? () => unawaited(_sendVerb(resolved.start!))
+                          ? () => unawaited(_startBelt(resolved.start!))
                           : null,
                       style: FilledButton.styleFrom(
                           minimumSize: const Size(0, 52)),
@@ -456,7 +565,7 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                   Expanded(
                     child: FilledButton.tonalIcon(
                       onPressed: _sending == null
-                          ? () => unawaited(_sendVerb(resolved.pause!))
+                          ? () => unawaited(_pauseBelt(resolved.pause!))
                           : null,
                       style: FilledButton.styleFrom(
                           minimumSize: const Size(0, 52)),
@@ -470,11 +579,14 @@ class _TreadmillControlCardState extends ConsumerState<TreadmillControlCard> {
                     const SizedBox(width: 8),
                   Expanded(
                     // Stop is the verb that must read as urgent at a glance,
-                    // on equipment that can throw a walker off balance.
+                    // on equipment that can throw a walker off balance. It
+                    // stays live while other writes are in flight — a
+                    // stalled speed write must not grey out the one control
+                    // that halts the belt.
                     child: FilledButton.icon(
-                      onPressed: _sending == null
-                          ? () => unawaited(_sendVerb(resolved.stop!))
-                          : null,
+                      onPressed: _stopInFlight
+                          ? null
+                          : () => unawaited(_stopBelt(resolved.stop!)),
                       style: FilledButton.styleFrom(
                         minimumSize: const Size(0, 52),
                         backgroundColor: scheme.error,
