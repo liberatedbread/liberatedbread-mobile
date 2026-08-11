@@ -26,6 +26,8 @@ import 'package:flutter_blue_plus_linux/flutter_blue_plus_linux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/real_ble_service.dart';
 import 'package:liberated_bread_mobile/services/real_spec_codec.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart'
+    show StoredUploadEventDto, StoredUploadEventKind;
 import 'package:liberated_bread_mobile/widgets/led_designs.dart';
 import 'package:liberated_bread_mobile/widgets/led_image_widget.dart';
 
@@ -123,10 +125,10 @@ void main() {
         }
 
         // The other half of the feature: persist a design on the device and
-        // play it immediately — the vendor's store-then-show, end to end on
-        // real hardware. The stored item survives disconnect; the play write
-        // is what takes the panel over from the doodle session right now, so
-        // a green run here means "save" visibly becomes "playing".
+        // play it — the vendor's store-then-show, end to end on real
+        // hardware, INCLUDING the wait for M_UPLOAD_COMPLETE that makes the
+        // play work (playing before the device commits the cid is a silent
+        // no-op — the original save-then-play bug).
         final trans = designs.firstWhere((d) => d.name == 'Trans flag');
         final cid = 900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
         final stored = await codec.encodeStoredImage(
@@ -142,6 +144,23 @@ void main() {
         );
         expect(stored.playWrite, isNotNull,
             reason: 'the spec declares play_command — a save must then show');
+        expect(stored.responseCharacteristicUuid, isNotNull,
+            reason: 'the spec names where the device answers the upload');
+
+        // Listen for the device's verdict BEFORE the first packet goes out.
+        final verdictF = ble
+            .subscribeCharacteristic(
+              deviceId,
+              stored.serviceUuid,
+              stored.responseCharacteristicUuid!,
+            )
+            .asyncMap((bytes) =>
+                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes))
+            .where((e) => e != null)
+            .cast<StoredUploadEventDto>()
+            .firstWhere((e) => e.kind != StoredUploadEventKind.progress)
+            .timeout(const Duration(seconds: 20));
+
         for (final write in stored.uploadWrites) {
           await ble.writeCharacteristic(
             deviceId,
@@ -150,6 +169,13 @@ void main() {
             write.bytes,
           );
         }
+
+        // The REAL curtain must acknowledge the commit — this is the
+        // hardware proof the whole wait-then-play mechanism stands on.
+        final verdict = await verdictF;
+        expect(verdict.kind, StoredUploadEventKind.complete,
+            reason: 'the curtain rejected the upload (code ${verdict.code})');
+
         final play = stored.playWrite!;
         await ble.writeCharacteristic(
           deviceId,
@@ -157,9 +183,20 @@ void main() {
           play.characteristicUuid,
           play.bytes,
         );
-        // Hold the link a beat so the playback is observable in the room and
-        // any device-side commit finishes before we drop the connection.
+        // A beat so the playback is observable in the room.
         await Future<void>.delayed(const Duration(seconds: 3));
+
+        // And the replay path the saved-designs list uses: address the item
+        // by cid again, no re-upload.
+        final replay =
+            await codec.encodeStoredPlay(specYaml: specYaml, cid: cid);
+        await ble.writeCharacteristic(
+          deviceId,
+          replay.serviceUuid,
+          replay.write.characteristicUuid,
+          replay.write.bytes,
+        );
+        await Future<void>.delayed(const Duration(seconds: 2));
       } finally {
         await ble.disconnect(deviceId);
       }

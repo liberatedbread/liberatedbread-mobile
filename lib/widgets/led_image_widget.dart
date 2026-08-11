@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -10,7 +11,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import '../providers/ble_provider.dart';
+import '../providers/saved_designs_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../services/saved_designs_store.dart';
 import '../services/spec_codec.dart';
 import 'led_designs.dart';
 
@@ -694,9 +697,53 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     try {
       final codec = ref.read(specCodecProvider);
       final ble = ref.read(bleServiceProvider);
-      // A novel, app-chosen id in a high band, unlikely to collide with the
-      // device's catalogue effects (hardware accepts ids it has never seen).
-      final cid = 900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
+      final store = ref.read(savedDesignsStoreProvider);
+
+      // Rasterise text now so its bitmap can feed the content hash too.
+      ({int width, int height, Uint8List bits})? raster;
+      if (options.kind == _StoredKind.text) {
+        raster = await _rasterizeText(options.text, height);
+      }
+
+      // The interval the preview plays at IS the animation's setting; the
+      // stored container carries the matching frame rate.
+      final frameMs = _intervalMs;
+
+      // Hash the inputs that shape the stored bytes (everything but the cid).
+      // A byte-identical re-save then re-uses the slot it already occupies on
+      // the device instead of storing a copy under a fresh id.
+      final hashInput = BytesBuilder(copy: false)
+        ..add(utf8.encode(options.kind.name))
+        ..addByte(0);
+      switch (options.kind) {
+        case _StoredKind.picture:
+          hashInput
+            ..add(_hashInts([width, height, 10, 5]))
+            ..add(utf8.encode(options.scroll))
+            ..addByte(0)
+            ..add(currentFrame);
+        case _StoredKind.text:
+          hashInput
+            ..add(_hashInts([raster!.width, raster.height, 10, 5]))
+            ..add(
+                utf8.encode(options.scroll == 'none' ? 'left' : options.scroll))
+            ..addByte(0)
+            ..add(raster.bits);
+        case _StoredKind.animation:
+          hashInput.add(_hashInts([width, height, frameMs]));
+          for (final frame in allFrames) {
+            hashInput.add(frame);
+          }
+      }
+      final contentHash = designContentHash(hashInput.takeBytes());
+
+      // Same content already on the device -> same cid (the device just
+      // overwrites its slot); otherwise a novel app-chosen id in a high band,
+      // unlikely to collide with catalogue effects (hardware accepts ids it
+      // has never seen).
+      final prior = store.findByContent(widget.deviceId, contentHash);
+      final cid = prior?.cid ??
+          900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
 
       final StoredUploadPlanDto plan;
       switch (options.kind) {
@@ -713,12 +760,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             speed: 5,
           );
         case _StoredKind.text:
-          // Rasterise the text at the panel's height; the bitmap is wider than
-          // the panel, which is what scrolls.
-          final raster = await _rasterizeText(options.text, height);
           plan = await codec.encodeStoredText(
             specYaml: specYaml,
-            textWidth: raster.width,
+            textWidth: raster!.width,
             textHeight: raster.height,
             bits: raster.bits,
             name: options.name,
@@ -735,11 +779,22 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             frames: allFrames,
             name: options.name,
             cid: cid,
+            frameMs: frameMs,
           );
       }
 
-      Log.ble.info('storing "${options.name}" (${options.kind.name}, cid $cid) '
+      Log.ble.info('storing "${options.name}" (${options.kind.name}, cid $cid'
+          '${prior != null ? ', re-using ${prior.name}\'s slot' : ''}) '
           'to ${widget.deviceId}: ${plan.uploadWrites.length} uploader writes');
+
+      // Listen for the device's verdict BEFORE the first upload write, so a
+      // fast completion cannot slip past between upload and subscribe.
+      final confirmed = _awaitUploadVerdict(codec, plan, specYaml);
+      // If an upload write throws first, nobody awaits `confirmed`; quench a
+      // listener COPY so a later refusal in it cannot surface as an unhandled
+      // zone error (the `await confirmed` below still observes the original).
+      unawaited(confirmed.then((_) {}, onError: (_) {}));
+
       for (final write in plan.uploadWrites) {
         await ble.writeCharacteristic(
           widget.deviceId,
@@ -748,8 +803,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           write.bytes,
         );
       }
-      // Play it immediately, matching the vendor's store-then-show. The stored
-      // item persists regardless; this only confirms it and shows it now.
+
+      // The device plays a cid only once it has committed it — an early play
+      // is a silent no-op (observed on hardware). Wait for M_UPLOAD_COMPLETE;
+      // a device-side failure throws into the error path below.
+      await confirmed;
+
+      // NOW play it, matching the vendor's store-then-show. The stored item
+      // persists regardless; this shows it immediately.
       final play = plan.playWrite;
       if (play != null) {
         await ble.writeCharacteristic(
@@ -759,9 +820,25 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           play.bytes,
         );
       }
+
+      await store.save(
+        widget.deviceId,
+        SavedDesign(
+          name: options.name,
+          cid: cid,
+          kind: options.kind.name,
+          contentHash: contentHash,
+          savedAt: DateTime.now(),
+        ),
+      );
+
       if (mounted) {
+        setState(() {}); // the replay list below gains/refreshes an entry
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved "${options.name}" to the device.')),
+          SnackBar(
+              content: Text(play != null
+                  ? 'Saved "${options.name}" — now playing on the device.'
+                  : 'Saved "${options.name}" to the device.')),
         );
       }
     } catch (e) {
@@ -774,6 +851,105 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  /// Little-endian bytes of each value, feeding the design content hash.
+  static List<int> _hashInts(List<int> values) {
+    final b = BytesBuilder(copy: false);
+    for (final v in values) {
+      b.add([v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff]);
+    }
+    return b.takeBytes();
+  }
+
+  /// Resolves once the device confirms the stored upload; throws when the
+  /// device refuses it.
+  ///
+  /// Must be CALLED before the first upload write — the subscription starts
+  /// in the synchronous prefix, so a verdict cannot slip past between the
+  /// last data packet and a late subscribe. When the spec names no response
+  /// channel this resolves immediately (store-and-hope, the old behaviour);
+  /// when the device stays silent it resolves after a bounded wait, because
+  /// an unanswering firmware should degrade to "maybe playing" rather than
+  /// turn every save into an error.
+  Future<void> _awaitUploadVerdict(
+    SpecCodec codec,
+    StoredUploadPlanDto plan,
+    String specYaml,
+  ) async {
+    final respChar = plan.responseCharacteristicUuid;
+    if (respChar == null) return;
+
+    final ble = ref.read(bleServiceProvider);
+    final verdict = Completer<StoredUploadEventDto>();
+    final sub = ble
+        .subscribeCharacteristic(widget.deviceId, plan.serviceUuid, respChar)
+        .listen((bytes) async {
+      final event =
+          await codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: bytes);
+      if (event == null || verdict.isCompleted) return;
+      switch (event.kind) {
+        case StoredUploadEventKind.complete:
+        case StoredUploadEventKind.failed:
+        case StoredUploadEventKind.startRejected:
+          verdict.complete(event);
+        case StoredUploadEventKind.startAccepted:
+        case StoredUploadEventKind.progress:
+          break; // transfer in flight; keep listening
+      }
+    });
+    try {
+      final event = await verdict.future.timeout(const Duration(seconds: 10));
+      if (event.kind != StoredUploadEventKind.complete) {
+        throw StateError(
+            'the device refused the stored design (code ${event.code})');
+      }
+      Log.ble.info('${widget.deviceId} committed the stored design');
+    } on TimeoutException {
+      Log.ble.warning('no upload confirmation from ${widget.deviceId} within '
+          '10s; sending the play write anyway');
+    } finally {
+      // Fire-and-forget: cancel() detaches the listener synchronously, which
+      // is all that matters here — the returned future settles on the
+      // transport's schedule (it stalled a full save when awaited).
+      unawaited(sub.cancel());
+    }
+  }
+
+  /// Re-trigger a design this app previously stored on the device: one framed
+  /// play-by-cid write, no upload. Stops a live stream first for the same
+  /// reason a save does — the played design owns the panel afterwards.
+  Future<void> _replayStored(SavedDesign design) async {
+    setState(() {
+      _error = null;
+      _streaming = false;
+      _streamEpoch++;
+    });
+    await _sendTail;
+    try {
+      final play = await ref
+          .read(specCodecProvider)
+          .encodeStoredPlay(specYaml: widget.specYaml, cid: design.cid);
+      await ref.read(bleServiceProvider).writeCharacteristic(
+            widget.deviceId,
+            play.serviceUuid,
+            play.write.characteristicUuid,
+            play.write.bytes,
+          );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Playing "${design.name}".')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = friendlyErrorText(
+              e,
+              context: 'replay "${design.name}" on ${widget.deviceId}',
+              fallback: 'Could not replay the saved design.',
+            ));
+      }
     }
   }
 
@@ -1053,11 +1229,45 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
                   onPressed: _sending || _saving ? null : _saveToDevice,
                 ),
               ),
+              // Everything this app has stored on THIS device, replayable by
+              // one tap — the device keeps the designs across power cycles,
+              // so the list is the way back to them without re-uploading.
+              ..._savedDesignsSection(),
             ],
           ],
         ),
       ),
     );
+  }
+
+  /// The "Saved designs" replay strip under the save button; empty when
+  /// nothing has been stored on this device yet.
+  List<Widget> _savedDesignsSection() {
+    final saved = ref.watch(savedDesignsStoreProvider).load(widget.deviceId);
+    if (saved.isEmpty) return const [];
+    return [
+      const SizedBox(height: 12),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: Text('Saved designs',
+            style: Theme.of(context).textTheme.titleSmall),
+      ),
+      const SizedBox(height: 4),
+      Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (final design in saved)
+            ActionChip(
+              key: Key('saved-design-${design.cid}'),
+              avatar: const Icon(Icons.replay, size: 18),
+              label: Text(design.name),
+              tooltip: 'Play "${design.name}" (${design.kind}) again',
+              onPressed: _saving ? null : () => _replayStored(design),
+            ),
+        ],
+      ),
+    ];
   }
 }
 
@@ -1156,6 +1366,7 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
           ),
           const SizedBox(height: 12),
           TextField(
+            key: const Key('stored-name-field'),
             controller: _nameController,
             decoration: const InputDecoration(
               labelText: 'Name',

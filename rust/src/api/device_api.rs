@@ -143,9 +143,50 @@ pub struct StoredUploadPlanDto {
     /// spec declares a `play_command`. Sent once the upload completes so the
     /// stored item shows immediately (it also persists without this).
     pub play_write: Option<ImageWriteDto>,
+    /// Where the device answers the upload, when the spec names it. Subscribe
+    /// here before the first upload write and hold `play_write` until
+    /// [`decode_stored_upload_event`] reports completion — the device plays a
+    /// cid only once it has committed it, so an early play is a silent no-op.
+    pub response_characteristic_uuid: Option<String>,
     /// The id the stored item now lives under; the device can be told to play
     /// it again by this later.
     pub cid: u32,
+}
+
+/// What one notification on the stored-upload response characteristic said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoredUploadEventKind {
+    /// The device accepts the transfer; `resume_offset` says where to start.
+    StartAccepted,
+    /// The device refuses the transfer (`code` is its error).
+    StartRejected,
+    /// Transfer progress (`progress` is the device's counter).
+    Progress,
+    /// The item is committed and playable — safe to send the play write now.
+    Complete,
+    /// The transfer failed device-side (`code` is its error).
+    Failed,
+}
+
+/// A decoded stored-upload response. Fields not named by [`kind`] are 0.
+#[derive(Debug, Clone)]
+pub struct StoredUploadEventDto {
+    pub kind: StoredUploadEventKind,
+    /// Device error code, for `StartRejected` / `Failed`.
+    pub code: u64,
+    /// Byte offset to resume from, for `StartAccepted` (0 = fresh).
+    pub resume_offset: u64,
+    /// The device's progress counter, for `Progress`.
+    pub progress: u64,
+}
+
+/// The single play-by-cid write for RE-triggering an already stored item.
+#[derive(Debug, Clone)]
+pub struct StoredPlayDto {
+    /// The GATT service the write's characteristic belongs to.
+    pub service_uuid: String,
+    /// The framed play command, ready to write.
+    pub write: ImageWriteDto,
 }
 
 /// The BLE writes that push one image frame to a device, in send order.
@@ -2158,19 +2199,91 @@ pub fn encode_stored_animation(
     frames: Vec<Vec<u8>>,
     name: String,
     cid: u32,
+    frame_ms: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
     use crate::protocol::daniao_store::StoredAnimation;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let frame_refs: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
+    // The container stores a frame RATE; the editor thinks in the interval
+    // its preview slider sets. Round to the nearest fps and clamp into the
+    // header byte's range so a slow slider cannot wrap to a fast animation.
+    let fps = (1000 + frame_ms / 2)
+        .checked_div(frame_ms)
+        // An unset (0) interval falls back to the vendor's own rate.
+        .map_or(20, |per_sec| per_sec.clamp(1, 255)) as u8;
     let anim = StoredAnimation {
         name: &name,
         cid,
         width,
         height,
         frames: &frame_refs,
+        fps,
     };
     let plan = crate::protocol::stored_upload::encode_stored_animation(&spec, &anim)?;
     Ok(stored_plan_to_dto(plan))
+}
+
+/// Decode one notification from the stored-upload response characteristic.
+///
+/// Returns `None` for anything that is not an upload event — other state
+/// pushes share the channel, and a caller filters by just ignoring `None`.
+/// The spec is taken so this dispatches like the encoders do; today the one
+/// implemented response format is Daniao's.
+pub fn decode_stored_upload_event(
+    spec_yaml: String,
+    bytes: Vec<u8>,
+) -> anyhow::Result<Option<StoredUploadEventDto>> {
+    use crate::protocol::daniao_upload::{parse_upload_event, UploadEvent};
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    if crate::protocol::stored_upload::stored_feature(&spec).is_none() {
+        anyhow::bail!("spec declares no stored_upload feature");
+    }
+    Ok(parse_upload_event(&bytes).map(|event| match event {
+        UploadEvent::StartAccepted { resume_offset } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::StartAccepted,
+            code: 0,
+            resume_offset,
+            progress: 0,
+        },
+        UploadEvent::StartRejected { code } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::StartRejected,
+            code,
+            resume_offset: 0,
+            progress: 0,
+        },
+        UploadEvent::Progress { value } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::Progress,
+            code: 0,
+            resume_offset: 0,
+            progress: value,
+        },
+        UploadEvent::Complete => StoredUploadEventDto {
+            kind: StoredUploadEventKind::Complete,
+            code: 0,
+            resume_offset: 0,
+            progress: 0,
+        },
+        UploadEvent::Failed { code } => StoredUploadEventDto {
+            kind: StoredUploadEventKind::Failed,
+            code,
+            resume_offset: 0,
+            progress: 0,
+        },
+    }))
+}
+
+/// Encode the play-by-cid command for RE-triggering a previously stored item
+/// — the replay path, no upload involved.
+pub fn encode_stored_play(spec_yaml: String, cid: u32) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) = crate::protocol::stored_upload::encode_stored_play(&spec, cid)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
 }
 
 /// Parse the FFI `scroll` string into the codec's enum (unknown -> no scroll).
@@ -2197,6 +2310,7 @@ fn stored_plan_to_dto(
         service_uuid: plan.service_uuid,
         upload_writes: plan.upload_writes.into_iter().map(to_dto).collect(),
         play_write: plan.play_write.map(to_dto),
+        response_characteristic_uuid: plan.response_characteristic_uuid,
         cid: plan.cid,
     }
 }

@@ -68,6 +68,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   StoredUploadDto dco_decode_box_autoadd_stored_upload_dto(dynamic raw);
 
   @protected
+  StoredUploadEventDto dco_decode_box_autoadd_stored_upload_event_dto(
+      dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -262,6 +266,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   StoredUploadDto? dco_decode_opt_box_autoadd_stored_upload_dto(dynamic raw);
 
   @protected
+  StoredUploadEventDto? dco_decode_opt_box_autoadd_stored_upload_event_dto(
+      dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -304,7 +312,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw);
 
   @protected
+  StoredPlayDto dco_decode_stored_play_dto(dynamic raw);
+
+  @protected
   StoredUploadDto dco_decode_stored_upload_dto(dynamic raw);
+
+  @protected
+  StoredUploadEventDto dco_decode_stored_upload_event_dto(dynamic raw);
+
+  @protected
+  StoredUploadEventKind dco_decode_stored_upload_event_kind(dynamic raw);
 
   @protected
   StoredUploadPlanDto dco_decode_stored_upload_plan_dto(dynamic raw);
@@ -314,6 +331,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int dco_decode_u_32(dynamic raw);
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -373,6 +393,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredUploadDto sse_decode_box_autoadd_stored_upload_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadEventDto sse_decode_box_autoadd_stored_upload_event_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -596,6 +620,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  StoredUploadEventDto? sse_decode_opt_box_autoadd_stored_upload_event_dto(
+      SseDeserializer deserializer);
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
@@ -640,7 +668,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SpecIdentityDto sse_decode_spec_identity_dto(SseDeserializer deserializer);
 
   @protected
+  StoredPlayDto sse_decode_stored_play_dto(SseDeserializer deserializer);
+
+  @protected
   StoredUploadDto sse_decode_stored_upload_dto(SseDeserializer deserializer);
+
+  @protected
+  StoredUploadEventDto sse_decode_stored_upload_event_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  StoredUploadEventKind sse_decode_stored_upload_event_kind(
+      SseDeserializer deserializer);
 
   @protected
   StoredUploadPlanDto sse_decode_stored_upload_plan_dto(
@@ -651,6 +690,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -713,6 +755,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_stored_upload_dto(
       StoredUploadDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_stored_upload_event_dto(
+      StoredUploadEventDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
@@ -955,6 +1001,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       StoredUploadDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_stored_upload_event_dto(
+      StoredUploadEventDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
@@ -1005,8 +1055,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SpecIdentityDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_stored_play_dto(StoredPlayDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_stored_upload_dto(
       StoredUploadDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_upload_event_dto(
+      StoredUploadEventDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stored_upload_event_kind(
+      StoredUploadEventKind self, SseSerializer serializer);
 
   @protected
   void sse_encode_stored_upload_plan_dto(
@@ -1017,6 +1078,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_8(int self, SseSerializer serializer);

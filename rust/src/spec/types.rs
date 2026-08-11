@@ -156,6 +156,12 @@ pub struct Feature {
     /// store-then-show. Absent means the client stores without auto-playing.
     #[serde(default)]
     pub play_command: Option<String>,
+    /// Characteristic UUID the device answers a stored upload on (Daniao: the
+    /// DDP Notify char carrying M_UPLOAD_START_RESPONSE and
+    /// M_UPLOAD_COMPLETE). A client waits for the completion there before
+    /// sending `play_command` — playing an uncommitted cid is a silent no-op.
+    #[serde(default)]
+    pub response_characteristic: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
