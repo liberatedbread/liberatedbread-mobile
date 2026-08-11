@@ -85,6 +85,16 @@ class DeviceControlPanel extends ConsumerWidget {
     // entities become control cards when the spec resolved something for
     // them (a sendable action, or at least readable state for a switch).
     // Anything else still comes through the typed command widgets below.
+    //
+    // One display name renders once. A family spec declares the same logical
+    // reading once per variant-specific binding — Airthings' "Radon 24h
+    // Average" exists against the Gen 1 radon characteristic AND each model's
+    // combined packet, with disjoint variants — and real hardware carries
+    // exactly one of those characteristics, so the bindings dedupe themselves.
+    // The mock does not: it exposes every service in the YAML at once, and
+    // anything else that carries two variants' services would likewise show
+    // one reading three times. First spec-order binding that resolved wins.
+    final seen = <String>{};
     final readings = <({EntityDto entity, String serviceUuid})>[];
     final controls = <({EntityDto entity, String? stateServiceUuid})>[];
     for (final entity in match?.spec.entities ?? const <EntityDto>[]) {
@@ -104,6 +114,7 @@ class DeviceControlPanel extends ConsumerWidget {
       switch (entity.platform) {
         case null || 'sensor' || 'binary_sensor':
           if (owningState == null) continue;
+          if (!seen.add('${entity.platform}|${entity.name}')) continue;
           readings.add((entity: entity, serviceUuid: owningState.uuid));
         case 'switch' || 'light' || 'number' || 'climate':
           // At least one action must target a characteristic this device
@@ -122,11 +133,19 @@ class DeviceControlPanel extends ConsumerWidget {
           );
           final stateOnly = entity.platform != 'light' && owningState != null;
           if (!actionsDiscovered && !stateOnly) continue;
+          if (!seen.add('${entity.platform}|${entity.name}')) continue;
           controls.add((entity: entity, stateServiceUuid: owningState?.uuid));
         default:
           continue;
       }
     }
+
+    // A sensor device's product is its readings; the GATT tree below them is
+    // plumbing. When the matched spec says this is a sensor and its readings
+    // are on screen, the raw service cards start folded so the first screen
+    // is radon and CO₂, not the OAD firmware service — still one tap away.
+    final foldRawServices = readings.isNotEmpty &&
+        DeviceCategory.parse(match?.spec.category) == DeviceCategory.sensor;
 
     // Leading slots above the raw service list: the spec chooser when several
     // specs tie (raw controls stay usable below it), a banner when the active
@@ -236,6 +255,7 @@ class DeviceControlPanel extends ConsumerWidget {
           service: service,
           matched: match,
           registry: registry,
+          foldedForReadings: foldRawServices,
         );
       },
     );
@@ -483,6 +503,13 @@ class _SpecChoicePrompt extends ConsumerWidget {
 /// named, unit-labelled reading purely by its spec being vendored — no
 /// per-device code. `binary_sensor` entities get the on/off presentation;
 /// everything else the numeric one.
+///
+/// Two or more numeric readings render as a grid of compact tiles rather than
+/// a scroll of full-width banners: a sensor device is its dashboard, and an
+/// Airthings' radon, CO₂, VOC, temperature, humidity and battery should be
+/// one glance, not six swipes. A lone reading keeps the roomier row, and
+/// binary sensors keep their full-width on/off presentation below the grid —
+/// a state line, not a measurement tile.
 class _ReadingsSection extends StatelessWidget {
   final String deviceId;
   final List<({EntityDto entity, String serviceUuid})> readings;
@@ -495,9 +522,20 @@ class _ReadingsSection extends StatelessWidget {
     required this.specYaml,
   });
 
+  /// Tiles narrower than this stop fitting a reading and its unit.
+  static const double _minTileWidth = 170;
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final numeric = [
+      for (final r in readings)
+        if (r.entity.platform != 'binary_sensor') r,
+    ];
+    final binary = [
+      for (final r in readings)
+        if (r.entity.platform == 'binary_sensor') r,
+    ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
       child: Column(
@@ -508,25 +546,77 @@ class _ReadingsSection extends StatelessWidget {
             style: text.titleSmall?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
-          for (final reading in readings) ...[
-            if (reading.entity.platform == 'binary_sensor')
-              BinarySensorCard(
+          if (numeric.length == 1)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: EntitySensorCard(
                 deviceId: deviceId,
-                serviceUuid: reading.serviceUuid,
-                entity: reading.entity,
-                specYaml: specYaml,
-              )
-            else
-              EntitySensorCard(
-                deviceId: deviceId,
-                serviceUuid: reading.serviceUuid,
-                entity: reading.entity,
+                serviceUuid: numeric.single.serviceUuid,
+                entity: numeric.single.entity,
                 specYaml: specYaml,
               ),
+            )
+          else if (numeric.length > 1)
+            LayoutBuilder(
+              builder: (context, constraints) =>
+                  _grid(numeric, constraints.maxWidth),
+            ),
+          for (final reading in binary) ...[
+            BinarySensorCard(
+              deviceId: deviceId,
+              serviceUuid: reading.serviceUuid,
+              entity: reading.entity,
+              specYaml: specYaml,
+            ),
             const SizedBox(height: 10),
           ],
         ],
       ),
+    );
+  }
+
+  Widget _grid(
+    List<({EntityDto entity, String serviceUuid})> numeric,
+    double maxWidth,
+  ) {
+    // As many columns as keep every tile at least [_minTileWidth] wide,
+    // capped at three — past that a reading gets smaller than its label.
+    // A width too narrow for two tiles falls back to full-width rows.
+    final fit = maxWidth.isFinite ? maxWidth ~/ _minTileWidth : 1;
+    final columns = fit.clamp(1, 3);
+    return Column(
+      children: [
+        for (var row = 0; row < numeric.length; row += columns)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            // IntrinsicHeight + stretch gives every tile in a row the height
+            // of its tallest sibling, so a tile whose value is still loading
+            // does not sit shorter than a settled neighbour.
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = row; i < row + columns; i++) ...[
+                    if (i > row) const SizedBox(width: 10),
+                    Expanded(
+                      child: i < numeric.length
+                          ? EntitySensorCard(
+                              deviceId: deviceId,
+                              serviceUuid: numeric[i].serviceUuid,
+                              entity: numeric[i].entity,
+                              specYaml: specYaml,
+                              compact: columns > 1,
+                            )
+                          // Keeps a short last row's tiles the same width as
+                          // every other row's.
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -590,7 +680,7 @@ class _ControlsSection extends StatelessWidget {
   }
 }
 
-class _ServiceCard extends StatelessWidget {
+class _ServiceCard extends StatefulWidget {
   final String deviceId;
   final BleDiscoveredService service;
   final MatchedSpec? matched;
@@ -601,23 +691,64 @@ class _ServiceCard extends StatelessWidget {
   /// is what it showed for every unlisted service before.
   final AsyncValue<NumberRegistry> registry;
 
+  /// Whether this card should sit folded because spec-declared readings own
+  /// the screen (a matched sensor device). See the panel's `foldRawServices`.
+  final bool foldedForReadings;
+
   const _ServiceCard({
     super.key,
     required this.deviceId,
     required this.service,
     required this.matched,
     required this.registry,
+    required this.foldedForReadings,
   });
 
   @override
+  State<_ServiceCard> createState() => _ServiceCardState();
+}
+
+class _ServiceCardState extends State<_ServiceCard> {
+  /// Owned here, not left to the tile: `initiallyExpanded` only speaks at
+  /// mount, and on essentially every connect the cards mount a frame before
+  /// the spec match resolves — so a sensor device's cards would mount
+  /// expanded and stay that way, and the fold would never happen.
+  final ExpansibleController _expansion = ExpansibleController();
+
+  @override
+  void didUpdateWidget(_ServiceCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Fold exactly on the transition into readings-own-the-screen, so a user
+    // who reopens a card afterwards is not fought. The reverse transition
+    // (a cleared spec choice) deliberately leaves cards as they are: closed
+    // but tappable is still usable, while auto-expanding would yank open
+    // cards the user folded personally.
+    if (widget.foldedForReadings && !oldWidget.foldedForReadings) {
+      // After this frame, not during it: controller methods rebuild the
+      // tile, which is not legal from inside the tree's own rebuild.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _expansion.isExpanded) _expansion.collapse();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _expansion.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final specService = matched == null
-        ? null
-        : findServiceForUuid(matched!.spec, service.uuid);
+    final matched = widget.matched;
+    final service = widget.service;
+    final specService =
+        matched == null ? null : findServiceForUuid(matched.spec, service.uuid);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: ExpansionTile(
+        controller: _expansion,
         leading: const Icon(Icons.account_tree),
         title: Text(
           specService?.name ?? _serviceDisplayName(service.uuid),
@@ -627,22 +758,33 @@ class _ServiceCard extends StatelessWidget {
           service.uuid,
           style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
         ),
-        initiallyExpanded: true,
+        initiallyExpanded: !widget.foldedForReadings,
+        // Collapsing must hide the children, never dispose them. Notify-capable
+        // characteristic widgets subscribe in initState and cancel in dispose,
+        // and RealBleService answers a cancel with setNotifyValue(false) on the
+        // peripheral — with no reference counting. The readings cards above
+        // this tile subscribe to the SAME characteristics, so a disposal here
+        // (the automatic fold, or a user collapsing a card by hand) would mute
+        // the very characteristics the dashboard is showing live: every
+        // notify-driven tile silently freezes at its first read. Keeping the
+        // children mounted offstage preserves their subscriptions — the same
+        // steady state the always-expanded panel had before folding existed.
+        maintainState: true,
         children: service.characteristics.map((char) {
           final specChar = specService == null
               ? null
               : findCharForUuid(specService, char.uuid);
           if (matched != null && specChar != null) {
             return TypedCharacteristicWidget(
-              deviceId: deviceId,
+              deviceId: widget.deviceId,
               serviceUuid: service.uuid,
-              specYaml: matched!.yaml,
+              specYaml: matched.yaml,
               specChar: specChar,
               discovered: char,
             );
           }
           return RawCharacteristicWidget(
-            deviceId: deviceId,
+            deviceId: widget.deviceId,
             serviceUuid: service.uuid,
             characteristic: char,
           );
@@ -670,7 +812,7 @@ class _ServiceCard extends StatelessWidget {
   /// the compiled-in fallback: a Battery Service card must never render as
   /// the anonymous "Service" just because an asset read lost a race.
   String _serviceDisplayName(String uuid) =>
-      registry.valueOrNull?.serviceName(uuid) ??
+      widget.registry.valueOrNull?.serviceName(uuid) ??
       _compiledInServiceNames[shortUuid(uuid)] ??
       'Service';
 }

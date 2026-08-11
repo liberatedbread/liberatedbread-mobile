@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `airthings-wave-family` surfaces every sensor each model actually has, not
+  just the six readings the entity list happened to name. The Wave Plus
+  combined characteristic (`b42e2a68`) now carries the shared 20-byte layout
+  as a machine-readable `format:` block — the layout was already documented,
+  but only as prose pointing at the Wave Gen 2 declaration, and consumers
+  resolve byte layouts by characteristic UUID, so every Wave Plus combined
+  reading was undecodable. The Wave Mini combined characteristic
+  (`b42e3b98`) gains its format too, taken from the decode functions of the
+  two vendor-published readers the spec already cited for its UUID
+  (wavemini-reader, airthings-ble; MEDIUM confidence, note the centikelvin
+  temperature). On top of those: CO₂, VOC and Dew Point entities for Wave
+  Plus, VOC and Pressure entities for Wave Mini, and radon entities for Wave
+  Gen 2 and Wave Plus bound to their combined packets — the dedicated radon
+  characteristics live on the Gen 1 service only, so a Gen 2 or Plus unit
+  previously matched no radon binding at all. One logical reading appears
+  once per variant-specific binding (same name, disjoint `variants`),
+  which a characteristic-keyed consumer resolves to exactly one per unit
 - `endianness` on BLE characteristic `format` fields — same key, same
   `little`/`big` enum and same `little` default as a bus message field, which
   is where it was already declared. Six BLE fields across `xiaomi-miflora` and
@@ -85,9 +102,137 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `scripts/test_device_specs.py`, which reads the vocabulary out of
   `schema.json` rather than restating it; documented in
   `device-specs/README.md` and `docs/api/spec-format.md`
+- A control surface for the two Wemo devices we have hardware for — the smart
+  plugs (`F7C063` Mini, `WSP080`, and the Outdoor and Insight plugs that share
+  the surface) and the Crock-Pot Smart Slow Cooker. `wemo-devices.yaml` could
+  already be *found* and *provisioned* from the file alone; controlling one
+  still meant reading prose and knowing UPnP. It now carries `entities` (which
+  controls to draw and where each reads its state) bound to a new top-level
+  `commands` block (what to send, with the arguments already chosen), both
+  naming actions documented in `http_endpoints`. A consumer that already
+  renders a BLE spec's entities needs one new transport, not one new device:
+  five entities land through the mobile app's own parser today, roles and
+  variant scoping intact, with only the SOAP execution missing
+- Top-level `commands` in `schema.json` — named invocations for devices with
+  no GATT characteristic to hang a command on, keyed by name so an entity's
+  role map (`turn_on: plug_turn_on`) resolves the same way whatever the
+  transport underneath it is. Two keys carry the weight. `source`
+  (`state:GetCrockpotState.time`) says where a client reads a value it is
+  *not* the one setting: `SetCrockpotState` carries mode and cook time
+  together, so switching a slow cooker to Warm without sending the current
+  time back also clears the timer, and a spec that leaves that implicit
+  produces exactly that client. `default` is what makes a command sendable at
+  all — a control can only send a command whose every blank it can fill.
+  `airthings-wave-family` has kept a top-level command catalogue since before
+  anything declared one, so the block is deliberately not
+  `additionalProperties: false`
+- `example` on an `http_endpoints` request and response body, and `example_body`
+  on a command — the literal bytes, for the same reason crypto blocks carry
+  test vectors: they turn "the device rejects this and I cannot tell which
+  half is wrong" into a diff. `scripts/test_wemo_spec.py` renders the plug and
+  Crock-Pot commands from the published `arguments`/`parameters` and diffs
+  them against those bodies, then drives all four Crock-Pot entities out of
+  the published `GetCrockpotState` response and the plug's out of a
+  `GetBinaryState` long form — stdlib only, importing none of our code
+- `soap_common.eventing` — the UPnP `SUBSCRIBE`/`NOTIFY` flow Wemo devices push
+  state on, with the callback header shape (the angle brackets are part of the
+  value), renewal on the `TIMEOUT` the device grants rather than the one you
+  asked for, and the property names each device sends (`BinaryState`;
+  `mode`/`time`/`cookedTime` on the Crock-Pot; `InsightParams`). Polling
+  `GetBinaryState` cannot see somebody pressing the button on the device
+- `scheduling` — how a device performs an action at a future time BY ITSELF,
+  with nothing else on the network. Worth a block of its own because the
+  difference is invisible from the control surface and decides what an
+  integration can promise: a client can always send an on command at 17:00 if
+  it happens to be running, and on a sleeping phone it will not be. Wemo keeps
+  a SQLite database of rules that it hands out and takes back over SOAP
+  (`rules#FetchRules` → version + URL, `GET` the ZIP, edit, `rules#StoreRules`
+  with the base64 wrapped in an XML-escaped CDATA marker that looks like a
+  typo and is not), and runs the schedule off its own clock. Documented with
+  both tables, two worked rows — one written by pywemo, one captured from a
+  device the Wemo app configured — and, as prominently, the limits: a rule's
+  action is `1.0` on / `0.0` off / `2.0` toggle, so a scheduled Crock-Pot
+  *mode* is not expressible, and the Crock-Pot's own `time` is a countdown the
+  appliance runs rather than a start time. `open_questions` names what is
+  inference rather than evidence, `DayID`'s encoding first: a schedule written
+  from a guessed column fires on the wrong day
+- `http_endpoints[].service` — the service an action belongs to, as data. The
+  Wemo endpoint descriptions all quoted the SOAPACTION URN in prose, and the
+  repo's own tests even asserted the quoting — but a client that must build
+  the header for a state read (`GetCrockpotState` is invoked by nothing in
+  `commands`; it is only read from) had nowhere to get the URN except parsing
+  a sentence. Declared on all ten SOAP endpoints;
+  `scripts/test_wemo_spec.py` pins that every endpoint an entity reads state
+  from declares it, and that it agrees with the URN the description still
+  quotes — two spellings of one fact are only safe while something checks them
+- `payload_formats.delimiter` — the separator for a payload that packs several
+  fields into one string, so `fields[].index` becomes executable. "Split on
+  `|` and take field 0" had been the documented rule for Wemo's `BinaryState`
+  for as long as the format has been written down, and prose is not something
+  a decoder can follow: every consumer either hardcoded it per device or got a
+  plausible wrong answer, since `8|1492338954|…` read whole is not a number
+  and a client that gives up there shows a live plug as off. Declared on
+  `BinaryState` and `InsightParams`; `scripts/test_wemo_spec.py` now splits on
+  the declared value rather than a hardcoded pipe
+- `payload_formats.CrockpotMode` — `0` off, `50` warm, `51` low, `52` high, with
+  the two things the bare table does not say: the numbers are not an ordering,
+  and an unrecognised value must not be folded into `off`, which would tell a
+  user their cooker is off while it is heating
 
 ### Fixed
 
+- `airthings-wave-family`'s radon entities no longer claim
+  `device_class: volatile_organic_compounds_parts`. Radon in Bq/m³ is a
+  radioactivity concentration, not a chemical one, and the class was not
+  cosmetic: a class-driven consumer would band, convert or chart the reading
+  against VOC ppb semantics — Home Assistant validates the class/unit pair
+  and Airthings' own VOC thresholds (250/2000 ppb) are nothing like its radon
+  ones (100/150 Bq/m³). There is no radon device class to claim, so the
+  entities carry `icon: mdi:radioactive` and the unit says the rest
+- `airthings-wave-family`'s radon entities also dropped the "Wave Plus"
+  variant claim from the Gen-1-service bindings (`b42e01aa`/`b42e0a4c`):
+  those characteristics live on the Gen 1 air sensor service and were never
+  confirmed on Plus hardware, whose radon the vendor app reads from the
+  combined packet (now bound by dedicated Wave Plus entities)
+- A `source` parameter no longer carries a `default`, and the schema now
+  forbids the pair outright. Review (PR #16) caught what the first published
+  version got wrong: `default: 0` sitting beside every Crock-Pot read-back as
+  a "fallback" is a renderer papering over a failed read with a constant —
+  a cleared timer when changing the mode, or `mode: 0` stopping a RUNNING
+  cooker when the user only adjusted the time, with nothing on screen saying
+  so. The two keys answer "the caller supplied nothing" with opposite
+  instructions (substitute the constant vs. fail the write visibly), so a
+  parameter now carries exactly one; the stray `required: true` on read-backs
+  is gone too, since `required` means the caller supplies it and a read-back
+  is the client's job. `scripts/test_wemo_spec.py` renders the failure paths:
+  a mode change without the read-back value raises, and only `turn_off` — the
+  one write with nothing to read first — renders from a cold start
+- `scheduling.supported` is scoped. It said `true` for the whole family while
+  `open_questions` admitted nobody knows whether the appliance classes honour
+  rules at all — so a consumer branching on the field would advertise
+  on-device scheduling for a slow cooker nobody has scheduled. `applies_to`
+  (new schema key) names the eight switch-family variants the evidence
+  covers; outside the list the honest reading is UNKNOWN, not yes
+- The empty-rules-database recovery path is now implementable: the seven
+  tables beyond RULES/RULEDEVICES were named but not described, so a client
+  whose device 404s the database download (never held a rule) could not
+  build the empty one the spec tells it to create. All nine tables' columns
+  are now transcribed from pywemo's ORM — the same code that both reads real
+  devices' databases and creates the empty one — including the two standing
+  oddities (RULES.Sync, INTEGER holding 'NOSYNC'; BLOCKEDRULES.ruleId, a
+  string where every other rule id is an integer)
+- The Crock-Pot variant no longer reads as though `GetBinaryState` were a state
+  reading on it. It listed the action under `basicevent` beside the two
+  Crock-Pot ones and said nothing further, so the obvious implementation — the
+  one every other Wemo switch uses — ships a cooker that reads as permanently
+  off with a toggle that springs back, and nothing in the response says why.
+  The device answers `0` there whatever it is doing; on/off is `mode != 0`
+  from `GetCrockpotState`. Said in the variant, at the `GetBinaryState`
+  endpoint, on the entity that had to avoid it, and pinned by a test. Also
+  spelled out that the appliance actions live on `basicevent` rather than the
+  `crockpotevent` service catalogued next to them, which is marked
+  `hypothesis` — it came from the Jarden family's shape, not from a
+  Crock-Pot's own `setup.xml`, and nothing drives it
 - `hotwired-heated-gear`'s climate entity can be driven at all. Its write
   characteristic carries an 8-byte `AA <status> <level> 00 00 00 00 55` frame,
   so there is no bare value for the direct-write path to write, and the command
