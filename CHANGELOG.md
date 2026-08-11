@@ -26,6 +26,21 @@ heading.
 
 ### Changed
 
+- **An Airthings dashboard now shows every sensor the unit has, wherever the
+  firmware puts it.** Refreshed vendored protocol-specs: temperature and
+  humidity gain bindings on each Wave model's combined packet — the source
+  the vendor app itself reads, and the only one verified against live
+  traffic — ordered ahead of the SIG environmental-sensing characteristics,
+  which are app-derived and unobserved in capture. A Wave whose firmware
+  never exposes 2A6E/2A6F used to show radon and battery and nothing else;
+  its temperature and humidity tiles now come from the same packet its radon
+  already did. Also newly on the grid: Ambient Light on Wave Gen 2, Plus and
+  Mini (raw 0–255 counts — deliberately no illuminance class, since counts
+  are not lux; `mdi:brightness-5` joins the icon table for it) and Gen 1's
+  dedicated 1-hour radon average beside the 24 h and long-term ones. No app
+  code beyond the icon glyph: the tiles exist because the spec now declares
+  the entities.
+
 - **The BLE scan runs by itself, and keeps running.** Discovery was a button
   press with a 30-second window: whatever was advertising during those seconds
   was the answer, and a device powered on a minute later never appeared unless
