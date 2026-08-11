@@ -1025,6 +1025,18 @@ pub struct Command {
     /// "not a locator" rather than failing the spec.
     #[serde(default)]
     pub locate: Option<String>,
+    /// Marks an opcode that can damage hardware or carries consequences a
+    /// user should opt into — a treadmill's calibration or a factory reset.
+    /// A signpost for UI confirmation, NOT a gate: the encoder does not
+    /// refuse to encode an advanced command, because the spec's job is to
+    /// describe the protocol, not to police it.
+    #[serde(default)]
+    pub advanced: bool,
+    /// The text shown at the opt-in point when [`Self::advanced`] is set —
+    /// what the command actually does and why it warrants a confirmation.
+    /// Kept as free text because the right warning is device-specific.
+    #[serde(default)]
+    pub advanced_reason: Option<String>,
 }
 
 /// What a locator command does to make the device noticeable.
@@ -1221,11 +1233,25 @@ pub struct Parameter {
     #[serde(default)]
     pub endianness: Option<Endianness>,
     /// Transport role the ENCODER fills, rather than the caller: `sequence`
-    /// (a message serial) and `packet_length` (the total encoded length). This
-    /// is what lets a spec declare header fields the client computes without
-    /// the caller having to.
+    /// (a message serial), `packet_length` (the total encoded length), and
+    /// `checksum` (an additive frame checksum). This is what lets a spec
+    /// declare header/trailer fields the client computes without the caller
+    /// having to.
     #[serde(default)]
     pub auto: Option<AutoRole>,
+    /// First frame byte an `auto: checksum` sums over, counting from the
+    /// start of the encoded frame. Defaults to 1 when absent: treadmills like
+    /// the KingSmith WalkingPad checksum everything after their fixed header
+    /// byte, so the common case must cost the spec author nothing. Only read
+    /// when [`Self::auto`] is `Checksum`.
+    #[serde(default)]
+    pub checksum_start: Option<usize>,
+    /// Value XORed into an `auto: checksum` after the sum is reduced mod 256.
+    /// Vendors rebadge the same protocol with a different constant (UREVO's
+    /// variant of the WalkingPad frame XORs with 0x5A), so it is data, not a
+    /// hardcoded step. Only read when [`Self::auto`] is `Checksum`.
+    #[serde(default)]
+    pub checksum_xor: Option<i64>,
 }
 
 /// Byte order for a multi-byte [`Parameter`] / template field.
@@ -1244,6 +1270,21 @@ pub enum AutoRole {
     PacketLength,
     /// A per-message sequence number (0 unless a stateful caller supplies one).
     Sequence,
+    /// An additive frame checksum: the sum of the bytes already emitted (from
+    /// `checksum_start` on) mod 256, then XORed with `checksum_xor`.
+    Checksum,
+}
+
+impl std::fmt::Display for AutoRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The wire spelling, matching the serde snake_case names — DTOs render
+        // the role through this so Dart sees exactly what the spec wrote.
+        match self {
+            AutoRole::PacketLength => write!(f, "packet_length"),
+            AutoRole::Sequence => write!(f, "sequence"),
+            AutoRole::Checksum => write!(f, "checksum"),
+        }
+    }
 }
 
 /// Same rationale as [`FormatField`]'s: only `type` is load-bearing, and the
@@ -1265,6 +1306,8 @@ impl Default for Parameter {
             notes: None,
             endianness: None,
             auto: None,
+            checksum_start: None,
+            checksum_xor: None,
         }
     }
 }

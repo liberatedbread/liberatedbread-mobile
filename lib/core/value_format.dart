@@ -96,6 +96,42 @@ double snapToStep(double value, double min, double max, double step) {
   return snapped.clamp(min, max);
 }
 
+/// The display-space value for a raw parameter value, given the spec's
+/// presentation transform: `display = raw * scale + valueOffset`.
+///
+/// A spec's `min`/`max` bound the RAW wire value (what the encoder validates
+/// against), while `scale`/`valueOffset`/`unit` are presentation metadata —
+/// a treadmill speed is wire-units with `scale: 0.1`, `unit: km/h`, and the
+/// user thinks in km/h. Null scale/offset mean the identity transform, so
+/// callers can pass DTO fields straight through.
+double displayValueFor(double raw, double? scale, double? valueOffset) =>
+    raw * (scale ?? 1) + (valueOffset ?? 0);
+
+/// The inverse of [displayValueFor]: the raw value a display-space choice
+/// encodes to.
+///
+/// A zero scale has no inverse (every raw value collapses to one display
+/// value); a spec declaring one is malformed, and callers must guard rather
+/// than divide by it.
+double rawValueFor(double display, double? scale, double? valueOffset) =>
+    (display - (valueOffset ?? 0)) / (scale ?? 1);
+
+/// How many fraction digits a step of [step] needs to print without loss:
+/// 0.5 steps show "56.5", 0.01 steps "3.14", whole steps "60". Used wherever
+/// a control labels values snapped to that step, so the text neither implies
+/// a precision the control cannot land on nor hides one it can. Non-positive
+/// or non-finite steps format as whole numbers.
+int decimalsForStep(double step) {
+  if (!step.isFinite || step <= 0) return 0;
+  var decimals = 0;
+  var scaled = step;
+  while (decimals < 6 && (scaled - scaled.roundToDouble()).abs() > 1e-9) {
+    scaled *= 10;
+    decimals++;
+  }
+  return decimals;
+}
+
 /// A well-ordered `[min, max]` for a setpoint slider, or null when the spec
 /// does not bound the value usably.
 ///

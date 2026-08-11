@@ -264,6 +264,16 @@ class CommandDto {
   /// locator.
   final String? locate;
 
+  /// The spec flags this opcode as able to damage hardware or carry other
+  /// consequences (a treadmill's calibration, a factory reset). A signpost
+  /// for a UI confirmation, NOT a gate: the command still encodes, the app
+  /// decides how to ask.
+  final bool advanced;
+
+  /// The text to show at the opt-in point when `advanced` is set. Free text
+  /// from the spec, because the right warning is device-specific.
+  final String? advancedReason;
+
   const CommandDto({
     required this.name,
     required this.description,
@@ -272,6 +282,8 @@ class CommandDto {
     required this.isEncodable,
     this.unsupportedEncoding,
     this.locate,
+    required this.advanced,
+    this.advancedReason,
   });
 
   @override
@@ -282,7 +294,9 @@ class CommandDto {
       isFixed.hashCode ^
       isEncodable.hashCode ^
       unsupportedEncoding.hashCode ^
-      locate.hashCode;
+      locate.hashCode ^
+      advanced.hashCode ^
+      advancedReason.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -295,7 +309,9 @@ class CommandDto {
           isFixed == other.isFixed &&
           isEncodable == other.isEncodable &&
           unsupportedEncoding == other.unsupportedEncoding &&
-          locate == other.locate;
+          locate == other.locate &&
+          advanced == other.advanced &&
+          advancedReason == other.advancedReason;
 }
 
 /// A decoded value from a characteristic read.
@@ -1330,6 +1346,34 @@ class ParameterDto {
   /// conversion below).
   final List<String>? labels;
 
+  /// Multiplier of the parameter's linear transform, when the spec declares
+  /// one. A treadmill's `speed` is wire-units with `scale: 0.1` and
+  /// `unit: km/h`: the UI works in km/h and the encoder inverts the
+  /// transform. Same semantics as [`DecodedValueDto::scale`].
+  final double? scale;
+
+  /// Additive term completing the parameter's transform,
+  /// `value = raw * scale + value_offset`. Same semantics as
+  /// [`DecodedValueDto::value_offset`].
+  final double? valueOffset;
+
+  /// Unit symbol the parameter's value is expressed in after the transform
+  /// (`km/h`, `%`, ...), so the UI can label a slider without hardcoding
+  /// per-device knowledge.
+  final String? unit;
+
+  /// Value the encoder substitutes when the caller supplies nothing — the
+  /// reason a speed slider does not need to know the protocol's `flag`
+  /// byte. Surfaced so the UI can pre-fill or omit the control entirely.
+  final PlatformInt64? default_;
+
+  /// Transport role the encoder fills rather than the caller
+  /// (`packet_length` | `sequence` | `checksum`), rendered as the spec's
+  /// snake_case wire string. When set, the UI must NOT offer a control for
+  /// this parameter — a "checksum" slider is nonsense, and that exact bug
+  /// is why this field exists. `None` for ordinary caller-owned parameters.
+  final String? auto;
+
   const ParameterDto({
     required this.name,
     required this.valueType,
@@ -1337,6 +1381,11 @@ class ParameterDto {
     this.max,
     this.allowed,
     this.labels,
+    this.scale,
+    this.valueOffset,
+    this.unit,
+    this.default_,
+    this.auto,
   });
 
   @override
@@ -1346,7 +1395,12 @@ class ParameterDto {
       min.hashCode ^
       max.hashCode ^
       allowed.hashCode ^
-      labels.hashCode;
+      labels.hashCode ^
+      scale.hashCode ^
+      valueOffset.hashCode ^
+      unit.hashCode ^
+      default_.hashCode ^
+      auto.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1358,7 +1412,12 @@ class ParameterDto {
           min == other.min &&
           max == other.max &&
           allowed == other.allowed &&
-          labels == other.labels;
+          labels == other.labels &&
+          scale == other.scale &&
+          valueOffset == other.valueOffset &&
+          unit == other.unit &&
+          default_ == other.default_ &&
+          auto == other.auto;
 }
 
 /// A characteristic within a standard profile.

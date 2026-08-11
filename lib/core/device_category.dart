@@ -43,6 +43,13 @@ enum DeviceCategory {
   switch_(Icons.toggle_on_outlined, 'Switch'),
   tool(Icons.handyman_outlined, 'Tool'),
   tracker(Icons.my_location_outlined, 'Tracker'),
+
+  /// Walking pads and under-desk treadmills (KingSmith's WalkingPad family is
+  /// the vendored example): motorised exercise equipment, which is why the
+  /// specs carry `advanced` command flags this app turns into confirmation
+  /// dialogs. The walking figure rather than the running one — these devices
+  /// top out at walking speeds.
+  treadmill(Icons.directions_walk_outlined, 'Treadmill'),
   tv(Icons.tv_outlined, 'TV'),
   vehicle(Icons.directions_car_outlined, 'Vehicle'),
   wearable(Icons.checkroom_outlined, 'Wearable'),

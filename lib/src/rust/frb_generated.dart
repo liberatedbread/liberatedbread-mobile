@@ -753,8 +753,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   CommandDto dco_decode_command_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
     return CommandDto(
       name: dco_decode_String(arr[0]),
       description: dco_decode_String(arr[1]),
@@ -763,6 +763,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       isEncodable: dco_decode_bool(arr[4]),
       unsupportedEncoding: dco_decode_opt_String(arr[5]),
       locate: dco_decode_opt_String(arr[6]),
+      advanced: dco_decode_bool(arr[7]),
+      advancedReason: dco_decode_opt_String(arr[8]),
     );
   }
 
@@ -1329,8 +1331,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ParameterDto dco_decode_parameter_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 6)
-      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return ParameterDto(
       name: dco_decode_String(arr[0]),
       valueType: dco_decode_String(arr[1]),
@@ -1338,6 +1340,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       max: dco_decode_opt_box_autoadd_f_64(arr[3]),
       allowed: dco_decode_opt_list_prim_i_64_strict(arr[4]),
       labels: dco_decode_opt_list_String(arr[5]),
+      scale: dco_decode_opt_box_autoadd_f_64(arr[6]),
+      valueOffset: dco_decode_opt_box_autoadd_f_64(arr[7]),
+      unit: dco_decode_opt_String(arr[8]),
+      default_: dco_decode_opt_box_autoadd_i_64(arr[9]),
+      auto: dco_decode_opt_String(arr[10]),
     );
   }
 
@@ -1633,6 +1640,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_isEncodable = sse_decode_bool(deserializer);
     var var_unsupportedEncoding = sse_decode_opt_String(deserializer);
     var var_locate = sse_decode_opt_String(deserializer);
+    var var_advanced = sse_decode_bool(deserializer);
+    var var_advancedReason = sse_decode_opt_String(deserializer);
     return CommandDto(
         name: var_name,
         description: var_description,
@@ -1640,7 +1649,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         isFixed: var_isFixed,
         isEncodable: var_isEncodable,
         unsupportedEncoding: var_unsupportedEncoding,
-        locate: var_locate);
+        locate: var_locate,
+        advanced: var_advanced,
+        advancedReason: var_advancedReason);
   }
 
   @protected
@@ -2477,13 +2488,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_max = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_allowed = sse_decode_opt_list_prim_i_64_strict(deserializer);
     var var_labels = sse_decode_opt_list_String(deserializer);
+    var var_scale = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_valueOffset = sse_decode_opt_box_autoadd_f_64(deserializer);
+    var var_unit = sse_decode_opt_String(deserializer);
+    var var_default_ = sse_decode_opt_box_autoadd_i_64(deserializer);
+    var var_auto = sse_decode_opt_String(deserializer);
     return ParameterDto(
         name: var_name,
         valueType: var_valueType,
         min: var_min,
         max: var_max,
         allowed: var_allowed,
-        labels: var_labels);
+        labels: var_labels,
+        scale: var_scale,
+        valueOffset: var_valueOffset,
+        unit: var_unit,
+        default_: var_default_,
+        auto: var_auto);
   }
 
   @protected
@@ -2773,6 +2794,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.isEncodable, serializer);
     sse_encode_opt_String(self.unsupportedEncoding, serializer);
     sse_encode_opt_String(self.locate, serializer);
+    sse_encode_bool(self.advanced, serializer);
+    sse_encode_opt_String(self.advancedReason, serializer);
   }
 
   @protected
@@ -3419,6 +3442,11 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_f_64(self.max, serializer);
     sse_encode_opt_list_prim_i_64_strict(self.allowed, serializer);
     sse_encode_opt_list_String(self.labels, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.scale, serializer);
+    sse_encode_opt_box_autoadd_f_64(self.valueOffset, serializer);
+    sse_encode_opt_String(self.unit, serializer);
+    sse_encode_opt_box_autoadd_i_64(self.default_, serializer);
+    sse_encode_opt_String(self.auto, serializer);
   }
 
   @protected

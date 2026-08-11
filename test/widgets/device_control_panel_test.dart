@@ -213,6 +213,7 @@ void main() {
                 isFixed: true,
                 isEncodable: true,
                 unsupportedEncoding: null,
+                advanced: false,
               ),
             ],
             formatFields: [],
@@ -433,6 +434,96 @@ void main() {
     expect(find.byIcon(DeviceCategory.light.icon), findsOneWidget);
     // The user did not pick this one, so it is not the saved-choice banner.
     expect(find.text('Device type you picked'), findsNothing);
+  });
+
+  testWidgets(
+      'a treadmill-category match shows the transport card above the '
+      'typed controls', (tester) async {
+    const svcUuid = '0000fe00-0000-1000-8000-00805f9b34fb';
+    const charUuid = '0000fe02-0000-1000-8000-00805f9b34fb';
+    final spec = DeviceSpecDto(
+      deviceName: 'Test Walking Pad',
+      manufacturer: 'Acme Fitness',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'treadmill',
+      localNamePrefixes: const ['ACME_'],
+      serviceUuids: const [svcUuid],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: const [
+        ServiceDto(uuid: svcUuid, name: 'WiLink service', characteristics: [
+          CharacteristicDto(
+            uuid: charUuid,
+            name: 'Command write',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+            commands: [
+              CommandDto(
+                name: 'start_belt',
+                description: 'Start the belt',
+                parameters: [],
+                isFixed: true,
+                isEncodable: true,
+                unsupportedEncoding: null,
+                advanced: false,
+              ),
+            ],
+            formatFields: [],
+          ),
+        ]),
+      ],
+    );
+    const services = [
+      BleDiscoveredService(
+        uuid: svcUuid,
+        characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: charUuid,
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+          ),
+        ],
+      ),
+    ];
+    final ble = FakeBleService();
+
+    await tester.pumpWidget(await _wrap(
+      const DeviceControlPanel(
+          deviceId: '01', deviceName: 'ACME_Pad', services: services),
+      ble: ble,
+      codec: FakeSpecCodec(
+        spec: spec,
+        matches: [
+          MatchResult(
+            spec: spec,
+            matchedByNamePrefix: true,
+            matchedServiceUuids: const [svcUuid],
+            confidence: MatchConfidence.strong,
+          ),
+        ],
+        encoded: Uint8List.fromList([0xF7, 0xFD]),
+      ),
+      specs: const {'pad.yaml': 'yaml'},
+    ));
+    await tester.pumpAndSettle();
+
+    // The card's transport buttons lead the panel...
+    expect(find.text('Start'), findsOneWidget);
+    // ...and the same command remains available as a typed control below —
+    // the card is a convenience surface, not a replacement.
+    expect(find.byType(TypedCharacteristicWidget), findsOneWidget);
+    expect(find.text('Start belt'), findsWidgets);
+
+    await tester.tap(find.text('Start'));
+    await tester.pumpAndSettle();
+    expect(ble.writes.single.value, [0xF7, 0xFD]);
   });
 
   group('sensor-device readings', () {
@@ -765,6 +856,7 @@ final _brandA = DeviceSpecDto(
             isFixed: true,
             isEncodable: true,
             unsupportedEncoding: null,
+            advanced: false,
           ),
         ],
         formatFields: [],
