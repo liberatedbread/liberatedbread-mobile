@@ -57,6 +57,12 @@ class FakeSpecCodec implements SpecCodec {
   /// pixels, targeting service 'srv' / characteristic 'chr'.
   final ImageWritePlanDto? imagePlan;
 
+  /// Returned by [encodeStoredImage]; defaults to a single uploader write plus
+  /// a play write, so a widget test can drive the "Save to device" flow.
+  final StoredUploadPlanDto? storedPlan;
+
+  final Object? encodeStoredError;
+
   final List<
           ({String charUuid, String commandName, Map<String, double> params})>
       encodeCalls = [];
@@ -106,6 +112,20 @@ class FakeSpecCodec implements SpecCodec {
   NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
       networkReading;
 
+  /// Every [encodeStoredImage] call, in order, for assertions.
+  final List<
+      ({
+        String specYaml,
+        int width,
+        int height,
+        List<int> rgb,
+        String name,
+        int cid,
+        int timeSecs,
+        String scroll,
+        int speed,
+      })> encodeStoredCalls = [];
+
   FakeSpecCodec({
     this.spec,
     this.matches = const [],
@@ -119,6 +139,8 @@ class FakeSpecCodec implements SpecCodec {
     this.decodeError,
     this.encodeImageError,
     this.imagePlan,
+    this.storedPlan,
+    this.encodeStoredError,
     this.encodeEntityValueError,
     this.entityWrite,
     this.networkEntities,
@@ -296,4 +318,41 @@ class FakeSpecCodec implements SpecCodec {
     required Map<String, String> returned,
   }) async =>
       networkReading?.call(entityName, returned);
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredImage({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) async {
+    encodeStoredCalls.add((
+      specYaml: specYaml,
+      width: width,
+      height: height,
+      rgb: List.of(rgb),
+      name: name,
+      cid: cid,
+      timeSecs: timeSecs,
+      scroll: scroll,
+      speed: speed,
+    ));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return storedPlan ??
+        StoredUploadPlanDto(
+          serviceUuid: 'srv',
+          uploadWrites: [
+            ImageWriteDto(
+                characteristicUuid: 'uploader', bytes: Uint8List.fromList(rgb)),
+          ],
+          playWrite: ImageWriteDto(
+              characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [1])),
+          cid: cid,
+        );
+  }
 }

@@ -25,6 +25,8 @@ export '../src/rust/api/device_api.dart'
         ImageUploadDto,
         ImageWriteDto,
         ImageWritePlanDto,
+        StoredUploadDto,
+        StoredUploadPlanDto,
         MatchResult,
         MatchConfidence,
         MacPrefixDto,
@@ -186,5 +188,27 @@ abstract class SpecCodec {
     required String specYaml,
     required String entityName,
     required Map<String, String> returned,
+  });
+
+  /// Encode the BLE writes that PERSIST a picture on the device so it plays
+  /// standalone after disconnect, dispatched on the spec's `stored_upload`
+  /// feature.
+  ///
+  /// [rgb] is the canvas, row-major `width * height * 3`, already reduced to at
+  /// most 16 distinct colours (the editor quantises before calling). [name] is
+  /// the stored label, [cid] the id it is stored under, [timeSecs] the
+  /// run/scroll duration, [scroll] one of `none`/`left`/`right`/`up`/`down`,
+  /// and [speed] the scroll-speed byte. The returned plan carries the ordered
+  /// uploader writes and, when the spec declares one, a play-by-id command.
+  Future<StoredUploadPlanDto> encodeStoredImage({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<int> rgb,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
   });
 }

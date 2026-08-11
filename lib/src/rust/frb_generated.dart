@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 890017412;
+  int get rustContentHash => -417156004;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -104,6 +104,17 @@ abstract class RustLibApi extends BaseApi {
       required List<int> rgb,
       required int frameIndex,
       required int maxPayloadPerWrite});
+
+  Future<StoredUploadPlanDto> crateApiDeviceApiEncodeStoredImage(
+      {required String specYaml,
+      required int width,
+      required int height,
+      required List<int> rgb,
+      required String name,
+      required int cid,
+      required int timeSecs,
+      required String scroll,
+      required int speed});
 
   Future<List<ProfileInfoDto>> crateApiDeviceApiIdentifyStandardProfiles(
       {required List<String> serviceUuids});
@@ -144,11 +155,6 @@ abstract class RustLibApi extends BaseApi {
       required Map<String, String> returned});
 
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkCommand(
-      {required String specYaml,
-      required String commandName,
-      required Map<String, String> values});
-
-  Future<HttpRequestDto> crateApiDeviceApiRenderNetworkHttpCommand(
       {required String specYaml,
       required String commandName,
       required Map<String, String> values});
@@ -311,6 +317,68 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<StoredUploadPlanDto> crateApiDeviceApiEncodeStoredImage(
+      {required String specYaml,
+      required int width,
+      required int height,
+      required List<int> rgb,
+      required String name,
+      required int cid,
+      required int timeSecs,
+      required String scroll,
+      required int speed}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_u_32(width, serializer);
+        sse_encode_u_32(height, serializer);
+        sse_encode_list_prim_u_8_loose(rgb, serializer);
+        sse_encode_String(name, serializer);
+        sse_encode_u_32(cid, serializer);
+        sse_encode_u_32(timeSecs, serializer);
+        sse_encode_String(scroll, serializer);
+        sse_encode_u_32(speed, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 5, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_stored_upload_plan_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiEncodeStoredImageConstMeta,
+      argValues: [
+        specYaml,
+        width,
+        height,
+        rgb,
+        name,
+        cid,
+        timeSecs,
+        scroll,
+        speed
+      ],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiEncodeStoredImageConstMeta =>
+      const TaskConstMeta(
+        debugName: 'encode_stored_image',
+        argNames: [
+          'specYaml',
+          'width',
+          'height',
+          'rgb',
+          'name',
+          'cid',
+          'timeSecs',
+          'scroll',
+          'speed'
+        ],
+      );
+
+  @override
   Future<List<ProfileInfoDto>> crateApiDeviceApiIdentifyStandardProfiles(
       {required List<String> serviceUuids}) {
     return handler.executeNormal(NormalTask(
@@ -318,7 +386,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(serviceUuids, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 5, port: port_);
+            funcId: 6, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_profile_info_dto,
@@ -344,7 +412,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(yaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 6, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_device_spec_dto,
@@ -374,7 +442,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(deviceName, serializer);
         sse_encode_list_String(advertisedServiceUuids, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 7, port: port_);
+            funcId: 8, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_match_result,
@@ -402,7 +470,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_list_spec_identity_dto(identities, serializer);
         sse_encode_box_autoadd_network_device_dto(device, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 9, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_scan_match,
@@ -430,7 +498,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_list_spec_identity_dto(identities, serializer);
         sse_encode_box_autoadd_scanned_device_dto(device, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 9, port: port_);
+            funcId: 10, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_scan_match,
@@ -460,7 +528,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_String(specYaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 10, port: port_);
+            funcId: 11, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -484,7 +552,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 11, port: port_);
+            funcId: 12, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -513,7 +581,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_list_prim_u_8_loose(value, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 12, port: port_);
+            funcId: 13, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -540,7 +608,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(specYaml, serializer);
         sse_encode_list_String(ssdpTargets, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 13, port: port_);
+            funcId: 14, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_network_entity_dto,
@@ -570,7 +638,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(entityName, serializer);
         sse_encode_Map_String_String_None(returned, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 14, port: port_);
+            funcId: 15, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_network_reading_dto,
@@ -600,7 +668,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(commandName, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 15, port: port_);
+            funcId: 16, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_soap_request_dto,
@@ -615,36 +683,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiDeviceApiRenderNetworkCommandConstMeta =>
       const TaskConstMeta(
         debugName: 'render_network_command',
-        argNames: ['specYaml', 'commandName', 'values'],
-      );
-
-  @override
-  Future<HttpRequestDto> crateApiDeviceApiRenderNetworkHttpCommand(
-      {required String specYaml,
-      required String commandName,
-      required Map<String, String> values}) {
-    return handler.executeNormal(NormalTask(
-      callFfi: (port_) {
-        final serializer = SseSerializer(generalizedFrbRustBinding);
-        sse_encode_String(specYaml, serializer);
-        sse_encode_String(commandName, serializer);
-        sse_encode_Map_String_String_None(values, serializer);
-        pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 16, port: port_);
-      },
-      codec: SseCodec(
-        decodeSuccessData: sse_decode_http_request_dto,
-        decodeErrorData: sse_decode_AnyhowException,
-      ),
-      constMeta: kCrateApiDeviceApiRenderNetworkHttpCommandConstMeta,
-      argValues: [specYaml, commandName, values],
-      apiImpl: this,
-    ));
-  }
-
-  TaskConstMeta get kCrateApiDeviceApiRenderNetworkHttpCommandConstMeta =>
-      const TaskConstMeta(
-        debugName: 'render_network_http_command',
         argNames: ['specYaml', 'commandName', 'values'],
       );
 
@@ -732,6 +770,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ImageWriteDto dco_decode_box_autoadd_image_write_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_image_write_dto(raw);
+  }
+
+  @protected
   MacPrefixDto dco_decode_box_autoadd_mac_prefix_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_mac_prefix_dto(raw);
@@ -750,15 +794,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    return dco_decode_query_source_dto(raw);
-  }
-
-  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_scanned_device_dto(raw);
+  }
+
+  @protected
+  StoredUploadDto dco_decode_box_autoadd_stored_upload_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_stored_upload_dto(raw);
   }
 
   @protected
@@ -835,8 +879,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 16)
-      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
+    if (arr.length != 17)
+      throw Exception('unexpected arr length: expect 17 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -854,6 +898,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       services: dco_decode_list_service_dto(arr[13]),
       entities: dco_decode_list_entity_dto(arr[14]),
       imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[15]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[16]),
     );
   }
 
@@ -936,19 +981,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       fieldType: dco_decode_String(arr[1]),
       offset: dco_decode_u_32(arr[2]),
       length: dco_decode_u_32(arr[3]),
-    );
-  }
-
-  @protected
-  HttpRequestDto dco_decode_http_request_dto(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
-    return HttpRequestDto(
-      method: dco_decode_String(arr[0]),
-      path: dco_decode_String(arr[1]),
-      body: dco_decode_String(arr[2]),
     );
   }
 
@@ -1218,16 +1250,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkActionDto dco_decode_network_action_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return NetworkActionDto(
       role: dco_decode_String(arr[0]),
       commandName: dco_decode_String(arr[1]),
-      transport: dco_decode_String(arr[2]),
-      userParams: dco_decode_list_String(arr[3]),
-      readBack: dco_decode_list_network_read_back_dto(arr[4]),
-      min: dco_decode_opt_box_autoadd_f_64(arr[5]),
-      max: dco_decode_opt_box_autoadd_f_64(arr[6]),
+      userParams: dco_decode_list_String(arr[2]),
+      readBack: dco_decode_list_network_read_back_dto(arr[3]),
+      min: dco_decode_opt_box_autoadd_f_64(arr[4]),
+      max: dco_decode_opt_box_autoadd_f_64(arr[5]),
     );
   }
 
@@ -1250,8 +1281,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkEntityDto dco_decode_network_entity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 15)
-      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    if (arr.length != 13)
+      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
     return NetworkEntityDto(
       name: dco_decode_String(arr[0]),
       platform: dco_decode_opt_String(arr[1]),
@@ -1262,12 +1293,10 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       stateCommand: dco_decode_String(arr[6]),
       valueField: dco_decode_opt_String(arr[7]),
       options: dco_decode_list_network_option_dto(arr[8]),
-      optionsSource: dco_decode_opt_box_autoadd_query_source_dto(arr[9]),
-      stateSource: dco_decode_opt_box_autoadd_query_source_dto(arr[10]),
-      actions: dco_decode_list_network_action_dto(arr[11]),
-      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[12]),
-      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[13]),
-      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[14]),
+      actions: dco_decode_list_network_action_dto(arr[9]),
+      setpointMin: dco_decode_opt_box_autoadd_f_64(arr[10]),
+      setpointMax: dco_decode_opt_box_autoadd_f_64(arr[11]),
+      setpointStep: dco_decode_opt_box_autoadd_f_64(arr[12]),
     );
   }
 
@@ -1348,6 +1377,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ImageWriteDto? dco_decode_opt_box_autoadd_image_write_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_image_write_dto(raw);
+  }
+
+  @protected
   MacPrefixDto? dco_decode_opt_box_autoadd_mac_prefix_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_mac_prefix_dto(raw);
@@ -1361,9 +1396,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw) {
+  StoredUploadDto? dco_decode_opt_box_autoadd_stored_upload_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
-    return raw == null ? null : dco_decode_box_autoadd_query_source_dto(raw);
+    return raw == null ? null : dco_decode_box_autoadd_stored_upload_dto(raw);
   }
 
   @protected
@@ -1436,20 +1471,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       serviceUuid: dco_decode_String(arr[0]),
       profileName: dco_decode_String(arr[1]),
       characteristics: dco_decode_list_profile_characteristic_dto(arr[2]),
-    );
-  }
-
-  @protected
-  QuerySourceDto dco_decode_query_source_dto(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
-    return QuerySourceDto(
-      method: dco_decode_String(arr[0]),
-      path: dco_decode_String(arr[1]),
-      item: dco_decode_String(arr[2]),
-      valueAttribute: dco_decode_String(arr[3]),
     );
   }
 
@@ -1562,6 +1583,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  StoredUploadDto dco_decode_stored_upload_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return StoredUploadDto(
+      containerFormat: dco_decode_opt_String(arr[0]),
+      encodable: dco_decode_bool(arr[1]),
+    );
+  }
+
+  @protected
+  StoredUploadPlanDto dco_decode_stored_upload_plan_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return StoredUploadPlanDto(
+      serviceUuid: dco_decode_String(arr[0]),
+      uploadWrites: dco_decode_list_image_write_dto(arr[1]),
+      playWrite: dco_decode_opt_box_autoadd_image_write_dto(arr[2]),
+      cid: dco_decode_u_32(arr[3]),
+    );
+  }
+
+  @protected
   int dco_decode_u_16(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1647,6 +1694,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ImageWriteDto sse_decode_box_autoadd_image_write_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_image_write_dto(deserializer));
+  }
+
+  @protected
   MacPrefixDto sse_decode_box_autoadd_mac_prefix_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1668,17 +1722,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  QuerySourceDto sse_decode_box_autoadd_query_source_dto(
-      SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    return (sse_decode_query_source_dto(deserializer));
-  }
-
-  @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_scanned_device_dto(deserializer));
+  }
+
+  @protected
+  StoredUploadDto sse_decode_box_autoadd_stored_upload_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_stored_upload_dto(deserializer));
   }
 
   @protected
@@ -1788,6 +1842,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_entities = sse_decode_list_entity_dto(deserializer);
     var var_imageUpload =
         sse_decode_opt_box_autoadd_image_upload_dto(deserializer);
+    var var_storedUpload =
+        sse_decode_opt_box_autoadd_stored_upload_dto(deserializer);
     return DeviceSpecDto(
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
@@ -1804,7 +1860,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         defaultPort: var_defaultPort,
         services: var_services,
         entities: var_entities,
-        imageUpload: var_imageUpload);
+        imageUpload: var_imageUpload,
+        storedUpload: var_storedUpload);
   }
 
   @protected
@@ -1907,15 +1964,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         fieldType: var_fieldType,
         offset: var_offset,
         length: var_length);
-  }
-
-  @protected
-  HttpRequestDto sse_decode_http_request_dto(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_method = sse_decode_String(deserializer);
-    var var_path = sse_decode_String(deserializer);
-    var var_body = sse_decode_String(deserializer);
-    return HttpRequestDto(method: var_method, path: var_path, body: var_body);
   }
 
   @protected
@@ -2342,7 +2390,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_role = sse_decode_String(deserializer);
     var var_commandName = sse_decode_String(deserializer);
-    var var_transport = sse_decode_String(deserializer);
     var var_userParams = sse_decode_list_String(deserializer);
     var var_readBack = sse_decode_list_network_read_back_dto(deserializer);
     var var_min = sse_decode_opt_box_autoadd_f_64(deserializer);
@@ -2350,7 +2397,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return NetworkActionDto(
         role: var_role,
         commandName: var_commandName,
-        transport: var_transport,
         userParams: var_userParams,
         readBack: var_readBack,
         min: var_min,
@@ -2385,10 +2431,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_stateCommand = sse_decode_String(deserializer);
     var var_valueField = sse_decode_opt_String(deserializer);
     var var_options = sse_decode_list_network_option_dto(deserializer);
-    var var_optionsSource =
-        sse_decode_opt_box_autoadd_query_source_dto(deserializer);
-    var var_stateSource =
-        sse_decode_opt_box_autoadd_query_source_dto(deserializer);
     var var_actions = sse_decode_list_network_action_dto(deserializer);
     var var_setpointMin = sse_decode_opt_box_autoadd_f_64(deserializer);
     var var_setpointMax = sse_decode_opt_box_autoadd_f_64(deserializer);
@@ -2403,8 +2445,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         stateCommand: var_stateCommand,
         valueField: var_valueField,
         options: var_options,
-        optionsSource: var_optionsSource,
-        stateSource: var_stateSource,
         actions: var_actions,
         setpointMin: var_setpointMin,
         setpointMax: var_setpointMax,
@@ -2512,6 +2552,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ImageWriteDto? sse_decode_opt_box_autoadd_image_write_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_image_write_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   MacPrefixDto? sse_decode_opt_box_autoadd_mac_prefix_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2536,12 +2588,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
+  StoredUploadDto? sse_decode_opt_box_autoadd_stored_upload_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     if (sse_decode_bool(deserializer)) {
-      return (sse_decode_box_autoadd_query_source_dto(deserializer));
+      return (sse_decode_box_autoadd_stored_upload_dto(deserializer));
     } else {
       return null;
     }
@@ -2648,20 +2700,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serviceUuid: var_serviceUuid,
         profileName: var_profileName,
         characteristics: var_characteristics);
-  }
-
-  @protected
-  QuerySourceDto sse_decode_query_source_dto(SseDeserializer deserializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_method = sse_decode_String(deserializer);
-    var var_path = sse_decode_String(deserializer);
-    var var_item = sse_decode_String(deserializer);
-    var var_valueAttribute = sse_decode_String(deserializer);
-    return QuerySourceDto(
-        method: var_method,
-        path: var_path,
-        item: var_item,
-        valueAttribute: var_valueAttribute);
   }
 
   @protected
@@ -2775,6 +2813,31 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  StoredUploadDto sse_decode_stored_upload_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_containerFormat = sse_decode_opt_String(deserializer);
+    var var_encodable = sse_decode_bool(deserializer);
+    return StoredUploadDto(
+        containerFormat: var_containerFormat, encodable: var_encodable);
+  }
+
+  @protected
+  StoredUploadPlanDto sse_decode_stored_upload_plan_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_serviceUuid = sse_decode_String(deserializer);
+    var var_uploadWrites = sse_decode_list_image_write_dto(deserializer);
+    var var_playWrite =
+        sse_decode_opt_box_autoadd_image_write_dto(deserializer);
+    var var_cid = sse_decode_u_32(deserializer);
+    return StoredUploadPlanDto(
+        serviceUuid: var_serviceUuid,
+        uploadWrites: var_uploadWrites,
+        playWrite: var_playWrite,
+        cid: var_cid);
+  }
+
+  @protected
   int sse_decode_u_16(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint16();
@@ -2859,6 +2922,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_image_write_dto(
+      ImageWriteDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_image_write_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_mac_prefix_dto(
       MacPrefixDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2880,17 +2950,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_box_autoadd_query_source_dto(
-      QuerySourceDto self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_query_source_dto(self, serializer);
-  }
-
-  @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_scanned_device_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_stored_upload_dto(
+      StoredUploadDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_stored_upload_dto(self, serializer);
   }
 
   @protected
@@ -2970,6 +3040,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_service_dto(self.services, serializer);
     sse_encode_list_entity_dto(self.entities, serializer);
     sse_encode_opt_box_autoadd_image_upload_dto(self.imageUpload, serializer);
+    sse_encode_opt_box_autoadd_stored_upload_dto(self.storedUpload, serializer);
   }
 
   @protected
@@ -3035,15 +3106,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.fieldType, serializer);
     sse_encode_u_32(self.offset, serializer);
     sse_encode_u_32(self.length, serializer);
-  }
-
-  @protected
-  void sse_encode_http_request_dto(
-      HttpRequestDto self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.method, serializer);
-    sse_encode_String(self.path, serializer);
-    sse_encode_String(self.body, serializer);
   }
 
   @protected
@@ -3389,7 +3451,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.role, serializer);
     sse_encode_String(self.commandName, serializer);
-    sse_encode_String(self.transport, serializer);
     sse_encode_list_String(self.userParams, serializer);
     sse_encode_list_network_read_back_dto(self.readBack, serializer);
     sse_encode_opt_box_autoadd_f_64(self.min, serializer);
@@ -3420,8 +3481,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.stateCommand, serializer);
     sse_encode_opt_String(self.valueField, serializer);
     sse_encode_list_network_option_dto(self.options, serializer);
-    sse_encode_opt_box_autoadd_query_source_dto(self.optionsSource, serializer);
-    sse_encode_opt_box_autoadd_query_source_dto(self.stateSource, serializer);
     sse_encode_list_network_action_dto(self.actions, serializer);
     sse_encode_opt_box_autoadd_f_64(self.setpointMin, serializer);
     sse_encode_opt_box_autoadd_f_64(self.setpointMax, serializer);
@@ -3516,6 +3575,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_image_write_dto(
+      ImageWriteDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_image_write_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_mac_prefix_dto(
       MacPrefixDto? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -3538,13 +3608,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_opt_box_autoadd_query_source_dto(
-      QuerySourceDto? self, SseSerializer serializer) {
+  void sse_encode_opt_box_autoadd_stored_upload_dto(
+      StoredUploadDto? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     sse_encode_bool(self != null, serializer);
     if (self != null) {
-      sse_encode_box_autoadd_query_source_dto(self, serializer);
+      sse_encode_box_autoadd_stored_upload_dto(self, serializer);
     }
   }
 
@@ -3628,16 +3698,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  void sse_encode_query_source_dto(
-      QuerySourceDto self, SseSerializer serializer) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_String(self.method, serializer);
-    sse_encode_String(self.path, serializer);
-    sse_encode_String(self.item, serializer);
-    sse_encode_String(self.valueAttribute, serializer);
-  }
-
-  @protected
   void sse_encode_record_string_f_64(
       (String, double) self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -3712,6 +3772,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.mdnsServiceType, serializer);
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
+  }
+
+  @protected
+  void sse_encode_stored_upload_dto(
+      StoredUploadDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.containerFormat, serializer);
+    sse_encode_bool(self.encodable, serializer);
+  }
+
+  @protected
+  void sse_encode_stored_upload_plan_dto(
+      StoredUploadPlanDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.serviceUuid, serializer);
+    sse_encode_list_image_write_dto(self.uploadWrites, serializer);
+    sse_encode_opt_box_autoadd_image_write_dto(self.playWrite, serializer);
+    sse_encode_u_32(self.cid, serializer);
   }
 
   @protected
