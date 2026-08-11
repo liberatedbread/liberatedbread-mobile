@@ -5,7 +5,8 @@ device:
   id: egofit-walker
   name: Egofit Walker Pro / Walker Plus (M1, M1T)
   manufacturer: Egofit
-  category: treadmill_walking_pad
+  type: treadmill  # walking pad / under-desk treadmill
+  category: treadmill
   safety_class: MEDIUM  # motorised moving belt; deck criticised as short (workwhilewalking 2023)
 
 transport:

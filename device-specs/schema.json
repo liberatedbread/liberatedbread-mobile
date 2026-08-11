@@ -489,6 +489,7 @@
             "switch",
             "tool",
             "tracker",
+            "treadmill",
             "tv",
             "vehicle",
             "wearable",
@@ -1506,6 +1507,21 @@
                             "max": {
                               "type": "integer",
                               "description": "Maximum RAW wire value, in the same raw terms as `min`."
+                            },
+                            "auto": {
+                              "type": "string",
+                              "enum": ["sequence", "packet_length", "checksum"],
+                              "description": "Marks a parameter the encoder fills in itself rather than a value the user sets — without this flag a generic command UI renders one control per declared parameter and would happily show a slider for a checksum byte. 'sequence': a per-message counter the encoder increments (SmartDawn `sn`). 'packet_length': the total encoded packet length (SmartDawn `len`). 'checksum': an additive frame checksum — the byte is the sum (mod 256) of all encoded frame bytes from index `checksum_start` up to but not including this parameter's own position, then XOR `checksum_xor`. This covers the common sum8-over-frame idiom (KingSmith WiLink sums from index 1 with no xor; UREVO UR frames sum from index 1 and xor 0x5A) without a per-device handler. A parameter carrying `auto` SHOULD still declare its wire `type` so the encoder knows how wide the computed value is."
+                            },
+                            "checksum_start": {
+                              "type": "integer",
+                              "default": 1,
+                              "description": "First frame-byte index included in an `auto: checksum` sum. Defaults to 1 because the idiom's frame leader (0xF7 on KingSmith WiLink, the UR header on UREVO) is almost always excluded — it is a framing marker, not payload, and protocols that sum it in are the exception. Only meaningful alongside `auto: checksum`."
+                            },
+                            "checksum_xor": {
+                              "type": "integer",
+                              "default": 0,
+                              "description": "Value XORed into an `auto: checksum` result after the mod-256 sum (e.g. 0x5A on UREVO UR frames). Present because a fixed xor constant is how vendors salt an otherwise trivially guessable sum8; absent means 0 (plain additive checksum, as on KingSmith WiLink). Only meaningful alongside `auto: checksum`."
                             }
                           }
                         }

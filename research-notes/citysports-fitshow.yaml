@@ -6,7 +6,8 @@ device:
   id: citysports-fitshow
   name: CITYSPORTS Walking Pads (WP6/WP8/CS-WP9/ZX2/ZX3; FitShow-platform units)
   manufacturer: "CITYSPORTS (control platform: FitShow (Xiamen) Information Technology)"
-  category: treadmill_walking_pad
+  type: treadmill  # walking pad / under-desk treadmill
+  category: treadmill
   safety_class: MEDIUM  # motorised moving belt; QZ driver includes incline control on some units
 
 transport:
