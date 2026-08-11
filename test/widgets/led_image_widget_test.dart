@@ -261,6 +261,135 @@ void main() {
     expect(ble.writes[1].value, [3, 4]);
   });
 
+  group('save to device (stored microapp)', () {
+    const encodableStored = StoredUploadDto(
+      containerFormat: 'daniao_amx',
+      encodable: true,
+    );
+
+    testWidgets('no Save button when the device declares no storage',
+        (tester) async {
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          specYaml: 'yaml',
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ));
+      expect(find.text('Save to device'), findsNothing);
+    });
+
+    testWidgets('no Save button when the container format is not encodable',
+        (tester) async {
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload:
+              StoredUploadDto(containerFormat: 'daniao_amx', encodable: false),
+          specYaml: 'yaml',
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ));
+      expect(find.text('Save to device'), findsNothing);
+    });
+
+    testWidgets('saving encodes the current frame and writes upload + play',
+        (tester) async {
+      final codec = FakeSpecCodec(
+        storedPlan: StoredUploadPlanDto(
+          serviceUuid: 'svc',
+          uploadWrites: [
+            ImageWriteDto(
+                characteristicUuid: 'uploader',
+                bytes: Uint8List.fromList([10, 11])),
+            ImageWriteDto(
+                characteristicUuid: 'uploader',
+                bytes: Uint8List.fromList([12, 13])),
+          ],
+          playWrite: ImageWriteDto(
+              characteristicUuid: 'ddp', bytes: Uint8List.fromList([9])),
+          cid: 900123,
+        ),
+      );
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      // Paint a pixel so the stored frame is not all-black.
+      final grid = find.byKey(const Key('led-image-grid'));
+      await tester.tapAt(tester.getTopLeft(grid) + const Offset(4, 4));
+      await tester.pump();
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+
+      // The dialog opens; pick a scroll direction and confirm.
+      expect(find.text('Save to device'), findsWidgets); // title + button
+      await tester.tap(find.byKey(const Key('stored-scroll-dropdown')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Scroll left').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      // The codec was asked to encode the 4x4 painted frame, with the chosen
+      // scroll and a novel high-band cid.
+      expect(codec.encodeStoredCalls, hasLength(1));
+      final call = codec.encodeStoredCalls.single;
+      expect(call.width, 4);
+      expect(call.height, 4);
+      expect(call.rgb.length, 4 * 4 * 3);
+      expect(call.rgb.sublist(0, 3), isNot([0, 0, 0]));
+      expect(call.scroll, 'left');
+      expect(call.cid, greaterThanOrEqualTo(900001));
+
+      // Both uploader writes then the play write went out, in order.
+      expect(ble.writes.map((w) => w.charUuid).toList(),
+          ['uploader', 'uploader', 'ddp']);
+      expect(ble.writes.map((w) => w.value).toList(), [
+        [10, 11],
+        [12, 13],
+        [9],
+      ]);
+    });
+
+    testWidgets('a failed save surfaces an error and re-enables the button',
+        (tester) async {
+      final codec = FakeSpecCodec(encodeStoredError: StateError('boom'));
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: FakeBleService(),
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Could not save'), findsOneWidget);
+      // The button is back to its idle label, not stuck on "Saving…".
+      expect(find.text('Save to device'), findsOneWidget);
+    });
+  });
+
   testWidgets('animation mode adds frames and streams until stopped',
       (tester) async {
     final codec = FakeSpecCodec();
