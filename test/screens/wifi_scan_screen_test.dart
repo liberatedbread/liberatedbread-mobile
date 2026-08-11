@@ -25,10 +25,18 @@ class _FakeNetworkScanService implements NetworkScanService {
   final Object? error;
   bool stopped = false;
 
+  /// The extra SSDP targets the screen asked for, per scan — how the tests
+  /// see that the catalogue's targets reach the transport.
+  final List<List<String>> extraTargetsPerScan = [];
+
   _FakeNetworkScanService({this.devices = const [], this.error});
 
   @override
-  Stream<NetworkDevice> scan({Duration timeout = const Duration(seconds: 8)}) {
+  Stream<NetworkDevice> scan({
+    Duration timeout = const Duration(seconds: 8),
+    List<String> extraSearchTargets = const [],
+  }) {
+    extraTargetsPerScan.add(extraSearchTargets);
     if (error != null) return Stream<NetworkDevice>.error(error!);
     return Stream.fromIterable(devices);
   }
@@ -106,6 +114,7 @@ final _registry = NumberRegistry(
 Widget _wrap(
   _FakeNetworkScanService service, {
   List<ScanMatch> Function(NetworkDeviceDto)? matchFor,
+  DeviceSpecDto? spec,
 }) =>
     ProviderScope(
       overrides: [
@@ -113,7 +122,7 @@ Widget _wrap(
         numberRegistryProvider.overrideWith((ref) async => _registry),
         deviceSpecsProvider.overrideWith((ref) => {'hue.yaml': 'yaml'}),
         specCodecProvider.overrideWithValue(
-          FakeSpecCodec(spec: _spec, networkMatches: matchFor),
+          FakeSpecCodec(spec: spec ?? _spec, networkMatches: matchFor),
         ),
       ],
       child: const MaterialApp(home: WifiScanScreen()),
@@ -293,6 +302,69 @@ void main() {
     // is unique to the sheet.
     expect(find.text('Address block'), findsOneWidget);
     expect(find.text('Philips Lighting BV'), findsWidgets);
+  });
+
+  testWidgets("the catalogue's vendor SSDP targets ride along with the scan",
+      (tester) async {
+    // A Roku answers only its own search target, so the screen must hand the
+    // catalogue's targets to the transport — a scan that only asks
+    // `ssdp:all` never hears one. The fake records what it was asked.
+    final service = _FakeNetworkScanService();
+    await tester.pumpWidget(_wrap(
+      service,
+      spec: DeviceSpecDto(
+        deviceName: 'Roku External Control Protocol',
+        manufacturer: 'Roku / TCL',
+        manufacturerStatus: 'active',
+        protocol: 'wifi',
+        category: 'tv',
+        localNamePrefixes: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        ssdpSearchTargets: const ['roku:ecp'],
+        defaultPort: 8060,
+        entities: const <EntityDto>[],
+        services: const [],
+      ),
+    ));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    expect(service.extraTargetsPerScan.single, contains('roku:ecp'));
+  });
+
+  testWidgets('a chatty device cannot overflow the details sheet',
+      (tester) async {
+    // Regression: a printer's TXT records alone were 706px taller than the
+    // sheet, and the Column overflowed instead of scrolling. The overflow
+    // surfaces here as a test failure via FlutterError.onError.
+    final service = _FakeNetworkScanService(devices: [
+      _device(
+        name: 'office-printer',
+        hostname: 'printer.local',
+        port: 631,
+        serviceTypes: const ['_ipp._tcp.local', '_printer._tcp.local'],
+        txt: {
+          for (var i = 0; i < 40; i++) 'record-$i': 'value-$i',
+        },
+      ),
+    ]);
+    await tester.pumpWidget(_wrap(service, matchFor: (_) => const []));
+
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('office-printer'));
+    await tester.pumpAndSettle();
+
+    // The first rows are visible; the tail is reachable by scrolling rather
+    // than clipped behind the sheet's bottom edge.
+    expect(find.text('record-0'), findsOneWidget);
+    await tester.drag(
+        find.byType(SingleChildScrollView).last, const Offset(0, -2000));
+    await tester.pumpAndSettle();
+    expect(find.text('record-39'), findsOneWidget);
   });
 
   testWidgets('a matched host is drawn with its device-type icon',
