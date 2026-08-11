@@ -34,5 +34,17 @@ host address, and sends a UDP GetService probe.
 | State | 107 | Light state response |
 | SetPower | 117 | Set power |
 
+## Setup (adopting a reset strip)
+
+An unprovisioned or factory-reset strip hosts an open AP named with the
+`LIFX` prefix and sits at `172.16.0.1` on it. The credential exchange is the
+deprecated access-point message family the original published LAN protocol
+documented — `GetAccessPoints` (0x130), `SetAccessPoint` (0x131, plaintext
+passphrase, interface = STATION), `StateAccessPoint` (0x132) — over the same
+UDP port 56700. Transcribed from legacy public reverse-engineering
+documentation (magicmonkey/lifxjs), unverified against hardware here, and
+LCM3/Matter-era firmware onboards over BLE instead. Full layouts, timing and
+troubleshooting: `device.setup` in the machine-readable spec.
+
 Machine-readable spec: `device-specs/devices/lifx-z.yaml`
 

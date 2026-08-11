@@ -261,6 +261,37 @@ features:
     # for live streaming — throughput is MTU-bound.
     animation: true
 
+  # DEVICE-SIDE STORAGE: persist a picture as a standalone microapp that plays
+  # after disconnect (the vendor's 图文 / "image-text" program). Unlike the live
+  # doodle path above, this survives power-off and is played from the device's
+  # own effect list.
+  #
+  # VERIFIED against smartdawn_capture_a_lot_of_custom_animations.pcapng
+  # (2026-08-10) and byte-for-byte reproduced by the mobile core: it is built
+  # ENTIRELY on-device — NO cloud. The vendor app fetches a `cid` and a base
+  # template over HTTP, but neither is content: the base template
+  # (commons/tuwen.amx, 180 B) is a static, device-independent asset the capture
+  # embeds verbatim, and hardware accepts a novel app-chosen cid (verified live).
+  #
+  # The container layout (256-byte "DN" header + TinyProgram protobuf + base AMX
+  # + options + packed pixels, padded to a 4096 multiple, header CRC8 poly 0x97)
+  # cannot be declarative — it is protobuf + CRC assembly — so `container_format`
+  # NAMES the consumer-side encoder (see the mobile core's `daniao_store`),
+  # exactly as `protocol_handler` names the live encoder. The transport is the
+  # Uploader characteristic's own 8-byte framing (see its notes below).
+  - type: "stored_upload"
+    container_format: "daniao_amx"
+    # UploadRequest.type on the wire: 3 = animation/microapp (0 = effect .eff).
+    file_type: 3
+    # Uploader DATA payload bytes per packet (the vendor's framesize).
+    frame_size: 500
+    # Play the freshly stored item by its cid right after upload — the vendor's
+    # store-then-show. Named from the DDP Write characteristic's commands.
+    play_command: "play_effect"
+    max_width: 255
+    max_height: 255
+    resolution_source: "device_reported"
+
 services:
   - uuid: "00000074-1972-1925-3022-077119514e44"
     name: "Daniao DDP Service"
@@ -400,20 +431,28 @@ services:
               ts: { type: "uint8", default: 0 }
           play_effect:
             description: >
-              Play a specific effect. M_PLAY_EFFECT (mt=2606) with an
-              effect reference payload (effect uuid string — the app's
-              effect list is fetched with M_EFFECT_LIST mt=2904; effect
-              data files download from
-              https://cdn.daniaokeji.com/effects/m1/<id/1000>/<id>, cached
-              locally as <id>.eff — FileCache.java in the SmartDawn APK).
-            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2E, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+              Play a specific effect/microapp by its id. M_PLAY_EFFECT
+              (mt=2606) with a SimpleMessage {i1: effect_id, i2: slot} payload
+              — VERIFIED on the wire
+              (smartdawn_capture_a_lot_of_custom_animations.pcapng): the app
+              plays a freshly stored microapp by writing
+              `08 <effect_id varint> 10 <slot varint>` (e.g. cid 79009 -> 08 a1
+              e9 04 10 00). The `effect_id` is the item's cid, NOT the DNX
+              header `cid` field (which stays 0, as the app sends). The effect
+              list is fetched with M_EFFECT_LIST (mt=2904); catalog effect data
+              files download from
+              https://cdn.daniaokeji.com/effects/m1/<id/1000>/<id> (cached as
+              <id>.eff, FileCache.java), but a locally STORED microapp needs no
+              download — it plays by cid from device storage.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2E, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{effect_id}", 0x10, "{slot}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
-              cid: { type: "uint32", endianness: "big", default: 0 }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed, accounts for the varint widths" }
+              cid: { type: "uint32", endianness: "big", default: 0, description: "DNX header cid field; the app sends 0 (the item id rides in the payload as effect_id)" }
               osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
-              payload: { type: "bytes", description: "effect reference (uuid string) protobuf" }
+              effect_id: { type: "varint", min: 0, description: "SimpleMessage.i1 — the effect/microapp id (cid) to play; protobuf varint" }
+              slot: { type: "varint", min: 0, default: 0, description: "SimpleMessage.i2 — playback slot; protobuf varint (0 from the app)" }
           set_play_speed:
             description: "Set effect speed. M_SET_PLAY_SPEED (mt=2523), SimpleMessage {i1: speed}."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xDB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
