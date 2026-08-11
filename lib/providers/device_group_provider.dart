@@ -186,7 +186,8 @@ final groupMembersProvider = FutureProvider.autoDispose
     // a non-groupable category AFTER joining a group (an unidentified device
     // that turned out to be an OBD dongle) must not keep taking part through
     // its stale membership.
-    if (kNonGroupableCategories.contains(DeviceCategory.parse(device.category))) {
+    if (kNonGroupableCategories
+        .contains(DeviceCategory.parse(device.category))) {
       continue;
     }
     final resolved = bySpecKey(choices[id]) ?? bySpecKey(device.specKey);
