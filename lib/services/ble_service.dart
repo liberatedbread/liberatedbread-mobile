@@ -99,6 +99,21 @@ abstract class BleService {
   /// Stop an in-progress scan.
   Future<void> stopScan();
 
+  /// Whether the radio is in a state [scan] could succeed in — the current
+  /// answer on listen, then every change.
+  ///
+  /// Exists for one recovery the lifecycle observer cannot make: on Android,
+  /// Bluetooth is toggled from quick settings without the app ever losing
+  /// focus, so no lifecycle event announces the radio coming back. Without
+  /// this, a scan screen showing "Bluetooth is turned off" keeps showing it
+  /// after the user has done exactly what it asked, until they find the Retry
+  /// button for a problem they already fixed.
+  ///
+  /// False covers unauthorized as well as off — a permission granted in
+  /// system settings requires leaving the app, so the resumed-lifecycle path
+  /// already handles that recovery.
+  Stream<bool> adapterReady();
+
   /// Connect to a device by its ID.
   Future<void> connect(String deviceId);
 
