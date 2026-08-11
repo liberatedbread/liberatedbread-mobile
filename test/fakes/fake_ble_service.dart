@@ -207,6 +207,18 @@ class FakeBleService implements BleService {
   /// only way a widget test can see that from outside.
   final List<String> subscriptions = [];
 
+  /// Every characteristic whose notify stream was cancelled, in order.
+  ///
+  /// The real service answers a cancel with `setNotifyValue(false)` on the
+  /// peripheral — with no reference counting, so one widget's teardown mutes
+  /// the characteristic for every other widget still listening. A test that
+  /// needs to prove "nothing tore this down" (the folded service cards must
+  /// not silence the readings above them) asserts this list stays empty.
+  /// With the default done-immediately empty [notifyStream] the listener's
+  /// auto-cancel lands here too, so such tests supply a stream that stays
+  /// open (e.g. a broadcast controller's).
+  final List<String> cancelledSubscriptions = [];
+
   @override
   Stream<List<int>> subscribeCharacteristic(
     String deviceId,
@@ -214,7 +226,23 @@ class FakeBleService implements BleService {
     String charUuid,
   ) {
     subscriptions.add(charUuid);
-    return notifyStream ?? const Stream<List<int>>.empty();
+    final source = notifyStream ?? const Stream<List<int>>.empty();
+    final controller = StreamController<List<int>>();
+    StreamSubscription<List<int>>? sub;
+    controller.onListen = () {
+      sub = source.listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: () {
+          if (!controller.isClosed) controller.close();
+        },
+      );
+    };
+    controller.onCancel = () async {
+      cancelledSubscriptions.add(charUuid);
+      await sub?.cancel();
+    };
+    return controller.stream;
   }
 
   @override

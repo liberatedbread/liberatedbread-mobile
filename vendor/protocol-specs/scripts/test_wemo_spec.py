@@ -600,8 +600,8 @@ def parse_soap_response(xml_text: str) -> dict[str, str]:
 
 
 def parse_delimited(value: str, payload_format: dict) -> dict[str, str]:
-    """Per payload_formats.<name>.fields, for pipe-delimited payloads."""
-    parts = value.split("|")
+    """Per payload_formats.<name>.delimiter and .fields."""
+    parts = value.split(payload_format["delimiter"])
     parsed = {
         field["name"]: parts[field["index"]]
         for field in payload_format["fields"]
@@ -650,6 +650,10 @@ def test_control_payload_formats_are_published(spec):
 
     binary_state = formats["BinaryState"]
     assert binary_state["values"], "on/off values not enumerated"
+    # The split rule has to be executable, not merely stated: a consumer that
+    # cannot find the state in the long form reports a live plug as off.
+    assert binary_state.get("delimiter"), "the long form's separator is not declared"
+    assert binary_state.get("fields"), "no field says where the state sits"
     # The one that surprises people: 8 means on-but-standby, not a third state.
     assert "8" in binary_state["values"]
     assert binary_state.get("parse_rules"), "pipe-delimited extras not warned about"
@@ -691,3 +695,434 @@ def test_control_actions_are_documented_with_their_service(spec):
     set_state = endpoints["SetBinaryState"]
     fields = {f["name"] for f in set_state["request_body"]["fields"]}
     assert "BinaryState" in fields
+
+
+# ── The control surface, transcribed from `commands` and `entities` ──────────
+#
+# The claim these hold to account: the two devices we have hardware for — the
+# smart plugs and the Crock-Pot — can be *driven* from this file, not merely
+# found and provisioned. A consumer reads `entities` for what to draw and
+# where each control reads its state, `commands` for what to send, and
+# `http_endpoints` for the actions both of those name. Nothing below imports
+# our own code, and nothing consults pywemo: if a binding here resolves to
+# nothing, the spec has published a control that reaches nothing.
+
+
+@pytest.fixture(scope="module")
+def commands(spec) -> dict:
+    return spec["commands"]
+
+
+@pytest.fixture(scope="module")
+def entities(spec) -> list:
+    return spec["entities"]
+
+
+@pytest.fixture(scope="module")
+def endpoints(spec) -> dict:
+    return {endpoint["name"]: endpoint for endpoint in spec["http_endpoints"]}
+
+
+PLACEHOLDER = re.compile(r"^\{(.+)\}$")
+
+
+def render_command(spec: dict, command: dict, values: dict | None = None) -> str:
+    """Per the `commands` block, rendered through soap_common.request_format.
+
+    The whole client-side procedure the block documents: default what the
+    caller did not supply, substitute `{name}` arguments from `parameters`,
+    and hand the result to the shared SOAP template.
+    """
+    supplied = dict(values or {})
+    for name, parameter in (command.get("parameters") or {}).items():
+        if name not in supplied and "default" in parameter:
+            supplied[name] = parameter["default"]
+
+    arguments = {}
+    for name, template in command["arguments"].items():
+        match = PLACEHOLDER.match(str(template))
+        arguments[name] = str(supplied[match.group(1)]) if match else str(template)
+    return build_soap_body(spec, command["service"], command["action"], arguments)
+
+
+def user_parameters(command: dict) -> list[str]:
+    """Parameters the caller supplies: neither defaulted nor read back.
+
+    A `source` parameter is not the caller's — the client fetches it from the
+    device as part of the send — but it is also not a blank that disqualifies
+    the command, which is why it is excluded here rather than counted.
+    """
+    return [
+        name
+        for name, parameter in (command.get("parameters") or {}).items()
+        if "default" not in parameter and "source" not in parameter
+    ]
+
+
+def entity_state(returned: dict, entity: dict, payload_formats: dict) -> object:
+    """Read one entity's state out of what its state command returned.
+
+    Transcribes the rule the `entities` block states: `state_mapping.value`
+    names a value the call RETURNS, `payload_formats` says how to parse that
+    value when it is not a bare number, and `on_when: nonzero` is what decides
+    on/off.
+    """
+    mapping = entity["state_mapping"]
+    raw = returned[mapping["value"]]
+
+    # A returned value may pack several fields into one string, and only the
+    # spec knows: the delimiter and the field index are declared, so this
+    # follows data rather than reading the prose rule beside them.
+    payload_format = payload_formats.get(mapping["value"])
+    if payload_format and payload_format.get("delimiter"):
+        index = min(field["index"] for field in payload_format["fields"])
+        raw = raw.split(payload_format["delimiter"])[index]
+
+    if mapping.get("on_when") == "nonzero":
+        return int(raw) != 0
+    if "options" in mapping:
+        return mapping["options"].get(int(raw), "unknown")
+    return int(raw)
+
+
+def test_every_entity_binding_resolves(spec, entities, commands, endpoints):
+    """A name that resolves to nothing is a control the user cannot use.
+
+    Each entity names an action to read its state and, per role, a command to
+    send. Both namespaces are in this file; neither is searched by luck.
+    """
+    variant_names = {variant["name"] for variant in spec["device"]["variants"]}
+    for entity in entities:
+        label = entity["name"]
+
+        assert entity["state_command"] in endpoints, (
+            f"{label}: state_command {entity['state_command']!r} names no "
+            "http_endpoints entry"
+        )
+        assert entity["state_endpoint"] == endpoints[entity["state_command"]]["path"], (
+            f"{label}: state_endpoint disagrees with the endpoint it names"
+        )
+
+        for role, command_name in (entity.get("commands") or {}).items():
+            assert command_name in commands, (
+                f"{label}: role {role!r} binds {command_name!r}, which the "
+                "`commands` block does not declare"
+            )
+
+        for variant in entity.get("variants") or []:
+            assert variant in variant_names, (
+                f"{label}: scoped to variant {variant!r}, which "
+                "device.variants does not list"
+            )
+
+
+def test_every_command_names_a_documented_action(spec, commands, endpoints):
+    """`commands` invokes; `http_endpoints` documents. They must agree."""
+    for name, command in commands.items():
+        assert command["transport"] == "soap"
+        action = command["action"]
+        assert action in endpoints, f"{name}: action {action!r} is not documented"
+        assert endpoints[action].get("service") == command["service"], (
+            f"{name}: the endpoint for {action} does not declare the service "
+            "this command sends it to (or declares a different one)"
+        )
+        assert command.get("verification"), f"{name}: does not say how well it is known"
+
+
+def test_state_commands_have_a_machine_readable_service(spec, entities, endpoints):
+    """A state read needs a SOAPACTION header, and prose cannot supply one.
+
+    Every endpoint an entity reads its state from must declare `service` as
+    data — and it must agree with the URN the description states, because two
+    spellings of one fact are only safe while something checks them.
+    """
+    for entity in entities:
+        endpoint = endpoints[entity["state_command"]]
+        service = endpoint.get("service")
+        assert service, (
+            f"{entity['name']}: state endpoint {entity['state_command']} "
+            "declares no service, so a client cannot build the SOAPACTION "
+            "header for the state read"
+        )
+        assert service in endpoint["description"], (
+            f"{entity['name']}: the declared service and the description "
+            "disagree about which service this action belongs to"
+        )
+
+
+def test_command_arguments_only_reference_declared_parameters(commands):
+    """A `{placeholder}` with no parameter behind it cannot be substituted."""
+    for name, command in commands.items():
+        declared = set(command.get("parameters") or {})
+        referenced = {
+            match.group(1)
+            for value in command["arguments"].values()
+            for match in [PLACEHOLDER.match(str(value))]
+            if match
+        }
+        assert not referenced - declared, (
+            f"{name}: references {sorted(referenced - declared)} with no such "
+            "parameter declared"
+        )
+        assert not declared - referenced, (
+            f"{name}: declares {sorted(declared - referenced)}, which no "
+            "argument uses — a parameter nothing substitutes reaches nothing"
+        )
+
+
+def test_role_commands_are_sendable(entities, commands):
+    """A control can only send a command whose every blank it can fill.
+
+    The rule a consumer applies before drawing anything: each parameter is
+    either the value this control owns or one the spec defaults. Two blanks
+    and one value means the control cannot send it — which is why the
+    Crock-Pot's writes carry a `source` and a default for the setting they are
+    not changing.
+    """
+    fixed_roles = {"turn_on", "turn_off", "press"}
+    for entity in entities:
+        for role, command_name in (entity.get("commands") or {}).items():
+            command = commands[command_name]
+            blanks = user_parameters(command)
+            if role in fixed_roles:
+                assert not blanks, (
+                    f"{entity['name']}: {role} binds {command_name}, which "
+                    f"still needs {blanks} — a toggle has nothing to fill them "
+                    "with"
+                )
+            else:
+                assert len(blanks) == 1, (
+                    f"{entity['name']}: {role} binds {command_name}, which "
+                    f"needs {blanks}; a single control supplies one value"
+                )
+
+            # Every parameter the control does not supply is either protocol
+            # filler (default) or a read-back (source) — and never both. A
+            # parameter carrying both would let a renderer substitute the
+            # constant when the read-back fails, which on this device is a
+            # cleared timer with nothing on screen saying so.
+            for name, parameter in (command.get("parameters") or {}).items():
+                if name in blanks:
+                    continue
+                assert ("default" in parameter) != ("source" in parameter), (
+                    f"{command_name}: parameter {name!r} must carry exactly "
+                    "one of `default` (a genuine constant) or `source` (a "
+                    "mandatory read-back)"
+                )
+
+
+def test_commands_render_the_published_example_bodies(spec, commands):
+    """The load-bearing control test: data in, the documented bytes out."""
+    assert render_command(spec, commands["plug_turn_on"]).strip() == (
+        commands["plug_turn_on"]["example_body"].strip()
+    )
+
+    # Low for four hours: the mode the control chose, the cook time it read
+    # back from the device and is handing straight to the write.
+    built = render_command(spec, commands["set_cook_mode"], {"mode": 51, "time": 240})
+    assert built.strip() == commands["set_cook_mode"]["example_body"].strip()
+    assert "<mode>51</mode>" in built and "<time>240</time>" in built
+    ET.fromstring(built)
+
+    # Off is the one Crock-Pot write with nothing to read back first.
+    off = render_command(spec, commands["crockpot_turn_off"])
+    assert "<mode>0</mode>" in off and "<time>0</time>" in off
+
+
+def test_crockpot_read_backs_are_mandatory_not_defaulted(commands):
+    """The trap the `source` key exists for, and the fix review forced.
+
+    SetCrockpotState carries mode and time together, so a client changing one
+    must send the other back unchanged. The first published version paired
+    each `source` with `default: 0` as a fallback — which is a renderer
+    quietly clearing the timer (or stopping a running cooker) whenever the
+    read-back fails. A `source` parameter now carries NO default: rendering
+    without the value must fail, visibly.
+    """
+    for name in ("set_cook_mode", "set_cook_time", "crockpot_turn_on"):
+        read_backs = {
+            parameter["source"]
+            for parameter in commands[name]["parameters"].values()
+            if "source" in parameter
+        }
+        expected = "state:GetCrockpotState." + ("time" if name != "set_cook_time" else "mode")
+        assert read_backs == {expected}, f"{name}: the value it must read back is not named"
+        for parameter in commands[name]["parameters"].values():
+            if "source" in parameter:
+                assert "default" not in parameter, (
+                    f"{name}: a read-back parameter with a default is a "
+                    "silent wrong write waiting for a failed read"
+                )
+                assert parameter.get("required") is not True, (
+                    f"{name}: `required` means the CALLER supplies it; a "
+                    "read-back is the client's job"
+                )
+
+
+def test_rendering_without_a_read_back_value_fails(spec, commands):
+    """The rule the missing defaults create, exercised.
+
+    A picker that could not fetch the cook time must get an error, not a
+    request with an invented timer in it.
+    """
+    with pytest.raises(KeyError):
+        render_command(spec, commands["set_cook_mode"], {"mode": 51})
+    with pytest.raises(KeyError):
+        render_command(spec, commands["crockpot_turn_on"])
+    # Off has no read-back, so it renders from nothing at all.
+    render_command(spec, commands["crockpot_turn_off"])
+
+
+def test_documented_crockpot_response_drives_every_crockpot_entity(
+    spec, entities, endpoints
+):
+    """One published response must yield every control's state.
+
+    This is the whole claim in one assertion: a consumer holding this file and
+    a device answers "what do I show?" without reading anything else.
+    """
+    returned = parse_soap_response(endpoints["GetCrockpotState"]["response_body"]["example"])
+    assert set(returned) == {"mode", "time", "cookedTime"}
+
+    documented = {
+        field["name"] for field in endpoints["GetCrockpotState"]["response_body"]["fields"]
+    }
+    assert set(returned) == documented, "the example and the field list disagree"
+
+    states = {
+        entity["name"]: entity_state(returned, entity, spec["payload_formats"])
+        for entity in entities
+        if entity["state_command"] == "GetCrockpotState"
+    }
+    assert states == {
+        "Slow Cooker": True,  # mode 51 is not off
+        "Cook Mode": "low",
+        "Cook Time": 240,
+        "Cooked Time": 15,
+    }
+
+
+def test_documented_binary_state_response_reads_as_on(spec, entities, endpoints):
+    """The plug's own example, through the documented split rule.
+
+    The published response is the long pipe-delimited form with a leading 8,
+    which is the case that goes wrong quietly: parsed whole it is not a
+    number, and read as a plain state 8 is not 1.
+    """
+    returned = parse_soap_response(endpoints["GetBinaryState"]["response_body"]["example"])
+    plug = next(entity for entity in entities if entity["name"] == "Plug")
+    assert entity_state(returned, plug, spec["payload_formats"]) is True
+
+    # And the spec must say what 8 means, since that is why it is True.
+    assert "8" in spec["payload_formats"]["BinaryState"]["values"]
+
+
+def test_select_options_agree_with_the_payload_format(spec, entities):
+    """The mode table is stated twice on purpose; it must not drift.
+
+    `payload_formats.CrockpotMode` is where a parser reads it, the select's
+    `options` is where a consumer that reads entities alone finds its labels.
+    Two spellings of one fact are fine only while something checks them.
+    """
+    select = next(entity for entity in entities if entity["platform"] == "select")
+    published = spec["payload_formats"]["CrockpotMode"]["values"]
+    assert {str(code): label for code, label in select["state_mapping"]["options"].items()} == (
+        published
+    )
+
+
+def test_the_crockpot_switch_does_not_read_binary_state(spec, entities):
+    """The documented trap, held to.
+
+    Every other Wemo switch reads BinaryState. The Crock-Pot answers 0 there
+    whatever it is doing, so binding the obvious thing gives a cooker that
+    always reads off — and nothing about the response says so.
+    """
+    cooker = next(entity for entity in entities if entity["name"] == "Slow Cooker")
+    assert cooker["state_command"] == "GetCrockpotState"
+    assert cooker["state_mapping"]["value"] == "mode"
+
+    variant = next(
+        v for v in spec["device"]["variants"] if v["model"].startswith("SCCPWM600")
+    )
+    warning = " ".join(variant["characteristics"]).lower()
+    assert "binarystate is not this device's state" in warning, (
+        "the variant must warn about the surface that lies, not just avoid it"
+    )
+
+
+# ── Scheduling, transcribed from the `scheduling` block ──────────────────────
+
+
+@pytest.fixture(scope="module")
+def scheduling(spec) -> dict:
+    return spec["scheduling"]
+
+
+def test_scheduling_says_whether_it_survives_the_client_going_away(scheduling):
+    """The one fact a feature gets designed around.
+
+    "Turn it on at five" means two different things depending on this field: a
+    schedule the device keeps, or a timer that dies when the phone sleeps. A
+    block that documents a mechanism without answering it has documented the
+    less useful half.
+    """
+    assert scheduling["supported"] is True
+    assert scheduling["mechanism"] == "on_device_rules"
+    assert scheduling["runs_without_a_client"] is True
+    # A stored schedule is only as right as the clock under it, and these
+    # devices lost their time source when the cloud went away.
+    assert "timesync" in scheduling["device_clock_dependency"].lower()
+
+
+def test_scheduling_publishes_the_whole_round_trip(scheduling):
+    """Fetch, edit, store — and the store call's three arguments.
+
+    The database moves whole in both directions, so a client that knows only
+    how to fetch has no way to write and a client that knows only how to store
+    deletes everything.
+    """
+    actions = [
+        step["request"]["action"]
+        for step in scheduling["transfer"]["steps"]
+        if "request" in step
+    ]
+    assert actions[0] == "FetchRules"
+    assert actions[-1] == "StoreRules"
+
+    store = scheduling["transfer"]["steps"][-1]["request"]
+    argument_names = {a["name"] for a in store["arguments"]}
+    assert argument_names == {"ruleDbVersion", "processDb", "ruleDbBody"}
+
+    # The escaping that looks like a bug and is not: the argument's text
+    # literally contains an escaped CDATA wrapper.
+    body = next(a for a in store["arguments"] if a["name"] == "ruleDbBody")
+    assert "&lt;![CDATA[" in body["description"]
+
+    # And the rule that keeps a client from wiping rules made in an app the
+    # user can no longer reinstall.
+    edit = next(step for step in scheduling["transfer"]["steps"] if "request" not in step)
+    assert "FETCH, MODIFY, STORE" in edit["expect"]
+
+
+def test_scheduling_states_what_it_cannot_do(scheduling):
+    """The limits, and the unknowns, in the spec rather than in a bug report.
+
+    A rule's action is a number meaning on, off or toggle. Nothing in the
+    table carries a cooking mode — so "start it on Low at five" is not
+    expressible, however much a column list suggests otherwise. Anyone
+    designing that feature should learn it here.
+    """
+    limits = " ".join(scheduling["limitations"]).lower()
+    assert "toggle" in limits, "the action vocabulary is not stated"
+    assert "not part of this" in limits, "the cook timer is not distinguished from a schedule"
+
+    assert scheduling["open_questions"], "no unknowns listed, which is never true"
+    unknowns = " ".join(scheduling["open_questions"]).lower()
+    assert "dayid" in unknowns, "the column a wrong guess fires on the wrong day is not flagged"
+
+    # Every worked row must say where it came from, since the two sources are
+    # a maintained implementation and a nine-year-old capture.
+    for example in scheduling["storage"]["examples"]:
+        assert example["source"]
+        assert example["verification"] == "reported"
