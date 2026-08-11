@@ -410,13 +410,22 @@ pub fn encode_command(
                 }
                 // Resolution order: `auto: sequence` is the encoder's (a
                 // supplied value is honored so stateful callers can increment);
-                // otherwise a supplied value wins, then the spec's default, then
-                // the parameter is genuinely missing. The supplied-then-default
-                // fallback lets a high-level control (brightness slider, color
-                // picker) send only the parameters it owns while protocol bytes
-                // like `seq`/`flag` come from the spec.
+                // `auto: checksum` is computed from the bytes emitted so far
+                // (a supplied value is honored too, so stateless callers are
+                // not forced to recompute); otherwise a supplied value wins,
+                // then the spec's default, then the parameter is genuinely
+                // missing. The supplied-then-default fallback lets a
+                // high-level control (brightness slider, color picker) send
+                // only the parameters it owns while protocol bytes like
+                // `seq`/`flag` come from the spec.
                 let val = match def.and_then(|d| d.auto) {
                     Some(AutoRole::Sequence) => params.get(name.as_str()).copied().unwrap_or(0.0),
+                    Some(AutoRole::Checksum) => match params.get(name.as_str()) {
+                        Some(v) => *v,
+                        None => {
+                            compute_checksum(&bytes, def.expect("auto implies a def"), name)? as f64
+                        }
+                    },
                     _ => match params.get(name.as_str()) {
                         Some(v) => *v,
                         None => def
@@ -459,6 +468,35 @@ pub fn encode_command(
         }
     }
     Ok(bytes)
+}
+
+/// Compute the byte an `auto: checksum` parameter emits: the sum of every
+/// frame byte from `checksum_start` (default 1) up to the current end of the
+/// buffer, mod 256, then XORed with `checksum_xor` (default 0).
+///
+/// `emitted` is the frame built so far — the checksum byte itself is not yet
+/// in it, so "up to but not including the checksum position" falls out of the
+/// call site. `checksum_start` beyond the emitted length is a spec error
+/// (`ParameterInvalid`), not a silent zero-sum over an empty range: a frame
+/// whose checksum never sees its bytes fails on the device in a way nobody
+/// can debug from the app.
+fn compute_checksum(emitted: &[u8], def: &Parameter, name: &str) -> Result<u8, ProtocolError> {
+    let start = def.checksum_start.unwrap_or(1);
+    if emitted.len() <= start {
+        return Err(ProtocolError::ParameterInvalid {
+            name: name.to_string(),
+            value: start as f64,
+            reason: format!(
+                "checksum_start {start} leaves nothing to sum (only {} bytes emitted)",
+                emitted.len()
+            ),
+        });
+    }
+    let sum: u32 = emitted[start..].iter().map(|b| u32::from(*b)).sum();
+    // `checksum_xor` is i64 like every spec number; only its low byte can
+    // affect a one-byte checksum, so mask rather than reject a wider value.
+    let xor = (def.checksum_xor.unwrap_or(0) & 0xFF) as u8;
+    Ok((sum % 256) as u8 ^ xor)
 }
 
 /// Validate that `val` is within `[def.min, def.max]` if either bound is set.
@@ -924,6 +962,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         let bytes = encode_command(&cmd, &HashMap::new()).unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
@@ -946,6 +986,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         let params = HashMap::from([("brightness".into(), 75.0)]);
         let bytes = encode_command(&cmd, &params).unwrap();
@@ -969,6 +1011,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         let params = HashMap::from([("brightness".into(), 150.0)]);
         assert!(encode_command(&cmd, &params).is_err());
@@ -989,6 +1033,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         }
     }
 
@@ -1030,6 +1076,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         // 200 -> two-byte varint [0xC8, 0x01], total length 6 (BE in len).
         let bytes = encode_command(&cmd, &HashMap::from([("brightness".into(), 200.0)])).unwrap();
@@ -1063,11 +1111,134 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         assert!(matches!(
             encode_command(&cmd, &HashMap::new()),
             Err(ProtocolError::ParameterInvalid { .. })
         ));
+    }
+
+    // ── auto: checksum ──────────────────────────────────────────────────────
+
+    /// The KingSmith WalkingPad frame shape: a header the checksum skips
+    /// (`checksum_start` defaults to 1), one caller-owned parameter, and a
+    /// trailing checksum byte the encoder computes.
+    fn treadmill_cmd(checksum: Parameter) -> Command {
+        Command {
+            description: "set speed".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0xF7),
+                TemplateElement::Byte(0xA2),
+                TemplateElement::Byte(0x01),
+                TemplateElement::Param("speed".into()),
+                TemplateElement::Param("checksum".into()),
+                TemplateElement::Byte(0xFD),
+            ]),
+            parameters: Some(pset([
+                ("speed", param(ValueType::Uint8, Some(0), Some(60))),
+                ("checksum", checksum),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+        }
+    }
+
+    fn checksum_param() -> Parameter {
+        Parameter {
+            value_type: ValueType::Uint8,
+            auto: Some(AutoRole::Checksum),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn checksum_sums_from_index_one_by_default() {
+        // KingSmith set_speed at 30: bytes so far F7 A2 01 1E, sum from
+        // index 1 is A2+01+1E = 0xC1.
+        let cmd = treadmill_cmd(checksum_param());
+        let params = HashMap::from([("speed".into(), 30.0)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0xF7, 0xA2, 0x01, 0x1E, 0xC1, 0xFD]
+        );
+    }
+
+    #[test]
+    fn checksum_xor_is_applied_after_the_sum() {
+        // The UREVO variant of the same protocol XORs the sum with 0x5A.
+        // Template 02 {b} {c} {chk} 03 with b=0x53, c=0x0A: sum from index 1
+        // is 0x5D, 0x5D ^ 0x5A = 0x07.
+        let cmd = Command {
+            description: "x".into(),
+            value: None,
+            template: Some(vec![
+                TemplateElement::Byte(0x02),
+                TemplateElement::Param("b".into()),
+                TemplateElement::Param("c".into()),
+                TemplateElement::Param("chk".into()),
+                TemplateElement::Byte(0x03),
+            ]),
+            parameters: Some(pset([
+                ("b", param(ValueType::Uint8, None, None)),
+                ("c", param(ValueType::Uint8, None, None)),
+                (
+                    "chk",
+                    Parameter {
+                        checksum_xor: Some(0x5A),
+                        ..checksum_param()
+                    },
+                ),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+        };
+        let params = HashMap::from([("b".into(), 0x53 as f64), ("c".into(), 0x0A as f64)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0x02, 0x53, 0x0A, 0x07, 0x03]
+        );
+    }
+
+    #[test]
+    fn checksum_honors_a_caller_supplied_value() {
+        // Like `auto: sequence`, a caller that already knows the checksum
+        // (a stateful or passthrough caller) is not forced to recompute it.
+        let cmd = treadmill_cmd(checksum_param());
+        let params = HashMap::from([("speed".into(), 30.0), ("checksum".into(), 0x99 as f64)]);
+        assert_eq!(
+            encode_command(&cmd, &params).unwrap(),
+            vec![0xF7, 0xA2, 0x01, 0x1E, 0x99, 0xFD]
+        );
+    }
+
+    #[test]
+    fn checksum_start_beyond_emitted_length_errors() {
+        // The checksum comes first in the template but `checksum_start` skips
+        // past every byte emitted so far — a spec error that must fail loudly
+        // rather than emit a checksum over nothing.
+        let cmd = treadmill_cmd(Parameter {
+            checksum_start: Some(6),
+            ..checksum_param()
+        });
+        let params = HashMap::from([("speed".into(), 30.0)]);
+        match encode_command(&cmd, &params) {
+            Err(ProtocolError::ParameterInvalid { name, reason, .. }) => {
+                assert_eq!(name, "checksum");
+                assert!(reason.contains("checksum_start"), "got: {reason}");
+            }
+            other => panic!("expected ParameterInvalid, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1183,6 +1354,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         let lo = HashMap::from([("n".into(), -128.0)]);
         assert_eq!(encode_command(&cmd, &lo).unwrap(), vec![0x80]);
@@ -1202,6 +1375,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         let params = HashMap::from([("n".into(), -2.0)]);
         assert_eq!(
@@ -1227,6 +1402,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         let params = HashMap::from([("n".into(), 4_000_000_000.0)]);
         assert_eq!(
@@ -1297,6 +1474,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         };
         // Even pathological parameter values should be ignored.
         let params = HashMap::from([("nonsense".into(), f64::NAN)]);
@@ -1318,6 +1497,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         }
     }
 
@@ -1462,6 +1643,8 @@ mod tests {
             encoding: None,
             payload: None,
             locate: None,
+            advanced: false,
+            advanced_reason: None,
         }
     }
 

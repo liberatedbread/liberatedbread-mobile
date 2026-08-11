@@ -259,6 +259,14 @@ pub struct CommandDto {
     /// for every other command, including one whose *name* sounds like a
     /// locator.
     pub locate: Option<String>,
+    /// The spec flags this opcode as able to damage hardware or carry other
+    /// consequences (a treadmill's calibration, a factory reset). A signpost
+    /// for a UI confirmation, NOT a gate: the command still encodes, the app
+    /// decides how to ask.
+    pub advanced: bool,
+    /// The text to show at the opt-in point when `advanced` is set. Free text
+    /// from the spec, because the right warning is device-specific.
+    pub advanced_reason: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -277,6 +285,29 @@ pub struct ParameterDto {
     /// but has its labels dropped rather than mispaired (see the `From`
     /// conversion below).
     pub labels: Option<Vec<String>>,
+    /// Multiplier of the parameter's linear transform, when the spec declares
+    /// one. A treadmill's `speed` is wire-units with `scale: 0.1` and
+    /// `unit: km/h`: the UI works in km/h and the encoder inverts the
+    /// transform. Same semantics as [`DecodedValueDto::scale`].
+    pub scale: Option<f64>,
+    /// Additive term completing the parameter's transform,
+    /// `value = raw * scale + value_offset`. Same semantics as
+    /// [`DecodedValueDto::value_offset`].
+    pub value_offset: Option<f64>,
+    /// Unit symbol the parameter's value is expressed in after the transform
+    /// (`km/h`, `%`, ...), so the UI can label a slider without hardcoding
+    /// per-device knowledge.
+    pub unit: Option<String>,
+    /// Value the encoder substitutes when the caller supplies nothing — the
+    /// reason a speed slider does not need to know the protocol's `flag`
+    /// byte. Surfaced so the UI can pre-fill or omit the control entirely.
+    pub default: Option<i64>,
+    /// Transport role the encoder fills rather than the caller
+    /// (`packet_length` | `sequence` | `checksum`), rendered as the spec's
+    /// snake_case wire string. When set, the UI must NOT offer a control for
+    /// this parameter — a "checksum" slider is nonsense, and that exact bug
+    /// is why this field exists. `None` for ordinary caller-owned parameters.
+    pub auto: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -742,6 +773,8 @@ impl From<(&Characteristic, &str, &Command)> for CommandDto {
             // "not a locator" instead of as a string the Dart side would have
             // to re-validate.
             locate: cmd.locate_kind().map(|kind| kind.as_str().to_string()),
+            advanced: cmd.advanced,
+            advanced_reason: cmd.advanced_reason.clone(),
             // Same as commands: `params` is an IndexMap, so plain iteration
             // yields the spec's declaration order.
             parameters: cmd
@@ -780,6 +813,13 @@ impl From<(&str, &Parameter)> for ParameterDto {
             max: p.max.map(|v| v as f64),
             allowed: p.allowed.clone(),
             labels,
+            scale: p.scale,
+            value_offset: p.value_offset,
+            unit: p.unit.clone(),
+            default: p.default,
+            // Rendered through Display, which spells the role exactly as the
+            // spec's snake_case wire string — Dart pattern-matches on it.
+            auto: p.auto.map(|role| role.to_string()),
         }
     }
 }
@@ -2186,6 +2226,96 @@ services:
         assert_eq!(cmd_char.commands.len(), 1);
         assert_eq!(cmd_char.commands[0].name, "power_on");
         assert!(cmd_char.commands[0].is_fixed);
+        // A command that declares neither key is not advanced, and its
+        // parameters carry no transform/auto metadata.
+        assert!(!cmd_char.commands[0].advanced);
+        assert_eq!(cmd_char.commands[0].advanced_reason, None);
+    }
+
+    /// The new parameter/command semantics must cross the DTO boundary
+    /// verbatim: the UI renders a speed slider in km/h and hides the
+    /// checksum byte from the user entirely based on these fields.
+    const TREADMILL_YAML: &str = r#"
+device:
+  name: "Test Treadmill"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "Control"
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          set_speed:
+            description: "Set belt speed"
+            template: [0xF7, 0xA2, 0x01, "{speed}", "{checksum}", 0xFD]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 60
+                scale: 0.1
+                unit: "km/h"
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+          calibrate:
+            description: "Calibrate the belt"
+            value: [0xF7, 0xC1, 0x01]
+            advanced: true
+            advanced_reason: "Recalibrates the belt; step off first."
+"#;
+
+    #[test]
+    fn parameter_semantics_and_auto_role_reach_the_dto() {
+        let dto = load_device_spec(TREADMILL_YAML.into()).unwrap();
+        let commands = &dto.services[0].characteristics[0].commands;
+        let set_speed = commands.iter().find(|c| c.name == "set_speed").unwrap();
+
+        let speed = set_speed
+            .parameters
+            .iter()
+            .find(|p| p.name == "speed")
+            .unwrap();
+        assert_eq!(speed.value_type, "uint8");
+        assert_eq!(speed.min, Some(0.0));
+        assert_eq!(speed.max, Some(60.0));
+        assert_eq!(speed.scale, Some(0.1));
+        assert_eq!(speed.value_offset, None);
+        assert_eq!(speed.unit.as_deref(), Some("km/h"));
+        assert_eq!(speed.default, None);
+        assert_eq!(speed.auto, None, "a caller-owned parameter has no role");
+
+        let checksum = set_speed
+            .parameters
+            .iter()
+            .find(|p| p.name == "checksum")
+            .unwrap();
+        assert_eq!(
+            checksum.auto.as_deref(),
+            Some("checksum"),
+            "the UI hides the checksum byte based on this"
+        );
+
+        // The defaults applied on the Rust side must not leak phantom
+        // metadata into the DTO.
+        assert!(!set_speed.advanced);
+        assert_eq!(set_speed.advanced_reason, None);
+    }
+
+    #[test]
+    fn advanced_command_flags_reach_the_dto() {
+        let dto = load_device_spec(TREADMILL_YAML.into()).unwrap();
+        let commands = &dto.services[0].characteristics[0].commands;
+        let calibrate = commands.iter().find(|c| c.name == "calibrate").unwrap();
+        assert!(calibrate.advanced);
+        assert_eq!(
+            calibrate.advanced_reason.as_deref(),
+            Some("Recalibrates the belt; step off first.")
+        );
     }
 
     #[test]

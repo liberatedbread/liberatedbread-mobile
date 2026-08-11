@@ -28,7 +28,8 @@ const _cmdChar = CharacteristicDto(
         parameters: [],
         isFixed: true,
         isEncodable: true,
-        unsupportedEncoding: null),
+        unsupportedEncoding: null,
+        advanced: false),
   ],
   formatFields: [],
 );

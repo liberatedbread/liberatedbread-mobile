@@ -30,6 +30,7 @@ const _charDto = CharacteristicDto(
       isFixed: true,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
     ),
     CommandDto(
       name: 'set_brightness',
@@ -37,6 +38,7 @@ const _charDto = CharacteristicDto(
       isFixed: false,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
       parameters: [
         ParameterDto(name: 'brightness', valueType: 'uint8', min: 0, max: 100),
       ],
@@ -60,6 +62,7 @@ const _stringParamChar = CharacteristicDto(
       isFixed: false,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
       parameters: [
         ParameterDto(name: 'label', valueType: 'string'),
       ],
@@ -83,6 +86,7 @@ const _malformedChar = CharacteristicDto(
       isFixed: false,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
       parameters: [
         ParameterDto(name: 'level', valueType: 'uint8', min: 200, max: 50),
       ],
@@ -108,6 +112,7 @@ final _allowedChar = CharacteristicDto(
       isFixed: false,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
       parameters: [
         ParameterDto(
           name: 'value',
@@ -139,6 +144,7 @@ final _unlabeledAllowedChar = CharacteristicDto(
       isFixed: false,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
       parameters: [
         ParameterDto(
           name: 'level',
@@ -153,6 +159,7 @@ final _unlabeledAllowedChar = CharacteristicDto(
       isFixed: false,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
       parameters: [
         ParameterDto(
           name: 'mode',
@@ -181,6 +188,7 @@ final _boolAllowedChar = CharacteristicDto(
       isFixed: false,
       isEncodable: true,
       unsupportedEncoding: null,
+      advanced: false,
       parameters: [
         ParameterDto(
           name: 'enabled',
@@ -189,6 +197,82 @@ final _boolAllowedChar = CharacteristicDto(
           labels: const ['Off', 'On'],
         ),
       ],
+    ),
+  ],
+  formatFields: [],
+);
+
+// Mirrors KingSmith's WiLink set_speed: a caller-owned speed parameter with
+// presentation metadata (raw counts at 0.1 km/h), plus a checksum byte the
+// encoder computes — which must get neither a control nor a seeded value.
+const _scaledAutoChar = CharacteristicDto(
+  uuid: _char,
+  name: 'Command write',
+  canRead: false,
+  canWrite: true,
+  canNotify: false,
+  commands: [
+    CommandDto(
+      name: 'set_speed',
+      description: 'Set belt speed',
+      isFixed: false,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: false,
+      parameters: [
+        ParameterDto(
+          name: 'speed',
+          valueType: 'uint8',
+          min: 0,
+          max: 60,
+          scale: 0.1,
+          unit: 'km/h',
+        ),
+        ParameterDto(name: 'checksum', valueType: 'uint8', auto: 'checksum'),
+      ],
+    ),
+  ],
+  formatFields: [],
+);
+
+// An ordinary command beside two advanced ones — one with the spec's own
+// reason text, one without, so the dialog's fallback wording is exercised.
+// KingSmith flags its calibration toggle advanced for exactly this reason.
+const _advancedChar = CharacteristicDto(
+  uuid: _char,
+  name: 'Command write',
+  canRead: false,
+  canWrite: true,
+  canNotify: false,
+  commands: [
+    CommandDto(
+      name: 'start_belt',
+      description: 'Start the belt',
+      parameters: [],
+      isFixed: true,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: false,
+    ),
+    CommandDto(
+      name: 'calibration_mode',
+      description: 'Calibration toggle',
+      parameters: [],
+      isFixed: true,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: true,
+      advancedReason:
+          'Calibration changes how command values map to real belt speed.',
+    ),
+    CommandDto(
+      name: 'set_max_speed',
+      description: 'Raise the speed ceiling',
+      parameters: [],
+      isFixed: true,
+      isEncodable: true,
+      unsupportedEncoding: null,
+      advanced: true,
     ),
   ],
   formatFields: [],
@@ -379,5 +463,142 @@ void main() {
     expect(find.textContaining('Bad state'), findsNothing);
     expect(find.textContaining('bad param'), findsNothing);
     expect(ble.writes, isEmpty);
+  });
+
+  testWidgets(
+      'an encoder-filled (auto) parameter gets no control and is '
+      'never sent', (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _scaledAutoChar));
+
+    // One slider (speed), no checksum control anywhere: offering one would
+    // let the user write over a byte the protocol computes.
+    expect(find.byType(Slider), findsOneWidget);
+    expect(find.textContaining('Checksum'), findsNothing);
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    final call =
+        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_speed');
+    // Only the caller-owned parameter crosses the FFI; the encoder fills the
+    // checksum itself.
+    expect(call.params.containsKey('checksum'), isFalse);
+    expect(call.params.keys, ['speed']);
+  });
+
+  testWidgets('a scaled parameter presents in decoded units and sends raw',
+      (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xFD]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _scaledAutoChar));
+
+    // Raw range 0..60 at scale 0.1 presents as 0.0..6.0 km/h, seeded at the
+    // bottom of the range.
+    expect(find.text('Speed: 0.0 km/h'), findsOneWidget);
+    final slider = tester.widget<Slider>(find.byType(Slider));
+    expect(slider.min, closeTo(0.0, 1e-9));
+    expect(slider.max, closeTo(6.0, 1e-9));
+
+    // The slider works in display space; 3.0 km/h is raw 30 on the wire.
+    slider.onChanged!(3.0);
+    await tester.pump();
+    expect(find.text('Speed: 3.0 km/h'), findsOneWidget);
+
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+
+    final call =
+        codec.encodeCalls.firstWhere((c) => c.commandName == 'set_speed');
+    expect(call.params['speed'], 30.0);
+  });
+
+  testWidgets('advanced commands stay collapsed until the section is opened',
+      (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _advancedChar));
+
+    // The ordinary command renders inline; both advanced ones are tucked
+    // under the collapsed, warning-marked section rather than sitting between
+    // the everyday controls.
+    expect(find.text('Start belt'), findsWidgets);
+    expect(find.text('Calibration mode'), findsNothing);
+    expect(find.text('Set max speed'), findsNothing);
+    expect(find.text('Advanced commands'), findsOneWidget);
+    expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+
+    await tester.tap(find.text('Advanced commands'));
+    await tester.pumpAndSettle();
+    // Title and send button both carry the command's name.
+    expect(find.text('Calibration mode'), findsWidgets);
+    expect(find.widgetWithText(ElevatedButton, 'Calibration mode'),
+        findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Set max speed'),
+        findsOneWidget);
+  });
+
+  testWidgets(
+      'the first send of an advanced command confirms with the '
+      'spec’s reason; cancel sends nothing', (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _advancedChar));
+
+    await tester.tap(find.text('Advanced commands'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Calibration mode'));
+    await tester.pumpAndSettle();
+
+    // The dialog carries the spec's own reason — the warning that says
+    // something — with a way back out.
+    expect(
+        find.text('Calibration changes how command values map to real belt '
+            'speed.'),
+        findsOneWidget);
+    expect(codec.encodeCalls, isEmpty);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls, isEmpty);
+    expect(ble.writes, isEmpty);
+
+    // Confirming sends; a later send of the same command does not ask again.
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Calibration mode'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Send'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
+        hasLength(1));
+    expect(ble.writes.single.value, [1]);
+
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Calibration mode'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.where((c) => c.commandName == 'calibration_mode'),
+        hasLength(2));
+  });
+
+  testWidgets(
+      'an advanced command without a reason falls back to a generic '
+      'warning', (tester) async {
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([1]));
+    await tester
+        .pumpWidget(_wrap(ble: ble, codec: codec, specChar: _advancedChar));
+
+    await tester.tap(find.text('Advanced commands'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ElevatedButton, 'Set max speed'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('outlast this app'), findsOneWidget);
+    expect(codec.encodeCalls, isEmpty);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
   });
 }
