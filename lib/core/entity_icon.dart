@@ -6,48 +6,43 @@
 import 'package:flutter/material.dart';
 
 import '../src/rust/api/device_api.dart';
+import 'icons/appliance_glyphs.dart';
+import 'icons/remote_glyphs.dart';
+import 'icons/sensor_glyphs.dart';
 
 /// Material glyphs for the `mdi:` names the catalogue asks for.
 ///
 /// The spec speaks Material Design Icons, which is Home Assistant's icon set
 /// and the one the whole upstream vocabulary is written against. This app
 /// ships Flutter's Material Icons and no MDI font, so the two have to be
-/// translated. That translation is the only thing this table does: the spec
-/// still decides *which* icon an entity gets, and this says what that icon
+/// translated. That translation is the only thing these tables do: the spec
+/// still decides *which* icon an entity gets, and a table says what that icon
 /// looks like in the font we have.
 ///
-/// It is deliberately not exhaustive — MDI has around 7,000 names and pulling
-/// in the font to cover them would be about 1 MB for a handful of entities. An
+/// The tables live one per device domain under `icons/`, and this is the only
+/// line that knows about all of them. They were one map, which made this the
+/// file every device branch had to edit — an air-quality branch and a TV
+/// branch appending to the same twenty lines and conflicting on every rebase,
+/// over entries that could never disagree. Splitting them means two such
+/// branches touch disjoint files, and this merge moves once per new file
+/// rather than once per glyph. `icons/README.md` says how to add one.
+///
+/// Deliberately not exhaustive — MDI has around 7,000 names and pulling in the
+/// font to cover them would be about 1 MB for a handful of entities. An
 /// unmapped name falls through to [_byDeviceClass], which is the same answer
 /// the app gave before the spec could ask for anything, so a new `icon:`
 /// upstream degrades to the old behaviour rather than to a blank.
 const Map<String, IconData> _mdiGlyphs = {
-  'mdi:heat-wave': Icons.waves,
-  'mdi:thermometer': Icons.thermostat,
-  'mdi:battery': Icons.battery_full,
-  'mdi:water-percent': Icons.water_drop_outlined,
-  'mdi:gauge': Icons.speed,
-  'mdi:lightbulb': Icons.lightbulb_outline,
-  'mdi:fan': Icons.air_outlined,
-  'mdi:power-plug': Icons.power_outlined,
-  'mdi:radiator': Icons.thermostat_auto,
-  'mdi:signal': Icons.signal_cellular_alt,
-  // Material ships no radiation glyph, so radon gets the diffuse-particles
-  // one — a gas hanging in the air, which is the true picture anyway.
-  'mdi:radioactive': Icons.blur_on,
-  'mdi:molecule-co2': Icons.co2,
-  'mdi:water-thermometer': Icons.dew_point,
-  // Airthings' ambient light reports raw counts, not lux, so its entity
-  // carries an icon instead of an `illuminance` device class — same glyph
-  // that class would have implied.
-  'mdi:brightness-5': Icons.light_mode_outlined,
+  ...sensorGlyphs,
+  ...applianceGlyphs,
+  ...remoteGlyphs,
 };
 
 /// The fallback that predates entity icons: what a reading's `device_class`
 /// implies. Still the answer for the overwhelming majority of entities, since
 /// stating an icon is only worth it when the device class does not already
 /// say the right thing.
-IconData _byDeviceClass(String? deviceClass, IconData fallback) =>
+IconData? _byDeviceClass(String? deviceClass, IconData? fallback) =>
     switch (deviceClass) {
       'temperature' => Icons.thermostat,
       'battery' => Icons.battery_full,
@@ -77,11 +72,28 @@ IconData _byDeviceClass(String? deviceClass, IconData fallback) =>
 ///
 /// Never throws and never returns null: an icon is decoration, and losing a
 /// reading over one would be a poor trade.
-IconData entityIcon(EntityDto entity, {IconData fallback = Icons.sensors}) {
-  final declared = entity.icon?.trim().toLowerCase();
+IconData entityIcon(EntityDto entity, {IconData fallback = Icons.sensors}) =>
+    entityIconFor(
+        icon: entity.icon,
+        deviceClass: entity.deviceClass,
+        fallback: fallback)!;
+
+/// [entityIcon] for callers holding the fields rather than a BLE [EntityDto] —
+/// the network entity DTO carries the same `icon`/`device_class` pair under a
+/// different type, and the resolution rule must not fork by transport.
+///
+/// Returns null (rather than [fallback]) when nothing resolves and no
+/// [fallback] is given, so a caller that would rather show no glyph than a
+/// generic one can tell the difference.
+IconData? entityIconFor({
+  String? icon,
+  String? deviceClass,
+  IconData? fallback,
+}) {
+  final declared = icon?.trim().toLowerCase();
   if (declared != null && declared.isNotEmpty) {
     final glyph = _mdiGlyphs[declared];
     if (glyph != null) return glyph;
   }
-  return _byDeviceClass(entity.deviceClass, fallback);
+  return _byDeviceClass(deviceClass, fallback);
 }
