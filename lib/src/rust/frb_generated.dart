@@ -139,7 +139,8 @@ abstract class RustLibApi extends BaseApi {
       required List<Uint8List> frames,
       required String name,
       required int cid,
-      required int frameMs});
+      required int frameMs,
+      required int sequence});
 
   Future<StoredUploadPlanDto> crateApiDeviceApiEncodeStoredImage(
       {required String specYaml,
@@ -150,10 +151,11 @@ abstract class RustLibApi extends BaseApi {
       required int cid,
       required int timeSecs,
       required String scroll,
-      required int speed});
+      required int speed,
+      required int sequence});
 
   Future<StoredPlayDto> crateApiDeviceApiEncodeStoredPlay(
-      {required String specYaml, required int cid});
+      {required String specYaml, required int cid, required int sequence});
 
   Future<StoredUploadPlanDto> crateApiDeviceApiEncodeStoredText(
       {required String specYaml,
@@ -164,7 +166,8 @@ abstract class RustLibApi extends BaseApi {
       required int cid,
       required int timeSecs,
       required String scroll,
-      required int speed});
+      required int speed,
+      required int sequence});
 
   Future<List<ProfileInfoDto>> crateApiDeviceApiIdentifyStandardProfiles(
       {required List<String> serviceUuids});
@@ -648,7 +651,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       required List<Uint8List> frames,
       required String name,
       required int cid,
-      required int frameMs}) {
+      required int frameMs,
+      required int sequence}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -659,6 +663,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(name, serializer);
         sse_encode_u_32(cid, serializer);
         sse_encode_u_32(frameMs, serializer);
+        sse_encode_u_32(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 13, port: port_);
       },
@@ -667,7 +672,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         decodeErrorData: sse_decode_AnyhowException,
       ),
       constMeta: kCrateApiDeviceApiEncodeStoredAnimationConstMeta,
-      argValues: [specYaml, width, height, frames, name, cid, frameMs],
+      argValues: [
+        specYaml,
+        width,
+        height,
+        frames,
+        name,
+        cid,
+        frameMs,
+        sequence
+      ],
       apiImpl: this,
     ));
   }
@@ -682,7 +696,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           'frames',
           'name',
           'cid',
-          'frameMs'
+          'frameMs',
+          'sequence'
         ],
       );
 
@@ -696,7 +711,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       required int cid,
       required int timeSecs,
       required String scroll,
-      required int speed}) {
+      required int speed,
+      required int sequence}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -709,6 +725,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_32(timeSecs, serializer);
         sse_encode_String(scroll, serializer);
         sse_encode_u_32(speed, serializer);
+        sse_encode_u_32(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 14, port: port_);
       },
@@ -726,7 +743,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         cid,
         timeSecs,
         scroll,
-        speed
+        speed,
+        sequence
       ],
       apiImpl: this,
     ));
@@ -744,18 +762,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           'cid',
           'timeSecs',
           'scroll',
-          'speed'
+          'speed',
+          'sequence'
         ],
       );
 
   @override
   Future<StoredPlayDto> crateApiDeviceApiEncodeStoredPlay(
-      {required String specYaml, required int cid}) {
+      {required String specYaml, required int cid, required int sequence}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(specYaml, serializer);
         sse_encode_u_32(cid, serializer);
+        sse_encode_u_32(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 15, port: port_);
       },
@@ -764,7 +784,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         decodeErrorData: sse_decode_AnyhowException,
       ),
       constMeta: kCrateApiDeviceApiEncodeStoredPlayConstMeta,
-      argValues: [specYaml, cid],
+      argValues: [specYaml, cid, sequence],
       apiImpl: this,
     ));
   }
@@ -772,7 +792,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   TaskConstMeta get kCrateApiDeviceApiEncodeStoredPlayConstMeta =>
       const TaskConstMeta(
         debugName: 'encode_stored_play',
-        argNames: ['specYaml', 'cid'],
+        argNames: ['specYaml', 'cid', 'sequence'],
       );
 
   @override
@@ -785,7 +805,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       required int cid,
       required int timeSecs,
       required String scroll,
-      required int speed}) {
+      required int speed,
+      required int sequence}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -798,6 +819,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_32(timeSecs, serializer);
         sse_encode_String(scroll, serializer);
         sse_encode_u_32(speed, serializer);
+        sse_encode_u_32(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 16, port: port_);
       },
@@ -815,7 +837,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         cid,
         timeSecs,
         scroll,
-        speed
+        speed,
+        sequence
       ],
       apiImpl: this,
     ));
@@ -833,7 +856,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           'cid',
           'timeSecs',
           'scroll',
-          'speed'
+          'speed',
+          'sequence'
         ],
       );
 

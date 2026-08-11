@@ -627,6 +627,54 @@ fn the_vendored_smartdawn_spec_declares_its_own_upload_flow() {
     );
 }
 
+/// The SmartDawn `light` entity resolves power and brightness, and encodes them
+/// as FRAMED writes — the whole point of teaching the encodability gate that an
+/// implemented `daniao_fragment` scheme is not a blocker. Before that, every
+/// command on the DDP Write characteristic was dropped as an unimplemented
+/// transform and the light tile had no controls at all.
+#[test]
+fn smartdawn_light_exposes_framed_power_and_brightness() {
+    use liberated_bread_core::api::device_api::{encode_command, load_device_spec};
+
+    let yaml = fs::read_to_string(spec_path("smartdawn-smart-lights.yaml"))
+        .expect("smartdawn spec should be readable");
+
+    let dto = load_device_spec(yaml.clone()).expect("smartdawn spec loads");
+    let light = dto
+        .entities
+        .iter()
+        .find(|e| e.platform.as_deref() == Some("light"))
+        .expect("smartdawn declares a light entity");
+    let roles: Vec<&str> = light.actions.iter().map(|a| a.role.as_str()).collect();
+    for role in ["turn_on", "turn_off", "set_brightness"] {
+        assert!(
+            roles.contains(&role),
+            "the light must resolve {role} now that daniao_fragment is honoured; got {roles:?}"
+        );
+    }
+
+    // And the resolved power command encodes to a fragment-framed packet, not
+    // raw template bytes the controller would ignore.
+    let turn_on = light
+        .actions
+        .iter()
+        .find(|a| a.role == "turn_on")
+        .expect("resolved above");
+    let bytes = encode_command(
+        Some(yaml),
+        Some(turn_on.service_uuid.clone()),
+        turn_on.characteristic_uuid.clone(),
+        turn_on.command_name.clone().expect("power_on names a command"),
+        std::collections::HashMap::new(),
+    )
+    .expect("power_on encodes now that the framing scheme is implemented");
+    // 4-byte fragment header [serial, total, remaining, tag] then F0 04 …; the
+    // power-on mt (09 D2) sits at DNX offset 6 -> whole-packet offset 10.
+    assert_eq!(&bytes[0..4], &[0, 1, 0, 0], "fragment header wraps the command");
+    assert_eq!(bytes[4], 0xF0, "DNX flag follows the fragment header");
+    assert_eq!(&bytes[10..12], &[0x09, 0xD2], "M_SET_POWERON");
+}
+
 /// The catalogue's own uses of the keys this app newly honours.
 ///
 /// Each of these was carrying real information that reached nothing: the

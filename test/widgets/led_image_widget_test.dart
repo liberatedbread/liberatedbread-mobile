@@ -368,14 +368,14 @@ void main() {
       expect(call.scroll, 'left');
       expect(call.cid, greaterThanOrEqualTo(900001));
 
-      // Both uploader writes then the play write went out, in order.
+      // Both uploader writes, then the effect-list refresh, then the play
+      // write LAST — the vendor's store → refresh-list → show order (the
+      // fake's effect_list encodes to empty bytes).
       expect(ble.writes.map((w) => w.charUuid).toList(),
-          ['uploader', 'uploader', 'ddp']);
-      expect(ble.writes.map((w) => w.value).toList(), [
-        [10, 11],
-        [12, 13],
-        [9],
-      ]);
+          ['uploader', 'uploader', 'ddp', 'ddp']);
+      expect(ble.writes.last.value, [9], reason: 'the play write comes last');
+      expect(codec.encodeCalls.map((c) => c.commandName), ['effect_list'],
+          reason: 'the effect list is refreshed before playing, as the app does');
     });
 
     testWidgets('the Text kind reveals a text field and blocks an empty save',
@@ -571,8 +571,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp'],
-          reason: 'confirmation is what releases the play write');
+      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp'],
+          reason: 'confirmation releases the effect-list refresh, then the play');
+      expect(ble.writes.last.value, [9], reason: 'the play write comes last');
       expect(find.textContaining('now playing'), findsOneWidget);
     });
 
@@ -668,7 +669,95 @@ void main() {
 
       await tester.pump(const Duration(seconds: 10)); // the verdict timeout
       await tester.pump();
-      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp']);
+      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp'],
+          reason: 'the effect-list refresh then the play still go out');
+      expect(ble.writes.last.value, [9]);
+    });
+
+    testWidgets('a silent device is reported as unconfirmed, not "now playing"',
+        (tester) async {
+      // The play write still goes out (best-effort), but the UI must not claim
+      // the design is playing when the device never confirmed the commit.
+      final ble = FakeBleService();
+      final codec = FakeSpecCodec(
+        storedPlan: StoredUploadPlanDto(
+          serviceUuid: 'svc',
+          uploadWrites: [
+            ImageWriteDto(
+                characteristicUuid: 'uploader',
+                bytes: Uint8List.fromList([10])),
+          ],
+          playWrite: ImageWriteDto(
+              characteristicUuid: 'ddp', bytes: Uint8List.fromList([9])),
+          responseCharacteristicUuid: 'notify',
+          cid: 900126,
+        ),
+      );
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Quiet');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 10)); // verdict timeout
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('now playing'), findsNothing,
+          reason: 'an unconfirmed save must not claim playback');
+      expect(find.textContaining('did not confirm'), findsOneWidget);
+    });
+
+    testWidgets('two replays of the same design use distinct sequences',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Loop');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      await _scrollAndTap(tester, find.widgetWithText(ActionChip, 'Loop'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      await _scrollAndTap(tester, find.widgetWithText(ActionChip, 'Loop'));
+      await tester.pumpAndSettle();
+
+      // Both presses addressed the same cid but with different rolling
+      // sequences, so the two play writes are distinct on the wire.
+      expect(codec.encodeStoredPlayCalls, hasLength(2));
+      expect(codec.encodeStoredPlayCalls[0].cid,
+          codec.encodeStoredPlayCalls[1].cid,
+          reason: 'same design');
+      expect(codec.encodeStoredPlayCalls[0].sequence,
+          isNot(codec.encodeStoredPlayCalls[1].sequence),
+          reason: 'a firmware that de-dupes by serial must see two packets');
     });
 
     testWidgets(
@@ -710,7 +799,7 @@ void main() {
       await _scrollAndTap(tester, find.widgetWithText(ActionChip, 'Sunrise'));
       await tester.pumpAndSettle();
 
-      expect(codec.encodeStoredPlayCalls, [cid],
+      expect(codec.encodeStoredPlayCalls.map((c) => c.cid), [cid],
           reason: 'replay addresses the stored item by its cid');
       expect(ble.writes.length, writesBefore + 1);
       expect(ble.writes.last.charUuid, 'ddp');

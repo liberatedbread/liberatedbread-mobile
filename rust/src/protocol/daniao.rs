@@ -58,7 +58,9 @@ pub const HANDLER_NAME: &str = "daniao_ddp";
 pub const SERVICE_UUID: &str = "00000074-1972-1925-3022-077119514e44";
 
 /// Named fragment scheme this handler understands (spec `framing.scheme`).
-pub const FRAGMENT_SCHEME: &str = "daniao_fragment";
+/// Re-exported from the codec layer so the encodability gates and this
+/// registry cannot drift on the string.
+pub const FRAGMENT_SCHEME: &str = crate::codec::types::DANIAO_FRAGMENT_SCHEME;
 pub const FRAG_HEADER_LEN: usize = 4;
 const MAX_PALETTE: usize = 16;
 /// Maximum pixels in one emitted run. A longer solid region is split into

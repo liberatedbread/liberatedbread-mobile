@@ -285,9 +285,18 @@ pub fn build_text_container(program: &StoredText<'_>) -> Result<Vec<u8>, Protoco
 /// raw. Uploaded as `file_type: 0` with a `<cid>.eff` path (see
 /// [`super::stored_upload`]).
 ///
-/// NOTE: unlike the "DN" builder, this format has no capture to byte-match — it
-/// is ported from the vendor code and its structure is asserted in tests, but
-/// the render wants hardware confirmation.
+/// This is the vendor's GIF/video-effect container, cross-checked field-for-
+/// field against the SmartDawn app's own encoder (`startExec` / `writeItemHeader`
+/// / `encode` in its H5 bundle): DNMX master header, DNX2 item header, then
+/// column-major frames. It uploads as `file_type` 0 with a `<cid>.eff` path —
+/// the vendor's own choice for animations, distinct from the AMX/type-3 path
+/// pictures and text use (see [`super::stored_upload`]).
+///
+/// NOTE: no on-wire capture of a multi-frame animation exists (the vendor
+/// "animation" the captures show are single-layer AMX microapps), so the frame
+/// cadence byte at `[124]`/`[158]` is set from `anim.fps` where the app
+/// hardcodes 20; whether the device honours a non-20 value wants hardware
+/// confirmation.
 pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, ProtocolError> {
     let width = anim.width as usize;
     let height = anim.height as usize;
@@ -340,8 +349,12 @@ pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, 
 
     // ── DNMX header (block 0) ──
     buf[0..4].copy_from_slice(b"DNMX");
-    // [4] is 3 when a frame fits a u16 size field, 4 when it needs u32.
-    buf[4] = if stride > u16::MAX as usize { 4 } else { 3 };
+    // [4] is 3 when a frame fits a u16 size field, 4 when it needs u32. The
+    // vendor keys this on the UNPADDED frame length (`width*height*3`), so
+    // match that rather than the 4-padded `stride` — the two differ only for a
+    // frame whose unpadded size lands in (65532, 65535], unreachable on a 255²
+    // panel, but this keeps the header byte-identical to the app's.
+    buf[4] = if frame_px > u16::MAX as usize { 4 } else { 3 };
     buf[5] = 1;
     write_u16_le(&mut buf, 6, anim.width as u16);
     write_u16_le(&mut buf, 8, anim.height as u16);

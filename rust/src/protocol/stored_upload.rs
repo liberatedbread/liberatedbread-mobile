@@ -87,9 +87,15 @@ pub struct StoredUploadPlan {
 /// The play-by-cid write alone, for RE-triggering an already stored item
 /// without uploading anything. Same framed command the upload plan tacks on;
 /// errors when the spec declares no `stored_upload` or no `play_command`.
+///
+/// `sequence` drives the fragment serial and the DNX `sn`, so pressing Replay
+/// twice sends two byte-DIFFERENT writes — firmware that de-duplicates a
+/// framed command by serial would otherwise drop the repeat and the panel
+/// would not restart.
 pub fn encode_stored_play(
     spec: &DeviceSpec,
     cid: u32,
+    sequence: u16,
 ) -> Result<(String, EncodedWrite), ProtocolError> {
     let feature = stored_feature(spec).ok_or_else(|| ProtocolError::ImageUploadUnsupported {
         reason: "spec declares no stored_upload feature".to_string(),
@@ -101,7 +107,7 @@ pub fn encode_stored_play(
             .ok_or_else(|| ProtocolError::ImageUploadUnsupported {
                 reason: "spec's stored_upload declares no play_command".to_string(),
             })?;
-    let write = build_play_write(spec, command, cid)?;
+    let write = build_play_write(spec, command, cid, sequence)?;
     let service =
         service_for_characteristic(spec, &write.characteristic_uuid).ok_or_else(|| {
             ProtocolError::ImageUploadUnsupported {
@@ -116,11 +122,12 @@ pub fn encode_stored_play(
 pub fn encode_stored_image(
     spec: &DeviceSpec,
     program: &StoredProgram<'_>,
+    sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
     let feature = require_stored_feature(spec)?;
     let container = daniao_store::build_image_container(program)?;
     let file_type = feature.file_type.unwrap_or(3);
-    assemble_plan(spec, feature, &container, program.cid, file_type, None)
+    assemble_plan(spec, feature, &container, program.cid, file_type, None, sequence)
 }
 
 /// Store a scrolling-text marquee ("DN" AMX text layer, same `file_type` as an
@@ -128,11 +135,12 @@ pub fn encode_stored_image(
 pub fn encode_stored_text(
     spec: &DeviceSpec,
     program: &daniao_store::StoredText<'_>,
+    sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
     let feature = require_stored_feature(spec)?;
     let container = daniao_store::build_text_container(program)?;
     let file_type = feature.file_type.unwrap_or(3);
-    assemble_plan(spec, feature, &container, program.cid, file_type, None)
+    assemble_plan(spec, feature, &container, program.cid, file_type, None, sequence)
 }
 
 /// Store a multi-frame animation (raw "DNMX" `.eff`).
@@ -144,11 +152,12 @@ pub fn encode_stored_text(
 pub fn encode_stored_animation(
     spec: &DeviceSpec,
     anim: &daniao_store::StoredAnimation<'_>,
+    sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
     let feature = require_stored_feature(spec)?;
     let container = daniao_store::build_animation_container(anim)?;
     let path = format!("{}.eff", anim.cid);
-    assemble_plan(spec, feature, &container, anim.cid, 0, Some(&path))
+    assemble_plan(spec, feature, &container, anim.cid, 0, Some(&path), sequence)
 }
 
 /// Validate that `spec` declares a `stored_upload` feature whose
@@ -171,6 +180,7 @@ fn require_stored_feature(spec: &DeviceSpec) -> Result<&Feature, ProtocolError> 
 /// Carry a finished container over the uploader transport and, when the spec
 /// declares a `play_command`, tack on the play-by-cid write. Shared by every
 /// stored kind — only the container bytes, file kind and path differ.
+#[allow(clippy::too_many_arguments)]
 fn assemble_plan(
     spec: &DeviceSpec,
     feature: &Feature,
@@ -178,6 +188,7 @@ fn assemble_plan(
     cid: u32,
     file_type: u32,
     path: Option<&str>,
+    sequence: u16,
 ) -> Result<StoredUploadPlan, ProtocolError> {
     let frame_size = feature
         .frame_size
@@ -198,7 +209,7 @@ fn assemble_plan(
         })?;
 
     let play_write = match feature.play_command.as_deref() {
-        Some(command) => Some(build_play_write(spec, command, cid)?),
+        Some(command) => Some(build_play_write(spec, command, cid, sequence)?),
         None => None,
     };
 
@@ -237,6 +248,7 @@ fn build_play_write(
     spec: &DeviceSpec,
     command_name: &str,
     cid: u32,
+    sequence: u16,
 ) -> Result<EncodedWrite, ProtocolError> {
     let (characteristic, tag) =
         command_channel(spec, command_name).ok_or_else(|| ProtocolError::CommandNotFound {
@@ -256,9 +268,13 @@ fn build_play_write(
             command: command_name.to_string(),
         })?;
 
+    // `sn` overrides the template's `auto: sequence` default (codec fills 0
+    // otherwise), so the DNX header and the fragment header carry the SAME
+    // rolling counter — a repeat play is a distinct packet on both layers.
     let params = HashMap::from([
         ("effect_id".to_string(), cid as f64),
         ("slot".to_string(), 0.0),
+        ("sn".to_string(), sequence as f64),
     ]);
     let dnx = encode_command(command, &params)?;
 
@@ -267,7 +283,7 @@ fn build_play_write(
     // command channel).
     let parts = fragment_packet(FragmentRequest {
         packet: &dnx,
-        serial: 0,
+        serial: sequence as u32,
         tag,
         capacity: dnx.len().max(1),
     });
@@ -395,7 +411,7 @@ services:
     #[test]
     fn plan_has_uploader_writes_targeting_the_uploader_characteristic() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
+        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
         assert!(!plan.upload_writes.is_empty());
         assert!(plan
             .upload_writes
@@ -408,7 +424,7 @@ services:
     #[test]
     fn plan_names_the_response_characteristic_from_the_spec() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
+        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
         assert_eq!(
             plan.response_characteristic_uuid.as_deref(),
             Some("01010074-1972-1925-3022-077119514e44"),
@@ -419,20 +435,42 @@ services:
     #[test]
     fn stored_play_replays_by_cid_without_an_upload() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
-        let (service, write) = encode_stored_play(&spec(), 79009).unwrap();
+        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
+        let (service, write) = encode_stored_play(&spec(), 79009, 0).unwrap();
         assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
-        // Byte-identical to the play write the upload plan tacks on: the
-        // replay path IS the store-then-show command, minus the store.
+        // Byte-identical to the play write the upload plan tacks on AT THE SAME
+        // sequence: the replay path IS the store-then-show command, minus the
+        // store. (The plan above used sequence 0.)
         let plan_play = plan.play_write.expect("play_command declared");
         assert_eq!(write.characteristic_uuid, plan_play.characteristic_uuid);
         assert_eq!(write.bytes, plan_play.bytes);
     }
 
     #[test]
+    fn each_replay_sequence_produces_a_distinct_write() {
+        // Two presses of Replay must not send byte-identical packets, or a
+        // firmware that de-duplicates a framed command by serial drops the
+        // second and the panel never restarts. The rolling sequence changes
+        // both the fragment serial (byte 0) and the DNX `sn` (bytes 6..8).
+        let (_, first) = encode_stored_play(&spec(), 79009, 1).unwrap();
+        let (_, second) = encode_stored_play(&spec(), 79009, 2).unwrap();
+        assert_ne!(
+            first.bytes, second.bytes,
+            "consecutive replays must differ on the wire"
+        );
+        assert_eq!(first.bytes[0], 1, "fragment serial carries the sequence");
+        assert_eq!(second.bytes[0], 2);
+        // Same cid payload despite different framing — it is the SAME item.
+        assert_eq!(
+            &first.bytes[first.bytes.len() - 6..],
+            &second.bytes[second.bytes.len() - 6..]
+        );
+    }
+
+    #[test]
     fn play_write_is_fragment_framed_and_plays_by_cid() {
         let rgb = red_2x2();
-        let plan = encode_stored_image(&spec(), &program(&rgb)).unwrap();
+        let plan = encode_stored_image(&spec(), &program(&rgb), 0).unwrap();
         let play = plan.play_write.expect("play_command declared");
         assert_eq!(
             play.characteristic_uuid,
@@ -472,6 +510,7 @@ services:
                     bits: &bits,
                 },
             },
+            0,
         )
         .unwrap();
         assert!(text_plan
@@ -492,6 +531,7 @@ services:
                 frames: &frames,
                 fps: 20,
             },
+            0,
         )
         .unwrap();
         // START packet's UploadRequest carries the .eff path (field 8, tag 0x42)
@@ -524,6 +564,6 @@ services:
         )
         .unwrap();
         let rgb = red_2x2();
-        assert!(encode_stored_image(&bare, &program(&rgb)).is_err());
+        assert!(encode_stored_image(&bare, &program(&rgb), 0).is_err());
     }
 }
