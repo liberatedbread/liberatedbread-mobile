@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -86,7 +88,9 @@ void main() {
           discoveredAt: DateTime.now(),
         ),
       ],
-      scanStepDelay: const Duration(milliseconds: 200),
+      // Holds the fake's scan open past the deferred stop, the way the real
+      // continuous scan stays open.
+      scanHold: Completer<void>(),
     );
     await tester.pumpWidget(ProviderScope(
       overrides: [
@@ -100,11 +104,18 @@ void main() {
         reason: 'Nearby is the landing tab, so it scans on launch');
 
     await tester.tap(find.text('Saved'));
-    await tester.pumpAndSettle();
+    // One pump to build the switched tab (arming the deferred stop), then
+    // past the couple-of-seconds grace that keeps a mere glance from cycling
+    // the radio.
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
     expect(fake.stopScanCount, greaterThan(0));
 
     await tester.tap(find.text('Nearby'));
-    await tester.pumpAndSettle();
+    // Bounded pumps, not pumpAndSettle: the resumed scan keeps the radar
+    // animation live, so there is no settled frame to wait for.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(fake.scanTimeouts, hasLength(2));
   });
 

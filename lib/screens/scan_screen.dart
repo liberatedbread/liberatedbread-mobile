@@ -10,6 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../core/constants.dart';
 import '../core/device_category.dart';
 import '../core/error_text.dart';
+import '../core/find_device.dart' show signalBars;
 import '../core/value_format.dart' show shortAge;
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
@@ -52,6 +53,19 @@ class ScanScreen extends ConsumerStatefulWidget {
 /// advertisement — which, for a device that has just been switched off, is
 /// never.
 const Duration _ageTick = Duration(seconds: 5);
+
+/// How long a switch away from this tab must last before the radio is
+/// actually stopped.
+///
+/// Stopping instantly would be correct in isolation and wrong in aggregate,
+/// for two reasons. Every return to the tab is a native scan START, and
+/// Android blocks an app that starts more than five scans in thirty seconds
+/// (SCAN_FAILED_SCANNING_TOO_FREQUENTLY) — a block that reads as "scanning,
+/// finding nothing" for its whole cooldown. And cycling the radio costs more
+/// than it saves when the gap is a glance: the scan controller setup/teardown
+/// is work too. Two seconds is longer than checking a name on the Saved tab
+/// and shorter than actually reading anything there.
+const Duration _offTabStopDelay = Duration(seconds: 2);
 
 /// Longest the list waits before repainting for changed values.
 ///
@@ -120,6 +134,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   // the duration (a connect on a scanning adapter is flaky), so every automatic
   // resume has to know not to undo that.
   bool _onDeviceScreen = false;
+  // Pending off-tab stop (see [_offTabStopDelay]); armed when the shell
+  // switches away, disarmed if it switches back inside the grace window.
+  Timer? _offTabStop;
+  // Watches the radio so "Bluetooth is turned off" is a state the screen can
+  // leave by itself — see the listener in initState.
+  StreamSubscription<bool>? _adapterSub;
 
   @override
   void initState() {
@@ -137,18 +157,51 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     // rows still claiming a live signal would be a lie the clock had already
     // disproved.
     _ageTicker = Timer.periodic(_ageTick, (_) => _ageDevices());
+    // Radio coming back is a resume signal the lifecycle observer never
+    // hears: on Android, Bluetooth is toggled from quick settings without the
+    // app losing focus. Whoever turned it back on did it so Bluetooth things
+    // would work again — leaving "Bluetooth is turned off" on screen after
+    // that, with a Retry button for a problem already fixed, is the screen
+    // being the last to know. _resumeIfIdle carries all the reasons NOT to
+    // (mid-scan, user-stopped, off-tab, device screen open), so a ready
+    // signal in any of those states changes nothing.
+    _adapterSub = _bleService.adapterReady().listen(
+      (ready) {
+        if (ready && mounted) _resumeIfIdle();
+      },
+      // A host with no BLE stack at all (the desktop test runner) errors this
+      // stream the same way it errors scan() — and scan()'s own error path is
+      // already the messenger for that. A watcher that exists to improve an
+      // error state must not be able to crash the screen showing it.
+      onError: (Object _) {},
+    );
     if (widget.active) unawaited(_startScan());
   }
 
   /// React to the shell switching tabs (see [ScanScreen.active]).
+  ///
+  /// The stop is deferred by [_offTabStopDelay] rather than immediate, so a
+  /// glance at another tab and back never cycles the radio — see the constant
+  /// for why that matters beyond politeness. A return inside the grace window
+  /// just disarms the pending stop: the scan never stopped, so there is
+  /// nothing to resume.
   @override
   void didUpdateWidget(ScanScreen old) {
     super.didUpdateWidget(old);
     if (widget.active == old.active) return;
     if (widget.active) {
+      _offTabStop?.cancel();
+      _offTabStop = null;
       _resumeIfIdle();
     } else if (_isScanning) {
-      unawaited(_stopScan(byUser: false));
+      _offTabStop = Timer(_offTabStopDelay, () {
+        _offTabStop = null;
+        // Re-checked at fire time: the app may have backgrounded (lifecycle
+        // already stopped the scan) or the tab may be current again.
+        if (mounted && !widget.active && _isScanning) {
+          unawaited(_stopScan(byUser: false));
+        }
+      });
     }
   }
 
@@ -336,6 +389,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     WidgetsBinding.instance.removeObserver(this);
     _ageTicker?.cancel();
     _repaint?.cancel();
+    _offTabStop?.cancel();
+    unawaited(_adapterSub?.cancel());
     // Fire-and-forget: unawaited() does not swallow errors, so attach a
     // catchError to keep a throw during teardown from surfacing as an
     // unhandled async error.
@@ -617,11 +672,17 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     );
   }
 
-  static String _signalLabel(int rssi) {
-    if (rssi >= -60) return 'Strong signal';
-    if (rssi >= -75) return 'Good signal';
-    return 'Weak signal';
-  }
+  /// Prose rendering of [signalBars], so the words and the meter beside them
+  /// are the same judgement. They used to carry their own thresholds, and at
+  /// -75 dBm the row said "Good signal" over two bars — and now that the list
+  /// ORDERS by the band as well, a stray third opinion would let a row sort
+  /// below one it out-describes.
+  static String _signalLabel(int rssi) => switch (signalBars(rssi)) {
+        4 => 'Strong signal',
+        3 => 'Good signal',
+        2 => 'Fair signal',
+        _ => 'Weak signal',
+      };
 }
 
 class _MockBadge extends StatelessWidget {

@@ -36,6 +36,12 @@ class _FailingBleService implements BleService {
   @override
   Future<void> stopScan() async {}
 
+  // Never emits: the scripted scan states are the point of these doubles, and
+  // an adapter event that quietly cleared one mid-screenshot would make the
+  // walkthrough assert against a state it no longer shows.
+  @override
+  Stream<bool> adapterReady() => const Stream.empty();
+
   @override
   Future<void> connect(String deviceId) async {
     connectCalls++;

@@ -437,6 +437,40 @@ void main() {
     });
   });
 
+  group('adapterReady', () {
+    test('replays the current state, then follows transitions', () async {
+      final events = <bool>[];
+      final sub = service.adapterReady().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(events, [true],
+          reason: 'the current answer must arrive without waiting for a '
+              'transition, or a listener attached while the radio is off '
+              'would wait forever to learn that');
+
+      ble.adapterState = EmulatedAdapterState.off;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      ble.adapterState = EmulatedAdapterState.on;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [true, false, true]);
+      await sub.cancel();
+    });
+
+    test('unauthorized reads as not ready, same as off', () async {
+      // The screen must not auto-resume into a permission refusal: granting
+      // one means leaving the app, which the lifecycle path already covers.
+      final events = <bool>[];
+      final sub = service.adapterReady().listen(events.add);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      ble.adapterState = EmulatedAdapterState.unauthorized;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(events, [true, false]);
+      await sub.cancel();
+    });
+  });
+
   group('connect', () {
     test('connects and reports the connection state', () async {
       ble.add(EmulatedPeripheral.bulb(id: _bulbId));

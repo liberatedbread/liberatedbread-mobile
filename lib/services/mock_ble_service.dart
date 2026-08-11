@@ -275,6 +275,11 @@ class MockBleService implements BleService {
   @override
   Future<void> stopScan() async {}
 
+  // The pretend radio is always on: demo mode has no quick-settings toggle to
+  // recover from, so a single closing `true` satisfies the replay contract.
+  @override
+  Stream<bool> adapterReady() => Stream.value(true);
+
   @override
   Future<void> connect(String deviceId) async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
