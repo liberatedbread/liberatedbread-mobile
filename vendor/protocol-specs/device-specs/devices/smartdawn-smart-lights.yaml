@@ -261,10 +261,18 @@ features:
     # for live streaming — throughput is MTU-bound.
     animation: true
 
-  # DEVICE-SIDE STORAGE: persist a picture as a standalone microapp that plays
-  # after disconnect (the vendor's 图文 / "image-text" program). Unlike the live
-  # doodle path above, this survives power-off and is played from the device's
-  # own effect list.
+  # DEVICE-SIDE STORAGE: persist a picture, scrolling text, or multi-frame
+  # animation as a standalone microapp that plays after disconnect (the
+  # vendor's 图文 / "image-text" program). Unlike the live doodle path above,
+  # this survives power-off and is played from the device's own effect list.
+  #
+  # ANIMATIONS TOO: custom animations upload over this same flow — "DN" AMX
+  # container, UploadRequest.type=3, NO path field — not as .eff files. The
+  # smartdawn_longer2.pcapng animation save (frames 6214-6252, t=202.15-202.8)
+  # is a type=3, size=4096, packetnum=9 transfer whose START protobuf omits
+  # path, and no capture anywhere contains a "DNMX"/"DNX2" container or a
+  # ".eff" path on the wire. (.eff/type=0 remains the flow for CDN catalog
+  # effects, which the app downloads pre-built; nothing we generate.)
   #
   # VERIFIED against smartdawn_capture_a_lot_of_custom_animations.pcapng
   # (2026-08-10) and byte-for-byte reproduced by the mobile core: it is built
@@ -288,6 +296,14 @@ features:
     # Play the freshly stored item by its cid right after upload — the vendor's
     # store-then-show. Named from the DDP Write characteristic's commands.
     play_command: "play_effect"
+    # Where the device answers the upload: M_UPLOAD_START_RESPONSE (mt=2931,
+    # i1==0 accept, i3 = resume offset) and M_UPLOAD_COMPLETE (mt=2934, i1==0
+    # success), fragment-framed like every DDP push. WAIT for the completion
+    # before sending play_command: the vendor app does, and playing a cid the
+    # device has not committed yet is a silent no-op (observed live on the
+    # JY25CUT curtain — the play write is ACKed at GATT level while the panel
+    # keeps showing what it was showing).
+    response_characteristic: "01010074-1972-1925-3022-077119514e44"
     max_width: 255
     max_height: 255
     resolution_source: "device_reported"
@@ -453,6 +469,22 @@ services:
               ts: { type: "uint8", default: 0 }
               effect_id: { type: "varint", min: 0, description: "SimpleMessage.i1 — the effect/microapp id (cid) to play; protobuf varint" }
               slot: { type: "varint", min: 0, default: 0, description: "SimpleMessage.i2 — playback slot; protobuf varint (0 from the app)" }
+          effect_list:
+            description: >
+              Fetch the device's stored-effect list. M_EFFECT_LIST (mt=2904),
+              no payload; the device answers with effect-list notifications on
+              DDP Notify (entries carry index, id/cid and name). The vendor
+              app sends this between M_UPLOAD_COMPLETE and M_PLAY_EFFECT when
+              showing a freshly stored item (smartdawn_longer2.pcapng
+              t=205.93-205.99: 0x0B58 at 205.93, play at 205.99), and again
+              at connect to populate its effect picker.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x58, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
           set_play_speed:
             description: "Set effect speed. M_SET_PLAY_SPEED (mt=2523), SimpleMessage {i1: speed}."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xDB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
