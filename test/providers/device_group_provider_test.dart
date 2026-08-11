@@ -214,6 +214,38 @@ void main() {
       expect(members.single.id, 'A');
       expect(members.single.spec, isNull);
     });
+
+    test('a member that recorded a non-groupable category stops running',
+        () async {
+      // An unidentified member that later turns out to be an OBD dongle must
+      // not keep taking part through its stale group membership.
+      final container = await _container(overrides: [
+        parsedDeviceSpecsProvider.overrideWith((ref) async => []),
+      ]);
+      final saved = container.read(savedDevicesProvider.notifier);
+      await saved.save(SavedDevice(
+          id: 'A', name: 'Dongle', lastSeen: seen, category: 'vehicle'));
+      await saved.save(SavedDevice(
+          id: 'B', name: 'Bulb', lastSeen: seen, category: 'light'));
+
+      final members = await container.read(
+        groupMembersProvider(const GroupMembersRequest(['A', 'B'])).future,
+      );
+      expect(members.single.id, 'B');
+    });
+
+    test('pruneDevice drops a device from every stored group', () async {
+      final container = await _container();
+      final notifier = container.read(deviceGroupsProvider.notifier);
+      await notifier.create(name: 'Room', deviceIds: ['A', 'B']);
+      await notifier.create(name: 'Solo', deviceIds: ['A']);
+
+      await notifier.pruneDevice('A');
+
+      final groups = container.read(deviceGroupsProvider);
+      expect(groups.first.deviceIds, ['B']);
+      expect(groups.last.deviceIds, isEmpty);
+    });
   });
 
   group('groupRunnerProvider', () {

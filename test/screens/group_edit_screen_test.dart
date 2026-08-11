@@ -131,6 +131,38 @@ void main() {
     expect(updated.deviceIds, ['AA:01', 'AA:02']);
   });
 
+  testWidgets('saving purges a member that became non-groupable while '
+      'hidden from the checklist', (tester) async {
+    // The Wave was in the group when it was unidentified; it has since
+    // recorded a vehicle category, so the checklist no longer shows it —
+    // saving must drop it rather than silently re-serialize the invisible id.
+    SharedPreferences.setMockInitialValues({
+      ..._saved(),
+      'device_groups_v1': jsonEncode([
+        {
+          'id': 'g1',
+          'name': 'Garage',
+          'deviceIds': ['AA:01', 'AA:03'],
+        },
+      ]),
+    });
+    _prefs = await SharedPreferences.getInstance();
+    const group =
+        DeviceGroup(id: 'g1', name: 'Garage', deviceIds: ['AA:01', 'AA:03']);
+    await tester.pumpWidget(_wrap(group: group));
+    await tester.pump();
+
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(GroupEditScreen)),
+        listen: false);
+
+    expect(find.text('Dongle'), findsNothing);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(deviceGroupsProvider).single.deviceIds, ['AA:01']);
+  });
+
   testWidgets('deleting asks first and keeps the devices', (tester) async {
     SharedPreferences.setMockInitialValues({
       ..._saved(),

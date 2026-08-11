@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_group_provider.dart';
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,6 +76,30 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Unknown device'), findsOneWidget);
+  });
+
+  testWidgets('forgetting a device prunes it from stored groups',
+      (tester) async {
+    // Without the prune, the membership lies dormant and silently restores
+    // itself the moment the same device is saved again.
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1':
+          '[{"id":"aa","name":"Probe One","lastSeen":"2026-07-30T12:00:00.000"}]',
+      'device_groups_v1':
+          '[{"id":"g1","name":"Room","deviceIds":["aa","bb"]}]',
+    });
+    _prefs = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(_wrap());
+    await tester.pumpAndSettle();
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(SavedDevicesScreen)),
+        listen: false);
+
+    await tester.tap(find.byTooltip('Forget Probe One'));
+    await tester.pumpAndSettle();
+
+    expect(container.read(deviceGroupsProvider).single.deviceIds, ['bb']);
   });
 
   group('relativeTime', () {
