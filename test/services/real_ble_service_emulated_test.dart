@@ -806,6 +806,107 @@ void main() {
       );
     });
 
+    test('a second subscriber keeps notifications alive when the first '
+        'cancels', () async {
+      // Issue #29: six sensor tiles and the raw service card all subscribe to
+      // one combined-packet characteristic, and the panel's ListView disposes
+      // children scrolled out of cache. The CCCD must only be disabled when
+      // the LAST subscriber goes away.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final first = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      final received = <List<int>>[];
+      final second = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // The enable is shared, not repeated per subscriber.
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        hasLength(1),
+        reason: 'two subscribers should share one CCCD enable',
+      );
+
+      await first.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        ble.platformCalls,
+        isNot(contains('setNotify:${EmulatedUuids.batteryLevel}=false')),
+        reason: 'the second subscriber still wants notifications',
+      );
+
+      // And they still flow.
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [70]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(received, [
+        [70]
+      ]);
+
+      await second.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        ble.platformCalls,
+        contains('setNotify:${EmulatedUuids.batteryLevel}=false'),
+        reason: 'the last cancel is the one that quiets the peripheral',
+      );
+    });
+
+    test('a reconnect enables notifications afresh even with a stale '
+        'subscription open', () async {
+      // A subscription from a previous link that was never cancelled must
+      // neither satisfy the new link's enable (CCCD state died with the old
+      // connection) nor, when finally cancelled, disable notifications under
+      // the new link's subscribers.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+      final stale = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await service.disconnect(_bulbId);
+
+      await service.connect(_bulbId);
+      final received = <List<int>>[];
+      final fresh = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        hasLength(2),
+        reason: 'the new link needs its own CCCD enable',
+      );
+
+      // The stale handle finally goes away; the fresh subscriber must not
+      // lose its stream over it.
+      await stale.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false'),
+        isEmpty,
+        reason: 'a dead share never writes into the new connection',
+      );
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [66]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(received, [
+        [66]
+      ]);
+
+      await fresh.cancel();
+    });
+
     test('drops notifications sent after the subscription is torn down',
         () async {
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
