@@ -396,7 +396,11 @@ heading.
   - *Folded plumbing.* When a matched sensor device has readings on screen,
     the raw service cards start folded — the first screen is radon and CO₂,
     not the OAD firmware-update service. Still one tap away, and every
-    other device category keeps expanded cards.
+    other device category keeps expanded cards. Folding hides the
+    characteristic widgets without disposing them (`maintainState`): their
+    teardown answers with `setNotifyValue(false)` on the peripheral, with
+    no reference counting, which would mute the very characteristics the
+    readings above are showing live.
 
   With them, one logical reading declared once per variant binding (the
   shape the Airthings family spec now uses) renders once instead of once

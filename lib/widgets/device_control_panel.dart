@@ -759,6 +759,17 @@ class _ServiceCardState extends State<_ServiceCard> {
           style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
         ),
         initiallyExpanded: !widget.foldedForReadings,
+        // Collapsing must hide the children, never dispose them. Notify-capable
+        // characteristic widgets subscribe in initState and cancel in dispose,
+        // and RealBleService answers a cancel with setNotifyValue(false) on the
+        // peripheral — with no reference counting. The readings cards above
+        // this tile subscribe to the SAME characteristics, so a disposal here
+        // (the automatic fold, or a user collapsing a card by hand) would mute
+        // the very characteristics the dashboard is showing live: every
+        // notify-driven tile silently freezes at its first read. Keeping the
+        // children mounted offstage preserves their subscriptions — the same
+        // steady state the always-expanded panel had before folding existed.
+        maintainState: true,
         children: service.characteristics.map((char) {
           final specChar = specService == null
               ? null
