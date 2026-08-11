@@ -43,6 +43,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   previously matched no radon binding at all. One logical reading appears
   once per variant-specific binding (same name, disjoint `variants`),
   which a characteristic-keyed consumer resolves to exactly one per unit
+- Roku ECP: a channel launcher. The `Channel` select's options are whatever
+  the device says it has installed — `options_source` fetches
+  `/query/apps`, `state_source` reads the current channel from
+  `/query/active-app` (which carries no id on the home screen: that reads
+  as nothing selected, not an error), and selecting an option launches it
+  via `POST /launch/{app_id}`. Both queries stay open when "Control by
+  mobile apps" is disabled, so the list loads even on a TV refusing every
+  keypress. The two endpoint entries gain worked response examples, and
+  `test_roku_spec.py` runs the source contract against them
+- `options_source` / `state_source` on `select` entities — where a select
+  gets options the spec cannot enumerate because they live on the device,
+  and which of them is current. A deliberately tiny XML contract: the named
+  `http_endpoints` entry is the request; every element with the item's
+  local name is one entry; the named attribute is the raw value; the
+  element text is the label. A select carrying `options_source` needs no
+  static options table and no state binding to be offered — the options are
+  its surface
+- Roku ECP: the remote as a control surface. A `commands` block names one
+  `transport: http` invocation per remote key — power, D-pad and navigation,
+  playback transport, volume, live-TV channels, and TV input switching — and
+  `entities` declares each as a `button` in remote-layout order, covering
+  every key the official Roku app's remote sends over ECP. The previous
+  `select` entity bound a path string no command declared, so nothing could
+  resolve it; the buttons are the resolvable one-command-per-option form.
+  An `ecp_common` block records the whole transport (empty POST body, the
+  Lit_ percent-encoding rule, the OS 14.1 "Control by mobile apps" 403), the
+  endpoint catalogue gains keydown/keyup, icon, tv-channels,
+  tv-active-channel and install, and `openness` cites the official ECP
+  documentation the vocabulary is transcribed from. `scripts/test_roku_spec.py`
+  renders every button from the YAML alone and diffs it against the
+  documented key list, including the app-parity claim itself
+- `button` entity platform — a momentary action with no state to read back.
+  Binds exactly one role, `press`, whose command must have no caller-supplied
+  blanks, and is the one platform excused from naming a state source:
+  statelessness is the honest description of a keypress. Added for the Roku
+  remote; the enum note says which consumer it is kept aligned with
+- `method` on spec `commands` — the HTTP method of a `transport: http`
+  command, stated on the command itself so a consumer can send it without
+  joining two blocks by name. Roku's whole control surface addresses by
+  method and path; the SOAP commands that resolve their address by service
+  URN never state it
+- `status` on `http_endpoints` entries (`active` | `sunset` | `unverified`) —
+  Roku's `/search/browse` has carried `status: "sunset"` since the OS 12.0
+  removal notice and SmartThings' port-8081 root carried `"unverified"`, both
+  into a key the schema did not declare. Declared, so a consumer can filter
+  on lifecycle as data rather than parse SUNSET out of prose
 - `endianness` on BLE characteristic `format` fields — same key, same
   `little`/`big` enum and same `little` default as a bus message field, which
   is where it was already declared. Six BLE fields across `xiaomi-miflora` and
