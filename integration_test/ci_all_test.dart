@@ -32,6 +32,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'app_launch_test.dart' as app_launch;
 import 'error_flow_test.dart' as error_flow;
+import 'group_flow_test.dart' as group_flow;
 import 'mock_flow_test.dart' as mock_flow;
 import 'native_core_test.dart' as native_core;
 
@@ -86,4 +87,9 @@ void main() {
   // initialised and goes straight to calling through it.
   group('app_launch_test.dart', app_launch.main);
   group('native_core_test.dart', native_core.main);
+  // group_flow WANTS the bridge (spec resolution and command encoding through
+  // the real codec are the pipeline under test), so it belongs on this side
+  // of the RustLib divide; after native_core, the init guard inside it is a
+  // no-op.
+  group('group_flow_test.dart', group_flow.main);
 }
