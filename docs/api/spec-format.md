@@ -32,6 +32,7 @@ device:              # identity, discovery, and one-time setup
 services: ...        # BLE GATT services and characteristics
 http_endpoints: ...  # REST/SOAP endpoints for WiFi devices
 mqtt_topics: ...     # MQTT topics
+commands: ...        # named invocations, for devices with no GATT to hang them on
 entities: ...        # how capabilities map to Home Assistant entities
 helpful_urls: ...    # optional human references: docs, write-ups, forums, repos
 helpful_videos: ...  # optional human video references: teardown/setup/capture walkthroughs
@@ -544,6 +545,76 @@ Worked examples: `ember-mug.yaml` (fixed wire unit, display-unit select,
 `values` tables), `inkbird-bbq-thermometer.yaml` (device-setting units),
 `gerbing-thermogauge.yaml` (`value = raw × 0.5 + 85` — the `value_offset`
 case), `wemo-devices.yaml` (mW / mW·min `payload_formats` columns).
+
+## Controls: `entities`, and `commands` for a device with no GATT
+
+`entities` is the block a client draws from: one entry per control or reading,
+each saying what platform it is, where it reads its state, and which command
+each of its roles sends. On a BLE device the bindings are characteristics
+(`state_characteristic`, `command_characteristic`) and the commands live on
+the characteristic. A WiFi device has neither, so the same entity binds
+`state_endpoint` + `state_command`, and its roles name entries in a top-level
+`commands` block.
+
+That block exists because of one thing an entity cannot say. `commands:
+{turn_on: plug_turn_on}` carries a *name*; turning a Wemo plug on is
+`SetBinaryState` **with `BinaryState` = 1**, and the `1` has nowhere else to
+live. So the two blocks divide as:
+
+| Block | Answers | Example |
+|---|---|---|
+| `http_endpoints` | What actions exist, what they take, what they return | `SetBinaryState` takes a `BinaryState` of 0 or 1 |
+| `commands` | One invocation of one action, arguments already chosen | `plug_turn_on` is that action with `1` |
+
+```yaml
+commands:
+  set_cook_mode:
+    description: "Set the Crock-Pot's cooking mode, carrying the cook time along unchanged."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "{mode}"
+      time: "{time}"
+    parameters:
+      mode: { type: "integer", required: true, values: { "51": "low" } }
+      time:
+        type: "integer"
+        unit: "minutes"
+        source: "state:GetCrockpotState.time"   # read it back, then send it
+        default: 0
+    example_body: |                              # what the above renders to
+      ...
+```
+
+Two keys there earn their place:
+
+- **`source`** — where a client gets a value it is *not* the one setting.
+  `SetCrockpotState` carries mode and cook time together, so changing the mode
+  alone means reading the time back and sending it along. Leave that implicit
+  and the spec produces a client that clears the timer every time somebody
+  switches to Warm.
+- **`default`** — a genuine constant, for protocol filler. The rule a consumer
+  applies before drawing a control is that every parameter must be the value
+  the control owns, a spec constant (`default`), or a declared read-back
+  (`source`); a parameter that is none of the three means the control cannot
+  send the command at all.
+
+The two keys are **mutually exclusive**, and the schema enforces it, because
+they answer "the caller supplied nothing" with opposite instructions: `default`
+says substitute the constant, `source` says the truth lives on the device and a
+send without it must *fail visibly*. A parameter carrying both lets a renderer
+paper over a failed read-back with the constant — on the Crock-Pot, a cleared
+timer or a cooker stopped mid-run, with nothing on screen saying so. The first
+published Wemo spec made exactly this mistake and review caught it.
+
+`example_body`, and the `example` on an `http_endpoints` request or response,
+do for control what test vectors do for crypto: they turn "the device rejects
+this and I cannot tell which half is wrong" into a diff.
+`device-specs/devices/wemo-devices.yaml` is the worked example — a smart plug
+and a Crock-Pot, where the Crock-Pot answers `GetBinaryState` with `0`
+whatever it is doing, so the entity that would have been obvious is the one
+that lies.
 
 ## Validating a spec
 

@@ -6,6 +6,12 @@
 # sniffer, Wave Gen 2 serial 2950016244, firmware G-BLE-2.2.3) — used to
 # verify advertisement layout, combined-packet format, and the ASRACP
 # Griffin command set against live traffic.
+# HCI capture 2: research/airthings/
+# airthings_2950_long_capture_with_radon_and_alert.pcapng (same sniffer and
+# unit, 44 min steady-state, four vendor-app sessions) — adds the first
+# observed ASR history notification (230-byte pending-hour block), the
+# report-measurements request that triggers it, the advertisement
+# "new 5-minute data" flag pulse, and live dataset-info counter behavior.
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 
@@ -54,8 +60,15 @@ device:
     and the Griffin subset observed live. Note opcode 0x02 is overloaded:
     legacy "delete measurements" vs Griffin "dataset info"; the captured
     firmware answered 0x02 with dataset info.
-    ASR notification record framing is still MEDIUM — format codes and
-    offsets are known from the app but no ASR notification was captured.
+    ASR notification framing on Griffin firmware is HIGH for Wave Gen 2 —
+    the long capture contains a full history readout: a report-measurements
+    write on ASRACP answered by ONE 230-byte ASR notification carrying the
+    pending hour as twelve 5-minute slots (format on the Wave 2 ASR
+    characteristic below), cross-validated slot-by-slot against the
+    combined-characteristic reads in the same session. The legacy
+    multi-record ASR framing described in the app (flags byte + optional
+    fields per record) was NOT what the Griffin firmware sent and remains
+    MEDIUM, app-derived only.
     Security is MEDIUM — ATCommandSetFrame suggests optional PIN/challenge
     auth but flow not fully decoded; the captured session ran entirely
     without pairing, bonding, or encryption (no SMP traffic).
@@ -84,6 +97,18 @@ device:
             bit 15 = POST failed.
             Capture-validated: a Wave Gen 2 advertised flags 0x0021 (bits 0+5,
             error + ring spinning blue, seen during device setup).
+            Long-capture (44 min steady state, same unit): flags held 0x0009
+            with bit 0x0002 additionally raised for ~20 s once every 300 s —
+            a beacon that a fresh 5-minute sample was just taken (the pulses
+            align with the device's 5-minute sampling tick; clients can scan
+            for this bit as a wake-on-new-data signal instead of polling).
+            The 0x0009 value is echoed as the last u16 of the Griffin
+            self-check response, corroborating the little-endian decode —
+            but note the pulsing bit then lands on "RTC not set" and the
+            steady bits on "error"/"wave disabled" in the app's table above,
+            so the app bit NAMES fit the observed behavior poorly on Griffin
+            firmware; treat the pulse timing as capture-fact and the bit
+            labels as MEDIUM confidence.
     service_uuids:
       - "b42e1f6e-ade7-11e4-89d3-123b93f75cba"
       - "b42e4a8e-ade7-11e4-89d3-123b93f75cba"
@@ -194,6 +219,10 @@ variants:
       accepts the Griffin command set (self check, dataset info, clock,
       UI settings, external flash version) over write/indicate with no
       pairing. Self-check response byte 6 = device type 0x01 (WAVE2).
+      The long capture additionally verified the history readout: ASRACP
+      report-measurements → single 230-byte pending-hour block on the ASR
+      characteristic (twelve 5-minute slots; format on b42e538a), and the
+      advertisement's ~20 s "new 5-minute data" flag pulse every 300 s.
     sensors: ["radon", "temperature", "humidity"]
 
   - model: "Wave Plus"
@@ -380,7 +409,117 @@ services:
       - uuid: "b42e538a-ade7-11e4-89d3-123b93f75cba"
         name: "ASR (Air Sensor Read)"
         properties: ["notify"]
-        notes: "Same ASR protocol as Wave Gen 1. See Wave Gen 1 ASR for frame format."
+        notes: >
+          On Griffin firmware (capture: G-BLE-2.2.3) a report-measurements
+          write on ASRACP (see griffin_report_measurements) is answered by a
+          SINGLE 230-byte notification on this characteristic carrying the
+          pending hour as twelve 5-minute slots per sensor, oldest first
+          (slot 11 matched the combined-characteristic reading taken seconds
+          later). Requires a large ATT MTU — the vendor app negotiated 247;
+          behavior at the default MTU 23 is unobserved. Slot arrays for
+          sensors the model lacks are all-0xFF (Wave 2: the 144-byte region
+          at offset 56, sized for six more 12-slot u16 arrays — presumably
+          pressure/CO₂/VOC and friends on Wave Plus, unobserved). Layout
+          below decoded from the long capture and cross-checked against the
+          same session's combined-data reads (radon 26/18 Bq/m³, 22.6 °C,
+          53.5 %RH, light 16 all agree). This does NOT follow the legacy
+          per-record ASR framing documented on the Wave Gen 1 ASR
+          characteristic; that framing remains unobserved on this firmware.
+        format:
+          - offset: 0
+            length: 16
+            name: "reserved"
+            type: "bytes"
+            notes: "All zeros in capture; meaning unknown."
+          - offset: 16
+            length: 2
+            name: "radon_24h_avg"
+            type: "uint16"
+            unit: "Bq/m³"
+            notes: "Snapshot, equals the combined-characteristic value."
+          - offset: 18
+            length: 2
+            name: "radon_longterm_avg"
+            type: "uint16"
+            unit: "Bq/m³"
+            notes: "Snapshot, equals the combined-characteristic value."
+          - offset: 20
+            length: 24
+            name: "temperature_slots"
+            type: "bytes"
+            notes: >
+              12 x uint16 LE, one per 5-minute slot, oldest first, in
+              centikelvin: °C = value/100 - 273.15. Capture: 29572-29581 =
+              22.57-22.66 °C, tracking the combined reads.
+          - offset: 44
+            length: 12
+            name: "humidity_slots"
+            type: "bytes"
+            notes: "12 x uint8, 0.5 %RH per count. Capture: 107 = 53.5 %RH."
+          - offset: 56
+            length: 144
+            name: "absent_sensor_slots"
+            type: "bytes"
+            notes: >
+              All 0xFF on Wave 2. Room for six more 12-slot uint16 arrays;
+              expected to carry pressure/CO₂/VOC (and unknown others) on
+              Wave Plus. Unobserved populated.
+          - offset: 200
+            length: 12
+            name: "ambient_light_slots"
+            type: "bytes"
+            notes: "12 x uint8 raw ambient light, same scale as combined byte 2. Capture: 11-17."
+          - offset: 212
+            length: 6
+            name: "unknown"
+            type: "bytes"
+            notes: "00 00 00 20 00 00 in capture; meaning unknown."
+          - offset: 218
+            length: 4
+            name: "base_time"
+            type: "uint32"
+            notes: >
+              Unix seconds, little-endian. Matches dataset-info base_time
+              (device epoch — capture value was ~23 h old, agreeing with the
+              self-check uptime, i.e. time of boot/reset).
+          - offset: 222
+            length: 1
+            name: "unknown2"
+            type: "uint8"
+            notes: "0x00 in capture."
+          - offset: 223
+            length: 1
+            name: "dataset_number"
+            type: "uint8"
+            notes: "Echoes the requested dataset (0x02 in capture, matching dataset info)."
+          - offset: 224
+            length: 2
+            name: "radon_24h_centi"
+            type: "uint16"
+            scale: 0.01
+            unit: "Bq/m³"
+            notes: >
+              MEDIUM confidence. Capture value 2639 = 26.39, consistent with
+              the 26 Bq/m³ 24 h average as a 0.01-scaled value; the same
+              u16 appears at bytes 26-27 of the self-check response.
+          - offset: 226
+            length: 2
+            name: "radon_pending_hour_centi"
+            type: "uint16"
+            scale: 0.01
+            unit: "Bq/m³"
+            notes: >
+              MEDIUM confidence. Capture value 3055 = 30.55, read as the
+              in-progress hour's radon at 0.01 Bq/m³ — plausible but
+              uncorroborated by a second source.
+          - offset: 228
+            length: 2
+            name: "record_count"
+            type: "uint16"
+            notes: >
+              Little-endian. Capture: 23, one less than the dataset-info
+              record_count (24) read seconds earlier — likely counts
+              completed hourly records excluding the pending one.
 
       - uuid: "b42e50d8-ade7-11e4-89d3-123b93f75cba"
         name: "ASRACP (Air Sensor Read Access Control Point)"
@@ -392,6 +531,12 @@ services:
           0x71 passthrough envelope). Capture-verified on G-BLE-2.2.3:
           writes of 0x6D/0x74/0x02/0x66/0x72 each answered by an
           indication echoing the opcode with a status byte (0x00 = OK).
+          History readout (long capture): a 9-byte 0x01 report-measurements
+          request sent as ATT Write Command (0x52, no response) triggers one
+          230-byte block on the ASR characteristic, then an indication here:
+          [0x01, 0x00, 0x01, 0x00, 0x00, 0x00] — opcode echo, status 0x00,
+          then likely a u16le count of blocks sent (0x0001) and a trailing
+          u16 0x0000. See griffin_report_measurements.
 
       - uuid: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
         name: "Combined Sensor Data"
@@ -464,7 +609,10 @@ services:
             length: 4
             name: "reserved2"
             type: "bytes"
-            notes: "Not parsed by the app; 01 00 ff ff in capture."
+            notes: >
+              Not parsed by the app; 01 00 ff ff in the setup capture,
+              00 00 ff ff throughout the steady-state long capture — byte
+              16 varies (meaning unknown), bytes 18-19 always 0xFFFF.
 
   # === Wave Plus Air Sensor Service ===
   - uuid: "b42e1c08-ade7-11e4-89d3-123b93f75cba"
@@ -489,6 +637,73 @@ services:
           characteristic (see b42e4dcc) — the app parses both with the
           same CurrentValuesParser, with pressure/CO₂/VOC populated here.
           APK-derived; the capture only exercised the Wave 2 instance.
+          The format block below restates that shared layout so the fields
+          are machine-readable on this characteristic too — consumers
+          resolve a characteristic's byte layout by UUID, and a
+          prose-only cross-reference left every Wave Plus reading
+          undecodable. Field-level confidence matches the source: layout
+          HIGH from the shared parser, Wave Plus values themselves not
+          exercised in capture. 0xFF (uint8) or 0xFFFF (uint16) marks an
+          absent sensor value.
+        format:
+          - offset: 0
+            length: 1
+            name: "reserved"
+            type: "uint8"
+            notes: "Not parsed by the app."
+          - offset: 1
+            length: 1
+            name: "humidity"
+            type: "uint8"
+            scale: 0.5
+            unit: "%RH"
+          - offset: 2
+            length: 1
+            name: "ambient_light"
+            type: "uint8"
+            notes: "Raw ambient light level (0-255)."
+          - offset: 3
+            length: 1
+            name: "orientation_wavecount"
+            type: "uint8"
+            notes: "Upper nibble = orientation, lower nibble = wave (gesture) count."
+          - offset: 4
+            length: 2
+            name: "radon_24h_avg"
+            type: "uint16"
+            unit: "Bq/m³"
+          - offset: 6
+            length: 2
+            name: "radon_longterm_avg"
+            type: "uint16"
+            unit: "Bq/m³"
+          - offset: 8
+            length: 2
+            name: "temperature"
+            type: "uint16"
+            scale: 0.01
+            unit: "°C"
+          - offset: 10
+            length: 2
+            name: "pressure"
+            type: "uint16"
+            scale: 2
+            unit: "Pa"
+          - offset: 12
+            length: 2
+            name: "co2"
+            type: "uint16"
+            unit: "ppm"
+          - offset: 14
+            length: 2
+            name: "voc"
+            type: "uint16"
+            unit: "ppb"
+          - offset: 16
+            length: 4
+            name: "reserved2"
+            type: "bytes"
+            notes: "Not parsed by the app."
 
   # === Wave Mini Air Sensor Service ===
   - uuid: "b42e3882-ade7-11e4-89d3-123b93f75cba"
@@ -503,7 +718,59 @@ services:
           temperature, pressure, humidity, VOC, unused x3 — the packet carries
           pressure and VOC in addition to temperature/humidity. Confirmed by
           Airthings/wavemini-reader (CURR_VAL_UUID) and Airthings/airthings-ble
-          (CHAR_UUID_WAVEMINI_DATA).
+          (CHAR_UUID_WAVEMINI_DATA). Field offsets and transforms below are
+          taken from those two readers' decode functions
+          (wavemini-reader CurrentValues.from_bytes: temperature =
+          u16@2/100 - 273.15, humidity = u16@6/100, voc = u16@8;
+          airthings-ble _decode_wave_mini adds pressure = u16@4/50 and
+          ambient light from byte 0). MEDIUM confidence: vendor-published
+          source code, not verified against live traffic here. NOTE the
+          temperature is centikelvin — unlike every other model in this
+          family, which reports centidegrees Celsius.
+        format:
+          - offset: 0
+            length: 1
+            name: "ambient_light"
+            type: "uint8"
+            notes: >
+              Raw ambient light level; airthings-ble runs it through its
+              illuminance converter. Offset 0 is deliberate: of the two
+              leading uint8s in "<2B5HLL", _decode_wave_mini reads val[0]
+              (the FIRST byte) as illuminance; byte 1 (the second uint8) is
+              read by neither vendor decoder. Note this differs from the
+              Wave/Wave Plus combined packet, where byte 0 is reserved and
+              ambient light sits at byte 2.
+          - offset: 2
+            length: 2
+            name: "temperature"
+            type: "uint16"
+            scale: 0.01
+            value_offset: -273.15
+            unit: "°C"
+            notes: "Centikelvin on the wire: °C = raw/100 - 273.15 (wavemini-reader)."
+          - offset: 4
+            length: 2
+            name: "pressure"
+            type: "uint16"
+            scale: 0.02
+            unit: "hPa"
+            notes: "raw/50 hPa per airthings-ble; wavemini-reader ignores this field."
+          - offset: 6
+            length: 2
+            name: "humidity"
+            type: "uint16"
+            scale: 0.01
+            unit: "%RH"
+          - offset: 8
+            length: 2
+            name: "voc"
+            type: "uint16"
+            unit: "ppb"
+            notes: >
+              wavemini-reader's docstring says ppm, but the Airthings app,
+              airthings-ble/Home Assistant, and this family's own UI
+              thresholds (griffin_ui_settings: VOC yellow/red 250/2000)
+              all treat the raw count as ppb.
 
       - uuid: "b42e3ef4-ade7-11e4-89d3-123b93f75cba"
         name: "ASRACP (Air Sensor Read Access Control Point)"
@@ -778,6 +1045,12 @@ commands:
       [0x6D, status, uptime_u32le, device_type, reserved, msp_version (2B),
       ...]. device_type: 0=unknown, 1=Wave 2, 2=Wave Plus, 3=Wave Mini.
       Capture: response byte 6 was 0x01 (WAVE2), uptime ~14 h.
+      Long-capture observations on the undocumented tail (all MEDIUM):
+      bytes 24-25 u16le incremented across app sessions (45, 46, 47, 49 —
+      a connection counter?); bytes 26-27 u16le held 0x0A4F = 2639, the
+      same value the ASR history block carries where 0.01-scaled radon
+      (26.39 Bq/m³) fits; bytes 28-29 u16le held 0x0009, equal to the
+      advertisement flags word.
     characteristic: "b42e50d8-ade7-11e4-89d3-123b93f75cba"
     value: [0x6D]
 
@@ -786,13 +1059,38 @@ commands:
       Dataset (history buffer) info. Request carries a dataset offset byte.
       Response after the 2-byte header: base_time u32le (unix seconds;
       all-0xFF = none), dataset_number u8, slot_count u8, session_id u16le,
-      record_count u16le. NOTE: opcode 0x02 collides with the legacy
-      "delete measurements" opcode — on Griffin firmware 0x02 means
-      dataset info.
+      then TWO u16le both equal to the record count (23,23 later 24,24 in
+      the long capture; possibly record_count plus last-record sequence).
+      Long-capture behavior: slot_count is the number of completed 5-minute
+      slots in the pending hour — it read 3, then 8 after ~26 more minutes,
+      then 11, tracking wall clock at one per 300 s and wrapping each hour
+      as record_count increments (records are hourly rollups). base_time
+      stayed fixed at the device's boot/reset time. NOTE: opcode 0x02
+      collides with the legacy "delete measurements" opcode — on Griffin
+      firmware 0x02 means dataset info.
     characteristic: "b42e50d8-ade7-11e4-89d3-123b93f75cba"
     template: [0x02, "{dataset_offset}"]
     parameters:
       dataset_offset: { type: "uint8" }
+
+  griffin_report_measurements:
+    description: >
+      Fetch the pending-hour history block (capture-verified on
+      G-BLE-2.2.3). Same 9-byte shape as the legacy report-measurements
+      command, but sent as ATT Write Command (write without response) and,
+      on Griffin firmware, byte 1 selects the DATASET rather than a legacy
+      operator: the vendor app sent 0x02 immediately after dataset info
+      reported dataset_number 2. All remaining bytes zero. The device
+      answers with a single 230-byte notification on the ASR
+      characteristic (b42e538a — format documented there; needs ATT MTU
+      >= 233), followed by an ASRACP indication
+      [0x01, 0x00, 0x01, 0x00, 0x00, 0x00] (opcode echo, status,
+      likely-block-count u16le, trailing u16 zero). Enable ASR
+      notifications and ASRACP indications first.
+    characteristic: "b42e50d8-ade7-11e4-89d3-123b93f75cba"
+    template: [0x01, "{dataset_number}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+    parameters:
+      dataset_number: { type: "uint8", description: "Dataset to read; use dataset_number from griffin_get_dataset_info (0x02 in capture)." }
 
   griffin_get_current_date:
     description: >
@@ -857,7 +1155,9 @@ security:
     (airthings_2950_wave_capture.pcapng) shows no SMP traffic at all:
     combined-data reads, DIS reads, and every ASRACP write (Griffin
     command set, including clock set and UI settings) ran unauthenticated
-    over an unencrypted link. Whether the legacy ATCommandSetFrame
+    over an unencrypted link. The 44-minute long capture (four app
+    sessions, including the full history readout) likewise contains zero
+    SMP traffic. Whether the legacy ATCommandSetFrame
     challenge-response path (AT+CHALLENGE, AT+CMD) gates any additional
     operations remains unconfirmed — it was not exercised in the capture.
 
@@ -866,24 +1166,111 @@ timing:
   connect_timeout_ms: 10000
   scan_timeout_s: 60
   notes: >
-    Device samples sensors every 3600 seconds (1 hour) by default.
-    5-minute and 60-minute data availability flagged in advertisement.
+    Capture-observed cadence (Wave Gen 2, G-BLE-2.2.3): environment sensors
+    (temperature/humidity/ambient light) sample every 300 seconds; twelve
+    5-minute slots roll up into one stored hourly record (dataset
+    record_count advanced once per hour, slot counter 0-11 in dataset
+    info). For ~20 seconds after each 5-minute sample the advertisement
+    raises a flags bit (see identification.manufacturer_data), so a
+    passive scanner can wake on new data instead of polling. Radon is
+    exposed as 24 h / long-term averages and updates on the hourly tick.
     Sensor read via BLE is real-time upon connection + notification enable.
 
+# Radon entities carry no device_class. Home Assistant has no radon class,
+# and the previous claim of `volatile_organic_compounds_parts` was actively
+# wrong: radon in Bq/m³ is a radioactivity concentration, not a chemical
+# concentration, and a class-driven consumer would band, convert or chart it
+# as VOC ppb. The unit plus `mdi:radioactive` say what it is.
+#
+# One logical reading appears once per variant-specific binding (same display
+# name, different `state_characteristic`, disjoint `variants`): the dedicated
+# radon characteristics live on the Gen 1 service only, while Wave Gen 2 and
+# Wave Plus report radon inside their model-specific combined packet. A
+# consumer keyed on discovered characteristics naturally picks the one binding
+# the connected unit actually has.
 entities:
   - platform: "sensor"
     name: "Radon 24h Average"
-    device_class: "volatile_organic_compounds_parts"
+    icon: "mdi:radioactive"
     unit: "Bq/m³"
     state_characteristic: "b42e01aa-ade7-11e4-89d3-123b93f75cba"
-    variants: ["Wave (Gen 1)", "Wave Plus"]
+    variants: ["Wave (Gen 1)"]
+    notes: >
+      Previously also claimed for Wave Plus, but this characteristic lives on
+      the Gen 1 air sensor service (b42e1f6e) and was never confirmed on Plus
+      hardware — the vendor app reads Plus radon from the combined packet,
+      which the Wave Plus entity below now binds.
 
   - platform: "sensor"
     name: "Radon Long-Term Average"
-    device_class: "volatile_organic_compounds_parts"
+    icon: "mdi:radioactive"
     unit: "Bq/m³"
     state_characteristic: "b42e0a4c-ade7-11e4-89d3-123b93f75cba"
-    variants: ["Wave (Gen 1)", "Wave Plus"]
+    variants: ["Wave (Gen 1)"]
+
+  - platform: "sensor"
+    name: "Radon 24h Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_24h_avg"
+    variants: ["Wave (Gen 2)"]
+    notes: "Capture-verified field of the Wave Gen 2 combined packet."
+
+  - platform: "sensor"
+    name: "Radon Long-Term Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e4dcc-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_longterm_avg"
+    variants: ["Wave (Gen 2)"]
+
+  - platform: "sensor"
+    name: "Radon 24h Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_24h_avg"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "Radon Long-Term Average"
+    icon: "mdi:radioactive"
+    unit: "Bq/m³"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "radon_longterm_avg"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "CO₂"
+    device_class: "carbon_dioxide"
+    unit: "ppm"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "co2"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "VOC"
+    device_class: "volatile_organic_compounds_parts"
+    unit: "ppb"
+    state_characteristic: "b42e2a68-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "voc"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "VOC"
+    device_class: "volatile_organic_compounds_parts"
+    unit: "ppb"
+    state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "voc"
+    variants: ["Wave Mini"]
 
   - platform: "sensor"
     name: "Temperature"
@@ -902,6 +1289,26 @@ entities:
     device_class: "atmospheric_pressure"
     unit: "hPa"
     state_characteristic: "00002a6d-0000-1000-8000-00805f9b34fb"
+    variants: ["Wave Plus"]
+
+  - platform: "sensor"
+    name: "Pressure"
+    device_class: "atmospheric_pressure"
+    unit: "hPa"
+    state_characteristic: "b42e3b98-ade7-11e4-89d3-123b93f75cba"
+    state_mapping:
+      value: "pressure"
+    variants: ["Wave Mini"]
+    notes: >
+      The Mini is not documented to expose the standard pressure
+      characteristic (2A6D); its combined packet is the only known source.
+
+  - platform: "sensor"
+    name: "Dew Point"
+    device_class: "temperature"
+    icon: "mdi:water-thermometer"
+    unit: "°C"
+    state_characteristic: "00002a7b-0000-1000-8000-00805f9b34fb"
     variants: ["Wave Plus"]
 
   - platform: "sensor"
