@@ -546,6 +546,7 @@ fn wire__crate__api__device_api__encode_stored_animation_impl(
             let api_name = <String>::sse_decode(&mut deserializer);
             let api_cid = <u32>::sse_decode(&mut deserializer);
             let api_frame_ms = <u32>::sse_decode(&mut deserializer);
+            let api_sequence = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -558,6 +559,7 @@ fn wire__crate__api__device_api__encode_stored_animation_impl(
                             api_name,
                             api_cid,
                             api_frame_ms,
+                            api_sequence,
                         )?;
                         Ok(output_ok)
                     })(),
@@ -597,6 +599,7 @@ fn wire__crate__api__device_api__encode_stored_image_impl(
             let api_time_secs = <u32>::sse_decode(&mut deserializer);
             let api_scroll = <String>::sse_decode(&mut deserializer);
             let api_speed = <u32>::sse_decode(&mut deserializer);
+            let api_sequence = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -611,6 +614,7 @@ fn wire__crate__api__device_api__encode_stored_image_impl(
                             api_time_secs,
                             api_scroll,
                             api_speed,
+                            api_sequence,
                         )?;
                         Ok(output_ok)
                     })(),
@@ -643,12 +647,16 @@ fn wire__crate__api__device_api__encode_stored_play_impl(
                 flutter_rust_bridge::for_generated::SseDeserializer::new(message);
             let api_spec_yaml = <String>::sse_decode(&mut deserializer);
             let api_cid = <u32>::sse_decode(&mut deserializer);
+            let api_sequence = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
                     (move || {
-                        let output_ok =
-                            crate::api::device_api::encode_stored_play(api_spec_yaml, api_cid)?;
+                        let output_ok = crate::api::device_api::encode_stored_play(
+                            api_spec_yaml,
+                            api_cid,
+                            api_sequence,
+                        )?;
                         Ok(output_ok)
                     })(),
                 )
@@ -687,6 +695,7 @@ fn wire__crate__api__device_api__encode_stored_text_impl(
             let api_time_secs = <u32>::sse_decode(&mut deserializer);
             let api_scroll = <String>::sse_decode(&mut deserializer);
             let api_speed = <u32>::sse_decode(&mut deserializer);
+            let api_sequence = <u32>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -701,6 +710,7 @@ fn wire__crate__api__device_api__encode_stored_text_impl(
                             api_time_secs,
                             api_scroll,
                             api_speed,
+                            api_sequence,
                         )?;
                         Ok(output_ok)
                     })(),

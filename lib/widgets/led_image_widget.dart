@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import '../providers/ble_provider.dart';
+import '../providers/command_sequence_provider.dart';
 import '../providers/saved_designs_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/saved_designs_store.dart';
@@ -240,6 +241,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   bool _sending = false;
   int _frameSequence = 0;
 
+  /// True once a live preview/stream has opened the doodle session on this
+  /// connection (`ui_end_sync` + `doodle_start`). While it is open the panel is
+  /// owned by the doodle canvas, so a stored-design play is ignored until
+  /// `ui_start_sync` hands playback back — the vendor's own editor never needs
+  /// this because it does not stream previews, but ours does. Cleared once we
+  /// send that resume, and reset on reconnect via [didUpdateWidget].
+  bool _doodleSessionOpen = false;
+
   /// True while a device-side STORAGE upload is in flight; disables the editor's
   /// controls the same way [_sending] does for a live send.
   bool _saving = false;
@@ -321,6 +330,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       _stopPreview();
       _streaming = false;
       _streamEpoch++;
+      // A new spec means a new device/session: any doodle session we opened
+      // belongs to the old one.
+      _doodleSessionOpen = false;
       _error = null;
       _applySpecDefaults();
     });
@@ -567,6 +579,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         write.bytes,
       );
     }
+    // A frame-0 send opened the doodle session; note it so a later save/replay
+    // sends `ui_start_sync` to hand the panel back before playing.
+    _doodleSessionOpen = true;
     if (epoch != _streamEpoch) {
       return; // a newer operation owns the sequence now
     }
@@ -758,6 +773,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       final cid = prior?.cid ??
           900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
 
+      // The play write the plan tacks on carries this rolling serial, distinct
+      // from the pre-play `ui_start_sync`/`effect_list` writes below.
+      final playSeq = _nextSequence();
       final StoredUploadPlanDto plan;
       switch (options.kind) {
         case _StoredKind.picture:
@@ -771,6 +789,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             timeSecs: 10,
             scroll: options.scroll,
             speed: 5,
+            sequence: playSeq,
           );
         case _StoredKind.text:
           plan = await codec.encodeStoredText(
@@ -783,6 +802,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             timeSecs: 10,
             scroll: options.scroll == 'none' ? 'left' : options.scroll,
             speed: 5,
+            sequence: playSeq,
           );
         case _StoredKind.animation:
           plan = await codec.encodeStoredAnimation(
@@ -793,6 +813,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             name: options.name,
             cid: cid,
             frameMs: frameMs,
+            sequence: playSeq,
           );
       }
 
@@ -819,17 +840,29 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 
       // The device plays a cid only once it has committed it — an early play
       // is a silent no-op (observed on hardware). Wait for M_UPLOAD_COMPLETE;
-      // a device-side failure throws into the error path below.
-      await confirmed;
+      // a device-side refusal throws into the error path below. A silent
+      // firmware resolves this to `false` after a bounded wait rather than
+      // hanging the save.
+      final wasConfirmed = await confirmed;
 
-      // NOW play it, matching the vendor's store-then-show. The stored item
-      // persists regardless; this shows it immediately.
+      // Mirror the vendor's store-then-show (smartdawn_longer2 t=205.9): hand
+      // the panel back from any doodle preview, refresh the effect list so the
+      // freshly committed cid is addressable, THEN play it. Each is a framed
+      // command on the play write's own characteristic.
       final play = plan.playWrite;
       if (play != null) {
+        final charUuid = play.characteristicUuid;
+        if (_doodleSessionOpen) {
+          await _sendFramedCommand(
+              specYaml, plan.serviceUuid, charUuid, 'ui_start_sync');
+          _doodleSessionOpen = false;
+        }
+        await _sendFramedCommand(
+            specYaml, plan.serviceUuid, charUuid, 'effect_list');
         await ble.writeCharacteristic(
           widget.deviceId,
           plan.serviceUuid,
-          play.characteristicUuid,
+          charUuid,
           play.bytes,
         );
       }
@@ -847,12 +880,20 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 
       if (mounted) {
         setState(() {}); // the replay list below gains/refreshes an entry
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(play != null
-                  ? 'Saved "${options.name}" — now playing on the device.'
-                  : 'Saved "${options.name}" to the device.')),
-        );
+        final String message;
+        if (play == null) {
+          message = 'Saved "${options.name}" to the device.';
+        } else if (wasConfirmed) {
+          message = 'Saved "${options.name}" — now playing on the device.';
+        } else {
+          // The upload was sent but the device never confirmed it committed,
+          // so the play may not have taken. Do not claim it is playing.
+          message =
+              'Saved "${options.name}", but the device did not confirm — '
+              'try Replay if it is not showing.';
+        }
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
       }
     } catch (e) {
       if (mounted) {
@@ -876,23 +917,53 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     return b.takeBytes();
   }
 
-  /// Resolves once the device confirms the stored upload; throws when the
-  /// device refuses it.
+  /// The next rolling command sequence for this device — see
+  /// [commandSequenceProvider]. Drives the fragment serial and DNX `sn` so
+  /// repeated framed writes (replay, re-save) differ on the wire.
+  int _nextSequence() =>
+      ref.read(commandSequenceProvider(widget.deviceId).notifier).next();
+
+  /// Encode a no-payload framed DDP command (`ui_start_sync`, `effect_list`)
+  /// and write it, carrying a fresh sequence so it is distinct on both the
+  /// fragment and DNX layers. Reused for the pre-play steps of save and replay.
+  Future<void> _sendFramedCommand(
+    String specYaml,
+    String serviceUuid,
+    String charUuid,
+    String commandName,
+  ) async {
+    final bytes = await ref.read(specCodecProvider).encodeCommand(
+      specYaml: specYaml,
+      charUuid: charUuid,
+      commandName: commandName,
+      params: {'sn': _nextSequence().toDouble()},
+    );
+    await ref.read(bleServiceProvider).writeCharacteristic(
+          widget.deviceId,
+          serviceUuid,
+          charUuid,
+          bytes.toList(),
+        );
+  }
+
+  /// Resolves `true` once the device confirms the stored upload committed,
+  /// `false` when it stays silent past a bounded wait; throws when the device
+  /// actively refuses it.
   ///
   /// Must be CALLED before the first upload write — the subscription starts
   /// in the synchronous prefix, so a verdict cannot slip past between the
   /// last data packet and a late subscribe. When the spec names no response
-  /// channel this resolves immediately (store-and-hope, the old behaviour);
-  /// when the device stays silent it resolves after a bounded wait, because
-  /// an unanswering firmware should degrade to "maybe playing" rather than
-  /// turn every save into an error.
-  Future<void> _awaitUploadVerdict(
+  /// channel it returns `false` immediately (store-and-hope — the caller keeps
+  /// its messaging honest rather than claiming playback). A silent firmware
+  /// likewise returns `false` after the timeout instead of turning every save
+  /// into an error.
+  Future<bool> _awaitUploadVerdict(
     SpecCodec codec,
     StoredUploadPlanDto plan,
     String specYaml,
   ) async {
     final respChar = plan.responseCharacteristicUuid;
-    if (respChar == null) return;
+    if (respChar == null) return false;
 
     final ble = ref.read(bleServiceProvider);
     final verdict = Completer<StoredUploadEventDto>();
@@ -919,9 +990,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             'the device refused the stored design (code ${event.code})');
       }
       Log.ble.info('${widget.deviceId} committed the stored design');
+      return true;
     } on TimeoutException {
       Log.ble.warning('no upload confirmation from ${widget.deviceId} within '
-          '10s; sending the play write anyway');
+          '10s; playing anyway but reporting it as unconfirmed');
+      return false;
     } finally {
       // Fire-and-forget: cancel() detaches the listener synchronously, which
       // is all that matters here — the returned future settles on the
@@ -930,9 +1003,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     }
   }
 
-  /// Re-trigger a design this app previously stored on the device: one framed
-  /// play-by-cid write, no upload. Stops a live stream first for the same
-  /// reason a save does — the played design owns the panel afterwards.
+  /// Re-trigger a design this app previously stored on the device: hand the
+  /// panel back from any live preview (`ui_start_sync`), then one framed
+  /// play-by-cid write with a fresh serial so a second press is not de-duped.
+  /// Stops a live stream first for the same reason a save does — the played
+  /// design owns the panel afterwards.
   Future<void> _replayStored(SavedDesign design) async {
     setState(() {
       _error = null;
@@ -941,9 +1016,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     });
     await _sendTail;
     try {
-      final play = await ref
-          .read(specCodecProvider)
-          .encodeStoredPlay(specYaml: widget.specYaml, cid: design.cid);
+      final play = await ref.read(specCodecProvider).encodeStoredPlay(
+            specYaml: widget.specYaml,
+            cid: design.cid,
+            sequence: _nextSequence(),
+          );
+      if (_doodleSessionOpen) {
+        await _sendFramedCommand(widget.specYaml, play.serviceUuid,
+            play.write.characteristicUuid, 'ui_start_sync');
+        _doodleSessionOpen = false;
+      }
       await ref.read(bleServiceProvider).writeCharacteristic(
             widget.deviceId,
             play.serviceUuid,
