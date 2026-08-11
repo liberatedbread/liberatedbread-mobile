@@ -288,14 +288,6 @@ features:
     # Play the freshly stored item by its cid right after upload — the vendor's
     # store-then-show. Named from the DDP Write characteristic's commands.
     play_command: "play_effect"
-    # Where the device answers the upload: M_UPLOAD_START_RESPONSE (mt=2931,
-    # i1==0 accept, i3 = resume offset) and M_UPLOAD_COMPLETE (mt=2934, i1==0
-    # success), fragment-framed like every DDP push. WAIT for the completion
-    # before sending play_command: the vendor app does, and playing a cid the
-    # device has not committed yet is a silent no-op (observed live on the
-    # JY25CUT curtain — the play write is ACKed at GATT level while the panel
-    # keeps showing what it was showing).
-    response_characteristic: "01010074-1972-1925-3022-077119514e44"
     max_width: 255
     max_height: 255
     resolution_source: "device_reported"
