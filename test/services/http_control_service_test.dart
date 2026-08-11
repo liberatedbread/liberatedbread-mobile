@@ -67,8 +67,11 @@ void main() {
       }),
     );
 
-    await client.send('10.0.0.9', 8060,
-        const HttpRequestDto(method: 'POST', path: '/keypress/Lit_%20', body: ''));
+    await client.send(
+        '10.0.0.9',
+        8060,
+        const HttpRequestDto(
+            method: 'POST', path: '/keypress/Lit_%20', body: ''));
 
     expect(seen.url.toString(), 'http://10.0.0.9:8060/keypress/Lit_%20');
   });
