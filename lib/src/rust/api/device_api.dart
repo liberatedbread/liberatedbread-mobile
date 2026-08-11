@@ -362,7 +362,8 @@ Future<StoredUploadPlanDto> encodeStoredImage(
         required int cid,
         required int timeSecs,
         required String scroll,
-        required int speed}) =>
+        required int speed,
+        required int sequence}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeStoredImage(
         specYaml: specYaml,
         width: width,
@@ -372,7 +373,8 @@ Future<StoredUploadPlanDto> encodeStoredImage(
         cid: cid,
         timeSecs: timeSecs,
         scroll: scroll,
-        speed: speed);
+        speed: speed,
+        sequence: sequence);
 
 /// Encode the BLE writes that PERSIST a scrolling-text marquee on the device.
 ///
@@ -389,7 +391,8 @@ Future<StoredUploadPlanDto> encodeStoredText(
         required int cid,
         required int timeSecs,
         required String scroll,
-        required int speed}) =>
+        required int speed,
+        required int sequence}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeStoredText(
         specYaml: specYaml,
         textWidth: textWidth,
@@ -399,7 +402,8 @@ Future<StoredUploadPlanDto> encodeStoredText(
         cid: cid,
         timeSecs: timeSecs,
         scroll: scroll,
-        speed: speed);
+        speed: speed,
+        sequence: sequence);
 
 /// Encode the BLE writes that PERSIST a multi-frame animation on the device.
 ///
@@ -413,7 +417,8 @@ Future<StoredUploadPlanDto> encodeStoredAnimation(
         required List<Uint8List> frames,
         required String name,
         required int cid,
-        required int frameMs}) =>
+        required int frameMs,
+        required int sequence}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeStoredAnimation(
         specYaml: specYaml,
         width: width,
@@ -421,7 +426,8 @@ Future<StoredUploadPlanDto> encodeStoredAnimation(
         frames: frames,
         name: name,
         cid: cid,
-        frameMs: frameMs);
+        frameMs: frameMs,
+        sequence: sequence);
 
 /// Decode one notification from the stored-upload response characteristic.
 ///
@@ -435,11 +441,13 @@ Future<StoredUploadEventDto?> decodeStoredUploadEvent(
         specYaml: specYaml, bytes: bytes);
 
 /// Encode the play-by-cid command for RE-triggering a previously stored item
-/// — the replay path, no upload involved.
+/// — the replay path, no upload involved. `sequence` is a per-connection
+/// rolling counter (Dart owns it); a distinct value each press keeps two
+/// replays of the same cid from colliding on the wire and being de-duped.
 Future<StoredPlayDto> encodeStoredPlay(
-        {required String specYaml, required int cid}) =>
-    RustLib.instance.api
-        .crateApiDeviceApiEncodeStoredPlay(specYaml: specYaml, cid: cid);
+        {required String specYaml, required int cid, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeStoredPlay(
+        specYaml: specYaml, cid: cid, sequence: sequence);
 
 /// Decode raw bytes from a BLE read/notify into named values.
 ///

@@ -148,6 +148,45 @@ fn framing_of(c: &Characteristic) -> Option<Framing> {
         .and_then(|v| serde_yaml::from_value(v.clone()).ok())
 }
 
+/// Wrap one already-encoded command packet in its characteristic's framing.
+///
+/// For a characteristic whose `framing.scheme` this build implements, this
+/// applies the scheme (Daniao: the 4-byte `[serial][total][remaining][tag]`
+/// fragment header) and returns the single framed write. `serial` drives the
+/// fragment serial; the DNX `sn` is already carried by the template's
+/// `auto: sequence` parameter, so a caller passes the same counter to both.
+///
+/// A command packet here is one logical message that fits a single BLE write
+/// (every framed DDP command is < 30 bytes and the link negotiates a large
+/// MTU), so `capacity` is the whole packet and the scheme emits exactly one
+/// fragment. When the characteristic declares no framing, or a scheme this
+/// build does not implement, the bytes pass through unchanged — the
+/// encodability gate has already refused an unimplemented scheme upstream, so
+/// this is only ever reached for a scheme that frames.
+pub fn frame_command(characteristic: &Characteristic, packet: Vec<u8>, serial: u8) -> Vec<u8> {
+    let Some(framing) = framing_of(characteristic) else {
+        return packet;
+    };
+    let Some(scheme_name) = framing.scheme.as_deref() else {
+        return packet;
+    };
+    let Some(scheme) = SCHEMES.iter().find(|s| s.name == scheme_name) else {
+        return packet;
+    };
+    let mut parts = (scheme.fragment)(FragmentRequest {
+        packet: &packet,
+        serial: serial as u32,
+        tag: framing.channel_tag.unwrap_or(0),
+        capacity: packet.len().max(1),
+    });
+    // capacity >= packet.len() forces a single fragment.
+    if parts.is_empty() {
+        packet
+    } else {
+        parts.swap_remove(0)
+    }
+}
+
 fn is_writable(c: &Characteristic) -> bool {
     c.properties.iter().any(|p| {
         matches!(

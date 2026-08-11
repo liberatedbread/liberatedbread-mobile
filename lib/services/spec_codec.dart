@@ -281,6 +281,11 @@ abstract class SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+
+    /// Per-connection rolling counter driving the play write's fragment serial
+    /// and DNX `sn`, so repeated plays are distinct on the wire (see
+    /// [commandSequenceProvider]). One-shot callers may pass 0.
+    required int sequence,
   });
 
   /// Encode the BLE writes that persist a scrolling-text marquee on the device.
@@ -298,6 +303,7 @@ abstract class SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   });
 
   /// Encode the BLE writes that persist a multi-frame animation on the device.
@@ -315,6 +321,7 @@ abstract class SpecCodec {
     required String name,
     required int cid,
     required int frameMs,
+    required int sequence,
   });
 
   /// Decode one notification from the stored-upload response characteristic
@@ -330,6 +337,7 @@ abstract class SpecCodec {
   Future<StoredPlayDto> encodeStoredPlay({
     required String specYaml,
     required int cid,
+    required int sequence,
   });
 
   // ── LIFX (binary UDP) ─────────────────────────────────────────────────────

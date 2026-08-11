@@ -149,6 +149,7 @@ class FakeSpecCodec implements SpecCodec {
         int timeSecs,
         String scroll,
         int speed,
+        int sequence,
       })> encodeStoredCalls = [];
 
   FakeSpecCodec({
@@ -458,6 +459,7 @@ class FakeSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) async {
     encodeStoredCalls.add((
       specYaml: specYaml,
@@ -469,6 +471,7 @@ class FakeSpecCodec implements SpecCodec {
       timeSecs: timeSecs,
       scroll: scroll,
       speed: speed,
+      sequence: sequence,
     ));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlan ?? _defaultStoredPlan(cid, rgb);
@@ -481,7 +484,8 @@ class FakeSpecCodec implements SpecCodec {
         int cid,
         int textWidth,
         int textHeight,
-        String scroll
+        String scroll,
+        int sequence,
       })> encodeTextCalls = [];
 
   /// Every [encodeStoredAnimation] call, in order.
@@ -492,7 +496,8 @@ class FakeSpecCodec implements SpecCodec {
         int width,
         int height,
         int frameCount,
-        int frameMs
+        int frameMs,
+        int sequence,
       })> encodeAnimationCalls = [];
 
   @override
@@ -506,6 +511,7 @@ class FakeSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) async {
     encodeTextCalls.add((
       name: name,
@@ -513,6 +519,7 @@ class FakeSpecCodec implements SpecCodec {
       textWidth: textWidth,
       textHeight: textHeight,
       scroll: scroll,
+      sequence: sequence,
     ));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlan ?? _defaultStoredPlan(cid, bits);
@@ -527,6 +534,7 @@ class FakeSpecCodec implements SpecCodec {
     required String name,
     required int cid,
     required int frameMs,
+    required int sequence,
   }) async {
     encodeAnimationCalls.add((
       name: name,
@@ -535,6 +543,7 @@ class FakeSpecCodec implements SpecCodec {
       height: height,
       frameCount: frames.length,
       frameMs: frameMs,
+      sequence: sequence,
     ));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlan ?? _defaultStoredPlan(cid, const [7]);
@@ -569,15 +578,16 @@ class FakeSpecCodec implements SpecCodec {
   /// command channel, mirroring [_defaultStoredPlan]'s play write.
   final StoredPlayDto? storedPlay;
 
-  /// Every cid [encodeStoredPlay] was asked to replay, in call order.
-  final List<int> encodeStoredPlayCalls = [];
+  /// Every ([cid], [sequence]) [encodeStoredPlay] was asked to replay, in order.
+  final List<({int cid, int sequence})> encodeStoredPlayCalls = [];
 
   @override
   Future<StoredPlayDto> encodeStoredPlay({
     required String specYaml,
     required int cid,
+    required int sequence,
   }) async {
-    encodeStoredPlayCalls.add(cid);
+    encodeStoredPlayCalls.add((cid: cid, sequence: sequence));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlay ??
         StoredPlayDto(

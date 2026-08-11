@@ -246,6 +246,7 @@ class RealSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) =>
       rust.encodeStoredImage(
         specYaml: specYaml,
@@ -257,6 +258,7 @@ class RealSpecCodec implements SpecCodec {
         timeSecs: timeSecs,
         scroll: scroll,
         speed: speed,
+        sequence: sequence,
       );
 
   @override
@@ -270,6 +272,7 @@ class RealSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) =>
       rust.encodeStoredText(
         specYaml: specYaml,
@@ -281,6 +284,7 @@ class RealSpecCodec implements SpecCodec {
         timeSecs: timeSecs,
         scroll: scroll,
         speed: speed,
+        sequence: sequence,
       );
 
   @override
@@ -292,6 +296,7 @@ class RealSpecCodec implements SpecCodec {
     required String name,
     required int cid,
     required int frameMs,
+    required int sequence,
   }) =>
       rust.encodeStoredAnimation(
         specYaml: specYaml,
@@ -301,6 +306,7 @@ class RealSpecCodec implements SpecCodec {
         name: name,
         cid: cid,
         frameMs: frameMs,
+        sequence: sequence,
       );
 
   @override
@@ -317,8 +323,9 @@ class RealSpecCodec implements SpecCodec {
   Future<StoredPlayDto> encodeStoredPlay({
     required String specYaml,
     required int cid,
+    required int sequence,
   }) =>
-      rust.encodeStoredPlay(specYaml: specYaml, cid: cid);
+      rust.encodeStoredPlay(specYaml: specYaml, cid: cid, sequence: sequence);
 
   @override
   Future<int> lifxPort() => rust.lifxPort();

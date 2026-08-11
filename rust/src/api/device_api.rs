@@ -1085,6 +1085,11 @@ pub fn encode_entity_value(
         }
     };
 
+    // Wrap in the characteristic's framing when it declares an implemented
+    // scheme, matching the generic command path. A one-shot setpoint uses
+    // fragment serial 0.
+    let bytes = crate::protocol::image_upload::frame_command(action.characteristic, bytes, 0);
+
     Ok(EntityWriteDto {
         service_uuid: action.service.uuid.clone(),
         characteristic_uuid: action.characteristic.uuid.clone(),
@@ -2715,6 +2720,7 @@ pub fn encode_stored_image(
     time_secs: u32,
     scroll: String,
     speed: u32,
+    sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
     use crate::protocol::daniao_store::{ImageLayer, StoredProgram};
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
@@ -2732,7 +2738,8 @@ pub fn encode_stored_image(
             rgb: &rgb,
         },
     };
-    let plan = crate::protocol::stored_upload::encode_stored_image(&spec, &program)?;
+    let plan =
+        crate::protocol::stored_upload::encode_stored_image(&spec, &program, sequence as u16)?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -2753,6 +2760,7 @@ pub fn encode_stored_text(
     time_secs: u32,
     scroll: String,
     speed: u32,
+    sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
     use crate::protocol::daniao_store::{StoredText, TextContent};
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
@@ -2768,7 +2776,8 @@ pub fn encode_stored_text(
             bits: &bits,
         },
     };
-    let plan = crate::protocol::stored_upload::encode_stored_text(&spec, &program)?;
+    let plan =
+        crate::protocol::stored_upload::encode_stored_text(&spec, &program, sequence as u16)?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -2785,6 +2794,7 @@ pub fn encode_stored_animation(
     name: String,
     cid: u32,
     frame_ms: u32,
+    sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
     use crate::protocol::daniao_store::StoredAnimation;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
@@ -2804,7 +2814,8 @@ pub fn encode_stored_animation(
         frames: &frame_refs,
         fps,
     };
-    let plan = crate::protocol::stored_upload::encode_stored_animation(&spec, &anim)?;
+    let plan =
+        crate::protocol::stored_upload::encode_stored_animation(&spec, &anim, sequence as u16)?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -2858,10 +2869,17 @@ pub fn decode_stored_upload_event(
 }
 
 /// Encode the play-by-cid command for RE-triggering a previously stored item
-/// — the replay path, no upload involved.
-pub fn encode_stored_play(spec_yaml: String, cid: u32) -> anyhow::Result<StoredPlayDto> {
+/// — the replay path, no upload involved. `sequence` is a per-connection
+/// rolling counter (Dart owns it); a distinct value each press keeps two
+/// replays of the same cid from colliding on the wire and being de-duped.
+pub fn encode_stored_play(
+    spec_yaml: String,
+    cid: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let (service_uuid, write) = crate::protocol::stored_upload::encode_stored_play(&spec, cid)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_stored_play(&spec, cid, sequence as u16)?;
     Ok(StoredPlayDto {
         service_uuid,
         write: ImageWriteDto {
