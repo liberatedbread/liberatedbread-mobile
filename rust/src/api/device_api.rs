@@ -2076,6 +2076,9 @@ pub fn encode_image_frame(
 /// Returns the ordered Uploader-characteristic writes plus, when the spec
 /// declares a `play_command`, a fragment-framed write that plays the item
 /// immediately. Errors are typed and user-presentable.
+// The flat argument list is the FFI surface flutter_rust_bridge exposes to
+// Dart; grouping into a struct would churn the generated bindings.
+#[allow(clippy::too_many_arguments)]
 pub fn encode_stored_image(
     spec_yaml: String,
     width: u32,
@@ -2113,6 +2116,7 @@ pub fn encode_stored_image(
 /// lit), row-major, `text_width * text_height` bytes. The width is usually
 /// wider than the panel so the text scrolls. The caller (the UI) rasterises the
 /// string; everything else matches [`encode_stored_image`].
+#[allow(clippy::too_many_arguments)]
 pub fn encode_stored_text(
     spec_yaml: String,
     text_width: u32,
