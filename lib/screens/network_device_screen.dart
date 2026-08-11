@@ -76,6 +76,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// note stays up after the error text is replaced by the next attempt.
   bool _controlRefused = false;
 
+  /// Name of the entity a SOAP send is in flight for, or null.
+  ///
+  /// HTTP button presses overlap freely — a volume press must not wait for
+  /// a slow PowerOn — but SOAP writes serialize: the Crock-Pot's switch,
+  /// mode and cook time are three entities writing one SetCrockpotState,
+  /// each read-back filling in the values it does not own, so a second SOAP
+  /// send racing the first reads back the pre-send state and quietly
+  /// reverts what the first just set. One SOAP write in flight per screen
+  /// is the read-back design's actual precondition.
+  String? _soapSending;
+
   bool _loading = true;
   String? _error;
 
@@ -224,8 +235,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     NetworkActionDto action, {
     String? value,
   }) async {
+    final isHttp = action.transport == 'http';
+    // The disabled controls are the visible gate; this is the real one — a
+    // tap can race the rebuild that greys the SOAP controls out.
+    if (!isHttp && _soapSending != null) return;
     setState(() {
       _sending.add(entity.name);
+      if (!isHttp) _soapSending = entity.name;
       _error = null;
     });
     try {
@@ -260,9 +276,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         );
       });
     } finally {
-      if (mounted) setState(() => _sending.remove(entity.name));
+      if (mounted) {
+        setState(() {
+          _sending.remove(entity.name);
+          if (_soapSending == entity.name) _soapSending = null;
+        });
+      }
     }
   }
+
+  /// Whether [action]'s control must sit out the current SOAP write. HTTP
+  /// presses never lock out — see [_soapSending].
+  bool _lockedFor(NetworkActionDto? action) =>
+      action != null && action.transport != 'http' && _soapSending != null;
 
   /// The plain-HTTP send: render, POST to the discovered port, done. The
   /// method and path are the whole request, and the address is the one
@@ -305,7 +331,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       final returned =
           await client.send(description.host, description.port, path, request);
       final current = returned[readBack.field];
-      if (current != null) values.putIfAbsent(readBack.param, () => current);
+      // An empty element (`<time/>`) is a value the device did not state,
+      // not a value of "": forwarding it renders an empty parameter the
+      // firmware may read as 0. Leave it absent so the Rust renderer fails
+      // the write instead — the same refusal a missing field gets.
+      if (current != null && current.trim().isNotEmpty) {
+        values.putIfAbsent(readBack.param, () => current);
+      }
     }
 
     final request = await codec.renderNetworkCommand(
@@ -570,7 +602,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           else
             Switch(
               value: isOn ?? false,
-              onChanged: (turnOn == null || turnOff == null)
+              onChanged: (turnOn == null ||
+                      turnOff == null ||
+                      _lockedFor(turnOn) ||
+                      _lockedFor(turnOff))
                   ? null
                   : (wantOn) =>
                       unawaited(_send(entity, wantOn ? turnOn : turnOff)),
@@ -655,7 +690,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 ChoiceChip(
                   label: Text(option.label),
                   selected: option.raw == currentRaw,
-                  onSelected: (busy || action == null)
+                  onSelected: (busy || action == null || _lockedFor(action))
                       ? null
                       : (_) =>
                           unawaited(_send(entity, action, value: option.raw)),
@@ -703,7 +738,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             IconButton(
               tooltip: 'Set ${entity.name}',
               icon: const Icon(Icons.edit_outlined),
-              onPressed: () => unawaited(_editNumber(entity, action)),
+              onPressed: _lockedFor(action)
+                  ? null
+                  : () => unawaited(_editNumber(entity, action)),
             ),
         ],
       ),

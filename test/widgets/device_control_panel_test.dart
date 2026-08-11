@@ -523,6 +523,10 @@ void main() {
 
     await tester.tap(find.text('Start'));
     await tester.pumpAndSettle();
+    // Start asks before it moves the belt; confirm to see the write go out.
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('Start')));
+    await tester.pumpAndSettle();
     expect(ble.writes.single.value, [0xF7, 0xFD]);
   });
 
