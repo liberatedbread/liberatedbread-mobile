@@ -597,6 +597,49 @@ class FakeSpecCodec implements SpecCodec {
   Future<LifxZonesDto> decodeLifxZones({required List<int> bytes}) async =>
       lifxZones ?? const LifxZonesDto(zonesCount: 0, zoneIndex: 0, colors: []);
 
+  /// Returned by [decodeLifxAccessPoint].
+  LifxAccessPointDto? lifxAccessPoint;
+
+  /// Every [renderLifxSetAccessPoint] call, in order — so a provisioning test
+  /// can assert the SSID/password/security handed over, without a real strip.
+  final List<({String ssid, String password, int security, int sequence})>
+      setAccessPointCalls = [];
+
+  @override
+  Future<int> lifxDefaultSecurity() async => 5;
+
+  @override
+  Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) async =>
+      lifxBytes;
+
+  @override
+  Future<Uint8List> renderLifxSetAccessPoint({
+    required String ssid,
+    required String password,
+    required int security,
+    required int sequence,
+  }) async {
+    setAccessPointCalls.add((
+      ssid: ssid,
+      password: password,
+      security: security,
+      sequence: sequence,
+    ));
+    return lifxBytes;
+  }
+
+  @override
+  Future<LifxAccessPointDto> decodeLifxAccessPoint({
+    required List<int> bytes,
+  }) async =>
+      lifxAccessPoint ??
+      const LifxAccessPointDto(
+        ssid: 'HomeNet',
+        security: 5,
+        strength: -40,
+        channel: 11,
+      );
+
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(
         serviceUuid: 'srv',

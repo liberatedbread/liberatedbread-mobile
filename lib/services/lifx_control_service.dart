@@ -108,6 +108,47 @@ class LifxControlClient {
       socket.close();
     }
   }
+
+  /// Send [packet] and collect every reply that echoes [sequence] over [window].
+  ///
+  /// Unlike [request], which wants one answer, provisioning's `GetAccessPoints`
+  /// is answered by one `StateAccessPoint` datagram per visible network, arriving
+  /// over a few seconds — so this gathers them all and returns them for the codec
+  /// to decode. Sent to [host] (the setup network's broadcast address), broadcast
+  /// enabled.
+  Future<List<Uint8List>> collect(
+    String host,
+    Uint8List packet, {
+    required int sequence,
+    Duration window = const Duration(seconds: 5),
+    int sends = 2,
+  }) async {
+    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+    socket.broadcastEnabled = true;
+    final replies = <Uint8List>[];
+    final subscription = socket.listen((event) {
+      if (event != RawSocketEvent.read) return;
+      final datagram = socket.receive();
+      if (datagram == null) return;
+      final data = datagram.data;
+      if (data.length > 23 && data[23] == sequence) {
+        replies.add(Uint8List.fromList(data));
+      }
+    });
+    try {
+      final dest = InternetAddress(host);
+      for (var i = 0; i < sends; i++) {
+        socket.send(packet, dest, port);
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+      // Collect until quiet: StateAccessPoint replies trickle in over seconds.
+      await Future<void>.delayed(window);
+      return replies;
+    } finally {
+      await subscription.cancel();
+      socket.close();
+    }
+  }
 }
 
 /// The LIFX transport failed in a way worth surfacing (bind failure, an

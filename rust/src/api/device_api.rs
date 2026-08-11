@@ -1322,6 +1322,10 @@ impl NetworkActionDto {
                 .map(|p| (*p).to_string())
                 .collect(),
             read_back: Vec::new(),
+            // LIFX is unauthenticated and single-device: no paired credential
+            // to fill, no hub child to address.
+            credentials: Vec::new(),
+            instance_params: Vec::new(),
             min: control.min,
             max: control.max,
         }
@@ -1341,6 +1345,11 @@ fn lifx_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
         .map(|entity| NetworkEntityDto {
             name: entity.name,
             platform: Some("light".to_string()),
+            // The whole device screen routes on this: a lifx entity gets the
+            // LIFX light card and the UDP client, not a SOAP/HTTP path.
+            transport: Some(crate::protocol::lifx::TRANSPORT.to_string()),
+            // A strip is one device, not a hub of children.
+            is_instanced: false,
             device_class: None,
             icon: None,
             unit: None,
@@ -1864,6 +1873,60 @@ pub fn decode_lifx_zones(bytes: Vec<u8>) -> anyhow::Result<LifxZonesDto> {
                 }
             })
             .collect(),
+    })
+}
+
+// ── LIFX SoftAP provisioning ─────────────────────────────────────────────────
+// The legacy access-point family that onboards an unprovisioned strip onto WiFi,
+// spoken over the device's own setup AP. The exchange is unauthenticated and the
+// passphrase is plaintext (the setup AP is the only transport protection), so the
+// caller must send it once and never persist it. Unverified against hardware and
+// legacy-firmware only — Matter-era units onboard over BLE and ignore these.
+
+/// One network an unprovisioned device reported it can see (a `StateAccessPoint`
+/// reply), for the user to pick from.
+#[derive(Debug, Clone)]
+pub struct LifxAccessPointDto {
+    pub ssid: String,
+    /// The `SECURITY_PROTOCOL` byte (1 OPEN, 3 WPA-TKIP, 5 WPA2-AES, …), passed
+    /// straight back in the `SetAccessPoint` for the chosen network.
+    pub security: u8,
+    /// Signal strength as the device reported it (higher is stronger).
+    pub strength: i32,
+    pub channel: u16,
+}
+
+/// The default `SECURITY_PROTOCOL` (WPA2-AES) to try for a manually-typed SSID
+/// that never appeared in a scan.
+pub fn lifx_default_security() -> u8 {
+    crate::protocol::lifx::SECURITY_WPA2_AES
+}
+
+/// The `GetAccessPoints` datagram that asks an unprovisioned device to scan.
+pub fn build_lifx_get_access_points(sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_access_points(sequence)
+}
+
+/// The `SetAccessPoint` datagram handing the device its home-network
+/// credentials. `password` is sent in plaintext (the legacy exchange has no
+/// credential encryption) — do not persist it.
+pub fn render_lifx_set_access_point(
+    ssid: String,
+    password: String,
+    security: u8,
+    sequence: u8,
+) -> Vec<u8> {
+    crate::protocol::lifx::set_access_point(&ssid, &password, security, sequence)
+}
+
+/// Decode a `StateAccessPoint` (0x132) scan-result datagram.
+pub fn decode_lifx_access_point(bytes: Vec<u8>) -> anyhow::Result<LifxAccessPointDto> {
+    let ap = crate::protocol::lifx::parse_state_access_point(&bytes)?;
+    Ok(LifxAccessPointDto {
+        ssid: ap.ssid,
+        security: ap.security,
+        strength: i32::from(ap.strength),
+        channel: ap.channel,
     })
 }
 
