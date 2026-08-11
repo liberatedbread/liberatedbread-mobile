@@ -95,7 +95,18 @@ USER_AGENT = (
 def _fetch(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310
-        return response.read()
+        body = response.read()
+        # A truncated read against a stated Content-Length raises
+        # IncompleteRead, but a close-delimited response that ends early
+        # returns the partial body silently — and a moderate truncation can
+        # stay above MIN_ENTRIES, render cleanly, and overwrite the vendored
+        # file. When the server said how much to expect, hold it to that.
+        declared = response.headers.get("Content-Length")
+        if declared is not None and declared.isdigit() and len(body) != int(declared):
+            raise RuntimeError(
+                f"{url}: got {len(body)} bytes of a declared {declared}"
+            )
+        return body
 
 
 def _render(rows: list[tuple[str, str]]) -> str:
