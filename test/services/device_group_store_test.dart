@@ -57,6 +57,22 @@ void main() {
     expect(store.load().single.id, 'g2');
   });
 
+  test('removeDevice prunes a forgotten device from every group but keeps '
+      'the groups', () async {
+    final store = await _store();
+    await store.save(const DeviceGroup(
+        id: 'g1', name: 'Living Room', deviceIds: ['AA:BB', 'CC:DD']));
+    await store
+        .save(const DeviceGroup(id: 'g2', name: 'Solo', deviceIds: ['AA:BB']));
+    await store.removeDevice('AA:BB');
+
+    final loaded = store.load();
+    expect(loaded, hasLength(2));
+    expect(loaded.first.deviceIds, ['CC:DD']);
+    // Emptied, not deleted: the user built the container.
+    expect(loaded.last.deviceIds, isEmpty);
+  });
+
   test('a corrupt blob loads as empty instead of throwing at startup',
       () async {
     final store = await _store({'device_groups_v1': 'not-json{'});

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/device_group_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
@@ -57,6 +58,10 @@ class SavedDevicesScreen extends ConsumerWidget {
       BuildContext context, WidgetRef ref, SavedDevice saved) async {
     final messenger = ScaffoldMessenger.of(context);
     await ref.read(savedDevicesProvider.notifier).remove(saved.id);
+    // Forgetting means forgetting everywhere: leaving the id in stored
+    // groups would silently restore the membership if this device is ever
+    // saved again.
+    await ref.read(deviceGroupsProvider.notifier).pruneDevice(saved.id);
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
 

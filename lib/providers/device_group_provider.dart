@@ -57,6 +57,12 @@ class DeviceGroupsNotifier extends StateNotifier<List<DeviceGroup>> {
   Future<void> remove(String id) async {
     state = await _store.remove(id);
   }
+
+  /// Drop a forgotten device from every group, so its membership cannot
+  /// resurrect when the same device is saved again later.
+  Future<void> pruneDevice(String deviceId) async {
+    state = await _store.removeDevice(deviceId);
+  }
 }
 
 final deviceGroupsProvider =
@@ -176,6 +182,13 @@ final groupMembersProvider = FutureProvider.autoDispose
   for (final id in request.deviceIds) {
     final device = saved.where((d) => d.id == id).firstOrNull;
     if (device == null) continue;
+    // Enforced at run time, not just in the pickers: a member that recorded
+    // a non-groupable category AFTER joining a group (an unidentified device
+    // that turned out to be an OBD dongle) must not keep taking part through
+    // its stale membership.
+    if (kNonGroupableCategories.contains(DeviceCategory.parse(device.category))) {
+      continue;
+    }
     final resolved = bySpecKey(choices[id]) ?? bySpecKey(device.specKey);
     members.add(GroupMember(
       id: id,
