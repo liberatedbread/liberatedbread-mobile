@@ -762,6 +762,8 @@ impl SseDecode for crate::api::device_api::CommandDto {
         let mut var_isEncodable = <bool>::sse_decode(deserializer);
         let mut var_unsupportedEncoding = <Option<String>>::sse_decode(deserializer);
         let mut var_locate = <Option<String>>::sse_decode(deserializer);
+        let mut var_advanced = <bool>::sse_decode(deserializer);
+        let mut var_advancedReason = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::CommandDto {
             name: var_name,
             description: var_description,
@@ -770,6 +772,8 @@ impl SseDecode for crate::api::device_api::CommandDto {
             is_encodable: var_isEncodable,
             unsupported_encoding: var_unsupportedEncoding,
             locate: var_locate,
+            advanced: var_advanced,
+            advanced_reason: var_advancedReason,
         };
     }
 }
@@ -1704,6 +1708,11 @@ impl SseDecode for crate::api::device_api::ParameterDto {
         let mut var_max = <Option<f64>>::sse_decode(deserializer);
         let mut var_allowed = <Option<Vec<i64>>>::sse_decode(deserializer);
         let mut var_labels = <Option<Vec<String>>>::sse_decode(deserializer);
+        let mut var_scale = <Option<f64>>::sse_decode(deserializer);
+        let mut var_valueOffset = <Option<f64>>::sse_decode(deserializer);
+        let mut var_unit = <Option<String>>::sse_decode(deserializer);
+        let mut var_default_ = <Option<i64>>::sse_decode(deserializer);
+        let mut var_auto = <Option<String>>::sse_decode(deserializer);
         return crate::api::device_api::ParameterDto {
             name: var_name,
             value_type: var_valueType,
@@ -1711,6 +1720,11 @@ impl SseDecode for crate::api::device_api::ParameterDto {
             max: var_max,
             allowed: var_allowed,
             labels: var_labels,
+            scale: var_scale,
+            value_offset: var_valueOffset,
+            unit: var_unit,
+            default: var_default_,
+            auto: var_auto,
         };
     }
 }
@@ -2037,6 +2051,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::CommandDto {
             self.is_encodable.into_into_dart().into_dart(),
             self.unsupported_encoding.into_into_dart().into_dart(),
             self.locate.into_into_dart().into_dart(),
+            self.advanced.into_into_dart().into_dart(),
+            self.advanced_reason.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2572,6 +2588,11 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ParameterDto {
             self.max.into_into_dart().into_dart(),
             self.allowed.into_into_dart().into_dart(),
             self.labels.into_into_dart().into_dart(),
+            self.scale.into_into_dart().into_dart(),
+            self.value_offset.into_into_dart().into_dart(),
+            self.unit.into_into_dart().into_dart(),
+            self.default.into_into_dart().into_dart(),
+            self.auto.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2819,6 +2840,8 @@ impl SseEncode for crate::api::device_api::CommandDto {
         <bool>::sse_encode(self.is_encodable, serializer);
         <Option<String>>::sse_encode(self.unsupported_encoding, serializer);
         <Option<String>>::sse_encode(self.locate, serializer);
+        <bool>::sse_encode(self.advanced, serializer);
+        <Option<String>>::sse_encode(self.advanced_reason, serializer);
     }
 }
 
@@ -3496,6 +3519,11 @@ impl SseEncode for crate::api::device_api::ParameterDto {
         <Option<f64>>::sse_encode(self.max, serializer);
         <Option<Vec<i64>>>::sse_encode(self.allowed, serializer);
         <Option<Vec<String>>>::sse_encode(self.labels, serializer);
+        <Option<f64>>::sse_encode(self.scale, serializer);
+        <Option<f64>>::sse_encode(self.value_offset, serializer);
+        <Option<String>>::sse_encode(self.unit, serializer);
+        <Option<i64>>::sse_encode(self.default, serializer);
+        <Option<String>>::sse_encode(self.auto, serializer);
     }
 }
 

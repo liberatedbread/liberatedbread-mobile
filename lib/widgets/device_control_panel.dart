@@ -21,6 +21,7 @@ import 'light_control_card.dart';
 import 'raw_characteristic_widget.dart';
 import 'setpoint_control_card.dart';
 import 'switch_control_card.dart';
+import 'treadmill_control_card.dart';
 import 'typed_characteristic_widget.dart';
 
 /// Displays the services/characteristics of a connected device. When the device
@@ -188,6 +189,20 @@ class DeviceControlPanel extends ConsumerWidget {
           deviceId: deviceId,
           imageUpload: match.spec.imageUpload!,
           specYaml: match.yaml,
+        ),
+      // A treadmill gets its transport-and-speed card above everything else:
+      // the per-characteristic command widgets below expose the same commands,
+      // but start/stop on a moving belt should not require finding the right
+      // characteristic first. The card decides for itself whether the matched
+      // spec resolves any verbs and renders nothing when it does not.
+      if (match != null &&
+          DeviceCategory.parse(match.spec.category) == DeviceCategory.treadmill)
+        TreadmillControlCard(
+          key: const ValueKey('treadmill-control-card'),
+          deviceId: deviceId,
+          specYaml: match.yaml,
+          spec: match.spec,
+          services: services,
         ),
       if (controls.isNotEmpty)
         _ControlsSection(

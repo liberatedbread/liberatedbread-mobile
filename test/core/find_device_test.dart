@@ -21,6 +21,7 @@ CommandDto _command(
       parameters: const [],
       isFixed: isFixed,
       isEncodable: isEncodable,
+      advanced: false,
     );
 
 DeviceSpecDto _spec({

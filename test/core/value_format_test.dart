@@ -99,4 +99,31 @@ void main() {
     expect(shortAge(const Duration(hours: 3, minutes: 30)), '3h');
     expect(shortAge(const Duration(days: 2)), '2d');
   });
+
+  test(
+      'displayValueFor/rawValueFor are inverse across the presentation '
+      'transform', () {
+    // A treadmill speed: raw 30 counts at scale 0.1 display as 3.0 km/h.
+    expect(displayValueFor(30, 0.1, null), closeTo(3.0, 1e-9));
+    expect(rawValueFor(3.0, 0.1, null), closeTo(30.0, 1e-9));
+    // The additive term completes display = raw * scale + valueOffset.
+    expect(displayValueFor(20, 0.5, 10), 20.0);
+    expect(rawValueFor(20.0, 0.5, 10), 20.0);
+    // Null scale/offset are the identity transform, so DTO fields pass
+    // straight through for parameters declaring no presentation metadata.
+    expect(displayValueFor(64, null, null), 64.0);
+    expect(rawValueFor(64, null, null), 64.0);
+  });
+
+  test('decimalsForStep counts the digits a step needs', () {
+    expect(decimalsForStep(1), 0);
+    expect(decimalsForStep(25), 0);
+    expect(decimalsForStep(0.5), 1);
+    expect(decimalsForStep(0.1), 1);
+    expect(decimalsForStep(0.01), 2);
+    // A step that cannot be honoured formats as whole numbers rather than
+    // looping forever.
+    expect(decimalsForStep(0), 0);
+    expect(decimalsForStep(double.nan), 0);
+  });
 }

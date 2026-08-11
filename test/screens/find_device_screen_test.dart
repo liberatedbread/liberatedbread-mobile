@@ -75,6 +75,7 @@ final _findMeSpec = DeviceSpecDto(
             parameters: [],
             isFixed: true,
             isEncodable: true,
+            advanced: false,
           ),
         ],
         formatFields: [],
