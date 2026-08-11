@@ -1781,6 +1781,88 @@ commands:
       The one Crock-Pot write with no read-back: off takes no cook time with
       it, so this is sendable from a cold start.
 
+  # The two setup writes, declared here so a consumer that already renders
+  # commands can drive provisioning through the same machinery. Bound by no
+  # entity on purpose: these are not controls to draw on a device screen, they
+  # are steps of the device.setup conversation, and that block is where the
+  # sequencing, the timing rules and the passphrase encryption live. The
+  # argument-less setup reads (GetApList, GetNetworkStatus, CloseSetup,
+  # SetSetupDoneStatus) are catalogued in http_endpoints, same split as
+  # control.
+  setup_connect_home_network:
+    description: >
+      Hand the device its home network credentials, over its setup AP. One
+      step of the device.setup flow — which is also where the rule lives that
+      this is sent TWICE, about 100ms apart, and that the outcome comes from
+      polling GetNetworkStatus rather than from this reply.
+    transport: "soap"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    action: "ConnectHomeNetwork"
+    arguments:
+      ssid: "{ssid}"
+      auth: "{auth}"
+      password: "{password}"
+      encrypt: "{encrypt}"
+      channel: "{channel}"
+    parameters:
+      ssid:
+        type: "string"
+        required: true
+        description: "Target network SSID, exactly as GetApList reported it."
+      auth:
+        type: "string"
+        required: true
+        description: >
+          Auth mode from the chosen ApList entry, verbatim — the device
+          rejects vocabulary that is not its own. OPEN for an open network.
+      password:
+        type: "string"
+        required: true
+        description: >
+          The ENCRYPTED passphrase blob built per
+          device.setup.methods[].softap.credential_encryption — never the
+          plaintext. The empty string for an open network.
+      encrypt:
+        type: "string"
+        required: true
+        description: "Cipher from the ApList entry (AES, TKIPAES); NONE for open."
+      channel:
+        type: "integer"
+        required: true
+        description: "Channel from the ApList entry."
+    returns:
+      - name: "PairingStatus"
+        description: >
+          Acknowledgement that the request was accepted, not the join result.
+    verification: "reported"
+
+  setup_resetup:
+    description: >
+      Push a provisioned device back into setup mode over the LAN, without a
+      physical factory reset. See device.setup.rejoin for when this is the
+      right move and what state it leaves the device in on failure.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "ReSetup"
+    arguments:
+      Reset: "{reset}"
+    parameters:
+      reset:
+        type: "integer"
+        required: true
+        values:
+          "1": "clear personalized info (name, icon, rules)"
+          "2": "factory restore (everything, WiFi included)"
+          "5": "clear WiFi credentials only"
+        description: >
+          Scope of the reset. No default, deliberately: every value is
+          destructive to something, so a renderer reaching this parameter
+          without a value must fail rather than pick a scope.
+    returns:
+      - name: "Reset"
+        description: "'success', or 'reset_remote' on at least one device — both mean it worked."
+    verification: "reported"
+
 http_endpoints:
   - method: "GET"
     path: "/setup.xml"
@@ -1940,6 +2022,136 @@ http_endpoints:
         - name: "MetaInfo"
           type: "string"
           description: "Pipe-delimited; see the top-level payload_formats.MetaInfo."
+
+  # The argument-less setup reads. Only listed on the setup AP's serviceList
+  # (except SetSetupDoneStatus, which rides basicevent): resolve the real
+  # controlURL from setup.xml as always — the WiFiSetup path below is the
+  # conventional spelling and /upnp/control/wifi1 is also in the wild.
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "GetApList"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Ask the device for its own WiFi scan results. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#GetApList". Takes no arguments.
+      Setup-mode only; see device.setup for the conversation this opens.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "ApList"
+          type: "string"
+          description: >
+            Newline-separated scan results; the parse rules live in
+            device.setup.methods[].payload_formats.ApList (skip the first
+            line, split on '|', last column is AUTHMODE/CIPHER).
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "ConnectHomeNetwork"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Hand the device its home network credentials. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#ConnectHomeNetwork". Invoked by
+      the setup_connect_home_network command; argument semantics, the
+      send-twice rule and the passphrase encryption live in device.setup.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "ssid"
+          type: "string"
+          required: true
+          description: "Target network SSID, exactly as GetApList reported it."
+        - name: "auth"
+          type: "string"
+          required: true
+          description: "Auth mode from the ApList entry, e.g. WPA2PSK."
+        - name: "password"
+          type: "string"
+          required: true
+          description: "Encrypted passphrase blob; empty for an open network."
+        - name: "encrypt"
+          type: "string"
+          required: true
+          description: "Cipher from the ApList entry, e.g. AES."
+        - name: "channel"
+          type: "integer"
+          required: true
+          description: "Channel from the ApList entry."
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "PairingStatus"
+          type: "string"
+          description: "Acknowledgement only; poll GetNetworkStatus for the join result."
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "GetNetworkStatus"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Poll the join result after ConnectHomeNetwork. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#GetNetworkStatus". Takes no
+      arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "NetworkStatus"
+          type: "string"
+          description: >
+            0 = still connecting, 1 = connected, 2 = rejected (passphrase
+            under 8 characters; terminal), 3 = handshaking (usually becomes 1
+            within seconds).
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "CloseSetup"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Close setup mode so the device leaves its AP and joins the home
+      network. Required SOAPACTION header:
+      "urn:Belkin:service:WiFiSetup:1#CloseSetup". Takes no arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "status"
+          type: "string"
+          description: "'success' on a clean close."
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "SetSetupDoneStatus"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Mark provisioning finished, after a successful CloseSetup. Required
+      SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#SetSetupDoneStatus". Takes no
+      arguments. Absent on some firmware — treat a fault or a missing action
+      as non-fatal.
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "ReSetup"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Push a provisioned device back into setup mode over the LAN. Required
+      SOAPACTION header: "urn:Belkin:service:basicevent:1#ReSetup". Invoked
+      by the setup_resetup command; see device.setup.rejoin for the flow.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "Reset"
+          type: "integer"
+          required: true
+          enum: [1, 2, 5]
+          description: >
+            Scope: 1 clears name/icon/rules, 2 factory restores, 5 clears
+            WiFi credentials only.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "Reset"
+          type: "string"
+          description: "'success', or 'reset_remote' on at least one device."
 
   - method: "POST"
     path: "/upnp/control/timesync1"
