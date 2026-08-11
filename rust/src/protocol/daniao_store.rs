@@ -107,6 +107,43 @@ pub struct ImageLayer<'a> {
     pub rgb: &'a [u8],
 }
 
+/// A scrolling-text program: everything about the marquee except the glyphs.
+#[derive(Debug, Clone)]
+pub struct StoredText<'a> {
+    pub name: &'a str,
+    pub cid: u32,
+    pub time_secs: u32,
+    pub scroll: Scroll,
+    pub speed: u8,
+    pub text: TextContent<'a>,
+}
+
+/// A rendered text bitmap: one byte per pixel, `0` = off / `non-zero` = lit,
+/// row-major. The width is the text's full run — usually wider than the panel,
+/// which is what lets it scroll. The caller rasterises the string (font choice
+/// and layout are a UI concern); this only packs the pixels the vendor's
+/// `packageText` way.
+#[derive(Debug, Clone)]
+pub struct TextContent<'a> {
+    pub width: u32,
+    pub height: u32,
+    /// `width * height` bytes, row-major; each `0` (off) or non-zero (lit).
+    pub bits: &'a [u8],
+}
+
+/// A multi-frame animation: several equally-sized RGB screens the device plays
+/// in sequence. Stored in the vendor's raw "DNMX" `.eff` format, NOT the "DN"
+/// AMX microapp — a different container, played the same way (by cid).
+#[derive(Debug, Clone)]
+pub struct StoredAnimation<'a> {
+    pub name: &'a str,
+    pub cid: u32,
+    pub width: u32,
+    pub height: u32,
+    /// Each frame is row-major RGB888, `width * height * 3` bytes, in play order.
+    pub frames: &'a [&'a [u8]],
+}
+
 /// The largest palette the image layer's 4-bit indices can address.
 const MAX_PALETTE: usize = 16;
 
@@ -150,24 +187,258 @@ pub fn build_image_container(program: &StoredProgram<'_>) -> Result<Vec<u8>, Pro
     let text = package_text_blank(img.width, img.height);
     let image = package_image(img)?;
 
-    // Options block `nn`: a 10-byte header then one 51-byte options record per
-    // layer (text is index 1, image is index 2). Count is 2 whenever an image
-    // is present.
-    let text_opts = package_easy_options(program, 1, LayerType::Text);
-    let image_opts = package_easy_options(program, 2, LayerType::Image);
-    let count = 2u8;
-    let opts_payload_len = 2 + 51 * count as usize; // vendor's `2 + 51*(Q?2:1)`
-    let mut nn = Vec::with_capacity(10 + 51 * count as usize);
-    nn.extend_from_slice(&[0xFD, 0x0A, 0x00, 0x00]);
-    nn.push((opts_payload_len >> 8) as u8);
-    nn.push(opts_payload_len as u8);
-    nn.extend_from_slice(&[0x00, 0x00, 0x00, count]);
-    nn.extend_from_slice(&text_opts);
-    nn.extend_from_slice(&image_opts);
+    // Two records: text is layer index 1, image is index 2. Rainbow is off for
+    // an image (its palette supplies the colours).
+    let nn = options_block(&[
+        easy_options(
+            program.time_secs,
+            program.scroll,
+            program.speed,
+            1,
+            LayerType::Text,
+            false,
+            program.cid,
+        ),
+        easy_options(
+            program.time_secs,
+            program.scroll,
+            program.speed,
+            2,
+            LayerType::Image,
+            false,
+            program.cid,
+        ),
+    ]);
+    assemble_container(
+        program.name,
+        program.cid,
+        program.time_secs,
+        &nn,
+        &[&text, &image],
+    )
+}
 
+/// Build the "DN" AMX container for scrolling text — a 1-bit marquee.
+///
+/// The text bitmap is usually wider than the panel; the device scrolls it in
+/// the chosen direction, which is how the vendor's (and the captured "Fuuuck")
+/// marquee works. Colour is rainbow, matching the vendor default and the
+/// capture. This is the same container the image path builds, with a single
+/// real text layer and no image (the vendor's `Q`-falsy, `count = 1` case).
+pub fn build_text_container(program: &StoredText<'_>) -> Result<Vec<u8>, ProtocolError> {
+    let t = &program.text;
+    let expected = (t.width as usize)
+        .checked_mul(t.height as usize)
+        .ok_or_else(|| ProtocolError::ImageDimensionsInvalid {
+            reason: format!("{}x{} overflows the text bitmap size", t.width, t.height),
+        })?;
+    if expected == 0 {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!("{}x{} text bitmap has no pixels", t.width, t.height),
+        });
+    }
+    if t.bits.len() != expected {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!(
+                "expected {expected} bytes of 1-bit text for {}x{}, got {}",
+                t.width,
+                t.height,
+                t.bits.len()
+            ),
+        });
+    }
+    let text = package_text(t);
+    // count = 1: text only. Rainbow on (the marquee supplies no palette).
+    let nn = options_block(&[easy_options(
+        program.time_secs,
+        program.scroll,
+        program.speed,
+        1,
+        LayerType::Text,
+        true,
+        program.cid,
+    )]);
+    assemble_container(program.name, program.cid, program.time_secs, &nn, &[&text])
+}
+
+/// Build the raw "DNMX" `.eff` container for a multi-frame animation.
+///
+/// A port of the vendor H5 bundle's `startExec` + `encode` + `writeItemHeader`
+/// (the video/animation path), which is a DIFFERENT container from the "DN" AMX
+/// microapp above — raw column-major RGB frames rather than a palette-indexed
+/// program:
+///
+/// ```text
+///   [ 4096B "DNMX" header ][ 4096B "DNX2" item header ][ frame0 ][ frame1 ]…  → pad to 4096
+///    magic,w,h,frame_size,   magic,size,frames,w,h,      column-major RGB, one screen each
+///    cid,ts,name,descriptor  name
+/// ```
+///
+/// Each frame is `width*height*3` bytes, **column-major** (all rows of column 0,
+/// then column 1, …) — the vendor's `encode` traversal, and the same axis order
+/// its live doodle path uses. No compression (`rgbd = 0`), so the pixels are
+/// raw. Uploaded as `file_type: 0` with a `<cid>.eff` path (see
+/// [`super::stored_upload`]).
+///
+/// NOTE: unlike the "DN" builder, this format has no capture to byte-match — it
+/// is ported from the vendor code and its structure is asserted in tests, but
+/// the render wants hardware confirmation.
+pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, ProtocolError> {
+    let width = anim.width as usize;
+    let height = anim.height as usize;
+    let frame_px = width
+        .checked_mul(height)
+        .and_then(|px| px.checked_mul(3))
+        .ok_or_else(|| ProtocolError::ImageDimensionsInvalid {
+            reason: format!("{width}x{height} overflows the frame size"),
+        })?;
+    if frame_px == 0 {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!("{width}x{height} has no pixels"),
+        });
+    }
+    if anim.frames.is_empty() {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: "animation has no frames".to_string(),
+        });
+    }
+    for (i, frame) in anim.frames.iter().enumerate() {
+        if frame.len() != frame_px {
+            return Err(ProtocolError::ImageDimensionsInvalid {
+                reason: format!(
+                    "frame {i} is {} bytes, expected {frame_px} for {width}x{height}",
+                    frame.len()
+                ),
+            });
+        }
+    }
+    let frame_count = anim.frames.len();
+    if frame_count > u16::MAX as usize {
+        return Err(ProtocolError::ImageDimensionsInvalid {
+            reason: format!("{frame_count} frames exceeds the u16 frame count"),
+        });
+    }
+
+    // The vendor rounds each frame's byte length up to a multiple of 4 when not
+    // compressing; for a 3-byte-pixel canvas that only matters when width*height
+    // is not a multiple of 4.
+    let stride = frame_px.next_multiple_of(4);
+
+    // Both header blocks are 4096 bytes; the DNMX descriptor points at the DNX2
+    // block at offset 4096, and the frames follow at 8192.
+    let mut buf = vec![0u8; 8192];
+
+    // ── DNMX header (block 0) ──
+    buf[0..4].copy_from_slice(b"DNMX");
+    // [4] is 3 when a frame fits a u16 size field, 4 when it needs u32.
+    buf[4] = if stride > u16::MAX as usize { 4 } else { 3 };
+    buf[5] = 1;
+    write_u16_le(&mut buf, 6, anim.width as u16);
+    write_u16_le(&mut buf, 8, anim.height as u16);
+    write_u32_le(&mut buf, 10, frame_px as u32);
+    write_u32_le(&mut buf, 14, anim.cid);
+    // [18..22] timestamp — left 0; it is metadata the device does not key on,
+    // and a deterministic build is worth more than a clock read here.
+    write_name(&mut buf, 38, anim.name, 24);
+    buf[124] = 20;
+    // Item descriptor @128: offset of the DNX2 block, the (4-padded) frame size,
+    // the frame count, then the vendor's [0,0,1,_,_,0] trailer.
+    write_u32_le(&mut buf, 128, 4096);
+    if stride > u16::MAX as usize {
+        write_u32_le(&mut buf, 132, stride as u32);
+        write_u16_le(&mut buf, 136, frame_count as u16);
+        buf[138] = 0;
+        buf[139] = 0;
+        buf[140] = 1;
+    } else {
+        write_u16_le(&mut buf, 132, stride as u16);
+        write_u16_le(&mut buf, 134, frame_count as u16);
+        buf[136] = 0;
+        buf[137] = 0;
+        buf[138] = 1;
+    }
+
+    // ── DNX2 item header (block 1, at offset 4096) ──
+    let h = 4096;
+    buf[h..h + 4].copy_from_slice(b"DNX2");
+    buf[h + 4] = 3;
+    write_u32_le(&mut buf, h + 5, stride as u32);
+    write_u32_le(&mut buf, h + 9, frame_count as u32);
+    write_u16_le(&mut buf, h + 13, anim.width as u16);
+    write_u16_le(&mut buf, h + 15, anim.height as u16);
+    write_name(&mut buf, h + 56, anim.name, 32);
+    buf[h + 157] = 1;
+    buf[h + 158] = 20;
+
+    // ── Frames (from offset 8192), each column-major, padded to `stride` ──
+    for frame in anim.frames {
+        let mut out = vec![0u8; stride];
+        let mut o = 0;
+        for col in 0..width {
+            for row in 0..height {
+                let src = (row * width + col) * 3;
+                out[o] = frame[src];
+                out[o + 1] = frame[src + 1];
+                out[o + 2] = frame[src + 2];
+                o += 3;
+            }
+        }
+        buf.extend_from_slice(&out);
+    }
+
+    // Pad the whole container to a 4096-byte multiple.
+    let pad = buf.len().next_multiple_of(4096) - buf.len();
+    buf.extend(std::iter::repeat_n(0u8, pad));
+    Ok(buf)
+}
+
+/// Copy up to `max` bytes of `name` into `buf` at `at` (the vendor truncates the
+/// stored name to a fixed field).
+fn write_name(buf: &mut [u8], at: usize, name: &str, max: usize) {
+    let bytes = name.as_bytes();
+    let n = bytes.len().min(max);
+    buf[at..at + n].copy_from_slice(&bytes[..n]);
+}
+
+fn write_u16_le(buf: &mut [u8], at: usize, v: u16) {
+    buf[at..at + 2].copy_from_slice(&v.to_le_bytes());
+}
+
+fn write_u32_le(buf: &mut [u8], at: usize, v: u32) {
+    buf[at..at + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+/// The options block `nn`: a 10-byte header stating the record count and total
+/// options length, then the 51-byte `packageEasyOptions` records in order.
+fn options_block(records: &[[u8; 51]]) -> Vec<u8> {
+    let count = records.len();
+    let payload_len = 2 + 51 * count; // the vendor's `2 + 51*(Q?2:1)`
+    let mut nn = Vec::with_capacity(10 + 51 * count);
+    nn.extend_from_slice(&[0xFD, 0x0A, 0x00, 0x00]);
+    nn.push((payload_len >> 8) as u8);
+    nn.push(payload_len as u8);
+    nn.extend_from_slice(&[0x00, 0x00, 0x00, count as u8]);
+    for record in records {
+        nn.extend_from_slice(record);
+    }
+    nn
+}
+
+/// Lay down a finished "DN" AMX container: the 256-byte header (TinyProgram
+/// protobuf, cid, block count, CRC), then the base AMX, the options block and
+/// the data layers, padded to a 4096-byte multiple. Shared by every "DN"
+/// container (image, text, image+text).
+fn assemble_container(
+    name: &str,
+    cid: u32,
+    time_secs: u32,
+    nn: &[u8],
+    layers: &[&[u8]],
+) -> Result<Vec<u8>, ProtocolError> {
     let binsize = BASE_AMX.len();
-    let datasize = text.len() + image.len() + nn.len();
-    let frames = program.time_secs.saturating_mul(20);
+    let layers_len: usize = layers.iter().map(|l| l.len()).sum();
+    let datasize = nn.len() + layers_len;
+    let frames = time_secs.saturating_mul(20);
 
     // Total unpadded length, then round up to a 4096 multiple (the vendor's
     // `floor((un + 4095) / 4096)`).
@@ -180,28 +451,26 @@ pub fn build_image_container(program: &StoredProgram<'_>) -> Result<Vec<u8>, Pro
     }
     let total = cn * 4096;
 
-    // The 256-byte "DN" header: magic, version/pn constants, cid (LE), block
-    // count, a CRC8 slot filled last, and the TinyProgram protobuf at offset 10.
-    let tiny = encode_tiny_program(program, frames, binsize as u32, datasize as u32);
+    let tiny = encode_tiny_program(name, cid, frames, binsize as u32, datasize as u32);
     let mut buf = vec![0u8; total];
     buf[0] = b'D';
     buf[1] = b'N';
     buf[2] = 1; // nr
     buf[3] = 254; // pn
-    buf[4..8].copy_from_slice(&program.cid.to_le_bytes());
+    buf[4..8].copy_from_slice(&cid.to_le_bytes());
     buf[8] = cn as u8;
     // buf[9] is the header CRC, filled after the body is laid down.
     buf[10..10 + tiny.len()].copy_from_slice(&tiny);
 
-    // Body, in layout order after the 256-byte header.
     let mut off = 256;
     buf[off..off + binsize].copy_from_slice(BASE_AMX);
     off += binsize;
-    buf[off..off + nn.len()].copy_from_slice(&nn);
+    buf[off..off + nn.len()].copy_from_slice(nn);
     off += nn.len();
-    buf[off..off + text.len()].copy_from_slice(&text);
-    off += text.len();
-    buf[off..off + image.len()].copy_from_slice(&image);
+    for layer in layers {
+        buf[off..off + layer.len()].copy_from_slice(layer);
+        off += layer.len();
+    }
 
     // Header CRC8 covers everything from offset 10 to the end, padding included.
     buf[9] = crc8(&buf[10..]);
@@ -212,19 +481,14 @@ pub fn build_image_container(program: &StoredProgram<'_>) -> Result<Vec<u8>, Pro
 /// fields the vendor object carries (including set-but-zero scalars, which
 /// protobufjs writes because the property is present). Field order follows the
 /// proto declaration; empty repeated fields (caplist, authlist) are omitted.
-fn encode_tiny_program(
-    program: &StoredProgram<'_>,
-    frames: u32,
-    binsize: u32,
-    datasize: u32,
-) -> Vec<u8> {
+fn encode_tiny_program(name: &str, cid: u32, frames: u32, binsize: u32, datasize: u32) -> Vec<u8> {
     let mut b = Vec::new();
     pb_varint(&mut b, 1, 0); // version
-    pb_bytes(&mut b, 2, program.name.as_bytes()); // name
-    pb_bytes(&mut b, 3, program.name.as_bytes()); // description (== name)
+    pb_bytes(&mut b, 2, name.as_bytes()); // name
+    pb_bytes(&mut b, 3, name.as_bytes()); // description (== name)
     pb_bytes(&mut b, 4, b""); // tags (empty string, still written)
     pb_varint(&mut b, 5, 1); // apptype = 1 (image-text microapp)
-    pb_varint(&mut b, 6, program.cid as u64); // cid
+    pb_varint(&mut b, 6, cid as u64); // cid
     pb_varint(&mut b, 7, frames as u64); // frames = time * 20
     pb_varint(&mut b, 8, binsize as u64); // binsize = base AMX length
     pb_varint(&mut b, 9, datasize as u64); // datasize = nn + text + image
@@ -250,6 +514,40 @@ fn package_text_blank(width: u32, height: u32) -> Vec<u8> {
     out.push(1); // type index
     out.push(bytes_per_row as u8);
     out.resize(8 + data_len, 0); // all pixels off
+    out
+}
+
+/// A real 1-bit text layer from a rendered bitmap (`packageText`).
+///
+/// Header `[253, 1, height, width, len_hi, len_lo, type=1, bytes_per_row]` then,
+/// per row, `bytes_per_row` bytes with each pixel packed LSB-first (column `c`
+/// sets bit `c % 8` of byte `c / 8`) — the vendor's bit order.
+fn package_text(t: &TextContent<'_>) -> Vec<u8> {
+    let width = t.width as usize;
+    let height = t.height as usize;
+    let bytes_per_row = t.width.div_ceil(8) as usize;
+    let mut out = Vec::with_capacity(8 + bytes_per_row * height);
+    out.push(253);
+    out.push(1);
+    out.push(t.height as u8);
+    out.push(t.width as u8);
+    let data_len = bytes_per_row * height;
+    out.push((data_len >> 8) as u8);
+    out.push(data_len as u8);
+    out.push(1); // type index
+    out.push(bytes_per_row as u8);
+    for row in 0..height {
+        for byte_col in 0..bytes_per_row {
+            let mut byte = 0u8;
+            for bit in 0..8 {
+                let col = byte_col * 8 + bit;
+                if col < width && t.bits[row * width + col] != 0 {
+                    byte |= 1 << bit;
+                }
+            }
+            out.push(byte);
+        }
+    }
     out
 }
 
@@ -339,23 +637,30 @@ impl LayerType {
 /// `[13]=rainbow?0:1`. For the image layer, `[42..46]=cid`, `[46..50]=slot`,
 /// `[50]=transparency`. Everything else is zero.
 ///
-/// The move code lands only on layer 1, matching the vendor: the two layers
-/// scroll together, driven by the first record's direction.
-fn package_easy_options(program: &StoredProgram<'_>, index: u8, layer: LayerType) -> [u8; 51] {
+/// The move code lands only on layer 1, matching the vendor: the layers scroll
+/// together, driven by the first record's direction. `rainbow` off writes the
+/// [13]=1 byte the image path uses (its palette supplies colour); on ([13]=0)
+/// is the marquee default.
+#[allow(clippy::too_many_arguments)]
+fn easy_options(
+    time_secs: u32,
+    scroll: Scroll,
+    speed: u8,
+    index: u8,
+    layer: LayerType,
+    rainbow: bool,
+    cid: u32,
+) -> [u8; 51] {
     let mut o = [0u8; 51];
-    o[4..8].copy_from_slice(&program.time_secs.to_le_bytes());
+    o[4..8].copy_from_slice(&time_secs.to_le_bytes());
     o[8] = layer.type_byte();
     o[9] = index;
-    o[10] = if index == 1 {
-        program.scroll.move_code()
-    } else {
-        0
-    };
+    o[10] = if index == 1 { scroll.move_code() } else { 0 };
     o[11] = 0; // dir
-    o[12] = program.speed;
-    o[13] = 1; // rainbow off (fixed palette); the picture supplies its own colours
+    o[12] = speed;
+    o[13] = if rainbow { 0 } else { 1 };
     if matches!(layer, LayerType::Image) {
-        o[42..46].copy_from_slice(&program.cid.to_le_bytes());
+        o[42..46].copy_from_slice(&cid.to_le_bytes());
         o[46..50].copy_from_slice(&0u32.to_le_bytes()); // slot
         o[50] = 0; // transparency
     }
@@ -425,7 +730,7 @@ mod tests {
                 rgb: &red_2x2(),
             },
         };
-        let tiny = encode_tiny_program(&program, 1200, 180, 141);
+        let tiny = encode_tiny_program(program.name, program.cid, 1200, 180, 141);
         let want = hex(
             "08 00 12 06 46 75 75 75 63 6b 1a 06 46 75 75 75 63 6b 22 00 28 01 \
              30 a0 e9 04 38 b0 09 40 b4 01 48 8d 01 52 02 08 00 62 01 00 68 00",
@@ -437,32 +742,153 @@ mod tests {
     }
 
     #[test]
-    fn options_header_and_text_record_match_the_capture() {
-        // The capture's options block (frame 5684, offset 436): a 10-byte
-        // header for a single-record (count=1) payload, then the text record
-        // with time=60 (0x3c), move=LEFT (3), speed=5, rainbow. We emit two
-        // records for an image; assert the SHARED shape — header framing and
-        // the text record's first bytes — against the capture.
-        let program = StoredProgram {
-            name: "Fuuuck",
-            cid: 79008,
-            time_secs: 60,
-            scroll: Scroll::Left,
-            speed: 5,
-            image: ImageLayer {
-                width: 2,
-                height: 2,
-                rgb: &red_2x2(),
-            },
-        };
-        let text = package_easy_options(&program, 1, LayerType::Text);
-        // Captured text record: 00000000 3c000000 00 01 03 00 05 00 ...
+    fn text_record_and_options_header_match_the_capture() {
+        // The capture's options block (frame 5684, offset 436) was a text-only
+        // microapp: a 10-byte header for a single record (count=1), then the
+        // text record with time=60 (0x3c), move=LEFT (3), speed=5, rainbow on.
+        // build_text_container reproduces exactly this shape, so byte-match the
+        // whole nn block against the capture.
+        let text = easy_options(60, Scroll::Left, 5, 1, LayerType::Text, true, 79008);
         assert_eq!(&text[0..4], &[0, 0, 0, 0]);
         assert_eq!(&text[4..8], &60u32.to_le_bytes());
         assert_eq!(text[8], 0, "text layer type byte");
         assert_eq!(text[9], 1, "layer index");
         assert_eq!(text[10], 3, "move code LEFT");
         assert_eq!(text[12], 5, "speed");
+        assert_eq!(text[13], 0, "rainbow on");
+
+        // The full options block for one text record, byte-for-byte from the
+        // capture: fd 0a 00 00 00 35 00 00 00 01 then the 51-byte record.
+        let nn = options_block(&[text]);
+        assert_eq!(&nn[0..10], &[0xFD, 0x0A, 0, 0, 0x00, 0x35, 0, 0, 0, 1]);
+        assert_eq!(nn.len(), 61);
+    }
+
+    #[test]
+    fn text_layer_packs_bits_lsb_first() {
+        // A 10x1 marquee: pixels 0 and 9 lit. Row byte 0 has bit 0 set (col 0);
+        // byte 1 has bit 1 set (col 9 -> 9%8=1).
+        let bits: Vec<u8> = (0..10).map(|c| u8::from(c == 0 || c == 9)).collect();
+        let layer = package_text(&TextContent {
+            width: 10,
+            height: 1,
+            bits: &bits,
+        });
+        assert_eq!(&layer[0..4], &[253, 1, 1, 10], "header h/w");
+        assert_eq!(layer[6], 1, "text type byte");
+        assert_eq!(layer[7], 2, "bytes per row = ceil(10/8)");
+        assert_eq!(&layer[8..10], &[0b0000_0001, 0b0000_0010]);
+    }
+
+    #[test]
+    fn text_container_is_a_valid_single_layer_dn_blob() {
+        let bits = vec![1u8; 48 * 12];
+        let buf = build_text_container(&StoredText {
+            name: "hello",
+            cid: 900002,
+            time_secs: 8,
+            scroll: Scroll::Left,
+            speed: 4,
+            text: TextContent {
+                width: 48,
+                height: 12,
+                bits: &bits,
+            },
+        })
+        .unwrap();
+        assert_eq!(buf.len() % 4096, 0);
+        assert_eq!(&buf[0..2], b"DN");
+        assert_eq!(&buf[4..8], &900002u32.to_le_bytes());
+        assert_eq!(buf[9], crc8(&buf[10..]));
+        assert_eq!(&buf[256..256 + BASE_AMX.len()], BASE_AMX);
+        // Single text record: nn count byte is 1.
+        assert_eq!(buf[256 + BASE_AMX.len() + 9], 1, "one options record");
+    }
+
+    #[test]
+    fn animation_container_has_dnmx_and_dnx2_headers_and_column_major_frames() {
+        // Two 2x2 frames: frame 0 = red top row / green bottom row (row-major),
+        // frame 1 all blue. Column-major means the wire order visits rows within
+        // a column, so frame 0 becomes R,G (col 0) then R,G (col 1).
+        let f0: Vec<u8> = vec![
+            0xFF, 0, 0, 0xFF, 0, 0, // row 0: red, red
+            0, 0xFF, 0, 0, 0xFF, 0, // row 1: green, green
+        ];
+        let f1 = vec![0u8, 0, 0xFF].repeat(4);
+        let frames: Vec<&[u8]> = vec![&f0, &f1];
+        let buf = build_animation_container(&StoredAnimation {
+            name: "anim",
+            cid: 900003,
+            width: 2,
+            height: 2,
+            frames: &frames,
+        })
+        .unwrap();
+
+        assert_eq!(buf.len() % 4096, 0);
+        assert_eq!(&buf[0..4], b"DNMX");
+        assert_eq!(buf[4], 3, "frame fits a u16 size field");
+        assert_eq!(&buf[6..8], &2u16.to_le_bytes(), "width");
+        assert_eq!(&buf[8..10], &2u16.to_le_bytes(), "height");
+        assert_eq!(&buf[10..14], &12u32.to_le_bytes(), "frame byte size");
+        assert_eq!(&buf[14..18], &900003u32.to_le_bytes(), "cid");
+        // Item descriptor: DNX2 lives at offset 4096, 2 frames.
+        assert_eq!(&buf[128..132], &4096u32.to_le_bytes());
+        assert_eq!(&buf[132..134], &12u16.to_le_bytes(), "padded frame size");
+        assert_eq!(&buf[134..136], &2u16.to_le_bytes(), "frame count");
+
+        // DNX2 item header at 4096.
+        assert_eq!(&buf[4096..4100], b"DNX2");
+        assert_eq!(&buf[4096 + 9..4096 + 13], &2u32.to_le_bytes(), "frames");
+
+        // Frame 0 begins at 8192, column-major: col0 rows -> red, green.
+        let frame0 = &buf[8192..8192 + 12];
+        assert_eq!(&frame0[0..3], &[0xFF, 0, 0], "col0 row0 = red");
+        assert_eq!(&frame0[3..6], &[0, 0xFF, 0], "col0 row1 = green");
+        assert_eq!(&frame0[6..9], &[0xFF, 0, 0], "col1 row0 = red");
+        assert_eq!(&frame0[9..12], &[0, 0xFF, 0], "col1 row1 = green");
+        // Frame 1 (all blue) follows.
+        assert_eq!(&buf[8204..8207], &[0, 0, 0xFF]);
+    }
+
+    #[test]
+    fn animation_rejects_empty_and_mismatched_frames() {
+        assert!(build_animation_container(&StoredAnimation {
+            name: "x",
+            cid: 1,
+            width: 2,
+            height: 2,
+            frames: &[],
+        })
+        .is_err());
+
+        let short = vec![0u8; 3];
+        let frames: Vec<&[u8]> = vec![&short];
+        assert!(build_animation_container(&StoredAnimation {
+            name: "x",
+            cid: 1,
+            width: 2,
+            height: 2,
+            frames: &frames,
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn text_bitmap_wrong_length_is_rejected() {
+        assert!(build_text_container(&StoredText {
+            name: "x",
+            cid: 1,
+            time_secs: 1,
+            scroll: Scroll::None,
+            speed: 1,
+            text: TextContent {
+                width: 8,
+                height: 2,
+                bits: &[1, 2, 3],
+            },
+        })
+        .is_err());
     }
 
     #[test]

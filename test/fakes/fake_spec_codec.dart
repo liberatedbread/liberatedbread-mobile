@@ -343,16 +343,75 @@ class FakeSpecCodec implements SpecCodec {
       speed: speed,
     ));
     if (encodeStoredError != null) throw encodeStoredError!;
-    return storedPlan ??
-        StoredUploadPlanDto(
-          serviceUuid: 'srv',
-          uploadWrites: [
-            ImageWriteDto(
-                characteristicUuid: 'uploader', bytes: Uint8List.fromList(rgb)),
-          ],
-          playWrite: ImageWriteDto(
-              characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [1])),
-          cid: cid,
-        );
+    return storedPlan ?? _defaultStoredPlan(cid, rgb);
   }
+
+  /// Every [encodeStoredText] call, in order.
+  final List<
+      ({
+        String name,
+        int cid,
+        int textWidth,
+        int textHeight,
+        String scroll
+      })> encodeTextCalls = [];
+
+  /// Every [encodeStoredAnimation] call, in order.
+  final List<({String name, int cid, int width, int height, int frameCount})>
+      encodeAnimationCalls = [];
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredText({
+    required String specYaml,
+    required int textWidth,
+    required int textHeight,
+    required List<int> bits,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) async {
+    encodeTextCalls.add((
+      name: name,
+      cid: cid,
+      textWidth: textWidth,
+      textHeight: textHeight,
+      scroll: scroll,
+    ));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return storedPlan ?? _defaultStoredPlan(cid, bits);
+  }
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required String name,
+    required int cid,
+  }) async {
+    encodeAnimationCalls.add((
+      name: name,
+      cid: cid,
+      width: width,
+      height: height,
+      frameCount: frames.length,
+    ));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return storedPlan ?? _defaultStoredPlan(cid, const [7]);
+  }
+
+  StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
+      StoredUploadPlanDto(
+        serviceUuid: 'srv',
+        uploadWrites: [
+          ImageWriteDto(
+              characteristicUuid: 'uploader', bytes: Uint8List.fromList(body)),
+        ],
+        playWrite: ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [1])),
+        cid: cid,
+      );
 }

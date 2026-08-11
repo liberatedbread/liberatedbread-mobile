@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -652,26 +653,27 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// container. Mirrors [ImageUploadDto.encodable] for the live path.
   bool get _canStore => widget.storedUpload?.encodable ?? false;
 
-  /// Persist the current frame on the device so it plays after disconnect.
+  /// Persist content on the device so it plays after disconnect.
   ///
-  /// Prompts for a name and scroll, encodes the "DN" container + uploader
-  /// transport in Rust, streams the uploader writes, then plays the stored item
-  /// by its id. A single picture — the frame currently shown — is stored;
-  /// on-device "animation" is the scroll of that picture (the vendor's model).
+  /// The dialog picks the kind — a still/scrolling picture (the current frame),
+  /// a scrolling-text marquee, or the whole frame sequence as an animation. Each
+  /// encodes its own container + uploader transport in Rust; the writes then
+  /// stream to the device, which plays the stored item by its id.
   Future<void> _saveToDevice() async {
     final options = await showDialog<_StoredSaveOptions>(
       context: context,
-      builder: (_) => const _StoredSaveDialog(),
+      builder: (_) => _StoredSaveDialog(frameCount: _frames.length),
     );
     if (options == null || !mounted) return;
 
-    // Snapshot the frame BY COPY and its geometry now: the encode + writes run
-    // across awaits and the paint gesture stays live, so aliasing the buffer
-    // would let a mid-save edit leak into what gets stored.
-    final rgb = Uint8List.fromList(_frames[_current]);
+    // Snapshot geometry + pixels BY COPY now: the encode + writes run across
+    // awaits and the paint gesture stays live, so aliasing a buffer would let a
+    // mid-save edit leak into what gets stored.
     final width = _width;
     final height = _height;
     final specYaml = widget.specYaml;
+    final currentFrame = Uint8List.fromList(_frames[_current]);
+    final allFrames = _frames.map(List<int>.from).toList();
 
     setState(() {
       _saving = true;
@@ -683,20 +685,49 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       // A novel, app-chosen id in a high band, unlikely to collide with the
       // device's catalogue effects (hardware accepts ids it has never seen).
       final cid = 900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
-      final plan = await codec.encodeStoredImage(
-        specYaml: specYaml,
-        width: width,
-        height: height,
-        rgb: rgb,
-        name: options.name,
-        cid: cid,
-        timeSecs: options.timeSecs,
-        scroll: options.scroll,
-        speed: options.speed,
-      );
-      Log.ble
-          .info('storing "${options.name}" (cid $cid) to ${widget.deviceId}: '
-              '${plan.uploadWrites.length} uploader writes');
+
+      final StoredUploadPlanDto plan;
+      switch (options.kind) {
+        case _StoredKind.picture:
+          plan = await codec.encodeStoredImage(
+            specYaml: specYaml,
+            width: width,
+            height: height,
+            rgb: currentFrame,
+            name: options.name,
+            cid: cid,
+            timeSecs: 10,
+            scroll: options.scroll,
+            speed: 5,
+          );
+        case _StoredKind.text:
+          // Rasterise the text at the panel's height; the bitmap is wider than
+          // the panel, which is what scrolls.
+          final raster = await _rasterizeText(options.text, height);
+          plan = await codec.encodeStoredText(
+            specYaml: specYaml,
+            textWidth: raster.width,
+            textHeight: raster.height,
+            bits: raster.bits,
+            name: options.name,
+            cid: cid,
+            timeSecs: 10,
+            scroll: options.scroll == 'none' ? 'left' : options.scroll,
+            speed: 5,
+          );
+        case _StoredKind.animation:
+          plan = await codec.encodeStoredAnimation(
+            specYaml: specYaml,
+            width: width,
+            height: height,
+            frames: allFrames,
+            name: options.name,
+            cid: cid,
+          );
+      }
+
+      Log.ble.info('storing "${options.name}" (${options.kind.name}, cid $cid) '
+          'to ${widget.deviceId}: ${plan.uploadWrites.length} uploader writes');
       for (final write in plan.uploadWrites) {
         await ble.writeCharacteristic(
           widget.deviceId,
@@ -725,13 +756,52 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       if (mounted) {
         setState(() => _error = friendlyErrorText(
               e,
-              context: 'store image on ${widget.deviceId}',
-              fallback: 'Could not save the image to the device.',
+              context: 'store content on ${widget.deviceId}',
+              fallback: 'Could not save to the device.',
             ));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// Rasterise [text] to a 1-bit bitmap [height] pixels tall: white glyphs on
+  /// black, thresholded to one byte per pixel (`1` lit / `0` off), row-major.
+  /// The width is the laid-out text run, so it is usually wider than the panel
+  /// — which is what lets the marquee scroll.
+  Future<({int width, int height, Uint8List bits})> _rasterizeText(
+    String text,
+    int height,
+  ) async {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontSize: height.toDouble(),
+          height: 1.0,
+          color: const Color(0xFFFFFFFF),
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final width = painter.width.ceil().clamp(1, 4096);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+      Paint()..color = const Color(0xFF000000),
+    );
+    painter.paint(canvas, Offset.zero);
+    final image = await recorder.endRecording().toImage(width, height);
+    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+    final rgba = data!.buffer.asUint8List();
+    final bits = Uint8List(width * height);
+    for (var i = 0; i < width * height; i++) {
+      // Lit where the glyph painted brightly over the black ground.
+      final sum = rgba[i * 4] + rgba[i * 4 + 1] + rgba[i * 4 + 2];
+      bits[i] = sum > 240 ? 1 : 0;
+    }
+    return (width: width, height: height, bits: bits);
   }
 
   @override
@@ -957,27 +1027,38 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 }
 
 /// What the user chose in the "Save to device" dialog.
+/// What kind of content to persist on the device.
+enum _StoredKind { picture, text, animation }
+
 class _StoredSaveOptions {
+  final _StoredKind kind;
   final String name;
+
+  /// FFI scroll vocabulary (`none`/`left`/`right`/`up`/`down`). Ignored for
+  /// [_StoredKind.animation].
   final String scroll;
-  final int speed;
-  final int timeSecs;
+
+  /// The marquee string, for [_StoredKind.text].
+  final String text;
 
   const _StoredSaveOptions({
+    required this.kind,
     required this.name,
     required this.scroll,
-    required this.speed,
-    required this.timeSecs,
+    required this.text,
   });
 }
 
-/// Collects a name and scroll direction for a device-stored microapp.
+/// Collects the kind, name, and per-kind details for a device-stored item.
 ///
-/// Scroll is the device's only "animation" for a stored still: none shows the
-/// picture in place, a direction scrolls it. Speed and duration keep sensible
-/// defaults rather than crowding the dialog.
+/// - Picture: the current frame, shown in place or scrolling.
+/// - Text: a scrolling marquee of the entered string.
+/// - Animation: the whole frame sequence, played on the device (only offered
+///   when there is more than one frame).
 class _StoredSaveDialog extends StatefulWidget {
-  const _StoredSaveDialog();
+  final int frameCount;
+
+  const _StoredSaveDialog({required this.frameCount});
 
   @override
   State<_StoredSaveDialog> createState() => _StoredSaveDialogState();
@@ -985,7 +1066,8 @@ class _StoredSaveDialog extends StatefulWidget {
 
 class _StoredSaveDialogState extends State<_StoredSaveDialog> {
   final _nameController = TextEditingController(text: 'My design');
-  // Values match the Rust FFI's `scroll` vocabulary.
+  final _textController = TextEditingController(text: 'Hello');
+  _StoredKind _kind = _StoredKind.picture;
   String _scroll = 'none';
 
   static const _scrollLabels = {
@@ -999,11 +1081,14 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
   @override
   void dispose() {
     _nameController.dispose();
+    _textController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final canAnimate = widget.frameCount > 1;
+    final showScroll = _kind != _StoredKind.animation;
     return AlertDialog(
       title: const Text('Save to device'),
       content: Column(
@@ -1011,8 +1096,28 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Store this frame on the device so it plays on its own, even after '
-            'you disconnect.',
+            'Store this on the device so it plays on its own, even after you '
+            'disconnect.',
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<_StoredKind>(
+            segments: [
+              const ButtonSegment(
+                value: _StoredKind.picture,
+                label: Text('Picture'),
+              ),
+              const ButtonSegment(
+                value: _StoredKind.text,
+                label: Text('Text'),
+              ),
+              ButtonSegment(
+                value: _StoredKind.animation,
+                label: const Text('Animation'),
+                enabled: canAnimate,
+              ),
+            ],
+            selected: {_kind},
+            onSelectionChanged: (s) => setState(() => _kind = s.first),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1022,23 +1127,38 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
               border: OutlineInputBorder(),
               isDense: true,
             ),
-            textInputAction: TextInputAction.done,
+            textInputAction: TextInputAction.next,
           ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            key: const Key('stored-scroll-dropdown'),
-            initialValue: _scroll,
-            decoration: const InputDecoration(
-              labelText: 'Motion',
-              border: OutlineInputBorder(),
-              isDense: true,
+          if (_kind == _StoredKind.text) ...[
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('stored-text-field'),
+              controller: _textController,
+              decoration: const InputDecoration(
+                labelText: 'Text to scroll',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              textInputAction: TextInputAction.done,
             ),
-            items: [
-              for (final entry in _scrollLabels.entries)
-                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
-            ],
-            onChanged: (v) => setState(() => _scroll = v ?? 'none'),
-          ),
+          ],
+          if (showScroll) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              key: const Key('stored-scroll-dropdown'),
+              initialValue: _scroll,
+              decoration: const InputDecoration(
+                labelText: 'Motion',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                for (final entry in _scrollLabels.entries)
+                  DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              ],
+              onChanged: (v) => setState(() => _scroll = v ?? 'none'),
+            ),
+          ],
         ],
       ),
       actions: [
@@ -1049,12 +1169,14 @@ class _StoredSaveDialogState extends State<_StoredSaveDialog> {
         FilledButton(
           onPressed: () {
             final name = _nameController.text.trim();
+            final text = _textController.text.trim();
+            // Text with nothing typed has nothing to store; keep the dialog open.
+            if (_kind == _StoredKind.text && text.isEmpty) return;
             Navigator.of(context).pop(_StoredSaveOptions(
+              kind: _kind,
               name: name.isEmpty ? 'My design' : name,
               scroll: _scroll,
-              // Sensible defaults: a mid slider speed and a 10s run.
-              speed: 5,
-              timeSecs: 10,
+              text: text,
             ));
           },
           child: const Text('Save'),

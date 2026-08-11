@@ -365,6 +365,77 @@ void main() {
       ]);
     });
 
+    testWidgets('the Text kind reveals a text field and blocks an empty save',
+        (tester) async {
+      // The full text flow rasterises via the engine (Picture.toImage), which
+      // does not run headless; the encode itself is covered by the Rust
+      // byte-match tests. Here we assert the dialog wiring.
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: FakeBleService(),
+        codec: FakeSpecCodec(),
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      // Picture is the default kind — no text field yet.
+      expect(find.byKey(const Key('stored-text-field')), findsNothing);
+
+      await tester.tap(find.text('Text'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stored-text-field')), findsOneWidget);
+
+      // Empty text keeps the dialog open (nothing to store).
+      await tester.enterText(find.byKey(const Key('stored-text-field')), '');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stored-text-field')), findsOneWidget,
+          reason: 'dialog stays open on empty text');
+    });
+
+    testWidgets(
+        'saving an animation sends every frame via encodeStoredAnimation',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      // Enter animation mode and add a frame so there are two.
+      await _scrollAndTap(tester, find.text('Animation'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.byTooltip('Add frame'));
+      await tester.pump();
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+
+      // The Animation kind is now selectable.
+      await tester.tap(find.text('Animation').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(codec.encodeAnimationCalls, hasLength(1));
+      final call = codec.encodeAnimationCalls.single;
+      expect(call.frameCount, 2, reason: 'both frames stored');
+      expect(call.width, 4);
+      expect(ble.writes, isNotEmpty);
+    });
+
     testWidgets('a failed save surfaces an error and re-enables the button',
         (tester) async {
       final codec = FakeSpecCodec(encodeStoredError: StateError('boom'));

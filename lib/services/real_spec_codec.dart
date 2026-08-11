@@ -184,4 +184,46 @@ class RealSpecCodec implements SpecCodec {
         scroll: scroll,
         speed: speed,
       );
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredText({
+    required String specYaml,
+    required int textWidth,
+    required int textHeight,
+    required List<int> bits,
+    required String name,
+    required int cid,
+    required int timeSecs,
+    required String scroll,
+    required int speed,
+  }) =>
+      rust.encodeStoredText(
+        specYaml: specYaml,
+        textWidth: textWidth,
+        textHeight: textHeight,
+        bits: bits,
+        name: name,
+        cid: cid,
+        timeSecs: timeSecs,
+        scroll: scroll,
+        speed: speed,
+      );
+
+  @override
+  Future<StoredUploadPlanDto> encodeStoredAnimation({
+    required String specYaml,
+    required int width,
+    required int height,
+    required List<List<int>> frames,
+    required String name,
+    required int cid,
+  }) =>
+      rust.encodeStoredAnimation(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        frames: frames.map(Uint8List.fromList).toList(),
+        name: name,
+        cid: cid,
+      );
 }
