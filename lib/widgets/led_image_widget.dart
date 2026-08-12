@@ -1083,8 +1083,14 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   }
 
   /// Set and start the looping playlist for [cids]/[slots]: `set_playlist` +
-  /// `set_mode_loop`, then play the first frame to kick it off (setting the
-  /// playlist alone does not start it). Shared by save and replay.
+  /// `set_mode_loop`, then `play_next` to start cycling. Shared by save and
+  /// replay.
+  ///
+  /// The start step is `play_next`, NOT a single play: the vendor drives the
+  /// playlist with M_PLAY_NEXT (verified in smartdawn_longer2 — set-playlist is
+  /// followed by play_next, never play_effect). Playing one effect instead pins
+  /// the panel to that single frame in single-play mode, so it only starts
+  /// cycling once the app disconnects — the bug this replaces.
   Future<void> _playAnimationPlaylist({
     required String specYaml,
     required String serviceUuid,
@@ -1104,12 +1110,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       await ble.writeCharacteristic(
           widget.deviceId, playlist.serviceUuid, w.characteristicUuid, w.bytes);
     }
-    // Kick the loop off: set_playlist + loop mode alone do not start it, but
-    // playing the first frame does, and loop mode then advances the rest.
-    final start = await codec.encodeStoredPlay(
-        specYaml: specYaml, cid: cids.first, sequence: _nextSequence());
-    await ble.writeCharacteristic(widget.deviceId, start.serviceUuid,
-        start.write.characteristicUuid, start.write.bytes);
+    // Start the loop the way the vendor does: advance into the playlist with
+    // play_next (the device then keeps cycling on its own timer).
+    await _sendFramedCommand(specYaml, serviceUuid, writeUuid, 'play_next');
   }
 
   /// Resolves `true` once the device confirms the stored upload committed,
