@@ -5,8 +5,9 @@
 
 > "We didn't reverse engineer it, we... liberated its documentation." -- Every RE engineer, probably
 
-The **knowledge base** for reverse-engineered IoT device protocols. This is where we document
-how abandoned IoT devices actually communicate, so we can keep them alive.
+The **knowledge base** for reverse-engineered IoT device protocols — how
+locally-controllable **BLE** and **Wi-Fi/LAN** devices actually communicate
+(discovery, control and provisioning), so we can keep abandoned hardware alive.
 
 Part of the [OpenGreenIoT](https://github.com/PigsCanFlyLabs/opengreeniot) project by
 [Pigs Can Fly Labs LLC](https://pigscanfly.ca).
@@ -82,7 +83,7 @@ mkdocs build --strict
 
 - [opengreeniot](https://github.com/PigsCanFlyLabs/opengreeniot) - Project coordination
 - [opengreeniot-website](https://github.com/PigsCanFlyLabs/opengreeniot-website) - Website & docs
-- [opengreeniot-mobile](https://github.com/PigsCanFlyLabs/opengreeniot-mobile) - Flutter BLE app
+- [opengreeniot-mobile](https://github.com/PigsCanFlyLabs/opengreeniot-mobile) - Flutter BLE + Wi-Fi app
 - [opengreeniot-hub](https://github.com/PigsCanFlyLabs/opengreeniot-hub) - Home Assistant integration
 
 ## License
