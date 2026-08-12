@@ -1,29 +1,16 @@
-## Summary
+## What does this PR do?
 
-<!-- Brief description of what this PR does -->
+## Related Issue
 
-## Changes
+## Type of Change
 
-<!-- Bullet list of changes -->
+- [ ] Documentation update
+- [ ] New device documentation
+- [ ] Tool/script addition
+- [ ] Bug fix
 
--
+## Checklist
 
-## Testing
-
-<!-- How did you test these changes? -->
-
-- [ ] Unit tests pass (`flutter test`)
-- [ ] Lint passes (`flutter analyze --fatal-infos`)
-- [ ] Code is formatted (`dart format .`)
-- [ ] Rust tests pass (`cd rust && cargo test`)
-- [ ] Rust lint passes (`cd rust && cargo clippy --all-targets --all-features -- -D warnings`)
-- [ ] Tested on Android
-- [ ] Tested on iOS
-
-## Related Issues
-
-<!-- Link any related issues: Fixes #123, Relates to #456 -->
-
-## Screenshots
-
-<!-- If applicable, add screenshots -->
+- [ ] Docs build without errors (`mkdocs build --strict`)
+- [ ] Device docs follow the template format
+- [ ] I've credited prior research I'm building on
