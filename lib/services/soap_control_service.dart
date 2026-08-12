@@ -67,14 +67,17 @@ class SoapControlClient {
         .timeout(timeout);
   }
 
-  /// Fetch and parse `http://host:port/setup.xml`.
+  /// Fetch and parse the device's UPnP description.
   ///
   /// The description is the device's own statement of where its services
   /// live. Control paths are resolved from it rather than hardcoded because
   /// the published spellings vary across firmware generations — the one rule
-  /// the spec repeats more than any other.
-  Future<SoapDeviceDescription> fetchDescription(String host, int port) async {
-    final uri = Uri(scheme: 'http', host: host, port: port, path: '/setup.xml');
+  /// the spec repeats more than any other. Its own path comes from the SSDP
+  /// LOCATION the device advertised ([path]); `/setup.xml` is only the
+  /// default, for a caller whose sighting predates that being recorded.
+  Future<SoapDeviceDescription> fetchDescription(String host, int port,
+      {String path = '/setup.xml'}) async {
+    final uri = Uri(scheme: 'http', host: host, port: port, path: path);
     final response = await _bounded(http.Request('GET', uri));
     if (response.statusCode != 200) {
       throw SoapTransportException(

@@ -42,11 +42,14 @@ Map<String, String> parseSsdpHeaders(String payload) {
   return headers;
 }
 
-/// Pull the host and port out of an SSDP `LOCATION` URL.
+/// Pull the host, port and path out of an SSDP `LOCATION` URL.
 ///
 /// Returns null for anything unparseable — a device that advertises a
-/// malformed location is not one we can do anything with.
-({String host, int? port})? parseSsdpLocation(String? location) {
+/// malformed location is not one we can do anything with. The path matters
+/// as much as the address: it is where the UPnP device description lives,
+/// and not every device calls it setup.xml (a Panasonic Viera answers with
+/// /nrc/ddd.xml).
+({String host, int? port, String path})? parseSsdpLocation(String? location) {
   if (location == null || location.isEmpty) return null;
   final uri = Uri.tryParse(location);
   if (uri == null || uri.host.isEmpty) return null;
@@ -55,7 +58,11 @@ Map<String, String> parseSsdpHeaders(String payload) {
   // it returns 0 only when the scheme has no default. Reporting null for
   // an implicit :80 made the control path refuse a device that stated
   // its port fine.
-  return (host: uri.host, port: uri.port == 0 ? null : uri.port);
+  return (
+    host: uri.host,
+    port: uri.port == 0 ? null : uri.port,
+    path: uri.path.isEmpty ? '/' : uri.path,
+  );
 }
 
 /// Turn an mDNS TXT record's entries into a map, lowercasing keys.
@@ -476,6 +483,7 @@ class RealNetworkScanService implements NetworkScanService {
           name: '',
           port: location?.port,
           ssdpPort: location?.port,
+          ssdpDescriptionPath: location?.path,
           ssdpTargets: [if (searchTarget != null) searchTarget],
           server: headers['server'],
           sources: const {NetworkDiscoverySource.ssdp},

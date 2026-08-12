@@ -70,10 +70,14 @@ void main() {
   });
 
   group('parseSsdpLocation', () {
-    test('splits a location into host and port', () {
+    test('splits a location into host, port and description path', () {
       final parsed = parseSsdpLocation('http://192.168.1.41:49153/setup.xml');
       expect(parsed?.host, '192.168.1.41');
       expect(parsed?.port, 49153);
+      expect(parsed?.path, '/setup.xml');
+      // A Viera advertises its description under its own spelling.
+      expect(parseSsdpLocation('http://192.168.1.41:55000/nrc/ddd.xml')?.path,
+          '/nrc/ddd.xml');
     });
 
     test('a location with no explicit port reports the scheme default', () {

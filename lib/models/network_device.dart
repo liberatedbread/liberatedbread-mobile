@@ -51,6 +51,11 @@ class NetworkDevice {
   /// on 49153 must not have the merge order decide which one control uses.
   final int? ssdpPort;
 
+  /// The path from the SSDP `LOCATION` URL — where the device says its UPnP
+  /// description lives. Wemo's is `/setup.xml`; a Panasonic Viera's is
+  /// `/nrc/ddd.xml`. Null for mDNS-only sightings, which have no such claim.
+  final String? ssdpDescriptionPath;
+
   /// mDNS service types this device advertises, e.g. `_hue._tcp.local`.
   final List<String> serviceTypes;
 
@@ -77,6 +82,7 @@ class NetworkDevice {
     this.hostname,
     this.port,
     this.ssdpPort,
+    this.ssdpDescriptionPath,
     this.serviceTypes = const [],
     this.ssdpTargets = const [],
     this.server,
@@ -138,6 +144,7 @@ class NetworkDevice {
         // the merged row independent of which transport answered first.
         port: _servicePort ?? other._servicePort ?? port ?? other.port,
         ssdpPort: ssdpPort ?? other.ssdpPort,
+        ssdpDescriptionPath: ssdpDescriptionPath ?? other.ssdpDescriptionPath,
         serviceTypes: {...serviceTypes, ...other.serviceTypes}.toList(),
         ssdpTargets: {...ssdpTargets, ...other.ssdpTargets}.toList(),
         server: server ?? other.server,
@@ -177,6 +184,7 @@ class NetworkDevice {
       other.hostname == hostname &&
       other.port == port &&
       other.ssdpPort == ssdpPort &&
+      other.ssdpDescriptionPath == ssdpDescriptionPath &&
       other.server == server &&
       setEquals(other.sources, sources) &&
       listEquals(other.serviceTypes, serviceTypes) &&
