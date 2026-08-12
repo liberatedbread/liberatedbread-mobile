@@ -11,6 +11,7 @@ import '../core/log.dart';
 import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
+import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/query_source_reader.dart';
 import '../services/soap_control_service.dart';
@@ -76,6 +77,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// note stays up after the error text is replaced by the next attempt.
   bool _controlRefused = false;
 
+  /// The ECP2 signed session, opened lazily on the first plain-ECP refusal:
+  /// a Roku in "Control by mobile apps = Limited" refuses plain ECP but
+  /// answers ECP2, so the refusal is where the fallback begins. Null plus
+  /// [_ecp2Unavailable] means there is no ECP2 here — not a Roku, or the
+  /// session itself failed — and the plain refusal stands.
+  Ecp2Session? _ecp2;
+  Future<Ecp2Session?>? _ecp2Opening;
+  bool _ecp2Unavailable = false;
+
+  /// At least one refused command went through the signed session instead —
+  /// the screen says so, because "everything works" and "control is gated"
+  /// are both true at once and the user should know which path they're on.
+  bool _viaSignedSession = false;
+
   /// Names of entities whose device-sourced list never arrived — the query
   /// failed outright (timeout, unreachable), as opposed to answered-empty.
   /// The two read very differently on screen, and "listed nothing" is a lie
@@ -109,6 +124,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     for (final controller in _textControllers.values) {
       controller.dispose();
     }
+    unawaited(_ecp2?.close() ?? Future<void>.value());
     super.dispose();
   }
 
@@ -225,7 +241,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// buttons beside it still work, and the screen must not become an error
   /// page over a channel list.
   Future<void> _refreshQuerySources() async {
-    final client = ref.read(httpControlClientProvider);
     final port = widget.device.port;
     if (port == null) return;
 
@@ -233,9 +248,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       final options = entity.optionsSource;
       if (options == null) continue;
       try {
-        final body = await client.send(
-          widget.device.host,
-          port,
+        final body = await _sendNetworkHttp(
           HttpRequestDto(method: options.method, path: options.path, body: ''),
         );
         _fetchedOptions[entity.name] = readQuerySource(body, options);
@@ -243,9 +256,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
         final state = entity.stateSource;
         if (state == null) continue;
-        final current = await client.send(
-          widget.device.host,
-          port,
+        final current = await _sendNetworkHttp(
           HttpRequestDto(method: state.method, path: state.path, body: ''),
         );
         _currentOption[entity.name] = readCurrentValue(current, state);
@@ -339,9 +350,52 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
     // The port null-check in _load has already run by the time any control
     // is tappable.
-    await ref
-        .read(httpControlClientProvider)
-        .send(widget.device.host, widget.device.port!, request);
+    await _sendNetworkHttp(request);
+  }
+
+  /// One plain-HTTP exchange, with the ECP2 signed session as the fallback
+  /// for a refusal: a Roku in "Control by mobile apps = Limited" refuses
+  /// plain ECP but answers ECP2, so a 403 is where the fallback begins — the
+  /// same rendered request, translated and sent down the session. Every other
+  /// device, and every other failure, keeps the plain answer.
+  Future<String> _sendNetworkHttp(HttpRequestDto request) async {
+    final host = widget.device.host;
+    final port = widget.device.port!;
+    try {
+      return await ref
+          .read(httpControlClientProvider)
+          .send(host, port, request);
+    } on ControlRefusedException {
+      final session = await _openEcp2();
+      if (session == null) rethrow;
+      final body = await session.send(request);
+      if (mounted && !_viaSignedSession) {
+        setState(() => _viaSignedSession = true);
+      }
+      return body;
+    }
+  }
+
+  /// The signed session, opened once and reused. Only a Roku speaks ECP2 —
+  /// the check is the `roku:ecp` search target the device answered to at
+  /// discovery, not a name guess. A session that fails to open (not a Roku
+  /// after all, client id refused, TV asleep) is remembered as unavailable so
+  /// every later refusal keeps the plain answer instead of retrying a socket.
+  Future<Ecp2Session?> _openEcp2() {
+    final session = _ecp2;
+    if (session != null) return Future.value(session);
+    if (_ecp2Unavailable || !widget.device.ssdpTargets.contains('roku:ecp')) {
+      return Future.value(null);
+    }
+    return _ecp2Opening ??= ref
+        .read(ecp2ControlServiceProvider)
+        .connect(widget.device.host, widget.device.port!)
+        .then<Ecp2Session?>((opened) => _ecp2 = opened)
+        .catchError((Object e) {
+      _ecp2Unavailable = true;
+      Log.net.debug('ecp2 session failed for ${widget.device.host}: $e');
+      return null;
+    });
   }
 
   /// The SOAP send: read back the settings this action carries but is not
@@ -459,6 +513,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _controlGateNote(),
                 const SizedBox(height: 12),
               ],
+              // Refusals the signed session rescued: everything works, but
+              // the user is one settings toggle away from the plain path,
+              // and honesty about which path is in use beats silence.
+              if (!_controlRefused && _viaSignedSession) ...[
+                _signedSessionNote(),
+                const SizedBox(height: 12),
+              ],
               // The channel picker comes first: launching Plex or Prime is
               // the tap a TV screen exists for, and the remote below it is
               // for everything else. Only devices that declare buttons at
@@ -527,6 +588,52 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     'control. Enable it there, then try again.',
                     style: text.bodySmall
                         ?.copyWith(color: scheme.onSecondaryContainer),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The note shown while commands ride the ECP2 signed session because the
+  /// device refused plain ECP — the working state of a Limited-mode Roku.
+  /// Names the setting like the refusal note does, but as an option, not a
+  /// fix: nothing is broken.
+  Widget _signedSessionNote() {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.surfaceContainerHighest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.verified_user_outlined, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Using the signed session',
+                    style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600, color: scheme.onSurface),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'The device has "Control by mobile apps" set to Limited, '
+                    'so commands are going through the authenticated session '
+                    'the official Roku app uses. Everything here works; '
+                    'setting it to Enabled (Settings > System > Advanced '
+                    'system settings) lets this app use the plain, documented '
+                    'path instead.',
+                    style: text.bodySmall
+                        ?.copyWith(color: scheme.onSurfaceVariant),
                   ),
                 ],
               ),
