@@ -7,6 +7,7 @@
 // device first, so changing the mode does not clear the timer.
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -19,6 +20,7 @@ import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
+import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
@@ -1096,4 +1098,139 @@ void main() {
       expect(keys, ['Lit_a', 'Lit_b']);
     });
   });
+
+  // ── The third transport: a Kasa smart plug over TCP-JSON ─────────────────
+  //
+  // Switch-shaped like the Crock-Pot, but over a raw socket: no setup.xml and
+  // no UPnP control URLs. The screen polls get_sysinfo, reflects the reported
+  // relay state, and after a toggle sends set_relay_state and re-polls, so the
+  // switch shows the plug's true state either way.
+  group('Kasa smart plug', () {
+    final kasaDevice = NetworkDevice(
+      host: '10.0.0.7',
+      name: 'Desk Lamp',
+      port: 9999,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const kasaEntities = [
+      NetworkEntityDto(
+        name: 'Outlet',
+        platform: 'switch',
+        deviceClass: 'outlet',
+        stateCommand: 'get_sysinfo',
+        valueField: 'relay_state',
+        options: [],
+        isInstanced: false,
+        actions: [
+          NetworkActionDto(
+            role: 'turn_on',
+            commandName: 'relay_on',
+            transport: 'tcp-json',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [],
+          ),
+          NetworkActionDto(
+            role: 'turn_off',
+            commandName: 'relay_off',
+            transport: 'tcp-json',
+            userParams: [],
+            readBack: [],
+            credentials: [],
+            instanceParams: [],
+          ),
+        ],
+      ),
+    ];
+
+    late int relayState;
+    late FakeSpecCodec kasaCodec;
+
+    // A stand-in plug: it holds a relay state, answers get_sysinfo with it, and
+    // flips it on set_relay_state — so the screen's poll-after-send loop runs
+    // for real over the (faithful-cipher) fake codec.
+    Future<void> pumpPlug(WidgetTester tester, {int initial = 0}) async {
+      relayState = initial;
+      kasaCodec = FakeSpecCodec(
+        networkEntities: (_) => kasaEntities,
+        networkKasaRequest: (name, _) => KasaRequestDto(
+          json: switch (name) {
+            'relay_on' => '{"system":{"set_relay_state":{"state":1}}}',
+            'relay_off' => '{"system":{"set_relay_state":{"state":0}}}',
+            _ => '{"system":{"get_sysinfo":null}}',
+          },
+        ),
+        networkReading: (_, returned) {
+          final on = (int.tryParse(returned['relay_state'] ?? '0') ?? 0) != 0;
+          return NetworkReadingDto(
+              kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+        },
+      );
+
+      Future<Uint8List> exchange(
+          String host, int port, List<int> request, Duration timeout) async {
+        final json = await kasaCodec.kasaDecodeFrame(frame: request);
+        final String reply;
+        if (json.contains('set_relay_state')) {
+          relayState = json.contains('"state":1') ? 1 : 0;
+          reply = '{"system":{"set_relay_state":{"err_code":0}}}';
+        } else {
+          reply = '{"system":{"get_sysinfo":{"relay_state":$relayState,'
+              '"alias":"Desk Lamp"}}}';
+        }
+        return Uint8List.fromList(await kasaCodec.kasaEncodeFrame(json: reply));
+      }
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(kasaCodec),
+          // A plug serves no setup.xml — reaching for one is a bug.
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('fetched a description for a Kasa plug: ${r.url}')))),
+          kasaControlClientProvider.overrideWithValue(
+              KasaControlClient(kasaCodec, exchange: exchange)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: kasaDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: kasaEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('polls get_sysinfo and reflects the relay state',
+        (tester) async {
+      await pumpPlug(tester, initial: 1);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(find.textContaining('Could not reach'), findsNothing);
+    });
+
+    testWidgets('toggling sends set_relay_state and re-polls the new state',
+        (tester) async {
+      await pumpPlug(tester, initial: 0);
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+
+      // The on command rendered, and the switch now reads on because the
+      // post-send poll saw the flipped relay.
+      expect(
+        kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName),
+        contains('relay_on'),
+      );
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+  });
+
 }

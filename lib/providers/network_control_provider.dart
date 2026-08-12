@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/log.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
+import '../services/kasa_control_service.dart';
 import '../services/lifx_control_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
@@ -32,6 +33,12 @@ final ecp2ControlServiceProvider =
 /// answer (or drop) a datagram with a fake socket instead of a real strip.
 final lifxControlClientProvider =
     Provider<LifxControlClient>((ref) => LifxControlClient());
+
+/// The Kasa TCP-JSON transport. Depends on the codec because the XOR cipher
+/// and length framing live in Rust; tests substitute a client with a fake
+/// socket exchange (and a fake codec) instead of a real plug.
+final kasaControlClientProvider = Provider<KasaControlClient>(
+    (ref) => KasaControlClient(ref.watch(specCodecProvider)));
 
 /// Identity of one network device the control layer is asked about.
 ///

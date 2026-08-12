@@ -13,6 +13,7 @@ import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
+import '../services/kasa_control_service.dart';
 import '../services/query_source_reader.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
@@ -147,18 +148,38 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       .where((command) => command.isNotEmpty)
       .toSet();
 
+  /// The Kasa transport constant, matched as a bare string exactly as `'http'`
+  /// is — one spec's actions are all one transport, so this labels the device.
+  static const _kasaTransport = 'tcp-json';
+
+  /// The TP-Link Smart Home port, the fallback when discovery did not carry one
+  /// (a manually added device, a mock). Real discovery reports 9999.
+  static const _kasaPort = 9999;
+
+  /// Whether this device is driven over the Kasa TCP-JSON transport rather than
+  /// SOAP/HTTP. It has no `setup.xml` and no UPnP control URLs; state and sends
+  /// go over a raw socket instead, so the load and refresh paths fork on it.
+  bool get _isKasa =>
+      _entities.any((e) => e.actions.any((a) => a.transport == _kasaTransport));
+
+  /// The address a Kasa send/poll uses.
+  int get _kasaHostPort => widget.device.port ?? _kasaPort;
+
   /// Whether anything on this screen needs the UPnP description document.
   ///
   /// SOAP is what it exists for, and the only transport that needs it: state
   /// reads and SOAP sends resolve their control URL from it. A device whose
-  /// surface is entirely plain HTTP (a Roku remote) or binary UDP (a LIFX
-  /// strip) has no `setup.xml` to fetch — asking for one turns a working
-  /// device into a permanent error screen. So this keys on `soap` specifically,
-  /// not "anything but http".
+  /// surface is entirely plain HTTP (a Roku remote), binary UDP (a LIFX strip)
+  /// or Kasa (a raw socket) has no `setup.xml` to fetch — asking for one turns
+  /// a working device into a permanent error screen. So this keys on `soap`
+  /// specifically, and excludes Kasa outright: a Kasa entity carries a
+  /// `state_command` (get_sysinfo) but polls it over the socket, not from a
+  /// description.
   bool get _needsDescription =>
-      _stateCommands.isNotEmpty ||
-      _entities
-          .any((e) => e.actions.any((action) => action.transport == 'soap'));
+      !_isKasa &&
+      (_stateCommands.isNotEmpty ||
+          _entities
+              .any((e) => e.actions.any((action) => action.transport == 'soap')));
 
   /// Loaded enough to draw controls: the description is fetched, or nothing
   /// on this screen wants it.
@@ -170,24 +191,31 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _error = null;
     });
     try {
-      final port = widget.device.port;
-      if (port == null) {
-        // Discovery hands us the SSDP LOCATION port for every UPnP device, so
-        // this is a mDNS-only sighting — not a device this screen can drive.
-        throw const SoapTransportException(
-            'the device did not advertise a control port');
-      }
-      if (_needsDescription) {
-        final client = ref.read(soapControlClientProvider);
-        _description ??= await client.fetchDescription(
-          widget.device.host,
-          port,
-          // Where the device said its description lives, when it said —
-          // /setup.xml is the fallback, not the rule (a Viera's LOCATION
-          // names /nrc/ddd.xml).
-          path: widget.device.ssdpDescriptionPath ?? '/setup.xml',
-        );
+      if (_isKasa) {
+        // No description to fetch and no control URLs to resolve — poll the
+        // relay state straight over the socket. The port is 9999, not a UPnP
+        // LOCATION, so the SOAP port check below does not apply.
         await _refreshState();
+      } else {
+        final port = widget.device.port;
+        if (port == null) {
+          // Discovery hands us the SSDP LOCATION port for every UPnP device, so
+          // this is a mDNS-only sighting — not a device this screen can drive.
+          throw const SoapTransportException(
+              'the device did not advertise a control port');
+        }
+        if (_needsDescription) {
+          final client = ref.read(soapControlClientProvider);
+          _description ??= await client.fetchDescription(
+            widget.device.host,
+            port,
+            // Where the device said its description lives, when it said —
+            // /setup.xml is the fallback, not the rule (a Viera's LOCATION
+            // names /nrc/ddd.xml).
+            path: widget.device.ssdpDescriptionPath ?? '/setup.xml',
+          );
+          await _refreshState();
+        }
       }
       await _refreshQuerySources();
       if (mounted) setState(() => _loading = false);
@@ -207,6 +235,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// Send every state request and re-decode every entity from the replies.
   Future<void> _refreshState() async {
+    if (_isKasa) {
+      await _refreshStateKasa();
+      return;
+    }
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
     final description = _description!;
@@ -221,6 +253,36 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _stateByCommand[command] =
           await client.send(description.host, description.port, path, request);
     }
+    await _decodeEntities();
+  }
+
+  /// The Kasa state poll: render `get_sysinfo`, send it over the socket, and
+  /// flatten the reply into the name→value pairs the entity decoder reads.
+  ///
+  /// The SOAP path's structural twin — fill `_stateByCommand`, then decode —
+  /// but over a raw socket with no control URL to resolve, and the reply is
+  /// JSON flattened here rather than XML parsed by the transport client.
+  Future<void> _refreshStateKasa() async {
+    final codec = ref.read(specCodecProvider);
+    final client = ref.read(kasaControlClientProvider);
+
+    for (final command in _stateCommands) {
+      final request = await codec.renderNetworkKasaStateRequest(
+        specYaml: widget.controls.specYaml,
+        stateCommand: command,
+      );
+      final reply =
+          await client.send(widget.device.host, _kasaHostPort, request);
+      _stateByCommand[command] = kasaSysinfoFields(reply);
+    }
+    await _decodeEntities();
+  }
+
+  /// Decode every entity from whatever `_stateByCommand` currently holds — the
+  /// step shared by both transports' state refresh, so a reading means the
+  /// same thing whichever socket carried it.
+  Future<void> _decodeEntities() async {
+    final codec = ref.read(specCodecProvider);
     for (final entity in _entities) {
       final returned = _stateByCommand[entity.stateCommand];
       _readings[entity.name] = returned == null
@@ -285,13 +347,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     NetworkActionDto action, {
     String? value,
   }) async {
-    final isHttp = action.transport == 'http';
+    // HTTP and Kasa sends are independent — no read-back coupling — so they do
+    // not serialize behind the single-SOAP-write gate the Crock-Pot needs.
+    final independent =
+        action.transport == 'http' || action.transport == _kasaTransport;
     // The disabled controls are the visible gate; this is the real one — a
     // tap can race the rebuild that greys the SOAP controls out.
-    if (!isHttp && _soapSending != null) return;
+    if (!independent && _soapSending != null) return;
     setState(() {
       _sending.add(entity.name);
-      if (!isHttp) _soapSending = entity.name;
+      if (!independent) _soapSending = entity.name;
       _error = null;
     });
     try {
@@ -299,10 +364,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       if (value != null && action.userParams.isNotEmpty) {
         values[action.userParams.first] = value;
       }
-      if (action.transport == 'http') {
-        await _sendHttp(action, values);
-      } else {
-        await _sendSoap(action, values);
+      switch (action.transport) {
+        case 'http':
+          await _sendHttp(action, values);
+        case _kasaTransport:
+          await _sendKasa(action, values);
+        default:
+          await _sendSoap(action, values);
       }
       // The reply acknowledges the request, it does not report the resulting
       // state — the Crock-Pot doesn't always take a setting. Read back
@@ -336,9 +404,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// Whether [action]'s control must sit out the current SOAP write. HTTP
-  /// presses never lock out — see [_soapSending].
+  /// presses and Kasa sends never lock out — see [_soapSending].
   bool _lockedFor(NetworkActionDto? action) =>
-      action != null && action.transport != 'http' && _soapSending != null;
+      action != null &&
+      action.transport != 'http' &&
+      action.transport != _kasaTransport &&
+      _soapSending != null;
 
   /// The plain-HTTP send: render, POST to the discovered port, done. The
   /// method and path are the whole request, and the address is the one
@@ -399,6 +470,23 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       Log.net.debug('ecp2 session failed for ${widget.device.host}: $e');
       return null;
     });
+  }
+
+  /// The Kasa send: render the JSON command and write it to the plug over the
+  /// socket. Like the HTTP send there is no read-back and no description to
+  /// resolve; the caller re-polls `get_sysinfo` afterwards, so the switch snaps
+  /// to the plug's true state whether or not the write took.
+  Future<void> _sendKasa(
+      NetworkActionDto action, Map<String, String> values) async {
+    final codec = ref.read(specCodecProvider);
+    final request = await codec.renderNetworkKasaCommand(
+      specYaml: widget.controls.specYaml,
+      commandName: action.commandName,
+      values: values,
+    );
+    await ref
+        .read(kasaControlClientProvider)
+        .send(widget.device.host, _kasaHostPort, request);
   }
 
   /// The SOAP send: read back the settings this action carries but is not
