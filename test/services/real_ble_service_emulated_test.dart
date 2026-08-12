@@ -982,6 +982,58 @@ void main() {
     });
 
     test(
+        'a connect issued while the first is still in flight does not '
+        'expire the shares that first owner goes on to install', () async {
+      // Both connects are issued while the device is down. With a pre-await
+      // isConnected snapshot, both would read "this call turned the link
+      // over" — and whichever resumed second would expire the notify shares
+      // the first owner had installed on the (single, shared) link by then.
+      // Connects serialize per device instead, so the second call observes
+      // the link the first established and leaves its shares alone.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final first = service.connect(_bulbId);
+      final second = service.connect(_bulbId);
+      await first;
+
+      final received = <List<int>>[];
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await second;
+
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [42]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+          received,
+          [
+            [42]
+          ],
+          reason: 'the trailing connect must not have expired the share');
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        hasLength(1),
+        reason: 'one live share, enabled once — never expired and redone',
+      );
+
+      // Both queued connects took a claim: the first release keeps the link.
+      await sub.cancel();
+      await service.disconnect(_bulbId);
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('disconnect:')),
+        isEmpty,
+        reason: 'the second (serialized) connect still owns a claim',
+      );
+      await service.disconnect(_bulbId);
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('disconnect:')),
+        isNotEmpty,
+      );
+    });
+
+    test(
         'a reconnect enables notifications afresh even with a stale '
         'subscription open', () async {
       // A subscription from a previous link that was never cancelled must

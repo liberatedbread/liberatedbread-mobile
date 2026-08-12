@@ -201,6 +201,53 @@ void main() {
     expect(find.textContaining('may have been forgotten'), findsNothing);
   });
 
+  testWidgets('a failed guess pass gets an error and a retry, not a spinner',
+      (tester) async {
+    // autoGroupsProvider is not autoDispose: once it settles in error,
+    // nothing re-runs it short of an explicit refresh — so a settled error
+    // must render as an error with a retry, never as an eternal spinner or
+    // a false claim about forgotten members.
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1': jsonEncode([
+        {
+          'id': 'AA:BB:CC:DD:EE:04',
+          'name': 'Mystery',
+          'lastSeen': '2026-08-11T10:00:00.000',
+        },
+      ]),
+    });
+    _prefs = await SharedPreferences.getInstance();
+    var failGuesses = true;
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        bleServiceProvider.overrideWithValue(writableBle()),
+        specCodecProvider.overrideWithValue(FakeSpecCodec()),
+        scanGuessProvider.overrideWith((ref, identity) async {
+          if (failGuesses) throw Exception('catalogue unavailable');
+          return null;
+        }),
+        parsedDeviceSpecsProvider.overrideWith((ref) async => []),
+      ],
+      child: const MaterialApp(
+        home: GroupDetailScreen(category: DeviceCategory.light),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.textContaining('may have been forgotten'), findsNothing);
+    expect(find.text('Try again'), findsOneWidget);
+
+    failGuesses = false;
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+
+    // The retry re-ran the pass; with no guess, the bucket is just empty.
+    expect(find.text('Try again'), findsNothing);
+    expect(find.textContaining('may have been forgotten'), findsOneWidget);
+  });
+
   testWidgets('turn all off runs the group and reports per-device outcomes',
       (tester) async {
     final ble = writableBle();
