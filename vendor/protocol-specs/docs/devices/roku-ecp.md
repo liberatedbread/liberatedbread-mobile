@@ -83,5 +83,14 @@ position, but `/query/apps` is refused while "Control by mobile apps" is in
 its Limited position (above), so the list loads only once the setting is
 Permissive/Enabled.
 
-Machine-readable spec: `device-specs/devices/roku-ecp.yaml`
+## Text entry
 
+The `Keyboard` `text` entity is the on-screen keyboard's peer: ECP carries no
+"type this string" command, only one keypress per character, so the entity
+binds `submit` to `type_char` (`POST /keypress/Lit_{char}` — any UTF-8
+character percent-encoded after the literal `Lit_` prefix) and `press` to
+`press_backspace` for deletion. A client relays each keystroke as it happens,
+serialized — two Lit_ POSTs in flight can land reversed — and treats the
+remote's OK as the field's submit, exactly as on the physical remote.
+
+Machine-readable spec: `device-specs/devices/roku-ecp.yaml`

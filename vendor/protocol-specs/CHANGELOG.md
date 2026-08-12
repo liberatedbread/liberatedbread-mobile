@@ -19,19 +19,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   GET/POST-empty-body HTTP and header-less SOAP transports rather than
   inventing commands that could not work on a real TV.
 
-### Changed
-
-- `roku-ecp` corrects the "Control by mobile apps" gating from a live
-  2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position
-  refuses more than the OS 14.1 notice implies — `/query/apps` answers
-  "ECP command not allowed in Limited mode." as 400 on one TV and 403 on
-  two others (the same TV switching spellings within minutes), and
-  `/query/media-player` answers 403, while `/query/device-info` and
-  `/query/active-app` stay open. Also records, from a jadx teardown of The
-  Roku App (Official) 14.0.0.9462138, that the official app survives
-  Limited mode via an authenticated "ECP2" channel (JWT +
-  WebSocket, tied to the signed-in Roku account) that a local third-party
-  client cannot reproduce.
+- A `text` entity platform (schema enum + `roku-ecp` `Keyboard` entity):
+  text entry into whatever field the device has focused, binding a valued
+  `submit` role that takes the one character being typed (Roku's
+  `Lit_{char}` key form — the wire carries no string type) plus a fixed
+  `press` role for the backspace key. Like a button it names no state
+  source: the device never reports what its focused field holds.
 
 - `airthings-wave-family` binds temperature and humidity to each model's
   combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
@@ -269,6 +262,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   user their cooker is off while it is heating
 
 ### Fixed
+
+- `roku-ecp` corrects the "Control by mobile apps" gating from a live
+  2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position
+  refuses more than the OS 14.1 notice implies — `/query/apps` answers
+  "ECP command not allowed in Limited mode." as 400 on one TV and 403 on
+  two others (the same TV switching spellings within minutes), and
+  `/query/media-player` answers 403, while `/query/device-info` and
+  `/query/active-app` stay open. Also records, from a jadx teardown of The
+  Roku App (Official) 14.0.0.9462138, that the official app survives
+  Limited mode via an authenticated "ECP2" channel (JWT +
+  WebSocket, tied to the signed-in Roku account) that a local third-party
+  client cannot reproduce.
 
 - `schema.json` no longer defines the parameter `auto` key twice. The
   checksum extension added a second `"auto"` member to the same `properties`

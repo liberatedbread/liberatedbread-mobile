@@ -634,6 +634,34 @@ commands:
     action: "Keypress"
     verification: "reported"
 
+  # -- Text entry. The on-screen keyboard's peer: ECP carries no "type this
+  #    string" command, only one Lit_ keypress per character, so a client
+  #    sends the text a keystroke at a time. Backspace is the ordinary
+  #    deletion key beside it.
+  type_char:
+    description: >
+      Type one character into the focused field — the Lit_ key form from
+      ecp_common.request_format.escaping. Any UTF-8 character rides
+      percent-encoded after the literal Lit_ prefix; the renderer does the
+      encoding, the caller passes the bare character.
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Lit_{char}"
+    action: "Keypress"
+    parameters:
+      char:
+        type: "string"
+        required: true
+        description: "One character, unencoded — 'a', ' ', 'é'."
+    verification: "reported"
+  press_backspace:
+    description: "Delete the character left of the cursor in the focused field."
+    transport: "http"
+    method: "POST"
+    path: "/keypress/Backspace"
+    action: "Keypress"
+    verification: "reported"
+
   # -- Search and remote finding.
   press_search:
     description: "Open Roku search."
@@ -879,6 +907,21 @@ entities:
     commands:
       press: "press_input_tuner"
     notes: "TV-class key."
+
+  # The on-screen keyboard's peer: a text field whose every keystroke is one
+  # Lit_ keypress against whatever field is focused on the TV (search boxes,
+  # login forms). Backspace rides along as the deletion key; the remote's OK
+  # is the submit, exactly as on the physical remote.
+  - platform: "text"
+    name: "Keyboard"
+    icon: "mdi:keyboard"
+    commands:
+      submit: "type_char"
+      press: "press_backspace"
+    notes: >
+      Types into whatever field has focus — the entity cannot know which,
+      and neither can the device tell it. Gated by "Control by mobile apps"
+      like every keypress.
 
   # The channel picker: a select whose options are whatever the device says
   # it has installed, not a table this file could ever keep current. The two
