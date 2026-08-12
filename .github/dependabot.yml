@@ -42,9 +42,20 @@ updates:
   # The Rust crate. Small dependency set, a committed Cargo.lock, and the `rust`
   # job runs fmt + clippy + tests with --locked — so a bump either passes those
   # or says exactly what broke, which is the ideal shape for an automated pull
-  # request. flutter_rust_bridge is pinned with `=2.9.0` against ci.yml's
-  # FRB_VERSION and cannot move without the codegen moving too; the `=` in
-  # Cargo.toml is what stops a bot from trying.
+  # request.
+  #
+  # flutter_rust_bridge is IGNORED explicitly. It is pinned `=2.9.0` in
+  # Cargo.toml against ci.yml's FRB_VERSION (the codegen) and pubspec.yaml's
+  # Dart package, and cannot move without both moving too. This file used to
+  # claim "the `=` is what stops a bot from trying" — it is not: dependabot
+  # rewrites the requirement itself, and PR #18 did exactly that, bumping the
+  # crate alone to =2.12.0. The result was not even a loud break: every job
+  # passed except the two DEVICE integration jobs, where all four suites ran
+  # green in-app and the host harness still exited 1 having counted only three
+  # of them — on both platforms, on both retry attempts. A version skew that
+  # manifests as a dropped test result is precisely the kind of red a bot PR
+  # cannot explain, so the bot does not get to propose it. FRB moves by hand,
+  # all three pins at once.
   - package-ecosystem: cargo
     directory: /rust
     schedule:
@@ -53,5 +64,7 @@ updates:
     groups:
       cargo:
         patterns: ['*']
+    ignore:
+      - dependency-name: flutter_rust_bridge
     commit-message:
       prefix: 'rust'
