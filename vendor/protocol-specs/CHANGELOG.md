@@ -77,6 +77,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Matter caveat needs. Adds the missing `targets/lifx-z.md`. The control messages
   and the legacy SoftAP onboarding remain `verified: false` — they are documented
   and transcription-checked, but not yet replayed against hardware.
+- `tplink-kasa-smart-plug` documents the Kasa-era TP-Link local protocol
+  (HS100/HS110 and the same-protocol HS103/HS105, KP105/KP115): JSON over a raw
+  TCP socket on port 9999, obfuscated by a trivial XOR-autokey cipher (initial
+  key `0xAB`) with 4-byte big-endian length framing and no authentication,
+  discovered by a UDP broadcast of the encoded `get_sysinfo` to
+  `255.255.255.255:9999`. The outlet is a `switch`/`outlet` entity whose
+  `turn_on`/`turn_off` bind `set_relay_state` commands and whose state polls
+  `get_sysinfo`'s `relay_state` — the same control shape as the Wemo plug over
+  a new transport. This needed a new command `transport` value, `tcp-json`
+  (added to `schema.json`), and a `body` field for the JSON an invocation IS —
+  what `arguments` is to SOAP and `path` is to HTTP. The cipher and the
+  discovery/command byte vectors are reproduced from the YAML alone by
+  `scripts/test_kasa_spec.py` (the sibling of `test_wemo_spec.py` and
+  `test_roku_spec.py`); the get_sysinfo vector matches the canonical
+  softScheck / python-kasa datagram. `manufacturer_status: active` because
+  TP-Link is alive — what is endangered is this local protocol, which newer
+  firmware (HS100 hw v4 fw 1.1.0+) and the KLAP/Tapo line have retired. Power
+  strips (HS300/KP303/EP40, which address per-outlet `children`) are noted as a
+  separate future spec
 - `airthings-wave-family` binds temperature and humidity to each model's
   combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
   `b42e3b98`). The SIG characteristics (2A6E/2A6F) are app-derived and
