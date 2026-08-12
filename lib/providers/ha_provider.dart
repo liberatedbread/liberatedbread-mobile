@@ -15,13 +15,12 @@ import '../models/ha_config.dart';
 import '../services/ha_api_client.dart';
 import '../services/ha_sensor_forwarder.dart';
 import '../services/http_ha_api_client.dart';
-import '../services/secure_settings_store.dart';
 import '../services/settings_store.dart';
+import 'settings_store_provider.dart';
 
-/// Key/value store for HA config. Tests override with an in-memory fake so
-/// nothing touches the platform keychain.
-final settingsStoreProvider =
-    Provider<SettingsStore>((ref) => SecureSettingsStore());
+// The settings store moved to its own file when hub pairing became its
+// second user; re-exported so existing imports of this file keep resolving.
+export 'settings_store_provider.dart' show settingsStoreProvider;
 
 /// The Home Assistant API client. A singleton for the app lifetime; the
 /// underlying [http.Client] is closed when the provider is disposed so we

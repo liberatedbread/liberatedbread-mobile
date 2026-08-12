@@ -166,10 +166,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<NetworkEntityDto> dco_decode_list_network_entity_dto(dynamic raw);
 
   @protected
+  List<NetworkInstanceDto> dco_decode_list_network_instance_dto(dynamic raw);
+
+  @protected
   List<NetworkOptionDto> dco_decode_list_network_option_dto(dynamic raw);
 
   @protected
   List<NetworkReadBackDto> dco_decode_list_network_read_back_dto(dynamic raw);
+
+  @protected
+  List<NetworkRoleReadingDto> dco_decode_list_network_role_reading_dto(
+      dynamic raw);
+
+  @protected
+  List<NetworkSourceParamDto> dco_decode_list_network_source_param_dto(
+      dynamic raw);
 
   @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw);
@@ -230,6 +241,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEntityDto dco_decode_network_entity_dto(dynamic raw);
 
   @protected
+  NetworkInstanceDto dco_decode_network_instance_dto(dynamic raw);
+
+  @protected
   NetworkOptionDto dco_decode_network_option_dto(dynamic raw);
 
   @protected
@@ -240,6 +254,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkReadingKind dco_decode_network_reading_kind(dynamic raw);
+
+  @protected
+  NetworkRoleReadingDto dco_decode_network_role_reading_dto(dynamic raw);
+
+  @protected
+  NetworkSourceParamDto dco_decode_network_source_param_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -518,11 +538,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<NetworkInstanceDto> sse_decode_list_network_instance_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<NetworkOptionDto> sse_decode_list_network_option_dto(
       SseDeserializer deserializer);
 
   @protected
   List<NetworkReadBackDto> sse_decode_list_network_read_back_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<NetworkRoleReadingDto> sse_decode_list_network_role_reading_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<NetworkSourceParamDto> sse_decode_list_network_source_param_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -590,6 +622,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEntityDto sse_decode_network_entity_dto(SseDeserializer deserializer);
 
   @protected
+  NetworkInstanceDto sse_decode_network_instance_dto(
+      SseDeserializer deserializer);
+
+  @protected
   NetworkOptionDto sse_decode_network_option_dto(SseDeserializer deserializer);
 
   @protected
@@ -602,6 +638,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkReadingKind sse_decode_network_reading_kind(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkRoleReadingDto sse_decode_network_role_reading_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkSourceParamDto sse_decode_network_source_param_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -903,12 +947,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<NetworkEntityDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_network_instance_dto(
+      List<NetworkInstanceDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_network_option_dto(
       List<NetworkOptionDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_network_read_back_dto(
       List<NetworkReadBackDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_network_role_reading_dto(
+      List<NetworkRoleReadingDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_network_source_param_dto(
+      List<NetworkSourceParamDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_parameter_dto(
@@ -984,6 +1040,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkEntityDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_network_instance_dto(
+      NetworkInstanceDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_network_option_dto(
       NetworkOptionDto self, SseSerializer serializer);
 
@@ -998,6 +1058,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_network_reading_kind(
       NetworkReadingKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_role_reading_dto(
+      NetworkRoleReadingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_source_param_dto(
+      NetworkSourceParamDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
