@@ -90,6 +90,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool _loading = true;
   String? _error;
 
+  /// Per-entity state for `text` entities (the TV keyboard): the field's
+  /// controller, the text as the device last saw it, and a chain serializing
+  /// keystroke sends — concurrent Lit_ POSTs can arrive out of order and
+  /// scramble what the user typed, so each keystroke awaits the one before.
+  final Map<String, TextEditingController> _textControllers = {};
+  final Map<String, String> _typedText = {};
+  final Map<String, Future<void>> _keystrokeChains = {};
+
+  @override
+  void dispose() {
+    for (final controller in _textControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -520,8 +536,142 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         return _selectCard(entity);
       case 'number':
         return _numberCard(entity);
+      case 'text':
+        return _textCard(entity);
       default:
         return _sensorCard(entity);
+    }
+  }
+
+  /// Text entry into whatever field the device has focused — the on-screen
+  /// keyboard's peer. The wire carries one character per send (Roku's Lit_
+  /// key form), so typing is relayed a keystroke at a time: each change is
+  /// diffed against what the device last saw, and removals send the press
+  /// action (backspace) once per removed character. Serialized through a
+  /// per-entity chain because two Lit_ POSTs in flight can land reversed.
+  Widget _textCard(NetworkEntityDto entity) {
+    final submit = _actionFor(entity, 'submit');
+    final backspace = _actionFor(entity, 'press');
+    final controller =
+        _textControllers.putIfAbsent(entity.name, TextEditingController.new);
+    final icon = entityIconFor(icon: entity.icon);
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (icon != null) ...[
+                Icon(icon, size: 20, color: scheme.onSurfaceVariant),
+                const SizedBox(width: 8),
+              ],
+              Text(entity.name,
+                  style:
+                      text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  enabled: submit != null,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                    hintText: 'Type to the focused field on the device',
+                  ),
+                  onChanged: submit == null
+                      ? null
+                      : (value) => _onTyped(entity, submit, backspace, value),
+                ),
+              ),
+              if (backspace != null)
+                IconButton(
+                  tooltip: 'Backspace',
+                  icon: const Icon(Icons.backspace_outlined),
+                  onPressed: submit == null
+                      ? null
+                      : () => _typeBackspace(entity, controller, backspace),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text('Types into whatever field is focused on the device.',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+
+  /// Relay one edit as keystrokes: delete what was removed, type what was
+  /// added, leaving a common prefix alone.
+  void _onTyped(NetworkEntityDto entity, NetworkActionDto submit,
+      NetworkActionDto? backspace, String value) {
+    final last = (_typedText[entity.name] ?? '').characters.toList();
+    final next = value.characters.toList();
+    var common = 0;
+    while (common < last.length &&
+        common < next.length &&
+        last[common] == next[common]) {
+      common++;
+    }
+    _typedText[entity.name] = value;
+    for (var i = common; i < last.length; i++) {
+      if (backspace != null) _enqueueKeystroke(entity, backspace);
+    }
+    for (var i = common; i < next.length; i++) {
+      _enqueueKeystroke(entity, submit, value: next[i]);
+    }
+  }
+
+  /// The card's backspace button: delete on the device, and keep the local
+  /// picture of its field in step so the next diff starts from the truth.
+  void _typeBackspace(NetworkEntityDto entity, TextEditingController controller,
+      NetworkActionDto backspace) {
+    final current = _typedText[entity.name] ?? '';
+    if (current.isNotEmpty) {
+      final shortened = current.characters.skipLast(1).toString();
+      _typedText[entity.name] = shortened;
+      controller.value = TextEditingValue(
+        text: shortened,
+        selection: TextSelection.collapsed(offset: shortened.length),
+      );
+    }
+    _enqueueKeystroke(entity, backspace);
+  }
+
+  void _enqueueKeystroke(NetworkEntityDto entity, NetworkActionDto action,
+      {String? value}) {
+    final previous = _keystrokeChains[entity.name] ?? Future<void>.value();
+    _keystrokeChains[entity.name] =
+        previous.then((_) => _sendKeystroke(entity, action, value: value));
+  }
+
+  /// One keystroke. A refusal is the same device-side gate a button press
+  /// hits, so it raises the standing note; anything else just costs the one
+  /// character — logged, not surfaced, or every stray packet would steal the
+  /// screen mid-word.
+  Future<void> _sendKeystroke(NetworkEntityDto entity, NetworkActionDto action,
+      {String? value}) async {
+    final values = <String, String>{};
+    if (value != null && action.userParams.isNotEmpty) {
+      values[action.userParams.first] = value;
+    }
+    try {
+      if (action.transport == 'http') {
+        await _sendHttp(action, values);
+      } else {
+        await _sendSoap(action, values);
+      }
+    } on ControlRefusedException {
+      if (mounted) setState(() => _controlRefused = true);
+    } catch (e) {
+      Log.net.debug('keystroke failed for ${entity.name}: $e');
     }
   }
 

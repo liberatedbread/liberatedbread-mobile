@@ -708,4 +708,133 @@ void main() {
       }
     });
   });
+
+  // ── The TV keyboard: one keystroke per character ─────────────────────────
+  group('text entry', () {
+    final rokuDevice = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const keyboardEntity = NetworkEntityDto(
+      name: 'Keyboard',
+      platform: 'text',
+      icon: 'mdi:keyboard',
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          role: 'submit',
+          commandName: 'type_char',
+          transport: 'http',
+          userParams: ['char'],
+          readBack: [],
+        ),
+        NetworkActionDto(
+          role: 'press',
+          commandName: 'press_backspace',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+        ),
+      ],
+    );
+
+    Future<List<http.Request>> pumpKeyboard(WidgetTester tester) async {
+      final received = <http.Request>[];
+      codec = FakeSpecCodec(
+        networkEntities: (_) => [keyboardEntity],
+        networkHttpRequest: (name, values) => HttpRequestDto(
+          method: 'POST',
+          path: name == 'type_char'
+              ? '/keypress/Lit_${values['char']}'
+              : '/keypress/Backspace',
+          body: '',
+        ),
+      );
+      final roku = MockClient((request) async {
+        received.add(request);
+        return http.Response('', 200);
+      });
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((request) async =>
+                  fail('no description exists for this device')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: roku)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: [keyboardEntity])),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return received;
+    }
+
+    testWidgets('typing sends one keypress per character, in order',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path),
+          ['/keypress/Lit_a', '/keypress/Lit_b']);
+    });
+
+    testWidgets('deleting sends backspace per removed character',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+      received.clear();
+
+      await tester.enterText(find.byType(TextField), 'a');
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path), ['/keypress/Backspace']);
+    });
+
+    testWidgets('an edit in the middle retypes only the difference',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+      await tester.enterText(find.byType(TextField), 'abc');
+      await tester.pumpAndSettle();
+      received.clear();
+
+      await tester.enterText(find.byType(TextField), 'abx');
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path),
+          ['/keypress/Backspace', '/keypress/Lit_x']);
+    });
+
+    testWidgets('the backspace key deletes on the device and in the field',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+      received.clear();
+
+      await tester.tap(find.byIcon(Icons.backspace_outlined));
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path), ['/keypress/Backspace']);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+          'a');
+    });
+  });
 }

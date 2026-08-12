@@ -740,6 +740,26 @@ const NETWORK_ROLES: &[(&str, &[NetworkRole])] = &[
             takes_value: true,
         }],
     ),
+    (
+        "text",
+        &[
+            NetworkRole {
+                // Text entry into whatever field the device has focused:
+                // one valued send per keystroke (Roku's Lit_ key form),
+                // because the wire carries no string type.
+                role: "submit",
+                aliases: &["submit", "type"],
+                takes_value: true,
+            },
+            NetworkRole {
+                // The deletion key beside the field — backspace. Optional:
+                // a text entity without it simply cannot delete.
+                role: PRESS.role,
+                aliases: PRESS.aliases,
+                takes_value: false,
+            },
+        ],
+    ),
     ("number", &[NETWORK_SETPOINT]),
     ("climate", &[NETWORK_SETPOINT]),
     (
@@ -843,13 +863,15 @@ fn qualify_network<'a>(
 
 /// Whether an entity belongs on the network control surface at all.
 ///
-/// The honesty rule with its two carve-outs: an entity is listed when it
+/// The honesty rule with its three carve-outs: an entity is listed when it
 /// says where its reading comes from (`state_command`), because a control
 /// that can never update is worse than an absent one — except a `button`,
-/// which is momentary and has no resulting state to read, and a `select`
-/// carrying an `options_source`, whose device-fetched options ARE its
-/// surface (the schema says so in the same words). Requiring state of
-/// either would just push spec authors to invent fake bindings.
+/// which is momentary and has no resulting state to read, a `text`, whose
+/// surface is the input field itself (the device never reports what its
+/// focused field holds), and a `select` carrying an `options_source`, whose
+/// device-fetched options ARE its surface (the schema says so in the same
+/// words). Requiring state of any of them would just push spec authors to
+/// invent fake bindings.
 ///
 /// The options-source carve-out demands the source actually resolve — the
 /// named endpoint present and not sunset — because a select admitted on the
@@ -857,7 +879,7 @@ fn qualify_network<'a>(
 /// rule exists to keep off screen.
 fn on_network_surface(spec: &DeviceSpec, entity: &Entity) -> bool {
     entity.state_command.is_some()
-        || entity.platform.as_deref() == Some("button")
+        || matches!(entity.platform.as_deref(), Some("button") | Some("text"))
         || entity
             .options_source
             .as_ref()
