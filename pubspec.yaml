@@ -18,6 +18,10 @@ dependencies:
   http: ^1.2.0
   # sha256 for the hub TLS trust-on-first-use pin (hub_http_client.dart).
   crypto: ^3.0.3
+  # A test-advanceable clock: hue_pairing_service.dart reads its pairing
+  # deadline off clock.now() so widget tests cross the window with pump(),
+  # while production stays on DateTime.now(). Already transitive via fake_async.
+  clock: ^1.1.1
   path_provider: ^2.1.0
   permission_handler: ^11.3.0
   shared_preferences: ^2.2.0
