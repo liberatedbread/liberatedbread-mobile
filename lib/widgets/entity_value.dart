@@ -213,9 +213,14 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
   }
 
   /// Read once to seed the card — unless discovery says the characteristic
-  /// is notify-only. Those used to get the read anyway and wear its failure
-  /// as "Could not read this value" until the first notification arrived;
-  /// waiting in `loading` is the honest state. The check goes through the
+  /// is notify-only AND this entity actually subscribes. Those used to get
+  /// the read anyway and wear its failure as "Could not read this value"
+  /// until the first notification arrived; waiting in `loading` is the
+  /// honest state — but only while a subscription exists to end the wait.
+  /// The spec side must agree ([EntityDto.canNotify] gates [_subscribe], and
+  /// covers only `notify` where discovery's flag also covers indicate), or
+  /// an indicate-only or spec-drifted entity would have no read, no
+  /// subscription, and a spinner forever. The check goes through the
   /// service's per-connection discovery cache (no extra radio work), and any
   /// failure to answer falls back to attempting the read — a wrong error
   /// beats a silently skipped seed.
@@ -230,7 +235,12 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
           .expand((s) => s.characteristics)
           .where((c) => normalizeUuid(c.uuid) == target)
           .firstOrNull;
-      if (char != null && !char.canRead && char.canNotify) return;
+      if (widget.entity.canNotify &&
+          char != null &&
+          !char.canRead &&
+          char.canNotify) {
+        return;
+      }
     } catch (_) {
       // Discovery unavailable: proceed with the read as before.
     }
@@ -278,11 +288,27 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
         .listen(
       (bytes) =>
           unawaited(_decodeAndSet(stateChar, bytes).catchError((Object _) {})),
-      onError: (Object _) {
+      onError: (Object error) {
         // A dropped notify stream leaves the last value on screen; the
         // connection-state watcher on the device screen owns surfacing the
         // disconnect, so this must not overwrite a good reading with an
-        // error.
+        // error. But a subscription that fails before ANY value arrived is
+        // a different statement — for a notify-only characteristic the seed
+        // read was skipped, making this failure the card's only signal
+        // ("pair this device" on a refused CCCD write), and swallowing it
+        // would leave a spinner forever.
+        if (!mounted || _value.status != EntityValueStatus.loading) return;
+        setState(() {
+          _value = EntityLiveValue(
+            entity: widget.entity,
+            status: EntityValueStatus.error,
+            error: friendlyErrorText(
+              error,
+              context: 'subscribe $stateChar',
+              fallback: 'Could not read this value.',
+            ),
+          );
+        });
       },
     );
   }
