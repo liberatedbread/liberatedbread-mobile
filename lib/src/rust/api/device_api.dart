@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -449,6 +449,30 @@ Future<StoredPlayDto> encodeStoredPlay(
     RustLib.instance.api.crateApiDeviceApiEncodeStoredPlay(
         specYaml: specYaml, cid: cid, sequence: sequence);
 
+/// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
+///
+/// The device answers a list request with several framed notifications; the
+/// caller decodes each and merges them to map a stored frame's cid to the slot
+/// a playlist must use. A notification that is not an effect list yields an
+/// empty list.
+Future<List<EffectEntryDto>> decodeEffectList(
+        {required String specYaml, required List<int> bytes}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiDecodeEffectList(specYaml: specYaml, bytes: bytes);
+
+/// Encode the writes that loop a set of stored frames as an animation: the
+/// set-playlist command then loop mode. `cids` and `slots` are the stored
+/// frames in play order (paired by index); `slots` are the device-assigned
+/// slots (pass 0 when unknown — play addresses customs by cid). `sequence` is
+/// the rolling counter's next value.
+Future<PlaylistWritesDto> encodeSetPlaylist(
+        {required String specYaml,
+        required List<int> cids,
+        required List<int> slots,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeSetPlaylist(
+        specYaml: specYaml, cids: cids, slots: slots, sequence: sequence);
+
 /// Decode raw bytes from a BLE read/notify into named values.
 ///
 /// Provide either `spec_yaml` (custom device) or `service_uuid` (standard
@@ -809,6 +833,29 @@ class DeviceSpecDto {
           entities == other.entities &&
           imageUpload == other.imageUpload &&
           storedUpload == other.storedUpload;
+}
+
+/// One entry of the device's stored-effect list: a stored item's id and its
+/// device-assigned slot. A playlist must address items by this slot.
+class EffectEntryDto {
+  final int cid;
+  final int slot;
+
+  const EffectEntryDto({
+    required this.cid,
+    required this.slot,
+  });
+
+  @override
+  int get hashCode => cid.hashCode ^ slot.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EffectEntryDto &&
+          runtimeType == other.runtimeType &&
+          cid == other.cid &&
+          slot == other.slot;
 }
 
 /// One resolved control action: which command a role sends and what the UI
@@ -2089,6 +2136,31 @@ class ParameterDto {
           unit == other.unit &&
           default_ == other.default_ &&
           auto == other.auto;
+}
+
+/// The framed writes that set a looping playlist of stored effects — the
+/// set-playlist command then loop mode. Written in order to the command
+/// characteristic; this is how a multi-frame animation plays (each frame a
+/// stored microapp, looped).
+class PlaylistWritesDto {
+  final String serviceUuid;
+  final List<ImageWriteDto> writes;
+
+  const PlaylistWritesDto({
+    required this.serviceUuid,
+    required this.writes,
+  });
+
+  @override
+  int get hashCode => serviceUuid.hashCode ^ writes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlaylistWritesDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          writes == other.writes;
 }
 
 /// A characteristic within a standard profile.

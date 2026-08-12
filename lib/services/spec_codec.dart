@@ -30,6 +30,8 @@ export '../src/rust/api/device_api.dart'
         StoredUploadEventDto,
         StoredUploadEventKind,
         StoredPlayDto,
+        PlaylistWritesDto,
+        EffectEntryDto,
         MatchResult,
         MatchConfidence,
         MacPrefixDto,
@@ -414,4 +416,23 @@ abstract class SpecCodec {
 
   /// Decode a `StateAccessPoint` scan-result reply.
   Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes});
+
+  /// Encode the writes that loop stored frames as an animation: the
+  /// set-playlist command then loop mode. [cids] are the stored frames in play
+  /// order; [slots] are their device slots (0 when unknown). [sequence] seeds
+  /// the two writes' rolling serials.
+  Future<PlaylistWritesDto> encodeSetPlaylist({
+    required String specYaml,
+    required List<int> cids,
+    required List<int> slots,
+    required int sequence,
+  });
+
+  /// Decode one M_EFFECT_LIST notification into `{cid, slot}` entries. The
+  /// device answers a list request with several notifications; merge them to
+  /// map a stored frame's cid to the device slot a playlist must address.
+  Future<List<EffectEntryDto>> decodeEffectList({
+    required String specYaml,
+    required List<int> bytes,
+  });
 }

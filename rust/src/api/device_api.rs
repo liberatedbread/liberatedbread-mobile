@@ -194,6 +194,24 @@ pub struct StoredPlayDto {
     pub write: ImageWriteDto,
 }
 
+/// The framed writes that set a looping playlist of stored effects — the
+/// set-playlist command then loop mode. Written in order to the command
+/// characteristic; this is how a multi-frame animation plays (each frame a
+/// stored microapp, looped).
+#[derive(Debug, Clone)]
+pub struct PlaylistWritesDto {
+    pub service_uuid: String,
+    pub writes: Vec<ImageWriteDto>,
+}
+
+/// One entry of the device's stored-effect list: a stored item's id and its
+/// device-assigned slot. A playlist must address items by this slot.
+#[derive(Debug, Clone)]
+pub struct EffectEntryDto {
+    pub cid: u32,
+    pub slot: u32,
+}
+
 /// The BLE writes that push one image frame to a device, in send order.
 #[derive(Debug, Clone)]
 pub struct ImageWritePlanDto {
@@ -2886,6 +2904,62 @@ pub fn encode_stored_play(
             characteristic_uuid: write.characteristic_uuid,
             bytes: write.bytes,
         },
+    })
+}
+
+/// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
+///
+/// The device answers a list request with several framed notifications; the
+/// caller decodes each and merges them to map a stored frame's cid to the slot
+/// a playlist must use. A notification that is not an effect list yields an
+/// empty list.
+pub fn decode_effect_list(spec_yaml: String, bytes: Vec<u8>) -> anyhow::Result<Vec<EffectEntryDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    // Taken for symmetry with the other decoders and to fail loudly on a spec
+    // that could never produce this notification.
+    if crate::protocol::stored_upload::stored_feature(&spec).is_none() {
+        anyhow::bail!("spec declares no stored_upload feature");
+    }
+    Ok(crate::protocol::daniao_upload::parse_effect_list(&bytes)
+        .into_iter()
+        .map(|e| EffectEntryDto {
+            cid: e.cid,
+            slot: e.slot,
+        })
+        .collect())
+}
+
+/// Encode the writes that loop a set of stored frames as an animation: the
+/// set-playlist command then loop mode. `cids` and `slots` are the stored
+/// frames in play order (paired by index); `slots` are the device-assigned
+/// slots (pass 0 when unknown — play addresses customs by cid). `sequence` is
+/// the rolling counter's next value.
+pub fn encode_set_playlist(
+    spec_yaml: String,
+    cids: Vec<u32>,
+    slots: Vec<u32>,
+    sequence: u32,
+) -> anyhow::Result<PlaylistWritesDto> {
+    use crate::protocol::stored_upload::{encode_set_playlist, PlaylistItem};
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let items: Vec<PlaylistItem> = cids
+        .iter()
+        .enumerate()
+        .map(|(i, &cid)| PlaylistItem {
+            cid,
+            slot: slots.get(i).copied().unwrap_or(0),
+        })
+        .collect();
+    let (service_uuid, writes) = encode_set_playlist(&spec, &items, sequence as u16)?;
+    Ok(PlaylistWritesDto {
+        service_uuid,
+        writes: writes
+            .into_iter()
+            .map(|w| ImageWriteDto {
+                characteristic_uuid: w.characteristic_uuid,
+                bytes: w.bytes,
+            })
+            .collect(),
     })
 }
 

@@ -91,6 +91,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw);
 
   @protected
+  EffectEntryDto dco_decode_effect_entry_dto(dynamic raw);
+
+  @protected
   EntityActionDto dco_decode_entity_action_dto(dynamic raw);
 
   @protected
@@ -157,6 +160,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<DeviceSpecDto> dco_decode_list_device_spec_dto(dynamic raw);
 
   @protected
+  List<EffectEntryDto> dco_decode_list_effect_entry_dto(dynamic raw);
+
+  @protected
   List<EntityActionDto> dco_decode_list_entity_action_dto(dynamic raw);
 
   @protected
@@ -211,6 +217,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint16List dco_decode_list_prim_u_16_strict(dynamic raw);
+
+  @protected
+  List<int> dco_decode_list_prim_u_32_loose(dynamic raw);
+
+  @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
 
   @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
@@ -331,6 +343,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto dco_decode_parameter_dto(dynamic raw);
+
+  @protected
+  PlaylistWritesDto dco_decode_playlist_writes_dto(dynamic raw);
 
   @protected
   ProfileCharacteristicDto dco_decode_profile_characteristic_dto(dynamic raw);
@@ -473,6 +488,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   DeviceSpecDto sse_decode_device_spec_dto(SseDeserializer deserializer);
 
   @protected
+  EffectEntryDto sse_decode_effect_entry_dto(SseDeserializer deserializer);
+
+  @protected
   EntityActionDto sse_decode_entity_action_dto(SseDeserializer deserializer);
 
   @protected
@@ -544,6 +562,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<EffectEntryDto> sse_decode_list_effect_entry_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<EntityActionDto> sse_decode_list_entity_action_dto(
       SseDeserializer deserializer);
 
@@ -610,6 +632,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   Uint16List sse_decode_list_prim_u_16_strict(SseDeserializer deserializer);
+
+  @protected
+  List<int> sse_decode_list_prim_u_32_loose(SseDeserializer deserializer);
+
+  @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
 
   @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
@@ -746,6 +774,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ParameterDto sse_decode_parameter_dto(SseDeserializer deserializer);
+
+  @protected
+  PlaylistWritesDto sse_decode_playlist_writes_dto(
+      SseDeserializer deserializer);
 
   @protected
   ProfileCharacteristicDto sse_decode_profile_characteristic_dto(
@@ -897,6 +929,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_device_spec_dto(DeviceSpecDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_effect_entry_dto(
+      EffectEntryDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_entity_action_dto(
       EntityActionDto self, SseSerializer serializer);
 
@@ -977,6 +1013,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<DeviceSpecDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_effect_entry_dto(
+      List<EffectEntryDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_entity_action_dto(
       List<EntityActionDto> self, SseSerializer serializer);
 
@@ -1047,6 +1087,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_prim_u_16_strict(
       Uint16List self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_32_loose(
+      List<int> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_32_strict(
+      Uint32List self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
@@ -1193,6 +1241,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_parameter_dto(ParameterDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_playlist_writes_dto(
+      PlaylistWritesDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_profile_characteristic_dto(

@@ -295,6 +295,125 @@ fn build_play_write(
     })
 }
 
+/// One playlist entry: a stored effect's id (cid) and its device slot.
+pub struct PlaylistItem {
+    pub cid: u32,
+    pub slot: u32,
+}
+
+/// Encode the writes that make the device LOOP a list of stored effects: the
+/// playlist (M_SET_PL) then loop mode (M_SET_MODE_LOOP). This is how a
+/// multi-frame custom animation plays on this hardware — each frame is stored
+/// as its own single-frame microapp (the type-3 AMX path that renders), then
+/// the frames are set as a looping playlist. `sequence` seeds the two writes'
+/// rolling serials.
+pub fn encode_set_playlist(
+    spec: &DeviceSpec,
+    items: &[PlaylistItem],
+    sequence: u16,
+) -> Result<(String, Vec<EncodedWrite>), ProtocolError> {
+    let payload = build_playlist_payload(items);
+    let set_pl = build_framed_command(
+        spec,
+        "set_playlist",
+        HashMap::new(),
+        HashMap::from([("payload".to_string(), payload)]),
+        sequence,
+    )?;
+    let loop_cmd = build_framed_command(
+        spec,
+        "set_mode_loop",
+        HashMap::new(),
+        HashMap::new(),
+        sequence.wrapping_add(1),
+    )?;
+    let service = service_for_characteristic(spec, &set_pl.characteristic_uuid).ok_or_else(|| {
+        ProtocolError::ImageUploadUnsupported {
+            reason: "the set_playlist characteristic belongs to no service".to_string(),
+        }
+    })?;
+    Ok((service, vec![set_pl, loop_cmd]))
+}
+
+/// The PlayList protobuf: `{1:0, 2:count, 4:[repeated {1:0, 2:cid, 3:slot}]}`,
+/// byte-shaped after the M_SET_PL capture in smartdawn_longer2.pcapng.
+fn build_playlist_payload(items: &[PlaylistItem]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&[0x08, 0x00]); // field 1 = 0
+    out.push(0x10); // field 2 (count)
+    write_varint(&mut out, items.len() as u64);
+    for item in items {
+        let mut entry = Vec::new();
+        entry.extend_from_slice(&[0x08, 0x00]); // field 1 = 0
+        entry.push(0x10); // field 2 (cid)
+        write_varint(&mut entry, item.cid as u64);
+        entry.push(0x18); // field 3 (slot)
+        write_varint(&mut entry, item.slot as u64);
+        out.push(0x22); // field 4 (len-delimited item)
+        write_varint(&mut out, entry.len() as u64);
+        out.extend_from_slice(&entry);
+    }
+    out
+}
+
+fn write_varint(out: &mut Vec<u8>, mut v: u64) {
+    loop {
+        let mut b = (v & 0x7f) as u8;
+        v >>= 7;
+        if v != 0 {
+            b |= 0x80;
+        }
+        out.push(b);
+        if v == 0 {
+            break;
+        }
+    }
+}
+
+/// Build any framed DDP command from its spec template — numeric params and an
+/// optional `bytes` payload — then wrap it in the command channel's fragment
+/// framing. `sequence` drives both the DNX `sn` and the fragment serial.
+/// Generalises [`build_play_write`] for commands that carry a Rust-built
+/// payload (set_playlist).
+fn build_framed_command(
+    spec: &DeviceSpec,
+    command_name: &str,
+    mut params: HashMap<String, f64>,
+    bytes_params: HashMap<String, Vec<u8>>,
+    sequence: u16,
+) -> Result<EncodedWrite, ProtocolError> {
+    let (characteristic, tag) =
+        command_channel(spec, command_name).ok_or_else(|| ProtocolError::CommandNotFound {
+            uuid: "<any>".to_string(),
+            command: command_name.to_string(),
+        })?;
+    let commands = characteristic
+        .commands
+        .as_ref()
+        .ok_or_else(|| ProtocolError::NoCommands {
+            uuid: characteristic.uuid.clone(),
+        })?;
+    let command = commands
+        .get(command_name)
+        .ok_or_else(|| ProtocolError::CommandNotFound {
+            uuid: characteristic.uuid.clone(),
+            command: command_name.to_string(),
+        })?;
+    params.insert("sn".to_string(), sequence as f64);
+    let dnx = crate::codec::types::encode_command_with_bytes(command, &params, &bytes_params)?;
+    let parts = fragment_packet(FragmentRequest {
+        packet: &dnx,
+        serial: sequence as u32,
+        tag,
+        capacity: dnx.len().max(1),
+    });
+    let bytes = parts.into_iter().next().unwrap_or(dnx);
+    Ok(EncodedWrite {
+        characteristic_uuid: characteristic.uuid.clone(),
+        bytes,
+    })
+}
+
 /// The characteristic carrying `command_name`, plus its fragment channel tag.
 ///
 /// Resolves by which characteristic declares the command rather than by a
@@ -369,6 +488,25 @@ services:
               ts: { type: "uint8", default: 0 }
               effect_id: { type: "varint", min: 0 }
               slot: { type: "varint", min: 0, default: 0 }
+          set_playlist:
+            description: "Set the looping playlist."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x42, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes" }
+          set_mode_loop:
+            description: "Loop the playlist."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
       - uuid: "01010074-1972-1925-3022-077119514e44"
         name: "DDP Notify"
         properties: ["notify"]
@@ -444,6 +582,52 @@ services:
         let plan_play = plan.play_write.expect("play_command declared");
         assert_eq!(write.characteristic_uuid, plan_play.characteristic_uuid);
         assert_eq!(write.bytes, plan_play.bytes);
+    }
+
+    #[test]
+    fn playlist_payload_matches_the_capture() {
+        // The 4-effect playlist from smartdawn_longer2.pcapng: cids 14221..14218
+        // at slots 8..5. Byte-for-byte the payload the app sent.
+        let items = [
+            PlaylistItem { cid: 14221, slot: 8 },
+            PlaylistItem { cid: 14220, slot: 7 },
+            PlaylistItem { cid: 14219, slot: 6 },
+            PlaylistItem { cid: 14218, slot: 5 },
+        ];
+        let payload = build_playlist_payload(&items);
+        let hex: String = payload.iter().map(|b| format!("{b:02x}")).collect();
+        assert_eq!(
+            hex,
+            "0800100422070800108d6f180822070800108c6f180722070800108b6f180622070800108a6f1805"
+        );
+    }
+
+    #[test]
+    fn set_playlist_frames_two_writes_on_the_command_channel() {
+        let (service, writes) = encode_set_playlist(
+            &spec(),
+            &[
+                PlaylistItem { cid: 900001, slot: 0 },
+                PlaylistItem { cid: 900002, slot: 0 },
+            ],
+            5,
+        )
+        .unwrap();
+        assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
+        assert_eq!(writes.len(), 2, "set_playlist then set_mode_loop");
+        // Both are fragment-framed on the DDP Write characteristic, with rolling
+        // serials 5 and 6.
+        assert_eq!(writes[0].bytes[0], 5);
+        assert_eq!(writes[1].bytes[0], 6);
+        for w in &writes {
+            assert_eq!(w.characteristic_uuid, "01020074-1972-1925-3022-077119514e44");
+            assert_eq!(&w.bytes[0..1], &[w.bytes[0]]); // frag header present
+            assert_eq!(w.bytes[4], 0xF0, "DNX flag after the 4-byte frag header");
+        }
+        // set_playlist mt = 0A 42 at DNX offset 6 (whole-packet 10).
+        assert_eq!(&writes[0].bytes[10..12], &[0x0A, 0x42]);
+        // set_mode_loop mt = 09 CB.
+        assert_eq!(&writes[1].bytes[10..12], &[0x09, 0xCB]);
     }
 
     #[test]

@@ -395,6 +395,20 @@ pub fn encode_command(
     command: &Command,
     params: &HashMap<String, f64>,
 ) -> Result<Vec<u8>, ProtocolError> {
+    encode_command_with_bytes(command, params, &HashMap::new())
+}
+
+/// Like [`encode_command`], but a Rust caller can also supply values for
+/// `bytes`-typed template parameters (a `{payload}` a protobuf/CRC builder
+/// produced). The header, message-type and framing still come from the spec
+/// template — only the opaque payload is filled here. The FFI's numeric-only
+/// param map cannot carry these, which is why they stay a Rust-side entry
+/// point (set_playlist, and any other command whose payload this crate builds).
+pub fn encode_command_with_bytes(
+    command: &Command,
+    params: &HashMap<String, f64>,
+    bytes_params: &HashMap<String, Vec<u8>>,
+) -> Result<Vec<u8>, ProtocolError> {
     if let Some(ref value) = command.value {
         return Ok(value.clone());
     }
@@ -440,6 +454,15 @@ pub fn encode_command(
                         })?;
                     length_fixups.push((bytes.len(), width, big_endian));
                     bytes.resize(bytes.len() + width, 0);
+                    continue;
+                }
+                // A `bytes` template param (an opaque payload a Rust builder
+                // produced) is appended verbatim — it has no numeric coercion.
+                if matches!(def.map(|d| &d.value_type), Some(ValueType::Bytes)) {
+                    let payload = bytes_params.get(name.as_str()).ok_or_else(|| {
+                        ProtocolError::ParameterMissing(name.clone())
+                    })?;
+                    bytes.extend_from_slice(payload);
                     continue;
                 }
                 // Resolution order: `auto: sequence` is the encoder's (a
