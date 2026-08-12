@@ -1,0 +1,173 @@
+# Enphase Envoy — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Enphase Envoy"
+  manufacturer: "Enphase Energy"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "energy"
+  transport: "http"
+  notes: >
+    Enphase Envoy gateways expose a local REST API on port 80 for solar
+    production and inverter telemetry. Some endpoints are readable locally,
+    while newer firmware gates selected endpoints behind token-based
+    authentication. Discovery uses the Enphase-specific mDNS service and the
+    serialnum TXT record is the stable identity.
+  identification:
+    mdns_service_type: "_enphase-envoy._tcp.local."
+    default_port: 80
+    identity_keys:
+      primary: "serialnum"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_enphase-envoy._tcp.local."
+          port: 80
+          txt_record_keys: ["serialnum", "protovers"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:serialnum"
+                key: "serialnum"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["serialnum"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      The Envoy is commissioned by an installer rather than unboxed by an
+      owner, so its onboarding is a web UI on the gateway itself rather than an
+      app protocol. The part that matters for local-first consumers is not the
+      WiFi join but the authentication change: firmware 7 and later require a
+      JWT obtained from Enphase's entrez service for local endpoints that used
+      to be open or digest-authenticated.
+    methods:
+      - type: "wired"
+        verified: false
+        description: "Ethernet or Enphase powerline (PLC) to the router; no wireless provisioning needed."
+        steps:
+          - action: "Connect the gateway to the LAN and power it."
+            actor: "user"
+            expect: "Gateway answers _enphase-envoy._tcp.local. with TXT serialnum."
+            timeout_seconds: 180
+      - type: "softap_http"
+        verified: false
+        description: >
+          For wireless installs the gateway hosts a temporary access point and
+          serves its own configuration UI, where the installer selects the home
+          network. The AP name is derived from the gateway serial.
+        softap:
+          ssid_prefix: "Envoy_"
+          open_network: true
+          passphrase_source: "None — the setup AP is an open network (official install manual, p. 26); authentication happens afterwards at the gateway's web UI, not at the WPA layer."
+          gateway_ip: "172.30.1.1"
+        steps:
+          - action: "Press the AP Mode button on the gateway to start the setup AP."
+            actor: "user"
+            timeout_seconds: 60
+          - action: "Join the Envoy_* network and open the gateway's configuration page."
+            actor: "user"
+            notes: "The AP has no Wi-Fi passphrase; the gateway IP is vendor-documented. Authentication happens at the web UI on 172.30.1.1, not when joining the network."
+          - action: "Select the home network and apply."
+            actor: "user"
+    factory_reset:
+      confidence: "low"
+      effect: "Not documented in this project. Re-provisioning is normally done in place from the gateway's own UI rather than by resetting it."
+      procedures:
+        - name: "Not verified"
+          steps:
+            - action: "Consult the model's installation manual; a full reset can de-commission the PV site and should not be done casually."
+              actor: "user"
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Network settings can be changed from the gateway's local web UI while
+        it is still reachable, which is the supported way to move it to a new
+        router.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Home network credentials"
+        - "Enphase site/installer association"
+      issued_to_client:
+        - "JWT bearer token from the Enphase entrez service (firmware 7+)"
+      notes: >
+        Older firmware used HTTP digest auth with an installer password derived
+        from the serial number; current firmware requires a cloud-issued token
+        that expires, which makes even 'local' telemetry cloud-dependent for
+        renewal. Cache the token and record its expiry. The pre-JWT scheme was
+        the subject of CVE-2020-25752, CVE-2020-25753 and CVE-2020-25754: the
+        serial is readable unauthenticated at /info (also /info.xml) and
+        default or derived credentials follow from it — the reason Enphase
+        moved to JWT in firmware 7. Gateway firmware is distributed OTA-only
+        from a CloudFront CDN gated by signed cookies; no freely downloadable
+        images exist.
+
+evidence:
+  live_lan_probe:
+    date: "2026-07-16"
+    address: "192.168.1.174"
+    serial: "000000000000"
+    protovers: "v8.3.5427"
+    mdns_service_type: "_enphase-envoy._tcp"
+    protocol: "REST API on port 80"
+
+http_endpoints:
+  - method: "GET"
+    path: "/production.json"
+    name: "Production"
+    description: "Live solar production and consumption data. Discovery scripts can probe this path after mDNS resolution."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/api/v1/production"
+    name: "Production V1"
+    description: "Legacy/current production summary endpoint."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/api/v1/production/inverters"
+    name: "Inverter Production"
+    description: "Per-inverter production telemetry; may require token authentication on newer firmware."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/info"
+    name: "Envoy Info"
+    description: "Unauthenticated gateway information (firmware, serial, part number). Returns XML with an envoy_info root element, not JSON; historically also reachable as /info.xml. pyenphase parses it with an XML parser."
+    response_body:
+      content_type: "application/xml"
+
+entities:
+  - platform: "sensor"
+    name: "Solar Production"
+    device_class: "power"
+    unit: "W"
+    state_topic: "/production.json"
+    state_mapping:
+      value: "production[i].wNow"
+    notes: >
+      /production.json returns a production ARRAY of per-type entries
+      (inverters, eim); the power field is wNow on each entry. wattsNow
+      exists only in the /api/v1/production response, not here.
+  - platform: "sensor"
+    name: "Lifetime Energy"
+    device_class: "energy"
+    unit: "Wh"
+    state_topic: "/production.json"
+    state_mapping:
+      value: "production[i].whLifetime"
+    notes: >
+      whLifetime lives on the /production.json array entries (present on the
+      eim entry of metered units), not at a top-level production object.
+

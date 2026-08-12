@@ -1,0 +1,52 @@
+# iHome iSP5 / iSP6X — Device Spec (research note)
+# iHome (SDI Technologies) alive; plugs discontinued; Wink integration dead (2024)
+# Local path: Apple HomeKit (HAP over IP) — no iHome account needed
+
+device:
+  id: ihome-isp5-isp6
+  name: iHome iSP5 / iSP6X Wi-Fi Smart Plug
+  manufacturer: iHome (SDI Technologies) — alive; models discontinued
+  category: smart_plug
+  safety_class: LOW  # mains relay, 15 A / 1800 W (iSP5)
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    The fully-local path is native Apple HomeKit: pairing uses the printed
+    8-digit setup code and runs entirely on the LAN (mDNS + HAP session
+    encryption). No iHome account or cloud step is required. The iHome
+    Control app's own protocol is cloud-dependent and undocumented locally —
+    do not rely on it.
+
+lan:
+  discovery:
+    method: mdns  # _hap._tcp Bonjour advertisement
+  control:
+    protocol: homekit-hap-ip
+    auth: HAP pairing (SRP) with printed setup code; per-session Curve25519
+    controllers:
+      - Apple Home app
+      - Home Assistant homekit_controller (iot_class: local_push)
+      - aiohomekit-based open controllers
+
+protocol:
+  note: >
+    Standard HomeKit Accessory Protocol. Outlet service: On characteristic
+    (bool). iSP6X energy data is NOT exposed over HAP (was iHome-cloud only).
+    Firmware updates need the iHome app/cloud but are not required for use.
+  commands:
+    power_on: "HAP write On=true (Outlet service)"
+    power_off: "HAP write On=false"
+    get_state: "HAP read On"
+
+status:
+  apk_acquired: false   # n/a — vendor app is a cloud client; local path is HAP
+  apk_decompiled: false
+  protocol_recovered: true   # HAP is vendor-documented + open implementations exist
+  rating: confirmed
+  cloud_dead: false   # iHome alive; Wink path dead; iHome cloud only for app/fw-updates
+  references:
+    - community.openhab.org/t/how-to-add-ihome-isp6x-smart-plug/64516 (2019-01-17 — no local vendor API found)
+    - home-assistant.io homekit_controller integration
+    - smallnetbuilder.com iSP5 review; manualslib iSP5 quick start (HomeKit code in manual)

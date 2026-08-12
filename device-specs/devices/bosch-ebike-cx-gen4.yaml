@@ -1,0 +1,144 @@
+# Bosch Performance Line CX (Gen4) eBike system device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Bosch Performance Line CX (Gen4)"
+  manufacturer: "Bosch eBike Systems"
+  manufacturer_status: "active"
+  protocol: "can"
+  category: "motor"
+  notes: >
+    The most closed mainstream e-bike system, and the one that most often stops
+    an independent repair. Fault detail, component pairing and firmware updates
+    are gated behind Bosch dealer tooling and the eBike Connect app, so a
+    workshop without dealer access can see THAT a bike has faulted without
+    being able to say why, and cannot re-pair a replaced motor, battery or
+    display. (The eBike Flow app is for the smart system / BES3 only; Gen4/BES2
+    pairs through eBike Connect.)
+
+    THIS SPEC IS A STARTING KIT, NOT A PROTOCOL. What is documented below is how
+    to get onto the bus -- bitrate, breakout pinout, tooling. The public message
+    catalogue is a SINGLE frame. There is no decoded field mapping for speed,
+    assist level, battery state or error codes yet; building one is the work.
+
+    NO RADIO ON THE BUS, NO SOCKET: unlike every other vehicle target here,
+    there is nothing to scan for at the system level. Reaching the bus needs
+    a CAN interface and physical access to the harness. Budget for hardware,
+    not an afternoon with a phone. One caveat on the wording: a Kiox (BUI350)
+    display DOES advertise BLE -- it pairs with the eBike Connect app and
+    with BLE heart-rate straps -- but that link belongs to the display and
+    is not a path onto the bus.
+
+    VERIFICATION: link parameters and wiring are `reported` and reproducible.
+    The single frame below is `hypothesis` -- reported by one source and not
+    reproduced by us. Nothing here has been observed on our own bus.
+
+    METHOD: passive capture first, always. This is a bus with a motor on it.
+    Capture a full session (power-on, each assist level, walk mode, an induced
+    fault on a stand), diff single-variable changes to isolate candidate IDs,
+    and identify which node emits which ID by capturing with components
+    disconnected one at a time. Only then consider transmitting.
+
+    SINCE THIS SPEC WAS WRITTEN (2026-05): Bosch published an official, free
+    "Live Data Interface" BLE GATT specification (V1.0, 2026-05-01) -- 13
+    read-only live data points (speed, SoC, rider power, cadence, odometer,
+    lock/light/charger state) with permissive terms. It covers the smart
+    system (BES3) only and does not unlock Gen4/BES2, but it is Bosch's
+    first open protocol and a policy U-turn worth recording.
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision. Nothing a third party can provision. Component pairing exists but is gated behind Bosch dealer tooling, which is precisely the dependency this target documents.
+    methods:
+      - type: "wired"
+        description: >
+          Physical access to the CAN harness via a D-Sub 9 breakout and a SocketCAN-compatible interface at 500 kbit/s. There is no onboarding handshake for a third-party client -- the bus is simply there.
+        verified: false
+    factory_reset:
+      applicable: false
+      effect: >
+        No user- or workshop-accessible factory reset. Component pairing and any reset-like operation run through Bosch dealer tooling. Recording that gap honestly is the point of this entry; a procedure invented for safety-relevant hardware would be worse than none.
+    rejoin:
+      requires_factory_reset: false
+      notes: >
+        No network binding exists, so there is nothing to rejoin. Moving the
+        vehicle between owners or workshops changes nothing about how the bus
+        is reached.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      notes: >
+        No WiFi, no account and no passphrase: physical access to the harness
+        is the only credential.
+
+bus:
+  link:
+    type: "can"
+    bitrate: 500000
+    verification: "reported"
+    wiring:
+      - signal: "CAN-L"
+        pin: 2
+        wire_colour: "yellow"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "CAN-H"
+        pin: 7
+        wire_colour: "green"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "ground"
+        pin: 3
+        wire_colour: "black"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "RTL"
+        pin: 1
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "RTH"
+        pin: 8
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "+12V supply, max 1A"
+        wire_colour: "red"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+  style: "broadcast"
+  checksum:
+    algorithm: "none"
+    scope: >
+      No application-layer checksum is documented; CAN's own CRC covers the
+      frame. Whether state-changing frames carry a counter or authentication is
+      an open question -- Bosch's tamper detection implies integrity checking
+      somewhere.
+    verification: "hypothesis"
+  notes: >
+    Bring the interface up with: ip link set can0 type can bitrate 500000.
+    Tooling: can-utils (candump/cansend), python-can for live viewing,
+    cannelloni for UDP-over-CAN to a workstation, or SuperCAN firmware on an
+    Adafruit Feather M4 CAN Express. Kiox display internals, for anyone working
+    on the display itself: STM32F469IIH6 CPU, W25M512JV 512 Mbit SPI flash,
+    W9864G6KH 64 Mbit SDRAM.
+  messages:
+    - name: "start_stop"
+      description: >
+        Reported start/stop command -- the entire published message catalogue
+        for this system. Sent as: cansend can0 061#00
+      direction: "to_device"
+      can_id: "0x061"
+      writes: true
+      advanced: true
+      advanced_reason: >
+        Transmits onto a live bus that has a motor on it, and is unconfirmed --
+        one source, not reproduced. Bosch detects and records tampering, and a
+        flagged unit can be refused service and lose warranty, a consequence
+        that outlives the change that caused it. Reproduce passively first,
+        wheel off the ground, and know your recovery path before sending
+        anything.
+      notes: >
+        Reproducing or refuting this frame is the natural first milestone after
+        a clean passive capture.
+      verification: "hypothesis"

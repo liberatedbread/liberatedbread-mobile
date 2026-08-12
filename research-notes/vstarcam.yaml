@@ -1,0 +1,69 @@
+# Vstarcam C-series (Eye4 platform) — Device Spec (research note)
+# Company active (vstarcam.com SDK page 2024-12; reachable 2026-08-07).
+# Vendor-documented local RTSP; ONVIF on newer models. Cloud optional.
+
+device:
+  id: vstarcam
+  name: Vstarcam C-series Wi-Fi IP cameras (C7824WIP, C24S, C29S, C38S, etc.)
+  manufacturer: Shenzhen Vstarcam Technology (active)
+  category: ip_camera
+  safety_class: LOW  # privacy risk only
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Local HTTP web UI + vendor-documented RTSP on port 554. The Eye4 app
+    (P2P cloud) is optional; no account is needed for LAN streaming or
+    configuration. ONVIF is present on newer C-series, absent on the
+    C7824WIP generation.
+
+lan:
+  discovery:
+    - ONVIF WS-Discovery (newer models)
+    - Eye4 app LAN search (proprietary broadcast)
+  http_port: 81   # 80 on some models
+  rtsp_port: 554
+  default_credentials: admin / 888888
+  endpoints:
+    rtsp_main: rtsp://admin:PASS@IP:554/live/ch00_0   # vendor SDK doc
+    rtsp_sub: rtsp://admin:PASS@IP:554/live/ch00_1
+    web_ui: http://IP:81/  # full camera config, admin/888888
+    onvif: "newer C-series only (C7824WIP: none)"
+
+protocol:
+  note: >
+    RTSP URL format is published in the vendor SDK download page
+    (rtsp://account:password@IP:554/live/ch00_X). Everything else local
+    (PTZ CGI under the web port, proprietary Eye4 LAN protocol) is
+    undocumented and model-variant; ONVIF PTZ is the clean path on models
+    that have ONVIF. Eye4 APK (vstc.vscam.client) acquired for future
+    CGI/P2P RE if needed.
+  commands:
+    stream_rtsp: /live/ch00_0 (main), /live/ch00_1 (sub)
+    ptz: ONVIF PTZ (newer models)
+    config: web UI on port 81
+
+apk:
+  package: vstc.vscam.client   # Eye4
+  source: apkeep (Google Play mirror), fetched 2026-08-07
+  sha256: fda0e34fe2e461ddad707db7d2babb7781389c861491a43a9224a508dc111e7b
+  size_bytes: 98930636
+  decompiled: false  # not needed for local RTSP path
+
+status:
+  apk_acquired: true
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — Wi-Fi/HTTP
+  protocol_recovered: true  # RTSP vendor-documented
+  hci_snoop_needed: false
+  cloud_dead: false  # Eye4 cloud optional; local path independent
+  rating: confirmed
+  security_notes: >
+    Change admin/888888; disable UPnP; cleartext RTSP/HTTP auth; verify
+    ONVIF does not allow unauthenticated access; isolate on IoT VLAN.
+  references:
+    - vstarcam.com/sdk-download (2024-12; RTSP format + default password)
+    - koshka.ddns.net Vstarcam watchdog writeup (2016-11-28)
+    - community.netcamstudio.com C7824WIP ONVIF thread (2016-07)
+    - camlytics.com/camera/vstarcam, ispyconnect.com/camera/vstarcam

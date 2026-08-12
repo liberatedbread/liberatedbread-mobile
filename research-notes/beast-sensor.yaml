@@ -1,0 +1,80 @@
+# Beast Sensor (velocity-based training IMU) — research note
+# From static analysis of com.thisisbeast.beast v2.3.7 (jadx)
+# APK source: apkeep (apk-pure), 2026-08-07; delisted from Google Play (404)
+# SHA-256: 6a40470da1c501ef2a4c001ad0865f57dc82e170ed0a202a471aae3e7a92fb10
+
+device:
+  id: beast-sensor
+  name: Beast Sensor (barbell/wrist VBT IMU pod)
+  manufacturer: Beast Technologies (Italy) — defunct (VBT Coach buyers guide 2024-03-21)
+  category: fitness_sensor
+  safety_class: LOW  # read-only sensor; no actuation
+
+transport:
+  type: ble
+  local_only: true
+  note: >
+    Real-time sensor stream is local BLE; VBT computation on the phone. Stock app
+    uses Couchbase Lite sync to a Beast cloud backend (dead) and an account gate —
+    practical local use means a clean-room BLE client.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "Beast" speculative
+    service_uuids: []  # TBD
+  services:
+    - uuid: "bea5760d-503d-4920-b000-101e7306b000"
+      name: beast_service_a
+      description: >
+        Primary service. jadx literals show base BEA5760D-503D-4920-B000-101E7306B00x
+        for service+characteristics; 6 characteristics (x = 001..006 as full UUIDs
+        BEA5760D-503D-4920-B000-101E7306B001 .. B006 with the service itself
+        ...B000). >=4 characteristics notification-enabled; others written.
+      source: com/thisisbeast/beast/c/f/b/a.java
+      characteristics:
+        - uuid: "bea5760d-503d-4920-b000-101e7306b001"
+          name: beast_a_char1
+        - uuid: "bea5760d-503d-4920-b000-101e7306b002"
+          name: beast_a_char2
+        - uuid: "bea5760d-503d-4920-b000-101e7306b003"
+          name: beast_a_char3
+        - uuid: "bea5760d-503d-4920-b000-101e7306b004"
+          name: beast_a_char4
+        - uuid: "bea5760d-503d-4920-b000-101e7306b005"
+          name: beast_a_char5
+        - uuid: "bea5760d-503d-4920-b000-101e7306b006"
+          name: beast_a_char6
+    - uuid: "bea5760d-503d-4920-b001-101e7306b000"
+      name: beast_service_b
+      characteristics:
+        - uuid: "bea5760d-503d-4920-b001-101e7306b001"
+          name: beast_b_char1
+        - uuid: "bea5760d-503d-4920-b001-101e7306b002"
+          name: beast_b_char2
+        - uuid: "bea5760d-503d-4920-b001-101e7306b003"
+          name: beast_b_char3
+  standard_services:
+    - uuid: "00002902-0000-1000-8000-00805f9b34fb"
+      name: cccd
+
+protocol:
+  note: >
+    IMU pod for barbell velocity/power. Characteristic semantics and frame format
+    TBD — Kotlin app is obfuscated, but UUID literals and the notification setup
+    are visible; one HCI snoop should complete the picture.
+  commands: TBD
+
+abandonment:
+  company_defunct: true   # VBT Coach 2024-03-21 lists device as defunct
+  app_delisted: true      # Play 404, verified 2026-08-07
+  domain_dead: true       # thisisbeast.com unreachable, verified 2026-08-07
+  sources:
+    - https://vbtcoach.com/blog/velocity-based-training-devices-buyers-guide/
+    - https://www.kingofthegym.com/beast-sensor-review/
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true   # full BEA5760D GATT family
+  protocol_recovered: false  # char semantics + frame format TBD
+  hci_snoop_needed: true

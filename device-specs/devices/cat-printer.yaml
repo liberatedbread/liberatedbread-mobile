@@ -1,0 +1,236 @@
+# Cat Printer mini thermal printer (GB01/GB02/GB03/GT01/YT01/MX05-10)
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Cat Printer Mini Thermal Printer"
+  manufacturer: "Unbranded / Yu Tian (YT01) / various OEMs"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  category: "printer"
+  notes: >
+    Cat-shaped (and other shaped) mini thermal printers sold under many
+    names: GB01, GB02, GB03, GT01, YT01, MX05, MX06, MX08, MX09, MX10,
+    MX11, PD01, SC03h, MXTP. All share the same BLE UART protocol. $15-20.
+    No cloud dependency — fully local BLE. The stock vendor app is iPrint
+    (com.frogtosea.iprint); its device filter hardcodes GB04 and GT02 in
+    addition to the list above — neither is in NaitLee's model registry
+    nor verified against hardware.
+
+    PROTOCOL: uses a custom BLE UART service (0xAE30) with TX/RX
+    characteristics (0xAE01/0xAE02). Command frames have a fixed header:
+    [0x51 0x78 command_id 0x00 payload_length 0x00] [payload] [crc8] [0xFF].
+    CRC8 is computed from the payload bytes using a lookup table.
+    Responses and flow-control signals arrive as notifications on 0xAE02.
+
+    MODEL FLAGS:
+      is_new_kind: GB03 supports compressed data (send 0x12 prefix before
+        start-printing command).
+      problem_feeding: MX05/MX06/MX08/MX09/MX10 don't handle feed commands
+        correctly — use draw_bitmap of blank lines instead.
+      paper_width: 384 pixels (48 bytes per row) for all known models.
+
+    PRINTING SEQUENCE:
+      1. get_device_state (0xA3) — refresh device state
+      2. start_printing (0xA3 0x00 0x01) or start_printing_new (prefixed 0x12)
+      3. set_dpi_as_200 (0xA4) — send value 50
+      4. set_speed (0xBD) — lower = faster feed, default 32
+      5. set_energy (0xAF) — thermal strength, 0x0000-0xFFFF, default ~0x3000
+      6. apply_energy (0xBE) — commit energy setting
+      7. update_device (0xA9) — apply config
+      8. start_lattice (0xA6) — begin print area with marker pattern
+      9. draw_bitmap (0xA2) — send row data (48 bytes per row, bits reversed)
+      10. end_lattice (0xA6) — end print area
+      11. set_speed(8) + feed_paper(128) or blank bitmap workaround
+      12. get_device_state
+
+    FLOW CONTROL: device sends pause (0x51 0x78 0xAE 0x01 0x01 0x00 0x10
+    0x70 0xFF) and resume (0x51 0x78 0xAE 0x01 0x01 0x00 0x00 0x00 0xFF)
+    notifications on 0xAE02. Client must honour pause by waiting.
+
+    BIT REVERSAL: each byte of bitmap data written to draw_bitmap is
+    bit-reversed (MSB↔LSB) before transmission. The reverse_bits function
+    is applied client-side.
+
+    RLE ROWS (0xBF): the "new kind" compression the is_new_kind flag
+    alludes to is per-row RLE — each byte packs a 7-bit run count and a
+    1-bit color, runs longer than 0x7F are split — sent as command 0xBF,
+    falling back to uncompressed draw_bitmap (0xA2) when the RLE row
+    exceeds 48 bytes (implemented in rbaron/catprinter; NaitLee only
+    stubs it). Undocumented commands 0xBB (iPrint pre-print frame) and
+    0xBC (thermy) have also been observed; purpose unknown.
+
+    CONFIDENCE: HIGH for all UUIDs, frame format, CRC8 algorithm, command
+    IDs, model flags, printing sequence, and flow control — sourced from
+    github.com/NaitLee/Cat-Printer, a production-quality Python tool with
+    cross-platform support (Linux, macOS, Windows, Android, Web). The
+    0xAE3A secondary service, 0xBF RLE rows and the 0xBB/0xBC sightings
+    come from independent corroborating sources: lisp3r's GT01 captures,
+    rbaron/catprinter, mazoqui/thermy and the vendor iPrint APK.
+
+  identification:
+    local_name_prefix: "GB"
+    service_uuids:
+      - "0000ae30-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "GB"
+          service_uuids:
+            - "0000ae30-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning. Device advertises as soon as powered on. Scan for
+      names matching GB01/GB02/GB03/GT01/YT01/MX05 etc. or service UUID
+      0xAE30. No pairing or bonding required.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for GB*/GT*/YT*/MX* BLE advertisement with service UUID 0xAE30,
+          connect, and follow the printing sequence.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the printer and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and execute the documented printing sequence."
+            actor: "client"
+    factory_reset:
+      confidence: "high"
+      effect: "No credential state. Power-cycling resets the connection."
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Turn printer off and on again."
+              actor: "user"
+              expect: "Printer powers on and advertises."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No persistent bonding. Any central within range can connect."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only. No auth. Physical proximity is the only access control."
+
+  variants:
+    - model: "GB01"
+      identification:
+        local_name_prefix: "GB01"
+    - model: "GB02"
+      identification:
+        local_name_prefix: "GB02"
+    - model: "GB03"
+      identification:
+        local_name_prefix: "GB03"
+      notes: "Supports compressed data. Use start_printing_new (0x12 prefix)."
+    - model: "GT01"
+      identification:
+        local_name_prefix: "GT01"
+    - model: "YT01"
+      identification:
+        local_name_prefix: "YT01"
+    - model: "MX05"
+      identification:
+        local_name_prefix: "MX05"
+      notes: "problem_feeding — use blank bitmap workaround instead of feed_paper."
+    - model: "MX06"
+      identification:
+        local_name_prefix: "MX06"
+      notes: "problem_feeding."
+    - model: "MX08"
+      identification:
+        local_name_prefix: "MX08"
+      notes: "problem_feeding."
+    - model: "MX09"
+      identification:
+        local_name_prefix: "MX09"
+      notes: "problem_feeding."
+    - model: "MX10"
+      identification:
+        local_name_prefix: "MX10"
+      notes: "problem_feeding."
+    - model: "MX11"
+      identification:
+        local_name_prefix: "MX11"
+    - model: "PD01"
+      identification:
+        local_name_prefix: "PD01"
+    - model: "SC03h"
+      identification:
+        local_name_prefix: "SC03h"
+    - model: "MXTP"
+      identification:
+        local_name_prefix: "MXTP"
+
+  features:
+    - type: "image_upload"
+      max_width: 384
+      max_height: 65535
+      format: "1bit-bitmap"
+
+  protocol_handler: "cat_printer"
+
+services:
+  - uuid: "0000ae30-0000-1000-8000-00805f9b34fb"
+    name: "Cat Printer UART Service"
+    notes: >
+      Custom BLE UART service for command/response communication and bulk
+      data transfer. Additional characteristics 0xAE03 (write data),
+      0xAE04 (notify), 0xAE05 (indicate), 0xAE10 (read/write) exist but
+      are not used by the main printing protocol.
+
+      COMMAND FRAME: [0x51 0x78 cmd_id 0x00 payload_len 0x00] [payload] [crc8(payload)] [0xFF]
+      CRC8 uses a 256-entry lookup table. Payload length is 1 byte (max 255).
+
+      FLOW CONTROL: device sends pause/resume on 0xAE02 (notify).
+      Pause:   0x51 0x78 0xAE 0x01 0x01 0x00 0x10 0x70 0xFF
+      Resume:  0x51 0x78 0xAE 0x01 0x01 0x00 0x00 0x00 0xFF
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "TX (Client → Printer)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Write channel for commands and bitmap data. Bitmap rows are 48 bytes
+          (384 pixels / 8) with bits reversed before transmission.
+
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "RX (Printer → Client)"
+        properties: ["notify"]
+        notes: >
+          Notification channel for flow-control signals (pause/resume) and
+          responses. Subscribe to notifications before sending commands.
+
+  - uuid: "0000ae3a-0000-1000-8000-00805f9b34fb"
+    name: "Secondary Service (GT01)"
+    notes: >
+      Second BLE service observed on a GT01 (lisp3r's service dump).
+      Purpose unknown — possibly config or OTA. Not used by the main
+      printing protocol.
+    characteristics:
+      - uuid: "0000ae3b-0000-1000-8000-00805f9b34fb"
+        name: "AE3B"
+        properties: ["write_without_response"]
+      - uuid: "0000ae3c-0000-1000-8000-00805f9b34fb"
+        name: "AE3C"
+        properties: ["notify"]
+
+entities:
+  - platform: "cover"
+    name: "Print Feed"
+    state_characteristic: "0000ae02-0000-1000-8000-00805f9b34fb"

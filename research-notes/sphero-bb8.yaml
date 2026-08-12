@@ -1,0 +1,70 @@
+# Sphero BB-8 (Disney-era droids) — Research Note
+# Companion app APK source: apkeep (APKPure)
+# XAPK SHA-256: 668561f8cf6351edddac16b6d71026c28f3c2bcd7db46ead9bf1a89ae80cd699
+
+device:
+  id: sphero-bb8
+  name: Sphero BB-8 / BB-9E / R2-D2 / R2-Q5 / Force Band (Disney-licensed line)
+  manufacturer: Sphero Inc. (active, edu-pivot; Disney apps discontinued, hardware legacy)
+  category: toy_robot
+  safety_class: NONE
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: ["BB-"]   # "BB8_01" string found in app; droids advertise BB-XXXX
+    service_uuids: []
+
+  # Confirmed in com.sphero.bb8 v1.3.2 DEX; matches Sphero's published BLE API
+  services:
+    - uuid: "22bb746f-2bb0-7554-2d6f-726568705327"
+      name: robot_control_service
+      description: Sphero Robot Control service (BB-8/SPRK+-era API)
+      characteristics:
+        - uuid: "22bb746f-2bb2-7554-2d6f-726568705327"
+          name: wake
+          description: Write 01 to wake the robot
+          properties: [write]
+        - uuid: "22bb746f-2bb7-7554-2d6f-726568705327"
+          name: tx_power
+          description: Set radio TX power during session init
+          properties: [write]
+        - uuid: "22bb746f-2bbd-7554-2d6f-726568705327"
+          name: anti_dos
+          description: Write anti-DoS unlock code during session init
+          properties: [write]
+        - uuid: "22bb746f-2bb6-7554-2d6f-726568705327"
+          name: response_notify
+          description: Command responses/notifications (2bbe/2bbf also present in DEX; exact write-vs-notify split per vendor doc)
+          properties: [notify]
+    - uuid: "22bb746f-2ba0-7554-2d6f-726568705327"
+      name: dfu_service
+      description: Sphero firmware update service (chars 2ba1, 2ba6)
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+  notes: >
+    Classic SPP UUID 00001101 also present in app (Ollie-era fallback).
+    Session init order per vendor docs: anti-DoS code, TX power, then Wake=01.
+
+protocol:
+  note: >
+    Vendor-published "Sphero BLE API" packet protocol (SOF/did/cid/seq/dlen/data/chk).
+    Roll (heading+speed), RGB LED, back LED, raw motors, stabilisation toggle,
+    sensor streaming. BB-8 shares the SPRK+-generation command set; R2-D2 adds
+    dome/leg actuator commands (see spherov2.js).
+  references:
+    - Sphero published BLE API documentation (sphero.com developers, archived)
+    - github.com/igbopie/spherov2.js   # covers BB-8, BB-9E, R2-D2, R2-Q5, Force Band
+    - sphero.com/pages/legacy-products # vendor: use Sphero Edu for BB-8
+
+status:
+  apk_acquired: true          # com.sphero.bb8 1.3.2 (566) XAPK via apkeep apk-pure
+  apk_decompiled: false       # DEX string sweep only; vendor docs cover the protocol
+  uuids_recovered: true
+  protocol_recovered: true    # vendor-published + community SDKs
+  hci_snoop_needed: false
+  cloud_dependency: none      # dead Disney apps; Sphero Edu works account-free over local BLE
+  related_packages_not_fetched: [com.sphero.starwars, com.sphero.sprk]

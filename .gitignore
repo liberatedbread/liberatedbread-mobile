@@ -1,0 +1,30 @@
+site/
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.mypy_cache/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+.env
+
+# Reverse-engineering clean-room workspace (never commit artifacts)
+workspace/
+wemo-apk/
+*.apk
+*.apks
+*.xapk
+*.aab
+*.obb
+
+# Analysis artifacts
+**/jadx-output/
+**/apktool-output/
+**/*.pcap
+**/*.pcapng
+**/btsnoop_hci.log
+re-scratch/
+.gate-venv/

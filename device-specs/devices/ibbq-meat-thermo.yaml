@@ -1,0 +1,247 @@
+# iBBQ / Inkbird BLE Meat Thermometer
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "iBBQ / Inkbird BLE Meat Thermometer"
+  manufacturer: "Inkbird / Tenergy Solis / various OEMs"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  category: "sensor"
+  notes: >
+    BLE BBQ/meat thermometer with 2-6 temperature probes. Sold under
+    Inkbird, Tenergy Solis, and generic iBBQ brands. $15-25.
+
+    PROTOCOL: uses custom BLE service 0xFFF0 with paired write/notify
+    characteristics. Credential-based authentication is REQUIRED after
+    connection — write a fixed 15-byte credential packet to 0xFFF2 before
+    any other operation. Without this, the device ignores all subsequent
+    commands.
+
+    CREDENTIAL: `[0x21, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+    0xB8, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00]` written to 0xFFF2.
+    This is a FIXED value — not per-device. The "authentication" is
+    essentially a magic wake-up sequence, not real security.
+
+    TEMPERATURE: uint16 LE per probe, in 0.1°C increments (divide by 10
+    for °C). num_probes = data_length / 2. Arrives as notifications on
+    0xFFF4 after enabling realtime mode. Treat the value as signed:
+    probe-disconnect sentinel is 65526 (0xFFF6, int16 -10) on the GATT
+    path (pybq; matches cloudbbq's -10 check) and 0xFFFF on the
+    advertisement path (inkbird-ble).
+
+    PASSIVE BROADCAST (newer firmware): devices advertising as
+    iBBQ-1 / iBBQ-2 / iBBQ-4 / iBBQ-6 broadcast all probe temperatures
+    in BLE manufacturer data — signed int16 LE in 0.1°C starting at
+    payload offset 10 of the manufacturer-data record — no GATT
+    connection or credential needed for read-only monitoring. This is
+    how Home Assistant core's inkbird integration reads the IBT-4XS
+    (home-assistant/core#142370; library Bluetooth-Devices/inkbird-ble).
+
+    ENABLE REALTIME: write `[0x0B, 0x01, 0x00, 0x00, 0x00, 0x00]` to
+    0xFFF5. The device then streams temperature notifications on 0xFFF4
+    at a regular interval.
+
+    SETTINGS COMMANDS (all to 0xFFF5):
+    - Celsius mode: `[0x02, 0x00, ...]`
+    - Fahrenheit mode: `[0x02, 0x01, ...]`
+    - Silence alarm: `[0x04, 0xFF, 0x00, 0x00, 0x00, 0x00]`
+    - Set target temp: `[0x01, probe#, low0, low1, high0, high1]`
+      (probe# is 0-BASED — "probe-nr … from 0 onwards", uucidl gist)
+    - Battery request: `[0x08, 0x24, 0x00, 0x00, 0x00, 0x00]`
+
+    BATTERY REPLY (on 0xFFF1 SettingsResult): header 0x24, then
+    currentVoltage uint16 LE, maxVoltage uint16 LE. If maxVoltage == 0
+    use the default max — 6550 per the uucidl gist, 6580 per pybq
+    (minor disagreement; treat the default as approximate).
+
+    CHARACTERISTICS:
+    - 0xFFF1 SettingsResult (notify) — responses to settings writes
+    - 0xFFF2 AccountAndVerify (write) — credential auth
+    - 0xFFF3 HistoryData (notify) — historical temperature data
+    - 0xFFF4 RealtimeData (notify) — live temperature stream
+    - 0xFFF5 SettingsData (write) — configuration commands
+
+    DISCOVERY: advertised name "iBBQ" (newer firmware: "iBBQ-1/-2/-4/-6",
+    which also broadcast temperatures in manufacturer data — see PASSIVE
+    BROADCAST above), service UUID 0xFFF0.
+
+    VENDOR APP: Inkbird deprecated the BBQ GO / BBQ GO PRO apps (Dec 2022)
+    in favor of the unified INKBIRD app; the BLE protocol is unchanged and
+    was never officially documented.
+
+    CONFIDENCE: HIGH for all UUIDs, credential packet, enable realtime,
+    temperature encoding, and settings commands — sourced from
+    gist.github.com/uucidl (iBBQ protocol) and github.com/gleeds/cloudbbq.
+
+  identification:
+    local_name_prefix: "iBBQ"
+    service_uuids:
+      - "0000fff0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          # Prefix "iBBQ" also matches the newer iBBQ-1/-2/-4/-6 names;
+          # those firmwares broadcast all probe temps in manufacturer
+          # data (signed int16 LE, 0.1 °C, payload offset 10) — no
+          # connection or credential needed (HA core inkbird integration).
+          local_name:
+            match: "prefix"
+            value: "iBBQ"
+          service_uuids:
+            - "0000fff0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    # `required: false` despite the mandatory credential write below: nothing is
+    # provisioned. The 15-byte packet is a fixed constant every client sends
+    # every time, not a per-device secret handed out during onboarding, so there
+    # is no setup step a user performs once. See `credentials.notes`.
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision, but the connection sequence is not optional:
+      after connecting, write the fixed 15-byte credential packet to 0xFFF2
+      before any other operation, or the device silently ignores everything
+      that follows. Then enable realtime on 0xFFF5 to start receiving
+      temperature data on 0xFFF4.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Connect, authenticate with fixed credential, enable CCCD on
+          0xFFF4, enable realtime on 0xFFF5.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power on thermometer."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Scan for "iBBQ" name or 0xFFF0 service and connect.
+            actor: "client"
+          - action: >
+              Write credential: [0x21,0x07,0x06,0x05,0x04,0x03,0x02,0x01,
+              0xB8,0x22,0x00,0x00,0x00,0x00,0x00] to 0xFFF2.
+            actor: "client"
+          - action: >
+              Enable notifications on 0xFFF4 (CCCD write).
+            actor: "client"
+          - action: >
+              Enable realtime: [0x0B,0x01,0x00,0x00,0x00,0x00] to 0xFFF5.
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear beyond power-cycling.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove batteries and reinsert."
+              actor: "user"
+              expect: "Device powers on and advertises."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The fixed credential is a wake-up, not a bond. Any client can
+        reconnect by sending the credential again.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        The 15-byte credential is a fixed magic sequence, not real auth.
+
+services:
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: "iBBQ Service"
+    characteristics:
+      - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+        name: "AccountAndVerify"
+        properties: ["write"]
+        notes: >
+          CREDENTIAL AUTH (REQUIRED FIRST): write fixed 15-byte packet
+          `[0x21, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+          0xB8, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00]` before any other
+          operation.
+
+      - uuid: "0000fff5-0000-1000-8000-00805f9b34fb"
+        name: "SettingsData"
+        properties: ["write"]
+        notes: >
+          Configuration write channel. All 6-byte packets.
+        commands:
+          enable_realtime:
+            description: "Start live temperature stream on 0xFFF4."
+            value: [0x0B, 0x01, 0x00, 0x00, 0x00, 0x00]
+          set_celsius:
+            description: "Set temperature unit to Celsius."
+            value: [0x02, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_fahrenheit:
+            description: "Set temperature unit to Fahrenheit."
+            value: [0x02, 0x01, 0x00, 0x00, 0x00, 0x00]
+          silence_alarm:
+            description: "Silence the audible alarm."
+            value: [0x04, 0xFF, 0x00, 0x00, 0x00, 0x00]
+          request_battery:
+            description: "Request battery status."
+            value: [0x08, 0x24, 0x00, 0x00, 0x00, 0x00]
+          set_target_temp:
+            description: >
+              Set target temperature alarm for a probe.
+              [0x01, probe_num, low_lo, low_hi, high_lo, high_hi]
+              Temperatures as signed int16 in 0.1°C increments.
+              probe_num is 0-based ("probe-nr … from 0 onwards", uucidl
+              gist) — an earlier revision of this spec said 1-based.
+            template: [0x01, "{probe}", "{low_lo}", "{low_hi}", "{high_lo}", "{high_hi}"]
+            parameters:
+              probe: { type: "uint8", min: 0, max: 5 }
+              low_lo: { type: "uint8" }
+              low_hi: { type: "uint8" }
+              high_lo: { type: "uint8" }
+              high_hi: { type: "uint8" }
+
+      - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+        name: "RealtimeData"
+        properties: ["notify"]
+        notes: >
+          Live temperature stream. Each notification is an array of uint16
+          LE values (one per probe), each in 0.1°C. num_probes = data_length/2.
+          Enable notifications (CCCD) before enabling realtime.
+          Probe-disconnect sentinel: 65526 (0xFFF6, i.e. int16 -10 — pybq,
+          matching cloudbbq's -10 check); the advertisement path uses
+          0xFFFF instead (inkbird-ble). Treat values as signed.
+
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: "SettingsResult"
+        properties: ["notify"]
+        notes: >
+          Responses to settings writes on 0xFFF5. Battery reply format:
+          header 0x24, currentVoltage uint16 LE, maxVoltage uint16 LE —
+          if maxVoltage == 0 fall back to the default max (6550 per
+          uucidl gist, 6580 per pybq; approximate). The device also
+          echoes the SilenceAlarm message here when the alarm is
+          silenced via the device button.
+
+      - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+        name: "HistoryData"
+        properties: ["notify"]
+        notes: "Historical temperature data (if supported by model)."
+
+entities:
+  - platform: "sensor"
+    name: "Temperature"
+    state_characteristic: "0000fff4-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Battery"
+    state_characteristic: "0000fff1-0000-1000-8000-00805f9b34fb"
+  - platform: "switch"
+    name: "Alarm"
+    state_characteristic: "0000fff5-0000-1000-8000-00805f9b34fb"

@@ -1,0 +1,26 @@
+# Tooling configuration for the repository's Python helper scripts.
+# There is no installable package here — the scripts under scripts/ and tools/
+# are run directly and depend only on the standard library plus the packages in
+# requirements.txt.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["workspace", "data"]
+
+[tool.ruff.lint]
+# Pyflakes, pycodestyle and bugbear: real defects rather than style opinions.
+select = ["E", "F", "W", "B"]
+ignore = [
+    # Long lines are pervasive in the generated tables and reference URLs.
+    "E501",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["scripts"]
+python_files = ["test_*.py"]
+# Defensive: pytest-homeassistant-custom-component (entry point "homeassistant")
+# globally blocks sockets in every pytest run when present in the environment,
+# which breaks the loopback FakeWemo HTTP server in test_wemo_setup_e2e.py.
+# It is not a project dependency; blocking a missing plugin is a no-op in CI.
+addopts = ["-p", "no:homeassistant"]

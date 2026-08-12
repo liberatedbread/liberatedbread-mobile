@@ -1,0 +1,54 @@
+# Tidbyt Gen1/Gen2 — Device Spec (research note)
+# Company alive 2026; stock firmware is cloud-pull only — NO official local API
+# Local path: Tronbyt community firmware + self-hosted server (HTTP pull of WebP)
+
+device:
+  id: tidbyt
+  name: Tidbyt Gen1 / Gen2 LED pixel display (64x32, ESP32)
+  manufacturer: Tidbyt Inc. — alive as of 2026-08-07
+  category: ambient_display
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true   # only with community firmware; stock firmware is cloud-only
+  note: >
+    Stock firmware pulls rendered WebP from Tidbyt cloud (official push API
+    also terminates in cloud — no official local API). Community path:
+    tronbyt/firmware on the device pulls WebP frames over plain HTTP from a
+    LAN server (tronbyt/server or any HTTP endpoint), fully local.
+
+lan:
+  provisioning:
+    method: usb-flash        # PlatformIO; WiFi creds + server URL set at flash time
+    requirement: USB host computer, no account
+  control:
+    protocol: http           # device-initiated pull
+    pattern: GET <configured_base_url>/... -> image/webp (+ app cycle interval)
+    server: tronbyt/server (Go; Docker Compose / Homebrew / bare metal)
+    note: >
+      Any LAN HTTP server that returns a WebP can drive the display;
+      tronbyt/server adds app rendering (pixlet Starlark), web UI,
+      multi-device management.
+
+protocol:
+  note: >
+    Deliberately trivial: HTTP pull of rendered frames. Exact request path and
+    headers to be transcribed from tronbyt/firmware source during spec work.
+  commands:
+    next_frame: device pulls next WebP on app-cycle interval
+    push_now: server-side; device picks up on next poll (slight latency)
+
+status:
+  apk_acquired: false     # n/a — stock app only does cloud pairing
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE control path
+  protocol_recovered: true   # community firmware + server, documented and active
+  hci_snoop_needed: false
+  cloud_dead: false          # vendor alive; Tronbyt exists as insurance + local option
+  rating: confirmed          # community implementation (firmware flash required)
+  references:
+    - github.com/tronbyt/server (self-hosted backend, supports Gen1/Gen2)
+    - github.com/tronbyt/firmware (community ESP32 firmware)
+    - hackaday.io/page/399364 (2025-03-28 project log)
+    - discuss.tidbyt.com/t/tronbyt-replacement-firmware-and-backend/7092

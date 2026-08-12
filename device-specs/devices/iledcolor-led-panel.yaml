@@ -1,0 +1,160 @@
+# iLEDColor LED Panel — Device Spec
+# Generated from static analysis of com.led.iledcolor
+# APK source: apkeep (Google Play mirror)
+# XAPK SHA-256: df33e91e2467f7c379bcaa7b497bb1bed91aea9a282817b1af632283d79f1505
+
+device:
+  name: "iLEDColor LED Matrix Panel (DreamPanel v3)"
+  manufacturer: "Shenzhen I-ledshow Technology Co., Ltd."
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "display"
+  notes: >
+    This app replaced SPOTLED for DreamPanel v3 hardware (horizontal serial
+    number). Built on JieLi (JL) Bluetooth OTA SDK. The protocol is FULLY
+    RECOVERED: the vendor published its complete implementation as the
+    open-source Flutter plugin led_bt_jl_ota on pub.dev (0.0.1 2024-08-17 →
+    0.0.34 2025-05-06), and the independent Rust RE akkaisinabin/iledcolor-rs
+    agrees byte-for-byte.
+
+    LED commands do NOT ride the OTA pipe. They use a dedicated proprietary
+    service 0000A950: A951 command (write / write-without-response), A952 bulk
+    data (image/GIF program upload), A953 notify. AE00/AE01/AE02 is the JieLi
+    OTA firmware-upgrade stack only — confirmed against JieLi's official
+    jl_bt_ota SDK (BluetoothConstant carries the same three UUIDs).
+
+    Command packet format (write to A951), cross-validated between the vendor
+    plugin and iledcolor-rs:
+      [0x54] [handle:u8] [length:u16 BE (= payload + 2)] [payload…]
+      [checksum:u16 BE = simple sum of all preceding bytes]
+    Known handles: 0x00 Continue, 0x01 EndStream, 0x06 StartStream (GIF/program
+    upload), 0x09 Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass,
+    0x0F TestPass; "simple data" frames also use dataType 0x00 with cmdCode
+    0x02 (speed) / 0x04 (effect). Bulk program data goes to A952 framed with
+    header [0x54, 0x00] and a CRC32C over the payload (SendParameter.dart).
+    Session flow: Connect (0x0D) → TestPass (0x0F) → commands/uploads.
+
+    Advertisement layout decoded (vendor BleBean.dart / ParseBleDataUtil.dart):
+    manufacturer bytes match [01 54 59 00 01] ("TY", hat/mini-show) or
+    [01 54 42 44 xx] ("TBD", devil-eye / color panels). bytes[1..4] screen-type
+    id, [5..6] height, [7..8] width, [9] color type, version code, customer id,
+    bytes[15..16] funCode bitmask (bit0 time, bit1 partition, bit2 GIF,
+    bit3 media, bit4 rotate/eye, bit5 border, bit6 password, bit7 remote).
+    Geometry is advertised — no query needed. Brightness command requires
+    versionCode ≥ 6.
+
+    Architecture: the app is Flutter (libflutter.so + Dart AOT libapp.so) —
+    the BLE logic lives in Dart and the published plugin, which is why an
+    early Java-only static pass found no UUIDs. Java layer: BLE Manager
+    ec/c.java, OTA Handler ec/f.java, Send Thread ec/i.java (their
+    unobfuscated originals ship in the plugin).
+
+    SPOTLED compatibility probe: check service 0000ff20-0000-1000-8000-00805f9b34fb
+    (SPOTLED generation; absent on iLEDColor panels — the two generations are
+    incompatible, iledcolor-rs: "not compatible with the spotled protocol").
+
+    Vendor cloud (live 2026-07, no auth for reads): content library
+    iledcolor.api.iledshow.cn; unauthenticated panel-firmware OTA API
+    app.iledshow.cn:8098/ota/getNewestOta?width&height&currVersion&customerId&colorType
+    — responds 200 but is customerId-gated: it needs the exact
+    (width, height, customerId, colorType) tuple a real device advertises.
+
+    Research status: protocol recovered from the vendor's own published
+    sources plus an independent reimplementation. An HCI snoop is now a
+    nice-to-have validation, not a blocker.
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      Nothing is provisioned. The panel is a BLE peripheral: it advertises,
+      accepts a connection without pairing, and takes commands on the A950
+      service. The session starts with Connect (handle 0x0D) then TestPass
+      (0x0F) carrying the 6-byte password, which defaults to 6×0x00. Panels
+      support an optional user-set password (funCode bit 0x40), so open
+      access holds for factory-default panels only.
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT to service 0000A950: write commands to A951 in the
+          recovered [0x54][handle][len16BE][payload][sum16BE] framing,
+          subscribe to A953, upload bulk data to A952. Framing and opcodes are
+          published in the vendor's Flutter plugin led_bt_jl_ota (pub.dev).
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the panel on; it advertises immediately."
+            actor: user
+          - action: "Scan for the panel and connect over GATT."
+            actor: client
+          - action: >
+              Probe for service 0000ff20-0000-1000-8000-00805f9b34fb to tell
+              SPOTLED-generation hardware from DreamPanel v3.
+            actor: client
+          - action: >
+              On service 0000A950: send Connect (handle 0x0D) then TestPass
+              (0x0F, default password 6×0x00) on A951; subscribe to A953.
+            actor: client
+            expect: "Panel accepts commands (brightness, effects, uploads)."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. The panel stores uploaded programs (power-cycling
+        reportedly does not clear stored content — unverified), but no reset
+        handle was identified in the recovered opcode map.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The panel joins no network. Any client may connect once the previous one
+        disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only device; no WiFi passphrase is transferred. The link is
+        unauthenticated; panels support an optional 6-byte password
+        (SetPass/TestPass handles, default 6×0x00), so anyone in range can
+        drive a factory-default display.
+
+services:
+  - uuid: "0000a950-0000-1000-8000-00805f9b34fb"
+    name: "iLEDColor LED Control Service"
+    notes: >
+      Proprietary LED command/data channel, recovered from the vendor's
+      open-source Flutter plugin led_bt_jl_ota (pub.dev) and independently
+      confirmed by akkaisinabin/iledcolor-rs (byte-for-byte agreement).
+      Command packets on A951: [0x54][handle:u8][length:u16 BE (= payload+2)]
+      [payload…][checksum:u16 BE = simple sum of all preceding bytes].
+      Handles: 0x00 Continue, 0x01 EndStream, 0x06 StartStream (GIF/program
+      upload), 0x09 Brightness, 0x0A LedEnable, 0x0D Connect, 0x0E SetPass,
+      0x0F TestPass. Session: Connect (0x0D) → TestPass (0x0F, default
+      password 6×0x00) → commands.
+    characteristics:
+      - uuid: "0000a951-0000-1000-8000-00805f9b34fb"
+        name: "Command"
+        notes: "LED command packets in the 0x54 framing described above."
+        properties: ["write", "write_without_response"]
+      - uuid: "0000a952-0000-1000-8000-00805f9b34fb"
+        name: "Data"
+        notes: "Bulk image/GIF program upload; header [0x54, 0x00], CRC32C over the payload."
+        properties: ["write"]
+      - uuid: "0000a953-0000-1000-8000-00805f9b34fb"
+        name: "Notify"
+        notes: "Command responses and transfer progress."
+        properties: ["notify"]
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "JL OTA Service"
+    notes: "JieLi Bluetooth OTA service (firmware upgrade only — LED commands use service 0000A950)."
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "JL OTA Write"
+        notes: "JL OTA write characteristic (firmware-upgrade flow only)."
+        properties: ["write", "write_without_response"]
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "JL OTA Notify"
+        notes: "JL OTA notification characteristic."
+        properties: ["notify"]

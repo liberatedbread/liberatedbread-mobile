@@ -1,0 +1,58 @@
+# Sony Smart Tennis Sensor (SSE-TN1) — Structured Note
+# APK source: apkeep (apk-pure); com.sony.smarttennissensor 1.10.0 (final)
+
+device:
+  id: sony-smart-tennis-sensor
+  name: Sony Smart Tennis Sensor SSE-TN1 / SSE-TN1W
+  manufacturer: Sony / Sony Network Communications
+  category: sports_sensor
+  safety_class: LOW
+
+transport:
+  type: ble
+  local_only: true
+  note: >
+    Sensor streams shot events to phone over BLE. Cloud ("Server Sync") was used for
+    backup/sharing only; service terminated 2021-09-30 and app pulled from stores.
+    Account requirement for live local mode TBD.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — likely "SSE-TN1"-derived; needs nRF Connect scan
+    service_uuids: []  # TBD — no UUID literals in dex; constructed in code or native libs
+
+  services:
+    - uuid: "188607e4-ae98-4db6-8cce-6624c3015ddd"
+      name: unknown_custom
+      description: Only 128-bit UUID literal recovered from dex strings; role TBD
+      confirmed: false
+
+  notes: >
+    BLE stack is plain android.bluetooth in Java (com.sony.smarttennissensor.*), but
+    GATT UUIDs are not string literals. Native libs: libathlete.so (likely shot DSP),
+    libenclave_wrapper_jni.so, libkey_jni.so (possible link-layer pairing key?).
+
+protocol:
+  note: >
+    Official Apache-2.0 SDK exists: github.com/sony/smarttennissensorsdk (developer
+    guide + Javadocs). SDK apps talked to the sensor via a gated "Host App" apk, so
+    raw GATT still needs extraction (jadx or native-lib strings).
+  expected_measurements:
+    - shot_type (forehand/backhand/serve/volley/smash)
+    - ball_speed
+    - swing_speed
+    - spin_type_and_rate
+    - impact_position_on_string_bed
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # strings triage only
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  cloud_status: shutdown  # service terminated 2021-09-30
+  reference: github.com/sony/smarttennissensorsdk
+  sources:
+    - https://www.auratidecollective.com/blogs/performance-lab/sony-smart-tennis-sensor-discontinued-alternative-2026
+    - https://www.sony.com/electronics/support/articles/00113751
+    - https://github.com/sony/smarttennissensorsdk

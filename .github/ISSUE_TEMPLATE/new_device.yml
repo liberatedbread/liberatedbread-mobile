@@ -1,0 +1,42 @@
+name: New Device
+description: Submit reverse engineering findings for a new IoT device.
+title: "[Device]: "
+labels: ["new-device", "documentation"]
+body:
+  - type: input
+    id: device_name
+    attributes:
+      label: Device Name / Model
+      placeholder: "e.g., Acme SmartBulb 2000"
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Primary Protocol
+      options:
+        - BLE (Bluetooth Low Energy)
+        - WiFi
+        - Zigbee
+        - Z-Wave
+        - Other / Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: manufacturer_status
+    attributes:
+      label: Manufacturer Status
+      options:
+        - Company shut down
+        - App removed from stores
+        - Cloud servers offline
+        - No longer supported
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: findings
+    attributes:
+      label: What have you found so far?
+    validations:
+      required: true

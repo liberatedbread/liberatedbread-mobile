@@ -1,0 +1,55 @@
+# LOQED Touch Smart Lock
+# APK: com.loqed.keychain 4.2.86 via apkeep (apk-pure), 2026-08-03
+
+device:
+  id: loqed-touch
+  name: LOQED Touch Smart Lock (incl. LOQED by Shelly 2S)
+  manufacturer: LOQED B.V. (bankrupt 2024-06-05; assets acquired by Shelly Group 2024-07-11)
+  category: smart_lock
+  safety_class: HIGH  # physical access control
+
+transport:
+  type: ble  # lock itself; optional Wi-Fi bridge
+  local_only: true  # local bridge REST API + webhooks; direct BLE app control
+
+cloud:
+  status: bankrupt_revived  # LOQED B.V. insolvent June 2024; Shelly acquired assets
+                            # July 2024; relaunched "LOQED by Shelly" 2025
+  setup_dependency: app + account used to generate the local bridge API key;
+                    bridge local API and outgoing webhooks then work without cloud
+
+ble:
+  advertising:
+    name_patterns: ["LOQED"]  # hypothesis; verify
+    service_uuids: ["de8a5aac-a99b-c315-0c80-60d4cbb51225"]  # hypothesis: scan filter UUID seen in DEX
+  services:
+    - uuid: "bdce0001-e90d-4685-b89d-5578cd199a9f"
+      name: loqed_gatt_service  # role assignment hypothesis
+      characteristics:
+        - uuid: "bdce0101-e90d-4685-b89d-5578cd199a9f"
+          name: char_1  # write? unconfirmed
+        - uuid: "bdce0102-e90d-4685-b89d-5578cd199a9f"
+          name: char_2  # notify? unconfirmed
+    - uuid: "0000fcd2-0000-1000-8000-00805f9b34fb"
+      name: chipoble_matter_commissioning  # presence in APK suggests Matter support; unconfirmed
+
+protocol:
+  note: >
+    Two local paths. (1) Official local bridge REST API + outgoing webhooks
+    (support.loqed.com article 6127856); prior art: loqedapi python lib,
+    cpolhout/loqed_custom_component, mikewoudenberg/homeassistant-loqed,
+    marktiddy/homebridge-loqed. (2) Direct BLE phone-to-lock; UUIDs recovered
+    from com.loqed.keychain 4.2.86 DEX, but characteristic roles and the
+    pairing/touch-to-open handshake are NOT yet reverse-engineered.
+
+status:
+  apk_acquired: true        # com.loqed.keychain 4.2.86 xapk, sha256 c008a77e...
+  apk_decompiled: false     # strings/DEX scan only
+  uuids_recovered: true     # candidate UUIDs; roles unconfirmed
+  protocol_recovered: false # BLE protocol not RE'd; local bridge API documented instead
+  hci_snoop_needed: true    # for direct-BLE path
+  reference: support.loqed.com/en/articles/6127856 ; github.com/cpolhout/loqed_custom_component
+  open_questions:
+    - BLE characteristic roles + pairing/key-exchange format
+    - does local bridge API work with cloud blocked (pre-Shelly firmware)
+    - Matter-over-BLE commissioning actually shipped?

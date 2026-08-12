@@ -1,0 +1,115 @@
+# Lattis Ellipse Smart Bike Lock — Research Note (structured)
+# APK: io.lattis.ellipse v2.1.15 (vc 85) via apkeep/apk-pure, 2026-08-04
+# SHA-256: 8a5397782824166a5ebf74c14b44ea31935710aa85db6ff883af509336549dff
+
+device:
+  id: lattis-ellipse
+  name: Lattis Ellipse Smart Bike Lock
+  manufacturer: Lattis (San Francisco; now B2B fleet platform, lattis.io)
+  category: bike_lock
+  safety_class: LOW  # property security; physical touchpad code fallback prevents lockout
+
+transport:
+  type: ble
+  local_only: true  # lock/unlock is local GATT once provisioned
+  cloud_dependency: >
+    Initial pairing/provisioning uses a server-signed message (Lattis backend);
+    account, sharing, and crash-alert SMS are cloud features. Touchpad code entry
+    works with no phone and no cloud. Consumer app delisted from Google Play.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — scan filter in app matches service UUID only
+    service_uuids:
+      - "d3995e00-fa57-11e4-ae59-0002a5d5c51b"  # Security service (used as ScanFilter)
+
+  services:
+    - uuid: "d3995e00-fa57-11e4-ae59-0002a5d5c51b"
+      name: security_service
+      description: Challenge-response auth (server-signed message model)
+      characteristics:
+        - uuid: "d3995e01-fa57-11e4-ae59-0002a5d5c51b"
+          name: signed_message
+          properties: [write]
+        - uuid: "d3995e02-fa57-11e4-ae59-0002a5d5c51b"
+          name: public_key
+          properties: [read, notify]
+        - uuid: "d3995e03-fa57-11e4-ae59-0002a5d5c51b"
+          name: challenge_key
+          properties: [write]
+        - uuid: "d3995e04-fa57-11e4-ae59-0002a5d5c51b"
+          name: challenge_data
+          properties: [read, notify]
+        - uuid: "d3995e05-fa57-11e4-ae59-0002a5d5c51b"
+          name: security_state
+          properties: [notify]
+
+    - uuid: "d3995e40-fa57-11e4-ae59-0002a5d5c51b"
+      name: device_service
+      description: Primary lock control and sensors
+      characteristics:
+        - uuid: "d3995e41-fa57-11e4-ae59-0002a5d5c51b"
+          name: led
+        - uuid: "d3995e42-fa57-11e4-ae59-0002a5d5c51b"
+          name: lock
+          description: lock/unlock command + state
+          properties: [read, write, notify]
+        - uuid: "d3995e43-fa57-11e4-ae59-0002a5d5c51b"
+          name: info
+        - uuid: "d3995e44-fa57-11e4-ae59-0002a5d5c51b"
+          name: magnetometer
+        - uuid: "d3995e45-fa57-11e4-ae59-0002a5d5c51b"
+          name: connection
+        - uuid: "d3995e46-fa57-11e4-ae59-0002a5d5c51b"
+          name: accelerometer
+          description: theft/crash detection source
+
+    - uuid: "d3995e80-fa57-11e4-ae59-0002a5d5c51b"
+      name: configuration_service
+      characteristics:
+        - uuid: "d3995e81-fa57-11e4-ae59-0002a5d5c51b"
+          name: reset
+          description: "0xBC shipping / 0xBD factory / 0xBE development mode"
+        - uuid: "d3995e82-fa57-11e4-ae59-0002a5d5c51b"
+          name: lock_adjust
+        - uuid: "d3995e83-fa57-11e4-ae59-0002a5d5c51b"
+          name: serial_number
+        - uuid: "d3995e84-fa57-11e4-ae59-0002a5d5c51b"
+          name: button_lock_sequence
+          description: configures physical touchpad unlock code
+
+    - uuid: "d3995d00-fa57-11e4-ae59-0002a5d5c51b"
+      name: firmware_service
+      description: OTA firmware update (Dialog Semiconductor base UUID family)
+      characteristics:
+        - uuid: "d3995d01-fa57-11e4-ae59-0002a5d5c51b"
+          name: code_version
+        - uuid: "d3995d02-fa57-11e4-ae59-0002a5d5c51b"
+          name: write_data
+        - uuid: "d3995d03-fa57-11e4-ae59-0002a5d5c51b"
+          name: status
+        - uuid: "d3995d04-fa57-11e4-ae59-0002a5d5c51b"
+          name: download_done
+
+protocol:
+  note: >
+    GATT layout fully recovered from APK (io.lattis.ellipse.sdk.Ellipse).
+    Auth flow (SecurityHandlerV2): read PUBLIC_KEY -> write CHALLENGE_KEY derived
+    from userId -> write SIGNED_MESSAGE (issued/signed server-side) -> read
+    CHALLENGE_DATA; invalid state SECURITY_STATE_INVALID_ACCESS_DENIED disconnects.
+    Crypto helpers: SHA-256, AES/ECB/PKCS5Padding. Auth material cached locally
+    (Realm KeyCache), so provisioned phones operate offline.
+  pairing_model: server-signed message; re-pairing without Lattis backend unverified
+  local_fallback: capacitive touchpad code (BUTTON_LOCK_SEQUENCE)
+
+status:
+  confidence: confirmed  # cloud-exit/pivot + delisted app documented with dated sources
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true   # complete GATT map
+  protocol_recovered: partial  # structure known; auth message format needs HCI snoop
+  hci_snoop_needed: true
+  open_questions:
+    - Is Lattis consumer auth backend still reachable?
+    - Can BUTTON_LOCK_SEQUENCE be written pre-auth (local re-provisioning path)?
+    - No prior community RE found

@@ -1,0 +1,42 @@
+# OUYA wireless controller — Device Spec
+# No companion app exists — plain BT Classic HID gamepad. Cloud shutdown (2019-06-25)
+# affected the console storefront only, not the controller.
+
+device:
+  id: ouya-controller
+  name: OUYA wireless controller
+  manufacturer: OUYA Inc. (assets acquired by Razer 2015; services shut down 2019-06-25)
+  category: game_controller
+  safety_class: LOW
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  profiles:
+    - hid  # gamepad + touchpad-as-mouse
+
+bluetooth_classic:
+  pairing:
+    procedure: Hold the OUYA "U" system button until only two player LEDs flash
+    pin: none (SSP)
+    notes: Touchpad enumerates as a mouse; pairs from host OS Bluetooth settings.
+  known_quirks:
+    - Android 12+ HID auto-pairing flakiness; pair via system settings
+    - two hardware revisions (2013 silver, 2014 black refresh with RF/latency fixes)
+
+protocol:
+  note: >
+    Standard HID over Bluetooth Classic. No vendor protocol. HID descriptor dump
+    not yet captured — trivial with a Linux host (btmon/hcidump) if a formal spec
+    is written. 15 buttons, 2 analog sticks, 2 analog triggers, mouse touchpad.
+
+status:
+  apk_acquired: false   # no companion app ever existed
+  apk_decompiled: false
+  protocol_recovered: false  # N/A — standard HID; descriptor not yet dumped
+  hci_snoop_needed: false    # optional: HID descriptor capture for completeness
+  cloud_dependency: none (controller); console storefront dead 2019-06-25
+  references:
+    - cnet.com Razer shutdown announcement (2019-05-22)
+    - pcgamingwiki.com/wiki/Controller:OUYA
+    - s-config.com OUYA post-shutdown community firmware (2024)

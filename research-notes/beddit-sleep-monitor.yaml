@@ -1,0 +1,99 @@
+# Beddit 3 / 3.5 Sleep Monitor — Research Note (structured)
+# APK source: apkeep (apk-pure), 2026-08-03
+# APK SHA-256: f3b995c9e1e9c38c27bee95668508b2a2a746f9afd0e9f4e665cca4bd9b3f9f2
+
+device:
+  id: beddit-sleep-monitor
+  name: Beddit Sleep Monitor 3 / 3.5 (Model 3.5, BLE 4.2)
+  manufacturer: Beddit (acquired by Apple 2017-05; line discontinued 2022)
+  category: sleep_tracker
+  safety_class: LOW  # Passive under-mattress sensor; wellness data only
+
+abandonment:
+  status: abandoned
+  evidence:
+    - url: https://appleinsider.com/articles/18/09/21/apple-owned-beddit-to-shut-down-cloud-services-on-nov-15
+      date: "2018-09-21"
+      note: Beddit Cloud shut down 2018-11-15; app became local-only
+    - url: https://gadgetsandwearables.com/2022/01/12/beddit-sleep-monitor-buy/
+      date: "2022-01-12"
+      note: Apple stopped selling Beddit hardware
+    - url: https://9to5mac.com/2024/09/30/apple-removes-beddit-app-store/
+      date: "2024-09-30"
+      note: Beddit 3.0/3.5 apps removed from App Store; Android support dropped 2019
+
+transport:
+  type: ble
+  local_only: true
+  notes: >
+    Operated local-only for ~6 years after cloud shutdown (2018-2024):
+    BLE sync to phone, on-device history. No pairing/cloud bootstrap known.
+    BT Classic SPP (00001101) also present in app, likely legacy fallback.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "Beddit" speculative; needs live scan
+    service_uuids: []  # TBD
+
+  services:
+    - uuid: "e6807e20-b90a-11e5-a837-0800200c9a66"
+      name: beddit_sensor_service
+      description: Primary sensor service for BTLE v3 hardware (com.beddit.sensor.le)
+      characteristics:
+        - uuid: "e6807d21-b90a-11e5-a837-0800200c9a66"
+          name: data_channel_1
+          description: Stream data (notify); paired with channel descriptor e6807e21
+          properties: [notify]
+        - uuid: "e6807d22-b90a-11e5-a837-0800200c9a66"
+          name: data_channel_2
+          description: Stream data (notify)
+          properties: [notify]
+        - uuid: "e6807e24-b90a-11e5-a837-0800200c9a66"
+          name: data_channel_3
+          description: Stream data (notify); paired with channel descriptor e6807e25
+          properties: [notify]
+        - uuid: "e6807e21-b90a-11e5-a837-0800200c9a66"
+          name: channel_descriptor_1
+          description: Channel description, read at session start (>=5 bytes)
+          properties: [read]
+        - uuid: "e6807e25-b90a-11e5-a837-0800200c9a66"
+          name: channel_descriptor_2
+          description: Channel description, read at session start
+          properties: [read]
+
+  alternate_services:
+    - uuid: "f82fd8a8-329d-4c44-a178-e82f91ec9fe6"
+      name: beddit_legacy_service
+      note: Also in gatt state table; possibly Beddit 3.0 (pre-3.5) protocol
+      characteristics:
+        - uuid: "f82fd8a9-329d-4c44-a178-e82f91ec9fe6"
+          name: legacy_char_1
+        - uuid: "f82fd8aa-329d-4c44-a178-e82f91ec9fe6"
+          name: legacy_char_2
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+      note: Serial (2A25), FW rev (2A26), HW rev (2A27), SW rev (2A28) read at connect
+
+protocol:
+  note: >
+    Session flow (com.beddit.sensor.le): connect -> read DIS strings -> read channel
+    descriptors -> enable notifications on data chars -> stream frames parsed by
+    com.beddit.sensor (SensorChannelDetails). Frame encoding TBD; channel descriptor
+    format TBD. Hardware identifier HARDWARE_TYPE_IDENTIFIER_BTLE_V3.
+    NB: 612d9e68-a4b8-... in DEX is a Postmark API token, not a BLE UUID.
+  expected_measurements:
+    - sleep_stages
+    - heart_rate_bpm
+    - respiration_rate
+    - snoring
+    - bed_presence
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true
+  protocol_recovered: partial  # Roles inferred from code; frame format TBD
+  hci_snoop_needed: true
+  prior_art: none_found  # No HA integration / community driver located as of 2026-08

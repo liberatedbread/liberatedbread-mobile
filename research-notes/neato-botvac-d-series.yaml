@@ -1,0 +1,61 @@
+# Neato Botvac Connected / D3-D7 — Device Spec (research note)
+# Neato Robotics shut down 2023; Vorwerk killed the cloud Q4 2025 (2025-10-06
+# announcement, app dead by Dec 2025). Local paths: stock HTTPS :4443, or
+# UART debug port + ESP32 bridge (OpenNeato / neato-connected).
+
+device:
+  id: neato-botvac-d-series
+  name: Neato Botvac Connected, D3/D3 Pro, D4, D5, D6, D7
+  manufacturer: Neato Robotics (Vorwerk) — company closed 2023, cloud dead Q4 2025
+  category: robot_vacuum
+  safety_class: LOW   # brush/vacuum motors; bridge projects include stall watchdogs
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Two independent local paths. (a) Stock firmware serves HTTPS on TCP 4443
+    (LAN and setup AP); /info confirmed, old TLS needs OpenSSL SECLEVEL=0 —
+    rest of the API surface unexplored. (b) Full local control via the UART
+    debug port (dustbin USB on Connected, debug pads under bumper, 115200 8N1)
+    using the classic Neato text command interface, bridged to WiFi by an
+    ESP32 running OpenNeato (local web UI) or neato-connected (ESPHome + HA).
+
+lan:
+  discovery:
+    method: network_scan   # robot joins LAN via setup AP; no documented mDNS/SSDP
+  control:
+    - protocol: https
+      port: 4443
+      endpoints:
+        info: "GET https://<robot-ip>:4443/info"  # old TLS: --ciphers ALL:@SECLEVEL=0
+      note: stock firmware; read surface beyond /info TBD
+    - protocol: uart-bridge
+      port: n/a  # 115200 8N1 on robot debug port; ESP32 exposes HTTP/ESPHome API
+      note: OpenNeato (web UI, scheduling, manual drive) or neato-connected (HA)
+
+protocol:
+  note: >
+    Robot-side control is the Neato serial text command set (GetVersion,
+    Clean, GetCharger, ...), unchanged since the XV era and present even on
+    non-WiFi Botvacs. D8/D9/D10 are a different platform with a
+    password-locked debug port — unsupported; fake-cloud effort blocked on
+    TLS pinning (RobertSundling/neato-botvac Discussion #18, 2026-02).
+  commands:
+    get_version: GetVersion           # serial; expect Software,4,5,3,189
+    start_clean: Clean                # via OpenNeato/neato-connected mapping
+    manual_drive: documented in OpenNeato web UI + neato-connected beta
+
+status:
+  apk_acquired: true    # com.neatorobotics.android via apkeep 2026-08-07
+  apk_sha256: 9edcc603f84074beed105b8b4019099e65ef6749f3a2800d145994c4a6472b02
+  apk_decompiled: false
+  protocol_recovered: true   # serial command set long documented; two working bridges
+  rating: confirmed          # D3-D7; D8-D10 = dud (password-locked debug, fake-cloud WIP)
+  cloud_dead: true           # Vorwerk phased out Neato cloud Q4 2025
+  references:
+    - github.com/renjfk/OpenNeato (2026, MIT)
+    - github.com/Quiwy/neato-connected (2025-12)
+    - github.com/RobertSundling/neato-botvac (firmware archive; D8 fake-cloud log)
+    - support.neatorobotics.com announcement 6th Oct 2025
+    - vacuumwars.com/neato-ending-cloud-services/ (2025-12-29)
