@@ -1,0 +1,433 @@
+# Rabbit Air air purifiers (MinusA2 gen2 / A3 / BioGS 2.0) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Protocol sources (all public, cross-checked against the official app's own
+# binary — clean-room, no vendor assets copied):
+#   - rabbit-air/python-rabbitair 0.0.8 (Apache-2.0):
+#     https://github.com/rabbit-air/python-rabbitair — the VENDOR'S OWN Python
+#     client for the LAN protocol. Rabbit Air published this library, authored
+#     the Home Assistant core integration (codeowner @rabbit-air) and
+#     documented the token-retrieval flow in the library README. This file is
+#     effectively the vendor's reference implementation; the framing, crypto,
+#     command IDs, field names and enums below are read straight out of it.
+#   - Home Assistant core integration "rabbitair" (iot_class local_polling,
+#     zeroconf _rabbitair._udp.local.): confirms the mDNS service type and that
+#     the Thing ID shown in the app is the device's mDNS hostname.
+#   - Rabbit Air 2 app com.rabbitair.rabbitair_flutter v1.2.1 (versionCode 117,
+#     APKPure XAPK SHA-256
+#     04c22fc1adeee0da267882c0d0134dcfa83c4305fae91c28da45c42a5434c556, base
+#     APK SHA-256 d3eeb80cb6591e485e3cc3b209b4a0a7f7dc75b1685a2a6b9e06ed48ed15abb9):
+#     Flutter app; libapp.so (Dart AOT) strings independently confirm the local
+#     API field names (particulate_sensor, filter_life, timer_mode,
+#     all_light_off, lsens_ctl, moodlight), the thingName/user_key credential
+#     pair, RawDatagramSocket (UDP) use, mDNS-based setup resolution against
+#     rabbitair-setup.local, BLE-assisted provisioning (flutter_reactive_ble),
+#     and the cloud side: AWS IoT Core endpoint
+#     au32ip2ri54us-ats.iot.us-east-1.amazonaws.com with device-shadow topics
+#     $aws/things/<thing>/shadow/{get,update}(/accepted), plus ota.rabbitair.com.
+
+device:
+  name: "Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / BioGS 2.0 (SPA-550A/SPA-625A)"
+  manufacturer: "Rabbit Air"
+  manufacturer_status: "active"
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    source_code: "https://github.com/rabbit-air/python-rabbitair"
+    license: "Apache-2.0"
+    notes: >
+      Unusual case: the vendor itself published the LAN client library
+      (python-rabbitair, Apache-2.0) and wrote the Home Assistant integration,
+      so the local protocol is documented_api-by-reference-implementation —
+      the library source, not this file, is authoritative for constants.
+      reverse_engineered is still true because the Wi-Fi provisioning flow
+      (BLE-assisted / AP-mode) is NOT published and was only partially
+      recovered from the Rabbit Air 2 app binary.
+  protocol: "wifi"
+  category: "climate"
+  transport: "udp"
+  notes: >
+    Rabbit Air's Wi-Fi-enabled purifiers speak an encrypted JSON-over-UDP LAN
+    protocol on port 9009. Rabbit Air is an ACTIVE company; the value of this
+    spec is that the LAN protocol is fully local — no cloud account, no
+    internet round-trip — and the vendor's own Apache-2.0 library implements
+    it. The Home Assistant core integration (local_polling) drives the
+    purifier entirely over this LAN protocol.
+
+    Coverage: MinusA2 second generation (SPA-700A / SPA-780A Wi-Fi models),
+    A3 (SPA-1000N) and BioGS 2.0 (SPA-550A / SPA-625A). The state model in
+    the vendor library carries an explicit `model` field (1 = MinusA2,
+    2 = BioGS, 3 = A3). FIRST-GENERATION MinusA2 (older hardware revision,
+    pre-"Rabbit Air 2" app) does NOT speak this protocol — the app reports
+    "your device is not supported" and the HA integration cannot connect;
+    that generation used a different, undocumented interface.
+
+    Security model: all LAN traffic after provisioning is AES-128-CBC with a
+    per-device 16-byte "user key" (access token). The key is generated
+    on-device and revealed to the owner through the official app (Rename
+    device screen, or by tapping "Serial Number" repeatedly on the edit
+    screen in older app versions). A request carries a device-clock
+    timestamp (anti-replay); the client learns the clock via cmd 9.
+    Datagrams larger than one UDP payload are not used; the same protocol
+    is also reachable over TCP 9009 with a 2-byte little-endian length
+    prefix per message (vendor TcpClient).
+
+    Cloud dependency: none for control. The Rabbit Air 2 app additionally
+    talks to Rabbit Air's cloud (AWS IoT Core device shadow over MQTTS,
+    GraphQL account API, ota.rabbitair.com for firmware) for remote access,
+    account features and OTA — see the `cloud` block. Local control keeps
+    working if the cloud dies.
+  identification:
+    mdns_service_type: "_rabbitair._udp.local."
+    default_port: 9009
+    identity_keys:
+      primary: "thing_id"
+      secondary: "mac"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_rabbitair._udp.local."
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+                key: "thing_id"
+            display:
+              source: "name"
+        notes: >
+          The device's mDNS hostname IS its Thing ID (AWS IoT thing name),
+          in the form seen in the app, e.g.
+          "abcdef1234_123456789012345678.local" (pattern documented in the
+          vendor library README). Resolving the service/hostname yields the
+          IP to send UDP 9009 traffic to. Home Assistant discovers the
+          device by exactly this zeroconf service type.
+    identity:
+      stable_keys: ["thing_id", "mac"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      The purifier must be joined to Wi-Fi once with the official app
+      ("Rabbit Air 2", com.rabbitair.rabbitair_flutter; legacy "Rabbit Air"
+      app for older units). Two provisioning paths are visible in the app
+      binary (v1.2.1): BLE-assisted setup (flutter_reactive_ble;
+      "No bluetooth connection on local setup" string) and an AP-mode
+      fallback in which the phone joins the device's setup AP and resolves
+      the fixed mDNS hostname "rabbitair-setup.local" to reach it
+      ("Starting mDNS for hostname [rabbitair-setup.local]", "Error on
+      leave ap mode"). The on-wire credential-transfer format of NEITHER
+      path has been captured in this project — that is the open gap. What
+      is documented (vendor library README + HA docs) is the result: the
+      device ends up on the LAN with a Thing ID (its mDNS hostname) and a
+      16-byte user key the owner can read out of the app. Provisioning also
+      involves the cloud account (serial QR scan, GraphQL serialByMac
+      lookup), so first-time setup with the stock firmware is not
+      cloud-free — ongoing control is.
+    methods:
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          Preferred path in the Rabbit Air 2 app: scan the purifier's serial
+          QR code (camera) or enter it, then the app talks to the device over
+          BLE (flutter_reactive_ble) to hand over Wi-Fi credentials and bind
+          it to the account. GATT service/characteristic layout for this
+          exchange has not been captured — HCI snoop required before a
+          replacement provisioner can be written.
+        steps:
+          - action: "Power the purifier; it advertises over BLE while unprovisioned."
+            actor: "user"
+          - action: "Scan the serial QR code on the unit with the app (or type the serial)."
+            actor: "user"
+          - action: "Capture the BLE provisioning exchange (HCI snoop) — open gap."
+            actor: "client"
+            notes: "Needed to document the credential transfer."
+      - type: "softap_http"
+        verified: false
+        description: >
+          AP-mode fallback: the device hosts a setup AP; after joining it the
+          app resolves the fixed hostname rabbitair-setup.local via mDNS and
+          talks to the device there ("leave ap mode" on completion).
+          Transport over that AP (HTTP? the same JSON/UDP protocol?) is
+          UNVERIFIED — the softap_http type records the shape, not a captured
+          HTTP API.
+        softap:
+          ssid_prefix: "unknown — capture required"
+          open_network: true
+        steps:
+          - action: "Put the purifier in AP/setup mode (app-guided; Wi-Fi button on the unit)."
+            actor: "user"
+          - action: "Join the device AP; resolve rabbitair-setup.local via mDNS."
+            actor: "client"
+          - action: "Capture the provisioning exchange over the setup AP — open gap."
+            actor: "client"
+            expect: "Device leaves AP mode and appears on the LAN advertising _rabbitair._udp.local."
+    factory_reset:
+      # `unknown` rather than `true`: the effect below is believed, but no
+      # procedure has been established here, and `applicable: true` would
+      # oblige this spec to list steps it would have to invent.
+      applicable: "unknown"
+      confidence: "low"
+      effect: >
+        Clears Wi-Fi credentials and cloud binding, returning the unit to
+        its unprovisioned state (BLE advertising / setup AP). Exact button
+        procedure varies by model and is described in the printed manuals
+        (Wi-Fi/reset control on the unit's panel); not captured in this
+        project — stated at low confidence rather than guessed.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        No documented in-place credential update; treat a router change as
+        reset-and-reprovision through the app.
+    credentials:
+      wifi_passphrase_protection: "unknown"
+      stored_on_device:
+        - "Wi-Fi credentials"
+        - "user key (16-byte AES key, self-generated)"
+        - "AWS IoT thing certificate (cloud path)"
+      issued_to_client:
+        - "Thing ID (mDNS hostname)"
+        - "user key / access token (32 hex chars = 16 bytes)"
+      notes: >
+        The LAN credential is a per-device 16-byte user key. The owner
+        retrieves it from the official app: device control page > three-dot
+        menu > Rename > tap the device name to expand — the screen reveals
+        Thing ID and User key (HA docs flow; older app versions: Edit screen,
+        tap "Serial Number" several times). If the unit was set up before
+        user keys existed, the app offers "Tap for setup user key" to
+        generate one on-device. Never record a real key in this repo — the
+        spec documents the shape only.
+
+cloud:
+  required: false
+  vendor_service: "Rabbit Air cloud (AWS IoT Core + account API)"
+  hosts:
+    - "au32ip2ri54us-ats.iot.us-east-1.amazonaws.com (AWS IoT Core, MQTTS 8883, device shadow)"
+    - "ota.rabbitair.com (firmware OTA)"
+    - "GraphQL account API (host string not isolated in the app binary; package:graphql present)"
+  failure_mode: >
+    None for local control: the LAN protocol on UDP 9009 is independent of
+    the cloud. Losing the cloud removes remote (out-of-home) control,
+    account/device management, Alexa/Google linkage, and OTA firmware
+    delivery.
+  auth:
+    type: "other"
+    notes: >
+      Standard AWS IoT device-shadow MQTT with per-thing X.509 certificate
+      credentials (AWS IoT Core mutual TLS); topics
+      $aws/things/<thingName>/shadow/get, /shadow/update and their
+      /accepted siblings confirmed as strings in the Rabbit Air 2 app
+      binary. Recorded for completeness — consumers should use the LAN
+      protocol, not this.
+  notes: >
+    The app mirrors purifier state through the AWS IoT Device Shadow
+    service (shadow_model.dart in the app). Everything the shadow carries
+    is also readable locally via cmd 4.
+
+protocol_handler: "rabbit_air_lan"
+
+rabbit_air_protocol:
+  # Bespoke block: the schema has no native raw-UDP endpoint type, so the
+  # full protocol is captured here, following the lifx-z precedent. All
+  # constants are read from rabbit-air/python-rabbitair 0.0.8 (vendor's own
+  # Apache-2.0 library) unless marked otherwise.
+  verification: "reported"
+  verification_notes: >
+    `reported`, leaning on an unusually strong source: the reference is the
+    vendor's own published library plus its Home Assistant integration,
+    cross-checked against the Rabbit Air 2 app binary (field-name strings in
+    libapp.so match: particulate_sensor, filter_life, timer_mode,
+    all_light_off, lsens_ctl, moodlight, user_key, thingName). Not replayed
+    against hardware in this project — no Rabbit Air unit was available.
+  transport:
+    udp:
+      port: 9009
+      framing: "One JSON message per datagram; no length prefix or delimiter."
+      retry: "Vendor client: 3 attempts, 2.0 s timeout per attempt; responses matched by `id`, unrecognized datagrams ignored."
+      max_datagram_read: 2048
+    tcp:
+      port: 9009
+      framing: "2-byte little-endian uint16 length prefix, then the JSON message; same payload otherwise."
+      timeout: "5.0 s in the vendor client."
+  message_envelope:
+    format: "Minified JSON (json.dumps separators=(',',':')), UTF-8."
+    request_fields:
+      id: "uint32-ish random client nonce, incremented per request (vendor client seeds from SystemRandom 0..0xFFFFFF); response echoes it."
+      cmd: "Command ID (see commands)."
+      ts: "Device-clock timestamp in seconds; REQUIRED when a user key is set. Learned via cmd 9, then extrapolated from the local clock (see handshake)."
+      data: "Object; present with fields on state-set, absent on state-get."
+    response_fields:
+      id: "Echoes request id."
+      data: "Result object (cmd 4 / cmd 9 / cmd 255)."
+      error: "Present and truthy on failure — vendor client raises ProtocolError."
+  encryption:
+    algorithm: "AES-128-CBC, PKCS7 padding"
+    key: "The 16-byte user key (access token), hex-decoded from the 32-character string shown in the app."
+    iv: "Random 16 bytes per message, APPENDED as the last 16 bytes of the datagram (ciphertext || IV). Decrypt: IV = msg[-16:], ciphertext = msg[:-16]."
+    applies_to: "Both directions, once a user key is set. The library supports tokenless plaintext operation, but production units are expected to be keyed; treat plaintext mode as hypothesis."
+  handshake:
+    description: >
+      No connection or session exists (UDP). The only required preamble when
+      a user key is set is clock sync: send cmd 9, read data.ts (device
+      time, seconds), compute the offset against the local monotonic clock,
+      and stamp every subsequent request with the extrapolated device time.
+      The vendor client re-syncs whenever the socket is re-created (any
+      error closes and re-opens it).
+  commands:
+    - cmd: 9
+      name: "time_sync"
+      direction: "request/response"
+      description: "Returns the device clock: response data.ts (seconds). Must precede the first authenticated command."
+      writes: false
+      verification: "reported"
+    - cmd: 4
+      name: "state_get"
+      direction: "request/response"
+      description: "No `data` in the request. Response data carries the full state object (see state_fields)."
+      writes: false
+      verification: "reported"
+    - cmd: 4
+      name: "state_set"
+      direction: "request/response"
+      description: "Request includes `data` with only the fields to change (see writable_state_fields). Changing speed while in Auto/Pollen mode implicitly switches to Manual (mode 2) per vendor client semantics — actually the client exposes mode and speed independently; set mode=2 with speed for explicit manual control."
+      writes: true
+      verification: "reported"
+    - cmd: 255
+      name: "get_info"
+      direction: "request/response"
+      description: "Device info: name (Thing ID), mcu (Wi-Fi firmware version), build (firmware build date), mac, time, uptime / mup (motor runtime) / wup (Wi-Fi uptime) / iup (internet uptime) / cup (cloud uptime), fv (main-board firmware), rssi {cur,min,max,avg}."
+      writes: false
+      verification: "reported"
+  writable_state_fields:
+    power: "bool — purifier on/off"
+    mode: "0 Auto / 1 Pollen / 2 Manual"
+    speed: "0 SuperSilent (read-only, auto modes only) / 1 Silent / 2 Low / 3 Medium / 4 High / 5 Turbo"
+    sensitivity: "Sensor sensitivity: 0 High / 1 Medium / 2 Low"
+    ionizer: "bool — negative ion generator"
+    moodlight: "0 Off / 1 On / 2 Auto (alias Preset1) / 3 Preset2 / 4 Preset3 — MinusA2 mood light"
+    filter_cleaning: "bool — clear the filter-cleaning indicator (acknowledge)"
+    filter_replacement: "bool — clear the filter-replacement indicator (acknowledge)"
+    filter_life: "int minutes remaining, range guard 0-525600 in the vendor client"
+    filter_timer: "int nominal filter lifetime (minutes), same range guard"
+    all_light_off: "Panel/indicator lights: 0 Off / 1 On / 2 Auto"
+    color: "9-element int array 0-40 — mood-light color palette (MinusA2)"
+    lsens_ctl: "bool — enable/disable the light sensor (auto-dim)"
+    filter_ctl: "bool — enable/disable filter-replacement notifications"
+    buzzer: "bool — button beep"
+    lock: "bool — child lock"
+    timer_mode: "0 Off / 1 On (countdown) / 2 Schedule"
+    timer: "int minutes until off, 0-1440"
+    schedule: "24-char string, one per hour UTC, chars '1'-'5' (speed) or 'A' (auto); vendor client validation also admits '0'"
+  state_fields:
+    # Read side of cmd 4; every field optional in practice (total=False in
+    # the vendor TypedDict). Quirk: on BioGS (model 2) the library reports
+    # quality as value-1.
+    model: "1 MinusA2 / 2 BioGS / 3 A3"
+    firmware: "[major, minor, ...] main-board firmware, dotted-joined"
+    power: "bool"
+    mode: "see writable_state_fields.mode"
+    speed: "see writable_state_fields.speed"
+    quality: "Air quality 0-4 (Lowest/Low/Medium/High/Highest); BioGS units report 1-5 and the library subtracts 1"
+    sensitivity: "see writable_state_fields.sensitivity"
+    ionizer: "bool"
+    idle: "int/bool — device idle"
+    moodlight: "see writable_state_fields.moodlight"
+    sleep: "bool — sleep mode"
+    filter_cleaning: "bool — filter cleaning required"
+    filter_replacement: "bool — filter replacement required"
+    filter_life: "int — remaining filter lifetime (minutes)"
+    light_sensor: "bool — ambient light reading"
+    particulate_sensor: "int — particle sensor raw reading"
+    filter_timer: "int — nominal filter lifetime (minutes)"
+    all_light_off: "see writable_state_fields.all_light_off"
+    error: "0 none / 1 dust sensor / 2 gas sensor / 3 gas+dust / 4 fan low / 5 NFC (filter tag) / 8 hall sensor (panel)"
+    tag_state: "int/bool — NFC filter tag present/readable"
+    tag_uid: "[int] — NFC filter tag UID"
+    filter_type: "0 unknown / 1 ToxinAbsorber / 2 OdorRemover / 3 GermDefense / 4 PetAllergy (from NFC tag)"
+    pm_sensor: "[int] — extended particle sensor readings (A3 generation)"
+    color: "[int x9] — mood-light palette"
+    lsens_ctl: "bool"
+    filter_ctl: "bool"
+    buzzer: "bool"
+    gas: "0 preheat / 1-4 gas levels (odor/VOC sensor)"
+    lock: "bool — child lock"
+    open: "bool — front panel open/removed"
+    timer_mode: "see writable_state_fields.timer_mode"
+    timer: "int — minutes remaining"
+    schedule: "24-char string — see writable_state_fields.schedule"
+    rssi: "int — Wi-Fi RSSI averaged over an hour"
+    v: "str — Wi-Fi board firmware version"
+  example_exchange:
+    description: >
+      Reconstructed from the vendor client source; key/IV here are
+      documentation values, not a real device.
+    time_sync_request_plaintext: '{"id":1234567,"cmd":9,"ts":1700000000}'
+    time_sync_response_plaintext: '{"id":1234567,"data":{"ts":1700000123}}'
+    state_get_request_plaintext: '{"id":1234568,"cmd":4,"ts":1700000123}'
+    state_set_power_on_plaintext: '{"id":1234569,"cmd":4,"ts":1700000124,"data":{"power":true}}'
+    wire_note: "On the wire each of these is AES-128-CBC(user_key) with PKCS7 padding and a random 16-byte IV appended after the ciphertext."
+
+entities:
+  - platform: "fan"
+    name: "Air Purifier"
+    features: ["preset_mode", "speed"]
+    state_topic: "udp://{host}:9009"
+    commands:
+      turn_on: "state_set power=true"
+      turn_off: "state_set power=false"
+      set_preset_mode: "state_set mode (0 Auto / 1 Pollen / 2 Manual)"
+      set_speed: "state_set mode=2 + speed 1-5"
+    notes: "Exactly how the Home Assistant core integration maps it."
+  - platform: "sensor"
+    name: "Air Quality"
+    state_topic: "udp://{host}:9009"
+    state_field: "state.quality"
+    notes: "Enum lowest/low/medium/high/highest; BioGS offset quirk applies."
+  - platform: "sensor"
+    name: "Filter Life"
+    device_class: "duration"
+    state_topic: "udp://{host}:9009"
+    state_field: "state.filter_life"
+    notes: "Minutes remaining; pair with filter_replacement flag."
+  - platform: "sensor"
+    name: "Wi-Fi RSSI"
+    device_class: "signal_strength"
+    state_topic: "udp://{host}:9009"
+    state_field: "state.rssi"
+  - platform: "switch"
+    name: "Ionizer"
+    state_topic: "udp://{host}:9009"
+    commands:
+      turn_on: "state_set ionizer=true"
+      turn_off: "state_set ionizer=false"
+  - platform: "switch"
+    name: "Child Lock"
+    state_topic: "udp://{host}:9009"
+    commands:
+      turn_on: "state_set lock=true"
+      turn_off: "state_set lock=false"
+  - platform: "light"
+    name: "Mood Light"
+    features: ["color"]
+    state_topic: "udp://{host}:9009"
+    commands:
+      turn_on: "state_set moodlight=1"
+      turn_off: "state_set moodlight=0"
+    notes: "MinusA2 only; palette via the 9-element color array."
+
+helpful_urls:
+  - url: "https://github.com/rabbit-air/python-rabbitair"
+    title: "rabbit-air/python-rabbitair (vendor library)"
+    description: "Rabbit Air's own Apache-2.0 Python client — the reference implementation this spec is transcribed from (framing, crypto, cmd IDs, field enums)."
+  - url: "https://www.home-assistant.io/integrations/rabbitair/"
+    title: "Home Assistant Rabbit Air integration"
+    description: "Vendor-authored core integration (local_polling); documents Thing ID / user-key retrieval from the Rabbit Air 2 app and mDNS hostname usage."
+  - url: "https://pypi.org/project/python-rabbitair/"
+    title: "python-rabbitair on PyPI"
+    description: "Released packages 0.0.2-0.0.8 (0.0.1 yanked); 0.0.8 is the version pinned by Home Assistant."

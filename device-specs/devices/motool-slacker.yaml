@@ -1,0 +1,125 @@
+# MoTool Slacker device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "MoTool Slacker"
+  manufacturer: "Slacker LLC (formerly MoTool)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "sensor"
+  notes: >
+    Motorcycle digital suspension sag measurement tool (V4/V5).
+    Vendor is active: live Shopify store at getslacker.com, V5 user guide dated
+    2025-07-26, and both apps updated April 2026. The company is now "Slacker
+    LLC" (getslacker.com); the legacy motool.com domain is dead, though the app
+    seller remains "Motool LLC".
+    Believed to use an HM-10/HM-19-style BLE UART module (CC2541/CC2640 based)
+    with service 0xFFE0 and a single serial pass-through characteristic 0xFFE1 —
+    plausible-but-unverified: FFE0/FFE1 is the canonical HM-10 CC2541 UART
+    profile, but the spec's APK strings.xml evidence was not retained and no
+    public GATT capture exists; needs HCI confirmation.
+    The companion Flutter app (co.motool.serviceassistant) has a "Virtual Remote"
+    feature to trigger measurements from the phone. The standalone Slacker
+    Virtual Remote app is 100% FREE with full basic control (Reset/Auto
+    Zero/display); the subscription only gates Service Assistant cloud/notes
+    features (Motool developer reply on the Play listing, 2025-06-22).
+    All BLE command construction is in AOT-compiled Dart (libapp.so),
+    so exact command bytes require HCI snoop capture to confirm.
+    Known command LABELS from string analysis: "Reset", "Auto Zero", display mode change,
+    and travel selection. Sag values are reported as mm or percentage of travel.
+    V5 adds a percentage-of-travel display mode requiring fork/shock travel settings;
+    the travel value syncs app→device at connect and is WIPED at power-off (the V5
+    always boots in MM mode), so a replacement client must re-send travel each session.
+    Firebase backend: motool-service-assistant.firebaseio.com.
+
+    FLAG (unrecoverable): the raw command BYTES sent over 0xFFE1 are NOT statically
+    recoverable — the Dart command-construction logic is AOT-compiled into libapp.so
+    (no readable bytecode). This spec deliberately provides the service/characteristic
+    UUIDs only and defines NO command byte sequences; they must be captured via a live
+    HCI snoop log (btsnoop_hci.log) while driving the app's Virtual Remote. Do not
+    infer or invent opcodes. Evidence: workspace/static/motool-slacker/.../strings.xml
+    (0000ffe0 x3, 0000ffe1 x12), jadx resources flutterblue.proto (Flutter BLE plugin).
+    CONFIDENCE: UUIDs PLAUSIBLE-BUT-UNVERIFIED (canonical HM-10 profile; APK
+    evidence not retained — needs live capture); command bytes UNKNOWN (needs live capture).
+  identification:
+    service_uuids:
+      - "0000ffe0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          service_uuids:
+            - "0000ffe0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "service_uuid"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "low"
+    notes: >
+      No provisioning at the BLE layer. The vendor app gates features behind a
+      subscription, but that is an app-side check rather than a device-side
+      pairing step.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+services:
+  - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+    name: "MoTool Slacker UART Service"
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "Serial Data"
+        properties: ["read", "write", "write_without_response", "notify"]
+
+entities:
+  - platform: "sensor"
+    name: "Suspension Sag"
+    device_class: "distance"
+    unit: "mm"
+    state_characteristic: "0000ffe1-0000-1000-8000-00805f9b34fb"

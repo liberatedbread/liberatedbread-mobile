@@ -1,0 +1,77 @@
+# FOBO Bike 2 / FOBO Tire (Salutica) — research note
+# Sources: apkeep (apk-pure); jadx triage of my.com.salutica.fobobike2 v2.4.13
+# Verified 2026-08-04: fobobike2 Play listing 404 (delisted); fobotpms listing live.
+
+device:
+  id: fobo-bike-tpms
+  name: FOBO Bike 2 / FOBO Tire 2 BLE TPMS
+  manufacturer: Salutica Allied Solutions (Malaysia)
+  category: vehicle_tpms
+  safety_class: MEDIUM  # tire-pressure monitoring is safety-adjacent; read-only, no control path
+
+transport:
+  type: ble
+  local_only: false  # data path is local BLE, but account auth + sensor ownership binding are cloud
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — pairing is QR-code/MAC driven; needs one nRF Connect scan
+    service_uuids: []  # TBD
+  services:
+    - uuid: "0000fba0-0000-1000-8000-00805f9b34fb"
+      name: fobo_primary_service_candidate
+      description: Custom FOBO service family (fba0/fba1); likely live sensor data — unconfirmed
+    - uuid: "0000fbb0-0000-1000-8000-00805f9b34fb"
+      name: fobo_fbb0_group
+      description: Characteristics fbb0-fbb4 + fbe7 seen in app UUID table; role unknown
+    - uuid: "0000fab0-0000-1000-8000-00805f9b34fb"
+      name: fobo_fab0_group
+      description: fab0/fab2; role unknown
+    - uuid: "0000fad0-0000-1000-8000-00805f9b34fb"
+      name: fobo_fad0_group
+      description: fad0/fad3; role unknown
+    - uuid: "0000ee04-0000-1000-8000-00805f9b34fb"
+      name: fobo_oad_candidate
+      description: ee04/ee05/ee07/ee0b family; app ships OadActivity — likely over-air download
+  standard_services:
+    - uuid: "00001802-0000-1000-8000-00805f9b34fb"
+      name: immediate_alert
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+
+protocol:
+  note: >
+    No community RE found. GATT UUID map recovered statically from the delisted
+    FOBO Bike 2 APK (jadx). Cloud dependency is authentication and CrossPair
+    ownership binding, not the sensor data path. Pairing handshake and advert
+    format unknown — needs one live capture with a real sensor set.
+  expected_measurements:
+    - tire_pressure
+    - tire_temperature
+    - sensor_battery
+    - alarm_state
+
+status:
+  apk_acquired: true        # both old (fobobike2 2.4.13) and new (fobotpms 1.9.1) apps
+  apk_decompiled: true      # fobobike2 triaged with jadx; fobotpms not decompiled yet
+  uuids_recovered: true     # custom service families; roles unconfirmed
+  protocol_recovered: false
+  hci_snoop_needed: true    # plus one nRF Connect advert scan for name prefix
+  cloud_dependency: account_auth_and_ownership_binding
+  reference: none found
+
+apk:
+  - package: my.com.salutica.fobobike2
+    version: 2.4.13
+    version_code: 214
+    sha256: 1c196b324a3c01419cd01bd0d599672202ca0a92cb2a7e4a9dfb837433e2104d
+    source: apkeep apk-pure
+    note: delisted from Google Play (404 verified 2026-08-04)
+  - package: my.com.salutica.fobotpms
+    version: 1.9.1
+    version_code: 312
+    sha256: bf7ea5db2e3fd0bc3011b1d4579c90b90c7ae4db9155e3752375ebc96d4f8a37
+    source: apkeep apk-pure (XAPK)
+    note: current consolidated app; still listed on Play

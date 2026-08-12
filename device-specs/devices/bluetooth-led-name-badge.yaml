@@ -1,0 +1,188 @@
+# Bluetooth LED Name Badge device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Bluetooth LED Name Badge"
+  manufacturer: "Generic (multiple OEMs)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "display"
+  notes: >
+    Monochrome LED dot-matrix name badge. Sold under many brands on AliExpress.
+    Matrix height 11, 12, or 16 rows; width is variable per text/image content.
+    Protocol is write-only in practice (no useful reads). Data is written in
+    16-byte chunks: a 64-byte header (4 chunks) followed by stripe-major bitmap
+    data — the message is split into 8-column-wide stripes of `height` bytes
+    each, and each byte is one row of 8 pixels, MSB = leftmost pixel.
+    Writes are ACKNOWLEDGED (writeCharacteristic, NOT write_without_response), with a
+    3-second per-write ack timeout, 300 ms delay before the first data chunk and 25 ms
+    between subsequent chunks. Up to 8 message slots with per-slot flash and marquee.
+    NO CRC/checksum anywhere in the send path, and NO length prefix at the BLE write
+    level (raw 16-byte chunks). Device stores messages in flash and persists across
+    power cycles. No pairing required. The badge only advertises after the user
+    enters BLE transfer mode (press the lower button twice; a Bluetooth icon
+    shows on the display). Advertised name is filtered by contains("LS").
+    Vendor app ecosystem active: com.yannis.ledcard v3.5.1 updated 2025-11-02.
+    NOTE: AliExpress sellers ship mixed generations under the same listings — a
+    newer badge generation uses a different, AES-encrypted protocol
+    (github.com/timhodson/ble-led-badge), not this "wang"/LSLED one. An open
+    replacement firmware for CH582M-based badges exists
+    (fossasia/badgemagic-firmware).
+    CONFIDENCE: HIGH (full jadx decompile of com.yannis.ledcard; cross-checked
+    against Elektor Jan/Feb 2023 sniff, Nilhcem, FOSSASIA and Doridian).
+    Evidence: BleDevice.java:18-20 (name "LS", service 0000fee0, char 0000fee1);
+    LedDataUtil.java get64()/bitmapToByteArray() (header + 1-bit conversion);
+    MainMode.java (16-byte chunking); BLEService.java writValue (acknowledged write).
+  identification:
+    local_name_prefix: "LS"
+    service_uuids:
+      - "0000fee0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "LS"
+          service_uuids:
+            - "0000fee0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. These badges are widely reported as finicky to connect:
+      they accept one central at a time and often need a power cycle between
+      clients.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the badge advertises only after the user puts
+          it in BLE transfer mode (press the lower button twice until the
+          Bluetooth icon appears on the display) and then accepts a connection
+          from any central. There is no account, no network credential exchange
+          and no pairing PIN, so a replacement client only has to scan, connect
+          and write.
+        ble:
+          advertised_name: "LS"
+          pairing_required: false
+        steps:
+          - action: "Power the badge, then press the lower button twice to enter BLE transfer mode (Bluetooth icon shows)."
+            actor: "user"
+            expect: "Badge starts advertising as LSLED (name prefix LS)."
+          - action: "Scan for its advertisement and connect."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+# Custom consumer-side handler: assembles the 64-byte header + stripe-major
+# 1-bit bitmap and drives the acknowledged 16-byte chunked writes. Declarative.
+protocol_handler: "ledbadge_bitmap"
+
+# 1-bit monochrome bitmap upload (white pixel -> bit 0, any other color -> bit 1).
+# Stripe-major layout: message split into 8-column-wide stripes of `height` bytes,
+# each byte = one row of 8 pixels, MSB = leftmost pixel. Height = matrix size
+# (11/12/16), width variable.
+features:
+  - type: "image_upload"
+    format: "1bit-bitmap"
+    max_height: 16
+
+services:
+  - uuid: "0000fee0-0000-1000-8000-00805f9b34fb"
+    name: "Badge Service"
+    characteristics:
+      - uuid: "0000fee1-0000-1000-8000-00805f9b34fb"
+        name: "Badge Data"
+        properties: ["read", "write", "notify"]
+        framing:
+          length_prefix: false
+          max_chunk_size: 16
+        notes: >
+          GATT properties are read+write+notify (Elektor Table 1, FOSSASIA
+          BadgeBLE.md), but reads/notifications return nothing useful — the
+          protocol is write-only in practice.
+          checksum OMITTED: the device uses NO CRC/checksum (confirmed absent).
+          length_prefix false: raw 16-byte chunks with no BLE-level length prefix.
+        commands:
+          write_badge_data:
+            description: >
+              Write badge payload in 16-byte chunks. First 4 chunks are the 64-byte
+              header; subsequent chunks are stripe-major bitmap pixel data
+              (8-column stripes x `height` rows, one row of 8 px per byte, MSB
+              = leftmost pixel).
+              64-byte header layout (LedDataUtil.get64):
+              Bytes 0-3: Magic "wang" = 0x77 0x61 0x6E 0x67.
+              Byte 4: reserved (0x00).
+              Byte 5: brightness (0x00=100%, 0x10=75%, 0x20=50%, 0x40=25%) -- reads as
+              0x00 (100%) in the captured get64 trace, per the FOSSASIA badgemagic layout.
+              Byte 6: flash bits (bit N = slot N blinks).
+              Byte 7: marquee bits (bit N = slot N marquee/animated border).
+              Bytes 8-15: mode+speed per slot, one byte each
+              (upper nibble = speed-1, lower nibble = mode-1).
+              Bytes 16-31: message length per slot (uint16 big-endian / MSB-first,
+              8 slots; Elektor sniff of the vendor app sends 00 07 for length 7).
+              Bytes 32-37: reserved (zeros).
+              Bytes 38-43: date (year, month, day, hour, minute, second).
+              Bytes 44-62: reserved (zeros). Byte 63: 0x00.
+            value: [0x77, 0x61, 0x6E, 0x67]
+
+  - uuid: "0000fee7-0000-1000-8000-00805f9b34fb"
+    name: "Badge Secondary Service"
+    notes: >
+      Second service present on the badge (Elektor Jan/Feb 2023, Table 1).
+      Undocumented; the vendor app never references it.
+    characteristics:
+      - uuid: "0000fec7-0000-1000-8000-00805f9b34fb"
+        name: "FEC7 (write)"
+        properties: ["write"]
+      - uuid: "0000fec8-0000-1000-8000-00805f9b34fb"
+        name: "FEC8 (indicate)"
+        properties: ["indicate"]
+      - uuid: "0000fec9-0000-1000-8000-00805f9b34fb"
+        name: "FEC9 (read)"
+        properties: ["read"]
+        notes: "Returns the manufacturer-specific data blob."
+
+entities:
+  - platform: "light"
+    name: "Badge Display"
+    features: ["brightness"]
+    commands:
+      set_text: "write_badge_data"

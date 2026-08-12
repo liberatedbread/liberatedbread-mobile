@@ -1,0 +1,67 @@
+# Plevo Runner / Infinite / Up — Research Note
+# Cloud status: company zombie (store live, pre-order only); apps delisted from both stores
+# APK: v1.0.5 (2018-11-15) listed on APKCombo; CLI fetch not achieved (JS-gated)
+
+device:
+  id: plevo-luggage
+  name: Plevo Runner / Infinite / Up smart luggage (BLE Smart Lock + scale)
+  manufacturer: PLEVO LLC (Buenos Aires / Miami)
+  category: smart_luggage
+  safety_class: LOW  # Morse-code tap fallback on the lock; failed RE cannot strand owners
+
+transport:
+  type: ble
+  local_only: true  # lock/unlock + weight are app<->bag BLE; GPS/flight status were cloud
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "Plevo" prefix speculative
+    service_uuids: []  # TBD — extract from com.plevo APK or nRF Connect scan
+
+  services: []  # No UUIDs recovered yet — APK not yet decompiled
+
+protocol:
+  note: >
+    Greenfield. App-facing BLE functions: motorized Smart Lock
+    lock/unlock (Face ID / Touch ID gated in-app), weight sensor readout,
+    battery status, distance alert. On-bag Morse-code tap pattern is the
+    phone-free unlock fallback. GPS tracking and flight status were the
+    cloud features. Unknown whether pairing needs a cloud account.
+  commands:
+    lock: TBD
+    unlock: TBD
+    weight_read: TBD
+    battery_status: TBD
+
+cloud_dependence:
+  initial_setup: unknown  # likely email signup in 2018-era app; key question for resurrection
+  lock_unlock: ble_local (hypothesis)
+  gps_tracking: cloud (status unknown/dead)
+  flight_status: cloud (dead)
+
+abandonment:
+  status: at-risk / effectively orphaned (apps delisted; store alive but pre-order-only)
+  evidence:
+    - Play Store com.plevo 404 (verified 2026-08-03)
+    - Apple Search API: no Plevo luggage app (verified 2026-08-03)
+    - APKPure stub page for com.plevo with zero downloadable versions
+    - APKCombo lists only v1.0.5 (2018-11-15) — app apparently unmaintained since 2018
+    - plevo.co live but all products "Pre-Order" (2026-08-03)
+  sources:
+    - https://www.prweb.com/releases/after-raising-more-than-a-quarter-million-dollars-on-kickstarter-crowdfunding-for-plevo-smart-luggage-moves-to-indiegogo-indemand-887997940.html
+    - https://www.entrepreneur.com/living/this-kickstarter-funded-company-is-making-luggage-smarter/347361
+    - https://plevo.backerkit.com/faq
+
+status:
+  apk_acquired: false  # APKCombo v1.0.5 reachable via browser flow only; apkeep fails (APKPure lists no versions)
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  apk_notes: >
+    Package com.plevo confirmed via APKPure/APKPure-stub and APKCombo
+    pages. apkeep -a com.plevo -d apk-pure fails (no versions on
+    APKPure). APKCombo download is JS/token-gated for plain curl; use
+    browser or nirewen/apkcombo-downloader. Only v1.0.5 (2018-11-15)
+    known to survive.
+  difficulty: medium  # APK exists and is obtainable with modest effort; no prior community RE

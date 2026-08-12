@@ -1,0 +1,331 @@
+# iDotMatrix pixel display device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "iDotMatrix"
+  manufacturer: "iDotMatrix / Tech"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  category: "display"
+  notes: >
+    Multi-size RGB LED pixel-matrix display (text, images, GIF, effects, timers,
+    schedules). No pairing required.
+
+    Framed upload protocol — 16-byte header per 4096-byte payload chunk:
+      [0-1]  total packet length (uint16 LE)
+      [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase
+      [3]    sub-type: 0x00 data / 0x02 MultiColor/Phrase
+      [4]    chunk flag: 0=first, 2=continuation
+      [5-8]  total data length (uint32 LE)
+      [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)
+      [13-14] time/delay (uint16 BE)
+      [15]   speed/type byte
+      [16+]  payload
+    BLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for
+    GIF/image, 50 ms/chunk for text. Notify response: [?,0,cmd_type,sub_type,status]
+    with status 0=invalid, 1=next-chunk, 2=error, 3=finished.
+    On all hardware-documented units this framed CRC32 upload runs over 0xFA02
+    together with the short commands below (8none1 btsnoop captures,
+    derkalle4/python3-idotmatrix-library gif.py, Homey docs/idm.md §4.17).
+    Header bytes [0-1] are LITTLE-endian (8none1 decoding_bytes.md: "de 0c" is
+    0x0cde = 3294 total; derkalle4 to_bytes(2,'little'); Homey §4.17
+    size_lo/size_hi) — masked on full 4112-byte chunks because 0x1010 is
+    byte-palindromic, it only bites on final/short chunks.
+    Display sizes (ScreenData.getLedSize): 1010=10x10, 1001=1x100, 1116=16x11,
+    1318=18x13, 1619=19x16, 1920=20x19, 2020=32x32 (default), 2010=10x20,
+    3010=10x30, 3820=20x38. 64x64 panels exist and use the same IDM- / 0x00FA
+    protocol family.
+    FLAGGED: exact image pixel encoding (RGB565 bitmap laid out by device type)
+    needs live BLE capture to confirm; text glyph width varies by device/font.
+    CONFIDENCE: framing header, CRC32, chunk sizes, command types 1=GIF/3=Text
+    and response format HIGH (hardware-verified on 0xFA02); command types
+    2=Image/6=Phrase and image pixel layout MEDIUM; the 0xFEE9 service UNPROVEN
+    (see below).
+    Evidence: 8none1/idotmatrix decoding_bytes.md + btsnoop,
+    derkalle4/python3-idotmatrix-library (const.py, common.py, gif.py),
+    fbnlrz/homeyidotmatrix docs/idm.md (nRF-Connect-verified); app-side jadx:
+    GifAgreement.java:160-196/271-286 (framing, CRC32, response),
+    ScreenData.java (display sizes), CrcUtils.java (java.util.zip.CRC32).
+
+    Short command protocol — service 0xFA02: unframed length-prefixed byte
+    commands ([len, 0x00, cmd, ...]) written to characteristic 0xFA02, with
+    acks/notifications on 0xFA03. This is the protocol every public client
+    (python-idotmatrix, go-idot, Homey) speaks; name prefix "IDM-".
+
+    UNPROVEN — service 0xFEE9 with characteristics
+    d44bc439-abfd-45a2-b575-925416129600/9601: present in jadx of
+    com.tech.idotmatrix (Ble.java:354-362), but no public source has observed
+    this service on iDotMatrix hardware; that UUID pair is a stock NXP BLE-UART
+    demo pair reused by many unrelated products. Kept below for completeness —
+    do not treat the framed protocol as FEE9-exclusive, and do not rely on
+    0xFEE9 being present.
+  identification:
+    local_name_prefix: "IDM-"
+    service_uuids:
+      - "0000fee9-0000-1000-8000-00805f9b34fb"
+      - "0000fa02-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "IDM-"
+          service_uuids:
+            - "0000fee9-0000-1000-8000-00805f9b34fb"
+            - "0000fa02-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning. The vendor app adds a cloud content library, but none of
+      it is required to connect to and drive the display.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step: the device advertises as soon as it is powered
+          on and accepts a connection from any central. There is no account, no
+          network credential exchange and no pairing PIN, so a replacement
+          client only has to scan, connect and write.
+        ble:
+          advertised_name: "IDM-"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+# Custom consumer-side handler: builds framed image/GIF/text packets, computes the
+# CRC32, and drives MTU-aware chunked writes. Declarative.
+protocol_handler: "idotmatrix_image"
+
+# Chunked RGB565 bitmap / GIF upload with CRC32 integrity per transfer.
+features:
+  - type: "image_upload"
+    format: "rgb565"
+    max_width: 32
+    max_height: 32
+
+services:
+  # UNPROVEN protocol (jadx of com.tech.idotmatrix only; never observed on hardware)
+  - uuid: "0000fee9-0000-1000-8000-00805f9b34fb"
+    name: "iDotMatrix Data Service (unproven)"
+    notes: >
+      Found only in the vendor app (Ble.java:354-362). No public source has
+      observed this service on iDotMatrix hardware — the
+      d44bc439-…-9600/9601 pair is a stock NXP BLE-UART demo pair reused by
+      unrelated products. On all hardware-documented units the framed protocol
+      described here runs over 0xFA02 alongside the short commands.
+    characteristics:
+      - uuid: "d44bc439-abfd-45a2-b575-925416129600"
+        name: "Data Write/Read"
+        properties: ["write", "read"]
+        framing:
+          length_prefix: true
+          checksum: "crc32"
+          max_chunk_size: 4096
+        notes: >
+          All framed protocol commands (GIF/Image/Text/Phrase) are written here
+          on units that expose this service. 16-byte header (length field at
+          [0-1] is uint16 LITTLE-endian) + up to 4096-byte payload per frame;
+          CRC32 (java.util.zip.CRC32) over the whole data payload. Evidence:
+          Ble.java:355-356, GifAgreement.java:160-196; same framing verified on
+          0xFA02 by 8none1, derkalle4 gif.py and Homey docs/idm.md §4.17.
+
+      - uuid: "d44bc439-abfd-45a2-b575-925416129601"
+        name: "Data Notify"
+        properties: ["notify"]
+        notes: "Transfer-progress responses. Evidence: Ble.java:358, GifAgreement.java:271-286."
+        format:
+          - offset: 0
+            length: 1
+            name: "unknown"
+            type: "uint8"
+          - offset: 1
+            length: 1
+            name: "reserved_zero"
+            type: "uint8"
+          - offset: 2
+            length: 1
+            name: "command_type"
+            type: "uint8"
+          - offset: 3
+            length: 1
+            name: "sub_type"
+            type: "uint8"
+          - offset: 4
+            length: 1
+            name: "status"
+            type: "uint8"
+
+  # OTA service (com.tech.idotmatrix)
+  - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+    name: "iDotMatrix OTA Service"
+    notes: >
+      Jieli (杰理) OTA stack (com.jieli.jl_bt_ota.* in the app; Jieli's OTA SDK
+      is public as Jieli-Tech/Android-JL_OTA). Payloads are AES-256-CBC with a
+      hard-coded ASCII key in the app (com.heaton.baselib.utils.AESUtils,
+      app v2.1.1) and IV = 16 x ASCII '0'; not yet unlocked publicly — a
+      session-dependent component is unsolved (235/256 two-byte inputs elicit
+      responses). Evidence: fbnlrz/homeyidotmatrix docs/AE-SERVICE.md
+      (hardware-probed).
+    characteristics:
+      - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+        name: "OTA Write"
+        properties: ["write_without_response"]
+      - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+        name: "OTA Notify"
+        properties: ["notify"]
+
+  # Short-command + framed-upload protocol (0xFA02 / python-idotmatrix ecosystem)
+  - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+    name: "iDotMatrix Command/Upload Service (0xFA02)"
+    notes: >
+      The protocol every public client speaks (derkalle4/python3-idotmatrix-library,
+      nj-designs/go-idot, fbnlrz/homeyidotmatrix — hardware-verified). The short
+      length-prefixed commands below and the framed CRC32 upload protocol
+      (16-byte header, length at [0-1] uint16 LE) both run on this service.
+      Additional opcodes from Homey docs/idm.md: set-time 0b 00 01 80 …,
+      clock 08 00 06 01 …, countdown 07 00 08 80 …, chronograph 05 00 09 80 …,
+      scoreboard 08 00 0a 80 …, built-in effects [len, 0, 03, 02, style, 90,
+      count, rgb…], music sync 06 00 00 02 …. Command acks arrive on 0xFA03 as
+      05 00 <cmd> <sub> 01.
+    characteristics:
+      - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
+        name: "Write Data"
+        properties: ["write"]
+        commands:
+          screen_on:
+            description: "Turn screen on"
+            value: [0x05, 0x00, 0x07, 0x01, 0x01]
+          screen_off:
+            description: "Turn screen off"
+            value: [0x05, 0x00, 0x07, 0x01, 0x00]
+          freeze_screen:
+            description: "Freeze/unfreeze screen"
+            value: [0x04, 0x00, 0x03, 0x00]
+          set_brightness:
+            description: "Set brightness (5-100%)"
+            template: [0x05, 0x00, 0x04, 0x80, "{brightness}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 5
+                max: 100
+          flip_screen:
+            description: "Rotate screen 180 degrees (0=normal, 1=flipped)"
+            template: [0x05, 0x00, 0x06, 0x80, "{flip}"]
+            parameters:
+              flip:
+                type: "uint8"
+                min: 0
+                max: 1
+          set_speed:
+            description: "Set animation speed"
+            template: [0x05, 0x00, 0x03, 0x01, "{speed}"]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 0
+                max: 255
+          enter_diy_mode:
+            description: "Enter DIY image mode (0=disable, 1=enable)"
+            template: [0x05, 0x00, 0x04, 0x01, "{mode}"]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 1
+          set_password:
+            description: "Set 6-digit password (000000-999999). Reset device to clear."
+            template: [0x08, 0x00, 0x04, 0x02, 0x01, "{pwd_high}", "{pwd_mid}", "{pwd_low}"]
+            parameters:
+              pwd_high:
+                type: "uint8"
+                min: 0
+                max: 255
+              pwd_mid:
+                type: "uint8"
+                min: 0
+                max: 255
+              pwd_low:
+                type: "uint8"
+                min: 0
+                max: 255
+          set_fullscreen_color:
+            description: "Fill the whole screen with one RGB color (Homey docs/idm.md)"
+            template: [0x07, 0x00, 0x02, 0x02, "{red}", "{green}", "{blue}"]
+            parameters:
+              red:
+                type: "uint8"
+                min: 0
+                max: 255
+              green:
+                type: "uint8"
+                min: 0
+                max: 255
+              blue:
+                type: "uint8"
+                min: 0
+                max: 255
+          reset_step_1:
+            description: "Factory reset, step 1 of 2 — follow with reset_step_2 (Homey docs/idm.md; found by 8none1)"
+            value: [0x04, 0x00, 0x03, 0x80]
+          reset_step_2:
+            description: "Factory reset, step 2 of 2 — completes the reset started by reset_step_1"
+            value: [0x05, 0x00, 0x04, 0x80, 0x50]
+
+      - uuid: "0000fa03-0000-1000-8000-00805f9b34fb"
+        name: "Notify/Ack Data"
+        properties: ["read", "notify"]
+        notes: >
+          Primarily the notify/ack channel: upload-progress responses and
+          command acks (05 00 <cmd> <sub> 01) arrive here; also readable.
+
+entities:
+  - platform: "light"
+    name: "Pixel Display"
+    features: ["brightness"]
+    state_characteristic: "0000fa03-0000-1000-8000-00805f9b34fb"
+    commands:
+      turn_on: "screen_on"
+      turn_off: "screen_off"
+      set_brightness: "set_brightness"

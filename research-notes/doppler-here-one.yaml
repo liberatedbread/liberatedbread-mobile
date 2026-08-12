@@ -1,0 +1,89 @@
+# Doppler Labs Here One — Device Research Note
+# APK source: apkeep (apk-pure), fetched 2026-08-03
+# APK SHA-256: 2178416b489fdd50e14149192e4e300b56ec38cc1892266a7f239bd0367fcd05
+
+device:
+  id: doppler-here-one
+  name: Doppler Labs Here One (incl. Here Active Listening gen-1, likely)
+  manufacturer: Doppler Labs, Inc. (shut down 2017-11-01; support ended 2017-12-01)
+  category: hearable
+  safety_class: MODERATE  # in-ear active ambient amplification (PSAP-adjacent, not medical)
+
+transport:
+  type: ble
+  local_only: true  # direct GATT; no cloud service ever involved in control path
+
+ble:
+  advertising:
+    name_patterns: []  # TBD
+    service_uuids:
+      - "FE80"  # advertised service per attributes.json
+      - "FE7F"  # OTA service
+
+  services:
+    - uuid: "d973f2e0-b19e-11e2-9e96-0800200c9a66"
+      name: doppler_service
+      description: Main control service; GATT table shipped as JSON asset in APK
+      characteristics:
+        - uuid: "d973f2e2-b19e-11e2-9e96-0800200c9a66"
+          name: biquad
+          properties: [write, notify]
+        - uuid: "d973f2e3-b19e-11e2-9e96-0800200c9a66"
+          name: eq
+          properties: [write, notify]
+        - uuid: "d973f2e4-b19e-11e2-9e96-0800200c9a66"
+          name: codec_debug
+          properties: [read, write, notify]
+        - uuid: "d973f2e5-b19e-11e2-9e96-0800200c9a66"
+          name: printf
+          properties: [read, notify]
+        - uuid: "d973f2e6-b19e-11e2-9e96-0800200c9a66"
+          name: debug
+          properties: [read, write, notify]
+        - uuid: "d973f2e7-b19e-11e2-9e96-0800200c9a66"
+          name: volume
+          properties: [read, write, notify]
+        - uuid: "d973f2e9-b19e-11e2-9e96-0800200c9a66"
+          name: effects
+          properties: [read, write, notify]
+        - uuid: "d973f2ea-b19e-11e2-9e96-0800200c9a66"
+          name: battery_doppler
+          properties: [read, notify]
+        - uuid: "d973f2eb-b19e-11e2-9e96-0800200c9a66"
+          name: onoff
+          properties: [read, write, notify]
+        - uuid: "d973f2ec-b19e-11e2-9e96-0800200c9a66"
+          name: red_eq
+          properties: [write, notify]
+        - uuid: "d973f2ed-b19e-11e2-9e96-0800200c9a66"
+          name: csr_control_command
+          properties: [read, write, notify]
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery
+      characteristics: ["00002a19-0000-1000-8000-00805f9b34fb"]
+
+protocol:
+  note: >
+    20-byte command payloads built by com.dopplerlabs.here.ble.HereBlePayloadGenerator.
+    Opcodes recovered (TOGGLE_ANC=3, ADJUST_PGA_GAIN=4, WRITE_CODEC_REGISTER=13,
+    ENABLE/DISABLE_ADAPTIVE_CONFIG=30/31, DIRECTIONALITY=32/33, NOISE_REDUCTION=34/35,
+    WRITE_CORRECTIONS_BIQUAD=36, ENABLE_MUSIC_EQ=43, SET_MUSIC_EQ_GAIN=44,
+    DEVICE_STATE_DIGEST_REQUEST=42/RESPONSE=45, EFFECT_TOGGLE_OFFSET=128, ...).
+    "encrypted" flags in the bundled attributes.json are metadata only; no crypto
+    in the app layer. Each bud addressed as an independent BLE peripheral (HereOneBud).
+  packet_size: 20
+  opcodes_recovered: true
+  payload_field_layout: TBD  # confirm via HCI snoop
+
+status:
+  apk_acquired: true   # com.dopplerlabs.hereone v1.9.0
+  apk_decompiled: true
+  uuids_recovered: true   # complete GATT map from bundled JSON asset
+  protocol_recovered: partial  # opcodes yes; byte layout TBD
+  hci_snoop_needed: true
+  prior_art: none_found
+  company_status: shut down 2017-11-01 (TechCrunch); support ended 2017-12-01 (SlashGear)

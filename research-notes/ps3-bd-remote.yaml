@@ -1,0 +1,52 @@
+# Sony PS3 BD Remote (CECH-ZRC1) — Device Spec
+# No companion app; standard Bluetooth Classic HID media remote.
+# Sources: Kodi forum ps3_pair.py guide (2013), RESEARCHUT (2020), OSMC (2016)
+
+device:
+  id: ps3-bd-remote
+  name: Sony PlayStation 3 Blu-ray Disc Remote (CECH-ZRC1 / CECHZR1U/E/J)
+  manufacturer: Sony Interactive Entertainment (product line abandoned with PS3)
+  category: media_remote
+  safety_class: NONE
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+
+bluetooth_classic:
+  profiles: [hid]
+  sdp_services:
+    - uuid16: "0x1124"
+      name: human_interface_device
+      description: HIDP over L2CAP (control PSM 0x11, interrupt PSM 0x13)
+  pairing:
+    pin: none
+    enter_pairing_mode: "Hold START + ENTER for 7+ seconds"
+    name_patterns: ["BD Remote"]
+    notes: >
+      No PIN. BlueZ helper script ps3_pair.py (Kodi forum) automates pairing.
+      Remote never auto-sleeps — use a disconnect-on-idle daemon
+      (ps3remote/ps3bluemon) to avoid draining AAAs. Some BlueZ versions
+      need ClassicBondedOnly=false.
+  hid_reports:
+    note: >
+      All 51 buttons (navigation, media transport, color/context buttons,
+      PS button, eject) delivered as standard HID input reports; appear as
+      evdev key events on Linux. Canonical keycode table to be harvested
+      from ps3remote/ps3bluemon daemons.
+
+protocol:
+  note: >
+    None beyond standard HID. No PS3 required — config/register step on the
+    console is optional; off-console it is a generic 51-button HID remote.
+  references:
+    - https://forum.kodi.tv/showthread.php?tid=166676
+    - https://researchut.com/blog/Kodi_PS3_BD_Remote/
+    - https://discourse.osmc.tv/t/ps3-bd-remote-and-osmc/13178
+
+status:
+  apk_acquired: false      # no APK exists — by design
+  apk_decompiled: false
+  protocol_recovered: true # standard HID
+  hci_snoop_needed: false
+  community_support: mature (ps3_pair.py, ps3remote, Kodi/OSMC integration)

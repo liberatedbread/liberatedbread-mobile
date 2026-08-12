@@ -1,0 +1,54 @@
+# TP-Link HS100/HS110 (Kasa-era) — Device Spec (research note)
+# Company alive; plaintext XOR local protocol abandoned in fw 1.1.0+ / newer hw
+# Local path: TCP 9999 XOR-autokey JSON (softScheck RE, 2016)
+
+device:
+  id: tplink-hs100-hs110
+  name: TP-Link HS100 / HS110 Wi-Fi Smart Plug (also HS103/HS105, KP115)
+  manufacturer: TP-Link (Kasa Smart line) — alive; local XOR protocol abandoned in newer firmware
+  category: smart_plug
+  safety_class: LOW  # mains relay; protocol has no auth — LAN-segment the device
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    All control is LAN-local on TCP 9999. No account or cloud step is needed
+    for control OR provisioning (device AP + netif.set_stainfo joins Wi-Fi).
+    Caveat: fw 1.1.0 on hw v4 (2020) removed port 9999 — keep pre-update
+    units offline from vendor servers to preserve the API.
+
+lan:
+  discovery:
+    method: udp_broadcast
+    port: 9999
+    payload: XOR-encoded {"system":{"get_sysinfo":null}}
+  control:
+    protocol: tcp-json-xor
+    port: 9999
+    auth: none
+    framing: 4-byte big-endian length + XOR autokey cipher (initial key 0xAB)
+
+protocol:
+  note: >
+    XOR autokey: first plaintext byte XORed with key 0xAB, key then becomes
+    the plaintext byte; subsequent bytes XORed with previous plaintext byte.
+    Provides obfuscation only. Commands are nested JSON objects.
+  commands:
+    relay_on: '{"system":{"set_relay_state":{"state":1}}}'
+    relay_off: '{"system":{"set_relay_state":{"state":0}}}'
+    get_sysinfo: '{"system":{"get_sysinfo":null}}'
+    get_energy_realtime: '{"emeter":{"get_realtime":null}}'  # HS110 only
+    wifi_join: netif.set_stainfo (used during local provisioning)
+
+status:
+  apk_acquired: false   # not needed — community-documented protocol
+  apk_decompiled: false
+  protocol_recovered: true   # softScheck 2016; python-kasa; HA tplink integration
+  rating: confirmed
+  cloud_dead: false   # TP-Link alive; but newer firmware kills this API
+  references:
+    - softscheck.com/en/blog/tp-link-reverse-engineering/ (2016-07-29)
+    - github.com/softScheck/tplink-smartplug
+    - github.com/python-kasa/python-kasa
+    - community.home-assistant.io/t/tp-link-hs110-smart-plug-disappears-after-latest-firmware-update/244229 (2020-11-11)
