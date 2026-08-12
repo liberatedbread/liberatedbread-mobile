@@ -1,63 +1,30 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
+site/
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.mypy_cache/
+.idea/
+.vscode/
 *.swp
 .DS_Store
-.atom/
-.buildlog/
-.history
-.svn/
-migrate_working_dir/
+Thumbs.db
+.env
 
-# IntelliJ related
-*.iml
-*.ipr
-*.iws
-.idea/
+# Reverse-engineering clean-room workspace (never commit artifacts)
+workspace/
+wemo-apk/
+*.apk
+*.apks
+*.xapk
+*.aab
+*.obb
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
-
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-.pub-cache/
-.pub/
-/build/
-
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android Studio will place build artifacts here
-/android/app/debug
-/android/app/profile
-/android/app/release
-# Gradle's own output tree. Not covered by the root-anchored /build/ rule, and
-# a local `flutter build apk` leaves reports here.
-/android/build/
-# Kotlin Gradle plugin 2.x scratch dir — compiler-daemon session markers, left
-# behind by any local Android build now that there is Kotlin source to compile.
-/android/.kotlin/
-
-# Coverage
-coverage/
-
-# Rust
-rust/target/
-
-# Branding icon generator (authoring-only tool; the icons it emits are committed)
-tool/branding/node_modules/
-tool/branding/package-lock.json
-
-# Device logs from scripts/ci-emulator-tests.sh (CI uploads them as artifacts;
-# running it locally drops them here)
-emulator-logcat*.txt
+# Analysis artifacts
+**/jadx-output/
+**/apktool-output/
+**/*.pcap
+**/*.pcapng
+**/btsnoop_hci.log
+re-scratch/
+.gate-venv/

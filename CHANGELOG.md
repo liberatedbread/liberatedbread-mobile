@@ -2,1064 +2,695 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-No tagged release has been cut yet. Everything below is work toward the first
-`0.1.0` release; once it ships, these entries move under a dated `## [0.1.0]`
-heading.
-
-### Security
-
-- **Home Assistant token no longer leaks into logs.** A corrupt stored config
-  was logged via `'$e'`, and `FormatException.toString()` quotes a window of
-  its source — which here was the *decrypted* config, exposing 36 contiguous
-  characters of the long-lived access token and the entire webhook id to
-  logcat and terminals. Now only the exception type is logged; `redact()` /
-  `redactAll()` / `logSafeUrl()` helpers and a redacting `HaConfig.toString()`
-  make a repeat structurally hard.
-- `run-remote-mac.sh` no longer interpolates `--remote-dir` unescaped into
-  remote `ssh` commands (a quote in the path could execute arbitrary commands
-  on the remote Mac).
-
-### Changed
-
-- **An Airthings dashboard now shows every sensor the unit has, wherever the
-  firmware puts it.** Refreshed vendored protocol-specs: temperature and
-  humidity gain bindings on each Wave model's combined packet — the source
-  the vendor app itself reads, and the only one verified against live
-  traffic — ordered ahead of the SIG environmental-sensing characteristics,
-  which are app-derived and unobserved in capture. A Wave whose firmware
-  never exposes 2A6E/2A6F used to show radon and battery and nothing else;
-  its temperature and humidity tiles now come from the same packet its radon
-  already did. Also newly on the grid: Ambient Light on Wave Gen 2, Plus and
-  Mini (raw 0–255 counts — deliberately no illuminance class, since counts
-  are not lux; `mdi:brightness-5` joins the icon table for it) and Gen 1's
-  dedicated 1-hour radon average beside the 24 h and long-term ones. No app
-  code beyond the icon glyph: the tiles exist because the spec now declares
-  the entities.
-
-- **The BLE scan runs by itself, and keeps running.** Discovery was a button
-  press with a 30-second window: whatever was advertising during those seconds
-  was the answer, and a device powered on a minute later never appeared unless
-  someone pressed Scan again. The Nearby tab now scans from the moment it opens
-  until it is told to stop — `BleService.scan(timeout: null)` keeps the stream
-  open — so a device that wakes up, is walked into the room, or is plugged in
-  while the app is watching simply turns up.
-
-  The scan asks the platform for `continuousUpdates`, which is what makes the
-  rest of this possible: without it Android suppresses same-payload
-  advertisements and Apple platforms coalesce duplicates, so a device is
-  reported once and there is no way to tell "still here" from "switched off an
-  hour ago". The coalescer only passes on a change or a five-second heartbeat,
-  and the list repaints at most every 400ms — except for a newly-found device,
-  which repaints at once.
-
-  How hard the radio listens depends on whose idea the scan was
-  (`ScanIntensity`). Everything the screen starts by itself — launch, a tab
-  or lifecycle resume, the radio coming back — runs *ambient*: Android's
-  balanced scan mode, which duty-cycles the radio to roughly a quarter and is
-  the single biggest energy saving the scan has. Pressing Scan (or a Retry)
-  buys an *active* burst: thirty seconds of continuous low-latency listening
-  — someone hunting for a device right now should not wait on a duty cycle —
-  after which the scan seamlessly downshifts to ambient, because a mode that
-  one tap re-pins for the whole session would hinge the energy story on
-  nobody pressing the tab's most prominent button. The advertisement divisor
-  (2, to halve platform-channel traffic) now applies only to active scans:
-  balanced has already thinned receptions at the radio, and stacking the two
-  would double a sleepy sensor's reception gaps. Apple platforms expose no
-  scan-mode knob, so there the intensity changes nothing and the cost stays
-  bounded by the tab/lifecycle gating.
-
-  A scan that never ends has to be careful about when it runs, so it does not:
-  it pauses while the app is in the background (where the OS would not deliver
-  results anyway) and while another tab is selected — `HomeShell` keeps all
-  three alive in an IndexedStack, which is right for their state and wrong for
-  their radios — and resumes on return with the list it built still there,
-  aged accordingly. Resuming includes coming back out of the "Bluetooth is
-  turned off" state someone has just left the app to fix. It also restarts the
-  platform scan every 15 minutes, because Android silently converts a
-  30-minute-old scan into an opportunistic one, and it notices the radio being
-  switched off underneath it rather than sitting there claiming to search.
-
-  Two more habits the session-long shape demands. Bluetooth switched back on
-  resumes the scan by itself: on Android the radio is toggled from quick
-  settings without the app ever losing focus, so no lifecycle event announces
-  the fix, and the screen otherwise kept showing "Bluetooth is turned off" —
-  with a Retry button — for a problem the user had already solved. A new
-  `BleService.adapterReady()` stream carries the signal, and the resume runs
-  through the same guard as every other automatic restart, so it never
-  overrides a user's stop. And the off-tab stop waits two seconds before
-  touching the radio: every return to the tab is a native scan start, Android
-  blocks an app that starts more than five scans in thirty seconds, and a
-  glance at the Saved tab should not spend one of them.
-
-  The FAB now says what there is to do rather than what is happening. While a
-  scan runs it is a small round stop button — the radar already reads as
-  "scanning", and a full-width bar over the results would be shouting an offer
-  nobody came for — with "saves battery" in its tooltip, since that is the
-  reason to press it. Stopped, it is the wide "Scan" button again, because
-  then nothing is happening and the way back has to be obvious. A scan stopped
-  from it stays stopped: not through a tab switch, a backgrounding, or a trip
-  into a device screen.
-
-- **The scan list holds still enough to tap.** Rows were ordered on the raw
-  dBm, which a continuous scan updates several times a second — and a reading
-  wanders a few dB while nothing physically moves, so neighbouring rows traded
-  places continuously and the row under a finger could change between deciding
-  to tap and tapping. Ordering is now by the same four-step band the signal
-  meter draws — one `signalBars` behind the meter, the ordering, and the
-  "Strong/Good/Fair/Weak signal" caption, which previously carried its own
-  thresholds and could say "Good" over two bars — then by which device was
-  found first. Both keys are things that do not move, so a row changes
-  position only when the device genuinely does.
-
-- **Every dead-end on the device screen offers "Try to find device".** The
-  hot/cold locator was only reachable from the connected header — but a
-  FAILED or LOST connection is when "where is this thing?" is the actual
-  question, since it usually means out of range or powered off. The
-  connection-failed and disconnected states now carry a quieter second
-  button under their Retry/Reconnect: it re-attempts the connect (the
-  locator pings the live link's RSSI, so finding is connect-first — hence
-  "try") and lands straight in the find screen when the link comes up. A
-  failed attempt returns to the error state, which is itself an answer to
-  "is it near me", and a later plain Retry does not surprise-open the
-  locator.
-
-- **Devices that have gone quiet are flagged instead of quietly disappearing.**
-  A row used to be dropped after sitting out two scan windows, which meant a
-  device that had been unplugged looked exactly like one that had never been
-  found — the row was simply gone. Every device now carries `lastSeen` (the
-  advertisement's own timestamp, so a silent device is not refreshed by a
-  neighbour's traffic), and silence is read in two stages: past 90 seconds the
-  row gets a warning glyph, says how long it has been quiet, drops its signal
-  meter — that reading is a memory, not a measurement — and sinks below the
-  devices still being heard; past five minutes it is dropped, since by then a
-  tap on it can only end in a connect timeout. Ninety seconds rather than the
-  forty this branch first shipped, because the ambient scan's duty cycle
-  lengthens honest reception gaps: a sleepy sensor advertising every 10s is
-  caught on average once per ~40s under a quarter duty cycle, and a threshold
-  sized for continuous listening would flicker warnings over devices that are
-  quietly fine.
-
-- **Image upload is a generic pipeline now, not a SmartDawn one.** Seven
-  devices in the catalogue declare an `image_upload` feature across six
-  handlers and five pixel formats, and the app drove one — with the pipeline
-  and the algorithms in a single file, so the sixth device would have meant a
-  sixth copy of the pipeline. `protocol/image_upload.rs` is the shared part:
-  resolve the command and bulk channels, open the session, encode the canvas,
-  fragment, write. Everything it needs is data a spec already states.
-  `daniao.rs` keeps what genuinely cannot be YAML — the palette+RLE pixel
-  codec and the `daniao_fragment` header — and drops from 487 non-test lines
-  to 286, all of it algorithm.
-
-  The line is deliberate: a spec *names* an algorithm and the pipeline runs
-  it, exactly as `protocol_handler` and `framing.scheme` already work.
-  Expressing a pixel codec in YAML would mean inventing a bytecode —
-  untypeable, untestable, and it would make a downloadable spec pack
-  executable. So adding a display is: write the spec, and add a codec only if
-  its pixel encoding is genuinely new. Proved rather than asserted — a test
-  runs the pipeline on a made-up device with a different framing scheme, a
-  different codec, different UUIDs and a different opener, none of which
-  SmartDawn shares.
-
-  One behaviour change fell out: the canvas ceiling is the spec's
-  `max_width`/`max_height` now, where the old code hardcoded 256. SmartDawn
-  declares 255 (it reports resolution in u8 advertisement fields), so a
-  256-wide canvas is correctly refused where it used to be accepted. The
-  codec's own u8 chunk coordinates still cap at 256, and the tighter of the
-  two binds.
-- **A command whose bytes this app cannot produce no longer offers a Send.**
-  Two specs this branch made parseable exposed the same gap from opposite
-  sides, and both were newly reachable precisely because the specs now load.
-  `CommandDto.is_encodable` consulted only the command, so a characteristic
-  declaring a `framing` or `encryption` transform this crate does not execute
-  still had every command on it listed as sendable — seeblue's templates are
-  the packet, with the SEEBlue envelope belonging to the characteristic, so a
-  raw write reached the device as a packet it will not answer. And a template
-  referencing a `bytes` parameter was reported encodable although the FFI
-  carries parameters as `f64` and the encoder has no representation for raw
-  octets, so Fardriver's `write_parameter` enabled a Send that failed on every
-  press. Both now report themselves unsupported, naming the framing scheme or
-  the parameter, and the same gate runs in the encoder — the single source of
-  truth the codebase already claimed but only applied to the entity path.
-- **The SmartDawn upload flow is driven by the spec, not by constants beside
-  it.** The handler already resolved its two channels from the spec's `framing`
-  blocks and built its session-open packets from the spec's command templates,
-  so message types and field encodings were the spec's to change. Three things
-  were not: which commands open a session and in what order, which buffer tag
-  the flow writes under on the bulk channel, and where the vendor encoder
-  flushes a chunk. Those describe SmartDawn's upload rather than the fragment
-  scheme, so a sibling device on the same platform with a different opener
-  needed a code change. They now come from the feature's `session_open` and
-  `channel_tag` and the bulk channel's `framing.max_chunk_size`, with the old
-  constants kept as the fallback for a spec pack written before those keys
-  existed. Four tests change one declaration each and assert the bytes move
-  with it — without those, every value the handler reads is also the value it
-  used to hardcode, so a test against the shipped spec would pass either way.
-- **Two vendored specs that failed to parse now load**, upstream: 36 commands
-  and a 500-line register map that reached nobody. `seeblue-motorcycle-led`
-  spelled its transport envelope into nine command templates as placeholders
-  no command declared, and `fardriver-controller` bounded a `bytes` parameter
-  with `min`/`max`, which mean a numeric range a run of octets does not have.
-  The `KNOWN_BAD` allowlist in `rust/tests/vendored_assets.rs` is empty as a
-  result — kept, because upstream now enforces both rules, so a spec should
-  not arrive broken that way again.
-- **Four spec keys the app was ignoring now drive it, and one it was carrying
-  is gone.** Each had real information in the catalogue reaching nothing.
-  - **`endianness` on `format:` fields.** The decoder hardcoded little-endian.
-    Six fields across `xiaomi-miflora` and `pax-vape` declared byte order, all
-    saying `little`, into a key the BLE schema did not define — so nothing
-    decoded wrong and nothing would have said so if it had. The schema
-    declares it now (same enum and default as the bus fields it mirrors) and
-    the decoder consults it. A byte-swapped reading is not visibly broken, it
-    is a different plausible number: a big-endian `0x0100` reads as 1 rather
-    than 256.
-  - **`entity.icon`.** The cards derived every icon from `device_class`, which
-    has nothing to say about `gerbing-thermogauge`'s heat levels — `number`
-    entities with no class that means "this warms you up". The spec's `icon`
-    now wins, translated from its MDI name into the Material glyph this app
-    can draw (`lib/core/entity_icon.dart`); `device_class` remains the answer
-    for the entities that do not state one, so nothing regresses and an
-    unmapped name degrades to exactly the old behaviour.
-  - **`entity.precision`.** Display rounding, which is a different question
-    from the transform's implied decimal places: the transform says how finely
-    the value was *encoded*, `precision` how finely the device actually knows
-    it. Presentation only — controls still seed from the unrounded number, so
-    a slider cannot write its own rounding back to the device.
-  - **`locate` on a command** (new upstream). The Find view classified alert
-    commands by matching their names against six token sets, four of which
-    existed only to take matches back: across the 350 BLE commands in the
-    catalogue, `play_effect`, `set_mode`, `identify` and `set_volume_low` all
-    read as locators and none is one, while `flash_firmware` reads as one and
-    must never be one tap away. A command can now say what it is, and two do.
-    The name heuristic stays as the fallback for spec packs that have not
-    caught up, and the danger-token veto applies to declared locators too — a
-    third-party pack is not obliged to have run the schema.
-  - **`parameters.color_order` is gone.** It declared RGB channel order beside
-    a `template` that already emitted the channels in an order, with nothing
-    saying which won if they disagreed. It never crossed the FFI, all eight
-    uses said `rgb`, and every one sat next to a template already naming
-    `{red}`/`{green}`/`{blue}` in that order. The parser still absorbs the key
-    so a spec pack written against the older schema loads rather than failing
-    whole.
-- **`assets/` is gone; everything ships from the vendored subtree.** Both the
-  device specs and the number registries were duplicated — 1.2MB and 1.7MB of
-  byte-identical copies of `vendor/protocol-specs/`, made by
-  `scripts/sync_device_specs.sh` and committed alongside their originals. Two
-  copies of the same data with nothing checking they agree is a bug waiting for
-  someone to edit the wrong one.
-
-  `pubspec.yaml` now bundles the subtree paths directly, and the loader reads
-  upstream's own `index.json` instead of a rewritten `manifest.json`. Refreshing
-  the catalogue becomes `git subtree pull` and nothing else, so
-  `sync_device_specs.sh` is deleted rather than kept as a step people can forget.
-
-  Not symlinks: a Windows checkout without developer mode or `core.symlinks`
-  writes a text file containing a path, and Flutter's asset pipeline treats
-  symlinks inconsistently across platforms. Both failures are silent — an empty
-  catalogue, no error — where a wrong path is a loud missing asset.
-
-  **Remote spec packs are unaffected**, and now have tests saying so: bundled
-  specs are keyed by subtree asset path and remote ones by `pack:<name>/<file>`,
-  and the two namespaces are pinned as non-overlapping so neither half can
-  shadow the other in the merged catalogue.
-- **`scripts/update-specs.sh` gained a `--check` mode, and CI runs it.** The
-  script wraps stock `git subtree pull --squash` — that has not changed, and
-  doing the subtree commands by hand still works — but its checking half was
-  only ever reachable by doing a pull, so nothing verified the vendored tree on
-  an ordinary commit. `--check` is that half alone: no network, no pull, works
-  on a shallow clone.
-
-  It also checks something new. The subtree is vendored *unmodified*, and an
-  edit made to `vendor/protocol-specs/` here instead of upstream reads as an
-  ordinary spec change in review, then silently reverts at the next refresh.
-  `--check` compares the vendored tree's hash against the squash commit's —
-  a squash commit's tree *is* the subtree's content — so it catches every way
-  the prefix can drift, including the two that no walk over commits can see: a
-  conflict resolved by editing the spec (recorded in the merge commit itself)
-  and a local edit that auto-merges cleanly during a pull (recorded before it).
-  Uncommitted and untracked files under the prefix count too; Flutter bundles
-  an unstaged YAML in `device-specs/devices/` exactly like a real one. This is
-  why the `analyze` job now checks out full history.
-
-  The bundled-path assertions are read out of `pubspec.yaml` rather than
-  repeated in the script. The old hardcoded list covered whatever was true the
-  day it was written: a registry added to `assets:` afterwards shipped in the
-  app and was checked by nobody.
-
-  The pull path picked up the three things that made its failures cryptic: a
-  preflight for git-subtree not being installed (it is contrib, and Apple's git
-  omits it) rather than `git: 'subtree' is not a git command`; a pre-fetch of
-  the recorded upstream commit, which git 2.42+ does itself but older git dies
-  on; and triage for upstream having rewritten history away from that commit,
-  which now prints the `git subtree add` re-baseline instead of `fatal: could
-  not rev-parse split hash`.
-- **iOS deployment target 12.0 → 13.0.** Flutter 3.44 no longer supports an
-  iOS 12 target. The Podfile now pins the platform explicitly rather than
-  leaving it commented out, so CocoaPods and the Xcode project cannot drift
-  apart. Flutter 3.44 also stopped building 32-bit x86 for Android, so the APK
-  ABI assertions no longer name it.
-
-### Fixed
-
-- **`MockNetworkScanService.stopScan()` did not stop the scan.** The same bug
-  that was fixed in `RealNetworkScanService`, still present in the mock: the
-  stop flag was read only at the top of the enumeration loop, so a stop during
-  a sleep still yielded the device that sleep was waiting for, and the sleep
-  *after* the loop never read it at all — the stream stayed open for a quarter
-  of the scan window (two seconds at the default) after the scan was told to
-  stop, so a UI that re-enables its button on stream close sat there saying
-  "scanning". Every wait now races the stop, as the real service's does. This
-  is the class that runs in demo mode and in every mock-mode integration suite,
-  and it had 0 of 17 lines covered, which is how it survived the first fix.
-
-- **The `network-discovery` job's coverage was collected nowhere.** The job that
-  uploads coverage is the one that excludes the netdisco suites, so
-  `lib/services/real_network_scan_service.dart` reported 108/169 lines while
-  that job was covering 164/169 of it. Fifty-six lines on the service with the
-  most elaborate harness in the repo counted as untested, a change to it looked
-  like it was adding uncovered code, and improving those tests moved the number
-  not at all. The job now writes `coverage/netdisco-lcov.info` and uploads it
-  under a `netdisco` flag; Codecov merges the two reports.
-
-- **`scripts/test.sh` ran `flutter test` without the environment it thought it
-  was setting.** The two `LD_LIBRARY_PATH`/`DYLD_FALLBACK_LIBRARY_PATH`
-  assignments ended in a line continuation that ran into a *comment*, so bash
-  read them as a command of their own — setting a pair of shell variables
-  nothing exported — and then ran `flutter test` unprefixed. The suites passed
-  regardless, which is the tell: `test/helpers/host_rust_lib.dart` opens the
-  library by relative path precisely because macOS strips `DYLD_*`. Both
-  variables are gone rather than repaired; neither was ever what made it work.
-
-- **Discovered GATT UUIDs were written in a form no spec could match.**
-  `discoverServices` rendered each UUID with `Guid.toString()`, which is
-  `Guid.str` — and that abbreviates a Bluetooth-base UUID to its 16-bit short
-  form, so the example bulb's control service came back as `fff0`. Specs always
-  write UUIDs out in full, so on real hardware every standard-base service UUID
-  handed to the matcher was one that could not match the spec describing it,
-  and the device fell back to raw GATT controls for no visible reason. Both
-  `discoverServices` and the characteristic lookup now use `str128`, matching
-  what the scan path already did and putting the whole app in one UUID
-  vocabulary. (Mock mode emits 128-bit UUIDs, which is why nothing in CI ever
-  caught it.)
-
-- **iOS could never have discovered a Wi-Fi device.** Since iOS 14 an app may
-  not touch a multicast address over a raw socket without
-  `com.apple.developer.networking.multicast`, and there was no entitlements
-  file in `ios/` at all. `NSBonjourServices` does not substitute for it: that
-  key covers mDNS done through the Bonjour APIs, where `mDNSResponder`
-  multicasts on the app's behalf, and this app uses neither — `multicast_dns`
-  binds UDP 5353 and joins 224.0.0.251 itself, and the SSDP half sends
-  M-SEARCH to 239.255.255.250 from its own socket. Both were blocked.
-
-  Nothing said so. The sockets bound, the queries went out, the OS dropped
-  them, and `scanFailureFor()` read the silence exactly as designed and told
-  the user their Local Network permission might be off — pointing at a toggle
-  that was already on.
-
-  `ios/Runner/Runner.entitlements` now declares it and all three app build
-  configurations reference it. Apple grants this entitlement by manual request
-  rather than a checkbox, so signed device builds fail at signing until the
-  request is approved and the provisioning profile reissued;
-  `docs/ios-from-linux.md` covers what to file and what breaks meanwhile.
-  Simulator builds, including all of CI, are unaffected — they do not sign.
-
-- **macOS release builds lost half the Wi-Fi scan.**
-  `com.apple.security.network.server` was in `DebugProfile.entitlements` but
-  not `Release.entitlements`, on the reading that it belonged to the Dart VM
-  service. Under the App Sandbox it is also what permits binding a listening
-  socket, which is what `multicast_dns` does to join 224.0.0.251 on port 5353.
-  So mDNS worked in `flutter run -d macos` and threw in a release build, which
-  then discovered only what SSDP happened to find. The macOS local-network
-  usage string also described only Home Assistant, though the prompt now
-  fires when a user taps Scan.
-
-- **A `--` inside an XML comment broke the Android manifest.** XML forbids it —
-  it is the first half of the comment terminator — and the manifest merger fails
-  the whole build with "Error parsing AndroidManifest.xml" and no line number.
-  Every existing platform test passed, because the hand-rolled comment stripper
-  in `test/platform/platform_config_reader.dart` just scans to the next `-->`.
-  `test/platform/xml_wellformedness_test.dart` now closes that gap for the
-  manifest, both plists and both entitlements files.
-
 ### Added
 
-- **Sensor devices read as dashboards, not as GATT dumps.** Three changes
-  that land together on anything the catalogue classes as a sensor — an
-  Airthings Wave, a SensorPush, a Miflora:
-  - *A readings grid.* Two or more numeric readings render as compact tiles,
-    two or three abreast, instead of a scroll of full-width banners — an
-    Airthings Wave Plus's radon, CO₂, VOC, temperature, humidity, pressure
-    and battery are one glance now. A lone reading keeps the roomier row,
-    and binary sensors keep their full-width on/off presentation.
-  - *Verdict chips.* Readings whose healthy range is established carry a
-    colored Good/Fair/Poor chip beside the value, because "934 ppm" answers
-    a question nobody asked. Bands and their sources live in
-    `core/sensor_reading_level.dart`: radon 100/150 Bq/m³ (WHO reference
-    level / Airthings' own shipped defaults), CO₂ 800/1000 ppm and VOC
-    250/2000 ppb (Airthings defaults), humidity 25/30/60/70 %, PM2.5 10/25
-    and PM10 20/50 µg/m³ (around the WHO 2021 guidelines), battery 20/10 %.
-    Quantities with no honest band — temperature, pressure — show the
-    number alone, and a healthy battery keeps quiet rather than fishing for
-    praise. Chips are keyed on device_class *plus unit* so a band can never
-    judge a value in a unit it does not hold in, and radon is keyed on its
-    unit alone — older catalogue copies mislabeled it as a VOC class, and
-    Bq/m³ must never be read against a ppb band.
-  - *Folded plumbing.* When a matched sensor device has readings on screen,
-    the raw service cards start folded — the first screen is radon and CO₂,
-    not the OAD firmware-update service. Still one tap away, and every
-    other device category keeps expanded cards. Folding hides the
-    characteristic widgets without disposing them (`maintainState`): their
-    teardown answers with `setNotifyValue(false)` on the peripheral, with
-    no reference counting, which would mute the very characteristics the
-    readings above are showing live.
+- `airthings-wave-family` binds temperature and humidity to each model's
+  combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
+  `b42e3b98`). The SIG characteristics (2A6E/2A6F) are app-derived and
+  unobserved in either hardware capture, while the combined packet is what
+  the vendor app reads and is capture-verified — so a unit that never
+  exposes the SIG characteristics previously showed radon and battery but
+  no temperature or humidity. The SIG bindings are now scoped
+  (`variants: Wave (Gen 1), View Plus` — the models with no decodable
+  combined packet), so every variant resolves exactly one binding per
+  reading under the schema's declared variant model rather than by an
+  implicit first-match rule; the combined bindings are also listed first
+  for characteristic-keyed consumers meeting hardware that exposes both
+  interfaces. Also new: `Ambient Light` on all three combined packets (raw
+  0-255 counts, deliberately no `illuminance` class since the counts are
+  not lux — the field is capture-verified on Wave Gen 2), and Gen 1's
+  dedicated 1-hour radon characteristic (`b42e06dc`) bound as
+  `Radon 1h Average`, its third documented radon reading and the
+  fastest-moving of them. Variant `sensors` lists gain `light` accordingly
+- `airthings-wave-family` surfaces every sensor each model actually has, not
+  just the six readings the entity list happened to name. The Wave Plus
+  combined characteristic (`b42e2a68`) now carries the shared 20-byte layout
+  as a machine-readable `format:` block — the layout was already documented,
+  but only as prose pointing at the Wave Gen 2 declaration, and consumers
+  resolve byte layouts by characteristic UUID, so every Wave Plus combined
+  reading was undecodable. The Wave Mini combined characteristic
+  (`b42e3b98`) gains its format too, taken from the decode functions of the
+  two vendor-published readers the spec already cited for its UUID
+  (wavemini-reader, airthings-ble; MEDIUM confidence, note the centikelvin
+  temperature). On top of those: CO₂, VOC and Dew Point entities for Wave
+  Plus, VOC and Pressure entities for Wave Mini, and radon entities for Wave
+  Gen 2 and Wave Plus bound to their combined packets — the dedicated radon
+  characteristics live on the Gen 1 service only, so a Gen 2 or Plus unit
+  previously matched no radon binding at all. One logical reading appears
+  once per variant-specific binding (same name, disjoint `variants`),
+  which a characteristic-keyed consumer resolves to exactly one per unit
+- Roku ECP: a channel launcher. The `Channel` select's options are whatever
+  the device says it has installed — `options_source` fetches
+  `/query/apps`, `state_source` reads the current channel from
+  `/query/active-app` (which carries no id on the home screen: that reads
+  as nothing selected, not an error), and selecting an option launches it
+  via `POST /launch/{app_id}`. Both queries stay open when "Control by
+  mobile apps" is disabled, so the list loads even on a TV refusing every
+  keypress. The two endpoint entries gain worked response examples, and
+  `test_roku_spec.py` runs the source contract against them
+- `options_source` / `state_source` on `select` entities — where a select
+  gets options the spec cannot enumerate because they live on the device,
+  and which of them is current. A deliberately tiny XML contract: the named
+  `http_endpoints` entry is the request; every element with the item's
+  local name is one entry; the named attribute is the raw value; the
+  element text is the label. A select carrying `options_source` needs no
+  static options table and no state binding to be offered — the options are
+  its surface
+- Roku ECP: the remote as a control surface. A `commands` block names one
+  `transport: http` invocation per remote key — power, D-pad and navigation,
+  playback transport, volume, live-TV channels, and TV input switching — and
+  `entities` declares each as a `button` in remote-layout order, covering
+  every key the official Roku app's remote sends over ECP. The previous
+  `select` entity bound a path string no command declared, so nothing could
+  resolve it; the buttons are the resolvable one-command-per-option form.
+  An `ecp_common` block records the whole transport (empty POST body, the
+  Lit_ percent-encoding rule, the OS 14.1 "Control by mobile apps" 403), the
+  endpoint catalogue gains keydown/keyup, icon, tv-channels,
+  tv-active-channel and install, and `openness` cites the official ECP
+  documentation the vocabulary is transcribed from. `scripts/test_roku_spec.py`
+  renders every button from the YAML alone and diffs it against the
+  documented key list, including the app-parity claim itself
+- `button` entity platform — a momentary action with no state to read back.
+  Binds exactly one role, `press`, whose command must have no caller-supplied
+  blanks, and is the one platform excused from naming a state source:
+  statelessness is the honest description of a keypress. Added for the Roku
+  remote; the enum note says which consumer it is kept aligned with
+- `method` on spec `commands` — the HTTP method of a `transport: http`
+  command, stated on the command itself so a consumer can send it without
+  joining two blocks by name. Roku's whole control surface addresses by
+  method and path; the SOAP commands that resolve their address by service
+  URN never state it
+- `status` on `http_endpoints` entries (`active` | `sunset` | `unverified`) —
+  Roku's `/search/browse` has carried `status: "sunset"` since the OS 12.0
+  removal notice and SmartThings' port-8081 root carried `"unverified"`, both
+  into a key the schema did not declare. Declared, so a consumer can filter
+  on lifecycle as data rather than parse SUNSET out of prose
+- `endianness` on BLE characteristic `format` fields — same key, same
+  `little`/`big` enum and same `little` default as a bus message field, which
+  is where it was already declared. Six BLE fields across `xiaomi-miflora` and
+  `pax-vape` had been stating it into a key nothing defined: the schema is
+  permissive so it validated, and every parser dropped it. Harmless only
+  because all six say `little`, which is what the decoders assume; a `big`
+  field would have decoded byte-swapped with nothing to catch it, since a
+  big-endian `0x0100` reads as 1 rather than 256 and both are plausible sensor
+  readings. `scripts/test_device_specs.py` now pins the two declarations to
+  each other so they cannot drift apart again
+- Command-level `locate` (`sound` | `flash` | `both`) — declares that a
+  command's whole effect is to make the device noticeable so a user can find
+  it, and by which modality. It is the spec-command analogue of the SIG
+  Immediate Alert service (0x1802) for the many devices that implement the
+  same idea with a vendor opcode. Without it a client has only the command's
+  name to go on, and the names in this catalogue do not support that: across
+  350 BLE commands, `play_effect`, `set_mode`, `identify` and `set_volume_low`
+  all read as locators and none is one, while `flash_firmware` reads as one
+  and must never be one tap away. Declared on the two commands that qualify
+  (`m6-fitness-band` `find_me`, `xiaomi-miflora` `blink_led`). The schema
+  forbids `locate` on an `advanced` command in both directions — a locator is
+  offered without confirmation, so it cannot also be a command a user needs
+  protecting from
+- `features[].session_open` and `features[].channel_tag` on an `image_upload`
+  — the ordered commands a client sends before the first frame, named from the
+  spec's own `commands` so their bytes stay in the command templates and only
+  the choreography lives here, and the framing channel tag that flow writes
+  under when the bulk characteristic cannot state one because its tag varies
+  per transfer. This is the part of an upload a handler cannot derive:
+  fragmentation and chunk sizing are properties `framing` already states, but
+  which commands open a session is device knowledge. SmartDawn's is
+  `[ui_end_sync, doodle_start]` writing under TUTU_RESTORE (4), and the wrong
+  opener (`M_DEV_START`) blanks the canvas rather than failing — so a consumer
+  that hardcodes the names cannot be pointed at a sibling device on the same
+  platform without a code change. SmartDawn's BIN channel also states its
+  200-byte `framing.max_chunk_size`, which was documented in prose only
+- Command and parameter keys the catalogue was already using with nothing
+  declaring them — several of them load-bearing. On a command: `setting_id`
+  (which the mobile parser reads), `protocol_id` / `command_id` / `ui_id` /
+  `ui_id_range` / `ui_id_min` (the framing-scheme selectors), `fixed_length`,
+  `packet_layout` and `observed`. On a parameter: `default` (89 uses, and the
+  thing that lets a control send only the parameter it owns), `allowed` /
+  `labels` (which a consumer turns into a picker instead of a raw slider),
+  `notes`, `endianness`, and `auto` for a value the client derives rather than
+  the user supplying — `sequence`, `packet_length`, `checksum`. `endianness`
+  on a parameter matters immediately: SmartDawn declares 88 of them `big`, and
+  a consumer assuming little-endian writes those two-byte fields byte-swapped
+  with nothing to notice
+- Entity keys the catalogue was already using with nothing declaring them:
+  `icon`, `precision`, `notes`, `variants`, `command_characteristic`,
+  `min_temp` / `max_temp` / `temp_step`, `fallback_characteristic` /
+  `fallback_state_characteristic`, `value_template`, and the RPC-style
+  `state_endpoint` / `state_command` / `state_path` trio Divoom's panels use.
+  `state_mapping` gains a description of the key set the catalogue actually
+  puts in it (role keys, `scale`, `on_when`/`on_value`, `options`/`states`,
+  bare-integer code tables) while staying open
 
-  With them, one logical reading declared once per variant binding (the
-  shape the Airthings family spec now uses) renders once instead of once
-  per binding, air-quality entities get real glyphs (radon, CO₂, VOC,
-  particulates, dew point, illuminance) instead of the generic sensor dot,
-  and the mock simulator demos a healthy home — it now inverts
-  `value_offset` as well as `scale` (the Wave Mini's centikelvin
-  temperature decoded to −251 °C before), picks sea-level pressure in
-  whichever unit the spec declares, and defaults radon/CO₂/VOC to values a
-  house would actually show.
-
-- **The core can drive a device that has no GATT at all.** Everything the app
-  controls today is BLE: an entity binds a characteristic, a role resolves to
-  a command on it, and the command becomes bytes. A Wemo plug has none of
-  that. `protocol/soap.rs` is the same job one transport over — a spec command
-  becomes an HTTP request, a returned value becomes an entity reading — and
-  `spec/bindings.rs` gains the network sibling of the role resolution, using
-  the same role names on purpose: two tables that disagreed about what
-  `switch` offers would give one device different controls depending on how it
-  happened to connect.
-
-  Deliberately no I/O. This crate has no HTTP client and wants none: it
-  renders the request and reads the reply back from name→value pairs, exactly
-  as the BLE path hands back the bytes somebody else read. What lives here is
-  what a transport cannot work out for itself — parameter defaulting, argument
-  substitution, XML escaping, and the read-back rule below.
-
-  Two device facts drove the design, both from the Crock-Pot, and both
-  invisible until you write the consumer:
-
-  - **A heat-level picker is a `select`, and nothing here spoke that role.**
-    The cooker's modes are `0`/`50`/`51`/`52` — a choice from a list, not a
-    number anybody can slide between. `select_option` resolves now, with the
-    option table read the way `ember-mug` already writes one, and an
-    unrecognised value reads as *unknown* rather than folding into the first
-    entry, which on this device would say "off" while the thing is heating.
-  - **`SetCrockpotState` carries mode and cook time together.** Change one
-    without sending the other back and you have cleared the timer. A resolved
-    action now surfaces `read_back` — the parameters whose real value the
-    client must fetch first — because it changes what the caller has to *do*,
-    and a control that does not know cannot be written correctly by accident.
-
-  `tests/network_control.rs` drives the real catalogue file end to end: five
-  entities resolve, the rendered requests are diffed against the bodies the
-  spec publishes, and one published `GetCrockpotState` response drives all
-  four cooker controls. It also pins the trap — the cooker's state comes from
-  `mode`, never from `BinaryState`, which answers `0` whatever the device is
-  doing.
-
-  And the UI half, now wired end to end. Tapping a matched Wi-Fi device whose
-  spec declares controls opens a control screen instead of the details sheet:
-  a toggle for the plug; for the Crock-Pot a cook-mode picker, an editable
-  cook-time card and a cooked-time reading — the app's first `select` control
-  on any transport. `SoapControlClient` is the transport (fetch `setup.xml`,
-  resolve control URLs from the device's own service list because published
-  paths move across firmware generations, POST with the exact SOAPACTION
-  header, parse the reply by the spec's envelope rule, and tell a SOAP Fault
-  — the device refusing — apart from the network failing). The FRB surface
-  carries four calls: list a device's controls (narrowed to the model by the
-  SSDP targets it answered, so a plug never grows the cooker's picker),
-  render a command, render a state read, decode a reading.
-
-  Every write that carries a `read_back` re-reads the state it depends on
-  immediately before sending — not from the last refresh, because the
-  cooker's own countdown moves between refreshes and sending a stale time
-  rewinds it. And the read-back is mandatory, not best-effort: review on the
-  spec side killed the `default: 0` that used to back each `source`
-  parameter, so a send whose read-back failed now errors visibly instead of
-  quietly clearing the timer (or, on a cook-time change, stopping a running
-  cooker with a substituted `mode: 0`). The resolver counts a `source`
-  parameter as fillable — the client knows where to fetch it — and the
-  renderer enforces that it actually was. The widget test pins exactly that: picking Warm on a cooker
-  with four hours on the clock sends `mode=50, time=240`, and turning off
-  sends no values at all. An unrecognised mode renders as
-  "Unrecognized state", never as the first option — which would read "off"
-  while the thing is heating.
-
-- **A file no test imports can no longer hide from the coverage number.**
-  `flutter test --coverage` instruments only what a test reaches, so an
-  unreferenced library is absent from the report rather than reported as zero —
-  and therefore absent from the denominator, which means adding an entirely
-  untested file to `lib/` moved coverage by nothing at all.
-  `scripts/ci-coverage-audit.sh` compares the tracked `lib/` files against the
-  report and fails on anything missing, in the `unit-tests` job and in
-  `scripts/test.sh`. Two abstract-only files are allowlisted with their
-  reasons, and the allowlist is checked in both directions.
-
-  `lib/main.dart` was the file living in that gap — the app's own entrypoint,
-  executed by nothing. `test/main_test.dart` now covers it, including the
-  documented contract that a failed `RustLib.init` is logged loudly and does
-  not stop the app.
-
-- **`RealSpecCodec`'s untested half.** Four of its methods —
-  `matchNetworkDevice`, `identifyStandardProfiles`, `encodeEntityValue`,
-  `encodeImageFrame` — had never been executed, because every widget test
-  drives the fake instead. They are thin pass-throughs to generated FFI
-  functions, which is exactly the code that looks too boring to test and then
-  transposes two adjacent int arguments. 57.9% to 100%.
-
-- **The Rust crate's coverage is measured.** Roughly a third of the
-  hand-written code in this project — the spec parser, the codec, the protocol
-  dispatch, the mock simulator — was tested and never counted, so the reported
-  figure was the Dart half only and a change that moved Rust coverage moved the
-  number not at all. A `rust-coverage` job runs `cargo llvm-cov` and uploads
-  under a `rust` flag, which Codecov merges with the two Dart reports. The
-  first measurement: **95.6%** on hand-written code.
-  `rust/src/frb_generated.rs` is ignored, on the argument already made for
-  `lib/src/rust/**` — 1917 generated lines that `cargo test` covers 0.0% of,
-  because the crate's own tests never cross the FFI boundary that file exists
-  to implement. Left in, it reports the same crate as 72.0%.
-
-  The job is deliberately separate from `rust` and gates nothing: that one is
-  what the four native jobs wait on, and it keeps a plain `cargo test`.
-
-- **The FFI tests rebuild the Rust core themselves.** Both ways of getting this
-  wrong were silent: with no host build the suites `markTestSkipped` and the run
-  is green with a quietly smaller test count, and with a *stale* one they do not
-  even skip — they load the `.so` from before the edit, pass, and report on code
-  that no longer exists. `test/helpers/host_rust_lib.dart` now reads cargo's own
-  dep-info file (every source that went into the artifact, `include_str!`d
-  vendor registries included) and runs `cargo build` when any of them is newer,
-  so `flutter test` after editing `rust/src/` tests the edit. A warm target
-  directory means no cargo run at all. `LIBERATED_BREAD_NO_RUST_BUILD=1` opts
-  out; an explicit `LIBERATED_BREAD_RUST_LIB` is never rebuilt.
-
-- **`scripts/ensure-rust-lib.sh`**, the one definition of "the host Rust library
-  is built" — used by `scripts/test.sh`, the Claude Code session hook and CI's
-  `unit-tests` job, which each had their own spelling of it. It asserts the
-  artifact rather than trusting cargo's exit code: dropping `cdylib` from
-  `rust/Cargo.toml`'s `crate-type`, or renaming the package, builds green while
-  removing the one file every FFI-backed test opens by path.
-
-- **CI now enforces the pins and lockfiles it documents.**
-  `./scripts/ci-versions.sh --strict` runs in the gate job, so renaming a key in
-  `ci.yml`'s `env:` block fails the pull request that does it instead of quietly
-  sending every dev machine back to a hardcoded fallback. `cargo --locked` and
-  `flutter pub get --enforce-lockfile` stop CI from silently resolving around a
-  lockfile that was not updated. `scripts/ci-shellcheck.sh` additionally checks
-  each script is executable and declares an interpreter — a 644 script fails
-  with `Permission denied` inside whichever job invokes it, which for the
-  emulator suite is forty minutes in.
-
-- **`.github/dependabot.yml`** for the ten actions the workflows pin by major
-  tag, plus the Rust crate; grouped into one pull request per ecosystem per
-  week. Pub is deliberately excluded — `pubspec.lock` is pinned against a
-  specific Flutter SDK, so those bumps follow a Flutter bump, by hand.
-
-- **`workflow_dispatch` on `ci.yml`**, so a run can be started by hand on a
-  branch with no pull request open — the only way to see whether a toolchain
-  bump survives the four native jobs was previously to open one.
-
-- **Every scan row says what kind of device it is.** The scan list already
-  ranked results and badged them — "Ember Mug", "Likely supported", "Possibly
-  Xiaomi" — but every row was drawn with the same Bluetooth glyph, so the list
-  read as one shape repeated down the screen with the differences in small
-  text. Rows now carry a device-type icon: light, display, sensor, motor,
-  switch, lock, TV, printer, hub, vehicle, scale, and so on.
-
-  The class comes from `device.category` in the spec catalogue, which
-  `SpecIdentityDto` and `ScanMatch` now carry alongside the manufacturer, so
-  adding a device or correcting its class stays a data-only refresh with no
-  app change. That field is defined and populated upstream in protocol-specs;
-  everything here reads it and degrades to the generic glyph where a spec
-  states none, so the icons light up on the next `./scripts/update-specs.sh`
-  rather than needing this and the catalogue to land together.
-
-  The icon only ever comes from a matched spec — never from a heuristic over
-  the advertised name — so a row whose icon is not the tab's generic glyph is
-  one the catalogue actually placed. That is the same rule the badge already
-  follows, and it is why "LEDBlue-A1B2C3" is left anonymous despite reading
-  like a light: a guess drawn in the same glyph as a real match is a claim
-  with its evidence stripped off, and `DeviceDescription` already says the
-  true version of that.
-
-  A category survives a tie when every tied match agrees on one, which is a
-  lower bar than `namesAProduct` on purpose: a shared OUI cannot say which of
-  a vendor's ten lights this is, and can still say "light". Where the tied
-  matches disagree — a Xiaomi OUI covering a plant sensor and a body scale —
-  the icon drops back to the generic one, the same way `label` drops back to
-  "Possibly supported" when the manufacturers disagree.
-
-  The connected-device screen now names its automatically-matched spec and
-  device type as well. A user-*chosen* spec already had its own banner; an
-  automatic match had nothing, so the typed controls simply appeared and the
-  user was left to infer what the app had decided.
-
-- **The device screen says who made the thing, and shows its address.** The
-  IEEE and SIG registries have been vendored and searched for a while, but the
-  BLE detail screen never read them: it showed a name, a status dot and a
-  service count, and the MAC only by accident, when a device had no name and
-  the title fell back to `Unknown (<id>)`. It now carries the address and what
-  the registries make of it, and the Wi-Fi details sheet gained the `MAC` row
-  its existing `Address block` row was silently drawing its conclusion from.
-
-  The two sources stay separate rows rather than collapsing into one
-  "manufacturer" line, because they answer different questions: a company ID
-  is something the device put in its own advertisement, while an address block
-  names whoever bought the block — frequently the radio module's vendor, which
-  is why the Lutron Caséta bridge resolves to Texas Instruments. Labelling
-  them apart ("Advertises as" / "Address block") is what makes showing the
-  registry safe at all. Nothing new looks anything up: this is
-  `describeWith` + `DeviceDescription`, already used by the scan list.
-
-  On Apple platforms both rows are simply absent — CoreBluetooth substitutes a
-  per-host UUID for the hardware address, so there is no address to show and no
-  block to look up, and printing the UUID under "Address" would invite exactly
-  the lookup that cannot work.
-- **`scripts/update-specs.sh`** — refreshing the vendored specs is a script
-  now, not a remembered `git subtree pull`. It takes a ref, and `--from` takes
-  any remote including a local checkout, so a spec change can be pulled from
-  the branch it is still being written on. Afterwards it asserts that every
-  path `pubspec.yaml` bundles actually arrived: a pull that drops
-  `registries/ieee-oui36.tsv` fails nothing at build time, it just makes the
-  app quietly stop naming vendors.
-- **Bottom ad banner on the scan screen** — a small dismissible house-ad bar
-  pointing at the new liberatedbread.com/shop/ affiliate page (dead devices
-  cheap, WeMos boards, liberation gear). Content comes from
-  `https://liberatedbread.com/app/banner.json` fetched in the background, so
-  the promotion can change — or be switched off — without an app-store
-  release; a bundled fallback (and a cache of the last fetched config) renders
-  from the first frame, so a slow or absent network never blocks anything.
-  Dismissal is remembered per promotion id.
-- **Wi-Fi device discovery, as a destination of its own.** Half the catalogue is
-  hardware with no Bluetooth at all — bridges, plugs, printers — and a BLE scan
-  could never see any of it. The new Wi-Fi tab asks over both mDNS/DNS-SD and
-  SSDP, because the two do not overlap: modern local-first devices announce over
-  mDNS only, while Wemo and pre-2020 Hue bridges are SSDP-only, so running one
-  would silently miss half the devices. Discovery is by the generic DNS-SD
-  service enumeration rather than a fixed list, so it finds hardware whose spec
-  nobody has written yet. A host answering on both transports is merged into one
-  row carrying what each said. Tapping one shows everything it advertised.
-
-  Matching reuses the same `MatchConfidence` core as the BLE path, so a badge
-  means the same thing on either tab: an mDNS service type or an SSDP search
-  target is a vendor-specific identifier and rates Strong, while a default port
-  is the network's equivalent of an OUI — port 80 says nothing about who is
-  listening — and only ever ranks. A spec that declares nothing about the
-  network can never match a host on it, so a BLE spec whose name prefix happens
-  to prefix an mDNS instance name stays off this tab.
-
-  Platform notes: iOS will not deliver mDNS answers for a service type absent
-  from `NSBonjourServices`, and fails silently when one is missing, so the plist
-  now declares them; Android needs `CHANGE_WIFI_MULTICAST_STATE` or the Wi-Fi
-  driver filters multicast out to save power. A denied local-network permission
-  looks exactly like an empty network from inside the app, so on Apple platforms
-  that case gets its own guidance and a settings link rather than a "no devices
-  found" dead end.
-- **Saved devices are a top-level destination, not a footer.** They were a
-  "History" section pinned below however many strangers' earbuds the last scan
-  turned up. The app now has a bottom bar — Nearby, Saved, Wi-Fi — and saved
-  devices get a pane with room for the address, the vendor the address block
-  belongs to, and an empty state that says how devices get there.
-- **The scan list leads with devices we can probably talk to.** A scan in any
-  populated building returns mostly noise — earbuds, laptops, a neighbour's TV —
-  and the previous list sorted purely by signal strength, so a supported device
-  across the room sat below every anonymous radio on the desk. Advertised
-  service UUIDs, manufacturer-data company IDs and the MAC OUI are now read at
-  scan time alongside the local name, matched against the spec catalogue, and
-  the results split into a **Likely supported** section above the rest, each row
-  badged with what the catalogue thinks it is.
-
-  The four signals are weighted rather than pooled, because they are not equally
-  telling (`MatchConfidence` in `rust/src/api/device_api.rs` is the single source
-  of that judgement, shared by the scan and post-connect matchers). A vendor
-  service UUID is near proof; a name prefix or company ID is good evidence; a MAC
-  OUI is a vendor, not a product, so an OUI-only match stays out of the promoted
-  section and reads "Possibly Xiaomi" rather than naming a device. Apple
-  platforms report a per-host CoreBluetooth UUID instead of an address, so the
-  OUI signal is simply absent there and is never confused for one.
-
-  Matching is keyed on a device's identity rather than its id, so the hundreds of
-  advertisements a device emits during one scan cost a single match; only the
-  identifying fields of each spec cross the FFI boundary, not the parsed
-  catalogue. Demo mode's mock devices now advertise a different signal each, so
-  every rung of the ladder is visible without hardware.
-- **Find Device view** — a "Find device" button on the connected-device
-  header opens a hot/cold locator: live RSSI polled once a second, a
-  distance guess from the log-distance path-loss model (presented as a
-  rough bucket, with the raw dBm readings, extremes and a sparkline shown
-  alongside), and a getting-closer/farther trend. When the device can make
-  itself noticeable, one-tap alert buttons appear — from the standard BLE
-  Immediate Alert service (0x1802, key finders/fitness bands) or from
-  spec-declared beep/blink commands (`find_me`, `blink_led`). Detection
-  reads the matched spec, but the endpoints it resolves against are GATT, so
-  this is BLE-only today: Wi-Fi specs would need their `http_endpoints` /
-  `mqtt_topics` to cross the FFI (they currently don't) before the same
-  buttons could light up for them.
-- **Linux desktop target (x86-64)** — build and iterate without an emulator:
-  `./scripts/run-linux.sh --mock`, committed `linux/` scaffold, a
-  `verify_linux_bundle.sh` that checks the Rust library is bundled *and*
-  reachable (`RUNPATH` contains `$ORIGIN/lib`), and a CI job that builds
-  release without the mock define and runs the integration tests headlessly
-  under Xvfb — the first integration coverage needing no emulator/simulator.
-- **Structured logging** (`lib/core/log.dart`) — levelled, six fixed
-  categories (`[ble]`, `[spec]`, `[ha]`, `[packs]`, `[app]`, `[ui]`),
-  timestamps, an injectable sink for tests, and a warning floor in release
-  builds; ~40 log points across the BLE lifecycle, HA forwarding, spec
-  matching, and pack installs.
-- **Enumerated command parameters** — spec `allowed` values + `labels` now
-  cross the FFI boundary (`ParameterDto`) and render as a labelled dropdown
-  instead of a free-range slider; mismatched labels are dropped rather than
-  mispaired.
-- **Platform config-audit tests** (`test/platform/`) — 35+ fast tests pinning
-  the Android manifest, iOS/macOS plists, entitlements, application-identity
-  consistency, and the permission_handler-iOS Podfile invariant, each failure
-  message naming the user-visible breakage.
-- **CI artifact verification** — `scripts/verify_apk.sh` (Rust `.so` per ABI,
-  merged-manifest permissions, application id) and `scripts/verify_ios_app.sh`
-  (usage-description keys, linked FRB symbols) run against every built
-  artifact; Android additionally builds release/R8 with the real (non-mock)
-  BLE path compiled in; iOS runs simulator integration tests; `ios/Podfile`
-  is now committed.
-- **Android release signing** via a gitignored `android/key.properties`,
-  falling back to debug keys with a loud warning instead of silently
-  producing an unpublishable APK.
-
-- **Liberated Bread rebrand** — new Material 3 theme and palette
-  (`LiberatedBreadApp` / `LiberatedBreadTheme`), regenerated platform icons, a
-  `tool/branding/` pipeline (`brand.json` + `generate_icons.mjs`),
-  `docs/BRANDING.md`, and `test/core/brand_test.dart` contrast checks so a
-  palette change that breaks WCAG contrast fails CI.
-- **E2E screenshot walkthrough** — `scripts/e2e-walkthrough.sh` +
-  `scripts/e2e_shot_server.py` drive
-  `integration_test/e2e_walkthrough_test.dart` through the whole app on the
-  iOS Simulator, snapshotting each step; tagged `e2e` in `dart_test.yaml` and
-  excluded from CI's emulator job via `--exclude-tags=e2e`.
-- **Remote spec packs** — download a JSON-manifest pack of device specs at
-  runtime (same-origin-only, size-capped, validated through the Rust codec
-  before install): `SpecPackService`, `spec_pack_provider`, and
-  `SpecPackSettingsScreen`, plus a `SettingsStore` abstraction with
-  `PrefsSettingsStore` and new `http`/`path_provider`/`shared_preferences`
-  dependencies.
-- **Home Assistant companion mode** — register with HA's native `mobile_app`
-  API and forward spec-decoded BLE readings as sensor entities: HA
-  models/services/providers and `HaSettingsScreen`, `ha_url` +
-  `ha_sensor_mapping` helpers, a `TailscaleSuggestionCard` with remote-access
-  hints, and secure keychain/keystore token storage via
-  `flutter_secure_storage` (`secure_settings_store.dart`).
-- **Spec-driven typed control UI** — matched device specs render buttons,
-  sliders, and decoded values instead of raw hex:
-  `typed_characteristic_widget`, `typed_command_widget`,
-  `decoded_value_widget`, backed by `device_spec_match_provider`,
-  `spec_codec_provider`, and `real_spec_codec`; plus cargokit native-build
-  wiring so `flutter build` compiles the Rust crate on every platform.
-- `scripts/run-ios-device.sh`, `.github/workflows/ios-adhoc.yml`, and
-  `docs/ios-from-linux.md` — build and run on a physical iPhone: locally from
-  a Mac (`--list`/`--device`), or as an ad-hoc IPA built in CI for Linux-bound
-  developers.
-- `scripts/run-android.sh` and `scripts/run-ios.sh` — build, boot the
-  emulator/simulator if needed, install, and run.
-- **Platform scaffolds** — Android (`android/`) and iOS (`ios/`) folders are now
-  committed. `flutter build apk` and `flutter build ios` work out of the box.
-- **CI overhaul** — separate jobs for Flutter (analyze + test + format +
-  Codecov), Rust (fmt + clippy + test), Android debug-APK smoke build, iOS
-  simulator build on macOS, and Android emulator integration tests.
-- **Test coverage** — reusable `FakeBleService` plus widget/screen tests for
-  `ScanScreen`, `DeviceScreen`, `DeviceControlPanel`, `RawCharacteristicWidget`,
-  a provider test for `deviceSpecsProvider`, and unit tests for `bytesToHex`,
-  `normalizeUuid`, and `mapConnectionState`.
-- **Integration tests** under `integration_test/` covering the mock scan →
-  connect → discover flow and the error + retry path.
-- `scripts/test.sh` — one-shot local CI mirror.
-- `scripts/run-remote-mac.sh` — build and run on an iPhone from Linux via a
-  remote Mac over SSH: rsyncs the tree, launches `flutter run` remotely, and
-  auto-hot-reloads on every local save (docs/ios-from-linux.md Option C).
-- `pubspec.lock` is now committed for reproducible app builds.
-- `lib/core/hex.dart` — `bytesToHex` and `normalizeUuid` helpers (deduplicated
-  from three call sites).
-- **FRB wiring** — `flutter_rust_bridge` 2.9.0 bindings are generated and
-  committed (`lib/src/rust/`, `rust/src/frb_generated.rs`). `RustLib.init()`
-  runs at app startup; `MockBleService` now delegates read/write to
-  `rust/src/api/mock_api.rs` with a Dart fallback when the native library
-  isn't loaded. CI builds the host Rust lib before `flutter test` and checks
-  the bindings are in sync with the Rust API (drift check).
-- Lint additions in `analysis_options.yaml`: `cancel_subscriptions`,
-  `close_sinks`, `unawaited_futures`.
-- Standard Bluetooth profile controllers: Battery Service (0x180F) and
-  Device Information Service (0x180A)
-- Protocol error types module (`error.rs`) with `ProtocolError` and `SpecError`
-- FFI API: `load_device_spec()`, `match_device_to_spec()` (returns
-  `Vec<MatchResult>` with categorical match reasons), unified
-  `encode_command()`/`decode_value()` that take optional `spec_yaml` and
-  `service_uuid` (spec wins when both supplied), and
-  `identify_standard_profiles()` for service-UUID discovery
-- Protocol dispatcher (`protocol::dispatch::select_protocol`) routes
-  encode/decode requests to either a YAML-driven `GenericProtocol` or a
-  built-in standard profile, with content-hash spec caching
-- Spec format gains `mock_default` per format field; the simulator
-  consults it before the name-based heuristic
-- Parse-time spec validation: rejects fixed-width fields with the wrong
-  `length`, parameter `min`/`max` bounds outside the declared type,
-  and inverted `min > max` bounds
-- `#[serde(deny_unknown_fields)]` on the protocol-execution spec structs
-  (`DeviceInfo`, `Service`, `Characteristic`, `Command`, `Parameter`,
-  `FormatField`) catches typos in YAML at parse time; `DeviceSpec`,
-  `Identification`, and `ParameterSet` instead sweep unrecognized keys into an
-  `extensions` catch-all (see the Changed entry on spec tolerance)
-- Mock simulator with smart default values per field type
-- E2E architecture walkthrough documentation (`docs/WALKTHROUGH.md`)
-- Build and test guide for Linux and macOS (`docs/BUILD_AND_TEST.md`)
-- Expanded README with architecture diagram, setup instructions, and Rust core docs
-- Initial app scaffold: project structure; the `IoTDevice` and
-  `BleDiscoveredService` models; the `BleService` layer and device manager; the
-  scan and device screens; and Android BLE manifest permissions plus
-  iOS `Info.plist` usage descriptions
+- `device.category` — a **required** field carrying a broad device class from a
+  closed 25-value vocabulary (`light`, `display`, `sensor`, `motor`, `switch`,
+  `lock`, `tv`, `printer`, `climate`, `hub`, `vehicle`, `scale`, …). It is the
+  field a program branches on, where free-form `device.type` is the field a
+  person reads: the mobile app picks the icon it draws beside a scan result
+  from `category`, so a device without one is drawn as an anonymous Bluetooth
+  address — the same as a device nobody has documented at all. That is why the
+  vocabulary is closed and the field is required rather than optional; an
+  invented value degrades to the generic icon exactly like a missing one, so
+  the schema rejects it instead. Backfilled across all 78 specs, and published
+  in both machine indexes (`device-specs/index.json` and the JSON API
+  manifest) so a consumer can categorise the catalogue without fetching a
+  single spec. Reference specs take `category: reference`, and the schema
+  enforces that this agrees with a `reference-` `type` in both directions — a
+  device may no more claim `category: reference` than a reference may claim
+  `light`, so a standalone consumer validating against the published schema
+  cannot publish real hardware as a protocol reference. Locked down by
+  `scripts/test_device_specs.py`, which reads the vocabulary out of
+  `schema.json` rather than restating it; documented in
+  `device-specs/README.md` and `docs/api/spec-format.md`
+- A control surface for the two Wemo devices we have hardware for — the smart
+  plugs (`F7C063` Mini, `WSP080`, and the Outdoor and Insight plugs that share
+  the surface) and the Crock-Pot Smart Slow Cooker. `wemo-devices.yaml` could
+  already be *found* and *provisioned* from the file alone; controlling one
+  still meant reading prose and knowing UPnP. It now carries `entities` (which
+  controls to draw and where each reads its state) bound to a new top-level
+  `commands` block (what to send, with the arguments already chosen), both
+  naming actions documented in `http_endpoints`. A consumer that already
+  renders a BLE spec's entities needs one new transport, not one new device:
+  five entities land through the mobile app's own parser today, roles and
+  variant scoping intact, with only the SOAP execution missing
+- Top-level `commands` in `schema.json` — named invocations for devices with
+  no GATT characteristic to hang a command on, keyed by name so an entity's
+  role map (`turn_on: plug_turn_on`) resolves the same way whatever the
+  transport underneath it is. Two keys carry the weight. `source`
+  (`state:GetCrockpotState.time`) says where a client reads a value it is
+  *not* the one setting: `SetCrockpotState` carries mode and cook time
+  together, so switching a slow cooker to Warm without sending the current
+  time back also clears the timer, and a spec that leaves that implicit
+  produces exactly that client. `default` is what makes a command sendable at
+  all — a control can only send a command whose every blank it can fill.
+  `airthings-wave-family` has kept a top-level command catalogue since before
+  anything declared one, so the block is deliberately not
+  `additionalProperties: false`
+- `example` on an `http_endpoints` request and response body, and `example_body`
+  on a command — the literal bytes, for the same reason crypto blocks carry
+  test vectors: they turn "the device rejects this and I cannot tell which
+  half is wrong" into a diff. `scripts/test_wemo_spec.py` renders the plug and
+  Crock-Pot commands from the published `arguments`/`parameters` and diffs
+  them against those bodies, then drives all four Crock-Pot entities out of
+  the published `GetCrockpotState` response and the plug's out of a
+  `GetBinaryState` long form — stdlib only, importing none of our code
+- `soap_common.eventing` — the UPnP `SUBSCRIBE`/`NOTIFY` flow Wemo devices push
+  state on, with the callback header shape (the angle brackets are part of the
+  value), renewal on the `TIMEOUT` the device grants rather than the one you
+  asked for, and the property names each device sends (`BinaryState`;
+  `mode`/`time`/`cookedTime` on the Crock-Pot; `InsightParams`). Polling
+  `GetBinaryState` cannot see somebody pressing the button on the device
+- `scheduling` — how a device performs an action at a future time BY ITSELF,
+  with nothing else on the network. Worth a block of its own because the
+  difference is invisible from the control surface and decides what an
+  integration can promise: a client can always send an on command at 17:00 if
+  it happens to be running, and on a sleeping phone it will not be. Wemo keeps
+  a SQLite database of rules that it hands out and takes back over SOAP
+  (`rules#FetchRules` → version + URL, `GET` the ZIP, edit, `rules#StoreRules`
+  with the base64 wrapped in an XML-escaped CDATA marker that looks like a
+  typo and is not), and runs the schedule off its own clock. Documented with
+  both tables, two worked rows — one written by pywemo, one captured from a
+  device the Wemo app configured — and, as prominently, the limits: a rule's
+  action is `1.0` on / `0.0` off / `2.0` toggle, so a scheduled Crock-Pot
+  *mode* is not expressible, and the Crock-Pot's own `time` is a countdown the
+  appliance runs rather than a start time. `open_questions` names what is
+  inference rather than evidence, `DayID`'s encoding first: a schedule written
+  from a guessed column fires on the wrong day
+- `http_endpoints[].service` — the service an action belongs to, as data. The
+  Wemo endpoint descriptions all quoted the SOAPACTION URN in prose, and the
+  repo's own tests even asserted the quoting — but a client that must build
+  the header for a state read (`GetCrockpotState` is invoked by nothing in
+  `commands`; it is only read from) had nowhere to get the URN except parsing
+  a sentence. Declared on all ten SOAP endpoints;
+  `scripts/test_wemo_spec.py` pins that every endpoint an entity reads state
+  from declares it, and that it agrees with the URN the description still
+  quotes — two spellings of one fact are only safe while something checks them
+- `payload_formats.delimiter` — the separator for a payload that packs several
+  fields into one string, so `fields[].index` becomes executable. "Split on
+  `|` and take field 0" had been the documented rule for Wemo's `BinaryState`
+  for as long as the format has been written down, and prose is not something
+  a decoder can follow: every consumer either hardcoded it per device or got a
+  plausible wrong answer, since `8|1492338954|…` read whole is not a number
+  and a client that gives up there shows a live plug as off. Declared on
+  `BinaryState` and `InsightParams`; `scripts/test_wemo_spec.py` now splits on
+  the declared value rather than a hardcoded pipe
+- `payload_formats.CrockpotMode` — `0` off, `50` warm, `51` low, `52` high, with
+  the two things the bare table does not say: the numbers are not an ordering,
+  and an unrecognised value must not be folded into `off`, which would tell a
+  user their cooker is off while it is heating
 
 ### Fixed
 
-- **Real BLE scanning tore itself down as soon as the native scan started**
-  (`startScan` returns at scan *start*), so real hardware showed "No devices
-  found" while the scan ran unwatched. The scan now waits for the adapter to
-  actually stop, coalesces result batches (stable `discoveredAt`, no
-  re-delivery of the previous scan's devices), and reports rssi/name changes
-  only.
-- **iOS could never scan**: with no `ios/Podfile`, permission_handler's iOS
-  Bluetooth strategy is compiled out and answers every request "permanently
-  denied" — before CoreBluetooth was ever reached. iOS now lets CoreBluetooth
-  prompt natively and maps the adapter's `unauthorized` state to the
-  permission-denied error.
-- **Android 5.0–11 BLE**: the manifest declared only the API 31+ permissions;
-  the legacy `BLUETOOTH`/`BLUETOOTH_ADMIN` pair (with `maxSdkVersion="30"`)
-  is now declared, so scanning no longer throws `SecurityException` on the
-  older half of the supported range.
-- **macOS**: `keychain-access-groups` added to both entitlements files
-  (sandboxed `flutter_secure_storage` failed with `errSecMissingEntitlement`,
-  so the HA token could not be stored) plus the local-network usage string.
-- **Rust core**: over-length fixed-width format fields no longer panic the
-  mock simulator (writes fill only the low `fixed_byte_size` bytes); a 64 KiB
-  parse-time cap stops spec-controlled multi-GB allocations; the dispatch
-  spec cache is bounded and shares parsed specs via `Arc`; `bool` template
-  parameters encode as a single 0/1 byte; typo'd `{parameter}` template
-  references are rejected at parse time instead of failing on first write.
-- `ref`-after-dispose guards in the HA and spec-pack settings screens; HA
-  toggle/disconnect failures are surfaced instead of silently dropped; mock
-  notify timers no longer outlive `dispose()`; `openAppSettings()` failures
-  are caught.
-- cargokit's Linux/Windows CMake exported a pre-rebrand
-  `_bundled_libraries` variable, so the Rust cdylib would silently not be
-  bundled into desktop builds; `rust_builder/android` carried the pre-rebrand
-  namespace.
-- `e2e-walkthrough.sh` could exit 0 with zero screenshots (no shot-server
-  readiness check); the shot server could hang on `simctl` and accept a stale
-  PNG as fresh; `session-start.sh` leaked temp files.
-- CI now installs the Android NDK the build actually uses
-  (`FLUTTER_NDK_VERSION` pinned to 23.1.7779620 — Flutter 3.24.5 hardcodes it;
-  installing anything else just made cargokit download this one mid-build),
-  and the emulator job's disk-cleanup `rm -rf` on SDK paths is guarded against
-  an unset `ANDROID_SDK_ROOT`.
-- `HaSensorForwarder` recovers dropped readings when a push to Home Assistant
-  fails, instead of reporting phantom success.
-- `MockBleService.subscribeCharacteristic` no longer leaks the periodic
-  `Timer` when the subscriber cancels without disconnecting.
-- `RealBleService` now caches discovered GATT services per device, eliminating
-  a redundant round-trip on every read/write/subscribe. Cache is invalidated on
-  disconnect.
-- `deviceSpecsProvider` distinguishes "missing asset" (silent) from "malformed
-  YAML" (logged), so real errors are no longer swallowed.
-- UUID normalization now handles all-zero prefixes correctly (e.g. `000000f0`)
-- Mutex lock recovery at FFI boundary (prevents panic on poisoned mutex)
-- Overflow guard in codec field offset calculation
-- Saturating cast for u64→i64 in DTO conversion
+- `schema.json` no longer defines the parameter `auto` key twice. The
+  checksum extension added a second `"auto"` member to the same `properties`
+  object instead of extending the first; JSON objects cannot carry duplicate
+  keys, so permissive loaders silently kept whichever one they preferred and
+  a strict loader could reject the whole schema. One definition remains,
+  merging both descriptions (the checksum algorithm and the
+  never-render-as-a-control consumer rule)
+- `urevo-walking-pad` research note: the `set_speed_and_slope` example frame
+  carried checksum `0x73` — the pre-XOR sum, contradicting the note's own
+  formula `((B + C + payload) & 0xFF) ^ 0x5A` and every literal frame beside
+  it (stop/pause/resume/status all verify). The example now shows `0x29`, a
+  frame a pad should actually accept. The two `query_*_config` frames'
+  checksum comments still do not reproduce their dumped bytes under any
+  consistent rule and are left as dumped — flagged for re-verification
+  against the disassembly rather than silently "corrected"
+- `airthings-wave-family`'s radon entities no longer claim
+  `device_class: volatile_organic_compounds_parts`. Radon in Bq/m³ is a
+  radioactivity concentration, not a chemical one, and the class was not
+  cosmetic: a class-driven consumer would band, convert or chart the reading
+  against VOC ppb semantics — Home Assistant validates the class/unit pair
+  and Airthings' own VOC thresholds (250/2000 ppb) are nothing like its radon
+  ones (100/150 Bq/m³). There is no radon device class to claim, so the
+  entities carry `icon: mdi:radioactive` and the unit says the rest
+- `airthings-wave-family`'s radon entities also dropped the "Wave Plus"
+  variant claim from the Gen-1-service bindings (`b42e01aa`/`b42e0a4c`):
+  those characteristics live on the Gen 1 air sensor service and were never
+  confirmed on Plus hardware, whose radon the vendor app reads from the
+  combined packet (now bound by dedicated Wave Plus entities)
+- A `source` parameter no longer carries a `default`, and the schema now
+  forbids the pair outright. Review (PR #16) caught what the first published
+  version got wrong: `default: 0` sitting beside every Crock-Pot read-back as
+  a "fallback" is a renderer papering over a failed read with a constant —
+  a cleared timer when changing the mode, or `mode: 0` stopping a RUNNING
+  cooker when the user only adjusted the time, with nothing on screen saying
+  so. The two keys answer "the caller supplied nothing" with opposite
+  instructions (substitute the constant vs. fail the write visibly), so a
+  parameter now carries exactly one; the stray `required: true` on read-backs
+  is gone too, since `required` means the caller supplies it and a read-back
+  is the client's job. `scripts/test_wemo_spec.py` renders the failure paths:
+  a mode change without the read-back value raises, and only `turn_off` — the
+  one write with nothing to read first — renders from a cold start
+- `scheduling.supported` is scoped. It said `true` for the whole family while
+  `open_questions` admitted nobody knows whether the appliance classes honour
+  rules at all — so a consumer branching on the field would advertise
+  on-device scheduling for a slow cooker nobody has scheduled. `applies_to`
+  (new schema key) names the eight switch-family variants the evidence
+  covers; outside the list the honest reading is UNKNOWN, not yes
+- The empty-rules-database recovery path is now implementable: the seven
+  tables beyond RULES/RULEDEVICES were named but not described, so a client
+  whose device 404s the database download (never held a rule) could not
+  build the empty one the spec tells it to create. All nine tables' columns
+  are now transcribed from pywemo's ORM — the same code that both reads real
+  devices' databases and creates the empty one — including the two standing
+  oddities (RULES.Sync, INTEGER holding 'NOSYNC'; BLOCKEDRULES.ruleId, a
+  string where every other rule id is an integer)
+- The Crock-Pot variant no longer reads as though `GetBinaryState` were a state
+  reading on it. It listed the action under `basicevent` beside the two
+  Crock-Pot ones and said nothing further, so the obvious implementation — the
+  one every other Wemo switch uses — ships a cooker that reads as permanently
+  off with a toggle that springs back, and nothing in the response says why.
+  The device answers `0` there whatever it is doing; on/off is `mode != 0`
+  from `GetCrockpotState`. Said in the variant, at the `GetBinaryState`
+  endpoint, on the entity that had to avoid it, and pinned by a test. Also
+  spelled out that the appliance actions live on `basicevent` rather than the
+  `crockpotevent` service catalogued next to them, which is marked
+  `hypothesis` — it came from the Jarden family's shape, not from a
+  Crock-Pot's own `setup.xml`, and nothing drives it
+- `hotwired-heated-gear`'s climate entity can be driven at all. Its write
+  characteristic carries an 8-byte `AA <status> <level> 00 00 00 00 55` frame,
+  so there is no bare value for the direct-write path to write, and the command
+  that builds the frame sat in a top-level `commands:` block — a byte-by-byte
+  `frame:` table no consumer reads. `set_heat` is a real characteristic command
+  with a template now, and the entity binds to it explicitly; `status` defaults
+  to ON so a level control supplies only the level. The duplicate top-level
+  block is gone rather than left to disagree with it, with its worked hex
+  examples, echo acknowledgment and 3-second retransmit folded into the
+  command's description
+- `seeblue-motorcycle-led`'s framing no longer claims `checksum: sum`. The
+  enum's `sum` means the sum itself is appended and this protocol appends its
+  8-bit two's complement, so a consumer executing the generic field would emit
+  a different final byte on nearly every frame. The scheme states the real
+  algorithm; a near-miss generic value contradicting it is worse than no value
+- `smartdawn-smart-lights`' BIN notes told a reader to open with
+  `M_DEV_START + M_DOODLE_START`, which the same spec's feature block warns
+  blanks the canvas. That sentence is the one a byte-level implementer reads
+- **Two specs failed to parse outright, and each was a key saying something
+  the vocabulary did not define.** Both are now fixed, and both classes are
+  pinned by `scripts/test_device_specs.py` so they cannot come back quietly.
+  - `fardriver-controller` declared `data: {type: bytes, min: 1, max: 26}`,
+    meaning "1 to 26 bytes". `min`/`max` bound a *number* everywhere else, and
+    a run of octets has no numeric range, so a consumer reading it that way
+    rejected the parameter and lost the whole 500-line spec with it. `bytes`
+    parameters now use `min_length`/`max_length`, and the schema rejects
+    `min`/`max` on one — the two readings were indistinguishable and each was
+    plausible.
+  - `seeblue-motorcycle-led` spelled its transport envelope into nine command
+    templates as `{message_length}`/`{message_index}`/`{checksum}`
+    placeholders that no command declared and no client could fill, while the
+    packet a client could actually send sat in `payload_template`, which
+    nothing reads. Those bytes belong to the framing layer, so the
+    characteristic now declares `framing.scheme: seeblue_envelope` (new, beside
+    `daniao_fragment`) and every command's `template` is the packet alone —
+    which is what the framing contract already said it should be. A further 26
+    commands referenced parameters they never declared; those are declared now
+    too. The spec went from 0 usable commands to 36.
+
+### Removed
+
+- `parameters.color_order` — a per-command declaration of RGB channel byte
+  order, sitting beside a `template` that already emitted the channels in an
+  order. Two statements of one fact with no stated precedence, so a spec whose
+  two halves disagreed had no correct reading. All eight uses said `rgb` next
+  to a template already naming `{red}`/`{green}`/`{blue}` in that order, and
+  the schema's own example — "Shining Mask uses 'rbg'" — contradicted the
+  Shining Mask spec, which says `rgb` and cites three public implementations
+  for it. The template is the byte order: a device wanting GRB is written
+  `template: ["{green}", "{red}", "{blue}"]`
 
 ### Changed
 
-- **`./scripts/run*.sh` keep the repo-managed Flutter SDK on CI's pin.** When
-  the run scripts use the SDK they install at `~/.flutter-sdk` and CI's
-  `FLUTTER_VERSION` (in `.github/workflows/ci.yml`, surfaced by
-  `scripts/ci-versions.sh`) has moved ahead of what is on disk, a run would
-  otherwise fail deep inside `flutter pub get` on pubspec's Dart SDK
-  constraint. `run.sh`, `run-linux.sh`, `run-android.sh` and `run-ios.sh` now
-  source a shared `scripts/flutter-ensure-version.sh` that upgrades that SDK in
-  place before running, so a bump in `ci.yml` no longer needs a separate
-  `./scripts/setup.sh`. It is deliberately narrow: only an SDK that actually
-  lives under `FLUTTER_HOME` is ever replaced — a Flutter from Homebrew,
-  Android Studio, the distro, or a checkout elsewhere is left alone and only
-  warned about, exactly as `setup.sh` does. A failed download leaves the
-  existing SDK intact and the run continues (offline degrades to "slightly
-  stale", not "cannot run"). Set `LB_FLUTTER_AUTO_UPGRADE=0` to skip the check.
+- Every key used in the blocks a client *executes* — `entities`,
+  characteristic `format:` fields, commands and their `parameters` — must now
+  be one `schema.json` declares, enforced by `scripts/test_device_specs.py`
+  against
+  the schema itself rather than a list of known slips, so an invented key
+  fails too. Permissiveness is there to let a spec record vendor detail the
+  vocabulary has no word for yet; in an executed block it means an invented
+  key is not an extension but a control that silently does nothing. This
+  generalises the existing `device.identification` near-miss check, which
+  caught the same defect one name at a time
+- `hotwired-heated-gear`'s entities now reach a consumer. Its climate entity
+  declared `write_characteristic`, which nothing reads — the vocabulary is
+  `command_characteristic` — so the entity that exists to set the heat level
+  had no write path at all. Its battery sensor's code table was under
+  `mapping` rather than `state_mapping`, and shaped as a list of single-key
+  maps rather than a map, so it reached nothing either
+- Four `format` fields in `airthings-wave-family` and `pax-vape` spelled their
+  per-field caveat `description`; the declared spelling is `notes`
+- `proglow-motorcycle-led` stated its channel bit masks in a bespoke
+  `channel_masks` table beside a `channel_mask` parameter declared as a plain
+  0-15 range. The vocabulary for "these exact values, with these names" is
+  `allowed` + `labels`, which a consumer renders as a picker — so the masks are
+  now reachable rather than being a table only a human could read
+- The nine specs that already carried an ad-hoc `category` now use the
+  controlled vocabulary: `smart_lock` → `lock` (Kevo, Nuki, Schlage),
+  `automotive` → `reference` on the three published-protocol references
+  (SAE J1979, ISO 14229, ISO 15765-2), `environmental` → `sensor`
+  (SensorPush), `kitchen` → `sensor` (ThermoPro TempSpike). Nothing consumed
+  those values — the mobile Rust parser swept `category` into `extensions`
+  unread — and the four spellings for what turned out to be three classes are
+  the drift the closed vocabulary exists to stop
 
-- **New mascot, and a palette re-derived from it.** The 2026 logo keeps the
-  loaf and the arms but swaps the ground it flexes on from turquoise to blush
-  pink, and outlines the mascot in navy rather than warm brown. Because
-  `brand.json` is sampled from the artwork, the palette followed:
-  `teal` → `blush` (`#2FB9BF` → `#EBA1C6`), `tealDark` → `blushDeep`,
-  `breadOrange` `#E8963C` → `#EF900A`, `face` `#3A2410` → `#112545`. All 43
-  platform icons, the Android adaptive-icon background and the web manifest
-  colours were regenerated by `tool/branding/generate_icons.mjs`. Contrast
-  held: `ink` on blush is 7.60:1 and on bread orange 6.30:1, both up from the
-  old 6.1:1, and `brand_test.dart` still enforces the 4.5:1 floor.
-  `app_icon_mascot.svg` is gone — the new artwork was supplied as raster, so
-  the committed PNG is the master and a stale vector of the old logo would
-  have silently won back if the PNG were ever removed.
+- Number semantics in the device-spec schema (`$defs/number_semantics`): every
+  numeric wire value — BLE command `parameters`, characteristic `format`
+  fields, `bus` message fields, `payload_formats` fields — can now say what it
+  *means*: a `unit`, an invertible linear transform (`scale` /
+  `value_offset`), a `values` code table, and the C-vs-F machinery
+  (`unit_source: fixed | device_setting` with a required `unit_reference` and
+  a `unit_values` map) for devices such as the Inkbird iBBQ that transmit
+  temperatures in whichever unit they are currently set to. Command
+  parameters also gained `description`, `number` entities gained
+  `min`/`max`/`step` in decoded terms, and HTTP/MQTT payload fields gained
+  `unit`. Backfilled as worked examples: Ember Mug (fixed centi-°C wire unit
+  vs display-only C/F characteristic, plus `values` tables for liquid state,
+  volume and push events), Gerbing ThermoGauge (`value = raw × 0.5 + 85` °F —
+  the `value_offset` case), Inkbird iBBQ (device-setting units), Wemo
+  InsightParams (mW / mW·min columns). Contract-tested by
+  `scripts/test_schema_number_semantics.py`; documented in
+  `device-specs/README.md` and `docs/api/spec-format.md`
 
-- **The Android emulator job stopped hanging on a settling race.** It had hung
-  for its full timeout with zero Dart output while the same suites passed on
-  Linux and the iOS simulator, which reads as a graphics flake and is not one:
-  diffing the failing run's logcat against a passing one shows
-  `FlutterRenderer: Width is zero. 0,0` in *both*, while only the failing run
-  recreates `MainActivity` for a configuration change four seconds after the
-  Dart VM service came up — orphaning the isolate `flutter_tools` had attached
-  to, which then waited forever. It happened while the launcher and Play
-  Services were still ANR-ing their way through startup. The manifest already
-  declares Flutter's own `configChanges` set, so the fix is to remove the
-  churn: CI now boots `aosp_atd` (Google's CI image, no launcher or Play
-  Services, and faster to boot), and the test run makes two attempts each
-  bounded by `ANDROID_EMULATOR_ATTEMPT_TIMEOUT` — a bound rather than a bare
-  retry, because the failure hangs instead of exiting, so the step timeout
-  alone left nothing to retry with. A passing retry still warns and uploads
-  both attempts' logcats. That logic is a real script,
-  `scripts/ci-emulator-tests.sh`, rather than an inline `script:` block:
-  `android-emulator-runner` splits that input on newlines and execs each line
-  as its own `/usr/bin/sh -c`, so a function body or an `if`/`fi` cannot
-  parse, nothing carries between lines, and the shell is dash. The workflow
-  now passes one line and the retry runs under bash — where it can also be
-  exercised against stub `flutter`/`adb` binaries locally.
+- `registries/` — the IEEE MAC address block listings (MA-L, MA-M and MA-S) and
+  the Bluetooth SIG company IDs and service UUIDs, vendored as sorted
+  fixed-width TSV so a consumer can binary-search the raw bytes and name a
+  device that is in no catalogue at all. Regenerated by
+  `scripts/fetch_registries.py`; invariants enforced by
+  `scripts/test_registries.py`; provenance, licensing and the "an OUI names
+  whoever bought the block" caveat in `registries/SOURCES.md` and
+  `docs/api/registries.md`
+- `device.identification.mac_prefixes` and `device.identification.manufacturer_data`
+  in `schema.json`, so a scanner can rank an advertisement as *likely one of ours*
+  before connecting — and `docs/api/spec-format.md` now explains why the four BLE
+  identification signals are not equally strong, with `mac_prefixes` documented as
+  a ranking hint that must never on its own claim a device is supported
+- A per-entry `confidence` on `mac_prefixes` (`low` — the default — `medium`,
+  `high`), because "weakest signal" was hiding a spread that matters: `C4:7C:8D`
+  is an IEEE Registration Authority block that fifteen unrelated companies hold
+  28-bit slices of, while `00:17:88` really is Philips Lighting's. An entry may
+  now be a bare string (still `low`) or a `{prefix, confidence, notes}` map, so
+  the finding that produced the verdict travels with it. Consumers can rank the
+  two apart instead of flattening every OUI to the same hint — and a shared
+  block can no longer act as half of a "two signals agree" promotion
+- `device.identification.local_name_prefixes`, for a family sold as several
+  rebadged models. `local_name_prefix` holds one string, so
+  `inkbird-bbq-thermometer` — eight names, no shared prefix — had been carrying
+  a `local_name_prefixes` key that was not in the schema and that no consumer
+  read, leaving that family with no working name signal at all. The entries are
+  alternatives, not a conjunction: matching any one means what matching the
+  singular key means. Written up beforehand as P11 in
+  `docs/contributing/spec-evolution.md`, now marked landed
+- Identification data backfilled from what the specs already documented in prose or
+  under `discovery`: manufacturer-data company IDs for Govee H5075, SwitchBot,
+  Shining Glasses and the Oral-B iO (which had no `identification` block at all and
+  advertises no service UUID, so the company ID is its only pre-connect signal), and
+  MAC OUIs for Mi Flora and the Hue bridge
 
-- **CI's toolchain pins are declared once and read once, instead of being
-  grepped out of the whole workflow.** `scripts/ci-versions.sh` used to hunt
-  values out of step bodies: the highest `platforms;android-NN` anywhere in
-  the file, the first `targets:` line containing `-android`, packages
-  recovered from `apt-get install` and its line continuations, the emulator's
-  settings found by scanning forward from a marker. Every one of those could
-  be tripped by a **comment** — naming an API level in prose really did change
-  what developer machines installed, twice, while this file was being edited.
-  Now every pinned version lives in ci.yml's top-level `env:` block, each step
-  interpolates it, and the parser reads that one block and nothing else, so
-  prose and configuration can no longer be confused. Output is unchanged apart
-  from a new `CI_CMAKE_VERSION`, and `scripts/setup.sh` plus the session hook
-  now install the matching CMake so dev machines stop hitting the same
-  mid-build install CI did. GitHub does not expose the `env` context to
-  `strategy:`, so the emulator's `api-level` matrix is the one repeated
-  literal — `test/platform/deployment_targets_test.dart` asserts it matches
-  its env key.
-- **Platform SDK floors raised to what the pinned Flutter actually supports,
-  and locked together by a test.** Every platform declared its floor in more
-  than one file and nothing cross-checked them, so they had drifted apart in
-  every direction:
-  - **iOS 12.0 → 13.0** across `ios/Runner.xcodeproj`, `AppFrameworkInfo.plist`
-    and the commented `ios/Podfile` platform line; the Rust core podspec went
-    **11.0 → 13.0**.
-  - **macOS 10.14 → 10.15**, with the macOS podspec **10.11 → 10.15**.
-  - **`rust_builder` Android `compileSdkVersion` 33 → 36** (matching the app's
-    `flutter.compileSdkVersion`) and **`minSdkVersion` 19 → 24** (matching the
-    app's). The stale 33 also made Gradle stop mid-build to download an SDK
-    platform nothing else wanted — measured at 2.5s, so the reason to fix it
-    is the three-release gap against the app, not the seconds.
-  - **CI installs API 36** instead of 34, which no module compiled against,
-    and pins `cmake;3.22.1` alongside it — Flutter's own Gradle plugin wires a
-    `CMakeLists.txt` into `:app` for its Android 15 16 KB page-size support,
-    so AGP was installing CMake mid-build on every run (1.2s). Both are about
-    installing the build's inputs in one visible, retryable step rather than
-    having Gradle pause to accept a licence and fetch over the network.
-    The emulator stays on API 34; it is a separate axis.
-  - `rust_builder` no longer declares its own AGP on the buildscript classpath.
-    cargokit's template pinned 7.3.0 there, which could never take effect —
-    `android/settings.gradle` resolves AGP 8.6.0 first and a parent-first
-    classloader means the loaded class wins — so it only fetched a second,
-    ancient AGP while presenting a version number that looked authoritative.
+### Fixed
 
-  13.0 and 10.15 are what Flutter 3.44.8 scaffolds for a new app, so this is
-  catching up to a decision the toolchain already made rather than a new one;
-  the practical effect is that iOS 12 and macOS 10.14 are no longer claimed.
-  New `test/platform/deployment_targets_test.dart` asserts every file
-  declaring a floor agrees and that none drops below the pinned Flutter's, so
-  the next bump cannot move one file and leave five behind.
-- **The ad-hoc IPA workflow no longer pins its own toolchain.** It had drifted
-  to Flutter 3.24.5 while CI moved to 3.44.8, so the one artifact that gets
-  installed on real hardware was built with an SDK nothing else tested.
-  `ios-adhoc.yml` now sources `scripts/ci-versions.sh` — the parser dev
-  environments already provision from — and feeds the Flutter version and the
-  iOS Rust target list out of `ci.yml` into its setup steps, so the two cannot
-  diverge again. Reading it after checkout means an ad-hoc build of an older
-  ref uses that ref's pins. The target list also fixes real work the old pin
-  caused: it carried only `aarch64-apple-ios`, so the no-secrets simulator
-  fallback made cargokit install `aarch64-apple-ios-sim` mid-build instead of
-  in the cached setup step.
-- **The Android emulator job got its Gradle cache and stopped building ABIs it
-  cannot run.** It never used `gradle/actions/setup-gradle` (the APK job always
-  had it), so it rebuilt Gradle's dependency cache every run — the same
-  `flutter build apk --debug` cost ~2m40s in one job and ~5m40s here. Its
-  warm-up build now also passes `--target-platform android-x64`: the AVD is
-  x86_64 and the test-phase build compiles exactly x86/x86_64, while the
-  warm-up had been compiling the Rust crate four times, including two arm
-  targets nothing in the job could load.
-- **CI's device integration tests now run as one cycle per platform, and the
-  iOS simulator boots while the build runs.** On a device, every file passed
-  to `flutter test` is its own kernel-compile → native build → install →
-  launch cycle (~2 minutes each on the 10x-billed macOS runner, even fully
-  cached); the new `integration_test/ci_all_test.dart` bundles the mock-safe
-  suites so the iOS and Android jobs pay that cycle once. It initialises the
-  integration-test binding itself, before the groups: the binding registers its
-  end-of-run `tearDownAll` in its constructor, so leaving that to the first
-  imported suite would scope the "all tests finished" hook to that suite and
-  fire it between the two.
-  `test/platform/integration_aggregate_test.dart` asserts both directions — a
-  mock-safe suite missing from the aggregate never runs on a device, and an
-  e2e-tagged one added to it would run where its host-side screenshot server is
-  unreachable. The linux-desktop job still runs each file in its own process,
-  so per-file isolation coverage survives. The iOS job also starts `simctl boot`
-  right after checkout and only waits for it after the build, turning ~65 serial
-  seconds of boot wait into overlap. Together: ~10m10s → ~7m of macOS wall
-  clock on a warm run, and the emulator job sheds a cycle too.
+- **Two identification signals that named the wrong device, and one that named
+  none.** The Hue bridge declared `upnp:rootdevice` and
+  `urn:schemas-upnp-org:device:Basic:1`; Roku declared `_airplay._tcp`; lifx-z
+  and rachio-controller declared `_hap._tcp`. Those are the generic UPnP,
+  AirPlay and HomeKit announcements — every router, printer, NAS, Apple TV and
+  HomeKit accessory on the link answers one of them, and a consumer treating a
+  matched service type as identification badged all of them with those product
+  names. Removed from `identification` (the `discovery` blocks still document
+  them, because they *are* how you find these devices — they just cannot say
+  that what you found is one). The Oral-B's `company_id` was the wire bytes
+  read big-endian, `0xDC00` = 56320, which is unassigned; BLE carries the ID
+  little-endian so the real value is 220 (Procter & Gamble, as the file's own
+  byte map said) — and since that spec declares no local name and no service
+  UUID, the brush could not be matched at all. The free-form
+  `device.manufacturer_id` and three lines of prose still quoted `0xDC00`
+  alongside the corrected value, telling a human reader the unassigned number;
+  they now read `0x00DC` and say which end of the wire that is
+- **SwitchBot no longer claims every Nordic and ESP32 device.**
+  `additional_company_ids: [89, 741]` listed Nordic Semiconductor and Espressif
+  — the SoC vendors' own assignments, carried by default by an enormous
+  population of unrelated products — while the schema defines entries there as
+  equivalent to `company_id`. Moved to prose, matching how
+  `govee-h5075-thermo` already reasons about Nokia's widely-squatted 0x0001
+- **Wemo's SSDP targets reach a consumer.** They lived only in the nested
+  `identification.ssdp.search_targets` block, which sweeps into extensions, so
+  the family the SSDP transport exists for ranked on its port alone. Added the
+  flat `ssdp_search_targets` the matcher reads, alongside the nested M-SEARCH
+  recipe — all seventeen vendor-specific targets, including the `motion`,
+  `sensor` and `outdoor` types and the six Holmes/Mr. Coffee ones, which nine
+  models in the file's own `variants` block answer on and nothing else does
+- **`ssdp_search_targets` and `manufacturer_data.description` are now declared
+  in the schema.** Both were in use and read by consumers but undeclared, so
+  they validated only because `identification` has no `additionalProperties`,
+  and the next typo in either would have been another silent no-op. The
+  near-miss test now also asserts that every key it *recommends* is one the
+  schema declares — it had been pointing authors at `ssdp_search_targets` while
+  that key was itself undeclared
+- **`fetch_registries.py` cannot silently destroy the vendored registries.**
+  The builders key off literal upstream column headers, so a renamed column (or
+  an error page served with a 200) made every row fail its width check,
+  `_render([])` returned `""`, and the script overwrote a good file with an
+  empty one and exited 0 — while `--check` in that state printed "run
+  fetch_registries.py to refresh", i.e. the command that does the damage. Now
+  each builder has a minimum-row floor and refuses to write below it. Reads and
+  writes also pin `newline`, so regenerating on Windows cannot put CRLF into
+  files whose contract is byte-offset binary search (and `--check` can no longer
+  translate it back and report OK). A tautological test that recomputed its own
+  constant is replaced by ones that check the floors cover every builder, that
+  the committed data clears them, and that no registry contains a CR byte
+- **`mac_prefixes` can express a 28- or 36-bit block.** The schema pattern —
+  and the conventions test beside it — required whole colon-separated octets,
+  so the only prefixes an author could write were the 24-bit MA-L ones. That is
+  the width the confidence flag exists to warn about: `C4:7C:8D` is fifteen
+  unrelated companies. Both now accept a trailing half-octet, matching the
+  6-to-10-hex-digit rule the consumer already applied and the MA-M/MA-S tables
+  vendored in `registries/`. Mi Flora, whose note had said in so many words that
+  it could not express what it knew, now carries `C4:7C:8D:6` at `high` — sole
+  assignment to HHCC Plant Technology, the OEM in its own model number — with
+  the enclosing 24-bit block kept at `low` for octet-only consumers
+- **The documented `additional_company_ids` example was the anti-pattern.**
+  `docs/api/spec-format.md` showed `[89, 741]` — Nordic and Espressif, the two
+  SoC-vendor IDs stripped from `switchbot-ble` two entries above — so an author
+  copying the canonical example reintroduced the bug. Now shows a vendor's own
+  second allocation (Google's 224 and 398), with the SoC case called out as the
+  thing never to put there
+- **`fetch_registries.py --check` ran at all.** The freshness comparison read
+  its file with `Path.read_text(encoding=..., newline="")`, and `read_text` only
+  grew a `newline` parameter in Python 3.13 — this project targets 3.12, so the
+  check downloaded all five registries and then died on a `TypeError` before
+  comparing one of them. Spelled as `open(...).read()`, which has taken
+  `newline` since forever
 
-  The iOS job's warm-up build now compiles the **test** entrypoint
-  (`--target=integration_test/ci_all_test.dart`) rather than `lib/main.dart`.
-  It exists to move the app build outside `flutter test`'s hardcoded
-  12-minute loading window, but it was building a different Dart entrypoint
-  than the tests use — so the kernel differed, Xcode relinked, and a warm run
-  paid 95.7s there plus another 64.1s inside the window for largely the same
-  work. Both invocations also pass `--no-pub`, since the job already ran
-  `flutter pub get`. The simulator boot moved to just before that build:
-  ~2 minutes of build already covers a ~65s boot twice over, and starting it
-  at checkout only left a booted simulator idling through the SDK restore and
-  rustup, holding memory and cycles on a 3-core runner during the CPU-bound
-  part of the job.
-- **Dev environment setup now follows CI instead of re-pinning it.**
-  `scripts/ci-versions.sh` reads the Flutter/NDK/Android API/build-tools/FRB
-  pins, the rustup target lists, the Linux desktop apt packages and the
-  emulator's API level, system image and device profile out of
-  `.github/workflows/ci.yml`; `scripts/setup.sh` and the Claude Code session
-  hook provision from those values (each has a fallback, and a parse miss
-  warns). `scripts/setup.sh` also gained the Linux desktop toolchain install
-  and now creates the `liberated_bread_test` AVD from CI's exact system image
-  and device profile. Both paths now compare the *installed* Flutter against
-  the pin rather than accepting any SDK that exists — the session hook
-  replaces a stale one, and `setup.sh` says so without touching an SDK it
-  didn't install — so a `FLUTTER_VERSION` bump actually reaches dev
-  environments instead of surfacing later as a Dart SDK constraint failure.
-- **Claude Code web sessions can build and run Android and Linux desktop.**
-  `.claude/hooks/session-start.sh` grew two auto-detected tiers on top of the
-  host toolchain: the Linux desktop dependencies (wherever apt is usable) and
-  the Android SDK/NDK, emulator and AVD (when `/dev/kvm` and disk allow).
-  Both skip with a logged reason rather than failing the session, and can be
-  forced or suppressed with `LB_SETUP_LINUX_DESKTOP` / `LB_SETUP_ANDROID`.
-- Spec parsing is now tolerant of real-world protocol-docs specs: `DeviceSpec`,
-  `Identification`, and `ParameterSet` dropped `deny_unknown_fields` in favor
-  of a flattened `extensions` catch-all, so WiFi specs and vendor extension
-  blocks parse instead of being rejected (`rust/tests/spec_tolerance.rs`
-  documents the intent with vendored real specs).
-- `scripts/test.sh` now mirrors CI's FRB binding drift check locally (skipped
-  with a warning when the pinned codegen isn't installed).
-- Migrated from the archived `serde_yaml` crate to the maintained
-  `serde_yaml_ng` fork (imported under the same name via a Cargo rename).
-- `MockBleService` deduplicates its two mock devices' service definitions into
-  shared `_controlService` / `_batteryService` constants.
-- `DeviceScreen` extracts a file-private `_CenteredProgress` widget used by the
-  connecting/discovering states.
+- Two `identification` keys that no consumer has ever read. Roku declared
+  `ssdp_search_target` and WLED `mdns_service_types`; neither is a schema key,
+  and `identification` sweeps unrecognised keys into extensions rather than
+  rejecting them, so a singular/plural slip is not an error — it is a silent
+  no-op. Roku's `roku:ecp` is an exact, unambiguous SSDP target and it reached
+  nothing. WLED's plural only added `_http._tcp`, which every web-serving device
+  answers, so that one is dropped rather than migrated, with a note saying why.
+  A new conventions test fails on the whole class. `inkbird-bbq-thermometer`'s
+  `local_name_prefixes` was the same slip but could not be renamed — the family
+  ships under eight names and the singular key holds one — so the schema grew
+  the plural key instead (see Added), and the spec now reads as written
+- The Lutron Caséta bridge carries no `mac_prefixes` after all. Its captured
+  address `b8:94:d9:…` sits in a Texas Instruments block — it identifies the
+  radio module inside the bridge, not Lutron, and listing it would have flagged
+  every TI-radio device on the network. Found by checking the OUI against the
+  newly vendored IEEE registry, which is the point of vendoring it
+- `docs/protocols/standards-and-references.md` — the published standards this
+  registry does or should cite instead of re-deriving them: Bluetooth SIG
+  Assigned Numbers, the GATT Specification Supplement, the Base-UUID shorthand
+  rule, the Nordic bluetooth-numbers-database, BTHome v2 for passive beacons, the
+  CRC RevEng catalogue for reproducible checksums, and the automotive/interchange
+  standards already cited by the OBD and `bus` specs
+- `docs/contributing/spec-evolution.md` — a standing, evidence-backed list of
+  proposed schema improvements (reproducible checksum descriptor, SIG-standard
+  markers, `format` endianness and bit-fields, symmetric BLE command responses,
+  first-class advertisement payloads, a normalized capability vocabulary, and
+  SemVer for the schema), each with a compatibility note, informed by a
+  comparison with the Buttplug BLE device-abstraction library
+- Optional top-level `helpful_urls` and `helpful_videos` fields in device specs,
+  with HTTP(S)-only reference entries and generated index/API exposure for
+  website "Further reading / Watch" sections
+- SPOTLED LED panel device doc, device spec and target starter — the OEM matrix-panel family
+  (hats, badges, packs, banner signs) behind `com.led.spotled`, now the canonical home for the
+  `0xFF20` protocol
+- LED sign & panel design app survey (`docs/devices/led-sign-apps.md`) mapping design apps to
+  device families, OEM platform clusters, and a triage checklist for unknown signs
+- CoolLEDX / CoolLED1248 device doc, device spec and target starter — the unbranded BLE LED sign
+  platform behind most AliExpress/Amazon car, bike, backpack and badge signs
+- Target starters for iLEDColor (`com.led.iledcolor`), LED space (`com.yj.led`) and
+  Divoom Pixoo (`com.divoom.Divoom`)
+- OBD-II / vehicle diagnostics support: `docs/protocols/obd2-common.md` covering
+  connectors (SAE J1962, ISO 19689), transports, ISO-TP framing, UDS services and
+  capture methodology
+- OBD-II Bluetooth adapter (ELM327 / STN) device doc and spec — BLE GATT families,
+  Bluetooth Classic SPP, and the AT/ST command set
+- Triumph Tiger 900 device doc, target spec and device spec, including the recovered
+  service interval reset message (`33 <km/100>` / `34 <miles/100>` on CAN 0x701 to the
+  instrument cluster) and the surrounding diagnostic surface — four separate stacks,
+  UDS DIDs, DTC read/clear, ABS bleed, TPMS/immobiliser and instrument settings —
+  derived from static analysis of the freeware TigerTool V3.51 and independently
+  confirmed by decompiling TuneECU 23
+- `obd` block and `obd2` protocol value in `device-specs/schema.json`, with a
+  per-fact `verification` level so untested hypotheses cannot be mistaken for facts
+- OBD-II device classification: `obd.role` (vehicle / adapter / module),
+  `obd.adapter_profile` capability tiers (basic-clone, standards-elm327,
+  advanced-stn, native-can), and per-request `command_class` (basic vs advanced)
+  with a `requires` capability list, so a consumer can tell before connecting
+  whether a given adapter can run a given command
+- BMW motorcycle diagnostics device doc and spec — BMW's 0x6F1 D-CAN addressing with
+  CAN extended addressing, the service interval data model (distance/date/valve-clearance),
+  cluster-owned service data, module list, and the service reset itself — UDS
+  WriteDataByIdentifier on BMW's 0xE1xx DIDs (`2E E1 2B/2C/2D`) with matching reads —
+  recovered from the shipped MotoScan app
+- BMW motorcycle / MotoScan target starter (`de.wgsoft.motoscan`) — the same
+  service-interval-reset problem as the Triumph work, with an analysis plan and the
+  observation that the app vendor also makes the UCSI-2100 adapter whose 255-byte
+  message support exists because BMW's protocols need it
+- Named OBD-II adapter coverage: UniCarScan UCSI-2100, OBDLink MX and OBDLink MX+,
+  with per-model capability profiles, plus an `alt_can_bus` capability (Ford MS-CAN /
+  GM SW-CAN) and a tool-requirement matrix covering FORScan, TuneECU, TigerTool,
+  MotoScan, BimmerCode, OBD Fusion and Torque Pro
+- `scripts/obd_discover.py` — read-only ECU and DID reconnaissance over an
+  ELM327-class adapter, plus working vehicle modes: `--triumph-sia` /
+  `--triumph-reset` for the Triumph cluster and `--bmw-scan` / `--bmw-module` for
+  BMW's 0x6F1 addressing. The BMW scan supplies the module addresses the decompile
+  did not; the Triumph reset reads state before and after and refuses to run
+  without `--yes-write`
+- Vendor ECU-description file references in the schema: `obd.description_files` at
+  vehicle and per-ECU level for BMW/EDIABAS SGBD `.prg` and `.grp` files (plus ODX,
+  PDX, CDD, A2L and DBC), and per-request `job` / `results` linkage so a recovered
+  frame ties back to its authoritative definition. Files are referenced and
+  checksummed, never redistributed
+- Triumph odometer reply decoded from TigerTool's parser: `0D 01` answers
+  `704 8D 01 <b1> <b2> <b3>`, a 24-bit big-endian value in kilometres, with
+  `5E 01` -> `704 DE` flagging a TFT dash and selecting which mile divisor
+  (1.60934 vs 1.6099895) the tool applies
+- Initial device setup (provisioning) coverage:
+  - `device.setup` block in `device-specs/schema.json` — onboarding methods,
+    factory reset procedures, rebinding, and credential handling
+  - `device.setup` populated for every device spec, including the OBD-II
+    vehicles and adapter, where `factory_reset.applicable: false` records
+    that a vehicle has no reset rather than inventing one
+  - `docs/protocols/device-setup.md` — cross-device onboarding patterns for
+    WiFi (SoftAP) and BLE devices
+  - `docs/devices/wemo-setup.md` — Wemo factory reset, provisioning over the
+    device's setup AP, and rebinding to a new network via `ReSetup`
+- `scripts/test_wemo_scaffolding.py` — pins the Wemo scaffolding to the spec it
+  verifies, so a script that has drifted cannot pass for a verified document.
+  Skips cleanly when the scripts are removed
+- `scripts/test_wemo_spec.py` — proves the Wemo spec is implementable from the
+  spec alone for all three client jobs (discover, control, provision):
+  transcribes the published protocol using only the standard library and
+  `openssl`, and asserts the transcription reproduces the spec's own examples
+  and test vectors
+- `docs/api/spec-format.md` — how to read a device spec, with the `setup` block
+  covered field by field
+- `scripts/test_device_specs.py` — cross-spec consistency checks for conventions
+  the schema cannot express (explicit `verified`, reset procedures with steps,
+  `rejoin` answering the router-replacement question, and so on)
+- Schema documents the well-known `setup` extension blocks — `payload_formats`,
+  `timing`, `troubleshooting`, and a much richer `credential_encryption`
+  including `algorithm_steps`, `variants` and `test_vectors`
+- `wemo-devices.yaml` is now implementable on its own: SOAP wire format,
+  `MetaInfo`/`ApList` payload layouts, the encryption algorithm step by step
+  with reproducible test vectors, timing constants and a troubleshooting table
+- `requirements-dev.txt` and `pyproject.toml` — ruff and pytest configuration
+- CI `lint-and-test` job running `ruff check` and `pytest`
+- Initial project structure
+- Device documentation template
+- Getting started guides
+- MkDocs Material theme configuration
+
+### Changed
+
+- Reframed the OBD-II guardrails for repair-café use: maintenance writes (service
+  interval resets, TPMS sensor IDs, clearing recorded faults) are in scope and are the
+  point, with a function-risk tier table and bench sequences for the Triumph and BMW
+  service resets
+- Coding, flashing, immobiliser and key work are documented and flagged
+  `advanced: true` in the schema rather than excluded — reviving an old bike needs
+  them. Only odometer falsification and work on a moving vehicle stay out
+- LEDs2Rave4 / Lunchbox Dream LED docs now map each product generation to its design app
+  (LED CHORD → SPOTLED → iLEDColor) and document the SPOTLED framed BLE protocol on `0xFF20`,
+  corroborated against `python-spotled`
+- The Wemo protocol now lives in `device-specs/devices/wemo-devices.yaml`
+  rather than in scripts: the SSDP datagram and response handling, the rule
+  separating Wemo from other UPnP responders, the description parse rules
+  including Belkin's vendor extensions, the SOAP wire format, and
+  `payload_formats` for `BinaryState`, `InsightParams` and `MetaInfo`.
+  `scripts/wemo_discover.py`, `wemo_control.py` and `wemo_setup.py` are
+  retained only as verification scaffolding until the spec has been checked
+  against hardware, and are marked as such (#16).
+
+### Fixed
+
+- `InsightParams` was documented without the `wifipower` field, which shifts
+  every power reading one column left — now published field by field with an
+  example
+- `test_build_index.py`: hardcoded device list had rotted into a failing test
+- `mkdocs.yml`: ten device pages existed but were missing from the nav
+- `docs/devices/wifi-discovery.md`: content appeared above the page title
+- `docs/devices/vector-robot.md`: corrected the repository URL and a heading level
+- `docs/devices/discovery.yaml`: split into separate YAML documents; the four
+  examples shared one top-level key and collided
+- Device specs: removed `local_name_prefix: ""` values, which match every
+  BLE device when used as a scan filter
+- `targets/wemo-devices.md` claimed WiFi provisioning was app-only and out of
+  scope, gave the setup AP prefix as `WeMo.Setup.`, and called `InsightParams`
+  colon-delimited — all three contradicted by this branch's own findings
+- `VERIFICATION_REFERENCE.md` now says on its face that it is not reproducible,
+  since its APK column probes the gitignored workspace directory (#18)
+- Wemo SOAP requests put action arguments in the service namespace
+  (`<u:BinaryState>`); UPnP arguments are unqualified, and the request body now
+  matches the wire format pywemo and ouimeaux send
+- Wemo setup: the passphrase length suffix was not zero-padded, so any length
+  below 16 produced a blob the device rejects; MetaInfo field order was
+  documented backwards (field 0 is the MAC, field 1 the serial); only one of
+  the three encryption variants was implemented; `ReSetup` was called without
+  its required `Reset` scope argument; and `ApList` parsing did not skip the
+  header line or read the auth/cipher pair from the last column
