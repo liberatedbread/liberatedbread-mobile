@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/lifx_control_service.dart';
 import '../services/soap_control_service.dart';
@@ -20,6 +21,12 @@ final soapControlClientProvider =
 /// a keypress with a canned 200 instead of a Roku.
 final httpControlClientProvider =
     Provider<HttpControlClient>((ref) => HttpControlClient());
+
+/// The ECP2 signed-session transport — the Roku-only fallback for when plain
+/// ECP is refused (the "Limited" control-by-mobile-apps gate). Same
+/// substitution rule: tests drive it from a scripted socket, not a network.
+final ecp2ControlServiceProvider =
+    Provider<Ecp2ControlService>((ref) => Ecp2ControlService());
 
 /// The LIFX binary-UDP transport — same substitution rule, for tests that
 /// answer (or drop) a datagram with a fake socket instead of a real strip.
