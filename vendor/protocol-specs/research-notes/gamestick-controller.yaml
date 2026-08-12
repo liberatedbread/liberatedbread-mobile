@@ -1,0 +1,42 @@
+# PlayJam GameStick controller — Device Spec
+# No companion app exists — plain BT Classic HID gamepad.
+# Console servers died 2016 (unresponsive) / 2017 (official); controller unaffected.
+
+device:
+  id: gamestick-controller
+  name: PlayJam GameStick Bluetooth controller
+  manufacturer: PlayJam (GameStick discontinued 2017; servers dead since 2016)
+  category: game_controller
+  safety_class: LOW
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  profiles:
+    - hid
+
+bluetooth_classic:
+  pairing:
+    device_name: "GameStick"  # reported; verify against hardware
+    procedure: Pair from host OS Bluetooth settings (exact button-hold TBD — manuals offline)
+    pin: none (SSP)
+  notes: >
+    Controller is plain HID per contemporaneous analyses. The dead part of the
+    ecosystem is the console storefront/update server
+    (update.gamestickservices.net), reverse-engineered by cweiske (2023).
+
+protocol:
+  note: >
+    Standard HID over Bluetooth Classic. No vendor protocol documented or believed
+    to exist. HID descriptor not yet captured — btmon dump recommended if a formal
+    spec is written.
+
+status:
+  apk_acquired: false   # no companion app ever existed
+  apk_decompiled: false
+  protocol_recovered: false  # N/A — standard HID; descriptor not yet dumped
+  hci_snoop_needed: false
+  cloud_dependency: none (controller); console OOBE/store needs community replacement server
+  references:
+    - cweiske.de GameStick server RE (2023-04-17)
+    - mgarcia.org C.T.R.L.R analysis (2013-12-16)

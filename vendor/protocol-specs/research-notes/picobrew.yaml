@@ -1,0 +1,47 @@
+# PicoBrew Pico S/C/Pro & Zymatic — Device Spec (research note)
+# Company bankrupt Feb 2020 (receivership); picobrew.com unreachable 2026-08-03
+# Local path: community server replacement chiefwigms/picobrew_pico
+
+device:
+  id: picobrew
+  name: PicoBrew Pico S/C/Pro, Zymatic (+ PicoFerm, PicoStill)
+  manufacturer: PicoBrew Inc. (Seattle) — bankrupt Feb 2020
+  category: kitchen_appliance   # home brewing
+  safety_class: MEDIUM  # boiling liquid + pumps; keep abort endpoint prominent
+
+transport:
+  type: wifi-lan        # NOTE: not BLE — machine talks HTTP to vendor API host
+  local_only: true      # via LAN server emulation (DNS redirect of picobrew.com)
+  note: >
+    Machines are Wi-Fi HTTP clients of the PicoBrew cloud API. Vendor servers
+    are dead; chiefwigms/picobrew_pico reimplements the API on a LAN host
+    (Raspberry Pi class), giving full brew control and recipe management.
+
+lan:
+  control:
+    protocol: http
+    host_override: picobrew.com  # DNS redirect on LAN
+    endpoints: see picobrew_pico repo (session start/stop, recipe fetch, firmware)
+
+protocol:
+  note: >
+    On-wire API is machine->server HTTP(S); fully documented by implementation
+    in picobrew_pico (Python). Pico and Zymatic use different endpoint families.
+    Repo spec work = transcribe request/response schemas per model, flag any
+    TLS/cert-pinning firmware variants.
+  commands:
+    brew_session_start: documented in picobrew_pico
+    brew_session_abort: documented in picobrew_pico
+    recipe_fetch: documented in picobrew_pico
+
+status:
+  apk_acquired: false    # n/a — vendor UI was a web app
+  apk_decompiled: false
+  uuids_recovered: false # n/a — no BLE
+  protocol_recovered: true  # via community server source (not this repo)
+  hci_snoop_needed: false
+  cloud_dead: true       # bankrupt 2020-02; site dead; assets listed for sale 2022
+  references:
+    - github.com/chiefwigms/picobrew_pico
+    - thespoon.tech/rest-in-peace-picobrew/ (2020-04-30)
+    - brauwelt.com/en/international-report/the-americas/641655-the-end-of-picobrew (2020-06-10)

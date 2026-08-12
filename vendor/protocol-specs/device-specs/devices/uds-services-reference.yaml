@@ -1,0 +1,427 @@
+device:
+  name: ISO 14229 UDS (Unified Diagnostic Services) Reference
+  manufacturer: ISO
+  model: UDS services and NRC codes (ISO 14229-1:2013 baseline + 2020-edition additions)
+  category: reference
+  type: reference-diagnostic-protocol
+  transport: obd2
+  # Schema `protocol` has no member for a standards document. UDS is reached over
+  # the diagnostic connector, so 'obd2' is the accurate family; the exact
+  # standard is preserved in `model` above and `transport: obd2`.
+  protocol: obd2
+  # See iso15765-2-can-transport.yaml: 'active' is the schema's label for
+  # "still in business, protocol closed/paywalled". Was: standard.
+  manufacturer_status: active
+  notes: |
+    ISO 14229 UDS is the application layer that sits above ISO-TP on CAN,
+    UDS-on-K-line (ISO 14229-6 — KWP2000, ISO 14230, is the sibling/legacy
+    K-line protocol), or DoIP on Ethernet. Every manufacturer-specific
+    function in this repo — service reset, adaptations, coding, bleeding —
+    is either UDS or a vendor dialect shaped by it.
+
+    COVERAGE: the base service/NRC set is ISO 14229-1:2013 (every value
+    cross-checked against the standard text and python-udsoncan); the
+    2020-edition additions — service 0x29 Authentication and NRCs 0x34,
+    0x38-0x3A, 0x50-0x5D and 0x94 — are included and marked. ISO
+    14229-1:2020/Amd 1:2022 is listed as Withdrawn in the ISO catalog
+    (June 2026); the 2020 base 3rd edition remains current.
+
+    This is a REFERENCE spec, not a device. Vehicle specs reference these
+    service IDs and NRC codes rather than re-inventing them.
+
+    Convention: positive response = request service + 0x40 (0x22 → 0x62).
+    Negative response = 0x7F + service + NRC. Every vehicle spec uses this,
+    so a negative response to a read is '7F 22 XX' where XX is the NRC.
+
+uds_services:
+  # Diagnostic and Communications Management
+  - sid: "10"
+    name: DiagnosticSessionControl
+    response: "50"
+    description: Switch the ECU between diagnostic sessions
+    sub_functions:
+      - "01": Default session
+      - "02": Programming session
+      - "03": Extended diagnostic session
+      - "04": Safety system diagnostic session
+    typical_use: First command sent to any ECU. Extended session (0x03) unlocks non-default services.
+    keepalive_required: true
+    keepalive_service: "3E"
+
+  - sid: "11"
+    name: ECUReset
+    response: "51"
+    description: Hard reset of the ECU
+    sub_functions:
+      - "01": Hard reset
+      - "02": Key off/on reset
+      - "03": Soft reset (application reboot)
+    caution: Hard reset (0x01) loses volatile data. Do not use as a keepalive.
+
+  - sid: "27"
+    name: SecurityAccess
+    response: "67"
+    description: Challenge-response authentication. Seed/key exchange gated by security level.
+    sub_functions:
+      - "01": Request seed (odd = request, even+1 = send key)
+      - "03": Request seed (level 3)
+      - "05": Request seed (level 5)
+    typical_use: Before writing, coding, or running a critical routine. Seed/key algorithm is per-ECU and manufacturer.
+    note: "Negative response 7F 27 35 = invalid key. 7F 27 36 = too many attempts (delay enforced)."
+
+  - sid: "28"
+    name: CommunicationControl
+    response: "68"
+    description: Suppress or re-enable specific message types on the bus
+    sub_functions:
+      - "00": Enable RX and TX
+      - "01": Enable RX, disable TX
+      - "02": Disable RX, enable TX
+      - "03": Disable RX and TX
+    note: "Used for flashing to stop normal bus traffic from colliding with programming messages."
+
+  - sid: "29"
+    name: Authentication
+    response: "69"
+    description: >
+      Authentication service added in ISO 14229-1:2020, addressing
+      SecurityAccess (0x27) limitations for connected vehicles. Two variants:
+      APCE (Authentication with PKI Certificate Exchange) and ACR
+      (Authentication with Challenge-Response).
+    note: "2020 edition only — absent from 2013. Cross-checked against udsoncan services/Authentication.py (_sid = 0x29)."
+
+  - sid: "3E"
+    name: TesterPresent
+    response: "7E"
+    description: Keepalive — tells the ECU the tester is still here
+    sub_functions:
+      - "00": Zero sub-function (standard keepalive)
+    typical_use: "Send every 2-3 seconds after entering a non-default session, or the ECU drops back to default and locks itself. Service 10 01 is not enough — you must stay in the session."
+    note: Suppress response byte 0x80 = no response needed (reduces bus load).
+
+  - sid: "83"
+    name: AccessTimingParameter
+    response: "C3"
+    description: Adjust timing parameters during a session
+
+  - sid: "84"
+    name: SecuredDataTransmission
+    response: "C4"
+    description: Encrypted/authenticated data exchange
+
+  - sid: "85"
+    name: ControlDTCSetting
+    response: "C5"
+    description: Enable or disable DTC storage
+    sub_functions:
+      - "01": On
+      - "02": Off
+
+  - sid: "86"
+    name: ResponseOnEvent
+    response: "C6"
+    description: Request the ECU to send a response when a specific event occurs
+
+  - sid: "87"
+    name: LinkControl
+    response: "C7"
+    description: Control communication baud rate
+
+  # Data Transmission
+  - sid: "22"
+    name: ReadDataByIdentifier
+    response: "62"
+    description: Read a value by its 2-byte DID (Data Identifier). The workhorse of UDS reads.
+    request_format: "22 <DID_hi> <DID_lo>"
+    response_format: "62 <DID_hi> <DID_lo> <data...>"
+    typical_use: Every read in a vehicle spec — odometer, service distance, VIN, ECU serial
+
+  - sid: "23"
+    name: ReadMemoryByAddress
+    response: "63"
+    description: Read raw memory at a given address and length
+    request_format: "23 <addressAndLengthFormatIdentifier> <memoryAddress...> <memorySize...>"
+    note: Length and address width are encoded in the first byte nibbles.
+
+  - sid: "24"
+    name: ReadScalingDataByIdentifier
+    response: "64"
+    description: Read scaling information for a DID
+
+  - sid: "2A"
+    name: ReadDataByPeriodicIdentifier
+    response: "6A"
+    description: Set up periodic transmission of a DID value
+
+  - sid: "2C"
+    name: DynamicallyDefineDataIdentifier
+    response: "6C"
+    description: Define a custom DID that maps to one or more existing DIDs
+
+  - sid: "2E"
+    name: WriteDataByIdentifier
+    response: "6E"
+    description: Write a value to a DID. The write counterpart to service 0x22.
+    request_format: "2E <DID_hi> <DID_lo> <data...>"
+    response_format: "6E <DID_hi> <DID_lo>"
+    typical_use: Service interval writes, coding, adaptations
+    prerequisites:
+      - Extended session (10 03)
+      - SecurityAccess (27 XX) — if the DID is locked
+
+  - sid: "3D"
+    name: WriteMemoryByAddress
+    response: "7D"
+    description: Write raw memory — used for flashing
+    caution: advanced — can brick the ECU. Know the recovery path.
+
+  # Stored Data
+  - sid: "14"
+    name: ClearDiagnosticInformation
+    response: "54"
+    description: Clear DTCs for a diagnostic group
+    sub_functions:
+      - "FFFFFF": All groups
+    typical_use: Clear stored DTCs after repair. Record them first.
+
+  - sid: "19"
+    name: ReadDTCInformation
+    response: "59"
+    description: Read diagnostic trouble codes with various filters
+    sub_functions:
+      - "01": Report number of DTCs by status mask
+      - "02": Report DTCs by status mask
+      - "04": Report snapshot of DTC
+      - "06": Report extended DTC record
+      - "0A": Report supported DTCs
+    status_mask:
+      "00": All DTCs (testFailed, confirmed, pending, etc.)
+      "08": Confirmed DTC only
+
+  # Input/Output Control
+  - sid: "2F"
+    name: InputOutputControlByIdentifier
+    response: "6F"
+    description: Replace an ECU input value or override an output
+    caution: advanced — manipulating sensor inputs can cause real-world actuator movement
+
+  # Routine Control
+  - sid: "31"
+    name: RoutineControl
+    response: "71"
+    description: Start/stop a named routine in the ECU
+    sub_functions:
+      - "01": Start routine
+      - "02": Stop routine
+      - "03": Request routine results
+    typical_use: ABS bleed, throttle adaptation, service reset (on some ECUs), injector coding
+    note: "A routine ID (RID) is 2 bytes. Example: 31 01 02 FF = start routine 0x02FF."
+
+  # Upload/Download
+  - sid: "34"
+    name: RequestDownload
+    response: "74"
+    description: Prepare ECU for receiving a firmware/data block
+  - sid: "35"
+    name: RequestUpload
+    response: "75"
+    description: Prepare ECU for sending a firmware/data block
+  - sid: "36"
+    name: TransferData
+    response: "76"
+    description: Transfer a block of data
+  - sid: "37"
+    name: RequestTransferExit
+    response: "77"
+    description: End the transfer sequence
+  - sid: "38"
+    name: RequestFileTransfer
+    response: "78"
+    description: File-based transfer (replacement for 34/36/37 in UDS 2013+)
+
+negative_response_codes:
+  - nrc: "10"
+    name: General reject
+    meaning: Catch-all — the request is syntactically valid but the ECU cannot execute it
+  - nrc: "11"
+    name: Service not supported
+    meaning: The requested service ID is not implemented on this ECU
+  - nrc: "12"
+    name: Sub-function not supported
+    meaning: The sub-function (e.g., specific session level) is not implemented
+  - nrc: "13"
+    name: Incorrect message length or invalid format
+    meaning: Wrong number of bytes or framing error
+  - nrc: "14"
+    name: Response too long
+    meaning: The reply would exceed the buffer — use a different request
+  - nrc: "21"
+    name: Busy — repeat request
+    meaning: ECU is temporarily unavailable for this request. Try again.
+  - nrc: "22"
+    name: Conditions not correct
+    meaning: Prerequisites not met — e.g., engine running when it needs to be off
+  - nrc: "24"
+    name: Request sequence error
+    meaning: Requests sent out of order (e.g., TransferData before RequestDownload)
+  - nrc: "25"
+    name: No response from subnet component
+    meaning: A sub-ECU on an internal bus is not responding
+  - nrc: "26"
+    name: Failure prevents execution of requested action
+    meaning: A DTC is active that blocks this function
+  - nrc: "31"
+    name: Request out of range
+    meaning: The DID, RID, or address is not valid for this ECU
+  - nrc: "33"
+    name: Security access denied
+    meaning: The security level has not been unlocked for this function
+  - nrc: "34"
+    name: Authentication required
+    meaning: The request requires Authentication (service 0x29) — 2020 edition
+  - nrc: "35"
+    name: Invalid key
+    meaning: The key sent in SecurityAccess was wrong
+  - nrc: "36"
+    name: Exceeded number of attempts
+    meaning: Too many wrong keys — delay enforced before next attempt
+  - nrc: "37"
+    name: Required time delay not expired
+    meaning: "Delay between security access attempts not yet elapsed"
+  - nrc: "38"
+    name: Secure data transmission required
+    meaning: The message must use SecuredDataTransmission (0x84) — 2020 edition
+  - nrc: "39"
+    name: Secure data transmission not allowed
+    meaning: Secured transmission is not permitted for this request — 2020 edition
+  - nrc: "3A"
+    name: Secure data verification failed
+    meaning: The secured message failed verification — 2020 edition
+  - nrc: "50"
+    name: Certificate verification failed — invalid time period
+    meaning: PKI certificate not yet valid or expired — 2020 edition
+  - nrc: "51"
+    name: Certificate verification failed — invalid signature
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "52"
+    name: Certificate verification failed — invalid chain of trust
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "53"
+    name: Certificate verification failed — invalid type
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "54"
+    name: Certificate verification failed — invalid format
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "55"
+    name: Certificate verification failed — invalid content
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "56"
+    name: Certificate verification failed — invalid scope
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "57"
+    name: Certificate verification failed — invalid certificate
+    meaning: Certificate revoked or otherwise invalid — 2020 edition
+  - nrc: "58"
+    name: Ownership verification failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "59"
+    name: Challenge calculation failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5A"
+    name: Setting access rights failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5B"
+    name: Session key creation/derivation failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5C"
+    name: Configuration data usage failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "5D"
+    name: De-authentication failed
+    meaning: Authentication (0x29) failure — 2020 edition
+  - nrc: "70"
+    name: Upload/download not accepted
+    meaning: ECU rejected the transfer request
+  - nrc: "71"
+    name: Transfer data suspended
+    meaning: The transfer was interrupted
+  - nrc: "72"
+    name: General programming failure
+    meaning: Flash operation failed — ECU may be unrecoverable
+  - nrc: "73"
+    name: Wrong block sequence counter
+    meaning: TransferData frames out of sequence
+  - nrc: "78"
+    name: Request correctly received — response pending
+    meaning: Not an error. ECU needs more time. Poll or wait for the final response.
+  - nrc: "7E"
+    name: Sub-function not supported in active session
+    meaning: The service is there, but this session level doesn't allow it
+  - nrc: "7F"
+    name: Service not supported in active session
+    meaning: The service exists on the ECU, but the current session is too low
+
+  # Condition NRCs. 0x81-0x93 exist since the 2013 edition (0x8E is reserved);
+  # 0x94 was added in the 2020 edition.
+  - nrc: "81"
+    name: RPM too high
+    meaning: Condition for the request not met — engine RPM above the limit
+  - nrc: "82"
+    name: RPM too low
+    meaning: Condition for the request not met — engine RPM below the limit
+  - nrc: "83"
+    name: Engine is running
+    meaning: Request requires the engine to be off
+  - nrc: "84"
+    name: Engine is not running
+    meaning: Request requires the engine to be running
+  - nrc: "85"
+    name: Engine run time too low
+    meaning: Engine has not been running long enough for this request
+  - nrc: "86"
+    name: Temperature too high
+    meaning: Condition for the request not met — temperature above the limit
+  - nrc: "87"
+    name: Temperature too low
+    meaning: Condition for the request not met — temperature below the limit
+  - nrc: "88"
+    name: Vehicle speed too high
+    meaning: Request requires a lower vehicle speed (often stationary)
+  - nrc: "89"
+    name: Vehicle speed too low
+    meaning: Request requires a higher vehicle speed
+  - nrc: "8A"
+    name: Throttle/pedal too high
+    meaning: Request requires the throttle/pedal below the limit
+  - nrc: "8B"
+    name: Throttle/pedal too low
+    meaning: Request requires the throttle/pedal above the limit
+  - nrc: "8C"
+    name: Transmission range not in neutral
+    meaning: Request requires neutral
+  - nrc: "8D"
+    name: Transmission range not in gear
+    meaning: Request requires a gear engaged
+  - nrc: "8F"
+    name: Brake switch not closed
+    meaning: Request requires the brake pedal pressed (0x8E is reserved)
+  - nrc: "90"
+    name: Shifter lever not in park
+    meaning: Request requires park position
+  - nrc: "91"
+    name: Torque converter clutch locked
+    meaning: Request requires the torque converter clutch unlocked
+  - nrc: "92"
+    name: Voltage too high
+    meaning: Supply voltage above the limit for this request
+  - nrc: "93"
+    name: Voltage too low
+    meaning: Supply voltage below the limit for this request
+  - nrc: "94"
+    name: Resource temporarily not available
+    meaning: A resource needed for the request is busy — retry later. 2020 edition
+
+source:
+  standard: ISO 14229-1:2020 (3rd edition, current — Amd 1:2022 is Withdrawn per the ISO catalog, June 2026)
+  cross_check: python-udsoncan (pylessard/python-udsoncan) ResponseCode.py and services/*.py
+  date_spec: "2026-07-28"

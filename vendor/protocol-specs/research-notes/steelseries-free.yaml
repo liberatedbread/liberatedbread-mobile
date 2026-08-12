@@ -1,0 +1,56 @@
+# SteelSeries Free Mobile Wireless Controller — Device Spec
+# Facts derived from the official SteelSeries user guide (PDF archived in workspace/).
+# SteelSeries Engine support dropped; controller works standalone.
+
+device:
+  id: steelseries-free
+  name: SteelSeries Free Mobile Wireless Controller
+  manufacturer: SteelSeries (GN Store Nord; product discontinued ~2014, Zeemote-based hardware)
+  category: game_controller
+  safety_class: LOW
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  profiles:
+    - hid      # Gamepad mode (default): standard BT HID gamepad
+    - hid      # Arcade mode: iCade-protocol BT keyboard
+    - spp      # suspected Zeemote joystick service (unverified — see zeemote-js1)
+
+bluetooth_classic:
+  advertised_name: "Zeemote: SteelSeries Free"
+  pairing:
+    power_on: Hold A for 3 seconds
+    mode_toggle: With controller OFF, hold A+B for 3 seconds
+    pin: "0000"  # if prompted; Android/Windows/Mac per user guide
+  modes:
+    gamepad:  # default
+      led: single blink
+      behavior: standard HID gamepad (Android/PC/Mac)
+    arcade:
+      led: double blink
+      behavior: iCade-protocol keyboard (iOS); on-screen keyboard disappears while paired
+  led_status:
+    disconnected: blink every 1 s
+    connected: blink every 3 s
+
+protocol:
+  note: >
+    Gamepad mode is standard HID — no vendor protocol. Arcade mode emits the
+    iCade press/release letter pairs (see icade-controllers spec).
+    Bluez-IME's ZeemoteReader contains a SteelSeries-specific button report
+    (msg type 0x1C), indicating the Zeemote SPP joystick protocol may also be
+    exposed; SDP scan on real hardware recommended.
+  icade_keymap_ref: icade-controllers
+  zeemote_spp_ref: zeemote-js1
+
+status:
+  apk_acquired: false   # Android SteelSeries Engine app never required; not archived
+  apk_decompiled: false
+  protocol_recovered: true   # modes/pairing fully documented from official manual
+  hci_snoop_needed: false
+  cloud_dependency: none
+  references:
+    - SteelSeries Free user guide (steelseriescdn.com)
+    - 148apps.com review (2012-12-11)
+    - F-Droid archive: com.hexad.bluezime 1.20 (ZeemoteReader SteelSeries handling)

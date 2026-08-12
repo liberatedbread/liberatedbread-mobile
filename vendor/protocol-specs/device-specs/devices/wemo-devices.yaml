@@ -1,0 +1,2612 @@
+# Belkin Wemo Smart Devices — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Discovery-first catalog for all publicly reverse-engineered Wemo device
+# families covered by pywemo/Home Assistant/ouimeaux and the decoded Wemo APK.
+#
+# device.setup is intended to be COMPLETE ON ITS OWN: an implementer should be
+# able to provision a Wemo device from this file alone, without reading our
+# prose docs or any other implementation. It carries the SOAP wire format
+# (soap_common.request_format), the MetaInfo and ApList layouts, the full
+# passphrase encryption algorithm with reproducible test vectors, the network
+# status codes, timing constants and a troubleshooting table. If you find
+# yourself needing to look something up elsewhere to finish an implementation,
+# that is a bug in this file.
+#
+# The same is now true of CONTROL for the two devices we have hardware for —
+# the smart plugs and the Crock-Pot Smart Slow Cooker. `entities` says which
+# controls to draw and where each reads its state; `commands` says what to
+# send for each control's roles, as arguments rather than prose; and
+# `http_endpoints` catalogues the actions both of those name. A consumer that
+# already renders a BLE spec's entities needs one new transport, not one new
+# device. The other families in `variants` are discovery and setup only.
+
+device:
+  name: "Belkin Wemo Smart Devices"
+  manufacturer: "Belkin"
+  manufacturer_status: "shutdown"
+  protocol: "wifi"
+  category: "switch"
+  transport: "upnp"
+  notes: >
+    ALL Wemo devices are discovered via SSDP (Simple Service Discovery
+    Protocol). NO static IP configuration is needed. Send an M-SEARCH to
+    239.255.255.250:1900 with ST matching a device or service search target,
+    then fetch and parse setup.xml at the LOCATION URL to get the control URL,
+    UDN, friendly name, serial/MAC metadata, service list, and deviceType.
+
+    Discovery order: 1. SSDP M-SEARCH; 2. parse LOCATION /setup.xml;
+    3. match deviceType and UDN prefix to a variant; 4. call SOAP actions at
+    the service controlURL from setup.xml. Device ordering should use stable
+    identity first: UDN, then serialNumber, then macAddress, with friendlyName
+    used only as user-facing display text.
+
+    Port instability: Wemo Mini and related devices may change HTTP ports after
+    a power cycle or reconnect. Always rediscover with SSDP or probe ports
+    49152-49159 in the pywemo order recorded below.
+
+    CONFIDENCE: SSDP discovery and SOAP action values HIGH (verified by pywemo,
+    Home Assistant, ouimeaux lineage, and APK decompilation). Per-device command
+    mappings MEDIUM; verified against public libraries but not validated via
+    live capture for every appliance class.
+
+    Post-shutdown status: Belkin ended Wemo support on 2026-01-31 (app, remote
+    access, voice integrations and firmware updates all dead). Only the
+    Thread-based WLS0503, WSC010 and WSP100 plus the WDC010 doorbell remain
+    supported; any HomeKit-configured Wemo (WLS0403, WDS060, WSP080 among
+    them) keeps working through HomeKit. Local SSDP/SOAP discovery,
+    provisioning and control are unaffected, and pywemo remains actively
+    maintained.
+  identification:
+    # The flat key is the one a scanner reads. The nested `ssdp:` block below
+    # carries the full M-SEARCH recipe for the discovery layer; a consumer
+    # matching an SSDP response looks here, so a target present only in the
+    # nested block reaches nothing and the device ranks on its port alone.
+    ssdp_search_targets:
+      - "urn:Belkin:service:basicevent:1"
+      - "urn:Belkin:device:controllee:1"
+      - "urn:Belkin:device:socket:1"
+      - "urn:Belkin:device:insight:1"
+      - "urn:Belkin:device:lightswitch:1"
+      - "urn:Belkin:device:dimmer:1"
+      - "urn:Belkin:device:bridge:1"
+      - "urn:Belkin:device:Maker:1"
+      - "urn:Belkin:device:motion:1"
+      - "urn:Belkin:device:sensor:1"
+      - "urn:Belkin:device:outdoor:1"
+      # The Holmes/Mr. Coffee co-branded hardware in `variants` answers on its
+      # own device types, not on `controllee:1`. Leaving these out is what
+      # stranded nine documented models on a port-80 match.
+      - "urn:Belkin:device:coffeemaker:1"
+      - "urn:Belkin:device:crockpot:1"
+      - "urn:Belkin:device:purifier:1"
+      - "urn:Belkin:device:heater:1"
+      - "urn:Belkin:device:humidifier:1"
+      - "urn:Belkin:device:humidifierb:1"
+    ssdp:
+      multicast_group: "239.255.255.250"
+      multicast_port: 1900
+      method: "M-SEARCH * HTTP/1.1"
+      headers:
+        HOST: "239.255.255.250:1900"
+        MAN: "\"ssdp:discover\""
+        MX: "1"
+      search_targets:
+        - "urn:Belkin:service:basicevent:1"
+        - "urn:Belkin:device:controllee:1"
+        - "urn:Belkin:device:socket:1"
+        - "urn:Belkin:device:insight:1"
+        - "urn:Belkin:device:lightswitch:1"
+        - "urn:Belkin:device:dimmer:1"
+        - "urn:Belkin:device:bridge:1"
+        - "urn:Belkin:device:Maker:1"
+        - "urn:Belkin:device:motion:1"
+        - "urn:Belkin:device:sensor:1"
+        - "urn:Belkin:device:outdoor:1"
+        - "ssdp:all"
+      response_headers:
+        location: "URL to fetch, normally http://<ip>:<port>/setup.xml"
+        usn: "UDN plus matching search target"
+        st: "Search target echoed by the device"
+      setup_xml_fields:
+        - "deviceType"
+        - "friendlyName"
+        - "UDN"
+        - "serialNumber"
+        - "macAddress"
+        - "modelName"
+        - "modelNumber"
+        - "serviceList"
+    ssid_prefix: "Wemo."
+    ssid_prefix_match: "case_insensitive"
+    ssid_examples: ["WeMo.Switch.A1B", "Wemo.Mini.4A2", "WeMo.Insight.7C4", "WeMo.Lightswitch.0F3"]
+    default_port: 49153
+    port_probe_list: [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
+    discovery_order:
+      - "Send SSDP M-SEARCH to 239.255.255.250:1900."
+      - "Read LOCATION from each unicast SSDP response."
+      - "Fetch LOCATION, usually /setup.xml."
+      - "Parse deviceType, UDN, friendlyName, serialNumber, macAddress, and serviceList."
+      - "Match variant by deviceType first and UDN prefix second."
+      - "Use each service controlURL from setup.xml for SOAP calls."
+    identity_keys:
+      primary: "UDN"
+      secondary: "serialNumber"
+      tertiary: "macAddress"
+      display: "friendlyName"
+    static_ip_required: false
+
+  discovery:
+    methods:
+      - type: "ssdp"
+        ssdp:
+          multicast_group: "239.255.255.250"
+          multicast_port: 1900
+          search_targets:
+            - "urn:Belkin:service:basicevent:1"
+            - "urn:Belkin:device:controllee:1"
+            - "urn:Belkin:device:socket:1"
+            - "urn:Belkin:device:insight:1"
+            - "urn:Belkin:device:lightswitch:1"
+            - "urn:Belkin:device:dimmer:1"
+            - "urn:Belkin:device:bridge:1"
+            - "urn:Belkin:device:Maker:1"
+            - "urn:Belkin:device:motion:1"
+            - "urn:Belkin:device:sensor:1"
+            - "urn:Belkin:device:outdoor:1"
+            - "ssdp:all"
+            - "urn:Belkin:device:coffeemaker:1"
+            - "urn:Belkin:device:crockpot:1"
+            - "urn:Belkin:device:purifier:1"
+            - "urn:Belkin:device:heater:1"
+            - "urn:Belkin:device:humidifier:1"
+            - "urn:Belkin:device:humidifierb:1"
+          response_mapping:
+            location:
+              url: "LOCATION"
+              action: "fetch_xml"
+              parse:
+                device_identity:
+                  stable_keys:
+                    - source: "xml://device/UDN"
+                      key: "udn"
+                    - source: "xml://device/serialNumber"
+                      key: "serial"
+                    - source: "xml://device/macAddress"
+                      key: "mac"
+                  display:
+                    source: "xml://device/friendlyName"
+                  variant:
+                    source: "xml://device/deviceType"
+                control_endpoints:
+                  source: "xml://device/serviceList/service"
+                  fields:
+                    service_type: "serviceType"
+                    control_url: "controlURL"
+                    event_sub_url: "eventSubURL"
+                    scpd_url: "SCPDURL"
+                parse_rules:
+                  - >
+                    The document root is <root> in the UPnP namespace
+                    urn:schemas-upnp-org:device-1-0, with the device as
+                    <root><device>. Some firmware serves it with no namespace
+                    at all, so match on local element names rather than
+                    requiring the namespace.
+                  - >
+                    Standard UPnP child elements of <device>: deviceType,
+                    friendlyName, manufacturer, manufacturerURL,
+                    modelDescription, modelName, modelNumber, modelURL,
+                    serialNumber, UDN, UPC, macAddress, iconList, serviceList,
+                    deviceList, presentationURL.
+                  - >
+                    Any OTHER child element of <device> is a Belkin extension.
+                    Collect them into a map; firmwareVersion, rtos, iot,
+                    binaryOption and new_algo appear there, and rtos/iot select
+                    the setup encryption variant (see device.setup).
+                  - >
+                    serviceList contains one <service> per entry; take
+                    serviceType, controlURL, eventSubURL and SCPDURL from each.
+                    Never hardcode a controlURL — the spelling varies across
+                    firmware generations.
+                example: |
+                  <?xml version="1.0"?>
+                  <root xmlns="urn:schemas-upnp-org:device-1-0">
+                    <device>
+                      <deviceType>urn:Belkin:device:controllee:1</deviceType>
+                      <friendlyName>Kitchen Plug</friendlyName>
+                      <manufacturer>Belkin International Inc.</manufacturer>
+                      <modelName>Socket</modelName>
+                      <modelNumber>1.0</modelNumber>
+                      <serialNumber>221517K0101769</serialNumber>
+                      <macAddress>94103E36AF15</macAddress>
+                      <UDN>uuid:Socket-1_0-221517K0101769</UDN>
+                      <firmwareVersion>WeMo_US_2.00.11408</firmwareVersion>
+                      <rtos>1</rtos>
+                      <iot>0</iot>
+                      <serviceList>
+                        <service>
+                          <serviceType>urn:Belkin:service:basicevent:1</serviceType>
+                          <serviceId>urn:Belkin:serviceId:basicevent1</serviceId>
+                          <controlURL>/upnp/control/basicevent1</controlURL>
+                          <eventSubURL>/upnp/event/basicevent1</eventSubURL>
+                          <SCPDURL>/eventservice.xml</SCPDURL>
+                        </service>
+                      </serviceList>
+                    </device>
+                  </root>
+          port_fallback: [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
+          port_fallback_notes: >
+            Wemo HTTP ports move across this range after a power cycle, so the
+            port is never identity. When a cached LOCATION stops answering,
+            probe this list in order for /setup.xml on the same host before
+            concluding the device is gone.
+          request:
+            transport: "UDP multicast"
+            line_ending: "CRLF"
+            template: |
+              M-SEARCH * HTTP/1.1
+              HOST: {multicast_group}:{multicast_port}
+              MAN: "ssdp:discover"
+              MX: {mx}
+              ST: {search_target}
+            template_notes: >
+              Lines are CRLF-terminated and the request ends with a blank line
+              (a trailing CRLF after the ST header). MAN's value includes the
+              literal double quotes. Send one datagram per search target and
+              collect unicast replies on the same socket.
+            mx: 2
+            mx_notes: >
+              pywemo sends MX 1, and the identification.ssdp.headers block
+              above shows that value. This request block shows 2 because the
+              repo's own verification scaffolding (scripts/wemo_discover.py)
+              uses 2 and scripts/test_wemo_scaffolding.py parity-pins this
+              field to it. Both are legal SSDP — MX is only the device's
+              upper bound on how long it may delay its reply.
+            socket_options:
+              IP_MULTICAST_TTL: 2
+            example: |
+              M-SEARCH * HTTP/1.1
+              HOST: 239.255.255.250:1900
+              MAN: "ssdp:discover"
+              MX: 2
+              ST: urn:Belkin:service:basicevent:1
+          response:
+            format: "HTTP/1.1 200 OK status line followed by headers; no body."
+            header_matching: "case-insensitive"
+            headers_used:
+              LOCATION: "URL of the device description, normally http://<ip>:<port>/setup.xml"
+              USN: "UDN plus the matching search target"
+              ST: "Search target echoed by the device"
+            dedupe_by: "LOCATION"
+            dedupe_notes: >
+              Every search target is sent separately, so one device answers
+              several times. Deduplicate on the LOCATION URL before fetching.
+            example: |
+              HTTP/1.1 200 OK
+              CACHE-CONTROL: max-age=86400
+              LOCATION: http://192.168.1.42:49153/setup.xml
+              ST: urn:Belkin:service:basicevent:1
+              USN: uuid:Socket-1_0-221517K0101769::urn:Belkin:service:basicevent:1
+          match:
+            description: >
+              ssdp:all is among the search targets, so every UPnP responder on
+              the LAN answers. Keep only Belkin devices.
+            rule: >
+              Case-insensitively match 'belkin' or 'wemo' in any of: the USN
+              header, the ST header, deviceType or manufacturer from the
+              fetched description. The manufacturer element reads exactly
+              'Belkin International Inc.' on every device seen so far.
+            manufacturer_exact: "Belkin International Inc."
+          timing:
+            response_wait_seconds: 5
+            response_wait_notes: >
+              Matches pywemo's DISCOVER_TIMEOUT, which bounds the whole scan.
+              MX is the device's own upper bound on how long it may delay its
+              reply, so the listen window must be at least MX.
+            http_fetch_timeout_seconds: 5
+            port_probe_timeout_seconds: 10
+            timeout_source: >
+              Port probing matches pywemo's REQUESTS_TIMEOUT (10 s), which
+              pywemo also uses for the HTTP fetch. The fetch timeout here
+              stays at 5 s because the repo's verification scaffolding
+              (scripts/wemo_discover.py) uses 5 and
+              scripts/test_wemo_scaffolding.py parity-pins this field.
+    identity:
+      stable_keys: ["udn", "serial", "mac"]
+      display: "friendlyName"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "high"
+    notes: >
+      Wemo devices ship unprovisioned and cannot be discovered by SSDP until
+      they hold WiFi credentials. Provisioning is entirely local: the device
+      hosts an open setup AP and accepts the home network credentials over the
+      same SOAP 1.1 stack used for normal control. The Belkin cloud is not
+      required at any point, which is why Wemo hardware remains recoverable
+      after the January 2026 cloud shutdown.
+
+      CONFIDENCE: HIGH. Service names, action names, argument names, the
+      ApList layout, the network status codes and all three passphrase
+      encryption variants come from pywemo's implementation
+      (pywemo/ouimeaux_device/__init__.py, Apache 2.0), which is maintained and
+      exercised against real hardware across several device generations. Not
+      yet replayed against hardware by this project.
+
+      Always read the WiFiSetup controlURL from setup.xml rather than assuming
+      a path: both /upnp/control/WiFiSetup1 and /upnp/control/wifi1 have been
+      reported across firmware generations.
+    methods:
+      - type: "softap_soap"
+        verified: false
+        description: >
+          Join the device's own setup AP and drive the WiFiSetup SOAP service.
+          This is the only known way to give a Wemo device WiFi credentials
+          without the (now defunct) Belkin app.
+        softap:
+          ssid_prefix: "Wemo."
+          ssid_examples: ["WeMo.Switch.A1B", "Wemo.Mini.4A2", "WeMo.Insight.7C4"]
+          open_network: true
+          gateway_ip: "10.22.22.1"
+          port: 49153
+          port_probe_list: [49153, 49152, 49154, 49151, 49155, 49156, 49157, 49158, 49159]
+          port_notes: >
+            Probe rather than assume: the setup-mode port varies like the
+            normal one. pywemo walks the same fallback list it uses on the LAN.
+          credential_encryption:
+            algorithm: "aes-128-cbc"
+            padding: "pkcs7"
+            key_derivation: >
+              Key material ("keydata") is assembled from the MetaInfo string
+              returned by metainfo#GetMetaInfo, split on '|', where field 0 is
+              the MAC and field 1 is the serial number. The AES key is
+              MD5(keydata_bytes + salt_bytes) truncated to 16 bytes, with
+              salt = keydata[0:8] and iv = keydata[0:16] — equivalent to
+              OpenSSL's legacy EVP_BytesToKey MD5 derivation for AES-128 with
+              the IV supplied explicitly.
+            algorithm_steps:
+              - "1. Choose the keydata layout for this device (see variants below)."
+              - "2. salt = the first 8 characters of keydata, as UTF-8 bytes (NOT hex-decoded)."
+              - "3. iv = the first 16 characters of keydata, as UTF-8 bytes (NOT hex-decoded)."
+              - "4. aes_key = MD5(utf8(keydata) || salt)[0:16]. One MD5 round only; do not iterate."
+              - "5. Pad the UTF-8 passphrase with PKCS#7 to a multiple of 16 bytes."
+              - "6. Encrypt with AES-128-CBC using aes_key and iv."
+              - "7. Base64-encode the ciphertext (standard alphabet, with '=' padding)."
+              - >
+                8. If this variant sets add_lengths, append four lowercase hex
+                digits: the length of the base64 string from step 7, then the
+                length of the plaintext passphrase, EACH zero-padded to exactly
+                two digits. A passphrase of 8 characters contributes '08', not
+                '8'.
+              - "9. Send the result as the `password` argument of ConnectHomeNetwork."
+            openssl_equivalent:
+              command: >
+                openssl enc -aes-128-cbc -md md5 -S <hex of salt bytes>
+                -iv <hex of iv bytes> -pass pass:<keydata>
+              notes: >
+                Produces byte-identical output to the steps above. Note the
+                header quirk: OpenSSL 1.x prefixes its output with the 16-byte
+                "Salted__" + salt header even when the salt is supplied with
+                -S, while OpenSSL 3.x does not. Strip that header only when it
+                is actually present — slicing 16 bytes unconditionally, as
+                older published scripts do, silently corrupts the credential on
+                OpenSSL 3.x.
+            variants:
+              - method: 1
+                keydata: "mac[0:6] + serial + mac[6:12]"
+                add_lengths: true
+                selector: "Default."
+              - method: 2
+                keydata: "mac[0:6] + serial + mac[6:12] + 'b3{8t;80dIN{ra83eC1s?M70?683@2Yf'"
+                add_lengths: false
+                selector: "setup.xml contains rtos=1 and not iot=1."
+              - method: 3
+                keydata: >
+                  mac[0:3] + mac[9:12] + serial +
+                  'b2Ujb3Rtb24mY3ZEbmlhaXBBZGFiT25v' + mac[6:9] + mac[3:6]
+                add_lengths: true
+                selector: >
+                  The Wemo app associates this with binaryOption=1, but pywemo
+                  reports the rtos/iot selector above matches hardware more
+                  often. Try this variant manually if the others fail.
+            encoding: >
+              base64 of the ciphertext, then — for methods 1 and 3 only — four
+              hex digits: the length of that base64 string and the length of
+              the plaintext passphrase, each zero-padded to exactly two digits.
+              Note that OpenSSL 1.x prefixes ciphertext with a 16-byte
+              "Salted__"+salt header even when the salt is given explicitly
+              while OpenSSL 3.x does not, so strip that header conditionally.
+            notes: >
+              The scheme protects the passphrase from a passive listener on the
+              open setup AP, but the key is derived entirely from device
+              metadata that the device hands out unauthenticated, so it is
+              obfuscation rather than a trust boundary. Passphrases shorter
+              than 8 characters are rejected by the device (network status 2).
+            password_constraints:
+              min_length: 8
+              max_length: 255
+              notes: >
+                A passphrase under 8 characters is rejected by the device with
+                network status 2. The upper bound follows from the two-hex-digit
+                length suffix: both the plaintext and the base64 ciphertext must
+                be 255 characters or fewer.
+            test_vectors:
+              description: >
+                Reproducible vectors so an implementation can be verified
+                without hardware. The MAC is from the IANA documentation range
+                (00:00:5E) and the serial is invented — these identify no real
+                device. Every value below is generated from the algorithm_steps
+                above. scripts/test_wemo_spec.py transcribes those steps using
+                only hashlib, base64 and openssl — importing none of this
+                project's code — and asserts the transcription reproduces these
+                vectors, so the published algorithm cannot quietly rot.
+              input:
+                meta_info: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
+                mac: "00005E00530A"
+                serial: "229999K9999999"
+                passphrase: "correct horse battery staple"
+                passphrase_length: 28
+              vectors:
+                - method: 1
+                  add_lengths: true
+                  keydata: "00005E229999K999999900530A"
+                  salt: "00005E22"
+                  iv: "00005E229999K999"
+                  aes_key_hex: "6d27765d242fa465ae5ee33a671d7714"
+                  base64_ciphertext: "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM="
+                  password_argument: "mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c"
+                  suffix_explanation: >
+                    base64 is 44 characters = 0x2c; passphrase is 28 = 0x1c.
+                - method: 2
+                  add_lengths: false
+                  keydata: "00005E229999K999999900530Ab3{8t;80dIN{ra83eC1s?M70?683@2Yf"
+                  salt: "00005E22"
+                  iv: "00005E229999K999"
+                  aes_key_hex: "83b55ae7a7b3bbf7a1b6ead631a232da"
+                  base64_ciphertext: "9ibm3ouYHODjuzVQ0hEHGkEdj4Pf/uCQ0vr8s8Ghuyk="
+                  password_argument: "9ibm3ouYHODjuzVQ0hEHGkEdj4Pf/uCQ0vr8s8Ghuyk="
+                  suffix_explanation: "Method 2 appends no length suffix."
+                - method: 3
+                  add_lengths: true
+                  keydata: "00030A229999K9999999b2Ujb3Rtb24mY3ZEbmlhaXBBZGFiT25v00505E"
+                  salt: "00030A22"
+                  iv: "00030A229999K999"
+                  aes_key_hex: "040c94b31e16aacdaf9bd16e79e08b45"
+                  base64_ciphertext: "JHw2xNnoahVM1rEfW1N2HDn4UT/v60Up80M4Nd3xAQo="
+                  password_argument: "JHw2xNnoahVM1rEfW1N2HDn4UT/v60Up80M4Nd3xAQo=2c1c"
+                  suffix_explanation: >
+                    Same lengths as method 1; only the keydata layout differs.
+        payload_formats:
+          MetaInfo:
+            description: >
+              metainfo#GetMetaInfo returns a single MetaInfo value: a
+              pipe-delimited string of at least six fields. Field order matters —
+              using the serial where the MAC belongs yields a valid-looking blob
+              the device rejects without explanation.
+            fields:
+              - index: 0
+                name: "mac"
+                description: "12 hex characters, no separators. Key material."
+              - index: 1
+                name: "serial_number"
+                description: "Device serial. Key material."
+              - index: 2
+                name: "device_sku"
+                description: "Regional SKU, e.g. Wemo_WW."
+              - index: 3
+                name: "firmware_version"
+                description: "e.g. WeMo_US_2.00.11408."
+              - index: 4
+                name: "access_point_ssid"
+                description: "The device's own setup AP name — it tells you what it advertises."
+              - index: 5
+                name: "model_name"
+                description: "e.g. Socket."
+            example: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
+          ApList:
+            description: >
+              WiFiSetup#GetApList returns a single ApList value holding the
+              device's scan results, newline-separated.
+            parse_rules:
+              - "Split on newline. SKIP THE FIRST LINE — it is a header/count, not an access point."
+              - "Strip whitespace and any trailing comma from each remaining line."
+              - "Ignore lines with no '|' — some firmware emits blank or partial trailing lines."
+              - "Split on '|'. Column 0 is the SSID. Column 1 is the channel."
+              - >
+                The LAST column is 'AUTHMODE/CIPHER'. Split it on '/' to get the
+                `auth` and `encrypt` arguments for ConnectHomeNetwork. Do not
+                assume a fixed column index for it; the number of columns varies.
+              - >
+                Send the device's own strings back verbatim. A network the device
+                can see is still rejected if the auth string does not match its
+                own vocabulary.
+            auth_modes_observed: ["OPEN", "WPA2PSK", "WPAPSK", "Unknown"]
+            supported_ciphers: ["NONE", "AES", "TKIPAES"]
+            open_network_handling: >
+              When the selected entry's cipher is NONE, skip the encryption
+              entirely: send auth=OPEN, encrypt=NONE and an empty password
+              string. Do not call GetMetaInfo — no key material is needed.
+            unsupported_marker:
+              value: "Unknown"
+              meaning: >
+                The device cannot express that network's security mode and will
+                never join it. WPA3 appears this way. The remedy is a WPA2
+                compatibility SSID for the duration of setup, not a retry.
+            example: |
+              3
+              HomeNet|6|WPA2PSK|blah|WPA2PSK/AES,
+              OpenGuest|1|OPEN|blah|OPEN/NONE,
+              NewFangled|1|SAE|blah|Unknown,
+        timing:
+          connect_send_count: 2
+          connect_send_gap_ms: 100
+          connect_send_notes: >
+            Send ConnectHomeNetwork twice about 100ms apart. pywemo reports a
+            markedly higher success rate when it is repeated; the reason is not
+            understood, but it is cheap and harmless.
+          status_poll_interval_seconds: 1
+          status_poll_timeout_seconds: 20
+          status_poll_minimum_seconds: 20
+          status_3_extra_wait_seconds: 3
+          reboot_after_reset_seconds: 90
+          notes: >
+            Devices routinely take 10-15 seconds to join, so a poll timeout
+            below 20 seconds produces false failures; pywemo's setup timeout
+            defaults to 20 s and it enforces a 20 s floor. Status 3 usually
+            flips to 1 within a few more seconds — wait rather than retrying.
+        troubleshooting:
+          - symptom: "ConnectHomeNetwork accepted but NetworkStatus never reaches 1."
+            causes:
+              - "Wrong passphrase."
+              - >
+                Target SSID is 5 GHz. Every Wemo radio is 2.4 GHz only, and a
+                band-steering router advertising one SSID on both bands is the
+                most common cause of an unexplained failure.
+              - >
+                Wrong encryption variant. Sweep all six combinations of
+                method (1, 2, 3) and add_lengths (true, false), in this order:
+                (1, true), (2, false), (3, true), (1, false), (2, true),
+                (3, false). The first three are the documented pairings; the
+                last three are unlikely but cheap to try.
+              - "Weak signal. Some units need a strong signal to complete setup even though they run fine on a weak one afterwards."
+          - symptom: "NetworkStatus returns 2."
+            causes:
+              - "Passphrase is shorter than 8 characters. Terminal — retrying will not help."
+          - symptom: "NetworkStatus sits at 3."
+            causes:
+              - "Handshaking. Wait a few more seconds; 3 usually precedes 1. Not a failure."
+          - symptom: "Target network reports auth mode Unknown in ApList."
+            causes:
+              - "The device cannot express that security mode; WPA3 is the usual cause. Add a WPA2 SSID for the duration of setup."
+          - symptom: "Device is not advertising a Wemo.* AP after a reset."
+            causes:
+              - >
+                On plug-style devices the Restore button must be held THROUGH
+                power-on; pressing it on a running device does nothing. Watch
+                the LED rather than timing the hold.
+          - symptom: "Setup AP is joinable but HTTP times out."
+            causes:
+              - "The client fell back to cellular or another interface. Pin the route to 10.22.22.0/24."
+              - "Wrong port. Probe the port_probe_list rather than assuming 49153."
+          - symptom: "Everything fails repeatedly for no clear reason."
+            causes:
+              - >
+                Genuinely try again — pywemo's own documentation lists this
+                first. Wemo devices sometimes fail to connect and the identical
+                sequence subsequently works.
+        steps:
+          - action: "Factory reset the device (or call basicevent#ReSetup on a provisioned one) so it re-enters setup mode."
+            actor: "user"
+            expect: "Device starts advertising an open Wemo.* WiFi network."
+          - action: "Join the device's setup AP from the provisioning client."
+            actor: "user"
+            expect: "Client receives a 10.22.22.x address with 10.22.22.1 as gateway."
+          - action: "Fetch the device description and resolve service control URLs."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "GET http://10.22.22.1:49153/setup.xml"
+            expect: >
+              serviceList contains urn:Belkin:service:WiFiSetup:1 and
+              urn:Belkin:service:metainfo:1. Belkin also adds non-standard
+              elements alongside the UPnP ones — rtos, iot, binaryOption,
+              new_algo, firmwareVersion — and these select the passphrase
+              encryption variant (see credential_encryption.variants).
+          - action: "Read device metadata used to derive the passphrase encryption key."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:metainfo:1"
+              action: "GetMetaInfo"
+            response_fields:
+              - name: "MetaInfo"
+                type: "string"
+                description: "Pipe-delimited; see payload_formats.MetaInfo above."
+            expect: "MetaInfo pipe-delimited string; fields 0 and 1 supply the key material."
+          - action: "Ask the device to scan for nearby access points."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "GetApList"
+            response_fields:
+              - name: "ApList"
+                type: "string"
+                description: "Newline-separated scan results; see payload_formats.ApList above."
+            expect: >
+              ApList string. The first line is a header and is skipped. Each
+              remaining line is pipe-delimited with SSID in column 0, channel
+              in column 1, and 'AUTHMODE/CIPHER' in the last column; a trailing
+              comma is common. An auth mode of 'Unknown' means the device
+              cannot join that network (WPA3 appears this way). Supported
+              ciphers are NONE, AES and TKIPAES.
+            timeout_seconds: 20
+          - action: "Encrypt the home network passphrase and hand the device its credentials."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "ConnectHomeNetwork"
+              arguments:
+                - name: "ssid"
+                  type: "string"
+                  required: true
+                  description: "Target network SSID, exactly as reported by GetApList."
+                - name: "auth"
+                  type: "string"
+                  required: true
+                  description: "Auth mode from the ApList entry, e.g. WPA2PSK."
+                - name: "password"
+                  type: "string"
+                  required: true
+                  description: "Encrypted passphrase blob (see credential_encryption)."
+                - name: "encrypt"
+                  type: "string"
+                  required: true
+                  description: "Cipher from the ApList entry, e.g. AES."
+                - name: "channel"
+                  type: "integer"
+                  required: true
+                  description: "Channel from the ApList entry."
+            response_fields:
+              - name: "PairingStatus"
+                type: "string"
+                description: >
+                  Acknowledgement that the request was accepted, not the join
+                  result. The outcome comes from polling GetNetworkStatus.
+            expect: >
+              Returns PairingStatus. Send this action twice about 100ms apart —
+              pywemo reports a markedly higher success rate when it is repeated,
+              for reasons that are not understood. For an open network send
+              auth=OPEN, encrypt=NONE and an empty password.
+          - action: "Poll the join result until the device reports a connected state."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "GetNetworkStatus"
+            response_fields:
+              - name: "NetworkStatus"
+                type: "string"
+                description: "Join state; see status_codes below."
+            status_codes:
+              "0": "Still trying to connect. Keep polling."
+              "1": "Connected. Terminal success."
+              "2": "Rejected — passphrase shorter than 8 characters. Terminal failure; retrying will not help."
+              "3": "Handshaking. Usually becomes 1 within a few seconds; not a failure."
+            expect: >
+              NetworkStatus: 0 = still connecting, 1 = connected,
+              2 = rejected because the passphrase is shorter than 8
+              characters, 3 = handshaking (usually becomes 1 within a few
+              seconds, so do not treat it as a failure).
+            timeout_seconds: 30
+          - action: "Close setup mode so the device leaves its AP and joins the home network."
+            actor: "client"
+            request:
+              protocol: "soap"
+              service: "urn:Belkin:service:WiFiSetup:1"
+              action: "CloseSetup"
+            response_fields:
+              - name: "status"
+                type: "string"
+                description: "'success' on a clean close."
+            expect: >
+              Returns status = success. Follow with
+              basicevent#SetSetupDoneStatus where present; it is absent on some
+              firmware and its absence is not an error. Setup AP disappears and
+              the client can rejoin its normal network.
+          - action: "Rediscover the device on the home LAN by SSDP and confirm control."
+            actor: "client"
+            request:
+              protocol: "ssdp"
+              action: "M-SEARCH ST: urn:Belkin:service:basicevent:1"
+            expect: "Device answers with a LOCATION URL; basicevent#GetBinaryState succeeds."
+            timeout_seconds: 90
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears the stored WiFi credentials, friendly name, rules/timers and any
+        cloud/account association, and returns the device to setup mode. The
+        UDN, serial number and MAC address are hardware identity and survive a
+        reset, so a device keeps its stable discovery keys across reprovisioning.
+      procedures:
+        - name: "Restore button held while power is applied (plug-style devices)"
+          applies_to: ["F7C063", "WSP080", "F7C029", "WSP090"]
+          hold_seconds: 5
+          indicator: "Status LED blinks, then the device reboots into setup mode and starts advertising its Wemo.* AP."
+          steps:
+            - action: "Unplug the device from the outlet."
+              actor: "user"
+            - action: "Press and hold the Restore button, then plug the device back in while still holding."
+              actor: "user"
+            - action: "Keep holding for about 5 seconds after power is applied, then release."
+              actor: "user"
+            - action: "Wait up to 90 seconds for the device to finish rebooting."
+              actor: "device"
+              timeout_seconds: 90
+              expect: "An open Wemo.* network appears in the client's WiFi scan."
+        - name: "Restore button held on a mains-powered in-wall device"
+          applies_to: ["F7C030/F7C027/F7C076", "F7C059", "WDS060"]
+          hold_seconds: 10
+          indicator: "Status LED cycles, then the device reboots into setup mode."
+          steps:
+            - action: "Leave the switch powered at the breaker."
+              actor: "user"
+            - action: "Press and hold the Restore button on the device body for about 10 seconds until the LED changes pattern."
+              actor: "user"
+              notes: "In-wall units cannot be reset by cycling power at the breaker alone; the button must be held."
+            - action: "Wait up to 90 seconds for the device to reboot into setup mode."
+              actor: "device"
+              timeout_seconds: 90
+      notes: >
+        Hold times are vendor-documented and vary by generation; treat them as
+        a starting point and watch the LED rather than the clock. The reliable
+        confirmation that a reset worked is the reappearance of the open
+        Wemo.* setup AP.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A provisioned Wemo device can be pushed back into setup mode over the
+        LAN with basicevent#ReSetup, which avoids a physical factory reset when
+        the device is still reachable on the old network — useful when the
+        router is being replaced but the device is not. If the old network is
+        already gone, the device is unreachable and a physical factory reset is
+        the only path. Note that ReSetup clears the stored credentials, so a
+        failed reprovisioning leaves the device in setup mode, not on the old
+        network.
+      steps:
+        - action: "While the device is still reachable on the old network, send basicevent#ReSetup."
+          actor: "client"
+          request:
+            protocol: "soap"
+            service: "urn:Belkin:service:basicevent:1"
+            action: "ReSetup"
+            arguments:
+              - name: "Reset"
+                type: "integer"
+                required: true
+                description: >
+                  Scope of the reset: 1 clears name/icon/rules ("Clear
+                  Personalized Info"), 2 clears everything including WiFi
+                  ("Factory Restore"), 5 clears WiFi credentials only ("Change
+                  Wi-Fi"). Codes were consistent across the devices pywemo has
+                  been tested against but are not guaranteed for every model.
+          response_fields:
+            - name: "Reset"
+              type: "string"
+              description: "'success', or 'reset_remote' on at least one device."
+          expect: >
+            Returns Reset = success; at least one device reports reset_remote
+            instead and still resets correctly. Device drops off the LAN and
+            starts advertising its Wemo.* setup AP.
+        - action: "Run the softap_soap provisioning flow against the new network."
+          actor: "client"
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Home network SSID and passphrase"
+        - "Friendly name and local rules/timers"
+      issued_to_client: []
+      notes: >
+        No token or certificate is issued to the client: post-setup control is
+        unauthenticated SOAP to anyone on the LAN. Treat network segmentation,
+        not device auth, as the security control for Wemo hardware. Published
+        advisories on these exact surfaces underline that: CVE-2023-27217
+        (unauthenticated stack overflow in basicevent#ChangeFriendlyName on
+        the F7C063 Mini, unpatched — Belkin declined as EOL), CVE-2023-33768
+        (WSP080 firmware-signature verification flaw enabling DoS via crafted
+        firmware) and CVE-2018-6692 (Insight RCE via libUPnPHndlr.so).
+
+  variants:
+    - model: "F7C063"
+      name: "Wemo Mini Smart Plug"
+      identification:
+        device_type: "urn:Belkin:device:controllee:1"
+        alternate_device_types: ["urn:Belkin:device:socket:1"]
+        udn_prefixes: ["uuid:Socket"]
+        friendly_name_pattern: "WeMo"
+        apk_widgets: ["wemo_mini", "bundlemanager"]
+      characteristics:
+        - "Basic on/off smart plug."
+        - "Some firmware and APK mocks identify the Mini as socket:1."
+        - >
+          On/off is basicevent GetBinaryState/SetBinaryState; the control
+          surface is declared in the top-level `commands` and `entities`
+          blocks.
+        - >
+          This is the model whose HTTP port moves after a power cycle. The
+          port is not identity — rediscover by SSDP or probe
+          identification.port_probe_list before deciding the plug is gone.
+        - >
+          basicevent#ChangeFriendlyName on this model is CVE-2023-27217, an
+          unauthenticated stack overflow Belkin declined to patch as EOL. A
+          client has no reason to send it and every reason not to expose it.
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          service_type: "urn:Belkin:service:basicevent:1"
+          actions: ["GetBinaryState", "SetBinaryState", "GetFriendlyName", "ChangeFriendlyName", "ReSetup"]
+        metainfo:
+          control_url: "/upnp/control/metainfo1"
+          actions: ["GetMetaInfo", "GetExtMetaInfo"]
+        deviceinfo:
+          control_url: "/upnp/control/deviceinfo1"
+          actions: ["GetDeviceInformation"]
+
+    - model: "WSP080"
+      name: "Wemo WiFi Smart Plug"
+      identification:
+        device_type: "urn:Belkin:device:socket:1"
+        udn_prefixes: ["uuid:Socket"]
+        friendly_name_pattern: "Wemo Smart Plug"
+        apk_widgets: ["wemo_smart_plug", "wemo_socket"]
+      characteristics:
+        - "Basic on/off smart plug."
+        - >
+          Same on/off surface as the Mini: basicevent
+          GetBinaryState/SetBinaryState, declared in the top-level `commands`
+          and `entities` blocks.
+        - >
+          GetSignalStrength is listed below because the device answers it, but
+          the return value's units and range are not documented here, so no
+          sensor entity is declared for it.
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          service_type: "urn:Belkin:service:basicevent:1"
+          actions: ["GetBinaryState", "SetBinaryState", "GetFriendlyName", "ChangeFriendlyName", "GetSignalStrength"]
+        metainfo:
+          control_url: "/upnp/control/metainfo1"
+          actions: ["GetMetaInfo"]
+
+    - model: "F7C029"
+      name: "Wemo Insight Smart Plug"
+      identification:
+        device_type: "urn:Belkin:device:insight:1"
+        udn_prefixes: ["uuid:Insight"]
+        friendly_name_pattern: "Insight"
+        apk_widgets: ["wemo_insight", "wemo_group"]
+      characteristics:
+        - "Smart plug with power and energy monitoring."
+        - "InsightParams state 8 means on but load is in standby."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState", "GetInsightHomeSettings", "SetInsightHomeSettings"]
+        insight:
+          control_url: "/upnp/control/insight1"
+          event_sub_url: "/upnp/event/insight1"
+          service_type: "urn:Belkin:service:insight:1"
+          actions: ["GetInsightParams", "GetPowerThreshold", "SetPowerThreshold", "ResetPowerThreshold", "GetTodayKWH", "GetTodayONTime", "GetPower"]
+          response_fields:
+            InsightParams: "state|lastchange|onfor|ontoday|ontotal|timeperiod|wifipower|currentpower_mw|todaymw|totalmw|powerthreshold"
+
+    - model: "F7C030/F7C027/F7C076"
+      name: "Wemo Light Switch Gen1/Gen2/3-Way"
+      identification:
+        device_type: "urn:Belkin:device:lightswitch:1"
+        udn_prefixes: ["uuid:Lightswitch-1_0", "uuid:Lightswitch-2_0", "uuid:Lightswitch-3_0", "uuid:Lightswitch"]
+        friendly_name_pattern: "Light Switch"
+        apk_widgets: ["wemo_lightswitch", "wemo_lightswitch_2gen", "wemo_lightswitch3way"]
+      characteristics:
+        - "Wall switch; Gen2 and 3-way variants may support long-press notifications."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState", "SimulateLongPress"]
+
+    - model: "F7C059"
+      name: "Wemo Dimmer v1"
+      identification:
+        device_type: "urn:Belkin:device:dimmer:1"
+        udn_prefixes: ["uuid:Dimmer-1_0", "uuid:Dimmer"]
+        friendly_name_pattern: "Dimmer"
+        apk_widgets: ["wemo_dimmer", "wemo_dimmer_calibration"]
+      characteristics:
+        - "Dimmer uses basicevent SetBinaryState with brightness=1-100."
+        - "APK mock data reuses socket:1, but public libraries use dimmer:1 for real hardware."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState", "Calibrate", "ConfigureDimmingRange", "ConfigureNightMode", "GetNightModeConfiguration"]
+
+    - model: "WDS060"
+      name: "Wemo Dimmer v2"
+      identification:
+        device_type: "urn:Belkin:device:dimmer:1"
+        udn_prefixes: ["uuid:Dimmer-2_0"]
+        friendly_name_pattern: "Dimmer"
+        apk_widgets: ["wemo_dimmer_v2"]
+      characteristics:
+        - "Same deviceType as Dimmer v1; distinguish by UDN prefix and model metadata."
+        - "Supports brightness through basicevent SetBinaryState brightness=1-100."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState", "Calibrate", "ConfigureDimmingRange", "ConfigureHushMode", "ConfigureNightMode"]
+
+    - model: "F7C043"
+      name: "Wemo Maker"
+      identification:
+        device_type: "urn:Belkin:device:Maker:1"
+        udn_prefixes: ["uuid:Maker"]
+        friendly_name_pattern: "Maker"
+        apk_widgets: ["wemo_maker"]
+      characteristics:
+        - "Relay plus sensor input."
+        - "Attribute list exposes Switch, Sensor, SwitchMode, and SensorPresent."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState"]
+        deviceevent:
+          control_url: "/upnp/control/deviceevent1"
+          event_sub_url: "/upnp/event/deviceevent1"
+          service_type: "urn:Belkin:service:deviceevent:1"
+          actions: ["GetAttributes", "SetAttributes", "GetAttributeList"]
+
+    - model: "WSP090"
+      name: "Wemo Outdoor Plug"
+      identification:
+        device_type: "urn:Belkin:device:outdoor:1"
+        udn_prefixes: ["uuid:OutdoorPlug"]
+        friendly_name_pattern: "Outdoor"
+        apk_widgets: ["wemo_outdoorplug"]
+      characteristics:
+        - "Outdoor smart plug; pywemo models it as a switch."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState"]
+
+    - model: "F7C031"
+      name: "Wemo Motion Sensor"
+      identification:
+        device_type: "urn:Belkin:device:motion:1"
+        alternate_device_types: ["urn:Belkin:device:sensor:1"]
+        udn_prefixes: ["uuid:Sensor"]
+        friendly_name_pattern: "Motion"
+        apk_widgets: ["wemo_sensor"]
+      characteristics:
+        - "Binary motion sensor. Some docs call this sensor:1; APK mock uses motion:1."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetBinaryState"]
+
+    - model: "F7C033"
+      name: "Wemo Bridge / Link"
+      identification:
+        device_type: "urn:Belkin:device:bridge:1"
+        udn_prefixes: ["uuid:Bridge"]
+        friendly_name_pattern: "Bridge"
+        apk_widgets: ["wemo_lighting", "wemo_bridge", "wemo_bridge_popup"]
+      characteristics:
+        - "Zigbee bridge for Wemo Link bulbs and groups."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          actions: ["GetBinaryState", "GetMacAddr"]
+        bridge:
+          control_url: "/upnp/control/bridge1"
+          event_sub_url: "/upnp/event/bridge1"
+          service_type: "urn:Belkin:service:bridge:1"
+          actions: ["GetEndDevices", "GetEndDevicesWithStatus", "GetDeviceStatus", "SetDeviceStatus", "GetGroups", "CreateGroup", "DeleteGroup", "OpenNetwork", "CloseNetwork"]
+
+    - model: "BVMC-PSTX91WE"
+      name: "Mr. Coffee Smart Wemo Coffeemaker"
+      identification:
+        device_type: "urn:Belkin:device:coffeemaker:1"
+        udn_prefixes: ["uuid:CoffeeMaker"]
+        friendly_name_pattern: "Coffee"
+        apk_widgets: ["wemo_coffeemaker"]
+      characteristics:
+        - "Attribute-based appliance. Mode 4 starts brewing; remote off is not supported by pywemo."
+      services:
+        deviceevent:
+          control_url: "/upnp/control/deviceevent1"
+          event_sub_url: "/upnp/event/deviceevent1"
+          actions: ["GetAttributes", "SetAttributes", "GetAttributeList"]
+
+    - model: "SCCPWM600-V1"
+      name: "Crock-Pot Smart Slow Cooker"
+      alternate_models: ["SCCPWM600-V2", "F7C045"]
+      alternate_models_notes: >
+        F7C045 is Belkin's part number for the same appliance ("Crock-Pot
+        Smart Slow Cooker with Wemo"); SCCPWM600 is Jarden's. A user reading a
+        support article and a user reading the base of their cooker are
+        holding the same device.
+      identification:
+        device_type: "urn:Belkin:device:crockpot:1"
+        udn_prefixes: ["uuid:Crockpot"]
+        udn_prefix_notes: >
+          Spelled exactly as the device sends it: capital C, lowercase p.
+          pywemo dispatches on `udn.startswith("uuid:Crockpot")`, which is
+          case-SENSITIVE, and our own notes have carried a lowercase
+          "uuid:crockpot-1_0-..." guess elsewhere. Match case-insensitively
+          and you cannot be wrong either way.
+        friendly_name_pattern: "Crock"
+        apk_widgets: ["wemo_crockpot"]
+      characteristics:
+        - "Cooking modes are off=0, warm=50, low=51, high=52 (payload_formats.CrockpotMode)."
+        - >
+          BinaryState IS NOT THIS DEVICE'S STATE. basicevent#GetBinaryState
+          answers 0 whatever the cooker is doing, so on/off comes from
+          `mode != 0` in GetCrockpotState. This is the one Wemo where the
+          universal switch surface is present and lies.
+        - >
+          Mode and cook time are set together by one action; there is no
+          set-the-mode-alone call. See commands.set_cook_mode.
+        - >
+          SetCrockpotState is acknowledged, not confirmed. pywemo re-reads
+          the state after every write because the cooker does not always take
+          the setting.
+        - "Control surface is declared in the top-level `commands` and `entities` blocks."
+      services:
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          event_sub_url: "/upnp/event/basicevent1"
+          actions: ["GetCrockpotState", "SetCrockpotState", "GetBinaryState"]
+          notes: >
+            The appliance actions live HERE, on basicevent — that is where
+            pywemo calls them and the only placement with a working
+            implementation behind it. The SOAPACTION header is therefore
+            "urn:Belkin:service:basicevent:1#SetCrockpotState", not a
+            crockpotevent one.
+          event_properties: ["BinaryState", "mode", "time", "cookedTime"]
+        crockpotevent:
+          control_url: "/upnp/control/crockpotevent1"
+          event_sub_url: "/upnp/event/crockpotevent1"
+          actions: ["GetCrockpotState", "SetCrockpotState", "GetJardenStatus", "SetJardenStatus"]
+          verification: "hypothesis"
+          notes: >
+            Catalogued from the Jarden appliance family's shape, not from a
+            Crock-Pot's own setup.xml, and no implementation drives it. Take
+            the service list from the device rather than from this entry, and
+            send the two state actions to basicevent above.
+
+    - model: "Holmes-Air-Purifier"
+      name: "Holmes Smart Air Purifier"
+      identification:
+        device_type: "urn:Belkin:device:purifier:1"
+        alternate_device_types: ["urn:Belkin:device:airpurifier:1"]
+        udn_prefixes: ["uuid:AirPurifier"]
+        friendly_name_pattern: "Air Purifier"
+        apk_widgets: ["wemo_airpurifier"]
+      characteristics:
+        - "APK mock uses purifier:1. Some public catalogs call the class airpurifier:1."
+        - "Uses deviceevent attributes for appliance state."
+      services:
+        deviceevent:
+          control_url: "/upnp/control/deviceevent1"
+          event_sub_url: "/upnp/event/deviceevent1"
+          actions: ["GetAttributes", "SetAttributes", "GetAttributeList"]
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState", "GetJardenStatus", "SetJardenStatus"]
+
+    - model: "Holmes-Heater"
+      name: "Holmes Smart Heater"
+      identification:
+        device_type: "urn:Belkin:device:heater:1"
+        udn_prefixes: ["uuid:Heater"]
+        friendly_name_pattern: "Heater"
+        apk_widgets: ["wemo_heatera"]
+      characteristics:
+        - "Uses Jarden/deviceevent appliance attributes."
+      services:
+        deviceevent:
+          control_url: "/upnp/control/deviceevent1"
+          event_sub_url: "/upnp/event/deviceevent1"
+          actions: ["GetAttributes", "SetAttributes", "GetAttributeList"]
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState", "GetJardenStatus", "SetJardenStatus"]
+
+    - model: "Holmes-Humidifier"
+      name: "Holmes Smart Humidifier"
+      identification:
+        device_type: "urn:Belkin:device:humidifier:1"
+        alternate_device_types: ["urn:Belkin:device:humidity:1", "urn:Belkin:device:Humidifier:1"]
+        udn_prefixes: ["uuid:Humidifier"]
+        friendly_name_pattern: "Humidifier"
+        apk_widgets: ["wemo_humidifier", "wemo_humidifierb"]
+      characteristics:
+        - "pywemo supports humidifier attributes for fan mode, desired humidity, current humidity, water level, and filter life."
+        - "APK includes both humidifier:1 and humidifierb:1 widgets plus generic Humidifier:1 mocks."
+      services:
+        deviceevent:
+          control_url: "/upnp/control/deviceevent1"
+          event_sub_url: "/upnp/event/deviceevent1"
+          actions: ["GetAttributes", "SetAttributes", "GetAttributeList"]
+        basicevent:
+          control_url: "/upnp/control/basicevent1"
+          actions: ["GetBinaryState", "SetBinaryState", "GetJardenStatus", "SetJardenStatus"]
+
+    - model: "Holmes-Humidifier-B"
+      name: "Holmes Smart Humidifier Variant B"
+      identification:
+        device_type: "urn:Belkin:device:humidifierb:1"
+        alternate_device_types: ["urn:Belkin:device:humidity:1"]
+        udn_prefixes: ["uuid:Humidifier"]
+        friendly_name_pattern: "Humidifier"
+        apk_widgets: ["wemo_humidifierb"]
+      characteristics:
+        - "APK-specific humidifier variant; expect same deviceevent attribute pattern as humidifier:1."
+      services:
+        deviceevent:
+          control_url: "/upnp/control/deviceevent1"
+          event_sub_url: "/upnp/event/deviceevent1"
+          actions: ["GetAttributes", "SetAttributes", "GetAttributeList"]
+
+discovery_catalog:
+  sources:
+    pywemo:
+      url: "https://github.com/pywemo/pywemo"
+      device_classes:
+        - "Switch"
+        - "Insight"
+        - "LightSwitch"
+        - "Dimmer"
+        - "DimmerV2"
+        - "Maker"
+        - "OutdoorPlug"
+        - "Motion"
+        - "Bridge"
+        - "CoffeeMaker"
+        - "CrockPot"
+        - "Humidifier"
+    home_assistant:
+      url: "https://www.home-assistant.io/integrations/wemo/"
+      supported_platforms:
+        - "Binary sensor: Wemo Motion Sensor"
+        - "Fan: Wemo/Holmes Smart Humidifier"
+        - "Light: Wemo LED lights and Smart Dimmer Switch"
+        - "Switch: Wemo switches and Mr. Coffee smart coffee makers"
+      discovery_default: true
+    ouimeaux:
+      url: "https://github.com/iancmcc/ouimeaux"
+      role: "Legacy Python Wemo implementation and pywemo lineage."
+    apk:
+      path: "wemo-apk/decoded/assets/www/widgets/"
+      first_level_widget_dirs_observed: 45
+      relevant_device_widgets:
+        - "wemo_mini"
+        - "wemo_socket"
+        - "wemo_smart_plug"
+        - "wemo_insight"
+        - "wemo_outdoorplug"
+        - "wemo_lightswitch"
+        - "wemo_lightswitch_2gen"
+        - "wemo_lightswitch3way"
+        - "wemo_dimmer"
+        - "wemo_dimmer_v2"
+        - "wemo_lighting"
+        - "wemo_maker"
+        - "wemo_sensor"
+        - "wemo_coffeemaker"
+        - "wemo_crockpot"
+        - "wemo_heatera"
+        - "wemo_airpurifier"
+        - "wemo_humidifier"
+        - "wemo_humidifierb"
+
+helpful_urls:
+  - title: "open-wemo"
+    url: "https://github.com/blackbxdev/open-wemo"
+    description: "Post-shutdown open-source app/bridge (created ~2026-03) keeping the F7C063, WSP070 and WSP080 usable after the Belkin app shutdown."
+  - title: "Wemo Insight teardown and OpenWrt port"
+    url: "https://svenschwermer.de/wemo"
+    description: "Full F7C029 Insight hardware/firmware teardown (RT5350F SoC, u-boot env independently confirming the 10.22.22.1 setup network, cloud endpoints) with a mainline OpenWrt port and package feed."
+
+soap_common:
+  transport: "HTTP POST"
+  content_type: "text/xml; charset=\"utf-8\""
+  soapaction_format: "\"<serviceType>#<Action>\""
+  request_format:
+    description: >
+      Everything needed to build a Wemo SOAP request byte for byte. Wemo
+      firmware runs a minimal XML parser, so send this shape rather than
+      whatever your XML library produces by default.
+    http:
+      method: "POST"
+      url: "http://<ip>:<port><controlURL from setup.xml>"
+      headers:
+        Content-Type: "text/xml; charset=\"utf-8\""
+        SOAPACTION: "\"<serviceType>#<Action>\"  (note the literal double quotes)"
+    argument_qualification: >
+      CRITICAL: action arguments are UNQUALIFIED. Send <ssid>value</ssid>, not
+      <u:ssid>value</u:ssid>. Only the action element itself carries the u:
+      prefix, and the xmlns:u declaration belongs ON THE ACTION ELEMENT, not on
+      the envelope. Several XML libraries (including Python's ElementTree)
+      hoist namespace declarations to the root element, which is equivalent XML
+      but not what these devices normally receive.
+    escaping: >
+      XML-escape argument values (&, <, >). An SSID containing an ampersand
+      otherwise produces a malformed document. Note that pywemo does not escape,
+      so this is a divergence in our favour rather than a documented device
+      behaviour.
+    template: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:{action} xmlns:u="{serviceType}">
+      {arguments}
+      </u:{action}>
+      </s:Body>
+      </s:Envelope>
+    example:
+      description: "ConnectHomeNetwork as it goes on the wire."
+      body: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+        <s:Body>
+        <u:ConnectHomeNetwork xmlns:u="urn:Belkin:service:WiFiSetup:1">
+        <ssid>HomeNet</ssid>
+        <auth>WPA2PSK</auth>
+        <password>mKUXMHrq3r71VIBnALtgaQH/iTpWEZSSMVizvzMXrVM=2c1c</password>
+        <encrypt>AES</encrypt>
+        <channel>6</channel>
+        </u:ConnectHomeNetwork>
+        </s:Body>
+        </s:Envelope>
+  response_format:
+    description: >
+      Responses are a SOAP envelope whose Body has exactly one child, named
+      <ActionName>Response. That element's direct children are the named return
+      values; take their text content. A Body child named Fault is an error.
+    parse_rule: "envelope -> Body -> first child -> {child.tag: child.text}"
+    example: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+      <s:Body>
+      <u:GetNetworkStatusResponse xmlns:u="urn:Belkin:service:WiFiSetup:1">
+      <NetworkStatus>1</NetworkStatus>
+      </u:GetNetworkStatusResponse>
+      </s:Body>
+      </s:Envelope>
+  setup_description:
+    method: "GET"
+    path: "/setup.xml"
+    content_type: "text/xml"
+    source: "SSDP LOCATION response header"
+  universal_services:
+    basicevent:
+      service_type: "urn:Belkin:service:basicevent:1"
+      control_url: "/upnp/control/basicevent1"
+      event_sub_url: "/upnp/event/basicevent1"
+      actions:
+        - "GetBinaryState"
+        - "SetBinaryState"
+        - "ReSetup"
+        - "SetSetupDoneStatus"
+      setup_related_actions:
+        ReSetup: >
+          Takes a Reset argument selecting scope: 1 clears name/icon/rules,
+          2 factory resets, 5 clears WiFi credentials only. Returns Reset =
+          success (or reset_remote on at least one device). See device.setup.rejoin.
+        SetSetupDoneStatus: >
+          Sent after a successful CloseSetup. Absent on some firmware; treat a
+          SOAP fault or missing action as non-fatal.
+    metainfo:
+      service_type: "urn:Belkin:service:metainfo:1"
+      control_url: "/upnp/control/metainfo1"
+      actions: ["GetMetaInfo", "GetExtMetaInfo"]
+    timesync:
+      service_type: "urn:Belkin:service:timesync:1"
+      control_url: "/upnp/control/timesync1"
+      actions: ["GetTime", "TimeSync", "GetDeviceTime"]
+    wifi_setup:
+      service_type: "urn:Belkin:service:WiFiSetup:1"
+      control_url: "/upnp/control/WiFiSetup1"
+      control_url_alternates: ["/upnp/control/wifi1"]
+      actions: ["GetApList", "ConnectHomeNetwork", "GetNetworkStatus", "CloseSetup"]
+      availability: >
+        Present on the setup AP. Always resolve the controlURL from the
+        serviceList in setup.xml; the path spelling differs across firmware
+        generations.
+    rules:
+      service_type: "urn:Belkin:service:rules:1"
+      control_url: "/upnp/control/rules1"
+      event_sub_url: "/upnp/event/rules1"
+      actions: ["FetchRules", "StoreRules"]
+      actions_older_firmware:
+        - "GetRulesDBPath"
+        - "GetRulesDBVersion"
+        - "SetRulesDBVersion"
+        - "GetRules"
+        - "SetRules"
+        - "SetRuleID"
+        - "DeleteRuleID"
+        - "GetTemplates"
+        - "SetTemplates"
+        - "UpdateWeeklyCalendar"
+        - "EditWeeklycalendar"
+      availability: >
+        The on-device automation store — where the (now dead) Wemo app kept
+        its timers, schedules and long-press rules. FetchRules/StoreRules are
+        the pair a current implementation uses; the longer list comes from a
+        2016 dump of the service description and is not what pywemo drives, so
+        take the action list from the device's own SCPD rather than from here.
+        See the top-level `scheduling` block for what the two actions move.
+
+    smartsetup:
+      service_type: "urn:Belkin:service:smartsetup:1"
+      control_url: "/upnp/control/smartsetup1"
+      availability: >
+        Undocumented service seen in real-hardware captures (pywemo VCR
+        cassettes) alongside WiFiSetup:1 on the light switch, Maker, outdoor
+        plug and humidifier. Its action surface is not yet mapped; it is
+        suspected to be the newer-generation provisioning surface. Resolve the
+        controlURL from setup.xml like any other service.
+  eventing:
+    description: >
+      Wemo devices push state changes over standard UPnP eventing, to the
+      eventSubURL each service publishes in setup.xml. This is the difference
+      between a control that reacts when somebody presses the button on the
+      device and one that only knows what it last wrote: a client that polls
+      GetBinaryState every few seconds still misses the Crock-Pot finishing.
+      Every field below is what pywemo's subscription registry sends and
+      parses; none of it has been replayed against hardware here.
+    subscribable_services: ["basicevent", "insight", "bridge"]
+    subscribable_services_notes: >
+      Subscribe to the services a device actually publishes — take the
+      eventSubURL from its own serviceList and skip the rest. On the plug and
+      the Crock-Pot that is basicevent alone.
+    subscribe:
+      method: "SUBSCRIBE"
+      url: "http://<ip>:<port><eventSubURL from setup.xml>"
+      headers:
+        CALLBACK: "<http://<client-ip>:<client-port>/<unique-path>>"
+        NT: "upnp:event"
+        TIMEOUT: "Second-300"
+      header_notes: >
+        The angle brackets around CALLBACK's URL are part of the value, not
+        notation. The client must already be listening on that address: the
+        device connects back to it, so a client behind NAT or on a different
+        subnet gets a subscription that never delivers. Pick the callback host
+        by which local interface routes to the device rather than by whatever
+        the OS calls primary.
+      response_headers:
+        SID: "Subscription identifier, needed to renew or cancel."
+        TIMEOUT: "Second-<n>, the lifetime the device actually granted."
+      timeout_seconds: 300
+      timeout_notes: >
+        TIMEOUT is a request, not a promise — renew on the value the device
+        returns in its own TIMEOUT header, not on the one you asked for.
+    renew:
+      method: "SUBSCRIBE"
+      headers:
+        SID: "<the SID from the original subscribe>"
+        TIMEOUT: "Second-300"
+      notes: >
+        A renewal carries SID and no CALLBACK/NT. A device that has forgotten
+        the subscription answers with an error; the recovery is to UNSUBSCRIBE
+        for safety and then subscribe afresh, which is also what a port change
+        after a power cycle looks like from here.
+    unsubscribe:
+      method: "UNSUBSCRIBE"
+      headers:
+        SID: "<the SID from the original subscribe>"
+    notify:
+      method: "NOTIFY"
+      description: >
+        The device POSTs an XML property set to the callback URL whenever a
+        subscribed value changes. Each <e:property> holds exactly one child
+        whose tag names the property and whose text is the new value — the
+        same values the matching Get* action returns, in the same encoding, so
+        one parser serves both paths.
+      namespace: "urn:schemas-upnp-org:event-1-0"
+      parse_rule: "propertyset -> each property -> first child -> {child.tag: child.text}"
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <e:propertyset xmlns:e="urn:schemas-upnp-org:event-1-0">
+        <e:property>
+        <BinaryState>1</BinaryState>
+        </e:property>
+        </e:propertyset>
+      properties:
+        BinaryState:
+          service: "basicevent"
+          format: "payload_formats.BinaryState"
+          notes: >
+            Sent by every switch-like device. Carries the pipe-delimited long
+            form on some firmware, so split on '|' and take field 0 here too.
+        mode:
+          service: "basicevent"
+          format: "payload_formats.CrockpotMode"
+          notes: "Crock-Pot only. The device's own state, whether it changed by SOAP or by the front-panel button."
+        time:
+          service: "basicevent"
+          unit: "minutes"
+          notes: "Crock-Pot only. Cook time remaining."
+        cookedTime:
+          service: "basicevent"
+          unit: "minutes"
+          notes: "Crock-Pot only. Minutes cooked so far in this run."
+        InsightParams:
+          service: "insight"
+          format: "payload_formats.InsightParams"
+          notes: >
+            Insight only. An Insight stops sending these when it is switched
+            off, so a gap in the stream is not a lost subscription.
+      verification: "reported"
+
+payload_formats:
+  BinaryState:
+    description: >
+      Relay/light state, returned by basicevent#GetBinaryState and accepted
+      by SetBinaryState.
+    delimiter: "|"
+    fields:
+      - index: 0
+        name: "state"
+        description: >
+          The state itself, and the only documented field of the long form.
+          Declared as a delimited field rather than left to the parse rule
+          below because a decoder cannot follow prose: this is what says the
+          value may need splitting before any of `values` applies.
+    values:
+      "0": "off"
+      "1": "on"
+      "8": >
+        On, but the attached load is drawing standby-level power. Insight
+        devices report this; treat it as ON for control purposes.
+    parse_rules:
+      - >
+        Some firmware returns extra pipe-delimited values after the state
+        (for example on dimmers). Split on '|' and take field 0 rather than
+        parsing the whole string as an integer.
+      - >
+        The trailing fields of the long form are NOT InsightParams and must
+        not be read with that layout: the two differ in length and nothing
+        published says the columns line up. Field 0 is the documented part.
+        Reach for insight#GetInsightParams when you want the energy figures.
+    example: "1"
+  CrockpotMode:
+    description: >
+      Cooking mode of the Crock-Pot Smart Slow Cooker: returned as the `mode`
+      value of basicevent#GetCrockpotState, sent as the `mode` argument of
+      basicevent#SetCrockpotState, and pushed as the `mode` event property.
+      This is the Crock-Pot's state — BinaryState is not (see
+      device.variants SCCPWM600-V1).
+    values:
+      "0": "off"
+      "50": "warm"
+      "51": "low"
+      "52": "high"
+    parse_rules:
+      - >
+        The numbers are the device's own and are not an ordering: there is no
+        mode between 0 and 50, and 51 is not "one more heat than" 50. Map
+        through this table rather than treating the value as a level.
+      - >
+        Any other value is a mode this table does not know. Keep the raw
+        number and render it as unknown; mapping an unrecognised value to
+        `off` would tell a user their cooker is off while it is heating.
+        pywemo returns a distinct unknown (-1) for exactly this reason.
+      - >
+        Off is a real mode, not the absence of one. A client deriving on/off
+        from this field asks `mode != 0`, which is what pywemo does.
+    example: "51"
+  InsightParams:
+    description: >
+      Energy and timing counters from insight#GetInsightParams, as a single
+      pipe-delimited string.
+    delimiter: "|"
+    parse_rules:
+      - "Split on '|'. Fields are positional; there are no names on the wire."
+      - >
+        Firmware may append fields beyond those documented here. Keep any
+        extras rather than discarding them, and do not treat a longer string
+        as a parse failure.
+    fields:
+      - index: 0
+        name: "state"
+        description: "Current BinaryState — see the BinaryState format above."
+      - index: 1
+        name: "lastchange"
+        description: "Unix timestamp of the last state change."
+      - index: 2
+        name: "onfor_seconds"
+        unit: "seconds"
+        description: "Seconds the load has been on during the current run."
+      - index: 3
+        name: "ontoday_seconds"
+        unit: "seconds"
+        description: "Seconds on today."
+      - index: 4
+        name: "ontotal_seconds"
+        unit: "seconds"
+        description: "Seconds on over the measurement period."
+      - index: 5
+        name: "timeperiod"
+        unit: "seconds"
+        description: "Length of the measurement period in seconds (commonly 1209600 = 14 days)."
+      - index: 6
+        name: "wifipower"
+        description: >
+          WiFi signal strength. Easy to miss — omitting this field shifts
+          every power reading one column left, which reads as plausible but
+          wrong data rather than as an error.
+      - index: 7
+        name: "currentpower_mw"
+        unit: "mW"
+        description: "Instantaneous power draw in milliwatts."
+      - index: 8
+        name: "todaymw"
+        unit: "mW·min"
+        description: "Energy used today, in milliwatt-minutes."
+      - index: 9
+        name: "totalmw"
+        unit: "mW·min"
+        description: "Energy used over the measurement period, in milliwatt-minutes."
+      - index: 10
+        name: "powerthreshold"
+        unit: "mW"
+        description: "Standby detection threshold in milliwatts."
+    example: "8|1700000000|100|200|300|1209600|8000|18500|1200|9900|8000"
+  MetaInfo:
+    description: >
+      Device metadata from metainfo#GetMetaInfo. Also used during setup —
+      see device.setup for how fields 0 and 1 key the passphrase encryption.
+    fields:
+      - index: 0
+        name: "mac"
+        description: "12 hex characters, no separators."
+      - index: 1
+        name: "serial_number"
+      - index: 2
+        name: "device_sku"
+      - index: 3
+        name: "firmware_version"
+      - index: 4
+        name: "access_point_ssid"
+        description: "The device's own setup AP name."
+      - index: 5
+        name: "model_name"
+    example: "00005E00530A|229999K9999999|Wemo_WW|WeMo_US_2.00.11408|Wemo.Mini.4A2|Socket"
+
+# Writes a client sends, as data rather than prose, so a consumer that can
+# already drive an entity's `turn_on` role over BLE can drive one over SOAP by
+# learning one new transport rather than one new device.
+#
+# The split with `http_endpoints` is deliberate and is the whole reason two
+# blocks exist: http_endpoints catalogues the ACTIONS (what exists, what it
+# takes, what it returns) and an entity's `state_command` names one of them,
+# while a command here is one INVOCATION of an action with its arguments
+# already chosen — `plug_turn_on` is SetBinaryState with BinaryState=1, and
+# that "1" is the part an entity's `commands:` map cannot carry itself. Every
+# name an entity binds resolves in exactly one of the two blocks.
+#
+# To send one: resolve the controlURL for `service` from the device's own
+# serviceList (NEVER hardcode it — see soap_common), substitute any
+# `parameters` into `arguments`, and render through
+# soap_common.request_format.template. Nothing else is needed; the example
+# bodies below are what that produces.
+commands:
+  plug_turn_on:
+    description: "Close the relay on a Wemo plug, switch or outdoor plug."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetBinaryState"
+    arguments:
+      BinaryState: "1"
+    returns:
+      - name: "BinaryState"
+        description: >
+          Echoes the new state, or the string 'Error' when the device was
+          already in it. 'Error' here is not a failure worth surfacing —
+          pywemo ignores it — but it does mean the reply cannot be used as a
+          state reading.
+    verification: "reported"
+    example_body: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:SetBinaryState xmlns:u="urn:Belkin:service:basicevent:1">
+      <BinaryState>1</BinaryState>
+      </u:SetBinaryState>
+      </s:Body>
+      </s:Envelope>
+
+  plug_turn_off:
+    description: "Open the relay on a Wemo plug, switch or outdoor plug."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetBinaryState"
+    arguments:
+      BinaryState: "0"
+    returns:
+      - name: "BinaryState"
+        description: "As plug_turn_on."
+    verification: "reported"
+
+  set_cook_mode:
+    description: >
+      Set the Crock-Pot's cooking mode, carrying the cook time along
+      unchanged.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "{mode}"
+      time: "{time}"
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        values:
+          "0": "off"
+          "50": "warm"
+          "51": "low"
+          "52": "high"
+        description: "Target mode; see payload_formats.CrockpotMode."
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        source: "state:GetCrockpotState.time"
+        description: >
+          SetCrockpotState carries BOTH values on every call, so changing the
+          mode alone still means sending the cook time back with it — omit it
+          and you have also cleared the timer. Read `time` from
+          GetCrockpotState immediately before the write and send what it
+          returned, which is what pywemo does.
+        notes: >
+          NO default, deliberately. A `source` parameter with no default is
+          this spec saying the read-back is part of the send: a renderer that
+          reaches this parameter with no value must FAIL the write, visibly,
+          rather than substitute anything. pywemo falls back to 0 here, but
+          what the appliance does with a 0 cook time in a heating mode is not
+          verified, and "the write failed, try again" is a better outcome
+          than a silently cleared timer. A client that genuinely cannot read
+          the device (mid-provisioning, say) should ask the user for a time.
+    verification: "reported"
+    example_body: |
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+      <s:Body>
+      <u:SetCrockpotState xmlns:u="urn:Belkin:service:basicevent:1">
+      <mode>51</mode>
+      <time>240</time>
+      </u:SetCrockpotState>
+      </s:Body>
+      </s:Envelope>
+    example_notes: >
+      Low for four hours, built from mode=51 and time=240. Note the argument
+      names are lowercase where BinaryState is not; they are spelled here
+      exactly as they go on the wire.
+
+  set_cook_time:
+    description: >
+      Set the Crock-Pot's cook time in minutes, leaving the mode as it is.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "{mode}"
+      time: "{time}"
+    parameters:
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        required: true
+        description: "New cook time in minutes."
+      mode:
+        type: "integer"
+        source: "state:GetCrockpotState.mode"
+        description: >
+          The mirror of the same trap: the action carries both values, so
+          setting a time means sending the current mode back with it. Read it
+          from GetCrockpotState first.
+        notes: >
+          NO default, and this one earlier carried `default: 0` on the theory
+          that off is harmless. It is not: the user adjusting the cook time
+          almost certainly has a cooker that is RUNNING, and a failed
+          read-back quietly substituting 0 would stop it mid-cook — dinner
+          off, nothing on screen saying so. A missing value must fail the
+          write instead.
+    verification: "reported"
+
+  crockpot_turn_on:
+    description: >
+      Start the Crock-Pot on HIGH, keeping whatever cook time it already
+      holds. This is what a bare 'on' means for a device with no single on
+      state; the Cook Mode select is the control that reaches Warm and Low.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "52"
+      time: "{time}"
+    parameters:
+      time:
+        type: "integer"
+        unit: "minutes"
+        min: 0
+        source: "state:GetCrockpotState.time"
+        description: >
+          As set_cook_mode.time — read it back and send it along. No default,
+          for the same reason stated there: fail the write rather than start
+          the cooker with a timer this command just invented.
+    verification: "reported"
+    notes: >
+      HIGH rather than LOW because that is the mapping pywemo's on() uses; it
+      is a convention, not something the device states.
+
+  crockpot_turn_off:
+    description: "Stop the Crock-Pot and clear its timer."
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "SetCrockpotState"
+    arguments:
+      mode: "0"
+      time: "0"
+    verification: "reported"
+    notes: >
+      The one Crock-Pot write with no read-back: off takes no cook time with
+      it, so this is sendable from a cold start.
+
+  # The two setup writes, declared here so a consumer that already renders
+  # commands can drive provisioning through the same machinery. Bound by no
+  # entity on purpose: these are not controls to draw on a device screen, they
+  # are steps of the device.setup conversation, and that block is where the
+  # sequencing, the timing rules and the passphrase encryption live. The
+  # argument-less setup reads (GetApList, GetNetworkStatus, CloseSetup,
+  # SetSetupDoneStatus) are catalogued in http_endpoints, same split as
+  # control.
+  setup_connect_home_network:
+    description: >
+      Hand the device its home network credentials, over its setup AP. One
+      step of the device.setup flow — which is also where the rule lives that
+      this is sent TWICE, about 100ms apart, and that the outcome comes from
+      polling GetNetworkStatus rather than from this reply.
+    transport: "soap"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    action: "ConnectHomeNetwork"
+    arguments:
+      ssid: "{ssid}"
+      auth: "{auth}"
+      password: "{password}"
+      encrypt: "{encrypt}"
+      channel: "{channel}"
+    parameters:
+      ssid:
+        type: "string"
+        required: true
+        description: "Target network SSID, exactly as GetApList reported it."
+      auth:
+        type: "string"
+        required: true
+        description: >
+          Auth mode from the chosen ApList entry, verbatim — the device
+          rejects vocabulary that is not its own. OPEN for an open network.
+      password:
+        type: "string"
+        required: true
+        description: >
+          The ENCRYPTED passphrase blob built per
+          device.setup.methods[].softap.credential_encryption — never the
+          plaintext. The empty string for an open network.
+      encrypt:
+        type: "string"
+        required: true
+        description: "Cipher from the ApList entry (AES, TKIPAES); NONE for open."
+      channel:
+        type: "integer"
+        required: true
+        description: "Channel from the ApList entry."
+    returns:
+      - name: "PairingStatus"
+        description: >
+          Acknowledgement that the request was accepted, not the join result.
+    verification: "reported"
+
+  setup_resetup:
+    description: >
+      Push a provisioned device back into setup mode over the LAN, without a
+      physical factory reset. See device.setup.rejoin for when this is the
+      right move and what state it leaves the device in on failure.
+    transport: "soap"
+    service: "urn:Belkin:service:basicevent:1"
+    action: "ReSetup"
+    arguments:
+      Reset: "{reset}"
+    parameters:
+      reset:
+        type: "integer"
+        required: true
+        values:
+          "1": "clear personalized info (name, icon, rules)"
+          "2": "factory restore (everything, WiFi included)"
+          "5": "clear WiFi credentials only"
+        description: >
+          Scope of the reset. No default, deliberately: every value is
+          destructive to something, so a renderer reaching this parameter
+          without a value must fail rather than pick a scope.
+    returns:
+      - name: "Reset"
+        description: "'success', or 'reset_remote' on at least one device — both mean it worked."
+    verification: "reported"
+
+http_endpoints:
+  - method: "GET"
+    path: "/setup.xml"
+    name: "UPnP Device Description"
+    description: >
+      PRIMARY Wemo identification endpoint. Fetch the LOCATION URL returned by
+      SSDP discovery. Parse deviceType for variant matching, UDN/serial/MAC for
+      stable identity and ordering, friendlyName for display naming, and
+      serviceList for per-device controlURL and eventSubURL values.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "deviceType"
+          type: "string"
+          description: "UPnP device type URN used for variant matching."
+        - name: "friendlyName"
+          type: "string"
+          description: "User-facing name. Do not use as the stable device key."
+        - name: "UDN"
+          type: "string"
+          description: "Primary stable identity, for example uuid:Socket-1_0-<serial>."
+        - name: "serialNumber"
+          type: "string"
+          description: "Secondary stable identity."
+        - name: "macAddress"
+          type: "string"
+          description: "Tertiary stable identity."
+        - name: "serviceList"
+          type: "array"
+          description: "UPnP services with serviceType, controlURL, eventSubURL, and SCPDURL."
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "SetBinaryState"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Universal SOAP action for relay/light on/off. Required SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#SetBinaryState". Dimmers may include a
+      brightness argument from 1-100 in the same action.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "BinaryState"
+          type: "integer"
+          description: "Target state: 1 = on, 0 = off."
+          required: true
+          enum: [0, 1]
+        - name: "brightness"
+          type: "integer"
+          description: "Optional dimmer brightness, 1-100."
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "GetBinaryState"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Universal SOAP action for current binary state. Required SOAPACTION
+      header: "urn:Belkin:service:basicevent:1#GetBinaryState".
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "BinaryState"
+          type: "integer"
+          description: >
+            Current state. Values and the pipe-delimited-extras caveat are in
+            the top-level payload_formats.BinaryState. NOT a state reading on
+            the Crock-Pot, which answers 0 here whatever it is doing — use
+            GetCrockpotState there.
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+        <s:Body>
+        <u:GetBinaryStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+        <BinaryState>8|1492338954|0|922|14195|1209600|0|940670|15213709|227088884</BinaryState>
+        </u:GetBinaryStateResponse>
+        </s:Body>
+        </s:Envelope>
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "GetCrockpotState"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Crock-Pot only. The device's whole state in one call. Required
+      SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#GetCrockpotState". Takes no arguments.
+      Note the service: these two actions live on basicevent, not on the
+      crockpotevent service that also appears in the Crock-Pot's serviceList.
+      That is where pywemo drives them, and it is the only placement with a
+      working implementation behind it.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "mode"
+          type: "integer"
+          description: "Cooking mode; see payload_formats.CrockpotMode. The device's on/off state lives here."
+        - name: "time"
+          type: "integer"
+          unit: "minutes"
+          description: >
+            Cook time remaining, in minutes. Also the value SetCrockpotState
+            wants handed back to it on any write that is not turning the
+            cooker off.
+        - name: "cookedTime"
+          type: "integer"
+          unit: "minutes"
+          description: "Minutes cooked so far in the current run."
+      example: |
+        <?xml version="1.0" encoding="utf-8"?>
+        <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+        <s:Body>
+        <u:GetCrockpotStateResponse xmlns:u="urn:Belkin:service:basicevent:1">
+        <mode>51</mode>
+        <time>240</time>
+        <cookedTime>15</cookedTime>
+        </u:GetCrockpotStateResponse>
+        </s:Body>
+        </s:Envelope>
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "SetCrockpotState"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Crock-Pot only. Sets mode and cook time together — there is no action
+      that sets one of them. Required SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#SetCrockpotState". The reply
+      acknowledges the request rather than reporting the resulting state, so
+      read GetCrockpotState back afterwards; the cooker does not always take
+      the setting.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "mode"
+          type: "integer"
+          required: true
+          description: "Target mode; see payload_formats.CrockpotMode."
+          enum: [0, 50, 51, 52]
+        - name: "time"
+          type: "integer"
+          required: true
+          unit: "minutes"
+          description: >
+            Cook time in minutes. Sent on every call, including calls that
+            only mean to change the mode.
+
+  - method: "POST"
+    path: "/upnp/control/metainfo1"
+    name: "GetMetaInfo"
+    service: "urn:Belkin:service:metainfo:1"
+    description: >
+      Device metadata. Required SOAPACTION header:
+      "urn:Belkin:service:metainfo:1#GetMetaInfo". Takes no arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "MetaInfo"
+          type: "string"
+          description: "Pipe-delimited; see the top-level payload_formats.MetaInfo."
+
+  # The argument-less setup reads. Only listed on the setup AP's serviceList
+  # (except SetSetupDoneStatus, which rides basicevent): resolve the real
+  # controlURL from setup.xml as always — the WiFiSetup path below is the
+  # conventional spelling and /upnp/control/wifi1 is also in the wild.
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "GetApList"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Ask the device for its own WiFi scan results. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#GetApList". Takes no arguments.
+      Setup-mode only; see device.setup for the conversation this opens.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "ApList"
+          type: "string"
+          description: >
+            Newline-separated scan results; the parse rules live in
+            device.setup.methods[].payload_formats.ApList (skip the first
+            line, split on '|', last column is AUTHMODE/CIPHER).
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "ConnectHomeNetwork"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Hand the device its home network credentials. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#ConnectHomeNetwork". Invoked by
+      the setup_connect_home_network command; argument semantics, the
+      send-twice rule and the passphrase encryption live in device.setup.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "ssid"
+          type: "string"
+          required: true
+          description: "Target network SSID, exactly as GetApList reported it."
+        - name: "auth"
+          type: "string"
+          required: true
+          description: "Auth mode from the ApList entry, e.g. WPA2PSK."
+        - name: "password"
+          type: "string"
+          required: true
+          description: "Encrypted passphrase blob; empty for an open network."
+        - name: "encrypt"
+          type: "string"
+          required: true
+          description: "Cipher from the ApList entry, e.g. AES."
+        - name: "channel"
+          type: "integer"
+          required: true
+          description: "Channel from the ApList entry."
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "PairingStatus"
+          type: "string"
+          description: "Acknowledgement only; poll GetNetworkStatus for the join result."
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "GetNetworkStatus"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Poll the join result after ConnectHomeNetwork. Required SOAPACTION
+      header: "urn:Belkin:service:WiFiSetup:1#GetNetworkStatus". Takes no
+      arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "NetworkStatus"
+          type: "string"
+          description: >
+            0 = still connecting, 1 = connected, 2 = rejected (passphrase
+            under 8 characters; terminal), 3 = handshaking (usually becomes 1
+            within seconds).
+
+  - method: "POST"
+    path: "/upnp/control/WiFiSetup1"
+    name: "CloseSetup"
+    service: "urn:Belkin:service:WiFiSetup:1"
+    description: >
+      Close setup mode so the device leaves its AP and joins the home
+      network. Required SOAPACTION header:
+      "urn:Belkin:service:WiFiSetup:1#CloseSetup". Takes no arguments.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "status"
+          type: "string"
+          description: "'success' on a clean close."
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "SetSetupDoneStatus"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Mark provisioning finished, after a successful CloseSetup. Required
+      SOAPACTION header:
+      "urn:Belkin:service:basicevent:1#SetSetupDoneStatus". Takes no
+      arguments. Absent on some firmware — treat a fault or a missing action
+      as non-fatal.
+
+  - method: "POST"
+    path: "/upnp/control/basicevent1"
+    name: "ReSetup"
+    service: "urn:Belkin:service:basicevent:1"
+    description: >
+      Push a provisioned device back into setup mode over the LAN. Required
+      SOAPACTION header: "urn:Belkin:service:basicevent:1#ReSetup". Invoked
+      by the setup_resetup command; see device.setup.rejoin for the flow.
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "Reset"
+          type: "integer"
+          required: true
+          enum: [1, 2, 5]
+          description: >
+            Scope: 1 clears name/icon/rules, 2 factory restores, 5 clears
+            WiFi credentials only.
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "Reset"
+          type: "string"
+          description: "'success', or 'reset_remote' on at least one device."
+
+  - method: "POST"
+    path: "/upnp/control/timesync1"
+    name: "TimeSync"
+    service: "urn:Belkin:service:timesync:1"
+    description: >
+      Set the device clock, which local rules and timers depend on. Required
+      SOAPACTION header: "urn:Belkin:service:timesync:1#TimeSync".
+    request_body:
+      content_type: "text/xml"
+      fields:
+        - name: "UTC"
+          type: "string"
+          required: true
+          description: "Current UTC time formatted as %Y-%m-%dT%H:%M:%S."
+
+  - method: "POST"
+    path: "/upnp/control/deviceinfo1"
+    name: "GetDeviceInformation"
+    service: "urn:Belkin:service:deviceinfo:1"
+    description: >
+      Extended device information. Required SOAPACTION header:
+      "urn:Belkin:service:deviceinfo:1#GetDeviceInformation". Not present on
+      every device or firmware; treat a SOAP fault as "not supported" rather
+      than as an error.
+
+  - method: "POST"
+    path: "/upnp/control/insight1"
+    name: "GetInsightParams"
+    service: "urn:Belkin:service:insight:1"
+    description: >
+      Insight-only SOAP action. Required SOAPACTION header:
+      "urn:Belkin:service:insight:1#GetInsightParams".
+    response_body:
+      content_type: "text/xml"
+      fields:
+        - name: "InsightParams"
+          type: "string"
+          description: >
+            Pipe-delimited state, timing, energy, power and threshold values.
+            Field-by-field layout in the top-level payload_formats.InsightParams.
+
+  - method: "POST"
+    path: "/upnp/control/deviceevent1"
+    name: "GetAttributes / SetAttributes"
+    service: "urn:Belkin:service:deviceevent:1"
+    description: >
+      Attribute-based appliance surface used by Maker, Coffee Maker, Heater,
+      Air Purifier, and Humidifier classes. Required SOAPACTION header uses
+      urn:Belkin:service:deviceevent:1 with GetAttributes or SetAttributes.
+
+  - method: "POST"
+    path: "/upnp/control/bridge1"
+    name: "Bridge Device Control"
+    service: "urn:Belkin:service:bridge:1"
+    description: >
+      Wemo Link bridge actions for paired bulbs and groups, including
+      GetEndDevicesWithStatus, GetDeviceStatus, and SetDeviceStatus.
+
+# The controls and readings a client draws, in the vocabulary a consumer
+# already speaks for BLE devices: a platform, a place to read state from, and
+# role -> command bindings. Only the bindings are transport-specific — a
+# `state_characteristic` becomes a `state_endpoint` plus a `state_command`,
+# and `state_mapping.value` names a value the state call RETURNS instead of a
+# field of a decoded characteristic. Everything above that line (which control
+# to draw, what its unit is, which raw value counts as on) is unchanged, which
+# is the point: a consumer gains Wemo by learning SOAP, not by learning Wemo.
+#
+# `state_endpoint` carries the conventional control URL so a reader has
+# something concrete, but it is the FALLBACK. Resolve the real one from the
+# serviceList in the device's own setup.xml, keyed by the service type the
+# named command declares.
+#
+# Scoped with `variants` to the two device families whose control surface is
+# fully mapped here. The rest of `device.variants` is discovery and setup
+# only, deliberately: a declared entity is a promise that the control works,
+# and the appliance classes still have unmapped attribute payloads.
+entities:
+  - platform: "switch"
+    name: "Plug"
+    device_class: "outlet"
+    variants:
+      - "Wemo Mini Smart Plug"
+      - "Wemo WiFi Smart Plug"
+      - "Wemo Insight Smart Plug"
+      - "Wemo Outdoor Plug"
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetBinaryState"
+    state_mapping:
+      value: "BinaryState"
+      on_when: "nonzero"
+    commands:
+      turn_on: "plug_turn_on"
+      turn_off: "plug_turn_off"
+    notes: >
+      `on_when: nonzero` rather than a comparison against 1, because an
+      Insight reports 8 for "on, and the attached load is idling". Treating 8
+      as anything but on gives a plug that reads as off while it is powering
+      something. The reading needs the split rule in
+      payload_formats.BinaryState: some firmware answers with the long
+      pipe-delimited form and only field 0 is the state.
+
+  - platform: "switch"
+    name: "Slow Cooker"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "mode"
+      on_when: "nonzero"
+    commands:
+      turn_on: "crockpot_turn_on"
+      turn_off: "crockpot_turn_off"
+    notes: >
+      Reads `mode`, NOT BinaryState. basicevent#GetBinaryState answers 0 on
+      this device whatever it is doing — pywemo overrides its own base
+      implementation for exactly that reason — so the obvious binding, the one
+      every other Wemo switch uses, yields a Crock-Pot that is permanently
+      off and a toggle that springs back. `turn_on` selects HIGH and keeps the
+      cook time; Warm and Low are reachable through the Cook Mode select.
+
+  - platform: "select"
+    name: "Cook Mode"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "mode"
+      options:
+        0: "off"
+        50: "warm"
+        51: "low"
+        52: "high"
+    commands:
+      select_option: "set_cook_mode"
+    notes: >
+      The mode codes are also in payload_formats.CrockpotMode, which is where
+      a parser should read them; the table is repeated here in the shape the
+      entity layer already uses for a select (ember-mug spells its
+      temperature unit the same way) because a consumer that reads entities
+      and nothing else still has to render a label rather than the number 51.
+      A value outside the table is a mode we do not know: show it as unknown
+      rather than folding it into `off`. `select_option` is the one role name
+      in this file that no consumer resolves yet — it is the parameterised
+      form the action actually has, where the catalogue's other selects
+      declare one command per option.
+
+  - platform: "number"
+    name: "Cook Time"
+    device_class: "duration"
+    unit: "min"
+    min: 0
+    step: 1
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "time"
+    commands:
+      set_value: "set_cook_time"
+    notes: >
+      No `max`: the longest cook time the appliance accepts is not something
+      we have established, and inventing a bound would either forbid a setting
+      the device allows or promise one it rejects. A consumer needing a slider
+      range should pick its own and say it is its own. Writing this sends the
+      current mode back alongside the new time — see commands.set_cook_time.
+
+  - platform: "sensor"
+    name: "Cooked Time"
+    device_class: "duration"
+    unit: "min"
+    variants: ["Crock-Pot Smart Slow Cooker"]
+    state_endpoint: "/upnp/control/basicevent1"
+    state_command: "GetCrockpotState"
+    state_mapping:
+      value: "cookedTime"
+    notes: >
+      Minutes elapsed in the current run, counting up, where Cook Time counts
+      down. One GetCrockpotState call serves this, Cook Mode, Cook Time and
+      the switch — poll once and fan the three values out rather than calling
+      per entity.
+
+# Can a Wemo device be told to turn itself on later? Yes — and the answer is
+# stranger than any other part of this protocol, which is why it is written
+# down here rather than left for the next person to rediscover.
+scheduling:
+  supported: true
+  mechanism: "on_device_rules"
+  confidence: "medium"
+  runs_without_a_client: true
+  applies_to:
+    - "Wemo Mini Smart Plug"
+    - "Wemo WiFi Smart Plug"
+    - "Wemo Insight Smart Plug"
+    - "Wemo Outdoor Plug"
+    - "Wemo Light Switch Gen1/Gen2/3-Way"
+    - "Wemo Dimmer v1"
+    - "Wemo Dimmer v2"
+    - "Wemo Maker"
+  applies_to_notes: >
+    Scoped to the switch family, by `device.variants` name, because that is
+    where the evidence is: pywemo drives FetchRules/StoreRules against these
+    classes, and the captured schedule row is an Insight's. `supported: true`
+    unscoped would let a consumer advertise on-device scheduling for the
+    Crock-Pot and the Holmes appliances, where whether the rules service
+    honours anything is an open question below — and the Crock-Pot is
+    doubly excluded because a rule's action sets the binary state, which is
+    not that device's state at all. Outside this list, treat scheduling
+    support as UNKNOWN rather than absent: the service may well be present,
+    and finding out is listed in open_questions.
+  summary: >
+    Schedules live ON THE DEVICE, in a SQLite database it hands out and takes
+    back over SOAP. A client fetches the database, edits rows, zips it,
+    base64-encodes it and posts it back; the device then runs the schedule on
+    its own clock with nothing else on the network. That is the property worth
+    having — a phone app scheduling a future action has to still be running at
+    the time, and on iOS it will not be.
+  confidence_notes: >
+    MEDIUM, and the parts are not equally known. The transfer and the table
+    schemas are HIGH — pywemo implements both against real hardware. The
+    meaning of a schedule row's columns is inference from two known-good rows,
+    one written by pywemo and one captured from a device configured by the
+    Wemo app. `open_questions` below lists exactly what is not established;
+    none of it has been replayed by this project.
+  service: "urn:Belkin:service:rules:1"
+  device_clock_dependency: >
+    Rules run on the device's own clock, so a device whose time is wrong runs
+    the schedule wrong. Set it with timesync#TimeSync (UTC, %Y-%m-%dT%H:%M:%S)
+    before trusting a schedule, and remember that the Belkin cloud used to be
+    what kept it right.
+  transfer:
+    description: >
+      The database moves whole, in both directions. There is no add-one-rule
+      call in the pair a current client uses.
+    steps:
+      - action: "Ask the device where its rules database is and which version it holds."
+        actor: "client"
+        request:
+          protocol: "soap"
+          service: "urn:Belkin:service:rules:1"
+          action: "FetchRules"
+        response_fields:
+          - name: "ruleDbVersion"
+            type: "integer"
+            description: "Current version. The store call must send this plus one."
+          - name: "ruleDbPath"
+            type: "string"
+            description: "URL on the device itself, to fetch over plain HTTP."
+      - action: "Download the database."
+        actor: "client"
+        request:
+          protocol: "http"
+          action: "GET {ruleDbPath}"
+        expect: >
+          A ZIP archive containing one SQLite file. Keep the inner filename —
+          it goes back unchanged, and a device that has never held a rule may
+          404 here, in which case create an empty database with the tables
+          below and use the name 'temppluginRules.db'.
+      - action: "Edit the rows."
+        actor: "client"
+        expect: >
+          FETCH, MODIFY, STORE — never construct a database from scratch for a
+          device that already had one. The store replaces everything, so a
+          client that builds a fresh database silently deletes every rule the
+          user made in the Wemo app, and that app is gone: they cannot make
+          them again.
+      - action: "Send the database back."
+        actor: "client"
+        request:
+          protocol: "soap"
+          service: "urn:Belkin:service:rules:1"
+          action: "StoreRules"
+          arguments:
+            - name: "ruleDbVersion"
+              type: "integer"
+              required: true
+              description: "The version FetchRules returned, plus one."
+            - name: "processDb"
+              type: "integer"
+              required: true
+              description: "1 — apply the database rather than only storing it."
+            - name: "ruleDbBody"
+              type: "string"
+              required: true
+              description: >
+                The zipped database, base64-encoded, wrapped in a CDATA
+                section that is itself XML-ESCAPED — the argument's literal
+                text begins '&lt;![CDATA[' and ends ']]&gt;'. That is not a
+                typo carried forward: it is what the device accepts, and
+                sending a real CDATA section instead is the obvious correction
+                that does not work.
+  storage:
+    format: "sqlite3, zipped, base64-encoded in the SOAP argument"
+    tables:
+      RULES:
+        description: "One row per rule."
+        columns:
+          RuleID: "Primary key."
+          Name: "Free text, shown in the app that no longer exists."
+          Type: >
+            Rule kind. Two values are attested: 'Time Interval' (a schedule,
+            from a device configured by the Wemo app) and 'Long Press' (what
+            pywemo writes). Others certainly exist — the app offered sunset,
+            sunrise and away modes — and are not documented here.
+          RuleOrder: "Evaluation order; use max(existing) + 1 for a new rule."
+          StartDate: "'12201982' on every observed rule."
+          EndDate: "'07301982' on every observed rule."
+          State: "'1' enabled, '0' disabled."
+          Sync: "'NOSYNC'. Declared INTEGER in the schema and holding a string."
+        sentinel_dates: >
+          Those two dates are not dates. The same pair appears in a rule
+          pywemo writes and in a rule the Wemo app wrote, which is what makes
+          them constants meaning "no date restriction" rather than somebody's
+          birthday. Copy them; do not compute them.
+      RULEDEVICES:
+        description: "One row per device a rule acts on, carrying the timing."
+        columns:
+          RuleID: "The rule this belongs to."
+          DeviceID: "The device's UDN, e.g. uuid:Insight-1_0-231544K120002B."
+          GroupID: "0 for a single device."
+          DayID: "Which day(s). See open_questions — the encoding is not established."
+          StartTime: "Seconds since local midnight. 61200 = 17:00."
+          EndTime: "Seconds since local midnight. 75600 = 21:00."
+          RuleDuration: "Seconds between the two. 14400 = 4 hours."
+          StartAction: "What happens at StartTime: 1.0 on, 0.0 off, 2.0 toggle."
+          EndAction: "The same at EndTime; -1.0 where there is nothing to do."
+          CountdownTime: "Present on every row, 0 on both observed ones. Purpose not established."
+          SensorDuration: "Motion-sensor rules; -1 or 0 elsewhere."
+          Type: "An integer, distinct from RULES.Type. -1 on both observed rows."
+          Value: "-1 on both observed rows."
+          Level: "-1 on both observed rows; presumably a dimmer level."
+          ZBCapabilityStart: "Zigbee (Link bulbs); empty string elsewhere."
+          ZBCapabilityEnd: "As above."
+          OnModeOffset: "0 or -1 on the observed rows."
+          OffModeOffset: "As above."
+      TARGETDEVICES:
+        description: >
+          The devices a rule ACTS ON, where RULEDEVICES is the devices it
+          listens to — a long-press rule on one switch targets others.
+          A schedule targeting only its own device still gets no row here.
+        columns:
+          TargetDevicesPK: "Primary key, auto-increment."
+          RuleID: "The rule this belongs to."
+          DeviceID: "Target device's UDN."
+          DeviceIndex: "0-based position within the rule's target list."
+      DEVICECOMBINATION:
+        description: "Sensor→device pairings for motion rules."
+        columns:
+          DeviceCombinationPK: "Primary key, auto-increment."
+          RuleID: "integer"
+          SensorID: "text"
+          SensorGroupID: "integer"
+          DeviceID: "text"
+          DeviceGroupID: "integer"
+      GROUPDEVICES:
+        description: "Device-group membership."
+        columns:
+          GroupDevicePK: "Primary key, auto-increment."
+          GroupID: "integer"
+          DeviceID: "text"
+      LOCATIONINFO:
+        description: "Where the app said the device lives — sunrise/sunset rules needed it."
+        columns:
+          LocationPk: "Primary key, auto-increment."
+          cityName: "text"
+          countryName: "text"
+          latitude: "text"
+          longitude: "text"
+          countryCode: "text"
+          region: "text"
+      BLOCKEDRULES:
+        description: "Rules the device is told to ignore."
+        columns:
+          Primarykey: "Primary key, auto-increment."
+          ruleId: "text — note the string type and lowercase spelling, unlike RULES.RuleID."
+      RULESNOTIFYMESSAGE:
+        description: "Notification text a rule used to push through the cloud."
+        columns:
+          RuleID: "Primary key, auto-increment."
+          NotifyRuleID: "integer"
+          Message: "text"
+          Frequency: "integer"
+      SENSORNOTIFICATION:
+        description: "As RULESNOTIFYMESSAGE, for sensor-triggered rules."
+        columns:
+          SensorNotificationPK: "Primary key, auto-increment."
+          RuleID: "integer"
+          NotifyRuleID: "integer"
+          NotificationMessage: "text"
+          NotificationDuration: "integer"
+      tables_notes: >
+        All nine tables and their columns are transcribed from pywemo's
+        rules-database ORM (pywemo/ouimeaux_device/api/rules_db.py), which
+        both reads real devices' databases and CREATES the empty one when a
+        device 404s the download — so this listing is sufficient to build
+        that empty database, named 'temppluginRules.db' inside the zip. A
+        schedule touches only RULES and RULEDEVICES; the rest exist so the
+        device finds every table it expects. Column types beyond the ones
+        annotated are unremarkable (SQLite is dynamically typed and pywemo
+        declares TEXT/INTEGER as shown); the two standing oddities are
+        RULES.Sync, declared INTEGER and holding the string 'NOSYNC', and
+        BLOCKEDRULES.ruleId, a string where every other rule id is an
+        integer.
+    examples:
+      - name: "A schedule: on at 17:00, off at 21:00"
+        verification: "reported"
+        source: "Captured from an Insight configured by the Wemo app."
+        rules_row: "1 | 'Nightly' | 'Time Interval' | 2 | '12201982' | '07301982' | '1' | 'NOSYNC'"
+        ruledevices_row: >
+          RuleID 1, DeviceID uuid:Insight-1_0-231544K120002B, GroupID 0,
+          DayID 1, StartTime 61200, RuleDuration 14400, StartAction 1.0,
+          EndAction 0.0, SensorDuration 0, Type -1, Value -1, Level -1,
+          ZBCapability* '', OnModeOffset 0, OffModeOffset 0, CountdownTime 0,
+          EndTime 75600.
+      - name: "A long-press rule, for comparison"
+        verification: "reported"
+        source: "Written by pywemo against real hardware."
+        rules_row: >
+          '<device name> Long Press Rule' | 'Long Press' | max(RuleOrder)+1 |
+          '12201982' | '07301982' | '1' | 'NOSYNC'
+        ruledevices_row: >
+          DayID -1, StartTime 60, RuleDuration 86340, EndTime 86400,
+          StartAction 2.0 (toggle), EndAction -1.0, everything else -1 or ''.
+        notes: >
+          Useful precisely because it is not a schedule: it shows which
+          columns are inert (-1) when the rule is not about time of day, and
+          it is the only rule row in either source that a maintained
+          implementation writes.
+  limitations:
+    - >
+      A rule's action is a number — 1.0 on, 0.0 off, 2.0 toggle. There is no
+      column that carries a Crock-Pot mode, so "start the cooker on Low at
+      17:00" does not appear to be expressible: what a rule can schedule is
+      the BINARY state. On the Crock-Pot that is the surface which answers 0
+      whatever the device is doing, so a scheduled rule there is doubly
+      suspect and must be tested on hardware before anybody relies on it to
+      start cooking unattended.
+    - >
+      The Crock-Pot's own cook time IS a device-run countdown and is not part
+      of this at all: SetCrockpotState carries `time` in minutes and the
+      appliance counts it down itself. That is the timer that certainly works
+      today. It starts when you send it — it is a duration, not a start time.
+    - >
+      Nothing here is a way to schedule from off-network. The device runs the
+      rule; something must have written it while on the same LAN.
+  open_questions:
+    - "DayID's encoding. The one captured schedule is named 'Nightly' and uses 1, and pywemo's non-schedule rule uses -1. Whether it is a bitmask, an enum or an index is not established, and a wrong guess means a rule that fires on the wrong day."
+    - "The full RULES.Type vocabulary. Only 'Time Interval' and 'Long Press' are attested; the app also offered sunrise/sunset and away modes."
+    - "Whether the appliance classes (Crock-Pot, coffee maker, humidifier) honour rules at all, and what StartAction means on one."
+    - "What CountdownTime does. The name suggests the app's 'turn off after N minutes' timer, but both observed rows carry 0."
+    - "Whether StoreRules validates anything. If it does not, a malformed database may leave the device with no working rules and no error."
+  client_side_alternative: >
+    A client that only needs "turn this on at 17:00" while it is running can
+    simply send the ordinary control command at 17:00 and skip all of the
+    above. That is the honest fallback, and its limitation is the whole reason
+    the rules database is worth the trouble: close the app, or let the phone
+    sleep, and the schedule does not happen.
+  verification: "reported"
