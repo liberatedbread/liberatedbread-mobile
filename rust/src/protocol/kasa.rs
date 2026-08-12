@@ -269,7 +269,10 @@ entities:
     #[test]
     fn renders_a_fixed_command_body() {
         let request = render_request(&spec(), "relay_on", &values(&[])).unwrap();
-        assert_eq!(request.json, r#"{"system":{"set_relay_state":{"state":1}}}"#);
+        assert_eq!(
+            request.json,
+            r#"{"system":{"set_relay_state":{"state":1}}}"#
+        );
     }
 
     #[test]

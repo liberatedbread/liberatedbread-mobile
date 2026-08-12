@@ -931,6 +931,14 @@ pub struct Identification {
     /// meaningful mDNS presence — Wemo, and pre-2020 Hue bridges.
     #[serde(default)]
     pub ssdp_search_targets: Option<Vec<String>>,
+    /// Vendor LAN protocols the device identifies itself by *answering* a probe
+    /// — `tplink-smarthome` for Kasa, which is found by a UDP broadcast it
+    /// answers rather than by any mDNS/SSDP advertisement. A strong identifier:
+    /// only a device that speaks the protocol replies, so a scanner that
+    /// completed the handshake matches this against the token it tagged the
+    /// device with.
+    #[serde(default)]
+    pub lan_protocols: Option<Vec<String>>,
     /// WiFi SSID prefix when the device is in AP mode.
     #[serde(default)]
     pub ssid_prefix: Option<String>,

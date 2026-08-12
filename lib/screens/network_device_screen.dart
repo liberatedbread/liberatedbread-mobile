@@ -178,8 +178,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool get _needsDescription =>
       !_isKasa &&
       (_stateCommands.isNotEmpty ||
-          _entities
-              .any((e) => e.actions.any((action) => action.transport == 'soap')));
+          _entities.any(
+              (e) => e.actions.any((action) => action.transport == 'soap')));
 
   /// Loaded enough to draw controls: the description is fetched, or nothing
   /// on this screen wants it.

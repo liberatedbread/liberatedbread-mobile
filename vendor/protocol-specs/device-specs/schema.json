@@ -585,6 +585,12 @@
               "type": "string",
               "description": "mDNS/Bonjour service type for WiFi discovery (e.g. _http._tcp)."
             },
+            "lan_protocols": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "description": "Vendor LAN protocols this device identifies itself by *answering*, for hardware that neither advertises mDNS/Bonjour nor responds to SSDP -- the TP-Link Kasa smart-home protocol (`tplink-smarthome`), where a device is found by a UDP broadcast it answers with its full sysinfo. Unlike the passive `mdns_service_type`/`ssdp_search_targets` (which a device volunteers) and unlike `default_port` (which says nothing about who is listening), a positive answer to a vendor protocol probe is a strong identification: only a device that speaks the protocol replies at all. Name the protocol, not the port; a consumer that has completed the handshake tags the device with the same token, and the two are matched. Vendor-specific values only, for the same reason `ssdp_search_targets` must be."
+            },
             "ssid_prefix": {
               "type": "string",
               "description": "WiFi SSID prefix when device is in AP mode."

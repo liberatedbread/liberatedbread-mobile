@@ -58,6 +58,7 @@ final _findMeSpec = DeviceSpecDto(
   macPrefixes: [],
   mdnsServiceType: null,
   ssdpSearchTargets: [],
+  lanProtocols: const [],
   defaultPort: null,
   entities: <EntityDto>[],
   services: [

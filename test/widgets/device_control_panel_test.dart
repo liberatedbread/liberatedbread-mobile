@@ -195,6 +195,7 @@ void main() {
       macPrefixes: const [],
       mdnsServiceType: null,
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
@@ -402,6 +403,7 @@ void main() {
       macPrefixes: const [],
       mdnsServiceType: null,
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
@@ -453,6 +455,7 @@ void main() {
       macPrefixes: const [],
       mdnsServiceType: null,
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
@@ -568,6 +571,7 @@ void main() {
           macPrefixes: const [],
           mdnsServiceType: null,
           ssdpSearchTargets: const [],
+          lanProtocols: const [],
           defaultPort: null,
           entities: [
             sensor('Radon 24h Average', radonChar, unit: 'Bq/m³'),
@@ -793,6 +797,7 @@ void main() {
       macPrefixes: const [],
       mdnsServiceType: null,
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [
@@ -841,6 +846,7 @@ final _brandA = DeviceSpecDto(
   macPrefixes: [],
   mdnsServiceType: null,
   ssdpSearchTargets: [],
+  lanProtocols: const [],
   defaultPort: null,
   serviceUuids: [_tieSvcUuid],
   entities: <EntityDto>[],
@@ -879,6 +885,7 @@ final _brandB = DeviceSpecDto(
   macPrefixes: [],
   mdnsServiceType: null,
   ssdpSearchTargets: [],
+  lanProtocols: const [],
   defaultPort: null,
   serviceUuids: [_tieSvcUuid],
   entities: <EntityDto>[],

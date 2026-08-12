@@ -20,8 +20,7 @@ void main() {
     test('frames the request, and decodes the reply the device sends back',
         () async {
       // What the device would put on the wire in answer.
-      const replyJson =
-          '{"system":{"set_relay_state":{"err_code":0}}}';
+      const replyJson = '{"system":{"set_relay_state":{"err_code":0}}}';
       final replyFrame = await codec.kasaEncodeFrame(json: replyJson);
 
       List<int>? sawRequest;
@@ -37,8 +36,8 @@ void main() {
         },
       );
 
-      const request = KasaRequestDto(
-          json: '{"system":{"set_relay_state":{"state":1}}}');
+      const request =
+          KasaRequestDto(json: '{"system":{"set_relay_state":{"state":1}}}');
       final reply = await client.send('10.0.0.5', 9999, request);
 
       expect(reply, replyJson, reason: 'the decoded reply is returned as-is');
@@ -103,7 +102,8 @@ void main() {
       expect(fields['model'], 'HS100(US)');
     });
 
-    test('drops nested arrays and objects (a strip\'s children), keeping scalars',
+    test(
+        'drops nested arrays and objects (a strip\'s children), keeping scalars',
         () {
       const reply =
           '{"system":{"get_sysinfo":{"relay_state":0,"children":[{"state":1}],'

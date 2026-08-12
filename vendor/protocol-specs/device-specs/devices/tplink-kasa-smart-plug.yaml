@@ -52,12 +52,17 @@ device:
       compete with that library.
 
   identification:
+    # The strong, honest signal: a device is a Kasa plug because it ANSWERED
+    # the tplink-smarthome get_sysinfo probe (see discovery below). Only a
+    # Kasa-protocol device replies at all, so a consumer that completed the
+    # handshake tags the device with this token and the two are matched.
+    lan_protocols:
+      - "tplink-smarthome"
     # default_port gates this spec into the network match path; it is never
     # evidence on its own (port 9999 names no vendor). The MAC OUIs below are
     # TP-Link's, shared across their whole catalogue (routers, cameras, plugs),
     # so they rank a device rather than identify it — low confidence, as bare
-    # strings. The strong signal in practice is that only a Kasa-protocol
-    # device answers a get_sysinfo broadcast on 9999 at all (see discovery).
+    # strings.
     default_port: 9999
     mac_prefixes:
       - "50:C7:BF"

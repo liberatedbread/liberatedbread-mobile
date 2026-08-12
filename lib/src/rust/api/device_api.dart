@@ -7,15 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-<<<<<<< HEAD
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
-=======
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
->>>>>>> 048762f (Regenerate FRB bindings for the Kasa transport)
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -134,7 +128,6 @@ Future<NetworkReadingDto?> readNetworkEntity(
     RustLib.instance.api.crateApiDeviceApiReadNetworkEntity(
         specYaml: specYaml, entityName: entityName, returned: returned);
 
-<<<<<<< HEAD
 /// Render the request that reads a state command's values over HTTP — on an
 /// instanced entity, the one GET that enumerates every child and carries all
 /// their state. `values` fills the path's placeholders (the pairing
@@ -252,8 +245,6 @@ Future<Uint8List> renderLifxSetAccessPoint(
 Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes}) =>
     RustLib.instance.api.crateApiDeviceApiDecodeLifxAccessPoint(bytes: bytes);
 
-=======
->>>>>>> 048762f (Regenerate FRB bindings for the Kasa transport)
 /// Find every spec matching a device we are already talking to, with the
 /// reasons it matched.
 ///
@@ -719,6 +710,11 @@ class DeviceSpecDto {
   /// SSDP/UPnP search targets this device answers to.
   final List<String> ssdpSearchTargets;
 
+  /// Vendor LAN protocols this device is identified by answering (Kasa's
+  /// `tplink-smarthome`). A strong network identifier for hardware with no
+  /// mDNS/SSDP presence.
+  final List<String> lanProtocols;
+
   /// Default TCP port for the device's local API.
   final int? defaultPort;
   final List<ServiceDto> services;
@@ -753,6 +749,7 @@ class DeviceSpecDto {
     required this.macPrefixes,
     this.mdnsServiceType,
     required this.ssdpSearchTargets,
+    required this.lanProtocols,
     this.defaultPort,
     required this.services,
     required this.entities,
@@ -774,6 +771,7 @@ class DeviceSpecDto {
       macPrefixes.hashCode ^
       mdnsServiceType.hashCode ^
       ssdpSearchTargets.hashCode ^
+      lanProtocols.hashCode ^
       defaultPort.hashCode ^
       services.hashCode ^
       entities.hashCode ^
@@ -797,6 +795,7 @@ class DeviceSpecDto {
           macPrefixes == other.macPrefixes &&
           mdnsServiceType == other.mdnsServiceType &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
+          lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
           services == other.services &&
           entities == other.entities &&
@@ -1256,7 +1255,30 @@ class ImageWritePlanDto {
           nextFrameIndex == other.nextFrameIndex;
 }
 
-<<<<<<< HEAD
+/// A rendered Kasa request: the JSON to send, before the cipher and framing.
+///
+/// The third transport's sibling of [`SoapRequestDto`] / [`HttpRequestDto`].
+/// The whole invocation is this JSON; the caller turns it into wire bytes with
+/// [`kasa_encode_frame`] (TCP control) or [`kasa_encrypt_datagram`] (UDP
+/// discovery), and the address is the one discovery established.
+class KasaRequestDto {
+  final String json;
+
+  const KasaRequestDto({
+    required this.json,
+  });
+
+  @override
+  int get hashCode => json.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is KasaRequestDto &&
+          runtimeType == other.runtimeType &&
+          json == other.json;
+}
+
 /// One network an unprovisioned device reported it can see (a `StateAccessPoint`
 /// reply), for the user to pick from.
 class LifxAccessPointDto {
@@ -1280,28 +1302,10 @@ class LifxAccessPointDto {
   @override
   int get hashCode =>
       ssid.hashCode ^ security.hashCode ^ strength.hashCode ^ channel.hashCode;
-=======
-/// A rendered Kasa request: the JSON to send, before the cipher and framing.
-///
-/// The third transport's sibling of [`SoapRequestDto`] / [`HttpRequestDto`].
-/// The whole invocation is this JSON; the caller turns it into wire bytes with
-/// [`kasa_encode_frame`] (TCP control) or [`kasa_encrypt_datagram`] (UDP
-/// discovery), and the address is the one discovery established.
-class KasaRequestDto {
-  final String json;
-
-  const KasaRequestDto({
-    required this.json,
-  });
-
-  @override
-  int get hashCode => json.hashCode;
->>>>>>> 048762f (Regenerate FRB bindings for the Kasa transport)
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-<<<<<<< HEAD
       other is LifxAccessPointDto &&
           runtimeType == other.runtimeType &&
           ssid == other.ssid &&
@@ -1445,11 +1449,6 @@ class LifxZonesDto {
           zonesCount == other.zonesCount &&
           zoneIndex == other.zoneIndex &&
           colors == other.colors;
-=======
-      other is KasaRequestDto &&
-          runtimeType == other.runtimeType &&
-          json == other.json;
->>>>>>> 048762f (Regenerate FRB bindings for the Kasa transport)
 }
 
 /// One MAC prefix a spec declares, and how much of the block is really this
@@ -1570,6 +1569,16 @@ class NetworkActionDto {
   /// optional bookkeeping: skipping these clears settings.
   final List<NetworkReadBackDto> readBack;
 
+  /// Parameters filled from stored pairing credentials (`credential:` on an
+  /// http command). Sending without one must fail visibly — an unpaired
+  /// client improvising a request is the bug the spec's no-default rule
+  /// exists to prevent.
+  final List<NetworkSourceParamDto> credentials;
+
+  /// Parameters filled with the addressed child's id (`instance:`), for
+  /// actions bound by an instanced entity.
+  final List<NetworkSourceParamDto> instanceParams;
+
   /// Declared bounds of the value parameter, in the wire's own units.
   final double? min;
   final double? max;
@@ -1580,6 +1589,8 @@ class NetworkActionDto {
     required this.transport,
     required this.userParams,
     required this.readBack,
+    required this.credentials,
+    required this.instanceParams,
     this.min,
     this.max,
   });
@@ -1591,6 +1602,8 @@ class NetworkActionDto {
       transport.hashCode ^
       userParams.hashCode ^
       readBack.hashCode ^
+      credentials.hashCode ^
+      instanceParams.hashCode ^
       min.hashCode ^
       max.hashCode;
 
@@ -1604,6 +1617,8 @@ class NetworkActionDto {
           transport == other.transport &&
           userParams == other.userParams &&
           readBack == other.readBack &&
+          credentials == other.credentials &&
+          instanceParams == other.instanceParams &&
           min == other.min &&
           max == other.max;
 }
@@ -1627,6 +1642,12 @@ class NetworkDeviceDto {
   /// SSDP search targets it answered to.
   final List<String> ssdpTargets;
 
+  /// Vendor LAN protocols this device *answered* during discovery — Kasa's
+  /// `tplink-smarthome`, set when a get_sysinfo probe got a reply. Matched
+  /// against a spec's `lan_protocols`; the strong identifier for hardware
+  /// that advertises no mDNS/SSDP.
+  final List<String> answeredLanProtocols;
+
   /// Port the advertised service listens on.
   final int? port;
 
@@ -1635,6 +1656,7 @@ class NetworkDeviceDto {
     this.hostname,
     required this.serviceTypes,
     required this.ssdpTargets,
+    required this.answeredLanProtocols,
     this.port,
   });
 
@@ -1644,6 +1666,7 @@ class NetworkDeviceDto {
       hostname.hashCode ^
       serviceTypes.hashCode ^
       ssdpTargets.hashCode ^
+      answeredLanProtocols.hashCode ^
       port.hashCode;
 
   @override
@@ -1655,6 +1678,7 @@ class NetworkDeviceDto {
           hostname == other.hostname &&
           serviceTypes == other.serviceTypes &&
           ssdpTargets == other.ssdpTargets &&
+          answeredLanProtocols == other.answeredLanProtocols &&
           port == other.port;
 }
 
@@ -1676,6 +1700,18 @@ class NetworkEntityDto {
   /// [`render_network_state_request`]; one call serves every entity bound
   /// to the same command.
   final String stateCommand;
+
+  /// The one transport this entity's actions ride (`soap` | `http`), or
+  /// `None` for a pure reading with no actions. Surfaced at entity level
+  /// because it is what routes the whole device screen — a hub gets a
+  /// different screen from a Wemo plug.
+  final String? transport;
+
+  /// True when the entity is a template stamped out per child behind a
+  /// hub: enumerate with [`list_network_instances`], read each child with
+  /// [`read_network_instance`], and fill each action's `instance_params`
+  /// with the child's id when sending.
+  final bool isInstanced;
 
   /// Name of the returned value carrying the reading.
   final String? valueField;
@@ -1705,6 +1741,8 @@ class NetworkEntityDto {
     this.unit,
     this.stateEndpoint,
     required this.stateCommand,
+    this.transport,
+    required this.isInstanced,
     this.valueField,
     required this.options,
     this.optionsSource,
@@ -1724,6 +1762,8 @@ class NetworkEntityDto {
       unit.hashCode ^
       stateEndpoint.hashCode ^
       stateCommand.hashCode ^
+      transport.hashCode ^
+      isInstanced.hashCode ^
       valueField.hashCode ^
       options.hashCode ^
       optionsSource.hashCode ^
@@ -1745,6 +1785,8 @@ class NetworkEntityDto {
           unit == other.unit &&
           stateEndpoint == other.stateEndpoint &&
           stateCommand == other.stateCommand &&
+          transport == other.transport &&
+          isInstanced == other.isInstanced &&
           valueField == other.valueField &&
           options == other.options &&
           optionsSource == other.optionsSource &&
@@ -1753,6 +1795,32 @@ class NetworkEntityDto {
           setpointMin == other.setpointMin &&
           setpointMax == other.setpointMax &&
           setpointStep == other.setpointStep;
+}
+
+/// One child behind a hub, as enumerated from a state reply.
+class NetworkInstanceDto {
+  /// The hub's own id for the child — what fills each action's
+  /// `instance_params` when sending.
+  final String id;
+
+  /// The child's human-facing name, falling back to the id.
+  final String label;
+
+  const NetworkInstanceDto({
+    required this.id,
+    required this.label,
+  });
+
+  @override
+  int get hashCode => id.hashCode ^ label.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkInstanceDto &&
+          runtimeType == other.runtimeType &&
+          id == other.id &&
+          label == other.label;
 }
 
 /// One option of a network `select` control: the raw wire value and the label
@@ -1870,6 +1938,57 @@ enum NetworkReadingKind {
   number,
   text,
   ;
+}
+
+/// One role's reading on one child — `is_on`, `brightness`, … paired with
+/// its decoded value.
+class NetworkRoleReadingDto {
+  final String role;
+  final NetworkReadingDto reading;
+
+  const NetworkRoleReadingDto({
+    required this.role,
+    required this.reading,
+  });
+
+  @override
+  int get hashCode => role.hashCode ^ reading.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkRoleReadingDto &&
+          runtimeType == other.runtimeType &&
+          role == other.role &&
+          reading == other.reading;
+}
+
+/// A command parameter filled from a client-held value rather than the UI:
+/// `credential:<name>` (a per-device secret stored at pairing) or
+/// `instance:<key>` (the id of the child a hub command addresses). Parsed
+/// out of the spec's `source` so Dart never parses that string.
+class NetworkSourceParamDto {
+  /// Parameter of the command being sent that this value fills.
+  final String param;
+
+  /// The credential's name (`username`) or the instance key (`id`).
+  final String name;
+
+  const NetworkSourceParamDto({
+    required this.param,
+    required this.name,
+  });
+
+  @override
+  int get hashCode => param.hashCode ^ name.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is NetworkSourceParamDto &&
+          runtimeType == other.runtimeType &&
+          param == other.param &&
+          name == other.name;
 }
 
 class ParameterDto {
@@ -2275,6 +2394,11 @@ class SpecIdentityDto {
   /// SSDP search targets, for the Wi-Fi scan path.
   final List<String> ssdpSearchTargets;
 
+  /// Vendor LAN protocols this device is identified by answering (Kasa). A
+  /// strong signal: matched against the protocols a discovered device
+  /// actually answered.
+  final List<String> lanProtocols;
+
   /// Default TCP port. The weakest network signal by far -- port 80 says
   /// nothing -- so it only ever ranks, never identifies.
   final int? defaultPort;
@@ -2289,6 +2413,7 @@ class SpecIdentityDto {
     required this.macPrefixes,
     this.mdnsServiceType,
     required this.ssdpSearchTargets,
+    required this.lanProtocols,
     this.defaultPort,
   });
 
@@ -2303,6 +2428,7 @@ class SpecIdentityDto {
       macPrefixes.hashCode ^
       mdnsServiceType.hashCode ^
       ssdpSearchTargets.hashCode ^
+      lanProtocols.hashCode ^
       defaultPort.hashCode;
 
   @override
@@ -2319,6 +2445,7 @@ class SpecIdentityDto {
           macPrefixes == other.macPrefixes &&
           mdnsServiceType == other.mdnsServiceType &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
+          lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort;
 }
 

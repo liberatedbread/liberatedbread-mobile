@@ -56,6 +56,10 @@ pub struct DeviceSpecDto {
     pub mdns_service_type: Option<String>,
     /// SSDP/UPnP search targets this device answers to.
     pub ssdp_search_targets: Vec<String>,
+    /// Vendor LAN protocols this device is identified by answering (Kasa's
+    /// `tplink-smarthome`). A strong network identifier for hardware with no
+    /// mDNS/SSDP presence.
+    pub lan_protocols: Vec<String>,
     /// Default TCP port for the device's local API.
     pub default_port: Option<u16>,
     pub services: Vec<ServiceDto>,
@@ -529,6 +533,11 @@ pub struct NetworkDeviceDto {
     pub service_types: Vec<String>,
     /// SSDP search targets it answered to.
     pub ssdp_targets: Vec<String>,
+    /// Vendor LAN protocols this device *answered* during discovery — Kasa's
+    /// `tplink-smarthome`, set when a get_sysinfo probe got a reply. Matched
+    /// against a spec's `lan_protocols`; the strong identifier for hardware
+    /// that advertises no mDNS/SSDP.
+    pub answered_lan_protocols: Vec<String>,
     /// Port the advertised service listens on.
     pub port: Option<u16>,
 }
@@ -558,6 +567,10 @@ pub struct SpecIdentityDto {
     pub mdns_service_type: Option<String>,
     /// SSDP search targets, for the Wi-Fi scan path.
     pub ssdp_search_targets: Vec<String>,
+    /// Vendor LAN protocols this device is identified by answering (Kasa). A
+    /// strong signal: matched against the protocols a discovered device
+    /// actually answered.
+    pub lan_protocols: Vec<String>,
     /// Default TCP port. The weakest network signal by far -- port 80 says
     /// nothing -- so it only ever ranks, never identifies.
     pub default_port: Option<u16>,
@@ -652,6 +665,7 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             mac_prefixes: spec.mac_prefixes.clone(),
             mdns_service_type: spec.mdns_service_type.clone(),
             ssdp_search_targets: spec.ssdp_search_targets.clone(),
+            lan_protocols: spec.lan_protocols.clone(),
             default_port: spec.default_port,
         }
     }
@@ -683,6 +697,9 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             mdns_service_type: ident.and_then(|i| i.mdns_service_type.clone()),
             ssdp_search_targets: ident
                 .and_then(|i| i.ssdp_search_targets.clone())
+                .unwrap_or_default(),
+            lan_protocols: ident
+                .and_then(|i| i.lan_protocols.clone())
                 .unwrap_or_default(),
             default_port: ident.and_then(|i| i.default_port),
             services: spec.services.iter().map(ServiceDto::from).collect(),
@@ -2330,7 +2347,10 @@ fn match_network_axes(
         .mdns_service_type
         .as_ref()
         .is_some_and(|t| !t.is_empty());
-    if !declares_mdns && identity.ssdp_search_targets.is_empty() && identity.default_port.is_none()
+    if !declares_mdns
+        && identity.ssdp_search_targets.is_empty()
+        && identity.lan_protocols.is_empty()
+        && identity.default_port.is_none()
     {
         return MatchAxes::default();
     }
@@ -2367,6 +2387,20 @@ fn match_network_axes(
             .any(|t| t.eq_ignore_ascii_case(target))
         {
             record(target, &normalize_service_type(target));
+        }
+    }
+
+    // A vendor LAN protocol the device actually ANSWERED is a strong,
+    // never-shared identifier — only a Kasa plug replies to the
+    // tplink-smarthome probe — so it rides the same Strong tier a vendor
+    // service type does, rather than needing its own axis.
+    for protocol in &identity.lan_protocols {
+        if device
+            .answered_lan_protocols
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(protocol))
+        {
+            service_types.push(protocol.clone());
         }
     }
 
@@ -3985,8 +4019,46 @@ http_endpoints:
             hostname: None,
             service_types: vec![],
             ssdp_targets: vec![],
+            answered_lan_protocols: vec![],
             port: None,
         }
+    }
+
+    /// A network identity carrying only a LAN-protocol signal — every passive
+    /// signal cleared, so a match can only come from an answered protocol.
+    fn lan_protocol_identity() -> SpecIdentityDto {
+        let mut identity = network_identity();
+        identity.local_name_prefix_clear();
+        identity.mdns_service_type = None;
+        identity.ssdp_search_targets.clear();
+        identity.lan_protocols = vec!["tplink-smarthome".into()];
+        identity
+    }
+
+    #[test]
+    fn a_lan_protocol_the_device_answered_is_strong() {
+        // Only a Kasa plug answers the tplink-smarthome probe, so an answer is
+        // as strong as a vendor service type — not the weak port it rode in on.
+        let device = NetworkDeviceDto {
+            answered_lan_protocols: vec!["TPLink-SmartHome".into()],
+            port: Some(9999),
+            ..anonymous_host()
+        };
+        let matches = match_network_device(vec![lan_protocol_identity()], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].confidence, MatchConfidence::Strong);
+        assert_eq!(matches[0].matched_service_types, vec!["tplink-smarthome"]);
+    }
+
+    #[test]
+    fn a_lan_protocol_not_answered_does_not_match_on_the_port_alone() {
+        // A plain host listening on 9999 that never answered the probe must not
+        // match — the port is not evidence, only the answer is.
+        let device = NetworkDeviceDto {
+            port: Some(9999),
+            ..anonymous_host()
+        };
+        assert!(match_network_device(vec![lan_protocol_identity()], device).is_empty());
     }
 
     #[test]

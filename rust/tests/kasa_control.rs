@@ -21,8 +21,8 @@ use liberated_bread_core::api::device_api::{
 };
 
 fn spec_yaml() -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/specs/tplink-kasa-smart-plug.yaml");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/specs/tplink-kasa-smart-plug.yaml");
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
 }
 
@@ -48,10 +48,7 @@ fn the_outlet_resolves_an_on_off_switch_over_tcp_json() {
     // Every action rides the Kasa transport — the screen dispatches on this.
     for action in &outlet.actions {
         assert_eq!(action.transport, "tcp-json");
-        assert!(
-            action.user_params.is_empty(),
-            "on/off take no caller input"
-        );
+        assert!(action.user_params.is_empty(), "on/off take no caller input");
     }
 }
 
@@ -96,7 +93,12 @@ fn a_rendered_command_frames_onto_the_tcp_wire_and_back() {
     let yaml = spec_yaml();
     let entities = network_entities_for_device(yaml.clone(), vec![]).unwrap();
     let outlet = entities.iter().find(|e| e.name == "Outlet").unwrap();
-    let on = &outlet.actions.iter().find(|a| a.role == "turn_on").unwrap().command_name;
+    let on = &outlet
+        .actions
+        .iter()
+        .find(|a| a.role == "turn_on")
+        .unwrap()
+        .command_name;
 
     let request = render_network_kasa_command(yaml, on.clone(), HashMap::new()).unwrap();
     let frame = kasa_encode_frame(request.json.clone());
@@ -133,7 +135,8 @@ fn a_sysinfo_reply_decodes_to_the_switch_state() {
     let yaml = spec_yaml();
     // A realistic reply, framed and encrypted exactly as the device sends it,
     // then decoded back through the codec — proving the full receive path.
-    let reply_json = r#"{"system":{"get_sysinfo":{"relay_state":1,"alias":"Desk Lamp","model":"HS100(US)"}}}"#;
+    let reply_json =
+        r#"{"system":{"get_sysinfo":{"relay_state":1,"alias":"Desk Lamp","model":"HS100(US)"}}}"#;
     let frame = kasa_encode_frame(reply_json.to_string());
     let decoded = kasa_decode_frame(frame).unwrap();
     assert_eq!(decoded, reply_json);

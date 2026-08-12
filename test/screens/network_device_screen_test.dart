@@ -1232,5 +1232,4 @@ void main() {
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
     });
   });
-
 }
