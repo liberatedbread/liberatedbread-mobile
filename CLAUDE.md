@@ -11,6 +11,8 @@ The rules most likely to bite if skipped:
 - **Never hand-edit generated FRB bindings** (`lib/src/rust/**`,
   `rust/src/frb_generated.rs`) — regenerate with `flutter_rust_bridge_codegen
   generate`.
-- Mirror CI before you're done: `./scripts/test.sh`. The local-network
-  discovery suites are excluded from `flutter test` — run
-  `./scripts/ci-netdisco-tests.sh` when you touch the Wi-Fi path.
+- Mirror CI before you're done: `./scripts/test.sh`. Running `flutter test`
+  directly, pass `--exclude-tags=netdisco` (as `test.sh` and CI do) — the
+  local-network discovery suites are declared but not skipped by default and
+  bind ports 5353/1900. Run them with `./scripts/ci-netdisco-tests.sh` when you
+  touch the Wi-Fi path.
