@@ -244,13 +244,13 @@ evidence:
         observed: "200"
     apk_teardown: >
       The Roku App (Official) 14.0.0.9462138 (com.roku.remote, XAPK via
-      APKCombo) decompiled with jadx: channel listing and control in Limited
-      mode ride an authenticated "ECP2" channel — package
-      com.roku.mobile.ecp with models ECP2ConnectionRequest /
-      ECP2JWTTokenRequestDto and api ECPAuthApi.getECP2JWT, over WebSocket,
-      backed by the signed-in Roku account. Plain ECP on port 8060 gets none
-      of that, so a local third-party client cannot reproduce it; the user
-      fix is raising the setting to Permissive.
+      APKCombo) decompiled with jadx: in Limited mode the official app rides
+      "ECP2", an authenticated WebSocket session (package
+      com.roku.mobile.ecp) on the same port 8060. The teardown plus a live
+      re-implementation against this fleet the same day showed the session
+      accepts client-id auth whose secret ships in the APK — no Roku account
+      needed — and that query-apps and key-press both answer 200 over it on
+      a Limited-mode TV. The full protocol is the top-level `ecp2` block.
 
 # Everything needed to build an ECP request byte for byte, in the role
 # soap_common plays for Wemo. ECP is deliberately plain: the whole request is
@@ -332,13 +332,56 @@ ecp_common:
         /query/active-app kept answering 200 and every keypress answered
         403. So a client must treat 400-with-that-body as the same refusal
         403 means, must NOT assume query endpoints are exempt, and must
-        expect the channel list to be unreadable until the setting is
-        raised to Permissive. The official Roku app is unaffected because
-        it does not use plain ECP for this: the 14.0.0.9462138 APK carries
-        an "ECP2" stack (com.roku.mobile.ecp) that obtains a JWT
-        (ECPAuthApi.getECP2JWT) and runs commands over an authenticated
-        WebSocket session tied to the user's Roku account — not
-        reproducible by a local third-party client without that account.
+        expect the channel list to be unreadable over plain ECP until the
+        setting is raised to Permissive — OR switch to ECP2, the
+        authenticated WebSocket session documented in the `ecp2` block
+        below, which Limited mode does not refuse.
+
+# ECP2: the authenticated session the official Roku app uses, and the way
+# through Limited mode. Reverse-engineered from The Roku App (Official)
+# 14.0.0.9462138 (jadx teardown: package com.roku.mobile.ecp) and verified
+# live against the fleet on 2026-08-11 — see evidence.limited_mode_probe.
+ecp2:
+  transport: "websocket"
+  url: "ws://<ip>:8060/ecp-session"
+  subprotocol: "ecp-2"
+  headers:
+    Sec-WebSocket-Origin: "Android"
+  framing: >
+    JSON text frames. A client request is {"request": "<name>",
+    "request-id": "<n>", ...params}; the device answers {"response":
+    "<name>", "response-id": "<n>", "status": "200", ...} with any payload
+    base64 in content-data beside a content-type, and sends unsolicited
+    notices with "notify" in place of "response". The request names are
+    the ECP paths dashed: query-apps, query-active-app, query-device-info,
+    key-press/key-down/key-up (param-key), launch, input,
+    query-tv-channels-ex, query-icon, set-textedit-text (whole-string text
+    entry — no per-character Lit_ loop needed), and roughly fifty more
+    (the app's full table runs from av-sync queries to picture settings).
+  auth:
+    description: >
+      On connect the device sends {"notify": "authenticate",
+      "param-challenge": "<base64>", "param-methods": [...]}. Two methods
+      were offered by every fleet TV: "jwt" — a token from
+      https://auth.prod.mobile.roku.com/v1/ecp/token?assert=true tied to
+      the signed-in Roku account, gated in the app by a remote-config flag
+      — and "client-id", which needs NO account: answer {"request":
+      "authenticate", "request-id": "1", "param-response":
+      base64(SHA-1(challenge + secret))}. The secret is the app's own
+      client id, shipped in the APK (ClientIdChallengeResponseStrategy):
+      the UUID 95E610D0-7C29-44EF-FB0F-97F1FCE4C297 with every hex nibble
+      n replaced by (24 - n) & 15, i.e.
+      F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1. A successful answer gets
+      {"response": "authenticate", "status": "200"} and the session then
+      accepts the full vocabulary — in Limited mode included.
+    verification: "confirmed"
+  notes: >
+    Whether using a competitor-shaped client id is acceptable is a policy
+    question for a consumer of this spec, not a technical one; the
+    mechanism itself is documented here because it is how the protocol
+    works. Roku can rotate or revoke the id in a firmware update at any
+    time, so a client should treat ECP2 as an enhancement over plain ECP
+    with fallback, never the only path.
 
 http_endpoints:
   - method: "GET"

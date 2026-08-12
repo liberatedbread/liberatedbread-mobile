@@ -56,11 +56,32 @@ not allowed in Limited mode."* — as **400 on one TV and 403 on two others**,
 the same TV switching spellings within minutes — `/query/media-player`
 answers 403, and every keypress answers 403, while `/query/device-info` and
 `/query/active-app` keep answering 200. Treat the 400-with-that-body as the
-same refusal 403 means. The official Roku app is unaffected because it does
-not use plain ECP here: the 14.0 APK's `com.roku.mobile.ecp` stack runs an
-authenticated "ECP2" session (JWT via `ECPAuthApi.getECP2JWT`, then
-WebSocket) tied to the signed-in Roku account, which a local third-party
-client cannot reproduce.
+same refusal 403 means.
+
+## ECP2: the authenticated WebSocket session
+
+The official Roku app is unaffected by Limited mode because it speaks ECP2,
+reverse-engineered from the 14.0 APK's `com.roku.mobile.ecp` stack and
+re-implemented live against the fleet on 2026-08-11:
+
+- Connect `ws://<ip>:8060/ecp-session` with subprotocol `ecp-2` and header
+  `Sec-WebSocket-Origin: Android`.
+- The device sends `{"notify": "authenticate", "param-challenge": "...",
+  "param-methods": ["client-id", "jwt"]}`. Client-id auth needs no account:
+  answer `{"request": "authenticate", "request-id": "1", "param-response":
+  base64(SHA-1(challenge + secret))}`, where the secret ships in the APK
+  (`ClientIdChallengeResponseStrategy`): the UUID
+  `95E610D0-7C29-44EF-FB0F-97F1FCE4C297` with every hex nibble `n` replaced
+  by `(24 - n) & 15`, i.e. `F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1`.
+- Frames are `{"request": "query-apps", "request-id": "N"}` →
+  `{"response": ..., "status": "200", "content-data": "<base64 XML>"}`.
+  Verified on a Limited-mode TV: auth 200, the full channel list,
+  `query-active-app`, and `key-press` 200 OK. The request vocabulary is the
+  ECP paths dashed (`key-press` takes `param-key`), plus ECP2-only extras
+  like `set-textedit-text` (whole-string text entry).
+
+Roku can rotate or revoke the client id in firmware at any time — treat ECP2
+as an enhancement over plain ECP with fallback, never the only path.
 
 ## Remote control surface
 
