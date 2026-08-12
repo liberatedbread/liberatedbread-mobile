@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/decoded_number.dart';
 import '../core/error_text.dart';
+import '../core/hex.dart';
 import '../providers/ble_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/spec_codec.dart';
@@ -207,8 +208,34 @@ class _EntityValueBuilderState extends ConsumerState<EntityValueBuilder> {
       entity: widget.entity,
       status: EntityValueStatus.loading,
     );
-    unawaited(_read(stateChar));
+    unawaited(_seed(stateChar));
     if (widget.entity.canNotify) _subscribe(stateChar);
+  }
+
+  /// Read once to seed the card — unless discovery says the characteristic
+  /// is notify-only. Those used to get the read anyway and wear its failure
+  /// as "Could not read this value" until the first notification arrived;
+  /// waiting in `loading` is the honest state. The check goes through the
+  /// service's per-connection discovery cache (no extra radio work), and any
+  /// failure to answer falls back to attempting the read — a wrong error
+  /// beats a silently skipped seed.
+  Future<void> _seed(String stateChar) async {
+    try {
+      final services =
+          await ref.read(bleServiceProvider).discoverServices(widget.deviceId);
+      final target = normalizeUuid(stateChar);
+      final char = services
+          .where(
+              (s) => normalizeUuid(s.uuid) == normalizeUuid(widget.serviceUuid))
+          .expand((s) => s.characteristics)
+          .where((c) => normalizeUuid(c.uuid) == target)
+          .firstOrNull;
+      if (char != null && !char.canRead && char.canNotify) return;
+    } catch (_) {
+      // Discovery unavailable: proceed with the read as before.
+    }
+    if (!mounted) return;
+    await _read(stateChar);
   }
 
   @override
