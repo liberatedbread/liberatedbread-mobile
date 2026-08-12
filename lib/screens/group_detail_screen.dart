@@ -9,6 +9,8 @@ import '../core/device_category.dart';
 import '../core/group_actions.dart';
 import '../core/stop_signal.dart';
 import '../providers/device_group_provider.dart';
+import '../providers/device_spec_match_provider.dart';
+import '../providers/scan_match_provider.dart';
 import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
@@ -127,6 +129,11 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     final membersAsync = ref
         .watch(groupMembersProvider(GroupMembersRequest(resolved.deviceIds)));
     final members = membersAsync.valueOrNull ?? const <GroupMember>[];
+    // Same loading/error split as _resolveGroup's pending/failed, for the
+    // member resolution itself (spec parsing can fail too).
+    final membersFailed = membersAsync.valueOrNull == null &&
+        membersAsync.hasError &&
+        !membersAsync.isLoading;
 
     final group = resolved.group;
     return Scaffold(
@@ -152,32 +159,47 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       body: SafeArea(
         // While the auto-group buckets (or the member resolution) are still
         // in flight, an empty list means "still looking", never "your
-        // devices may have been forgotten".
-        child: members.isEmpty
-            ? _EmptyMembers(waiting: membersAsync.isLoading || resolved.pending)
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-                children: [
-                  _OpButtons(
-                    members: members,
-                    running: _running,
-                    onRun: (op) => _run(members, op),
-                    onBrightness: () => _pickBrightness(members),
-                    onCancel: () => _stop.stop(),
+        // devices may have been forgotten" — and a pass that FAILED says so
+        // with a retry, rather than spinning or lying about forgetting.
+        child: resolved.failed || membersFailed
+            ? _ResolveError(
+                onRetry: () {
+                  // The sources as well as the aggregates: a guess or spec
+                  // entry that settled in error is kept alive by this very
+                  // screen's watch, so invalidating the aggregate alone
+                  // would only re-read the old error.
+                  ref.invalidate(scanGuessProvider);
+                  ref.invalidate(parsedDeviceSpecsProvider);
+                  ref.invalidate(autoGroupsProvider);
+                  ref.invalidate(groupMembersProvider);
+                },
+              )
+            : members.isEmpty
+                ? _EmptyMembers(
+                    waiting: membersAsync.isLoading || resolved.pending)
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                    children: [
+                      _OpButtons(
+                        members: members,
+                        running: _running,
+                        onRun: (op) => _run(members, op),
+                        onBrightness: () => _pickBrightness(members),
+                        onCancel: () => _stop.stop(),
+                      ),
+                      const SizedBox(height: 20),
+                      SectionHeader(label: 'Devices', count: members.length),
+                      const SizedBox(height: 12),
+                      for (final member in members) ...[
+                        _MemberRow(
+                          member: member,
+                          event: _latest[member.id],
+                          queued: _running && !_latest.containsKey(member.id),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ],
                   ),
-                  const SizedBox(height: 20),
-                  SectionHeader(label: 'Devices', count: members.length),
-                  const SizedBox(height: 12),
-                  for (final member in members) ...[
-                    _MemberRow(
-                      member: member,
-                      event: _latest[member.id],
-                      queued: _running && !_latest.containsKey(member.id),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-                ],
-              ),
       ),
     );
   }
@@ -192,6 +214,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
     List<String> deviceIds,
     DeviceGroup? group,
     bool pending,
+    bool failed,
   })? _resolveGroup() {
     final category = widget.category;
     if (category != null) {
@@ -205,9 +228,13 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           for (final d in bucket?.devices ?? const <SavedDevice>[]) d.id
         ],
         group: null,
-        // An errored guess pass also reads as pending: a spinner over a
-        // false "members may have been forgotten" — the next rebuild retries.
-        pending: !auto.hasValue,
+        // Loading and error are distinct: this provider is not autoDispose,
+        // so a settled error would wear a spinner forever — nothing short of
+        // an explicit refresh re-runs it. A failed pass gets an honest error
+        // state with a retry instead (the isLoading check keeps the retry
+        // itself reading as pending, not as a second failure).
+        pending: auto.valueOrNull == null && auto.isLoading,
+        failed: auto.valueOrNull == null && auto.hasError && !auto.isLoading,
       );
     }
     final group = ref
@@ -220,6 +247,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       deviceIds: group.deviceIds,
       group: group,
       pending: false,
+      failed: false,
     );
   }
 }
@@ -390,6 +418,44 @@ class _StatusGlyph extends StatelessWidget {
       GroupDeviceStatus.failed =>
         Icon(Icons.error_outline, size: 22, color: scheme.error),
     };
+  }
+}
+
+/// The guess or member-resolution pass failed outright. Distinct from
+/// [_EmptyMembers] because the two ask different things of the user: waiting
+/// asks patience, failure offers a retry — the providers behind this screen
+/// only re-run when explicitly refreshed.
+class _ResolveError extends StatelessWidget {
+  final VoidCallback onRetry;
+
+  const _ResolveError({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 320),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Could not work out the members of this group.',
+              textAlign: TextAlign.center,
+              style: text.bodyMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant, height: 1.5),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

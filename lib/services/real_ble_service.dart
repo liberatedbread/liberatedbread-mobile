@@ -780,7 +780,31 @@ class RealBleService implements BleService {
   Future<void> Function()? _endActiveScan;
 
   @override
-  Future<void> connect(String deviceId) async {
+  Future<void> connect(String deviceId) {
+    // Serialized per device, because the share-expiry decision below reads
+    // the link state BEFORE its own platform call: two overlapping connects
+    // to a disconnected device would otherwise both snapshot "link was
+    // down", and whichever resumed second would expire the notify shares
+    // the first had already installed on the (single, shared) link. Chained,
+    // the second call observes the link the first one established and
+    // correctly leaves its shares alone. fbp serializes the underlying
+    // platform calls anyway, so this adds ordering, not latency.
+    final previous = _connectChain[deviceId] ?? Future<void>.value();
+    final attempt = previous.then((_) => _connectNow(deviceId));
+    // The stored tail swallows the failure so one dead attempt cannot poison
+    // the callers queued behind it; each caller still gets the real error
+    // through its own `attempt`.
+    final tail = attempt.catchError((Object _) {});
+    _connectChain[deviceId] = tail;
+    tail.whenComplete(() {
+      if (identical(_connectChain[deviceId], tail)) {
+        _connectChain.remove(deviceId);
+      }
+    });
+    return attempt;
+  }
+
+  Future<void> _connectNow(String deviceId) async {
     // Two lines, because the gap between them is the diagnosis: a connect can
     // sit here for the full 15s timeout. Failures surface to the UI, which
     // logs them via friendlyErrorText — logging them here too would duplicate.
@@ -988,6 +1012,12 @@ class RealBleService implements BleService {
   /// run) connecting to the same peripheral share a link — and a late
   /// disconnect from one used to kill it under the other.
   final Map<String, int> _connectionClaims = {};
+
+  /// The tail of each device's in-flight connect queue — error-swallowed, so
+  /// the next caller chains onto "the previous attempt finished" rather than
+  /// onto its failure. Entries are removed once no caller is queued; see
+  /// [connect] for why connects serialize at all.
+  final Map<String, Future<void>> _connectChain = {};
 
   int _generationOf(String deviceId) => _connectionGeneration[deviceId] ?? 0;
 
