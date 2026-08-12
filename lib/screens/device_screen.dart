@@ -7,12 +7,14 @@ import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/device_spec_match_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
+import '../core/hex.dart';
 import '../core/log.dart';
 import 'find_device_screen.dart';
 
@@ -38,6 +40,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   List<BleDiscoveredService> _services = [];
   late final BleService _bleService;
   StreamSubscription<BleConnectionState>? _connSub;
+  // Watches the spec match for the connected device and records the outcome
+  // (category + spec key) on the saved-device record, so grouping can
+  // classify this device while it is out of range. A listener rather than a
+  // one-shot read: the user answering the spec chooser resolves the same
+  // family later, and that answer must be captured too.
+  ProviderSubscription<AsyncValue<SpecMatchOutcome>>? _matchSub;
   // True once connect() has established a link we still own. Guards teardown so
   // exactly one disconnect() runs per established connection.
   bool _connected = false;
@@ -120,6 +128,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         _services = services;
         _state = _ScreenState.ready;
       });
+      _watchSpecMatch(services);
       if (_openFindWhenReady) {
         _openFindWhenReady = false;
         _openFind();
@@ -178,10 +187,57 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     // subscription teardown can stall inside the widget-test fake zone.
     unawaited(_connSub?.cancel());
     _connSub = null;
+    _matchSub?.close();
+    _matchSub = null;
     if (_connected) {
       _connected = false;
       await _bleService.disconnect(widget.device.id).catchError((Object _) {});
     }
+  }
+
+  /// Record what spec this device matched on its saved record.
+  ///
+  /// The request is built exactly the way [DeviceControlPanel] builds its own
+  /// (same normalization, same sort), so both hit one cached family entry and
+  /// this adds no FFI work. `fireImmediately` catches a match that already
+  /// resolved; later firings catch the user answering the spec chooser.
+  void _watchSpecMatch(List<BleDiscoveredService> services) {
+    _matchSub?.close();
+    if (services.isEmpty) return;
+    final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
+      ..sort();
+    _matchSub = ref.listenManual(
+      matchedDeviceSpecProvider(SpecMatchRequest(
+        deviceId: widget.device.id,
+        deviceName: widget.device.displayName,
+        serviceUuids: serviceUuids,
+      )),
+      fireImmediately: true,
+      (previous, next) {
+        final chosen = next.valueOrNull?.chosen;
+        if (chosen == null) return;
+        // Same shape as the touch() call in _connect(), for the same reason:
+        // the first notifier read builds it, which reads the store
+        // synchronously — a throw there must not become an unhandled error.
+        try {
+          unawaited(
+            ref
+                .read(savedDevicesProvider.notifier)
+                .recordMatch(
+                  id: widget.device.id,
+                  category: chosen.spec.category,
+                  specKey: specKeyFor(chosen.spec),
+                )
+                .catchError((Object _) {}),
+          );
+        } catch (e) {
+          Log.ble.warning(
+            'could not record the spec match for ${widget.device.id}',
+            error: e,
+          );
+        }
+      },
+    );
   }
 
   /// Observe the live connection state so an unexpected disconnect flips the
@@ -209,6 +265,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     // neither leak the pending connection nor double-disconnect here.
     unawaited(_connSub?.cancel());
     _connSub = null;
+    _matchSub?.close();
+    _matchSub = null;
     if (_connected) {
       _connected = false;
       // unawaited() does not swallow errors, so attach a catchError to keep a
