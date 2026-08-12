@@ -43,6 +43,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   are per-attribute acknowledgements so read-back is mandatory, and the
   YAML spells the `"on"` key quoted because unquoted `on` is a boolean in
   YAML 1.1
+- `lifx-z` now documents its LAN control surface byte-for-byte, so the LIFX
+  binary UDP protocol is implementable from the spec alone. A top-level
+  `payload_formats` block gives the 36-byte header (with the `0x1400`/`0x3400`
+  protocol constants and the `source` id spelled out), the HSBK colour, and the
+  `SetColor`/`SetPower`/`GetService`/`SetColorZones`/`State`/`StateMultiZone`
+  messages as field tables plus full example datagrams; `scripts/test_lifx_spec.py`
+  transcribes each message from those field tables and the
+  `lifx_lan_protocol.message_types` numbers and checks it reproduces the example,
+  the same bar `test_wemo_spec.py` holds the Wemo surface to. `identification`
+  gains an `ssdp_search_targets: ["lifx:udp"]` token — the synthetic target a
+  client emits after a UDP `GetService` broadcast confirms a LIFX device, so a
+  positive LAN probe is a vendor-specific (non-shared) match rather than the
+  "possible" a shared `_hap._tcp` sighting earns, which is the discovery path the
+  Matter caveat needs. Adds the missing `targets/lifx-z.md`. The control messages
+  and the legacy SoftAP onboarding remain `verified: false` — they are documented
+  and transcription-checked, but not yet replayed against hardware.
 - `airthings-wave-family` binds temperature and humidity to each model's
   combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
   `b42e3b98`). The SIG characteristics (2A6E/2A6F) are app-derived and
