@@ -49,6 +49,26 @@ String _stripLeadingZeros(String value) {
   return value.substring(i);
 }
 
+/// [id] when it is a hardware address, null when it is not one.
+///
+/// Android, Linux and Windows put the MAC in the platform device id; Apple
+/// platforms substitute a per-host CoreBluetooth UUID, which carries no OUI
+/// and must not be read as an address. Six colon-separated hex octets is the
+/// discriminator — a UUID has five hyphen-separated groups instead. One
+/// implementation, shared by `IoTDevice.macAddress` and the saved-device
+/// paths, so the two can never classify the same id differently.
+String? macAddressOrNull(String id) {
+  final octets = id.split(':');
+  if (octets.length != 6) return null;
+  final isMac = octets.every((octet) =>
+      octet.length == 2 &&
+      octet.codeUnits.every((c) =>
+          (c >= 0x30 && c <= 0x39) || // 0-9
+          (c >= 0x41 && c <= 0x46) || // A-F
+          (c >= 0x61 && c <= 0x66))); // a-f
+  return isMac ? id : null;
+}
+
 final RegExp _macSeparators = RegExp('[:-]');
 final RegExp _upperHex = RegExp(r'^[0-9A-F]+$');
 

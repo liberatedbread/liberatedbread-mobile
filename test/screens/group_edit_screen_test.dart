@@ -164,6 +164,35 @@ void main() {
     expect(container.read(deviceGroupsProvider).single.deviceIds, ['AA:01']);
   });
 
+  testWidgets('a failed save reports and releases the button', (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        deviceGroupsProvider.overrideWith(
+            (ref) => _ExplodingGroupsNotifier(DeviceGroupStore(_prefs))),
+      ],
+      child: const MaterialApp(home: GroupEditScreen()),
+    ));
+    await tester.pump();
+
+    await tester.enterText(find.byType(TextField), 'Living Room');
+    await tester.pump();
+    await tester.tap(find.text('Bulb'));
+    await tester.pump();
+    await tester.tap(find.text('Create group'));
+    await tester.pumpAndSettle();
+
+    // Still on the editor, told what happened, free to try again — not a
+    // popped screen, a silent zone error, or a button stuck on saving.
+    expect(find.byType(GroupEditScreen), findsOneWidget);
+    expect(find.text('Could not save this group.'), findsOneWidget);
+    final button = tester.widget<FilledButton>(find.ancestor(
+      of: find.text('Create group'),
+      matching: find.byWidgetPredicate((w) => w is FilledButton),
+    ));
+    expect(button.onPressed, isNotNull);
+  });
+
   testWidgets('deleting asks first and keeps the devices', (tester) async {
     SharedPreferences.setMockInitialValues({
       ..._saved(),
@@ -195,4 +224,17 @@ void main() {
     // The saved devices themselves are untouched.
     expect(container.read(savedDevicesProvider), hasLength(3));
   });
+}
+
+/// A notifier whose persistence always fails, for the failed-save path.
+class _ExplodingGroupsNotifier extends DeviceGroupsNotifier {
+  _ExplodingGroupsNotifier(super.store);
+
+  @override
+  Future<DeviceGroup> create({
+    required String name,
+    required List<String> deviceIds,
+  }) async {
+    throw Exception('disk full');
+  }
 }

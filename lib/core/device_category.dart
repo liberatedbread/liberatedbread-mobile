@@ -67,6 +67,20 @@ enum DeviceCategory {
   /// [DeviceCategory.switch_] is `switch` (Dart reserves the bare word).
   String get wireName => this == DeviceCategory.switch_ ? 'switch' : name;
 
+  /// [label] pluralized: "Lights" reads right where "Light" would not, in
+  /// section titles for the automatic by-kind groups. Categories whose label
+  /// is a mass noun keep it.
+  String get pluralLabel => switch (this) {
+        DeviceCategory.switch_ => 'Switches',
+        DeviceCategory.climate ||
+        DeviceCategory.energy ||
+        DeviceCategory.fitness ||
+        DeviceCategory.health ||
+        DeviceCategory.irrigation =>
+          label,
+        _ => '${label}s',
+      };
+
   /// Resolve a `device.category` string, or null when it is absent, empty, or
   /// a value this build does not know.
   static DeviceCategory? parse(String? raw) {

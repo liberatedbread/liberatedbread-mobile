@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +16,7 @@ import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart
 import 'package:liberated_bread_mobile/providers/saved_device_provider.dart';
 import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
+import 'package:liberated_bread_mobile/services/device_group_store.dart';
 import 'package:liberated_bread_mobile/services/group_runner.dart';
 import 'package:liberated_bread_mobile/services/saved_device_store.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -156,12 +158,104 @@ void main() {
       );
     });
 
-    test('macAddressOfSavedId offers only real MACs to the matcher', () {
-      expect(macAddressOfSavedId('AA:BB:CC:DD:EE:01'), 'AA:BB:CC:DD:EE:01');
-      expect(macAddressOfSavedId('not-a-mac'), isNull);
+    test('offers the saved id to the matcher as a MAC only when it is one',
+        () async {
+      final identities = <ScanIdentity>[];
+      final container = await _container(overrides: [
+        scanGuessProvider.overrideWith((ref, identity) async {
+          identities.add(identity);
+          return null;
+        }),
+      ]);
+      final saved = container.read(savedDevicesProvider.notifier);
+      await saved.save(
+          SavedDevice(id: 'AA:BB:CC:DD:EE:01', name: 'Mac', lastSeen: seen));
       // A CoreBluetooth UUID must not be offered as an address.
-      expect(
-          macAddressOfSavedId('4bb63e02-91b5-4a4f-9d63-cd0324a1a1ba'), isNull);
+      await saved.save(SavedDevice(
+          id: '4bb63e02-91b5-4a4f-9d63-cd0324a1a1ba',
+          name: 'Apple',
+          lastSeen: seen));
+
+      await container.read(autoGroupsProvider.future);
+
+      final byName = {
+        for (final identity in identities) identity.name: identity
+      };
+      expect(byName['Mac']!.macAddress, 'AA:BB:CC:DD:EE:01');
+      expect(byName['Apple']!.macAddress, isNull);
+    });
+
+    test('guesses for unclassified records resolve concurrently', () async {
+      final started = <String>[];
+      final gate = Completer<void>();
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
+      final container = await _container(overrides: [
+        scanGuessProvider.overrideWith((ref, identity) async {
+          started.add(identity.name);
+          await gate.future;
+          return guess(DeviceCategory.light);
+        }),
+      ]);
+      final saved = container.read(savedDevicesProvider.notifier);
+      await saved.save(SavedDevice(id: 'A', name: 'One', lastSeen: seen));
+      await saved.save(SavedDevice(id: 'B', name: 'Two', lastSeen: seen));
+
+      final future = container.read(autoGroupsProvider.future);
+      await Future<void>.delayed(Duration.zero);
+      // Both matches must be in flight before either resolves — the serial
+      // version would still be parked on the first one here, with the
+      // second not yet started.
+      expect(started, unorderedEquals(['One', 'Two']));
+
+      gate.complete();
+      final auto = await future;
+      expect(auto.groups.single.devices, hasLength(2));
+    });
+  });
+
+  group('isGroupable', () {
+    test('excludes only the on-principle categories', () {
+      expect(isGroupable('light'), isTrue);
+      // Unknown kind stays groupable: battery reads need no spec, and the
+      // runner can match one on connect.
+      expect(isGroupable(null), isTrue);
+      // So does a category minted upstream after this build shipped.
+      expect(isGroupable('hologram'), isTrue);
+      expect(isGroupable('vehicle'), isFalse);
+      expect(isGroupable('reference'), isFalse);
+    });
+  });
+
+  group('forgetDevice', () {
+    test('prunes group memberships before the saved record', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final calls = <String>[];
+      final savedNotifier =
+          _RecordingSavedDevices(SavedDeviceStore(prefs), calls);
+      final groupsNotifier = _RecordingGroups(DeviceGroupStore(prefs), calls);
+      final container = ProviderContainer(overrides: [
+        savedDevicesProvider.overrideWith((ref) => savedNotifier),
+        deviceGroupsProvider.overrideWith((ref) => groupsNotifier),
+      ]);
+      addTearDown(container.dispose);
+      await savedNotifier
+          .save(SavedDevice(id: 'A', name: 'Bulb', lastSeen: seen));
+      await groupsNotifier.create(name: 'Room', deviceIds: ['A']);
+
+      await forgetDevice(
+        savedDevices: savedNotifier,
+        groups: groupsNotifier,
+        deviceId: 'A',
+      );
+
+      // Membership first: dying between the writes must leave a spec-less
+      // saved device, never a dormant membership that resurrects on re-save.
+      expect(calls, ['pruneDevice', 'remove']);
+      expect(container.read(savedDevicesProvider), isEmpty);
+      expect(container.read(deviceGroupsProvider).single.deviceIds, isEmpty);
     });
   });
 
@@ -199,6 +293,8 @@ void main() {
       final byId = {for (final m in members) m.id: m};
       expect(byId['A']!.specYaml, 'chosen-yaml');
       expect(byId['B']!.specYaml, 'recorded-yaml');
+      // Members arrive with their op memo already derived from the spec.
+      expect(byId['A']!.specOps, contains(GroupOp.turnOff));
     });
 
     test('drops forgotten ids and carries members with no spec', () async {
@@ -273,7 +369,7 @@ void main() {
       final events = await runner
           .run(
             GroupOp.turnOff,
-            [const GroupMember(id: 'A', name: 'Bulb')],
+            [GroupMember(id: 'A', name: 'Bulb')],
             stop: StopSignal(),
           )
           .toList();
@@ -282,4 +378,30 @@ void main() {
       expect(ble.writes.single.value, [0x01]);
     });
   });
+}
+
+/// Notifiers that log their forget-path calls, so the coordinator's write
+/// order is observable.
+class _RecordingSavedDevices extends SavedDevicesNotifier {
+  final List<String> calls;
+
+  _RecordingSavedDevices(super.store, this.calls);
+
+  @override
+  Future<void> remove(String id) {
+    calls.add('remove');
+    return super.remove(id);
+  }
+}
+
+class _RecordingGroups extends DeviceGroupsNotifier {
+  final List<String> calls;
+
+  _RecordingGroups(super.store, this.calls);
+
+  @override
+  Future<void> pruneDevice(String deviceId) {
+    calls.add('pruneDevice');
+    return super.pruneDevice(deviceId);
+  }
 }

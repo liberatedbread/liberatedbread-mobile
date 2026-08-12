@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -63,6 +64,14 @@ final _bulbSpec = DeviceSpecDto(
 );
 
 late SharedPreferences _prefs;
+
+/// FilledButton.tonalIcon builds a private FilledButton subclass, so match
+/// by predicate rather than exact runtimeType.
+FilledButton _buttonWith(WidgetTester tester, String label) =>
+    tester.widget<FilledButton>(find.ancestor(
+      of: find.textContaining(label),
+      matching: find.byWidgetPredicate((w) => w is FilledButton),
+    ));
 
 Map<String, Object> _twoBulbs() => {
       'saved_devices_v1': jsonEncode([
@@ -128,18 +137,68 @@ void main() {
     await tester.pumpWidget(_wrap(writableBle(), FakeSpecCodec()));
     await tester.pumpAndSettle();
 
-    // FilledButton.tonalIcon builds a private FilledButton subclass, so match
-    // by predicate rather than exact runtimeType. The disabled label carries
-    // its support count ("Set brightness · 0 of 2").
-    FilledButton buttonWith(String label) =>
-        tester.widget<FilledButton>(find.ancestor(
-          of: find.textContaining(label),
-          matching: find.byWidgetPredicate((w) => w is FilledButton),
-        ));
-
-    expect(buttonWith('Set brightness').onPressed, isNull);
+    expect(_buttonWith(tester, 'Set brightness').onPressed, isNull);
     expect(find.text('Set brightness · 0 of 2'), findsOneWidget);
-    expect(buttonWith('Read batteries').onPressed, isNotNull);
+    expect(_buttonWith(tester, 'Read batteries').onPressed, isNotNull);
+  });
+
+  testWidgets('commands stay enabled while a member may match on connect',
+      (tester) async {
+    // One member with no stored spec at all: its row promises a match on
+    // connect, so the verbs must stay tappable — the runner reports the
+    // honest per-device skip if the match never comes.
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1': jsonEncode([
+        {
+          'id': 'AA:BB:CC:DD:EE:03',
+          'name': 'Unmatched',
+          'lastSeen': '2026-08-11T10:00:00.000',
+          'category': 'light',
+        },
+      ]),
+    });
+    _prefs = await SharedPreferences.getInstance();
+    await tester.pumpWidget(_wrap(writableBle(), FakeSpecCodec()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Kind unknown — will match on connect'), findsOneWidget);
+    expect(_buttonWith(tester, 'Turn all on').onPressed, isNotNull);
+    expect(_buttonWith(tester, 'Set brightness').onPressed, isNotNull);
+    expect(find.text('Set brightness · 0 of 1'), findsOneWidget);
+  });
+
+  testWidgets('resolving guesses read as waiting, not as forgotten members',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'saved_devices_v1': jsonEncode([
+        {
+          'id': 'AA:BB:CC:DD:EE:04',
+          'name': 'Mystery',
+          'lastSeen': '2026-08-11T10:00:00.000',
+        },
+      ]),
+    });
+    _prefs = await SharedPreferences.getInstance();
+    final never = Completer<ScanGuess?>();
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        bleServiceProvider.overrideWithValue(writableBle()),
+        specCodecProvider.overrideWithValue(FakeSpecCodec()),
+        scanGuessProvider.overrideWith((ref, identity) => never.future),
+        parsedDeviceSpecsProvider.overrideWith((ref) async => []),
+      ],
+      child: const MaterialApp(
+        home: GroupDetailScreen(category: DeviceCategory.light),
+      ),
+    ));
+    // pump, not pumpAndSettle: the spinner animates for as long as the guess
+    // pass is in flight, which here is forever.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.textContaining('may have been forgotten'), findsNothing);
   });
 
   testWidgets('turn all off runs the group and reports per-device outcomes',
