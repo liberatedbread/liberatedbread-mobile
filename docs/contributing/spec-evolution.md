@@ -422,6 +422,77 @@ working; specs using the plural form gain matching they do not have now.
 **Effort.** Small schema, small consumer work — the matcher already loops over
 `service_uuids` and `mac_prefixes` the same way.
 
+### P12 — Executable HTTP commands, paired credentials, and hub children { #p12 }
+
+**Status: landed.** `method` on commands, the `credential:`/`instance:` schemes
+on parameter `source`, and `instances:` on entities are in `schema.json`; the
+hue-bridge spec exercises all three and the mobile consumer executes them. Kept
+here as the worked reasoning; the rest of this section is written as it was
+proposed.
+
+**Problem.** The `commands:` block made a role map executable for exactly one
+transport. `transport: http` was in the enum from the start, but an http
+command carried only `path` — no method — and a REST-shaped API answers GET and
+PUT on the same path with different operations, so the file could not say which
+one a command performs. Two further gaps sat behind that one. First, real HTTP
+paths carry values the spec cannot know: a per-client credential issued at
+pairing time (every Hue call after the link-button handshake embeds the issued
+`username` in the path), and the identifier of whichever child a hub command
+addresses. `source` could only say `state:<command>.<field>`, which covers
+neither. Second, an entity binds to exactly one reading, but a hub is one
+network presence fronting a population — which lights sit behind a Hue bridge
+is the owner's business, not the spec's, so no fixed list of entities can
+describe one.
+
+**Evidence.** `hue-bridge.yaml`: discovery, identification, pairing and
+endpoints live-verified against hardware, and every byte of it declarative.
+The mobile app finds the bridge, badges it, and has nothing to offer — the
+protocol is documented and none of it is executable, which is precisely the
+gap `commands:` closed for SOAP.
+
+**Proposal.** Three additive pieces of vocabulary:
+
+```yaml
+commands:
+  light_turn_on:
+    transport: "http"
+    method: "PUT"                              # new: the missing half of the address
+    path: "/api/{username}/lights/{id}/state"  # placeholders now substitute from parameters
+    arguments: { on: true }
+    parameters:
+      username: { type: "string", source: "credential:username" }  # new scheme
+      id:       { type: "string", source: "instance:id" }          # new scheme
+
+entities:
+  - platform: "light"
+    name: "Hue Light"
+    instances: { keyed_by: "id", label_path: "name" }   # new: entity as per-child template
+    state_command: "Lights"
+    state_mapping: { is_on: "state.on", brightness: "state.bri" }
+```
+
+`method` pairs with `path` the way `service` pairs with `action`.
+`credential:<name>` names a per-device secret the client stored when it paired;
+`instance:<key>` names the current child's id. Both inherit `source`'s
+contract: no default, and a renderer with no value must fail the send visibly —
+an unpaired client erroring at `credential:username` is the correct behaviour.
+`instances:` declares the entity a template: the `state_command` reply is a
+JSON object keyed by child id, enumeration and state in one request, with
+`state_mapping` paths resolving inside each child's object.
+
+**Compatibility.** Additive. SOAP specs are untouched; existing consumers that
+predate the keys see an http command with no method (declarative, as ever) and
+an instanced entity whose paths resolve nothing from the response root — the
+correct degraded behaviour for a hub they do not understand.
+
+**Effort.** Small schema; the consumer work is the real half (an HTTP renderer
+beside the SOAP one, credential storage, instance enumeration) and landed with
+it. Deliberately deferred: a `headers:` vocabulary. Hue's CLIP v2 API moves the
+credential from the path into an `hue-application-key` header, and other
+devices will want `Authorization:`; that is the next piece of this vocabulary
+when a spec needs v2, and it should follow the `arguments` substitution model
+rather than invent its own.
+
 ## Strategic / optional
 
 ### P7 — A normalized capability vocabulary { #p7 }
@@ -523,6 +594,7 @@ this page classifiable.
 | [P6](#p6) | First-class advertisement payloads | High | Medium | With consumer |
 | [P10](#p10) | Multi-byte command parameters | High | Low | With consumer — one is blocked today |
 | [P11](#p11) | Plural `local_name_prefix` | Medium | Very low | **Landed** |
+| [P12](#p12) | Executable HTTP commands + hub children | High | Low | **Landed** |
 | [P7](#p7) | Normalized capability vocabulary | High | Medium | Needs a design pass |
 | [P8](#p8) | Rename `command_class` → `adapter_class` | Low | Low | Governance |
 | [P9](#p9) | SemVer the schema | Medium | Low | Governance — enables the rest |
