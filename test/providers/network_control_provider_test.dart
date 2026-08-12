@@ -27,6 +27,7 @@ DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
       macPrefixes: const [],
       mdnsServiceType: null,
       ssdpSearchTargets: const ['urn:Belkin:service:basicevent:1'],
+      lanProtocols: const [],
       defaultPort: null,
       entities: const [],
       services: const [],

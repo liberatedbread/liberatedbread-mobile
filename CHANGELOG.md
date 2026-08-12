@@ -387,6 +387,22 @@ heading.
 
 ### Added
 
+- **TP-Link Kasa smart plugs (on/off control over Wi-Fi).** The third network
+  transport, after SOAP (Wemo) and plain HTTP (Roku): the Kasa local protocol
+  is JSON over a raw TCP socket on port 9999, obfuscated by a trivial XOR-
+  autokey cipher with 4-byte length framing. The cipher and framing live in the
+  Rust core (`rust/src/protocol/kasa.rs`, under test against the canonical
+  softScheck / python-kasa byte vectors); `KasaControlClient` opens the socket
+  and moves bytes, and Dart's `dart:convert` flattens the `get_sysinfo` reply
+  into the name→value pairs the existing entity decoder reads (as the SOAP
+  client does for XML). The outlet renders as an on/off switch whose state polls
+  `relay_state` — the same control shape as the Wemo plug. Discovery is a
+  UDP-broadcast of the encoded `get_sysinfo` to `255.255.255.255:9999` folded
+  into the Wi-Fi scan, and because Kasa devices advertise neither mDNS nor SSDP,
+  the network matcher gained an honest new axis: a spec's `lan_protocols` are
+  matched against the vendor protocols a device actually *answered*, a strong
+  identifier where a bare open port is none. Power strips (per-outlet
+  addressing) and energy metering are noted as follow-ups.
 - **Sensor devices read as dashboards, not as GATT dumps.** Three changes
   that land together on anything the catalogue classes as a sensor — an
   Airthings Wave, a SensorPush, a Miflora:

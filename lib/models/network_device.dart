@@ -16,6 +16,12 @@ enum NetworkDiscoverySource {
   /// SSDP / UPnP. Older, and the only way to find some devices at all — Wemo
   /// and the pre-2020 Hue bridges have no mDNS presence worth the name.
   ssdp,
+
+  /// A vendor LAN-protocol probe the device answered — a directed broadcast
+  /// that only devices speaking the protocol reply to (TP-Link Kasa's
+  /// get_sysinfo on UDP 9999). Neither passive mDNS nor SSDP: the answer is
+  /// itself the identification.
+  lanProbe,
 }
 
 /// A device found on the local network.
@@ -63,6 +69,12 @@ class NetworkDevice {
   /// `urn:Belkin:device:controllee:1`.
   final List<String> ssdpTargets;
 
+  /// Vendor LAN protocols this device *answered* during discovery — Kasa's
+  /// `tplink-smarthome`, set when a get_sysinfo broadcast probe got a reply.
+  /// Unlike a passively-advertised service type, an answer is proof the device
+  /// speaks the protocol, so the matcher treats it as a strong identifier.
+  final List<String> answeredLanProtocols;
+
   /// SSDP `SERVER:` header — an OS/product string like
   /// `Unspecified, UPnP/1.0, Unspecified`. Free-form vendor text.
   final String? server;
@@ -85,6 +97,7 @@ class NetworkDevice {
     this.ssdpDescriptionPath,
     this.serviceTypes = const [],
     this.ssdpTargets = const [],
+    this.answeredLanProtocols = const [],
     this.server,
     this.txt = const {},
   });
@@ -147,6 +160,8 @@ class NetworkDevice {
         ssdpDescriptionPath: ssdpDescriptionPath ?? other.ssdpDescriptionPath,
         serviceTypes: {...serviceTypes, ...other.serviceTypes}.toList(),
         ssdpTargets: {...ssdpTargets, ...other.ssdpTargets}.toList(),
+        answeredLanProtocols:
+            {...answeredLanProtocols, ...other.answeredLanProtocols}.toList(),
         server: server ?? other.server,
         txt: {...other.txt, ...txt},
         sources: {...sources, ...other.sources},
@@ -189,6 +204,7 @@ class NetworkDevice {
       setEquals(other.sources, sources) &&
       listEquals(other.serviceTypes, serviceTypes) &&
       listEquals(other.ssdpTargets, ssdpTargets) &&
+      listEquals(other.answeredLanProtocols, answeredLanProtocols) &&
       mapEquals(other.txt, txt);
 }
 

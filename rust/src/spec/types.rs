@@ -207,6 +207,12 @@ pub struct SpecCommand {
     /// endpoint catalogue by name.
     #[serde(default)]
     pub method: Option<String>,
+    /// The literal request body a `transport: tcp-json` command sends — the
+    /// JSON an invocation IS (`{"system":{"set_relay_state":{"state":1}}}`),
+    /// what `arguments` is to SOAP and `path` is to HTTP. May carry `{name}`
+    /// placeholders substituted from `parameters`, exactly as they are.
+    #[serde(default)]
+    pub body: Option<String>,
     /// Argument name → value as both go on the wire. `"{name}"` is substituted
     /// from the like-named parameter; anything else is a literal this
     /// invocation has already decided.
@@ -925,6 +931,14 @@ pub struct Identification {
     /// meaningful mDNS presence — Wemo, and pre-2020 Hue bridges.
     #[serde(default)]
     pub ssdp_search_targets: Option<Vec<String>>,
+    /// Vendor LAN protocols the device identifies itself by *answering* a probe
+    /// — `tplink-smarthome` for Kasa, which is found by a UDP broadcast it
+    /// answers rather than by any mDNS/SSDP advertisement. A strong identifier:
+    /// only a device that speaks the protocol replies, so a scanner that
+    /// completed the handshake matches this against the token it tagged the
+    /// device with.
+    #[serde(default)]
+    pub lan_protocols: Option<Vec<String>>,
     /// WiFi SSID prefix when the device is in AP mode.
     #[serde(default)]
     pub ssid_prefix: Option<String>,
