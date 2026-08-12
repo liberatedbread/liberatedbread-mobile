@@ -64,8 +64,12 @@ class FakeSpecCodec implements SpecCodec {
   final Object? encodeStoredError;
 
   final List<
-          ({String charUuid, String commandName, Map<String, double> params})>
-      encodeCalls = [];
+      ({
+        String? serviceUuid,
+        String charUuid,
+        String commandName,
+        Map<String, double> params,
+      })> encodeCalls = [];
 
   final List<
       ({
@@ -209,6 +213,7 @@ class FakeSpecCodec implements SpecCodec {
     required Map<String, double> params,
   }) async {
     encodeCalls.add((
+      serviceUuid: serviceUuid,
       charUuid: charUuid,
       commandName: commandName,
       params: Map.of(params),

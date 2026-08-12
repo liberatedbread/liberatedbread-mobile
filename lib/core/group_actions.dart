@@ -272,7 +272,7 @@ List<GroupRead> resolveBatteryReads({
     for (final entity in spec.entities) {
       if (!_isSpecBatteryEntity(entity)) continue;
       final stateChar = entity.stateCharacteristic!;
-      final owning = _owningReadableService(services, stateChar);
+      final owning = _owningReadableService(spec, services, stateChar);
       if (owning == null) continue;
       if (!seenChars.add(normalizeUuid(stateChar))) continue;
       reads.add(GroupRead(
@@ -328,7 +328,7 @@ List<GroupRead> resolveSensorReads({
     if (reads.length >= cap) break;
     if (!_isSensorEntity(entity)) continue;
     final stateChar = entity.stateCharacteristic!;
-    final owning = _owningReadableService(services, stateChar);
+    final owning = _owningReadableService(spec, services, stateChar);
     if (owning == null) continue;
     if (!seen.add('${entity.platform}|${entity.name}')) continue;
     reads.add(GroupRead(
@@ -343,14 +343,30 @@ List<GroupRead> resolveSensorReads({
 }
 
 /// The discovered service owning [charUuid] with read permission, or null.
-/// Mirrors the control panel's owning-service lookup, plus the readability
-/// check a one-shot group read needs (the panel can lean on notify instead).
+///
+/// "Owning" is decided by the SPEC, not by discovery order: characteristic
+/// UUIDs repeat across services (the same hazard the write path pair-keys
+/// against), and binding to the first discovered twin would read another
+/// channel's bytes and decode them with this entity's format — a garbage
+/// number reported as a healthy reading. Only when the spec declares the
+/// characteristic under no service at all does discovery order decide,
+/// which then can't be wrong two ways.
 String? _owningReadableService(
+  DeviceSpecDto spec,
   List<BleDiscoveredService> services,
   String charUuid,
 ) {
   final target = normalizeUuid(charUuid);
+  final declaredUnder = <String>{
+    for (final service in spec.services)
+      if (service.characteristics.any((c) => normalizeUuid(c.uuid) == target))
+        normalizeUuid(service.uuid),
+  };
   for (final service in services) {
+    if (declaredUnder.isNotEmpty &&
+        !declaredUnder.contains(normalizeUuid(service.uuid))) {
+      continue;
+    }
     for (final char in service.characteristics) {
       if (normalizeUuid(char.uuid) == target && char.canRead) {
         return service.uuid;
