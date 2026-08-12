@@ -25,6 +25,7 @@ DeviceSpecDto _bulbSpec() => DeviceSpecDto(
       companyIds: Uint16List(0),
       macPrefixes: const [],
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       services: const [],
       entities: const [
         EntityDto(
@@ -58,6 +59,7 @@ DeviceSpecDto _onOnlySpec() => DeviceSpecDto(
       companyIds: Uint16List(0),
       macPrefixes: const [],
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       services: const [],
       entities: const [
         EntityDto(

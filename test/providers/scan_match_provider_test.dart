@@ -33,6 +33,7 @@ final _spec = DeviceSpecDto(
   ],
   mdnsServiceType: null,
   ssdpSearchTargets: const [],
+  lanProtocols: const [],
   defaultPort: null,
   entities: const <EntityDto>[],
   services: const [],

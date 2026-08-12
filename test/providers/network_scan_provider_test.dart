@@ -24,6 +24,7 @@ final _spec = DeviceSpecDto(
   macPrefixes: const [],
   mdnsServiceType: '_hue._tcp.local.',
   ssdpSearchTargets: const ['urn:schemas-upnp-org:device:Basic:1'],
+  lanProtocols: const [],
   defaultPort: 80,
   entities: const <EntityDto>[],
   services: const [],

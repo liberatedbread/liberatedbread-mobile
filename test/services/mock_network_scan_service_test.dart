@@ -33,6 +33,7 @@ void main() {
         '192.168.1.43',
         '192.168.1.44',
         '192.168.1.42',
+        '192.168.1.45',
         '192.168.1.99',
       ]);
 
@@ -43,14 +44,27 @@ void main() {
       expect(lifx.ssdpTargets, ['lifx:udp']);
       expect(lifx.txt['mac'], isNotNull);
 
+      // The Kasa plug: found by answering the tplink-smarthome probe (no mDNS,
+      // no SSDP), so it carries the protocol token — the matcher's strong
+      // signal — and the plug port rather than any advertised service.
+      final kasa = devices.firstWhere((d) => d.host == '192.168.1.45');
+      expect(kasa.answeredLanProtocols, ['tplink-smarthome']);
+      expect(kasa.sources, {NetworkDiscoverySource.lanProbe});
+      expect(kasa.port, 9999);
+
       // The fixture exists so the Wi-Fi list is not four rows of the same
       // thing — it is meant to walk the confidence ladder the real scan
       // produces. Asserting the SHAPE rather than the exact entries, so they
       // can be re-tuned freely, but a fixture that collapses to one kind of
       // device (which is what makes a demo screenshot misleading) is rejected.
-      expect(devices.expand((d) => d.sources).toSet(),
-          {NetworkDiscoverySource.mdns, NetworkDiscoverySource.ssdp},
-          reason: 'both transports must be represented');
+      expect(
+          devices.expand((d) => d.sources).toSet(),
+          {
+            NetworkDiscoverySource.mdns,
+            NetworkDiscoverySource.ssdp,
+            NetworkDiscoverySource.lanProbe,
+          },
+          reason: 'all three transports must be represented');
       expect(devices.where((d) => d.ssdpTargets.isNotEmpty), hasLength(3));
       expect(devices.where((d) => d.serviceTypes.isNotEmpty), hasLength(3));
       expect(devices.where((d) => d.name.isNotEmpty), isNotEmpty,
@@ -76,7 +90,7 @@ void main() {
       final done = service.scan(timeout: const Duration(seconds: 8)).forEach(
         (device) {
           seen.add(device);
-          if (seen.length == 6) {
+          if (seen.length == 7) {
             sinceStop.start();
             unawaited(service.stopScan());
           }
@@ -85,7 +99,7 @@ void main() {
 
       await done.timeout(const Duration(seconds: 6));
 
-      expect(seen, hasLength(6));
+      expect(seen, hasLength(7));
       expect(sinceStop.elapsed, lessThan(const Duration(milliseconds: 500)),
           reason: 'stopScan must wake the tail wait rather than be noticed '
               'when it expires 2s later. Elapsed after stop: '
@@ -121,7 +135,7 @@ void main() {
       final second = await service
           .scan(timeout: const Duration(milliseconds: 40))
           .toList();
-      expect(second, hasLength(6));
+      expect(second, hasLength(7));
     });
 
     test('stopScan before any scan is harmless', () async {
@@ -132,7 +146,7 @@ void main() {
       final devices = await service
           .scan(timeout: const Duration(milliseconds: 40))
           .toList();
-      expect(devices, hasLength(6));
+      expect(devices, hasLength(7));
     });
   });
 }

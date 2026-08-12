@@ -34,6 +34,7 @@ final _treadmillSpec = DeviceSpecDto(
   macPrefixes: const [],
   mdnsServiceType: null,
   ssdpSearchTargets: const [],
+  lanProtocols: const [],
   defaultPort: null,
   entities: const <EntityDto>[],
   services: const [
@@ -302,6 +303,7 @@ void main() {
       macPrefixes: const [],
       mdnsServiceType: null,
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       defaultPort: null,
       entities: const <EntityDto>[],
       services: const [

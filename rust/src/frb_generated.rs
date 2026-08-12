@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1292239895;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1861901751;
 
 // Section: executor
 
@@ -737,6 +737,145 @@ fn wire__crate__api__device_api__identify_standard_profiles_impl(
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Result::<_, ()>::Ok(
                         crate::api::device_api::identify_standard_profiles(api_service_uuids),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__kasa_decode_datagram_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "kasa_decode_datagram",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_datagram = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::kasa_decode_datagram(api_datagram)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__kasa_decode_frame_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "kasa_decode_frame",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_frame = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::kasa_decode_frame(api_frame)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__kasa_encode_frame_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "kasa_encode_frame",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_json = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::device_api::kasa_encode_frame(api_json))?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__kasa_encrypt_datagram_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "kasa_encrypt_datagram",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_json = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::kasa_encrypt_datagram(api_json),
                     )?;
                     Ok(output_ok)
                 })())
@@ -1489,6 +1628,87 @@ fn wire__crate__api__device_api__render_network_http_state_request_impl(
         },
     )
 }
+fn wire__crate__api__device_api__render_network_kasa_command_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "render_network_kasa_command",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            let api_command_name = <String>::sse_decode(&mut deserializer);
+            let api_values =
+                <std::collections::HashMap<String, String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::render_network_kasa_command(
+                            api_spec_yaml,
+                            api_command_name,
+                            api_values,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__render_network_kasa_state_request_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "render_network_kasa_state_request",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            let api_state_command = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::render_network_kasa_state_request(
+                            api_spec_yaml,
+                            api_state_command,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__device_api__render_network_state_request_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1668,6 +1888,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             <Vec<crate::api::device_api::MacPrefixDto>>::sse_decode(deserializer);
         let mut var_mdnsServiceType = <Option<String>>::sse_decode(deserializer);
         let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
+        let mut var_lanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
         let mut var_services = <Vec<crate::api::device_api::ServiceDto>>::sse_decode(deserializer);
         let mut var_entities = <Vec<crate::api::device_api::EntityDto>>::sse_decode(deserializer);
@@ -1688,6 +1909,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             mac_prefixes: var_macPrefixes,
             mdns_service_type: var_mdnsServiceType,
             ssdp_search_targets: var_ssdpSearchTargets,
+            lan_protocols: var_lanProtocols,
             default_port: var_defaultPort,
             services: var_services,
             entities: var_entities,
@@ -1888,6 +2110,14 @@ impl SseDecode for crate::api::device_api::ImageWritePlanDto {
             writes: var_writes,
             next_frame_index: var_nextFrameIndex,
         };
+    }
+}
+
+impl SseDecode for crate::api::device_api::KasaRequestDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_json = <String>::sse_decode(deserializer);
+        return crate::api::device_api::KasaRequestDto { json: var_json };
     }
 }
 
@@ -2488,12 +2718,14 @@ impl SseDecode for crate::api::device_api::NetworkDeviceDto {
         let mut var_hostname = <Option<String>>::sse_decode(deserializer);
         let mut var_serviceTypes = <Vec<String>>::sse_decode(deserializer);
         let mut var_ssdpTargets = <Vec<String>>::sse_decode(deserializer);
+        let mut var_answeredLanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_port = <Option<u16>>::sse_decode(deserializer);
         return crate::api::device_api::NetworkDeviceDto {
             name: var_name,
             hostname: var_hostname,
             service_types: var_serviceTypes,
             ssdp_targets: var_ssdpTargets,
+            answered_lan_protocols: var_answeredLanProtocols,
             port: var_port,
         };
     }
@@ -3008,6 +3240,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             <Vec<crate::api::device_api::MacPrefixDto>>::sse_decode(deserializer);
         let mut var_mdnsServiceType = <Option<String>>::sse_decode(deserializer);
         let mut var_ssdpSearchTargets = <Vec<String>>::sse_decode(deserializer);
+        let mut var_lanProtocols = <Vec<String>>::sse_decode(deserializer);
         let mut var_defaultPort = <Option<u16>>::sse_decode(deserializer);
         return crate::api::device_api::SpecIdentityDto {
             device_name: var_deviceName,
@@ -3019,6 +3252,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             mac_prefixes: var_macPrefixes,
             mdns_service_type: var_mdnsServiceType,
             ssdp_search_targets: var_ssdpSearchTargets,
+            lan_protocols: var_lanProtocols,
             default_port: var_defaultPort,
         };
     }
@@ -3219,108 +3453,138 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        18 => wire__crate__api__device_api__lifx_default_security_impl(
+        18 => wire__crate__api__device_api__kasa_decode_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        19 => wire__crate__api__device_api__lifx_port_impl(port, ptr, rust_vec_len, data_len),
-        20 => wire__crate__api__device_api__list_network_instances_impl(
+        19 => {
+            wire__crate__api__device_api__kasa_decode_frame_impl(port, ptr, rust_vec_len, data_len)
+        }
+        20 => {
+            wire__crate__api__device_api__kasa_encode_frame_impl(port, ptr, rust_vec_len, data_len)
+        }
+        21 => wire__crate__api__device_api__kasa_encrypt_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        21 => {
+        22 => wire__crate__api__device_api__lifx_default_security_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        23 => wire__crate__api__device_api__lifx_port_impl(port, ptr, rust_vec_len, data_len),
+        24 => wire__crate__api__device_api__list_network_instances_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        25 => {
             wire__crate__api__device_api__load_device_spec_impl(port, ptr, rust_vec_len, data_len)
         }
-        22 => wire__crate__api__device_api__match_device_to_spec_impl(
+        26 => wire__crate__api__device_api__match_device_to_spec_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        23 => wire__crate__api__device_api__match_network_device_impl(
+        27 => wire__crate__api__device_api__match_network_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        24 => wire__crate__api__device_api__match_scanned_device_impl(
+        28 => wire__crate__api__device_api__match_scanned_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        25 => wire__crate__api__mock_api__mock_read_characteristic_impl(
+        29 => wire__crate__api__mock_api__mock_read_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        26 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
-        27 => wire__crate__api__mock_api__mock_write_characteristic_impl(
+        30 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__mock_api__mock_write_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        28 => wire__crate__api__device_api__network_entities_for_device_impl(
+        32 => wire__crate__api__device_api__network_entities_for_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        29 => wire__crate__api__device_api__parse_lifx_state_service_impl(
+        33 => wire__crate__api__device_api__parse_lifx_state_service_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        30 => wire__crate__api__device_api__read_network_entity_impl(
+        34 => wire__crate__api__device_api__read_network_entity_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        31 => wire__crate__api__device_api__read_network_instance_impl(
+        35 => wire__crate__api__device_api__read_network_instance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        32 => wire__crate__api__device_api__render_lifx_command_impl(
+        36 => wire__crate__api__device_api__render_lifx_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__device_api__render_lifx_set_access_point_impl(
+        37 => wire__crate__api__device_api__render_lifx_set_access_point_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__device_api__render_network_command_impl(
+        38 => wire__crate__api__device_api__render_network_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        35 => wire__crate__api__device_api__render_network_http_command_impl(
+        39 => wire__crate__api__device_api__render_network_http_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        36 => wire__crate__api__device_api__render_network_http_state_request_impl(
+        40 => wire__crate__api__device_api__render_network_http_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        37 => wire__crate__api__device_api__render_network_state_request_impl(
+        41 => wire__crate__api__device_api__render_network_kasa_command_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        42 => wire__crate__api__device_api__render_network_kasa_state_request_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        43 => wire__crate__api__device_api__render_network_state_request_impl(
             port,
             ptr,
             rust_vec_len,
@@ -3445,6 +3709,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.mac_prefixes.into_into_dart().into_dart(),
             self.mdns_service_type.into_into_dart().into_dart(),
             self.ssdp_search_targets.into_into_dart().into_dart(),
+            self.lan_protocols.into_into_dart().into_dart(),
             self.default_port.into_into_dart().into_dart(),
             self.services.into_into_dart().into_dart(),
             self.entities.into_into_dart().into_dart(),
@@ -3668,6 +3933,23 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ImageWritePlanDto
     for crate::api::device_api::ImageWritePlanDto
 {
     fn into_into_dart(self) -> crate::api::device_api::ImageWritePlanDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::KasaRequestDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [self.json.into_into_dart().into_dart()].into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::KasaRequestDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::KasaRequestDto>
+    for crate::api::device_api::KasaRequestDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::KasaRequestDto {
         self
     }
 }
@@ -3913,6 +4195,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::NetworkDeviceDto 
             self.hostname.into_into_dart().into_dart(),
             self.service_types.into_into_dart().into_dart(),
             self.ssdp_targets.into_into_dart().into_dart(),
+            self.answered_lan_protocols.into_into_dart().into_dart(),
             self.port.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -4329,6 +4612,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
             self.mac_prefixes.into_into_dart().into_dart(),
             self.mdns_service_type.into_into_dart().into_dart(),
             self.ssdp_search_targets.into_into_dart().into_dart(),
+            self.lan_protocols.into_into_dart().into_dart(),
             self.default_port.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -4557,6 +4841,7 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);
         <Option<String>>::sse_encode(self.mdns_service_type, serializer);
         <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
+        <Vec<String>>::sse_encode(self.lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.default_port, serializer);
         <Vec<crate::api::device_api::ServiceDto>>::sse_encode(self.services, serializer);
         <Vec<crate::api::device_api::EntityDto>>::sse_encode(self.entities, serializer);
@@ -4688,6 +4973,13 @@ impl SseEncode for crate::api::device_api::ImageWritePlanDto {
         <String>::sse_encode(self.service_uuid, serializer);
         <Vec<crate::api::device_api::ImageWriteDto>>::sse_encode(self.writes, serializer);
         <u32>::sse_encode(self.next_frame_index, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::KasaRequestDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.json, serializer);
     }
 }
 
@@ -5134,6 +5426,7 @@ impl SseEncode for crate::api::device_api::NetworkDeviceDto {
         <Option<String>>::sse_encode(self.hostname, serializer);
         <Vec<String>>::sse_encode(self.service_types, serializer);
         <Vec<String>>::sse_encode(self.ssdp_targets, serializer);
+        <Vec<String>>::sse_encode(self.answered_lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.port, serializer);
     }
 }
@@ -5515,6 +5808,7 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
         <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);
         <Option<String>>::sse_encode(self.mdns_service_type, serializer);
         <Vec<String>>::sse_encode(self.ssdp_search_targets, serializer);
+        <Vec<String>>::sse_encode(self.lan_protocols, serializer);
         <Option<u16>>::sse_encode(self.default_port, serializer);
     }
 }

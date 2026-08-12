@@ -154,6 +154,7 @@ void main() {
       macPrefixes: const [],
       mdnsServiceType: '_hue._tcp.local.',
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       defaultPort: 80,
     );
     const device = NetworkDeviceDto(
@@ -161,6 +162,7 @@ void main() {
       hostname: 'Philips-hue.local',
       serviceTypes: ['_hue._tcp.local'],
       ssdpTargets: [],
+      answeredLanProtocols: [],
       port: 443,
     );
 

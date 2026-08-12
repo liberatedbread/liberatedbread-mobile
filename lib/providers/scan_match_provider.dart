@@ -177,6 +177,7 @@ final specIdentitiesProvider =
         macPrefixes: p.spec.macPrefixes,
         mdnsServiceType: p.spec.mdnsServiceType,
         ssdpSearchTargets: p.spec.ssdpSearchTargets,
+        lanProtocols: p.spec.lanProtocols,
         defaultPort: p.spec.defaultPort,
       ),
   ];

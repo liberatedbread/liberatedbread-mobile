@@ -16,7 +16,9 @@ import 'spec_codec_provider.dart';
 /// Provides the local-network discovery implementation (real or mock).
 final networkScanServiceProvider = Provider<NetworkScanService>((ref) {
   if (isMockMode) return MockNetworkScanService();
-  final service = RealNetworkScanService();
+  // The codec runs the Kasa cipher on the discovery datagram; without it the
+  // Kasa broadcast transport simply does not run.
+  final service = RealNetworkScanService(codec: ref.read(specCodecProvider));
   // Multicast sockets and the mDNS client outlive a widget if nobody closes
   // them, and a leaked bound socket keeps the radio awake.
   ref.onDispose(() => service.stopScan());
@@ -34,6 +36,7 @@ class NetworkIdentity {
   final int? port;
   final List<String> serviceTypes;
   final List<String> ssdpTargets;
+  final List<String> answeredLanProtocols;
 
   const NetworkIdentity({
     required this.name,
@@ -41,6 +44,7 @@ class NetworkIdentity {
     required this.port,
     required this.serviceTypes,
     required this.ssdpTargets,
+    required this.answeredLanProtocols,
   });
 
   NetworkIdentity.of(NetworkDevice device)
@@ -48,7 +52,8 @@ class NetworkIdentity {
         hostname = device.hostname,
         port = device.port,
         serviceTypes = device.serviceTypes,
-        ssdpTargets = device.ssdpTargets;
+        ssdpTargets = device.ssdpTargets,
+        answeredLanProtocols = device.answeredLanProtocols;
 
   @override
   bool operator ==(Object other) =>
@@ -57,11 +62,17 @@ class NetworkIdentity {
       other.hostname == hostname &&
       other.port == port &&
       listEquals(other.serviceTypes, serviceTypes) &&
-      listEquals(other.ssdpTargets, ssdpTargets);
+      listEquals(other.ssdpTargets, ssdpTargets) &&
+      listEquals(other.answeredLanProtocols, answeredLanProtocols);
 
   @override
-  int get hashCode => Object.hash(name, hostname, port,
-      Object.hashAll(serviceTypes), Object.hashAll(ssdpTargets));
+  int get hashCode => Object.hash(
+      name,
+      hostname,
+      port,
+      Object.hashAll(serviceTypes),
+      Object.hashAll(ssdpTargets),
+      Object.hashAll(answeredLanProtocols));
 }
 
 /// What the catalogue makes of one device on the network, or null when nothing
@@ -83,6 +94,7 @@ final networkGuessProvider = FutureProvider.autoDispose
         hostname: identity.hostname,
         serviceTypes: identity.serviceTypes,
         ssdpTargets: identity.ssdpTargets,
+        answeredLanProtocols: identity.answeredLanProtocols,
         port: identity.port,
       ),
     );

@@ -1,0 +1,307 @@
+# TP-Link Kasa Smart Plug — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "TP-Link Kasa Smart Plug"
+  manufacturer: "TP-Link"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "switch"
+  transport: "tcp-json"
+  notes: >
+    The Kasa-era TP-Link smart plugs — HS100 and HS110 (HS110 adds energy
+    monitoring), plus the same-protocol HS103/HS105 and KP105/KP115 — speak a
+    plaintext local protocol on TCP port 9999: JSON commands wrapped in a
+    trivial XOR "autokey" cipher (initial key 0xAB), with no authentication of
+    any kind. softScheck reverse-engineered it in 2016 and python-kasa (which
+    backs Home Assistant's `tplink` integration, iot_class local_polling) has
+    implemented it ever since. Day-to-day control is 100% LAN — block the plug
+    from the internet at the router and everything here still works.
+
+    TP-Link the company is alive, so manufacturer_status is `active`; what is
+    endangered is this local protocol. HS100 hardware v4 on firmware 1.1.0
+    (~2020) CLOSED port 9999 ("enhanced total encryption"), and newer hardware
+    (EP25, KP125M, the whole Tapo line) moved to the encrypted KLAP/AES
+    protocol with cloud-tied credentials — out of scope for this spec. Keep a
+    working unit offline from vendor firmware updates to preserve the API.
+
+    SAFETY: the relay is mains-rated (13–16 A depending on region) and the
+    protocol has NO authentication, so anything on the LAN can toggle the load.
+    Segment the device accordingly.
+
+    This spec is transcribed from softScheck's write-up and python-kasa; the
+    on-the-wire cipher and command vectors below are reproduced by
+    scripts/test_kasa_spec.py from the YAML alone, but nothing here has been
+    replayed against hardware by this project (verification: reported).
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://www.softscheck.com/en/blog/tp-link-reverse-engineering/"
+        title: "softScheck — Reverse Engineering the TP-Link HS110"
+        covers: >
+          The port-9999 XOR-autokey cipher, the TCP length framing, and the
+          system/emeter/netif JSON command tree.
+    source_code: "https://github.com/python-kasa/python-kasa"
+    license: "GPL-3.0"
+    notes: >
+      python-kasa is the authoritative implementation and is far better tested
+      against hardware than this document; a consumer wanting a supported
+      client should use it. This spec exists to document the protocol, not to
+      compete with that library.
+
+  identification:
+    # The strong, honest signal: a device is a Kasa plug because it ANSWERED
+    # the tplink-smarthome get_sysinfo probe (see discovery below). Only a
+    # Kasa-protocol device replies at all, so a consumer that completed the
+    # handshake tags the device with this token and the two are matched.
+    lan_protocols:
+      - "tplink-smarthome"
+    # default_port gates this spec into the network match path; it is never
+    # evidence on its own (port 9999 names no vendor). The MAC OUIs below are
+    # TP-Link's, shared across their whole catalogue (routers, cameras, plugs),
+    # so they rank a device rather than identify it — low confidence, as bare
+    # strings.
+    default_port: 9999
+    mac_prefixes:
+      - "50:C7:BF"
+      - "1C:3B:F3"
+      - "AC:84:C6"
+
+  discovery:
+    # No mdns/ssdp: Kasa devices announce over neither. Discovery is a UDP
+    # broadcast of the XOR-encoded get_sysinfo to 255.255.255.255:9999; every
+    # Kasa-protocol device on the segment answers with its full sysinfo. The
+    # datagram bytes and reply shape are documented in
+    # tplink_smarthome_protocol.discovery below, because the schema's
+    # structured discovery.methods vocabulary has no udp_broadcast type yet.
+    identity:
+      stable_keys: ["deviceId", "mac"]
+      display: "alias"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "low"
+    notes: >
+      A factory-fresh or reset plug hosts an open AP named `TP-LINK_Smart
+      Plug_XXXX` and speaks the same port-9999 protocol on it. Joining it to
+      the home Wi-Fi needs no cloud account: send `netif.set_stainfo` with the
+      target SSID, passphrase and key type over the local protocol (this is
+      what `kasa wifi join` does in python-kasa; the official Kasa app can also
+      do it without signing in). The exact set_stainfo payload has not been
+      replayed by this project, so confidence is low.
+    methods:
+      - type: "softap_http"
+        verified: false
+        description: >
+          Join the plug's own `TP-LINK_Smart Plug_XXXX` AP and drive the
+          port-9999 TCP-JSON protocol on it (the AP transport is the same
+          protocol as normal control, not literal HTTP). Confirm the device
+          answers get_sysinfo, then send netif.set_stainfo with the home
+          network credentials; the plug drops its AP and joins.
+        softap:
+          ssid_prefix: "TP-LINK_Smart Plug"
+          open_network: true
+          port: 9999
+        steps:
+          - action: "Factory reset the plug (or power a new one) and wait for its setup AP."
+            actor: "user"
+            timeout_seconds: 60
+            expect: "An open AP named `TP-LINK_Smart Plug_XXXX` appears."
+          - action: "Join the setup AP from the provisioning client."
+            actor: "user"
+            expect: "The client gets an address on the plug's setup subnet."
+          - action: "Confirm the plug answers on the setup network."
+            actor: "client"
+            request:
+              protocol: "udp"
+              action: "get_sysinfo broadcast to port 9999"
+            expect: "A sysinfo reply carrying the plug's model, mac and deviceId."
+          - action: "Send the home network credentials."
+            actor: "client"
+            request:
+              service: "netif"
+              action: "set_stainfo (ssid, password, key_type) over TCP 9999"
+            expect: "The plug acknowledges, drops its AP and joins the home Wi-Fi."
+            timeout_seconds: 30
+          - action: "Rediscover the plug on the home network."
+            actor: "user"
+            expect: "The plug answers a get_sysinfo broadcast on the home LAN."
+            timeout_seconds: 90
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears Wi-Fi credentials, the device alias and any schedules/rules,
+        returning the plug to its unprovisioned, AP-hosting state.
+      procedures:
+        - name: "Press and hold the button (~5 seconds)"
+          hold_seconds: 5
+          indicator: "The status LED blinks amber/green rapidly to confirm the reset."
+          steps:
+            - action: "With the plug powered, press and hold its physical button for about 5 seconds until the LED blinks rapidly, then release."
+              actor: "user"
+              notes: >
+                On models with a dedicated reset pinhole (some KP-series), hold
+                that instead. A short press just toggles the relay.
+    rejoin:
+      in_place_supported: false
+      requires_factory_reset: true
+      notes: >
+        There is no documented in-place credential update over the local
+        protocol; treat a router change as a factory reset and reprovision.
+    credentials:
+      wifi_passphrase_protection: "plaintext"
+      stored_on_device:
+        - "Wi-Fi credentials"
+      issued_to_client: []
+      notes: >
+        netif.set_stainfo carries the passphrase inside the same XOR-autokey
+        obfuscation the rest of the protocol uses — that is not encryption, so
+        the passphrase is effectively plaintext and the open setup AP is the
+        only transport protection during provisioning. Post-setup control is
+        unauthenticated: anything that can reach port 9999 can drive the plug.
+
+protocol_handler: "tplink_smarthome"
+
+# The TP-Link Kasa local protocol, byte for byte — the role soap_common plays
+# for Wemo and ecp_common for Roku. Everything a consumer needs to build a
+# request and read a reply without hardware is here; the `commands` block below
+# names the invocations entities bind, and their `body` is the JSON documented
+# here.
+tplink_smarthome_protocol:
+  transport: "TCP (control) / UDP (discovery), JSON payloads"
+  port: 9999
+  authentication: "none"
+  cipher:
+    name: "XOR autokey"
+    description: >
+      Byte-wise XOR with a running key. To ENCRYPT: start key = 0xAB (171);
+      for each plaintext byte p, emit c = key XOR p, then set key = c. To
+      DECRYPT: start key = 0xAB; for each ciphertext byte c, emit p = key XOR
+      c, then set key = c. The key is thus the previous CIPHERTEXT byte after
+      the first. This is obfuscation, not security — it has no secret.
+    initial_key: 0xAB
+    test_vectors:
+      description: >
+        Reproducible with the algorithm above and nothing else; asserted by
+        scripts/test_kasa_spec.py. Bytes are hex. The tiny inputs pin the
+        cipher direction; the get_sysinfo vector is the canonical discovery
+        datagram softScheck and python-kasa both publish.
+      cases:
+        - plaintext_hex: "000000"
+          cipher_hex: "ababab"
+        - plaintext_hex: "010203"
+          cipher_hex: "aaa8ab"
+        - plaintext_utf8: '{"system":{"get_sysinfo":null}}'
+          cipher_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+  framing:
+    tcp: >
+      Each message on the TCP stream is a 4-byte big-endian length prefix (the
+      count of encrypted payload bytes, NOT including the prefix) followed by
+      the XOR-encrypted JSON. The reply uses the same framing.
+    udp: >
+      Discovery and its replies are a single datagram of the XOR-encrypted
+      JSON with NO length prefix.
+  discovery:
+    method: "udp_broadcast"
+    destination: "255.255.255.255:9999"
+    request_json: '{"system":{"get_sysinfo":null}}'
+    request_datagram_hex: "d0f281f88bff9af7d5ef94b6d1b4c09fec95e68fe187e8caf09eeb87eb96eb"
+    response: >
+      Each Kasa-protocol device answers with a unicast datagram carrying the
+      full get_sysinfo object (see the get_sysinfo command's returns): alias,
+      model, deviceId, hwId, mac, rssi and relay_state. deviceId is the stable
+      identity; alias is the user-facing name.
+  command_tree:
+    system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
+    system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
+    emeter.get_realtime: "HS110 only — instantaneous voltage/current/power/total. Not modelled as an entity in this spec yet."
+    netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
+  multi_outlet_note: >
+    Power strips (HS300 / KP303 / EP40) report a `children` array in
+    get_sysinfo and address each outlet by wrapping a command in
+    {"context":{"child_ids":["<deviceId>0N"]}}. That is a separate spec; this
+    one covers single-relay plugs only.
+
+# A stub access surface so the schema's "document at least one access surface"
+# rule is satisfied; control is the tcp-json protocol above, not REST. The
+# LIFX, Lutron and SmartThings specs carry the same placeholder for the same
+# reason — the schema has no native raw-socket endpoint type.
+http_endpoints:
+  - method: "GET"
+    path: "/"
+    name: "Local API Placeholder"
+    description: >
+      Placeholder only. There is no HTTP surface: control is JSON over a raw
+      TCP socket on port 9999 (see tplink_smarthome_protocol), not REST.
+
+# The invocations entities bind. Each is a `tcp-json` command whose whole
+# instruction is the JSON in `body`; a consumer XOR-encrypts and length-frames
+# it per tplink_smarthome_protocol and writes it to port 9999.
+commands:
+  relay_on:
+    description: "Close the relay — turn the outlet on."
+    transport: "tcp-json"
+    body: '{"system":{"set_relay_state":{"state":1}}}'
+    example_body: '{"system":{"set_relay_state":{"state":1}}}'
+    verification: "reported"
+  relay_off:
+    description: "Open the relay — turn the outlet off."
+    transport: "tcp-json"
+    body: '{"system":{"set_relay_state":{"state":0}}}'
+    example_body: '{"system":{"set_relay_state":{"state":0}}}'
+    verification: "reported"
+  get_sysinfo:
+    description: >
+      Read device info and current relay state. This is both the state poll
+      (relay_state 0/1) and the discovery probe.
+    transport: "tcp-json"
+    body: '{"system":{"get_sysinfo":null}}'
+    example_body: '{"system":{"get_sysinfo":null}}'
+    returns:
+      - name: "relay_state"
+        type: "integer"
+        description: "0 = off, 1 = on. The switch entity reads this."
+      - name: "alias"
+        type: "string"
+        description: "User-assigned device name."
+      - name: "model"
+        type: "string"
+        description: "Hardware model, e.g. HS100(US)."
+      - name: "deviceId"
+        type: "string"
+        description: "Stable device identity."
+      - name: "mac"
+        type: "string"
+        description: "Wi-Fi MAC address."
+    verification: "reported"
+
+# One control: the outlet, as an on/off switch. state_command polls
+# get_sysinfo; the reply's relay_state is the value, nonzero meaning on. This
+# is the same switch/outlet shape the Wemo plug uses — a consumer that already
+# renders a network switch needs the tcp-json transport, not a new entity kind.
+entities:
+  - platform: "switch"
+    name: "Outlet"
+    device_class: "outlet"
+    icon: "mdi:power-socket"
+    state_command: "get_sysinfo"
+    state_mapping:
+      value: "relay_state"
+      on_when: "nonzero"
+    commands:
+      turn_on: "relay_on"
+      turn_off: "relay_off"
+
+helpful_urls:
+  - title: "softScheck — Reverse Engineering the TP-Link HS110 (2016)"
+    url: "https://www.softscheck.com/en/blog/tp-link-reverse-engineering/"
+    description: "The original protocol write-up: cipher, framing and command tree."
+  - title: "python-kasa — reference implementation (backs Home Assistant tplink)"
+    url: "https://github.com/python-kasa/python-kasa"
+    description: "Authoritative, hardware-tested client for this and later Kasa protocols."
+  - title: "softScheck/tplink-smartplug — original client + Wireshark dissector"
+    url: "https://github.com/softScheck/tplink-smartplug"
+    description: "The tplink-smarthome-commands.txt reference and a pcap dissector."

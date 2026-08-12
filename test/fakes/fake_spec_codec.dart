@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -126,6 +127,16 @@ class FakeSpecCodec implements SpecCodec {
   NetworkReadingDto? Function(String entityName, Map<String, String> returned)?
       networkReading;
 
+  /// Returned by [renderNetworkKasaCommand] / [renderNetworkKasaStateRequest];
+  /// the default echoes the command name into a JSON object so a transport
+  /// test can tell requests apart.
+  KasaRequestDto Function(String name, Map<String, String> values)?
+      networkKasaRequest;
+
+  /// Every rendered Kasa command, in call order, with the values it carried.
+  final List<({String commandName, Map<String, String> values})>
+      renderNetworkKasaCommandCalls = [];
+
   /// Every [encodeStoredImage] call, in order, for assertions.
   final List<
       ({
@@ -166,6 +177,7 @@ class FakeSpecCodec implements SpecCodec {
     this.instances = const [],
     this.instanceReadings,
     this.httpRenderError,
+    this.networkKasaRequest,
   }) : encoded = encoded ?? Uint8List(0);
 
   @override
@@ -367,6 +379,73 @@ class FakeSpecCodec implements SpecCodec {
     required Map<String, String> returned,
   }) async =>
       networkReading?.call(entityName, returned);
+
+  @override
+  Future<KasaRequestDto> renderNetworkKasaCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) async {
+    renderNetworkKasaCommandCalls
+        .add((commandName: commandName, values: values));
+    return networkKasaRequest?.call(commandName, values) ??
+        KasaRequestDto(json: '{"cmd":"$commandName"}');
+  }
+
+  @override
+  Future<KasaRequestDto> renderNetworkKasaStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  }) async =>
+      networkKasaRequest?.call(stateCommand, const {}) ??
+      KasaRequestDto(json: '{"cmd":"$stateCommand"}');
+
+  // The XOR-autokey cipher, implemented here so the fake round-trips exactly
+  // as the Rust codec does — a KasaControlClient test can drive a full
+  // encode → exchange → decode cycle with no native library.
+  static List<int> _kasaEncrypt(List<int> plain) {
+    var key = 0xAB;
+    return [for (final b in plain) key ^= b];
+  }
+
+  static List<int> _kasaDecrypt(List<int> cipher) {
+    var key = 0xAB;
+    final out = <int>[];
+    for (final b in cipher) {
+      out.add(key ^ b);
+      key = b;
+    }
+    return out;
+  }
+
+  @override
+  Future<List<int>> kasaEncodeFrame({required String json}) async {
+    final body = _kasaEncrypt(utf8.encode(json));
+    final len = body.length;
+    return [
+      (len >> 24) & 0xFF,
+      (len >> 16) & 0xFF,
+      (len >> 8) & 0xFF,
+      len & 0xFF,
+      ...body,
+    ];
+  }
+
+  @override
+  Future<String> kasaDecodeFrame({required List<int> frame}) async {
+    if (frame.length < 4) throw const FormatException('short Kasa frame');
+    final len =
+        (frame[0] << 24) | (frame[1] << 16) | (frame[2] << 8) | frame[3];
+    return utf8.decode(_kasaDecrypt(frame.sublist(4, 4 + len)));
+  }
+
+  @override
+  Future<List<int>> kasaEncryptDatagram({required String json}) async =>
+      _kasaEncrypt(utf8.encode(json));
+
+  @override
+  Future<String> kasaDecodeDatagram({required List<int> datagram}) async =>
+      utf8.decode(_kasaDecrypt(datagram));
 
   @override
   Future<StoredUploadPlanDto> encodeStoredImage({

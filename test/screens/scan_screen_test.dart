@@ -74,6 +74,7 @@ final _catalogueSpec = DeviceSpecDto(
   macPrefixes: const [],
   mdnsServiceType: null,
   ssdpSearchTargets: const [],
+  lanProtocols: const [],
   defaultPort: null,
   entities: const <EntityDto>[],
   services: const [],

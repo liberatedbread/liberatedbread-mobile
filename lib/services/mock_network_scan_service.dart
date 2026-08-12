@@ -83,6 +83,19 @@ class MockNetworkScanService implements NetworkScanService {
       sources: const {NetworkDiscoverySource.mdns},
       discoveredAt: DateTime(2026),
     ),
+    // A TP-Link Kasa plug: found by answering the tplink-smarthome probe (no
+    // mDNS, no SSDP), so demo mode can walk into the switch screen the way the
+    // Wemo entry does — but over the third transport. The alias is the display
+    // name a user would recognise.
+    NetworkDevice(
+      host: '192.168.1.45',
+      name: 'Desk Lamp',
+      port: 9999,
+      answeredLanProtocols: const ['tplink-smarthome'],
+      txt: const {'model': 'HS100(US)', 'mac': '50:C7:BF:00:12:34'},
+      sources: const {NetworkDiscoverySource.lanProbe},
+      discoveredAt: DateTime(2026),
+    ),
     NetworkDevice(
       host: '192.168.1.99',
       name: 'office-printer',

@@ -585,6 +585,12 @@
               "type": "string",
               "description": "mDNS/Bonjour service type for WiFi discovery (e.g. _http._tcp)."
             },
+            "lan_protocols": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "description": "Vendor LAN protocols this device identifies itself by *answering*, for hardware that neither advertises mDNS/Bonjour nor responds to SSDP -- the TP-Link Kasa smart-home protocol (`tplink-smarthome`), where a device is found by a UDP broadcast it answers with its full sysinfo. Unlike the passive `mdns_service_type`/`ssdp_search_targets` (which a device volunteers) and unlike `default_port` (which says nothing about who is listening), a positive answer to a vendor protocol probe is a strong identification: only a device that speaks the protocol replies at all. Name the protocol, not the port; a consumer that has completed the handshake tags the device with the same token, and the two are matched. Vendor-specific values only, for the same reason `ssdp_search_targets` must be."
+            },
             "ssid_prefix": {
               "type": "string",
               "description": "WiFi SSID prefix when device is in AP mode."
@@ -2376,8 +2382,8 @@
           "description": { "type": "string" },
           "transport": {
             "type": "string",
-            "enum": ["soap", "http", "mqtt", "ble", "udp", "coap"],
-            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport."
+            "enum": ["soap", "http", "mqtt", "ble", "udp", "coap", "tcp-json"],
+            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport. 'tcp-json' is a JSON document sent over a raw TCP socket -- the TP-Link Kasa smart-home protocol on port 9999 -- where the whole invocation is the JSON in `body`, obfuscated by the transport's cipher; there is no service, path or method to state."
           },
           "service": {
             "type": "string",
@@ -2400,6 +2406,10 @@
             "type": "object",
             "description": "Argument name -> value, as the wire spells both. A value of '{name}' is substituted from the like-named entry in `parameters`; anything else is a literal this command has already decided (BinaryState '1' for an on command). Argument names are the device's, not ours: Wemo spells one BinaryState and the next one mode.",
             "additionalProperties": { "type": ["string", "number", "boolean"] }
+          },
+          "body": {
+            "type": "string",
+            "description": "The literal request body this command sends, for transports whose invocation IS a document rather than a service/action or a path -- a `tcp-json` command's JSON (`{\"system\":{\"set_relay_state\":{\"state\":1}}}`). May contain '{name}' placeholders substituted from `parameters`, exactly as `arguments` values and `path` segments are. What `arguments` is for SOAP and `path` is for HTTP, `body` is for a JSON-over-socket protocol: the one place an invocation's chosen value has to live."
           },
           "parameters": {
             "type": "object",

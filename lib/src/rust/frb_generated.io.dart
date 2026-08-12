@@ -124,6 +124,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw);
 
   @protected
+  KasaRequestDto dco_decode_kasa_request_dto(dynamic raw);
+
+  @protected
   LifxAccessPointDto dco_decode_lifx_access_point_dto(dynamic raw);
 
   @protected
@@ -502,6 +505,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   ImageWritePlanDto sse_decode_image_write_plan_dto(
       SseDeserializer deserializer);
+
+  @protected
+  KasaRequestDto sse_decode_kasa_request_dto(SseDeserializer deserializer);
 
   @protected
   LifxAccessPointDto sse_decode_lifx_access_point_dto(
@@ -928,6 +934,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_image_write_plan_dto(
       ImageWritePlanDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_kasa_request_dto(
+      KasaRequestDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_lifx_access_point_dto(

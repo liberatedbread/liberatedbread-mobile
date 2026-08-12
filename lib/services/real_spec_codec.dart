@@ -188,6 +188,42 @@ class RealSpecCodec implements SpecCodec {
           specYaml: specYaml, stateCommand: stateCommand);
 
   @override
+  Future<KasaRequestDto> renderNetworkKasaCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  }) =>
+      rust.renderNetworkKasaCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        values: values,
+      );
+
+  @override
+  Future<KasaRequestDto> renderNetworkKasaStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  }) =>
+      rust.renderNetworkKasaStateRequest(
+          specYaml: specYaml, stateCommand: stateCommand);
+
+  @override
+  Future<List<int>> kasaEncodeFrame({required String json}) =>
+      rust.kasaEncodeFrame(json: json);
+
+  @override
+  Future<String> kasaDecodeFrame({required List<int> frame}) =>
+      rust.kasaDecodeFrame(frame: frame);
+
+  @override
+  Future<List<int>> kasaEncryptDatagram({required String json}) =>
+      rust.kasaEncryptDatagram(json: json);
+
+  @override
+  Future<String> kasaDecodeDatagram({required List<int> datagram}) =>
+      rust.kasaDecodeDatagram(datagram: datagram);
+
+  @override
   Future<NetworkReadingDto?> readNetworkEntity({
     required String specYaml,
     required String entityName,

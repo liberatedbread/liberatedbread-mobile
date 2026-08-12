@@ -73,6 +73,7 @@ DeviceSpecDto _spec({
       companyIds: Uint16List(0),
       macPrefixes: const [],
       ssdpSearchTargets: const [],
+      lanProtocols: const [],
       services: services,
       entities: entities,
     );
