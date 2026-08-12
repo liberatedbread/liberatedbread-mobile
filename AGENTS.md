@@ -33,16 +33,18 @@ so a change that only touches one transport should still leave the other whole.
 
 ```bash
 ./scripts/test.sh          # local CI mirror (format, analyze, flutter test, clippy)
-flutter test               # Dart unit + widget tests (builds the host Rust lib on demand)
+flutter test --exclude-tags=netdisco   # Dart unit + widget tests (builds host Rust lib on demand)
 cd rust && cargo test      # Rust unit tests
 flutter analyze --fatal-infos
 cd rust && cargo clippy --all-targets -- -D warnings
 ```
 
-`flutter test` **excludes** the local-network discovery suites
-(`@Tags(['netdisco'])`): they bind ports 5353/1900 and wait real seconds for
-real datagrams. Run those on their own, backed by the stdlib responder
-`scripts/net_virtual_device.py`:
+Pass `--exclude-tags=netdisco` — exactly as `scripts/test.sh` and CI do. The
+local-network discovery suites (`@Tags(['netdisco'])`) are only *declared* in
+`dart_test.yaml`, not skipped by default, so a bare `flutter test` runs them;
+they bind ports 5353/1900 and wait real seconds for real datagrams, and fail on
+a machine already running avahi/systemd-resolved. Run them deliberately, on
+their own, backed by the stdlib responder `scripts/net_virtual_device.py`:
 
 ```bash
 ./scripts/ci-netdisco-tests.sh          # what CI's Local-network discovery job runs
