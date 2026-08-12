@@ -1110,10 +1110,28 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       await ble.writeCharacteristic(
           widget.deviceId, playlist.serviceUuid, w.characteristicUuid, w.bytes);
     }
+    // Pace the cycle to the editor's frame interval — the same setting the
+    // live preview/stream uses — via the global play-speed command.
+    final speed = await codec.encodePlaySpeed(
+      specYaml: specYaml,
+      speed: _playSpeedForInterval(_intervalMs),
+      sequence: _nextSequence(),
+    );
+    await ble.writeCharacteristic(widget.deviceId, speed.serviceUuid,
+        speed.write.characteristicUuid, speed.write.bytes);
     // Start the loop the way the vendor does: advance into the playlist with
     // play_next (the device then keeps cycling on its own timer).
     await _sendFramedCommand(specYaml, serviceUuid, writeUuid, 'play_next');
   }
+
+  /// Map the editor's frame interval (ms) to the device's play-speed value.
+  ///
+  /// The device's speed→cadence relationship isn't documented; this is a first
+  /// linear guess — a faster (shorter) interval asks for a higher speed —
+  /// mapping the editor's default 200ms to the vendor's default 100, clamped to
+  /// the [1, 100] slider range. Calibrate against hardware.
+  int _playSpeedForInterval(int intervalMs) =>
+      (20000 / intervalMs.clamp(1, 20000)).round().clamp(1, 100);
 
   /// Resolves `true` once the device confirms the stored upload committed,
   /// `false` when it stays silent past a bounded wait; throws when the device

@@ -449,6 +449,16 @@ Future<StoredPlayDto> encodeStoredPlay(
     RustLib.instance.api.crateApiDeviceApiEncodeStoredPlay(
         specYaml: specYaml, cid: cid, sequence: sequence);
 
+/// Encode the global play-speed command (M_SET_PLAY_SPEED, `{i1: speed}`) —
+/// how fast the device advances the playlist. `speed` is the vendor's slider
+/// value (default 100). Returns the framed write to send.
+Future<StoredPlayDto> encodePlaySpeed(
+        {required String specYaml,
+        required int speed,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodePlaySpeed(
+        specYaml: specYaml, speed: speed, sequence: sequence);
+
 /// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
 ///
 /// The device answers a list request with several framed notifications; the
