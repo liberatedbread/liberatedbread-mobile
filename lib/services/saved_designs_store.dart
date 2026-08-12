@@ -38,12 +38,26 @@ class SavedDesign {
   final String contentHash;
   final DateTime savedAt;
 
+  /// For an `animation`: the stored frame cids, in play order. The animation
+  /// plays as a looping playlist of these (each a single-frame microapp), so
+  /// replay re-sets that playlist rather than playing one cid. Empty/absent for
+  /// a single-item picture or text.
+  final List<int> frameCids;
+
+  /// For an `animation`: each frame's device-assigned slot (parallel to
+  /// [frameCids]), captured from the effect list at save time. The playlist
+  /// addresses items by slot, so replay reuses these rather than re-reading the
+  /// list. Empty/absent for a picture or text.
+  final List<int> frameSlots;
+
   const SavedDesign({
     required this.name,
     required this.cid,
     required this.kind,
     required this.contentHash,
     required this.savedAt,
+    this.frameCids = const [],
+    this.frameSlots = const [],
   });
 
   Map<String, dynamic> toJson() => {
@@ -52,6 +66,8 @@ class SavedDesign {
         'kind': kind,
         'contentHash': contentHash,
         'savedAt': savedAt.toIso8601String(),
+        if (frameCids.isNotEmpty) 'frameCids': frameCids,
+        if (frameSlots.isNotEmpty) 'frameSlots': frameSlots,
       };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
@@ -66,12 +82,22 @@ class SavedDesign {
     }
     final savedAt = json['savedAt'];
     final parsed = savedAt is String ? DateTime.tryParse(savedAt) : null;
+    final rawFrames = json['frameCids'];
+    final frameCids = rawFrames is List
+        ? rawFrames.whereType<int>().toList(growable: false)
+        : const <int>[];
+    final rawSlots = json['frameSlots'];
+    final frameSlots = rawSlots is List
+        ? rawSlots.whereType<int>().toList(growable: false)
+        : const <int>[];
     return SavedDesign(
       name: name,
       cid: cid,
       kind: kind,
       contentHash: hash,
       savedAt: parsed ?? DateTime.fromMillisecondsSinceEpoch(0),
+      frameCids: frameCids,
+      frameSlots: frameSlots,
     );
   }
 }

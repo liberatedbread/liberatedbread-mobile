@@ -412,8 +412,10 @@ void main() {
     });
 
     testWidgets(
-        'saving an animation sends every frame via encodeStoredAnimation',
+        'saving an animation stores each frame and sets a looping playlist',
         (tester) async {
+      // This hardware cannot play a stored multi-frame file; an animation is
+      // stored as one microapp PER FRAME and played as a looping playlist.
       final codec = FakeSpecCodec();
       final ble = FakeBleService();
       await tester.pumpWidget(_wrap(
@@ -435,18 +437,21 @@ void main() {
 
       await _scrollAndTap(tester, find.text('Save to device'));
       await tester.pumpAndSettle();
-
-      // The Animation kind is now selectable.
-      await tester.tap(find.text('Animation').last);
-      await tester.pumpAndSettle();
+      // A multi-frame canvas defaults the dialog to Animation.
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
-      expect(codec.encodeAnimationCalls, hasLength(1));
-      final call = codec.encodeAnimationCalls.single;
-      expect(call.frameCount, 2, reason: 'both frames stored');
-      expect(call.width, 4);
+      // One microapp upload per frame, no stored-animation (.eff) call.
+      expect(codec.encodeStoredCalls, hasLength(2),
+          reason: 'both frames stored as single-frame microapps');
+      expect(codec.encodeAnimationCalls, isEmpty,
+          reason: 'the dead .eff path is not used');
+      // The frames are then set as one looping playlist.
+      expect(codec.encodeSetPlaylistCalls, hasLength(1));
+      expect(codec.encodeSetPlaylistCalls.single, hasLength(2),
+          reason: 'the playlist has both frame cids');
       expect(ble.writes, isNotEmpty);
+      expect(find.textContaining('looping 2 frames'), findsOneWidget);
     });
 
     testWidgets('a failed save surfaces an error and re-enables the button',

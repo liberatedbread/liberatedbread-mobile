@@ -406,4 +406,28 @@ class RealSpecCodec implements SpecCodec {
   Future<LifxAccessPointDto> decodeLifxAccessPoint(
           {required List<int> bytes}) =>
       rust.decodeLifxAccessPoint(bytes: bytes);
+
+  @override
+  Future<PlaylistWritesDto> encodeSetPlaylist({
+    required String specYaml,
+    required List<int> cids,
+    required List<int> slots,
+    required int sequence,
+  }) =>
+      rust.encodeSetPlaylist(
+        specYaml: specYaml,
+        cids: cids,
+        slots: slots,
+        sequence: sequence,
+      );
+
+  @override
+  Future<List<EffectEntryDto>> decodeEffectList({
+    required String specYaml,
+    required List<int> bytes,
+  }) =>
+      rust.decodeEffectList(
+        specYaml: specYaml,
+        bytes: Uint8List.fromList(bytes),
+      );
 }

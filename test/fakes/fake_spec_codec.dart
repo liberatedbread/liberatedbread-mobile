@@ -729,6 +729,39 @@ class FakeSpecCodec implements SpecCodec {
         channel: 11,
       );
 
+  /// Every [encodeSetPlaylist] call's cids, in order.
+  final List<List<int>> encodeSetPlaylistCalls = [];
+
+  @override
+  Future<PlaylistWritesDto> encodeSetPlaylist({
+    required String specYaml,
+    required List<int> cids,
+    required List<int> slots,
+    required int sequence,
+  }) async {
+    encodeSetPlaylistCalls.add(List.of(cids));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return PlaylistWritesDto(
+      serviceUuid: 'srv',
+      writes: [
+        ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [4])),
+        ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [5])),
+      ],
+    );
+  }
+
+  /// Entries [decodeEffectList] returns, keyed by nothing — a test sets this.
+  List<EffectEntryDto> effectListEntries = const [];
+
+  @override
+  Future<List<EffectEntryDto>> decodeEffectList({
+    required String specYaml,
+    required List<int> bytes,
+  }) async =>
+      effectListEntries;
+
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(
         serviceUuid: 'srv',

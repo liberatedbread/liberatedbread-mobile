@@ -268,6 +268,95 @@ pub enum UploadEvent {
 const MT_UPLOAD_START_RESPONSE: u16 = 2931;
 const MT_UPLOAD_PROGRESS: u16 = 2933;
 const MT_UPLOAD_COMPLETE: u16 = 2934;
+const MT_EFFECT_LIST: u16 = 2904;
+
+/// One stored effect as the device lists it: its id (cid) and the device-
+/// assigned slot. A stored custom must be addressed by its slot in a playlist
+/// (play-by-cid alone accepts slot 0, but the playlist resolves items by slot —
+/// verified: our stored frames register at slots 45..48, and a slot-0 playlist
+/// did not cycle).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EffectEntry {
+    pub cid: u32,
+    pub slot: u32,
+}
+
+/// Parse one M_EFFECT_LIST notification (mt 2904) into its effect entries.
+///
+/// The device answers a list request with several framed notifications, each
+/// carrying a batch of entries; a caller decodes each and merges them. Each
+/// entry is a protobuf sub-message `{1: slot, 2: type, 3: index, 4: cid,
+/// 6: name}`; only slot and cid are read here. A notification that is not an
+/// effect list, or is truncated, yields an empty list rather than an error.
+pub fn parse_effect_list(notification: &[u8]) -> Vec<EffectEntry> {
+    use super::daniao::FRAG_HEADER_LEN;
+    if notification.len() < FRAG_HEADER_LEN + 20 {
+        return Vec::new();
+    }
+    let dnx = &notification[FRAG_HEADER_LEN..];
+    if dnx[0] != 0xF1 || dnx[1] != 0x01 {
+        return Vec::new();
+    }
+    if u16::from_be_bytes([dnx[6], dnx[7]]) != MT_EFFECT_LIST {
+        return Vec::new();
+    }
+    // Entries follow the 12-byte extended header (dnx[8..20]).
+    let mut body = &dnx[20..];
+    let mut out = Vec::new();
+    // Each entry is field 1 of the outer message: tag 0x0a (field 1,
+    // length-delimited).
+    while let Some((&tag, rest)) = body.split_first() {
+        if tag != 0x0A {
+            break; // only concatenated entry sub-messages here
+        }
+        let Some((len, rest)) = parse_varint(rest) else {
+            break;
+        };
+        let len = len as usize;
+        if rest.len() < len {
+            break;
+        }
+        let (entry, tail) = rest.split_at(len);
+        if let Some(e) = parse_effect_entry(entry) {
+            out.push(e);
+        }
+        body = tail;
+    }
+    out
+}
+
+/// Read `slot` (field 1) and `cid` (field 4) out of one effect-list entry,
+/// skipping the other fields. Returns `None` when the entry carries no cid.
+fn parse_effect_entry(mut entry: &[u8]) -> Option<EffectEntry> {
+    let mut slot = 0u32;
+    let mut cid = 0u32;
+    while let Some((&tag, rest)) = entry.split_first() {
+        let field = tag >> 3;
+        let wire = tag & 0x07;
+        match wire {
+            0 => {
+                let (v, rest) = parse_varint(rest)?;
+                match field {
+                    1 => slot = v as u32,
+                    4 => cid = v as u32,
+                    _ => {}
+                }
+                entry = rest;
+            }
+            2 => {
+                // Length-delimited (the name): skip it.
+                let (l, rest) = parse_varint(rest)?;
+                let l = l as usize;
+                if rest.len() < l {
+                    return None;
+                }
+                entry = &rest[l..];
+            }
+            _ => return None, // an unexpected wire type: stop, keep what we have
+        }
+    }
+    (cid != 0).then_some(EffectEntry { cid, slot })
+}
 
 /// Decode ONE notification from the response characteristic into an
 /// [`UploadEvent`], or `None` when it is some other push (device info, play
@@ -390,6 +479,36 @@ services:
 
     fn spec() -> DeviceSpec {
         parse_device_spec(SPEC).unwrap()
+    }
+
+    #[test]
+    fn effect_list_entry_yields_cid_and_slot() {
+        // One M_EFFECT_LIST notification carrying the capture's E-33 entry:
+        // {slot: 33, type: 1, index: 33, cid: 79009 (a1 e9 04), name "E-33"}.
+        let hex = concat!(
+            "00010000", // frag [serial,total,remaining,tag]
+            "f101",     // inbound DNX flag
+            "0001",     // sn
+            "0000",     // len (unused by the parser)
+            "0b58",     // mt = M_EFFECT_LIST
+            "000000000000000000000000", // 12-byte extended header
+            "0a12082110011821", // entry: len 18, slot 33, type 1, index 33
+            "20a1e904",         // cid 79009
+            "3204452d3333",     // name "E-33"
+            "3801",             // trailing field
+        );
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let entries = parse_effect_list(&bytes);
+        assert_eq!(entries, vec![EffectEntry { cid: 79009, slot: 33 }]);
+    }
+
+    #[test]
+    fn non_effect_list_notification_parses_empty() {
+        // Zeroed bytes (no F1 01, wrong mt) are not an effect list.
+        assert!(parse_effect_list(&[0u8; 32]).is_empty());
     }
 
     #[test]
