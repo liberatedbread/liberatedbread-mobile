@@ -1128,9 +1128,29 @@ pub struct NetworkActionDto {
     /// Values to read from the device and pass along with the send. Not
     /// optional bookkeeping: skipping these clears settings.
     pub read_back: Vec<NetworkReadBackDto>,
+    /// Parameters filled from stored pairing credentials (`credential:` on an
+    /// http command). Sending without one must fail visibly — an unpaired
+    /// client improvising a request is the bug the spec's no-default rule
+    /// exists to prevent.
+    pub credentials: Vec<NetworkSourceParamDto>,
+    /// Parameters filled with the addressed child's id (`instance:`), for
+    /// actions bound by an instanced entity.
+    pub instance_params: Vec<NetworkSourceParamDto>,
     /// Declared bounds of the value parameter, in the wire's own units.
     pub min: Option<f64>,
     pub max: Option<f64>,
+}
+
+/// A command parameter filled from a client-held value rather than the UI:
+/// `credential:<name>` (a per-device secret stored at pairing) or
+/// `instance:<key>` (the id of the child a hub command addresses). Parsed
+/// out of the spec's `source` so Dart never parses that string.
+#[derive(Debug, Clone)]
+pub struct NetworkSourceParamDto {
+    /// Parameter of the command being sent that this value fills.
+    pub param: String,
+    /// The credential's name (`username`) or the instance key (`id`).
+    pub name: String,
 }
 
 /// A resolved XML query source: the request to make and how to read entries
@@ -1167,6 +1187,16 @@ pub struct NetworkEntityDto {
     /// [`render_network_state_request`]; one call serves every entity bound
     /// to the same command.
     pub state_command: String,
+    /// The one transport this entity's actions ride (`soap` | `http`), or
+    /// `None` for a pure reading with no actions. Surfaced at entity level
+    /// because it is what routes the whole device screen — a hub gets a
+    /// different screen from a Wemo plug.
+    pub transport: Option<String>,
+    /// True when the entity is a template stamped out per child behind a
+    /// hub: enumerate with [`list_network_instances`], read each child with
+    /// [`read_network_instance`], and fill each action's `instance_params`
+    /// with the child's id when sending.
+    pub is_instanced: bool,
     /// Name of the returned value carrying the reading.
     pub value_field: Option<String>,
     /// Option table for a `select`, in declaration order. Empty otherwise.
@@ -1229,6 +1259,35 @@ pub struct NetworkReadingDto {
 
 impl NetworkActionDto {
     fn from(action: &bindings::NetworkAction<'_>) -> Self {
+        use crate::protocol::http::SourceScheme;
+        let mut read_back = Vec::new();
+        let mut credentials = Vec::new();
+        let mut instance_params = Vec::new();
+        for (param, source) in &action.read_back {
+            // The three source schemes, each to its own surface. A source in
+            // a shape this does not understand is dropped rather than guessed
+            // at: the caller then cannot pre-fill that parameter, and the
+            // spec's `default` carries the send (or, on http, resolution
+            // already declined the command).
+            match crate::protocol::http::parse_source(source) {
+                Some(SourceScheme::State { command, field }) => {
+                    read_back.push(NetworkReadBackDto {
+                        param: (*param).to_string(),
+                        command: command.to_string(),
+                        field: field.to_string(),
+                    });
+                }
+                Some(SourceScheme::Credential(name)) => credentials.push(NetworkSourceParamDto {
+                    param: (*param).to_string(),
+                    name: name.to_string(),
+                }),
+                Some(SourceScheme::Instance(key)) => instance_params.push(NetworkSourceParamDto {
+                    param: (*param).to_string(),
+                    name: key.to_string(),
+                }),
+                None => {}
+            }
+        }
         Self {
             role: action.role.to_string(),
             command_name: action.command_name.to_string(),
@@ -1238,23 +1297,9 @@ impl NetworkActionDto {
                 .clone()
                 .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string()),
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
-            read_back: action
-                .read_back
-                .iter()
-                .filter_map(|(param, source)| {
-                    // "state:<command>.<field>". A source in a shape this
-                    // does not understand is dropped rather than guessed at:
-                    // the caller then simply cannot pre-fill that parameter,
-                    // and the spec's `default` carries the send.
-                    let rest = source.strip_prefix("state:")?;
-                    let (command, field) = rest.split_once('.')?;
-                    Some(NetworkReadBackDto {
-                        param: (*param).to_string(),
-                        command: command.to_string(),
-                        field: field.to_string(),
-                    })
-                })
-                .collect(),
+            read_back,
+            credentials,
+            instance_params,
             min: action.min,
             max: action.max,
         }
@@ -1309,6 +1354,17 @@ pub fn network_entities_for_device(
                 // gathering state commands must skip the empty string rather
                 // than render a request from it.
                 state_command: entity.state_command.clone().unwrap_or_default(),
+                // Every resolved action on one entity rides one transport —
+                // a spec binding a light's toggle to SOAP and its slider to
+                // HTTP would be describing two devices — so the first
+                // action's answer is the entity's.
+                transport: actions.first().map(|a| {
+                    a.command
+                        .transport
+                        .clone()
+                        .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
+                }),
+                is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),
                 options: entity
                     .options()
@@ -1433,48 +1489,51 @@ pub fn read_network_entity(
         .find(|e| e.name == entity_name)
         .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
     let returned = returned.into_iter().collect();
-    Ok(
-        crate::protocol::soap::read_entity(&spec, entity, &returned).map(|reading| {
-            use crate::protocol::soap::EntityReading;
-            match reading {
-                EntityReading::OnOff(on) => NetworkReadingDto {
-                    kind: NetworkReadingKind::OnOff,
-                    is_on: Some(on),
-                    label: None,
-                    number: None,
-                    raw: if on { "1" } else { "0" }.to_string(),
-                },
-                EntityReading::Option { raw, label } => NetworkReadingDto {
-                    kind: NetworkReadingKind::Option,
-                    is_on: None,
-                    label: Some(label),
-                    number: None,
-                    raw,
-                },
-                EntityReading::UnknownOption { raw } => NetworkReadingDto {
-                    kind: NetworkReadingKind::UnknownOption,
-                    is_on: None,
-                    label: None,
-                    number: None,
-                    raw,
-                },
-                EntityReading::Number(n) => NetworkReadingDto {
-                    kind: NetworkReadingKind::Number,
-                    is_on: None,
-                    label: None,
-                    number: Some(n),
-                    raw: format_number(n),
-                },
-                EntityReading::Text(raw) => NetworkReadingDto {
-                    kind: NetworkReadingKind::Text,
-                    is_on: None,
-                    label: None,
-                    number: None,
-                    raw,
-                },
-            }
-        }),
-    )
+    Ok(crate::protocol::soap::read_entity(&spec, entity, &returned).map(reading_to_dto))
+}
+
+/// One [`EntityReading`] as the DTO Dart draws — shared by the SOAP and HTTP
+/// read paths so a reading means the same thing whichever transport carried
+/// it.
+fn reading_to_dto(reading: crate::protocol::soap::EntityReading) -> NetworkReadingDto {
+    use crate::protocol::soap::EntityReading;
+    match reading {
+        EntityReading::OnOff(on) => NetworkReadingDto {
+            kind: NetworkReadingKind::OnOff,
+            is_on: Some(on),
+            label: None,
+            number: None,
+            raw: if on { "1" } else { "0" }.to_string(),
+        },
+        EntityReading::Option { raw, label } => NetworkReadingDto {
+            kind: NetworkReadingKind::Option,
+            is_on: None,
+            label: Some(label),
+            number: None,
+            raw,
+        },
+        EntityReading::UnknownOption { raw } => NetworkReadingDto {
+            kind: NetworkReadingKind::UnknownOption,
+            is_on: None,
+            label: None,
+            number: None,
+            raw,
+        },
+        EntityReading::Number(n) => NetworkReadingDto {
+            kind: NetworkReadingKind::Number,
+            is_on: None,
+            label: None,
+            number: Some(n),
+            raw: format_number(n),
+        },
+        EntityReading::Text(raw) => NetworkReadingDto {
+            kind: NetworkReadingKind::Text,
+            is_on: None,
+            label: None,
+            number: None,
+            raw,
+        },
+    }
 }
 
 /// A number as its shortest honest string: `240` not `240.0`, `53.2` intact.
@@ -1484,6 +1543,101 @@ fn format_number(n: f64) -> String {
     } else {
         n.to_string()
     }
+}
+
+// ── Network (HTTP) hub control ──────────────────────────────────────────────
+//
+// A hub is a population rather than a device, so two jobs join the render
+// side (`render_network_http_command`, above): enumerating the children one
+// state reply carries, and reading one child's roles out of it. Dart owns the
+// I/O (TLS, the credential store, the socket); this side owns everything the
+// spec knows.
+
+/// One child behind a hub, as enumerated from a state reply.
+#[derive(Debug, Clone)]
+pub struct NetworkInstanceDto {
+    /// The hub's own id for the child — what fills each action's
+    /// `instance_params` when sending.
+    pub id: String,
+    /// The child's human-facing name, falling back to the id.
+    pub label: String,
+}
+
+/// One role's reading on one child — `is_on`, `brightness`, … paired with
+/// its decoded value.
+#[derive(Debug, Clone)]
+pub struct NetworkRoleReadingDto {
+    pub role: String,
+    pub reading: NetworkReadingDto,
+}
+
+/// Render the request that reads a state command's values over HTTP — on an
+/// instanced entity, the one GET that enumerates every child and carries all
+/// their state. `values` fills the path's placeholders (the pairing
+/// credential, on the Hue bridge); a missing one fails the render, the same
+/// visible failure a credential-less write gets.
+pub fn render_network_http_state_request(
+    spec_yaml: String,
+    state_command: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<HttpRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request = crate::protocol::http::render_state_request(
+        &spec,
+        &state_command,
+        &values.into_iter().collect(),
+    )?;
+    Ok(HttpRequestDto::from(request))
+}
+
+/// Enumerate the children an instanced entity's state reply carries, in the
+/// hub's own order (numeric ids numerically, so light 2 lists before 10).
+pub fn list_network_instances(
+    spec_yaml: String,
+    entity_name: String,
+    state_reply: String,
+) -> anyhow::Result<Vec<NetworkInstanceDto>> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let entity = find_entity(&spec, &entity_name)?;
+    Ok(crate::protocol::http::list_instances(entity, &state_reply)?
+        .into_iter()
+        .map(|instance| NetworkInstanceDto {
+            id: instance.id,
+            label: instance.label,
+        })
+        .collect())
+}
+
+/// Read one child's roles out of an instanced entity's state reply. Empty
+/// for a child the reply no longer carries — which renders as unknown, never
+/// as a fabricated "off".
+pub fn read_network_instance(
+    spec_yaml: String,
+    entity_name: String,
+    state_reply: String,
+    instance_id: String,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let entity = find_entity(&spec, &entity_name)?;
+    Ok(
+        crate::protocol::http::read_instance_entity(entity, &state_reply, &instance_id)?
+            .into_iter()
+            .map(|(role, reading)| NetworkRoleReadingDto {
+                role,
+                reading: reading_to_dto(reading),
+            })
+            .collect(),
+    )
+}
+
+fn find_entity<'a>(
+    spec: &'a crate::spec::types::DeviceSpec,
+    entity_name: &str,
+) -> anyhow::Result<&'a crate::spec::types::Entity> {
+    spec.entities
+        .iter()
+        .find(|e| e.name == entity_name)
+        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))
 }
 
 /// The axes on which one spec identity matched one observation. Every field is

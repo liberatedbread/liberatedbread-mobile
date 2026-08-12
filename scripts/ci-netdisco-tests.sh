@@ -64,7 +64,15 @@ trap 'rm -f "$log"' EXIT
 
 # The whole suite, filtered by tag, rather than a hardcoded file list: a new
 # netdisco-tagged suite is then picked up without editing this script.
-flutter test --tags=netdisco --timeout "$TEST_TIMEOUT" \
+#
+# Serialized (--concurrency=1) because each suite spawns its own responder on
+# the REAL 5353/1900, and SO_REUSEPORT means concurrent suites all hear each
+# other: every responder answers every query, and a scan resolves a union of
+# whichever scenarios happen to be up. The first two suites coexisted only
+# because they run identical scenarios; the hub suite's bridge answers real
+# HTTP and does not. Serial is also what the tag means — these tests spend
+# real seconds on a real wire, one wire at a time.
+flutter test --tags=netdisco --timeout "$TEST_TIMEOUT" --concurrency=1 \
   --coverage --coverage-path "$COVERAGE_PATH" 2>&1 | tee "$log"
 status="${PIPESTATUS[0]}"
 

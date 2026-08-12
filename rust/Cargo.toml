@@ -42,6 +42,12 @@ indexmap = { version = "2", features = ["serde"] }
 # package-rename so call sites stay readable; the actual crate is the
 # actively-maintained community fork `serde_yaml_ng`.
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
+# The HTTP/JSON transport renders hub command bodies and parses state replies.
+# `preserve_order` for the same reason `commands` uses IndexMap: an http
+# command's example_body is the rendering canon, and the canon is compact JSON
+# in declared order — a BTreeMap-backed Map would alphabetize the keys and diff
+# against nothing.
+serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
 anyhow = "1"
 

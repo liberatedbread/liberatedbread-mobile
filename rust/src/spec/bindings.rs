@@ -826,6 +826,18 @@ fn qualify_network<'a>(
                 _ => return None,
             }
             command.path.as_ref()?;
+            // Every `source` this command leans on must be a scheme the
+            // client can fill — `state:`, `credential:` or `instance:`.
+            // An http command has no `default` behind a `source`, so a
+            // scheme this crate cannot resolve is a control that fails on
+            // send; decline it rather than offer it.
+            if command
+                .read_back_params()
+                .iter()
+                .any(|(_, source)| http::parse_source(source).is_none())
+            {
+                return None;
+            }
         }
         _ => return None,
     }
@@ -1834,7 +1846,7 @@ entities:
     /// the same dead control as a missing one, and must be gated the same.
     #[test]
     fn an_http_command_using_an_unsendable_method_resolves_nothing() {
-        for method in ["PUT", "DELETE", "PATCH"] {
+        for method in ["DELETE", "PATCH"] {
             let spec = network_spec(&format!(
                 r#"
   press_me:
@@ -1850,8 +1862,9 @@ entities:
                 "{method} must not resolve a control"
             );
         }
-        // And the sendable ones still do, case-insensitively.
-        for method in ["POST", "get"] {
+        // And the sendable ones still do, case-insensitively — PUT joined the
+        // set for the Hue bridge's light-state writes.
+        for method in ["POST", "get", "PUT"] {
             let spec = network_spec(&format!(
                 r#"
   press_me:
