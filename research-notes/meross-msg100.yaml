@@ -1,0 +1,63 @@
+# Meross MSG100 — Device Spec (research note)
+# Meross ACTIVE (meross.com reachable 2026-08-07, app v3.41.1).
+# Local path: HTTP POST /config with md5-signed JSON, documented in
+# arandall/meross doc/protocol.md; HA meross_lan (local_polling).
+# APK: com.meross.meross v3.41.1 (vc 1025), apkeep/APKPure 2026-08-07
+# XAPK SHA-256: 0820b48a766a40d61ce74891835b71c15cf47d749cb03fc5aeda8d4c3f55da87
+
+device:
+  id: meross-msg100
+  name: Meross MSG100 Smart Wi-Fi Garage Door Opener (+ MSG100HK HomeKit variant)
+  manufacturer: Meross (Chengdu Meross Technology)
+  category: garage_door_controller
+  safety_class: MEDIUM  # relay pulses a moving door; wired sensor reports position only
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Same local HTTP API as all Meross appliances: POST http://<ip>/config
+    with JSON envelope {header{from,messageId,method,namespace,
+    payloadVersion,sign,timestamp}, payload}. sign = md5(messageId + key +
+    timestamp); key is a per-device pre-shared key. Default onboarding binds
+    the device to Meross cloud (iot.meross.com MQTT 2001/8883) which assigns
+    the key — BUT an unconfigured device does not validate sign, so full
+    provisioning (WiFi, key, local broker) is possible locally via the
+    device's own AP without any cloud account.
+
+lan:
+  discovery:
+    mdns: false
+    note: no broadcast discovery; find via DHCP/MAC (34:29:8f, 48:e1:e9); provisioning AP SSID Meross_XX
+  control:
+    protocol: http
+    endpoint: POST http://<device-ip>/config
+    auth: md5(messageId+key+timestamp) signature in header.sign; unsigned while unconfigured
+
+protocol:
+  note: >
+    Methods GET/GETACK, SET/SETACK, PUSH, ERROR. Key namespaces for MSG100:
+    Appliance.GarageDoor.State (door state + open/close), Appliance.System.All
+    / .Hardware / .Firmware / .Ability / .Debug / .Online, Appliance.Config.Key
+    / .Wifi / .WifiList / .Trace for provisioning, Appliance.Control.Upgrade
+    for OTA. Envelope and field tables documented in arandall/meross
+    doc/protocol.md.
+  commands:
+    status: 'GET namespace Appliance.GarageDoor.State, payload {"state":{}}'
+    open: 'SET Appliance.GarageDoor.State payload {"state":{"channel":0,"open":1}}'
+    close: 'SET Appliance.GarageDoor.State payload {"state":{"channel":0,"open":0}}'
+    system_all: 'GET Appliance.System.All payload {}'
+
+status:
+  apk_acquired: true     # com.meross.meross v3.41.1 XAPK, sha256 above
+  apk_decompiled: false  # not needed — protocol publicly documented
+  uuids_recovered: false # n/a — WiFi, not BLE
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false
+  rating: confirmed
+  references:
+    - github.com/arandall/meross/blob/main/doc/protocol.md (envelope + namespaces)
+    - github.com/krahabb/meross_lan (HA integration, local_polling; discussion #63 local broker)
+    - infosec.rm-it.de/2021/06/18/meross-smart-wi-fi-garage-door-opener-analysis/ (2021-06-18)
+    - creatingsmarthome.com/index.php/2022/08/28/guide-local-mqtt-broker-with-meross-and-home-assistant/ (2022-08-28)

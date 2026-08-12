@@ -1,0 +1,63 @@
+# LaMetric Time / Sky — Device Spec (research note)
+# Company alive; vendor-documented local API (ports 8080/4343, Basic auth dev:<api_key>)
+
+device:
+  id: lametric-time
+  name: LaMetric Time (and LaMetric Sky)
+  manufacturer: LaMetric (Smart Atoms Ltd) — alive as of 2026-08-07
+  category: ambient_display
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Vendor-documented local REST API. One-time cloud step: pairing the
+    device with a LaMetric account and reading the device API key from
+    developer.lametric.com. All runtime control is LAN-local afterwards.
+
+lan:
+  discovery:
+    method: dhcp-scan        # no mDNS documented; key lookup via developer portal
+  control:
+    protocol: http
+    ports:
+      - 8080   # HTTP
+      - 4343   # HTTPS
+    auth: http-basic (username "dev", password = device API key)
+    base_path: /api/v2/
+    endpoints:
+      - GET /api/v2/device                          # info/state
+      - GET|PUT /api/v2/device/display              # brightness, screensaver
+      - GET|PUT /api/v2/device/audio                # volume
+      - GET|PUT /api/v2/device/bluetooth
+      - GET|PUT /api/v2/device/wifi
+      - POST /api/v2/device/notifications           # text+icon+sound push (main channel)
+      - GET /api/v2/device/apps                     # installed apps/widgets
+      - GET|POST /api/v2/device/apps/<app>/widgets/ # widget data, activate, DIY apps
+
+protocol:
+  note: >
+    Official documentation: lametric-documentation.readthedocs.io
+    (source repo github.com/lametric/Documentation). Notifications carry
+    icon frames (8x8, animated), text, sound, priority and lifecycle model.
+  commands:
+    notify: POST /api/v2/device/notifications
+    brightness: PUT /api/v2/device/display
+    volume: PUT /api/v2/device/audio
+    switch_app: POST /api/v2/device/apps/<app>/widgets/<id>/actions
+    diy_widget_data: PUT widget endpoint of a local "My Data DIY" app
+
+status:
+  apk_acquired: false     # not needed — vendor-documented
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE control path documented
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false
+  cloud_dependency: one-time pairing + API-key retrieval from developer portal
+  rating: confirmed       # vendor-documented
+  references:
+    - lametric-documentation.readthedocs.io
+    - github.com/lametric/Documentation
+    - Home Assistant core integration: lametric

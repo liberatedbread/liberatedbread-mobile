@@ -1,0 +1,72 @@
+# Wanscam / Wansview IP cameras — Device Spec (research note)
+# Wanscam brand dormant (wanscam.com 404, 2026-08-07); Wansview active.
+# Local RTSP + ONVIF confirmed; zero cloud dependency.
+
+device:
+  id: wanscam-wansview
+  name: Wanscam (HW/JW/AJ series) and Wansview (K/Q/NCM series) IP cameras
+  manufacturer: Shenzhen Smarteye Digital Electronics / Shenzhen Wansview Technology
+  category: ip_camera
+  safety_class: LOW  # privacy risk only
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Both brands work fully on LAN: HTTP web UI + RTSP H.264 streaming +
+    ONVIF on HD models; Foscam-clone MJPEG CGI on oldest Wanscam units.
+    No cloud account or provisioning step required.
+
+lan:
+  discovery:
+    - ONVIF WS-Discovery (HD models)
+    - MAC OUI F0:85:C1 (Wansview K3; CamioCam/rtsp #187)
+    - vendor search tool / DHCP client list
+  wansview_hd:    # K2/K3/K5, Q3/Q5, NCM/NBC series
+    http_port: 80  # 81/82 on some models
+    rtsp_port: 554
+    default_credentials: admin / 123456
+    rtsp_main: rtsp://IP:554/live/ch0     # 1080p
+    rtsp_sub: rtsp://IP:554/live/ch1      # 480p
+    onvif: true
+  wanscam_legacy: # HW H.264 + JW/AJ MJPEG era
+    http_port: 81  # 80 on some
+    rtsp_port: 554  # H.264 models only
+    default_credentials: admin / 123456  # admin/admin on oldest MJPEG units
+    rtsp_main: rtsp://IP:554/live/ch00_0
+    rtsp_sub: rtsp://IP:554/live/ch00_1
+    mjpeg_cgi:  # FI89xx-family clone CGI on MJPEG models
+      stream: /videostream.cgi?user=U&pwd=P
+      snapshot: /snapshot.cgi?user=U&pwd=P
+      ptz: /decoder_control.cgi?command=N
+
+protocol:
+  note: >
+    No single vendor CGI spec is published; the interoperable surface is
+    RTSP + ONVIF (community-verified across hundreds of models in the
+    iSpyConnect database). Model-specific HTTP CGI varies by firmware —
+    treat RTSP/ONVIF as the stable contract. RTSP path differs by
+    generation (/live/ch0 vs /live/ch00_0); ONVIF discovery resolves it.
+  commands:
+    stream_rtsp: see lan.* above
+    onvif_ptz: standard ONVIF PTZ service on PTZ models
+    snapshot: ONVIF GetSnapshotUri or HTTP web UI
+
+status:
+  apk_acquired: false   # not needed — RTSP/ONVIF community-confirmed
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — Wi-Fi/HTTP
+  protocol_recovered: true  # via community verification, not vendor docs
+  hci_snoop_needed: false
+  cloud_dead: false  # Wanscam brand dormant; Wansview active. Cloud optional either way.
+  rating: confirmed
+  security_notes: >
+    Change admin/123456 immediately; disable P2P and UPnP in web UI;
+    cleartext HTTP/RTSP auth — isolate on IoT VLAN.
+  references:
+    - github.com/CamioCam/rtsp/issues/187 (2018-10-17, K3 RTSP template)
+    - ipcamtalk.com Q5 thread (2022-05-31, RTSP + ONVIF, admin/123456)
+    - Wansview K3 user manual via itsmanual.com (default admin/123456)
+    - cameraftp.com Wanscam guide (legacy admin/admin)
+    - ispyconnect.com/camera/wansview (134 models) and /camera/wanscam (452), updated 2026-06
+    - furm.com GALAYOU trademark (Shenzhen Wansview Technology, reg. 2022-08)

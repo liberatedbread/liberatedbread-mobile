@@ -1,0 +1,54 @@
+# D-Link DSP-W215 / DSP-W110 — Device Spec (research note)
+# D-Link alive; mydlink app dropped W215 support in 2023 version
+# Local path: HNAP (SOAP/HTTP) on port 80, challenge-response auth, device-local PIN
+
+device:
+  id: dlink-dsp-w215
+  name: D-Link DSP-W215 mydlink Smart Plug (+ older DSP-W110, less documented)
+  manufacturer: D-Link — alive; DSP-W215 EOL, dropped from mydlink app (2023)
+  category: smart_plug
+  safety_class: LOW  # mains relay; unpatched HNAP auth-bypass CVEs — LAN-segment
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    All control is local HNAP over HTTP. Auth secret is the device admin
+    password (default = PIN on the plug label), not a cloud credential.
+    WAN can be blocked after provisioning.
+
+lan:
+  discovery:
+    method: network_scan  # HNAP devices also answer SSDP (upnp:rootdevice)
+  control:
+    protocol: hnap-soap-http
+    endpoint: "POST http://<plug-ip>/HNAP1/"
+    auth: HNAP login challenge/response (HMAC-MD5 of admin password)
+    soap_actions:
+      relay: "http://purenetworks.com/HNAP1/SetSocketSettings"
+      state: "http://purenetworks.com/HNAP1/GetSocketSettings"
+      meter: "http://purenetworks.com/HNAP1/GetCurrentPowerConsumption"  # W215
+      device_info: "http://purenetworks.com/HNAP1/GetDeviceSettings"
+
+protocol:
+  note: >
+    HNAP = SOAP envelope + HNAP-auth header (HMAC-MD5 keyed by admin
+    password over challenge+cookie). Full login flow and action schemas in
+    LinuxChristian/pyW215 and devttys0's 2014 DSP-W215 series.
+  commands:
+    power_on: SetSocketSettings (OP 1 / socket 1 on)
+    power_off: SetSocketSettings (off)
+    get_state: GetSocketSettings
+    get_power: GetCurrentPowerConsumption / GetCurrentPowerState  # W215 only
+
+status:
+  apk_acquired: false   # not needed — pyW215 + devttys0 document the protocol
+  apk_decompiled: false
+  protocol_recovered: true   # devttys0 2014; pyW215; dsp-w215-hnap (node); Domoticz plugin
+  rating: confirmed        # W110: hypothesis (same generation, less documented)
+  cloud_dead: false        # D-Link alive; mydlink app dropped this model 2023
+  references:
+    - github.com/LinuxChristian/pyW215 (2016)
+    - devttys0.com 2014 DSP-W215 HNAP series
+    - flows.nodered.org/node/@mike.gofton/dsp-w215 (mydlink EOL note)
+    - forum.domoticz.com/viewtopic.php?t=15753

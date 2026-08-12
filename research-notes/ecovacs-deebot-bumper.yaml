@@ -1,0 +1,55 @@
+# Ecovacs Deebot XMPP-era models — Device Spec (research note)
+# Local path: Bumper (bmartin5692/bumper) LAN server replacement —
+# DNS-redirect *.ecouser.net to a local host serving the HTTPS device API +
+# XMPP (5223). Newer MQTT-generation models (T8+, X1/X2): no local path.
+
+device:
+  id: ecovacs-deebot-bumper
+  name: Ecovacs Deebot M81/M88 Pro, 900/901, N79 series, OZMO 610/900/920/930/950 (XMPP generation)
+  manufacturer: Ecovacs Robotics — active brand
+  category: robot_vacuum
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true   # via LAN server emulation (Bumper), like picobrew_pico
+  note: >
+    Robots are XMPP+HTTPS clients of the Ecovacs cloud. Bumper reimplements
+    the central server on a LAN host; DNS-redirect msg-*.ecouser.net (and
+    country variants) to it. Third-party clients (sucks, ha_ecovacs_bumper,
+    ioBroker.ecovacs-deebot) then control the robot fully locally. The
+    official app still phones Ecovacs central to log in — use third-party
+    clients for true local operation.
+
+lan:
+  discovery:
+    method: dns_redirect   # ecouser.net domains -> Bumper host
+  control:
+    protocols:
+      - xmpp    # robot <-> server channel; 5223 (legacy SSL) / 5222
+      - https   # device/login API, port 443, self-signed cert
+    clients: "sucks (python), ha_ecovacs_bumper, ioBroker.ecovacs-deebot"
+
+protocol:
+  note: >
+    On-wire API documented by implementation in bmartin5692/bumper and
+    wpoon/sucks descendants. XMPP-era firmware accepts Bumper's self-signed
+    cert; later firmware may pin. MQTT generation (OZMO T8/T9/T10/T20,
+    X1/X2, yeedi) is NOT covered — those integrations are cloud-connected
+    and no local path is public.
+  commands:
+    clean/pause/dock: documented in sucks/bumper
+    fan/water level: documented in sucks/bumper
+    maps: partial (model-dependent)
+
+status:
+  apk_acquired: false   # com.ecovacs.ecohealth not fetched; server-side RE already done
+  protocol_recovered: true   # XMPP generation
+  rating: confirmed          # XMPP-era models
+  rating_caveat: MQTT generation (T8+/X1/X2/yeedi) = no known local path
+  cloud_dead: false
+  cloud_bootstrap: provisioning-only   # app+account once for Wi-Fi setup; third-party clients avoid it after
+  references:
+    - github.com/bmartin5692/bumper (+ docs/index.md)
+    - github.com/bittles/ha_ecovacs_bumper (2026)
+    - github.com/mrbungle64/ioBroker.ecovacs-deebot (model matrix: which gens are cloud-only)
