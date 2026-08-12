@@ -207,6 +207,12 @@ pub struct SpecCommand {
     /// endpoint catalogue by name.
     #[serde(default)]
     pub method: Option<String>,
+    /// The literal request body a `transport: tcp-json` command sends — the
+    /// JSON an invocation IS (`{"system":{"set_relay_state":{"state":1}}}`),
+    /// what `arguments` is to SOAP and `path` is to HTTP. May carry `{name}`
+    /// placeholders substituted from `parameters`, exactly as they are.
+    #[serde(default)]
+    pub body: Option<String>,
     /// Argument name → value as both go on the wire. `"{name}"` is substituted
     /// from the like-named parameter; anything else is a literal this
     /// invocation has already decided.

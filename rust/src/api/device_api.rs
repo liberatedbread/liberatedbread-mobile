@@ -1522,6 +1522,79 @@ pub fn render_network_http_command(
     Ok(HttpRequestDto::from(request))
 }
 
+/// A rendered Kasa request: the JSON to send, before the cipher and framing.
+///
+/// The third transport's sibling of [`SoapRequestDto`] / [`HttpRequestDto`].
+/// The whole invocation is this JSON; the caller turns it into wire bytes with
+/// [`kasa_encode_frame`] (TCP control) or [`kasa_encrypt_datagram`] (UDP
+/// discovery), and the address is the one discovery established.
+#[derive(Debug, Clone)]
+pub struct KasaRequestDto {
+    pub json: String,
+}
+
+impl From<crate::protocol::kasa::KasaRequest> for KasaRequestDto {
+    fn from(request: crate::protocol::kasa::KasaRequest) -> Self {
+        Self { json: request.json }
+    }
+}
+
+/// Render a named `transport: tcp-json` command into the JSON to send — the
+/// Kasa sibling of [`render_network_command`] / [`render_network_http_command`].
+/// A command for another transport is declined; the action's `transport` says
+/// which renderer to call.
+pub fn render_network_kasa_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<KasaRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request =
+        crate::protocol::kasa::render_request(&spec, &command_name, &values.into_iter().collect())?;
+    Ok(KasaRequestDto::from(request))
+}
+
+/// Render the JSON that polls a Kasa state command (`get_sysinfo`). The Kasa
+/// counterpart of [`render_network_state_request`]; the poll is a first-class
+/// command with a `body`, so it renders the same way a control does.
+pub fn render_network_kasa_state_request(
+    spec_yaml: String,
+    state_command: String,
+) -> anyhow::Result<KasaRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request = crate::protocol::kasa::render_state_request(&spec, &state_command)?;
+    Ok(KasaRequestDto::from(request))
+}
+
+/// Encrypt and length-frame a Kasa JSON request for the TCP control socket
+/// (port 9999). Dart writes the returned bytes and reads the reply back through
+/// [`kasa_decode_frame`]; the cipher stays in one tested place rather than
+/// re-implemented in Dart.
+pub fn kasa_encode_frame(json: String) -> Vec<u8> {
+    crate::protocol::kasa::encode_frame(json.as_bytes())
+}
+
+/// Decode a length-framed Kasa TCP reply back to its JSON text, for Dart to
+/// parse with `dart:convert`. Errors on a short/truncated frame or non-UTF-8
+/// payload rather than returning garbage.
+pub fn kasa_decode_frame(frame: Vec<u8>) -> anyhow::Result<String> {
+    let plaintext = crate::protocol::kasa::decode_frame(&frame)?;
+    String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("Kasa reply is not UTF-8: {e}"))
+}
+
+/// Encrypt a Kasa JSON request as a UDP discovery datagram — the same cipher
+/// as [`kasa_encode_frame`] but with no length prefix, which is how the
+/// broadcast probe and its replies are framed.
+pub fn kasa_encrypt_datagram(json: String) -> Vec<u8> {
+    crate::protocol::kasa::encrypt(json.as_bytes())
+}
+
+/// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
+pub fn kasa_decode_datagram(datagram: Vec<u8>) -> anyhow::Result<String> {
+    let plaintext = crate::protocol::kasa::decrypt(&datagram);
+    String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("Kasa datagram is not UTF-8: {e}"))
+}
+
 /// Render the argument-less request that reads a state command's values —
 /// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
 pub fn render_network_state_request(

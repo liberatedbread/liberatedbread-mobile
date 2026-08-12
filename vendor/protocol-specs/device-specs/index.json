@@ -1120,6 +1120,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "TP-Link Kasa Smart Plug",
+    "path": "device-specs/devices/tplink-kasa-smart-plug.yaml",
+    "protocol": "wifi",
+    "category": "switch",
+    "manufacturer": "TP-Link",
+    "manufacturer_status": "active",
+    "protocol_handler": "tplink_smarthome",
+    "openness": "documented_api",
+    "helpful_urls": [
+      {
+        "title": "softScheck — Reverse Engineering the TP-Link HS110 (2016)",
+        "url": "https://www.softscheck.com/en/blog/tp-link-reverse-engineering/",
+        "description": "The original protocol write-up: cipher, framing and command tree."
+      },
+      {
+        "title": "python-kasa — reference implementation (backs Home Assistant tplink)",
+        "url": "https://github.com/python-kasa/python-kasa",
+        "description": "Authoritative, hardware-tested client for this and later Kasa protocols."
+      },
+      {
+        "title": "softScheck/tplink-smartplug — original client + Wireshark dissector",
+        "url": "https://github.com/softScheck/tplink-smartplug",
+        "description": "The tplink-smarthome-commands.txt reference and a pcap dissector."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Triumph Tiger 900",
     "path": "device-specs/devices/triumph-tiger-900.yaml",
     "protocol": "obd2",
