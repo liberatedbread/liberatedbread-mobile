@@ -15,6 +15,7 @@ import '../services/http_control_service.dart';
 import '../services/query_source_reader.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
+import '../widgets/network_light_card.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
 /// Wi-Fi counterpart of the BLE device screen's typed control panel.
@@ -110,14 +111,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   /// Whether anything on this screen needs the UPnP description document.
   ///
-  /// SOAP is what it exists for: state reads and SOAP sends resolve their
-  /// control URL from it. A device whose declared surface is entirely plain
-  /// HTTP (a Roku remote) has no `setup.xml` to fetch — asking for one turns
-  /// a working device into a permanent error screen.
+  /// SOAP is what it exists for, and the only transport that needs it: state
+  /// reads and SOAP sends resolve their control URL from it. A device whose
+  /// surface is entirely plain HTTP (a Roku remote) or binary UDP (a LIFX
+  /// strip) has no `setup.xml` to fetch — asking for one turns a working
+  /// device into a permanent error screen. So this keys on `soap` specifically,
+  /// not "anything but http".
   bool get _needsDescription =>
       _stateCommands.isNotEmpty ||
       _entities
-          .any((e) => e.actions.any((action) => action.transport != 'http'));
+          .any((e) => e.actions.any((action) => action.transport == 'soap'));
 
   /// Loaded enough to draw controls: the description is fetched, or nothing
   /// on this screen wants it.
@@ -504,6 +507,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         return _selectCard(entity);
       case 'number':
         return _numberCard(entity);
+      case 'light':
+        // A LIFX light drives itself over UDP: unlike the SOAP/HTTP cards it
+        // owns its own sends and live reads, so the screen just hands it the
+        // entity and the device address.
+        return NetworkLightCard(
+          entity: entity,
+          specYaml: widget.controls.specYaml,
+          host: widget.device.host,
+          targetMac: widget.device.advertisedMac ?? '',
+        );
       default:
         return _sensorCard(entity);
     }

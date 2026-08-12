@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `confidence`, `entity_dto`, `find_entity`, `format_number`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -119,6 +119,88 @@ Future<List<NetworkRoleReadingDto>> readNetworkInstance(
         entityName: entityName,
         stateReply: stateReply,
         instanceId: instanceId);
+
+/// The UDP port every LIFX device listens on. Exposed so the Dart client need
+/// not hardcode it separately from the protocol module.
+Future<int> lifxPort() => RustLib.instance.api.crateApiDeviceApiLifxPort();
+
+/// Render one LIFX control action into the datagram bytes to send.
+///
+/// `action` is a `command_name` from [`network_entities_for_device`] on a LIFX
+/// spec (`turn_on`, `set_color`, `set_zone_color`, …); `params` carries the
+/// UI-owned values (`red`/`green`/`blue`/`brightness` on 0..=255, `kelvin` on
+/// 1500..=9000, `zone` a zone index). `target_mac` is `d0:73:d5:…` or empty for
+/// a device not yet identified (the all-zero target unicast firmware accepts).
+/// `sequence` is the caller's counter, echoed in any reply for correlation.
+Future<Uint8List> renderLifxCommand(
+        {required String action,
+        required Map<String, double> params,
+        required String targetMac,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderLifxCommand(
+        action: action,
+        params: params,
+        targetMac: targetMac,
+        sequence: sequence);
+
+/// The tagged-broadcast `GetService` datagram — the discovery probe every LIFX
+/// device answers with a `StateService`.
+Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiBuildLifxDiscoveryProbe(sequence: sequence);
+
+/// The `LightGet` datagram that asks a device for its current colour and power.
+Future<Uint8List> buildLifxStateRequest(
+        {required String targetMac, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiBuildLifxStateRequest(
+        targetMac: targetMac, sequence: sequence);
+
+/// The `GetColorZones` datagram asking for the colours of zones `start..=end`.
+Future<Uint8List> buildLifxZonesRequest(
+        {required String targetMac,
+        required int start,
+        required int end,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiBuildLifxZonesRequest(
+        targetMac: targetMac, start: start, end: end, sequence: sequence);
+
+/// Decode a `StateService` datagram (the discovery reply).
+Future<LifxServiceDto> parseLifxStateService({required List<int> bytes}) =>
+    RustLib.instance.api.crateApiDeviceApiParseLifxStateService(bytes: bytes);
+
+/// Decode a light `State` (107) datagram into a UI-facing reading.
+Future<LifxStateDto> decodeLifxState({required List<int> bytes}) =>
+    RustLib.instance.api.crateApiDeviceApiDecodeLifxState(bytes: bytes);
+
+/// Decode a `StateMultiZone` (506) or `StateZone` (503) datagram into per-zone
+/// colours. Routed by the datagram's own message type.
+Future<LifxZonesDto> decodeLifxZones({required List<int> bytes}) =>
+    RustLib.instance.api.crateApiDeviceApiDecodeLifxZones(bytes: bytes);
+
+/// The default `SECURITY_PROTOCOL` (WPA2-AES) to try for a manually-typed SSID
+/// that never appeared in a scan.
+Future<int> lifxDefaultSecurity() =>
+    RustLib.instance.api.crateApiDeviceApiLifxDefaultSecurity();
+
+/// The `GetAccessPoints` datagram that asks an unprovisioned device to scan.
+Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiBuildLifxGetAccessPoints(sequence: sequence);
+
+/// The `SetAccessPoint` datagram handing the device its home-network
+/// credentials. `password` is sent in plaintext (the legacy exchange has no
+/// credential encryption) — do not persist it.
+Future<Uint8List> renderLifxSetAccessPoint(
+        {required String ssid,
+        required String password,
+        required int security,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderLifxSetAccessPoint(
+        ssid: ssid, password: password, security: security, sequence: sequence);
+
+/// Decode a `StateAccessPoint` (0x132) scan-result datagram.
+Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes}) =>
+    RustLib.instance.api.crateApiDeviceApiDecodeLifxAccessPoint(bytes: bytes);
 
 /// Find every spec matching a device we are already talking to, with the
 /// reasons it matched.
@@ -1120,6 +1202,178 @@ class ImageWritePlanDto {
           serviceUuid == other.serviceUuid &&
           writes == other.writes &&
           nextFrameIndex == other.nextFrameIndex;
+}
+
+/// One network an unprovisioned device reported it can see (a `StateAccessPoint`
+/// reply), for the user to pick from.
+class LifxAccessPointDto {
+  final String ssid;
+
+  /// The `SECURITY_PROTOCOL` byte (1 OPEN, 3 WPA-TKIP, 5 WPA2-AES, …), passed
+  /// straight back in the `SetAccessPoint` for the chosen network.
+  final int security;
+
+  /// Signal strength as the device reported it (higher is stronger).
+  final int strength;
+  final int channel;
+
+  const LifxAccessPointDto({
+    required this.ssid,
+    required this.security,
+    required this.strength,
+    required this.channel,
+  });
+
+  @override
+  int get hashCode =>
+      ssid.hashCode ^ security.hashCode ^ strength.hashCode ^ channel.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LifxAccessPointDto &&
+          runtimeType == other.runtimeType &&
+          ssid == other.ssid &&
+          security == other.security &&
+          strength == other.strength &&
+          channel == other.channel;
+}
+
+/// A decoded `StateService` reply: which device answered (MAC), on which
+/// service (1 = UDP) and port. The IP is the datagram's source address, which
+/// the socket already knows.
+class LifxServiceDto {
+  final String mac;
+  final int service;
+  final int port;
+
+  const LifxServiceDto({
+    required this.mac,
+    required this.service,
+    required this.port,
+  });
+
+  @override
+  int get hashCode => mac.hashCode ^ service.hashCode ^ port.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LifxServiceDto &&
+          runtimeType == other.runtimeType &&
+          mac == other.mac &&
+          service == other.service &&
+          port == other.port;
+}
+
+/// A decoded light `State` reply, in the units the UI works in: RGB and
+/// brightness on 0..=255 for the colour swatch and slider, plus the raw HSBK
+/// channels and the device's label.
+class LifxStateDto {
+  final bool powerOn;
+  final int red;
+  final int green;
+  final int blue;
+  final int brightness;
+  final int hue;
+  final int saturation;
+  final int kelvin;
+  final String label;
+
+  const LifxStateDto({
+    required this.powerOn,
+    required this.red,
+    required this.green,
+    required this.blue,
+    required this.brightness,
+    required this.hue,
+    required this.saturation,
+    required this.kelvin,
+    required this.label,
+  });
+
+  @override
+  int get hashCode =>
+      powerOn.hashCode ^
+      red.hashCode ^
+      green.hashCode ^
+      blue.hashCode ^
+      brightness.hashCode ^
+      hue.hashCode ^
+      saturation.hashCode ^
+      kelvin.hashCode ^
+      label.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LifxStateDto &&
+          runtimeType == other.runtimeType &&
+          powerOn == other.powerOn &&
+          red == other.red &&
+          green == other.green &&
+          blue == other.blue &&
+          brightness == other.brightness &&
+          hue == other.hue &&
+          saturation == other.saturation &&
+          kelvin == other.kelvin &&
+          label == other.label;
+}
+
+/// One zone's colour, RGB + brightness on 0..=255.
+class LifxZoneColorDto {
+  final int red;
+  final int green;
+  final int blue;
+  final int brightness;
+
+  const LifxZoneColorDto({
+    required this.red,
+    required this.green,
+    required this.blue,
+    required this.brightness,
+  });
+
+  @override
+  int get hashCode =>
+      red.hashCode ^ green.hashCode ^ blue.hashCode ^ brightness.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LifxZoneColorDto &&
+          runtimeType == other.runtimeType &&
+          red == other.red &&
+          green == other.green &&
+          blue == other.blue &&
+          brightness == other.brightness;
+}
+
+/// A decoded multizone reply: the strip's total zone count, the index this
+/// batch starts at, and the colours it carries.
+class LifxZonesDto {
+  final int zonesCount;
+  final int zoneIndex;
+  final List<LifxZoneColorDto> colors;
+
+  const LifxZonesDto({
+    required this.zonesCount,
+    required this.zoneIndex,
+    required this.colors,
+  });
+
+  @override
+  int get hashCode =>
+      zonesCount.hashCode ^ zoneIndex.hashCode ^ colors.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LifxZonesDto &&
+          runtimeType == other.runtimeType &&
+          zonesCount == other.zonesCount &&
+          zoneIndex == other.zoneIndex &&
+          colors == other.colors;
 }
 
 /// One MAC prefix a spec declares, and how much of the block is really this
