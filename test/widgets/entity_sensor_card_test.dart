@@ -92,6 +92,97 @@ void main() {
   });
 
   testWidgets(
+      'a spec that never subscribes still reads a notify-only '
+      'characteristic', (tester) async {
+    // Spec/hardware drift: the entity says canNotify=false (so no
+    // subscription will ever exist) while discovery reports the
+    // characteristic notify-only. Skipping the seed here would leave a
+    // spinner forever — the read must still be attempted, succeed or fail.
+    final ble = FakeBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(uuid: 's', characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: _tempChar,
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ]),
+      ],
+      readValues: const {
+        _tempChar: [87],
+      },
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(_codecReturning(87)),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: EntitySensorCard(
+            deviceId: 'd',
+            serviceUuid: 's',
+            entity: _tempEntity(), // canNotify: false
+            specYaml: 'y',
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('87'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a failed subscription surfaces an error instead of an eternal '
+      'spinner', (tester) async {
+    // With the seed read skipped (notify-only), a CCCD write the peripheral
+    // refuses is the card's only signal. Before any value has arrived it
+    // must land as an error; the old handler swallowed it.
+    final notify = StreamController<List<int>>.broadcast();
+    addTearDown(notify.close);
+    final ble = FakeBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(uuid: 's', characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: _tempChar,
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ]),
+      ],
+      readError: Exception('reads refused'),
+      notifyStream: notify.stream,
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(_codecReturning(87)),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: EntitySensorCard(
+            deviceId: 'd',
+            serviceUuid: 's',
+            entity: _tempEntity(canNotify: true),
+            specYaml: 'y',
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    notify.addError(Exception('CCCD write refused'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('Could not read'), findsOneWidget);
+  });
+
+  testWidgets(
       'a notify-only characteristic waits for its first notification '
       'instead of wearing a read error', (tester) async {
     // Discovery says the characteristic cannot be read; the old behavior

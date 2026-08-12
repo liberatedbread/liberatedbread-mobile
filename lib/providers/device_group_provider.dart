@@ -8,7 +8,6 @@ import '../core/hex.dart';
 import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
-import '../services/spec_codec.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
 import 'saved_device_provider.dart';
@@ -25,6 +24,15 @@ const Set<DeviceCategory> kNonGroupableCategories = {
   DeviceCategory.vehicle,
 };
 
+/// Whether a device with this recorded `device.category` value may take part
+/// in groups. The one spelling of the rule — the members provider, the group
+/// editor's candidate list and save filter, and the tile counts all call
+/// this, so they cannot drift on which devices a run would actually touch.
+/// Null (kind not known yet) is groupable: battery reads need no spec, and
+/// the runner matches one on connect.
+bool isGroupable(String? category) =>
+    !kNonGroupableCategories.contains(DeviceCategory.parse(category));
+
 final deviceGroupStoreProvider = Provider<DeviceGroupStore>(
   (ref) => DeviceGroupStore(ref.watch(sharedPreferencesProvider)),
 );
@@ -33,6 +41,13 @@ final deviceGroupStoreProvider = Provider<DeviceGroupStore>(
 class DeviceGroupsNotifier extends StateNotifier<List<DeviceGroup>> {
   final DeviceGroupStore _store;
 
+  /// Tie-break suffix for [create]'s ids. `DateTime.now()` is only
+  /// millisecond-precise on some platforms (web), where two quick creations
+  /// could mint the same stamp — and identical ids make the second group
+  /// silently overwrite the first in the store. Static so notifiers recreated
+  /// by provider rebuilds keep counting instead of restarting at zero.
+  static int _creationSeq = 0;
+
   DeviceGroupsNotifier(this._store) : super(_store.load());
 
   Future<DeviceGroup> create({
@@ -40,9 +55,9 @@ class DeviceGroupsNotifier extends StateNotifier<List<DeviceGroup>> {
     required List<String> deviceIds,
   }) async {
     final group = DeviceGroup(
-      // Microsecond stamp over a uuid dependency: ids only need to be unique
+      // Stamp + sequence over a uuid dependency: ids only need to be unique
       // within one user's handful of groups, and creation is a user gesture.
-      id: 'g${DateTime.now().microsecondsSinceEpoch}',
+      id: 'g${DateTime.now().microsecondsSinceEpoch}-${_creationSeq++}',
       name: name,
       deviceIds: deviceIds,
     );
@@ -70,6 +85,25 @@ final deviceGroupsProvider =
   (ref) => DeviceGroupsNotifier(ref.watch(deviceGroupStoreProvider)),
 );
 
+/// Forget a saved device everywhere, in the one crash-safe order.
+///
+/// Group membership goes first: dying between the two writes then leaves a
+/// saved device with no memberships (harmless), never a stored membership
+/// without a device — that one silently resurrects if the same id is ever
+/// saved again. Takes the notifiers rather than a ref so callers are forced
+/// to resolve them before their first await (reading a ref after an async
+/// gap throws once the calling widget is disposed), and so every future
+/// forget path gets the cascade by construction instead of remembering to
+/// copy it.
+Future<void> forgetDevice({
+  required SavedDevicesNotifier savedDevices,
+  required DeviceGroupsNotifier groups,
+  required String deviceId,
+}) async {
+  await groups.pruneDevice(deviceId);
+  await savedDevices.remove(deviceId);
+}
+
 /// One automatic by-kind group ("Lights"), derived from the saved devices.
 @immutable
 class AutoGroup {
@@ -90,17 +124,6 @@ class AutoGroups {
   const AutoGroups({required this.groups, required this.unidentified});
 }
 
-/// [SavedDevice.id] as a MAC when it is one, for the scan-matcher's OUI axis.
-/// Apple platforms use opaque UUIDs as device ids, which must not be offered
-/// as addresses.
-@visibleForTesting
-String? macAddressOfSavedId(String id) {
-  final parts = id.split(':');
-  if (parts.length != 6) return null;
-  final hex = RegExp(r'^[0-9A-Fa-f]{2}$');
-  return parts.every(hex.hasMatch) ? id : null;
-}
-
 /// Bucket the saved devices by category.
 ///
 /// A device's category is normally the one recorded when a spec match
@@ -111,24 +134,43 @@ String? macAddressOfSavedId(String id) {
 /// once records the real answer.
 final autoGroupsProvider = FutureProvider<AutoGroups>((ref) async {
   final saved = ref.watch(savedDevicesProvider);
-  final byCategory = <DeviceCategory, List<SavedDevice>>{};
-  final unidentified = <SavedDevice>[];
 
-  for (final device in saved) {
-    var category = DeviceCategory.parse(device.category);
-    if (category == null) {
-      final guess = await ref.watch(scanGuessProvider(ScanIdentity(
+  // Two passes on purpose. The first is synchronous and does every ref.watch
+  // up front: watching after an await is unsound (this build may already be
+  // stale by then), and holding all the futures before awaiting lets the
+  // guesses resolve concurrently instead of serializing one FFI match per
+  // unclassified device.
+  final categories = List<DeviceCategory?>.filled(saved.length, null);
+  final guessIndexes = <int>[];
+  final guessFutures = <Future<ScanGuess?>>[];
+  for (var i = 0; i < saved.length; i++) {
+    final device = saved[i];
+    categories[i] = DeviceCategory.parse(device.category);
+    if (categories[i] == null) {
+      guessIndexes.add(i);
+      guessFutures.add(ref.watch(scanGuessProvider(ScanIdentity(
         name: device.name,
         serviceUuids: const [],
         companyIds: const [],
-        macAddress: macAddressOfSavedId(device.id),
-      )).future);
-      category = guess?.category;
+        // [SavedDevice.id] is only a MAC on some platforms; Apple substitutes
+        // an opaque UUID, which must not be offered as an address.
+        macAddress: macAddressOrNull(device.id),
+      )).future));
     }
+  }
+  final guesses = await Future.wait(guessFutures);
+  for (var g = 0; g < guesses.length; g++) {
+    categories[guessIndexes[g]] = guesses[g]?.category;
+  }
+
+  final byCategory = <DeviceCategory, List<SavedDevice>>{};
+  final unidentified = <SavedDevice>[];
+  for (var i = 0; i < saved.length; i++) {
+    final category = categories[i];
     if (category == null) {
-      unidentified.add(device);
+      unidentified.add(saved[i]);
     } else if (!kNonGroupableCategories.contains(category)) {
-      byCategory.putIfAbsent(category, () => []).add(device);
+      byCategory.putIfAbsent(category, () => []).add(saved[i]);
     }
   }
 
@@ -168,29 +210,21 @@ final groupMembersProvider = FutureProvider.autoDispose
   final choices = ref.watch(specChoicesProvider);
   final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
 
-  ({DeviceSpecDto spec, String yaml})? bySpecKey(String? key) {
-    if (key == null) return null;
-    // lastWhere, matching matchedDeviceSpecProvider's resolve(): remote pack
-    // specs load after bundled ones and shadow them on identity collisions.
-    for (final entry in parsed.reversed) {
-      if (specKeyFor(entry.spec) == key) return entry;
-    }
-    return null;
-  }
+  final savedById = {for (final device in saved) device.id: device};
+  // Built through specEntriesByKey so the pack-shadows-bundled rule for
+  // duplicate keys stays defined in exactly one place.
+  final entriesByKey = specEntriesByKey(parsed);
 
   final members = <GroupMember>[];
   for (final id in request.deviceIds) {
-    final device = saved.where((d) => d.id == id).firstOrNull;
+    final device = savedById[id];
     if (device == null) continue;
     // Enforced at run time, not just in the pickers: a member that recorded
     // a non-groupable category AFTER joining a group (an unidentified device
     // that turned out to be an OBD dongle) must not keep taking part through
     // its stale membership.
-    if (kNonGroupableCategories
-        .contains(DeviceCategory.parse(device.category))) {
-      continue;
-    }
-    final resolved = bySpecKey(choices[id]) ?? bySpecKey(device.specKey);
+    if (!isGroupable(device.category)) continue;
+    final resolved = entriesByKey[choices[id]] ?? entriesByKey[device.specKey];
     members.add(GroupMember(
       id: id,
       name: device.name,
@@ -203,20 +237,19 @@ final groupMembersProvider = FutureProvider.autoDispose
 
 /// The group-operation executor, wired to the live BLE service and codec.
 /// The resolver closure gives the runner the same post-discovery matching a
-/// device screen would do, for members whose spec is not stored — built with
-/// the identical normalized-and-sorted UUID key so the family cache is shared
-/// with the panel rather than raced.
+/// device screen would do, for members whose spec is not stored — built
+/// through the same factory as every other post-discovery call site, so the
+/// family cache is shared with the panel rather than raced.
 final groupRunnerProvider = Provider<GroupRunner>((ref) {
   return GroupRunner(
     ble: ref.watch(bleServiceProvider),
     codec: ref.watch(specCodecProvider),
     resolveSpec: (member, services) async {
-      final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
-        ..sort();
-      final outcome = await ref.read(matchedDeviceSpecProvider(SpecMatchRequest(
+      final outcome =
+          await ref.read(matchedDeviceSpecProvider(SpecMatchRequest.forServices(
         deviceId: member.id,
         deviceName: member.name,
-        serviceUuids: serviceUuids,
+        services: services,
       )).future);
       final chosen = outcome.chosen;
       return chosen == null ? null : (spec: chosen.spec, yaml: chosen.yaml);

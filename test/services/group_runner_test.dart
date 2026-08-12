@@ -171,6 +171,9 @@ void main() {
     expect(codec.encodeCalls, hasLength(2));
     expect(codec.encodeCalls.first.commandName, 'power_off');
     expect(codec.encodeCalls.first.params, isEmpty);
+    // The pair, not just the characteristic: the codec scopes its command
+    // lookup to the named service.
+    expect(codec.encodeCalls.first.serviceUuid, _svc);
   });
 
   test('a member whose spec lacks the op is skipped without connecting',

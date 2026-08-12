@@ -390,6 +390,31 @@ FindAlertKind? classifyAlertCommandByName(String commandName) {
 ///    a writable Alert Level — no spec needed. Skipped when a spec command
 ///    already targets that characteristic (the spec knows the device's
 ///    dialect better than the generic profile does).
+/// The normalized `service|characteristic` key both write-admission maps use.
+String discoveredPairKey(String serviceUuid, String charUuid) =>
+    '${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
+
+/// Writable discovered characteristics, keyed by the normalized
+/// service|characteristic UUID pair. The pair matters: the same
+/// characteristic UUID can appear under several services (vendor channels
+/// reuse 0xFFE1-style UUIDs), and an action must write to the service the
+/// spec — or the standard profile — actually names, not whichever duplicate
+/// discovery happened to list last. Shared by [detectAlertActions] and the
+/// group write path so the admission rule cannot drift between them.
+Map<String, ({String serviceUuid, String charUuid})> discoveredWritablePairs(
+  List<BleDiscoveredService> services,
+) {
+  final writable = <String, ({String serviceUuid, String charUuid})>{};
+  for (final service in services) {
+    for (final char in service.characteristics) {
+      if (!char.canWrite) continue;
+      writable[discoveredPairKey(service.uuid, char.uuid)] =
+          (serviceUuid: service.uuid, charUuid: char.uuid);
+    }
+  }
+  return writable;
+}
+
 List<FindAlertAction> detectAlertActions({
   DeviceSpecDto? spec,
   String? specYaml,
@@ -397,27 +422,13 @@ List<FindAlertAction> detectAlertActions({
 }) {
   final actions = <FindAlertAction>[];
 
-  // Writable discovered characteristics, keyed by the normalized
-  // service|characteristic UUID pair. The pair matters: the same
-  // characteristic UUID can appear under several services (vendor channels
-  // reuse 0xFFE1-style UUIDs), and an action must write to the service the
-  // spec — or the standard profile — actually names, not whichever duplicate
-  // discovery happened to list last.
-  String pairKey(String serviceUuid, String charUuid) =>
-      '${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
-  final writable = <String, ({String serviceUuid, String charUuid})>{};
-  for (final service in services) {
-    for (final char in service.characteristics) {
-      if (!char.canWrite) continue;
-      writable[pairKey(service.uuid, char.uuid)] =
-          (serviceUuid: service.uuid, charUuid: char.uuid);
-    }
-  }
+  final writable = discoveredWritablePairs(services);
 
   if (spec != null && specYaml != null) {
     for (final specService in spec.services) {
       for (final specChar in specService.characteristics) {
-        final discovered = writable[pairKey(specService.uuid, specChar.uuid)];
+        final discovered =
+            writable[discoveredPairKey(specService.uuid, specChar.uuid)];
         if (discovered == null) continue;
         for (final command in specChar.commands) {
           // Only parameterless commands: a find button must be a single tap,
@@ -443,11 +454,11 @@ List<FindAlertAction> detectAlertActions({
   // Only the Alert Level under the Immediate Alert service itself: 0x2A06
   // hanging off some unrelated service is not the standard profile, and
   // writing alert levels there would hit an unknown endpoint.
-  final alertLevel =
-      writable[pairKey(immediateAlertServiceUuid, alertLevelCharUuid)];
+  final alertLevel = writable[
+      discoveredPairKey(immediateAlertServiceUuid, alertLevelCharUuid)];
   final specCoversAlertLevel = actions.any((a) =>
-      pairKey(a.serviceUuid, a.charUuid) ==
-      pairKey(immediateAlertServiceUuid, alertLevelCharUuid));
+      discoveredPairKey(a.serviceUuid, a.charUuid) ==
+      discoveredPairKey(immediateAlertServiceUuid, alertLevelCharUuid));
   if (alertLevel != null && !specCoversAlertLevel) {
     actions.add(FindAlertAction(
       kind: FindAlertKind.alert,

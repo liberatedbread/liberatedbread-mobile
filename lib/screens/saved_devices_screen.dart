@@ -56,12 +56,17 @@ class SavedDevicesScreen extends ConsumerWidget {
 
   Future<void> _forget(
       BuildContext context, WidgetRef ref, SavedDevice saved) async {
+    // Everything context- or ref-derived is resolved before the first await:
+    // both lookups throw once this screen is disposed, and a forget should
+    // finish even if the user navigates away mid-write.
     final messenger = ScaffoldMessenger.of(context);
-    await ref.read(savedDevicesProvider.notifier).remove(saved.id);
-    // Forgetting means forgetting everywhere: leaving the id in stored
-    // groups would silently restore the membership if this device is ever
-    // saved again.
-    await ref.read(deviceGroupsProvider.notifier).pruneDevice(saved.id);
+    final savedDevices = ref.read(savedDevicesProvider.notifier);
+    final groups = ref.read(deviceGroupsProvider.notifier);
+    await forgetDevice(
+      savedDevices: savedDevices,
+      groups: groups,
+      deviceId: saved.id,
+    );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
 

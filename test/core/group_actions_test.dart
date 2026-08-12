@@ -439,6 +439,70 @@ void main() {
     });
   });
 
+  group('read service binding', () {
+    test('reads bind to the service the spec declares, not discovery order',
+        () {
+      // The device also exposes the same characteristic UUID under a vendor
+      // service that discovery happens to list first. Reading THAT one and
+      // decoding it with this entity's format would report garbage as a
+      // healthy value — the spec says which service it meant.
+      final spec = _spec(
+        entities: [
+          _entity('Battery',
+              platform: 'sensor',
+              deviceClass: 'battery',
+              stateCharacteristic: batteryLevelCharUuid,
+              hasFormat: true),
+        ],
+        services: const [
+          ServiceDto(
+            uuid: batteryServiceUuid,
+            name: 'Battery',
+            characteristics: [
+              CharacteristicDto(
+                uuid: batteryLevelCharUuid,
+                name: 'Level',
+                canRead: true,
+                canWrite: false,
+                canNotify: false,
+                commands: [],
+                formatFields: [],
+              ),
+            ],
+          ),
+        ],
+      );
+      final reads = resolveBatteryReads(spec: spec, services: [
+        _discovered(
+            serviceUuid: _svc,
+            charUuid: batteryLevelCharUuid,
+            canRead: true,
+            canWrite: false),
+        _discovered(
+            serviceUuid: batteryServiceUuid,
+            charUuid: batteryLevelCharUuid,
+            canRead: true,
+            canWrite: false),
+      ]);
+      expect(reads.single.serviceUuid, batteryServiceUuid);
+    });
+
+    test(
+        'a characteristic the spec declares under no service keeps the '
+        'discovery-order fallback', () {
+      final spec = _spec(entities: [
+        _entity('Temperature',
+            platform: 'sensor',
+            stateCharacteristic: _stateChar,
+            hasFormat: true),
+      ]);
+      final reads = resolveSensorReads(spec: spec, services: [
+        _discovered(charUuid: _stateChar, canRead: true, canWrite: false),
+      ]);
+      expect(reads.single.serviceUuid, _svc);
+    });
+  });
+
   group('resolveSensorReads', () {
     test('caps the snapshot and dedupes variant bindings by name', () {
       final spec = _spec(entities: [
