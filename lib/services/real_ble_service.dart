@@ -1178,8 +1178,7 @@ class RealBleService implements BleService {
             // Once per shared enable. The notifications themselves are
             // deliberately NOT logged — that is the tight loop this logging
             // must stay out of.
-            Log.ble
-                .debug('notifications enabled for $charUuid on $deviceId');
+            Log.ble.debug('notifications enabled for $charUuid on $deviceId');
             return char;
           }();
           final char = await claimed.enable!;
