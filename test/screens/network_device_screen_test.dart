@@ -17,11 +17,29 @@ import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
+import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
+import '../fakes/fake_ecp2_socket.dart';
 import '../fakes/fake_spec_codec.dart';
+
+/// The ECP2 override for tests that assert the PLAIN path: a service that
+/// never opens a session, so a refusal stays a refusal — without opening a
+/// real socket to the test's fictional addresses.
+Ecp2ControlService noEcp2() => Ecp2ControlService(
+    connector: (host, port) async =>
+        throw const Ecp2Exception('no ECP2 in this test'));
+
+/// The ECP2 override for tests of the fallback itself: sessions run on the
+/// scripted [socket], which leads with its challenge on connect like a real
+/// Roku does.
+Ecp2ControlService ecp2On(AutoEcp2Socket socket) =>
+    Ecp2ControlService(connector: (host, port) async {
+      socket.begin();
+      return socket;
+    });
 
 const _setupXml = '''
 <root><device>
@@ -384,9 +402,11 @@ void main() {
       WidgetTester tester, {
       required List<http.Request> received,
       int statusCode = 200,
+      List<NetworkEntityDto> entities = remoteEntities,
+      Ecp2ControlService? ecp2,
     }) async {
       codec = FakeSpecCodec(
-        networkEntities: (_) => remoteEntities,
+        networkEntities: (_) => entities,
         networkHttpRequest: (name, _) => HttpRequestDto(
           method: 'POST',
           path: switch (name) {
@@ -414,6 +434,7 @@ void main() {
               .overrideWithValue(SoapControlClient(httpClient: soap)),
           httpControlClientProvider
               .overrideWithValue(HttpControlClient(httpClient: roku)),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
         ],
         child: const MaterialApp(home: SizedBox()),
       ));
@@ -422,8 +443,7 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
-              controls: const NetworkControls(
-                  specYaml: 'yaml', entities: remoteEntities)),
+              controls: NetworkControls(specYaml: 'yaml', entities: entities)),
         ),
       ));
       await tester.pumpAndSettle();
@@ -480,6 +500,87 @@ void main() {
       expect(find.text('The device is refusing commands'), findsOneWidget);
       expect(find.textContaining('answered discovery'), findsOneWidget);
     });
+
+    NetworkEntityDto button(String name, [String? icon]) => NetworkEntityDto(
+          name: name,
+          platform: 'button',
+          icon: icon,
+          isInstanced: false,
+          stateCommand: '',
+          options: [],
+          actions: [
+            NetworkActionDto(
+              role: 'press',
+              commandName: 'press_${name.toLowerCase().replaceAll(' ', '_')}',
+              transport: 'http',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: [],
+            ),
+          ],
+        );
+
+    testWidgets('lays the full key set out like a remote', (tester) async {
+      // The whole Roku entity list from the spec, placed by name: D-pad with
+      // OK in the middle, rockers for volume and channel, inputs in a wrap.
+      final fullRemote = [
+        button('Power On', 'mdi:power'),
+        button('Power Off', 'mdi:power-off'),
+        button('Back', 'mdi:arrow-u-left-top'),
+        button('Home', 'mdi:home'),
+        button('Up', 'mdi:chevron-up'),
+        button('Left', 'mdi:chevron-left'),
+        button('OK'),
+        button('Right', 'mdi:chevron-right'),
+        button('Down', 'mdi:chevron-down'),
+        button('Replay', 'mdi:replay'),
+        button('Options', 'mdi:asterisk'),
+        button('Rewind', 'mdi:rewind'),
+        button('Play/Pause', 'mdi:play-pause'),
+        button('Fast Forward', 'mdi:fast-forward'),
+        button('Volume Down', 'mdi:volume-minus'),
+        button('Mute', 'mdi:volume-mute'),
+        button('Volume Up', 'mdi:volume-plus'),
+        button('Channel Up', 'mdi:chevron-double-up'),
+        button('Channel Down', 'mdi:chevron-double-down'),
+        button('Search', 'mdi:magnify'),
+        button('Find Remote', 'mdi:remote'),
+        button('HDMI 1', 'mdi:hdmi-port'),
+        button('HDMI 2', 'mdi:hdmi-port'),
+        button('AV', 'mdi:video-input-component'),
+        button('Antenna', 'mdi:antenna'),
+      ];
+      await pumpRemote(tester, received: [], entities: fullRemote);
+
+      // The D-pad's keys are icon buttons; OK is the labelled centre.
+      Finder iconKey(String tooltip) => find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == tooltip);
+      for (final key in ['Up', 'Down', 'Left', 'Right']) {
+        expect(iconKey(key), findsOneWidget,
+            reason: '$key should be an icon key on the D-pad');
+      }
+      expect(find.widgetWithText(FilledButton, 'OK'), findsOneWidget);
+
+      // The rockers: volume and channel as icon keys, not labelled chips.
+      for (final key in ['Volume Up', 'Volume Down', 'Mute']) {
+        expect(iconKey(key), findsOneWidget);
+      }
+
+      // Inputs get their own section; nothing landed in the leftover wrap.
+      expect(find.text('Inputs'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'HDMI 1'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Antenna'), findsOneWidget);
+
+      // Up sits directly above OK, Down directly below — the pad's shape.
+      final upPos = tester.getCenter(iconKey('Up'));
+      final okPos = tester.getCenter(find.widgetWithText(FilledButton, 'OK'));
+      final downPos = tester.getCenter(iconKey('Down'));
+      expect(upPos.dx, closeTo(okPos.dx, 1));
+      expect(downPos.dx, closeTo(okPos.dx, 1));
+      expect(upPos.dy, lessThan(okPos.dy));
+      expect(okPos.dy, lessThan(downPos.dy));
+    });
   });
 
   // ── The channel launcher: options that live on the device ───────────────
@@ -533,9 +634,13 @@ void main() {
 
     /// A virtual Roku: serves both query lists, records launches, and moves
     /// its foreground channel when one arrives — like the device does.
+    /// [appsStatus]/[appsBody] let a test make the device refuse the list.
     Future<List<http.Request>> pumpChannels(
       WidgetTester tester, {
       String activeApp = '<active-app><app id="837">YouTube</app></active-app>',
+      int appsStatus = 200,
+      String appsBody = apps,
+      Ecp2ControlService? ecp2,
     }) async {
       final received = <http.Request>[];
       var current = activeApp;
@@ -547,7 +652,7 @@ void main() {
       final roku = MockClient((request) async {
         received.add(request);
         if (request.url.path == '/query/apps') {
-          return http.Response(apps, 200);
+          return http.Response(appsBody, appsStatus);
         }
         if (request.url.path == '/query/active-app') {
           return http.Response(current, 200);
@@ -564,6 +669,7 @@ void main() {
                   fail('no description exists for this device')))),
           httpControlClientProvider
               .overrideWithValue(HttpControlClient(httpClient: roku)),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
         ],
         child: const MaterialApp(home: SizedBox()),
       ));
@@ -617,6 +723,33 @@ void main() {
       expect(netflix.selected, isTrue);
     });
 
+    testWidgets('a refused list says so, instead of reading as no channels',
+        (tester) async {
+      // Limited mode answers /query/apps with 400 and this body — the fleet's
+      // other spelling of 403. The list exists; the device will not share it.
+      await pumpChannels(tester,
+          appsStatus: 400,
+          appsBody: 'ECP command not allowed in Limited mode.');
+
+      expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsNothing);
+      expect(
+          find.textContaining('refusing to share this list'), findsOneWidget);
+      expect(find.text('The device is refusing commands'), findsOneWidget);
+      expect(find.text('The device listed nothing here.'), findsNothing);
+    });
+
+    testWidgets('an unanswered list says the device did not answer',
+        (tester) async {
+      // Distinct from refused and from empty: the query failed outright
+      // (asleep TV, stale address), and "listed nothing" would be a lie.
+      await pumpChannels(tester, appsStatus: 500, appsBody: 'gone');
+
+      expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsNothing);
+      expect(find.textContaining('did not answer'), findsOneWidget);
+      expect(find.text('The device listed nothing here.'), findsNothing);
+      expect(find.text('The device is refusing commands'), findsNothing);
+    });
+
     testWidgets('the home screen reads as no channel selected', (tester) async {
       // Roku's home screen answers with an <app> carrying no id at all.
       await pumpChannels(tester,
@@ -628,6 +761,339 @@ void main() {
         expect(chip.selected, isFalse,
             reason: '$label must not read as current on the home screen');
       }
+    });
+  });
+
+  // ── The TV keyboard: one keystroke per character ─────────────────────────
+  group('text entry', () {
+    final rokuDevice = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const keyboardEntity = NetworkEntityDto(
+      name: 'Keyboard',
+      platform: 'text',
+      icon: 'mdi:keyboard',
+      isInstanced: false,
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          role: 'submit',
+          commandName: 'type_char',
+          transport: 'http',
+          userParams: ['char'],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+        NetworkActionDto(
+          role: 'press',
+          commandName: 'press_backspace',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+      ],
+    );
+
+    Future<List<http.Request>> pumpKeyboard(WidgetTester tester,
+        {Ecp2ControlService? ecp2}) async {
+      final received = <http.Request>[];
+      codec = FakeSpecCodec(
+        networkEntities: (_) => [keyboardEntity],
+        networkHttpRequest: (name, values) => HttpRequestDto(
+          method: 'POST',
+          path: name == 'type_char'
+              ? '/keypress/Lit_${values['char']}'
+              : '/keypress/Backspace',
+          body: '',
+        ),
+      );
+      final roku = MockClient((request) async {
+        received.add(request);
+        return http.Response('', 200);
+      });
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((request) async =>
+                  fail('no description exists for this device')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: roku)),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2 ?? noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: [keyboardEntity])),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return received;
+    }
+
+    testWidgets('typing sends one keypress per character, in order',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path),
+          ['/keypress/Lit_a', '/keypress/Lit_b']);
+    });
+
+    testWidgets('deleting sends backspace per removed character',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+      received.clear();
+
+      await tester.enterText(find.byType(TextField), 'a');
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path), ['/keypress/Backspace']);
+    });
+
+    testWidgets('an edit in the middle retypes only the difference',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+      await tester.enterText(find.byType(TextField), 'abc');
+      await tester.pumpAndSettle();
+      received.clear();
+
+      await tester.enterText(find.byType(TextField), 'abx');
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path),
+          ['/keypress/Backspace', '/keypress/Lit_x']);
+    });
+
+    testWidgets('the backspace key deletes on the device and in the field',
+        (tester) async {
+      final received = await pumpKeyboard(tester);
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+      received.clear();
+
+      await tester.tap(find.byIcon(Icons.backspace_outlined));
+      await tester.pumpAndSettle();
+
+      expect(received.map((r) => r.url.path), ['/keypress/Backspace']);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller?.text,
+          'a');
+    });
+  });
+
+  // ── Limited mode: plain ECP refuses, the signed session answers ─────────
+  //
+  // A Roku with "Control by mobile apps = Limited" refuses plain ECP (403,
+  // or 400 with the Limited-mode body) but answers ECP2. The screen's
+  // fallback is what keeps the channel list, the remote and the keyboard
+  // alive on such a TV — these tests run that whole path against a scripted
+  // socket playing the device.
+  group('ECP2 fallback (Limited mode)', () {
+    final rokuDevice = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const channelEntity = NetworkEntityDto(
+      name: 'Channel',
+      platform: 'select',
+      isInstanced: false,
+      stateCommand: '',
+      options: [],
+      optionsSource: QuerySourceDto(
+        method: 'GET',
+        path: '/query/apps',
+        item: 'app',
+        valueAttribute: 'id',
+      ),
+      stateSource: QuerySourceDto(
+        method: 'GET',
+        path: '/query/active-app',
+        item: 'app',
+        valueAttribute: 'id',
+      ),
+      actions: [
+        NetworkActionDto(
+          role: 'select_option',
+          commandName: 'launch_app',
+          transport: 'http',
+          userParams: ['app_id'],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+      ],
+    );
+
+    const homeButton = NetworkEntityDto(
+      name: 'Home',
+      platform: 'button',
+      icon: 'mdi:home',
+      isInstanced: false,
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          role: 'press',
+          commandName: 'press_home',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+      ],
+    );
+
+    const keyboardEntity = NetworkEntityDto(
+      name: 'Keyboard',
+      platform: 'text',
+      icon: 'mdi:keyboard',
+      isInstanced: false,
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          role: 'submit',
+          commandName: 'type_char',
+          transport: 'http',
+          userParams: ['char'],
+          readBack: [],
+          credentials: [],
+          instanceParams: [],
+        ),
+      ],
+    );
+
+    /// A virtual Limited-mode Roku: every plain-ECP request is refused, and
+    /// the signed session on [socket] is the only way anything answers.
+    Future<AutoEcp2Socket> pumpLimited(
+      WidgetTester tester, {
+      required List<NetworkEntityDto> entities,
+      required Map<String, String> queryPayloads,
+      required HttpRequestDto Function(String, Map<String, String>) render,
+    }) async {
+      final socket = AutoEcp2Socket(queryPayloads: queryPayloads);
+      codec = FakeSpecCodec(
+        networkEntities: (_) => entities,
+        networkHttpRequest: render,
+      );
+      final limited = MockClient((request) async =>
+          http.Response('ECP command not allowed in Limited mode.', 403));
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((request) async =>
+                  fail('no description exists for this device')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: limited)),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: NetworkControls(specYaml: 'yaml', entities: entities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return socket;
+    }
+
+    testWidgets('the refused channel list loads over the signed session',
+        (tester) async {
+      await pumpLimited(
+        tester,
+        entities: const [channelEntity],
+        queryPayloads: const {
+          'query-apps': '<apps>'
+              '<app id="12">Netflix</app>'
+              '<app id="837">YouTube</app>'
+              '</apps>',
+          'query-active-app':
+              '<active-app><app id="837">YouTube</app></active-app>',
+        },
+        render: (name, values) => HttpRequestDto(
+            method: 'POST', path: '/launch/${values['app_id']}', body: ''),
+      );
+
+      expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'YouTube'), findsOneWidget);
+      final youtube =
+          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'YouTube'));
+      expect(youtube.selected, isTrue);
+      // The gate note's "go flip the setting" framing is for when control is
+      // broken; here it is not, and the screen says which path it is on.
+      expect(find.text('Using the signed session'), findsOneWidget);
+      expect(find.text('The device is refusing commands'), findsNothing);
+      expect(find.textContaining('refusing to share this list'), findsNothing);
+    });
+
+    testWidgets('a refused keypress goes through the session', (tester) async {
+      final socket = await pumpLimited(
+        tester,
+        entities: const [homeButton],
+        queryPayloads: const {},
+        render: (name, values) => const HttpRequestDto(
+            method: 'POST', path: '/keypress/Home', body: ''),
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Home'));
+      await tester.pumpAndSettle();
+
+      expect(socket.sent, contains(containsPair('request', 'key-press')));
+      final keypress =
+          socket.sent.firstWhere((frame) => frame['request'] == 'key-press');
+      expect(keypress['param-key'], 'Home');
+      expect(find.text('Using the signed session'), findsOneWidget);
+      expect(find.text('The device is refusing commands'), findsNothing);
+    });
+
+    testWidgets('typing falls back too, one key-press per character',
+        (tester) async {
+      final socket = await pumpLimited(
+        tester,
+        entities: const [keyboardEntity],
+        queryPayloads: const {},
+        render: (name, values) => HttpRequestDto(
+            method: 'POST', path: '/keypress/Lit_${values['char']}', body: ''),
+      );
+
+      await tester.enterText(find.byType(TextField), 'ab');
+      await tester.pumpAndSettle();
+
+      final keys = [
+        for (final frame in socket.sent)
+          if (frame['request'] == 'key-press') frame['param-key'],
+      ];
+      expect(keys, ['Lit_a', 'Lit_b']);
     });
   });
 }

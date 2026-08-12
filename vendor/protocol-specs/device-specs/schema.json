@@ -2494,8 +2494,8 @@
         "properties": {
           "platform": {
             "type": "string",
-            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select", "button"],
-            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar, 'button' for momentary actions with no state to read back -- a Roku remote key is pressed, not turned on. A `button` entity binds exactly one role, `press`, whose command must have no caller-supplied blanks, and it is the one platform excused from naming a state source: statelessness is the honest description of a keypress."
+            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select", "button", "text"],
+            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar, 'button' for momentary actions with no state to read back -- a Roku remote key is pressed, not turned on. A `button` entity binds exactly one role, `press`, whose command must have no caller-supplied blanks, and it is the one platform excused from naming a state source: statelessness is the honest description of a keypress. A `text` entity is text entry into whatever field the device has focused (a TV's search box): it binds a valued `submit` role whose command takes the one character being typed -- one send per keystroke, because the wire protocols these exist for (Roku's Lit_ key form) carry no string type -- plus an optional fixed `press` role for the deletion key. Like a button it is excused from naming a state source: the device never reports what is in its focused field."
           },
           "name": {
             "type": "string"

@@ -102,6 +102,21 @@ void main() {
       expect(description.controlUrls, isNotEmpty);
     });
 
+    test('fetches the path the device advertised, not always setup.xml',
+        () async {
+      // A Panasonic Viera's LOCATION is http://<ip>:55000/nrc/ddd.xml; asking
+      // it for /setup.xml turns a working device into a permanent error.
+      final client = SoapControlClient(
+        httpClient: MockClient((request) async {
+          expect(request.url.toString(), 'http://10.0.0.5:55000/nrc/ddd.xml');
+          return http.Response(_setupXml, 200);
+        }),
+      );
+      final description = await client.fetchDescription('10.0.0.5', 55000,
+          path: '/nrc/ddd.xml');
+      expect(description.controlUrls, isNotEmpty);
+    });
+
     test('a non-200 is a transport error naming the URL', () async {
       final client = SoapControlClient(
         httpClient: MockClient((request) async => http.Response('gone', 404)),

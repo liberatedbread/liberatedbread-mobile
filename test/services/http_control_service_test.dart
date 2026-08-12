@@ -109,6 +109,35 @@ void main() {
         contains('control by mobile apps'));
   });
 
+  test('a 400 naming Limited mode is the same refusal in its other spelling',
+      () async {
+    // Observed live on an OS 15.2.4 Roku TV: /query/apps answered
+    // "400 Bad Request" with this body, then 403 for the same endpoint
+    // minutes later. Both are the Limited-mode gate, not a bad request.
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async =>
+          http.Response('ECP command not allowed in Limited mode.', 400)),
+    );
+
+    await expectLater(
+      client.send('10.0.0.9', 8060,
+          const HttpRequestDto(method: 'GET', path: '/query/apps', body: '')),
+      throwsA(isA<ControlRefusedException>()),
+    );
+  });
+
+  test('a 400 without the Limited-mode body is a plain transport failure',
+      () async {
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async => http.Response('nah', 400)),
+    );
+
+    await expectLater(
+      client.send('10.0.0.9', 8060, press),
+      throwsA(isA<HttpControlException>()),
+    );
+  });
+
   test('any other non-2xx is a transport failure that names the request',
       () async {
     final client = HttpControlClient(
@@ -120,6 +149,40 @@ void main() {
       throwsA(isA<HttpControlException>().having(
           (e) => e.message, 'message', contains('POST /keypress/Home'))),
     );
+  });
+
+  test('a deadline with no answer says the device is asleep, not wrong',
+      () async {
+    // A Roku in deep standby keeps no ECP server: the request hangs until
+    // the deadline. That must not surface as "the device did not accept
+    // that" — nothing was refused, nobody was home.
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async {
+        await Future<void>.delayed(const Duration(minutes: 1));
+        return http.Response('', 200);
+      }),
+    );
+
+    await expectLater(
+      client.send('10.0.0.9', 8060, press),
+      throwsA(isA<ControlTimeoutException>()),
+    );
+    expect(const ControlTimeoutException(), isA<UserFacingException>());
+    expect(const ControlTimeoutException().message, contains('asleep'));
+  });
+
+  test('an unreachable device says so instead of blaming the button', () async {
+    final client = HttpControlClient(
+      httpClient: MockClient(
+          (request) async => throw http.ClientException('Connection refused')),
+    );
+
+    await expectLater(
+      client.send('10.0.0.9', 8060, press),
+      throwsA(isA<ControlUnreachableException>()),
+    );
+    expect(
+        const ControlUnreachableException().message, contains('not reachable'));
   });
 
   test('a method this transport does not speak is refused before the wire',

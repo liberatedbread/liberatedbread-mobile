@@ -51,6 +51,14 @@ spec's `device.setup` block; the patterns are explained in
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
 | [Roku External Control Protocol](roku-ecp.md) | WiFi | Complete | On-device UI (high) | Roku / TCL |
+| [Android TV / Google TV Remote](android-tv-remote.md) | WiFi | Spec Available | On-TV pairing code (medium) | Google / various |
+| [Hisense VIDAA TVs](hisense-vidaa.md) | WiFi | Spec Available | On-TV PIN + mTLS cert (low) | Hisense |
+| [LG webOS TVs](lg-webos.md) | WiFi | Spec Available | On-TV accept prompt (high) | LG |
+| [Panasonic Viera TVs](panasonic-viera.md) | WiFi | Spec Available | None (pre-2019) / on-TV PIN (medium) | Panasonic |
+| [Philips JointSPACE TVs](philips-jointspace.md) | WiFi | Spec Available | None (pre-2016) / on-TV PIN (medium) | TP Vision / Philips |
+| [Samsung Tizen TVs](samsung-tizen-tv.md) | WiFi | Spec Available | On-TV allow prompt (high) | Samsung |
+| [Sony Bravia TVs](sony-bravia.md) | WiFi | Spec Available | PSK or on-TV PIN (medium) | Sony |
+| [Vizio SmartCast TVs](vizio-smartcast.md) | WiFi | Spec Available | On-TV PIN pairing (medium) | Vizio |
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |

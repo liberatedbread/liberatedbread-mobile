@@ -35,4 +35,5 @@ const Map<String, IconData> remoteGlyphs = {
   'mdi:hdmi-port': Icons.settings_input_hdmi,
   'mdi:video-input-component': Icons.settings_input_component,
   'mdi:antenna': Icons.settings_input_antenna,
+  'mdi:keyboard': Icons.keyboard_outlined,
 };
