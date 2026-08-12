@@ -83,6 +83,14 @@ nav:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md
           - Roku External Control Protocol: devices/roku-ecp.md
+          - Android TV / Google TV Remote: devices/android-tv-remote.md
+          - Hisense VIDAA TVs: devices/hisense-vidaa.md
+          - LG webOS TVs: devices/lg-webos.md
+          - Panasonic Viera TVs: devices/panasonic-viera.md
+          - Philips JointSPACE TVs: devices/philips-jointspace.md
+          - Samsung Tizen TVs: devices/samsung-tizen-tv.md
+          - Sony Bravia TVs: devices/sony-bravia.md
+          - Vizio SmartCast TVs: devices/vizio-smartcast.md
           - Philips Hue Bridge: devices/hue-bridge.md
           - Enphase Envoy: devices/enphase-envoy.md
           - Dyson Air Purifier: devices/dyson-air-purifier.md

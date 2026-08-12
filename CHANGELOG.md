@@ -8,6 +8,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Eight smart-TV local-control specs: `android-tv-remote` (Remote Protocol
+  v2 protobuf-over-TLS, plus Fire TV ADB variant), `hisense-vidaa` (MQTT
+  over TLS), `lg-webos` (WebSocket SSAP), `panasonic-viera` (plain SOAP,
+  fits the reference app's transport today), `philips-jointspace` (HTTP
+  JSON on 1925/1926), `samsung-tizen-tv` (WebSocket `ms.remote.control`,
+  plus the pre-2016 TCP 55000 legacy protocol), `sony-bravia` (IRCC SOAP +
+  JSON REST), and `vizio-smartcast` (HTTPS with PIN-paired AUTH token).
+  Each records its transport gap against the reference app's
+  GET/POST-empty-body HTTP and header-less SOAP transports rather than
+  inventing commands that could not work on a real TV.
+
+### Changed
+
+- `roku-ecp` corrects the "Control by mobile apps" gating from a live
+  2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position
+  refuses more than the OS 14.1 notice implies — `/query/apps` answers
+  "ECP command not allowed in Limited mode." as 400 on one TV and 403 on
+  two others (the same TV switching spellings within minutes), and
+  `/query/media-player` answers 403, while `/query/device-info` and
+  `/query/active-app` stay open. Also records, from a jadx teardown of The
+  Roku App (Official) 14.0.0.9462138, that the official app survives
+  Limited mode via an authenticated "ECP2" channel (JWT +
+  WebSocket, tied to the signed-in Roku account) that a local third-party
+  client cannot reproduce.
+
 - `airthings-wave-family` binds temperature and humidity to each model's
   combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
   `b42e3b98`). The SIG characteristics (2A6E/2A6F) are app-derived and

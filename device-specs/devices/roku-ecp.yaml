@@ -222,6 +222,36 @@ evidence:
         link: "wifi"
         software_version: "15.2.4"
 
+  # What "Control by mobile apps" = Limited actually does, probed live. Both
+  # refusal spellings are real: one TV answered 400 and later 403 for the
+  # same endpoint. /query/active-app answered 200 throughout, including a
+  # home-screen reading of <app id="562859" type="home">Roku Dynamic
+  # Menu</app> — note the id IS present there, unlike the older "Roku"
+  # home-screen shape query sources are written against.
+  limited_mode_probe:
+    date: "2026-08-11"
+    setting: 'Settings > System > Advanced system settings > Control by mobile apps = Limited'
+    results:
+      - endpoint: "GET /query/apps"
+        observed: '400 and 403 "ECP command not allowed in Limited mode."'
+      - endpoint: "GET /query/media-player"
+        observed: "403"
+      - endpoint: "POST /keypress/Home"
+        observed: "403"
+      - endpoint: "GET /query/device-info"
+        observed: "200"
+      - endpoint: "GET /query/active-app"
+        observed: "200"
+    apk_teardown: >
+      The Roku App (Official) 14.0.0.9462138 (com.roku.remote, XAPK via
+      APKCombo) decompiled with jadx: channel listing and control in Limited
+      mode ride an authenticated "ECP2" channel — package
+      com.roku.mobile.ecp with models ECP2ConnectionRequest /
+      ECP2JWTTokenRequestDto and api ECPAuthApi.getECP2JWT, over WebSocket,
+      backed by the signed-in Roku account. Plain ECP on port 8060 gets none
+      of that, so a local third-party client cannot reproduce it; the user
+      fix is raising the setting to Permissive.
+
 # Everything needed to build an ECP request byte for byte, in the role
 # soap_common plays for Wemo. ECP is deliberately plain: the whole request is
 # the method and the path, and the chosen value (which key, which app) lives
@@ -290,6 +320,25 @@ ecp_common:
         by the same enumeration rule but is the one entry here this project
         has not exercised: it forwards to whatever app is running, so there
         is no reply that distinguishes "delivered" from "ignored".
+      limited_mode: >
+        Live correction, probed 2026-08-11 against the OS 15.2.4 fleet
+        (evidence.limited_mode_probe): with "Control by mobile apps" set to
+        the middle "Limited" position, the refusal is BROADER than the gate
+        notice suggests. /query/apps answered "ECP command not allowed in
+        Limited mode." — as HTTP 400 on Television Boat and HTTP 403 on
+        Sharting Around the House With Mr. Farts and HKTV, and the same TV
+        switched between the two spellings within minutes — and
+        /query/media-player answered 403, while /query/device-info and
+        /query/active-app kept answering 200 and every keypress answered
+        403. So a client must treat 400-with-that-body as the same refusal
+        403 means, must NOT assume query endpoints are exempt, and must
+        expect the channel list to be unreadable until the setting is
+        raised to Permissive. The official Roku app is unaffected because
+        it does not use plain ECP for this: the 14.0.0.9462138 APK carries
+        an "ECP2" stack (com.roku.mobile.ecp) that obtains a JWT
+        (ECPAuthApi.getECP2JWT) and runs commands over an authenticated
+        WebSocket session tied to the user's Roku account — not
+        reproducible by a local third-party client without that account.
 
 http_endpoints:
   - method: "GET"
@@ -310,8 +359,10 @@ http_endpoints:
       the current official ECP doc's command table but still live on-device
       (used by python-rokuecp / Home Assistant). One <app> element per
       channel: the id attribute is what /launch/{app_id} takes, and the
-      element text is the display name. NOT gated by "Control by mobile
-      apps" — the list is readable even when every keypress answers 403.
+      element text is the display name. Open while "Control by mobile apps"
+      is Permissive, but REFUSED in its middle "Limited" position — observed
+      2026-08-11 as 400 and 403 spellings of "ECP command not allowed in
+      Limited mode." (ecp_common.response_format.gating.limited_mode).
     response_body:
       content_type: "application/xml"
       example: |
@@ -326,7 +377,8 @@ http_endpoints:
     description: >
       Current foreground app and active media context. Dropped from the
       current official ECP doc's command table but still live on-device, and
-      not gated by "Control by mobile apps". The <app> element matches the
+      confirmed open even in the "Limited" control-by-mobile-apps position
+      (observed 2026-08-11: 200 while /query/apps on the same TV refused). The <app> element matches the
       Installed Apps shape — except on the home screen and in the
       screensaver, where it carries no id attribute at all (the text is just
       "Roku"): a consumer matching the current channel by id must treat a
@@ -340,7 +392,10 @@ http_endpoints:
   - method: "GET"
     path: "/query/media-player"
     name: "Media Player"
-    description: "Playback state, position, duration, and media metadata when available."
+    description: >
+      Playback state, position, duration, and media metadata when available.
+      Refused (403) in the "Limited" control-by-mobile-apps position on the
+      observed fleet, 2026-08-11.
     response_body:
       content_type: "application/xml"
   - method: "POST"
