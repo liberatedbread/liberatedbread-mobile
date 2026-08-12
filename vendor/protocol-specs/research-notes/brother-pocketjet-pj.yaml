@@ -1,0 +1,51 @@
+# Brother PocketJet PJ series — Device Spec (research note)
+# No companion app required; protocol is Brother's public Command Reference.
+
+device:
+  id: brother-pocketjet-pj
+  name: Brother PocketJet (PJ-522/523/622/623/662/663/673 EOL; PJ-722/723/762/763/773 current)
+  manufacturer: Brother Industries
+  category: portable_document_printer
+  safety_class: LOW
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  alternates: [usb, wifi_optional]  # wifi on PJ-7x3 only
+
+bluetooth_classic:
+  profile: spp
+  uuid: "00001101-0000-1000-8000-00805f9b34fb"
+  pairing:
+    pin: "0000"  # TBD per model/firmware; configurable via settings tool
+    notes: PJ-673 = BT 2.1 legacy PIN; PJ-763MFi adds iAP2 for iOS
+  discovery:
+    name_patterns: ["PJ-5*", "PJ-6*", "PJ-7*", "PJ-8*"]
+
+protocol:
+  note: >
+    Public vendor documentation (PJ Command Reference, support.brother.com).
+    Two print modes over the SPP byte stream: ESC/P (Epson-compatible
+    page mode, text + bit image) and Brother raster mode (P-touch lineage).
+    No RE required; a derived spec can be written from the manual.
+  languages:
+    - name: esc_p
+      doc: Brother PJ Command Reference (public)
+    - name: brother_raster
+      doc: Brother PJ Command Reference (public)
+  example_linux: |
+    rfcomm bind /dev/rfcomm0 <MAC>
+    # send ESC/P or raster job to /dev/rfcomm0
+
+status:
+  apk_acquired: false  # N/A
+  apk_decompiled: false
+  protocol_recovered: true   # public vendor docs
+  hci_snoop_needed: false
+  cloud_dependency: none
+  manufacturer_status: >
+    Brother active; PJ-5xx/6xx discontinued (drivers still hosted),
+    PJ-7xx/8xx current. No cloud anywhere in the stack.
+  references:
+    - https://www.brother.eu/-/media/product-downloads/devices/nordics/eu_en/printers/portable-printers/pj-800-series-user-guide.pdf
+    - https://brothermobilesolutions.com/products/printers/pocketjet/pj763/

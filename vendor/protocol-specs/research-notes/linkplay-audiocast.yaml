@@ -1,0 +1,71 @@
+# Linkplay WiMu modules — Device Spec (research note)
+# White-label Wi-Fi audio platform behind AudioCast M5, iEast, MUZO Cobblestone,
+# August WS-series, Dayton Audio WBA31, and (extended) WiiM/Arylic.
+# Local HTTP API documented by community AND by active affiliate brand Arylic.
+
+device:
+  id: linkplay-audiocast
+  name: Linkplay WiMu A28/A31/A98 modules (AudioCast M5, iEast, MUZO Cobblestone, August WS, et al.)
+  manufacturer: Linkplay Technology (OEM); many retail brands defunct
+  category: network_audio_adapter
+  safety_class: LOW  # but see security_note — unauthenticated root telnet enable
+
+transport:
+  type: wifi
+  local_only: true
+
+lan:
+  discovery:
+    - mdns: _raop._tcp   # AirPlay advertisement
+    - ssdp: upnp:rootdevice  # DLNA renderer
+    - udp_broadcast: app-side discovery (port varies by app generation)
+  control:
+    protocol: http
+    port: 80
+    auth: none
+    endpoint_pattern: "/httpapi.asp?command=<cmd>[:arg...]"
+    response: "OK or JSON"
+
+protocol:
+  note: >
+    Fully documented (AndersFluur/LinkPlayApi api.md; Arylic developer docs).
+    Text fields in JSON responses (Title/Artist/Album) are hex-encoded UTF-8.
+    Multiroom slave commands take slave IPs as arguments.
+  commands:
+    get_status: "getStatus"
+    player_status: "getPlayerStatus"
+    play_uri: "setPlayerCmd:play:<uri>"
+    pause: "setPlayerCmd:pause"
+    resume: "setPlayerCmd:resume"
+    stop: "setPlayerCmd:stop"
+    next: "setPlayerCmd:next"
+    prev: "setPlayerCmd:prev"
+    seek_ms: "setPlayerCmd:seek:<ms>"
+    volume: "setPlayerCmd:vol:<0-100>"
+    mute: "setPlayerCmd:mute:<0|1>"
+    input_select: "setPlayerCmd:switchmode:line-in|optical|UDISK|wifi"
+    multiroom_list: "multiroom:getSlaveList"
+    multiroom_kick: "multiroom:SlaveKickout:<ip>"
+    multiroom_slave_volume: "multiroom:SlaveVolume:<ip>:<0-100>"
+    multiroom_ungroup: "multiroom:Ungroup"
+    set_name: "setDeviceName:<hex>"
+    join_wifi: "wlanConnectApEx:<ssid_hex>:<ch>:<auth>:<enc>:<pwd_hex>:1"
+    reboot: "reboot"
+    enable_telnet_root: "507269765368656C6C:5f7769696d75645f"  # "PrivShell:_wiimud_"
+
+security_note: >
+  Entire API is unauthenticated; the telnet-enable command grants root
+  (admin/admin) until reboot; some firmwares return the Wi-Fi PSK in
+  plaintext via getNetwork/getStatus. Spec must recommend LAN isolation.
+
+status:
+  apk_acquired: false    # not needed — API documented above app level
+  apk_decompiled: false
+  uuids_recovered: false # n/a — no BLE
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: mixed      # several retail brands/apps defunct; Linkplay/Arylic/WiiM active
+  references:
+    - github.com/AndersFluur/LinkPlayApi (api.md)
+    - developer.arylic.com/httpapi
+    - Music Assistant Linkplay player provider

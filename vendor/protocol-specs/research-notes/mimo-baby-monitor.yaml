@@ -1,0 +1,69 @@
+# Mimo Smart Baby Monitor (Rest Devices) — Research Note
+# Community BLE protocol documented by jadonk (BeagleBoard.org), 2015
+# APK source: apkeep (APKPure mirror), com.restdevices.mimo v2.2.7
+# APK SHA-256: 648603a933ee5bba855d9701d8a05d082af50ff2cf8a8e59d7e30b08c65b10e7
+
+device:
+  id: mimo-baby-monitor
+  name: Mimo Smart Baby Monitor (kimono + turtle sensor + lilypad base)
+  manufacturer: Rest Devices, Inc. (Boston; defunct — mimobaby.com squatted, verified 2026-08-04)
+  category: baby_monitor
+  safety_class: MEDIUM  # infant breathing/sleep reassurance; verbatim data only, never a medical alarm
+
+transport:
+  type: ble
+  local_only: true  # turtle streams to any BLE central; stock app is cloud-only and has no BLE code
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — advertised name unknown (capture shows no complete local name)
+    service_uuids: []  # TBD
+    note: Turtle MAC OUI observed 00:07:80 (Laird Technologies module)
+
+  # From live bluepy capture (jadonk gist f2323348eb7706889f88), NOT from APK
+  services:
+    - uuid: "d96a513d-a6d8-4f89-9895-ca131a0935cb"
+      name: mimo_turtle_service
+      description: Sole GATT service on the turtle sensor
+      characteristics:
+        - uuid: "c3ae33e1-e40c-4137-a040-adbab921d894"
+          name: turtle_data
+          description: Sensor stream; respiration waveform, position, motion, temperature
+          properties: [read, notify]
+
+protocol:
+  note: >
+    20-byte frames beginning 0xAA 0xED 0x18. Notification stream carries
+    respiration samples (uint16 LE pairs), motion/position, and skin
+    temperature. Frame layout was publicly broken down by a Rest Devices
+    employee on the Quantified Self forum (thread 1758) and demonstrated
+    end-to-end with bluepy on a BeagleBone — no pairing, no cloud, no
+    base station required. Frame-type byte (00/01) distinguishes idle vs
+    active streaming. Full byte-level codification still needed from a
+    fresh capture.
+  frame_header: "AA ED 18"
+  expected_measurements:
+    - respiration_waveform
+    - body_position
+    - motion_activity
+    - skin_temperature
+  references:
+    - https://www.beagleboard.org/blog/2015-11-30-baby-monitor-using-beaglebone-and-mimo-smart-baby-monitor-sensor-part-1
+    - https://gist.github.com/jadonk/f2323348eb7706889f88
+    - https://forum.quantifiedself.com/t/tapping-into-mimo-smart-baby-monitor/1758
+
+cloud:
+  status: dead
+  evidence: >
+    App last updated 2016-01-18 (v2.2.7); delisted from Play;
+    mimobaby.com squatted by gambling spam (verified 2026-08-04).
+    Stock app is a pure WebSocket/cloud client with zero android.bluetooth
+    usage, so the stock UX dies with the cloud; the BLE path is unaffected.
+
+status:
+  apk_acquired: true
+  apk_decompiled: true  # but no BLE code present — app is cloud-only
+  uuids_recovered: true  # from community live capture
+  protocol_recovered: partial  # field layout on QS forum; needs codifying from fresh capture
+  hci_snoop_needed: false  # plain bluepy capture suffices
+  rating: confirmed

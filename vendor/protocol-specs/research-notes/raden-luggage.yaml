@@ -1,0 +1,60 @@
+# Raden A22 / A28 — Research Note
+# Cloud status: company shut down 2018-05-17; apps delisted from both stores
+# APK: NOT fetchable from any mirror tried (verified 2026-08-03)
+
+device:
+  id: raden-luggage
+  name: Raden A22 carry-on / A28 check smart suitcase
+  manufacturer: Raden (defunct 2018-05)
+  category: smart_luggage
+  safety_class: LOW  # read-only telemetry; no lock actuator
+
+transport:
+  type: ble
+  local_only: true  # shutdown statement: "our companion app will continue to pair to your bags"
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — no unit scanned; "Raden" prefix speculative
+    service_uuids: []  # TBD — needs nRF Connect scan
+
+  services: []  # No UUIDs recovered — no APK available for static analysis
+
+protocol:
+  note: >
+    Greenfield. App-facing BLE functions: integrated scale (lift-handle
+    weighing), proximity/location awareness, battery bank status. No
+    motorized lock (unlike Bluesmart) — nothing to unlock remotely.
+    Shutdown statement confirms app<->bag pairing does not depend on the
+    dead cloud, though first-run account gating inside the app is unknown.
+  commands:
+    weight_read: TBD
+    battery_status: TBD
+    proximity_rssi: TBD  # likely plain RSSI, no protocol needed
+
+cloud_dependence:
+  initial_setup: unknown  # possible account gate; needs surviving install or APK to confirm
+  scale: ble_local (hypothesis, supported by shutdown statement)
+  location_history: cloud (dead)
+  firmware_updates: cloud (dead)
+
+abandonment:
+  shutdown_date: "2018-05-17"
+  reason: US airline ban on smart luggage with non-removable batteries (Raden battery was removable, but the market collapsed anyway)
+  sources:
+    - https://www.engadget.com/2018-05-17-smart-luggage-company-raden-shuts-down-airline-regulations.html
+    - https://www.buzzfeednews.com/article/leticiamiranda/this-smart-luggage-company-is-going-out-of-business
+    - https://www.digitaltrends.com/phones/raden-smart-luggage/
+  apps_delisted: true  # Play 404 + Apple Search API empty, verified 2026-08-03
+
+status:
+  apk_acquired: false
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: true
+  apk_notes: >
+    Package id unconfirmed (com.raden and four variants all dead).
+    apkeep/apk-pure, APKPure, APKCombo, Aptoide all negative
+    (2026-08-03). Recovery = adb pull from an owner handset.
+  difficulty: high  # no APK, no prior RE; but read-only surface means empirical RE from notify bytes is feasible

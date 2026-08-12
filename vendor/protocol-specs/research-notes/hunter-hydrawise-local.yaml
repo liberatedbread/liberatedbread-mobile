@@ -1,0 +1,50 @@
+# Hunter Hydrawise HC / Pro-HC / HPC — Device Spec (research note)
+# Manufacturer ACTIVE. Limited undocumented local HTTP API via openHAB binding.
+
+device:
+  id: hunter-hydrawise-local
+  name: Hunter Hydrawise HC / Pro-HC / HPC irrigation controllers
+  manufacturer: Hunter Industries — active
+  category: irrigation_controller
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true  # for the documented subset; full features are cloud-only
+  note: >
+    Primary path is Hydrawise cloud (HA core integration is cloud-only).
+    openHAB binding implements an undocumented local HTTP API: basic-auth
+    against admin credentials set on the touch panel. Subset = zone control
+    only; may be removed in newer firmware.
+
+lan:
+  discovery:
+    protocol: none_documented   # user supplies host
+  control:
+    protocol: http
+    auth: basic auth — admin user/password set on controller touch panel
+    availability: firmware-dependent (openHAB warns later firmware may drop it)
+
+protocol:
+  note: >
+    Endpoint schema implemented in openHAB binding source
+    (org.openhab.binding.hydrawise local handler) — transcription target.
+  commands:
+    zone_run: documented via openHAB binding
+    zone_run_custom_time: documented
+    zone_suspend: documented
+    run_all_zones: documented
+  limitations: no sensors, no forecasts; local actions not mirrored to cloud
+
+status:
+  apk_acquired: false
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true   # via openHAB binding source
+  hci_snoop_needed: false
+  cloud_dead: false
+  confidence: confirmed_limited  # production binding; subset; firmware-fragile
+  references:
+    - openhab.org/addons/bindings/hydrawise
+    - community.home-assistant.io/t/hunter-hydrawise-sprinkler-system-integration/51003
+    - hunterirrigation.com/en-metric/support/hydrawise-api-information

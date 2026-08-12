@@ -1,0 +1,55 @@
+# Generic Tuya local-key smart plugs — Device Spec (research note)
+# Tuya alive; pre-2.0-era devices fully local-controllable with per-device local key
+# Local path: UDP 6666/6667 discovery, TCP 6668 AES-ECB JSON (protocol 3.1/3.3/3.4)
+
+device:
+  id: tuya-local-key-plugs
+  name: Generic Tuya Wi-Fi Smart Plugs (Gosund, Teckin, Avatar, white-label, pre-2.0 era)
+  manufacturer: Tuya platform (alive) / many OEM brands
+  category: smart_plug
+  safety_class: LOW  # mains relay; local key is sole auth — LAN-segment
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Runtime control is 100% LAN once the per-device 16-char local key is
+    known. CAVEAT: stock-firmware key extraction usually needs ONE-TIME cloud
+    (Tuya IoT developer account + wizard) — afterwards the device can be
+    WAN-blocked permanently. Cloud-free alternatives: old-fw pairing sniff,
+    tuya-convert (pre-2019 fw), or UART/OpenBeken reflash.
+
+lan:
+  discovery:
+    method: udp_broadcast
+    ports: [6666, 6667]
+    framing: 0x000055aa ... 0x0000aa55; carries gwId, productKey, protocol version
+  control:
+    protocol: tcp-tuya-json
+    port: 6668
+    crypto: "AES-128-ECB keyed by per-device local key (3.4: session-key negotiation)"
+    framing: 55aa header + seq + cmd byte + length + payload + CRC32 + aa55
+
+protocol:
+  note: >
+    DPS (data point) model: dp 1 = switch bool for plugs; metering plugs add
+    current/power/voltage dps (commonly 17-20, product-specific — use
+    tinytuya scan to map). Reference implementations: tuyapi, tinytuya,
+    localtuya (HA).
+  commands:
+    power_on: "set dps {1: true}"
+    power_off: "set dps {1: false}"
+    get_state: "dp query / status command"
+    get_meter: "read metering dps (product-specific mapping)"
+
+status:
+  apk_acquired: false   # not needed — protocol documented by tuyapi/tinytuya
+  apk_decompiled: false
+  protocol_recovered: true
+  rating: confirmed     # control path; one-time key-extraction cloud step documented above
+  cloud_dead: false     # Tuya alive; local path independent of cloud at runtime
+  references:
+    - github.com/codetheweb/tuyapi
+    - github.com/jasonacox/tinytuya
+    - github.com/pascal-fb-martin/housetuya (protocol writeup, 2024)
+    - elektroda.com QA: stock Tuya exposes no local REST server

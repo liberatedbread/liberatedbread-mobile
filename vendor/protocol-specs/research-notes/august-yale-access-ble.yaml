@@ -1,0 +1,73 @@
+# August / Yale Access BLE smart locks
+# APK: com.august.bennu via apkeep (apk-pure), 2026-08-03
+# Prior art: yalexs-ble (bdraco), HA yalexs_ble integration
+
+device:
+  id: august-yale-access-ble
+  name: August Smart Lock / Yale Assure-Linus-Doorman (Yale Access platform)
+  manufacturer: August Home / Yale (Assa Abloy)
+  category: smart_lock
+  safety_class: HIGH  # physical access control; failure or misuse can lock out / admit entry
+
+transport:
+  type: ble
+  local_only: true  # after one-time cloud setup to obtain offline key+slot
+
+cloud:
+  status: at_risk  # cloud alive (Assa Abloy), but app migrations (August -> Yale Home, 2024)
+                   # broke offline-key provisioning for third parties; see HA issues #126117, #152102
+  setup_dependency: offline BLE key + slot are issued via August/Yale cloud account;
+                    once extracted, lock operates fully local over BLE
+
+ble:
+  advertising:
+    name_patterns: []  # model-dependent; yalexs-ble discovers via manufacturer data (YALE_MFR_ID=465) / local name
+    service_uuids: ["0000fe24-0000-1000-8000-00805f9b34fb"]
+  services:
+    - uuid: "bd4ac610-0b45-11e3-8ffd-0800200c9a66"
+      name: august_yale_command_service
+      characteristics:
+        - uuid: "bd4ac611-0b45-11e3-8ffd-0800200c9a66"
+          name: write
+          properties: [write]
+        - uuid: "bd4ac612-0b45-11e3-8ffd-0800200c9a66"
+          name: read_notify
+          properties: [read, notify]
+        - uuid: "bd4ac613-0b45-11e3-8ffd-0800200c9a66"
+          name: secure_write
+          properties: [write]
+        - uuid: "bd4ac614-0b45-11e3-8ffd-0800200c9a66"
+          name: secure_read
+          properties: [read, notify]
+    - uuid: "e295c550-69d0-11e4-b116-123b93f75cba"
+      name: legacy_august_gen1_gen2_service
+      characteristics:
+        - uuid: "e295c551-69d0-11e4-b116-123b93f75cba"
+        - uuid: "e295c552-69d0-11e4-b116-123b93f75cba"
+        - uuid: "e295c553-69d0-11e4-b116-123b93f75cba"
+        - uuid: "e295c554-69d0-11e4-b116-123b93f75cba"
+    - uuid: "c06c8400-8e06-11e0-9cb6-0002a5d5c51b"
+      name: csr_ota_dfu
+
+protocol:
+  note: >
+    Session: handshake using per-lock offline key + slot (AES-encrypted session;
+    strings in APK: "Beginning handshake using the offline key",
+    /ble/sessionkey/{serialNumber}). Commands from yalexs_ble.const:
+    GETSTATUS=0x02 WRITESETTING=0x03 READSETTING=0x04 UNLOCK=0x0A LOCK=0x0B
+    LOCK_ACTIVITY=0x2D. Op-response byte[15] carries OperationError enum
+    (0x00 success; 0x1E-0x23 motor/jam faults). Lock/door/battery status enums
+    fully documented in yalexs-ble.
+  known_commands: {unlock: "0x0A", lock: "0x0B", getstatus: "0x02", lock_activity: "0x2D"}
+
+status:
+  apk_acquired: true        # com.august.bennu, sha256 47b3c8fa...
+  apk_decompiled: false     # strings/DEX scan only
+  uuids_recovered: true
+  protocol_recovered: true  # via community RE (yalexs-ble), not our decompile
+  hci_snoop_needed: false
+  reference: github.com/bdraco/yalexs-ble ; home-assistant.io/integrations/yalexs_ble
+  open_questions:
+    - offline-key provisioning without any cloud account
+    - legacy gen1/2 (e295c550) protocol coverage
+    - Yale Home app APK package id (com.august.yale unfetchable via apk-pure)
