@@ -5,6 +5,8 @@
 // a socket. The transports themselves need a real network; these are the parts
 // that get wrong answers silently, so they are the parts worth testing.
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
@@ -311,6 +313,37 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  group('LIFX discovery', () {
+    test('the probe is a tagged-broadcast GetService, byte for byte', () {
+      final probe = lifxGetServiceProbe();
+      // These exact bytes are what crate::protocol::lifx::get_service(0) builds;
+      // a Rust test pins the same values, so the two builders cannot drift.
+      expect(probe.length, 36);
+      expect(probe.sublist(0, 2), [36, 0], reason: 'size');
+      expect(probe.sublist(2, 4), [0x00, 0x34],
+          reason: 'protocol|addressable|tagged');
+      expect(probe.sublist(4, 8), [0x47, 0x52, 0x42, 0x4C],
+          reason: 'source LBRG');
+      expect(probe[22], 0x01, reason: 'res_required');
+      expect(probe.sublist(32, 34), [2, 0], reason: 'GetService type');
+    });
+
+    test('a StateService reply yields the device MAC', () {
+      final reply = Uint8List(41);
+      // Header target (offset 8) carries the 6-byte MAC.
+      reply.setRange(8, 14, const [0xd0, 0x73, 0xd5, 0x00, 0x04, 0xa3]);
+      reply[32] = 3; // StateService
+      expect(lifxStateServiceMac(reply), 'd0:73:d5:00:04:a3');
+    });
+
+    test('a non-StateService or short datagram yields nothing', () {
+      final other = Uint8List(41)
+        ..[32] = 107; // a light State, not StateService
+      expect(lifxStateServiceMac(other), isNull);
+      expect(lifxStateServiceMac(const [1, 2, 3]), isNull);
     });
   });
 }

@@ -508,6 +508,138 @@ class FakeSpecCodec implements SpecCodec {
         );
   }
 
+  // ── LIFX (binary UDP) ───────────────────────────────────────────────────
+
+  /// Bytes returned by every LIFX builder/render method. A test that only
+  /// checks a send happened does not need to configure this.
+  Uint8List lifxBytes = Uint8List.fromList(const [1, 2, 3]);
+
+  /// Returned by [decodeLifxState]; defaults to a powered-off warm white.
+  LifxStateDto? lifxState;
+
+  /// Returned by [decodeLifxZones]; defaults to no zones.
+  LifxZonesDto? lifxZones;
+
+  /// Returned by [parseLifxStateService].
+  LifxServiceDto? lifxService;
+
+  /// Every [renderLifxCommand] call, in order, with the params it carried.
+  final List<
+      ({
+        String action,
+        Map<String, double> params,
+        String targetMac,
+        int sequence
+      })> renderLifxCalls = [];
+
+  @override
+  Future<int> lifxPort() async => 56700;
+
+  @override
+  Future<Uint8List> renderLifxCommand({
+    required String action,
+    required Map<String, double> params,
+    required String targetMac,
+    required int sequence,
+  }) async {
+    renderLifxCalls.add((
+      action: action,
+      params: Map.of(params),
+      targetMac: targetMac,
+      sequence: sequence,
+    ));
+    return lifxBytes;
+  }
+
+  @override
+  Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) async =>
+      lifxBytes;
+
+  @override
+  Future<Uint8List> buildLifxStateRequest({
+    required String targetMac,
+    required int sequence,
+  }) async =>
+      lifxBytes;
+
+  @override
+  Future<Uint8List> buildLifxZonesRequest({
+    required String targetMac,
+    required int start,
+    required int end,
+    required int sequence,
+  }) async =>
+      lifxBytes;
+
+  @override
+  Future<LifxServiceDto> parseLifxStateService({
+    required List<int> bytes,
+  }) async =>
+      lifxService ??
+      const LifxServiceDto(mac: 'd0:73:d5:00:04:a3', service: 1, port: 56700);
+
+  @override
+  Future<LifxStateDto> decodeLifxState({required List<int> bytes}) async =>
+      lifxState ??
+      const LifxStateDto(
+        powerOn: false,
+        red: 255,
+        green: 255,
+        blue: 255,
+        brightness: 255,
+        hue: 0,
+        saturation: 0,
+        kelvin: 3500,
+        label: 'LIFX Z',
+      );
+
+  @override
+  Future<LifxZonesDto> decodeLifxZones({required List<int> bytes}) async =>
+      lifxZones ?? const LifxZonesDto(zonesCount: 0, zoneIndex: 0, colors: []);
+
+  /// Returned by [decodeLifxAccessPoint].
+  LifxAccessPointDto? lifxAccessPoint;
+
+  /// Every [renderLifxSetAccessPoint] call, in order — so a provisioning test
+  /// can assert the SSID/password/security handed over, without a real strip.
+  final List<({String ssid, String password, int security, int sequence})>
+      setAccessPointCalls = [];
+
+  @override
+  Future<int> lifxDefaultSecurity() async => 5;
+
+  @override
+  Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) async =>
+      lifxBytes;
+
+  @override
+  Future<Uint8List> renderLifxSetAccessPoint({
+    required String ssid,
+    required String password,
+    required int security,
+    required int sequence,
+  }) async {
+    setAccessPointCalls.add((
+      ssid: ssid,
+      password: password,
+      security: security,
+      sequence: sequence,
+    ));
+    return lifxBytes;
+  }
+
+  @override
+  Future<LifxAccessPointDto> decodeLifxAccessPoint({
+    required List<int> bytes,
+  }) async =>
+      lifxAccessPoint ??
+      const LifxAccessPointDto(
+        ssid: 'HomeNet',
+        security: 5,
+        strength: -40,
+        channel: 11,
+      );
+
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(
         serviceUuid: 'srv',
