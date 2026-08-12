@@ -266,13 +266,20 @@ features:
   # vendor's 图文 / "image-text" program). Unlike the live doodle path above,
   # this survives power-off and is played from the device's own effect list.
   #
-  # ANIMATIONS TOO: custom animations upload over this same flow — "DN" AMX
-  # container, UploadRequest.type=3, NO path field — not as .eff files. The
-  # smartdawn_longer2.pcapng animation save (frames 6214-6252, t=202.15-202.8)
-  # is a type=3, size=4096, packetnum=9 transfer whose START protobuf omits
-  # path, and no capture anywhere contains a "DNMX"/"DNX2" container or a
-  # ".eff" path on the wire. (.eff/type=0 remains the flow for CDN catalog
-  # effects, which the app downloads pre-built; nothing we generate.)
+  # TWO container families over this same uploader flow (confirmed from the
+  # vendor app's decompiled H5 bundle + p2p.proto, 2026-08-11):
+  #   * PICTURE / SCROLLING TEXT -> "DN" AMX microapp, UploadRequest.type=3,
+  #     NO path (the default `file_type` below). One still (+ optional scroll).
+  #   * MULTI-FRAME ANIMATION -> a single "DNMX"/"DNX2" .eff container holding
+  #     EVERY frame + a baked-in frame rate, UploadRequest.type=0, path=
+  #     "<cid>.eff". The mobile core's `encode_stored_animation` overrides the
+  #     default file_type to 0 for this kind. The DEVICE animates the frames
+  #     internally; the app never streams frames during playback.
+  # PLAYBACK (both kinds): M_PLAY_EFFECT (play_effect) {i1: cid, i2: slot}.
+  # A freshly stored item plays with slot 0; an item replayed from the effect
+  # list uses its device-assigned slot. To keep the device on ONE design after
+  # disconnect (it otherwise autoruns/randomly cycles ALL stored effects),
+  # follow the play with set_autorun_mode {i1: 0 = fixed}.
   #
   # VERIFIED against smartdawn_capture_a_lot_of_custom_animations.pcapng
   # (2026-08-10) and byte-for-byte reproduced by the mobile core: it is built
@@ -495,21 +502,65 @@ services:
               osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes", description: "SimpleMessage {i1: speed} protobuf" }
+          set_autorun_mode:
+            description: >
+              THE play/loop-mode control (M_SET_AUTORUN_MODE, mt=2512),
+              SimpleMessage {i1: mode} where mode = fixed(0) | repeat(1) |
+              random(2). Confirmed from the vendor H5 bundle: this — NOT the
+              dead set_mode_loop/single (2507/2508, which the vendor never
+              sends) — is how playback mode is set, and it PERSISTS device-side.
+              After playing a stored design, send {i1: 0 = fixed} so the device
+              HOLDS that one effect instead of autorunning/randomly cycling all
+              stored effects on disconnect (the reported "random pick on
+              disconnect" behaviour). {i1: 1 = repeat} cycles the whole stored
+              list; {i1: 2 = random} shuffles it.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD0, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: mode} protobuf, encoder-built" }
+          remove_app:
+            description: >
+              Delete ONE stored user design (DIY micro-app) from the device by
+              its cid. M_REMOVE_APP (mt=2909), SimpleMessage {i1: cid}. NOTE the
+              vendor deletes DIY effects as micro-apps with THIS command (not
+              the proto's M_REMOVE_EFFECT 2903, which it never sends), and sends
+              ONLY the cid — the slot is not transmitted. Only user effects
+              (EffectInfo.diy==1) should be removed, never built-ins (diy==0).
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x5D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: cid} protobuf, encoder-built" }
+          remove_all_apps:
+            description: >
+              Clear ALL stored MINIPROG micro-apps in one command
+              (M_REMOVE_ALL_APPS, mt=2944), header only. Defined in the vendor
+              proto but the vendor app never sends it (it deletes one-by-one via
+              remove_app), so treat as best-effort; enumerating the effect list
+              and removing each diy==1 item with remove_app is the verified path.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x80, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
           set_playlist:
             description: >
-              Save the ordered set of stored effects the device cycles — the
-              "playlist" a multi-frame animation loops. M_BOOKMARK_SAVE
-              (mt=2626) with a protobuf {i1: 0 (bookmark id), i2: count,
-              4: [repeated {i1: 0, i2: effect_id/cid, i3: slot}]}. VERIFIED on
-              the wire (smartdawn_longer2.pcapng t=121.7): a 4-effect set was
-              saved as `0800 1004 2207 0800 10<cid> 18<slot> ...` repeated. The
-              client builds the protobuf payload (repeated + nested, so a Rust
-              builder, not a flat template). To PLAY the set, follow this with
-              M_PLAY_NEXT (play_next) — the vendor sends play_next after the
-              save (t=129.4/130.9), NOT play_effect; playing a single effect
-              instead pins the panel to that one frame in single-play mode.
-              i3 (slot) must be each effect's DEVICE-ASSIGNED slot from
-              M_EFFECT_LIST — a slot-0 set does not cycle.
+              Save a bookmark/favorites set (M_BOOKMARK_SAVE, mt=2626) with a
+              protobuf {i1: 0 (bookmark id), i2: count, 4: [repeated {i1: 0,
+              i2: cid, i3: slot}]}. NOT how a multi-frame animation plays — an
+              animation is a single .eff played by play_effect (see the
+              stored_upload notes). Kept for completeness / possible favorites
+              use; i3 (slot) must be each effect's device-assigned slot from
+              M_EFFECT_LIST.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x42, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
