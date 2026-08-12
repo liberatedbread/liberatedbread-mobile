@@ -96,6 +96,7 @@ nav:
           - Dyson Air Purifier: devices/dyson-air-purifier.md
           - LIFX Z: devices/lifx-z.md
           - Lutron Caseta Smart Bridge 2: devices/lutron-caseta-smart-bridge.md
+          - TP-Link Kasa Smart Plug: devices/tplink-kasa.md
           - Rachio Controller: devices/rachio-controller.md
           - SmartThings Hub v2: devices/smartthings-hub-v2.md
           - Frigidaire Connected ACs: devices/frigidaire-ac.md
