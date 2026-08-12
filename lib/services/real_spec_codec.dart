@@ -430,4 +430,13 @@ class RealSpecCodec implements SpecCodec {
         specYaml: specYaml,
         bytes: Uint8List.fromList(bytes),
       );
+
+  @override
+  Future<StoredPlayDto> encodePlaySpeed({
+    required String specYaml,
+    required int speed,
+    required int sequence,
+  }) =>
+      rust.encodePlaySpeed(
+          specYaml: specYaml, speed: speed, sequence: sequence);
 }

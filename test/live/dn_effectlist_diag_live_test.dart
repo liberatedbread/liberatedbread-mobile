@@ -9,7 +9,6 @@
 @Tags(['live_ble'])
 library;
 
-import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 

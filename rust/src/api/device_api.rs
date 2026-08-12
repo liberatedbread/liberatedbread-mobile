@@ -2907,6 +2907,26 @@ pub fn encode_stored_play(
     })
 }
 
+/// Encode the global play-speed command (M_SET_PLAY_SPEED, `{i1: speed}`) —
+/// how fast the device advances the playlist. `speed` is the vendor's slider
+/// value (default 100). Returns the framed write to send.
+pub fn encode_play_speed(
+    spec_yaml: String,
+    speed: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_play_speed(&spec, speed, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
 /// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
 ///
 /// The device answers a list request with several framed notifications; the

@@ -435,4 +435,12 @@ abstract class SpecCodec {
     required String specYaml,
     required List<int> bytes,
   });
+
+  /// Encode the global play-speed command — how fast the device advances the
+  /// playlist. [speed] is the device's slider value (default 100).
+  Future<StoredPlayDto> encodePlaySpeed({
+    required String specYaml,
+    required int speed,
+    required int sequence,
+  });
 }

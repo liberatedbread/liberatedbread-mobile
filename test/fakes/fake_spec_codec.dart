@@ -762,6 +762,23 @@ class FakeSpecCodec implements SpecCodec {
   }) async =>
       effectListEntries;
 
+  /// Every play-speed value [encodePlaySpeed] was asked to set, in order.
+  final List<int> encodePlaySpeedCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodePlaySpeed({
+    required String specYaml,
+    required int speed,
+    required int sequence,
+  }) async {
+    encodePlaySpeedCalls.add(speed);
+    return StoredPlayDto(
+      serviceUuid: 'srv',
+      write: ImageWriteDto(
+          characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [9])),
+    );
+  }
+
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(
         serviceUuid: 'srv',

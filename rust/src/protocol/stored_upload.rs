@@ -335,6 +335,32 @@ pub fn encode_set_playlist(
     Ok((service, vec![set_pl, loop_cmd]))
 }
 
+/// Encode M_SET_PLAY_SPEED — the global speed at which the device advances
+/// effects/the playlist. SimpleMessage `{i1: speed}` (the vendor's slider,
+/// default 100). Used to pace a multi-frame animation's cycle.
+pub fn encode_play_speed(
+    spec: &DeviceSpec,
+    speed: u32,
+    sequence: u16,
+) -> Result<(String, EncodedWrite), ProtocolError> {
+    let mut payload = vec![0x08];
+    write_varint(&mut payload, speed as u64);
+    let write = build_framed_command(
+        spec,
+        "set_play_speed",
+        HashMap::new(),
+        HashMap::from([("payload".to_string(), payload)]),
+        sequence,
+    )?;
+    let service =
+        service_for_characteristic(spec, &write.characteristic_uuid).ok_or_else(|| {
+            ProtocolError::ImageUploadUnsupported {
+                reason: "the set_play_speed characteristic belongs to no service".to_string(),
+            }
+        })?;
+    Ok((service, write))
+}
+
 /// The PlayList protobuf: `{1:0, 2:count, 4:[repeated {1:0, 2:cid, 3:slot}]}`,
 /// byte-shaped after the M_SET_PL capture in smartdawn_longer2.pcapng.
 fn build_playlist_payload(items: &[PlaylistItem]) -> Vec<u8> {
