@@ -37,6 +37,21 @@ fn needs_unimplemented_transform(characteristic: &Characteristic) -> bool {
     characteristic.encryption.is_some() || characteristic.framing.is_some()
 }
 
+/// Whether the characteristic accepts writes in either GATT mode.
+///
+/// Every resolved action ends as a write, so a command declared on a
+/// characteristic without write permission would resolve into a control that
+/// fails at the BLE layer on every tap. No bundled spec does this — the gate
+/// is for remote spec packs, which are refreshable input.
+fn is_writable(characteristic: &Characteristic) -> bool {
+    characteristic
+        .properties
+        .contains(&CharacteristicProperty::Write)
+        || characteristic
+            .properties
+            .contains(&CharacteristicProperty::WriteWithoutResponse)
+}
+
 /// One resolved control action: the command to send for a role, and which
 /// parameters the UI supplies when sending it.
 #[derive(Debug)]
@@ -233,7 +248,9 @@ fn qualify_set_value<'a>(
     name: &'a str,
     command: &'a Command,
 ) -> Option<ResolvedAction<'a>> {
-    if needs_unimplemented_transform(characteristic) || unsupported_encoding_kind(command).is_some()
+    if needs_unimplemented_transform(characteristic)
+        || !is_writable(characteristic)
+        || unsupported_encoding_kind(command).is_some()
     {
         return None;
     }
@@ -289,16 +306,7 @@ fn resolve_direct_write<'a>(
         spec.find_characteristic_where(uuid, |c| c.format.as_ref().is_some_and(|f| f.len() == 1))?;
     // Same gate as the command path: a raw value written to a characteristic
     // that encrypts or frames its payloads lands as the wrong bytes.
-    if needs_unimplemented_transform(characteristic) {
-        return None;
-    }
-    let writable = characteristic
-        .properties
-        .contains(&CharacteristicProperty::Write)
-        || characteristic
-            .properties
-            .contains(&CharacteristicProperty::WriteWithoutResponse);
-    if !writable {
+    if needs_unimplemented_transform(characteristic) || !is_writable(characteristic) {
         return None;
     }
     let field = characteristic.format.as_ref()?;
@@ -525,8 +533,10 @@ fn qualify<'a>(
 ) -> Option<ResolvedAction<'a>> {
     // JSON/protobuf/TLV commands can't be encoded at all yet, and neither can
     // any command on a characteristic whose bytes must be transformed on the
-    // way out.
-    if needs_unimplemented_transform(characteristic) || unsupported_encoding_kind(command).is_some()
+    // way out — or one that takes no writes at all.
+    if needs_unimplemented_transform(characteristic)
+        || !is_writable(characteristic)
+        || unsupported_encoding_kind(command).is_some()
     {
         return None;
     }
@@ -1048,6 +1058,38 @@ entities:
 
         let color = &actions[3];
         assert_eq!(color.user_params, vec!["red", "green", "blue"]);
+    }
+
+    /// A role mapped onto a characteristic that takes no writes must not
+    /// resolve: the control would fail at the BLE layer on every tap. No
+    /// bundled spec does this — remote packs are the input being guarded.
+    #[test]
+    fn commands_on_an_unwritable_characteristic_resolve_nothing() {
+        let spec = spec_with(
+            r#"
+  - name: Bulb
+    platform: light
+    commands:
+      turn_on: power_on
+      turn_off: power_off
+"#,
+            r#"
+  - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+    name: Control
+    characteristics:
+      - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+        name: Notify Only
+        properties: [read, notify]
+        commands:
+          power_on:
+            description: On
+            value: [1]
+          power_off:
+            description: Off
+            value: [0]
+"#,
+        );
+        assert!(actions_for(&spec).is_empty());
     }
 
     /// SwitchBot's shape: no role map; prefixed command names resolve through

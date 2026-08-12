@@ -1,8 +1,11 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
@@ -15,13 +18,15 @@ const _tempChar = 'fc540002-236c-4c94-8fa9-944a3e5353fa';
 
 /// A spec-declared temperature reading in centidegrees, as Ember's mug reports
 /// it: raw 5320 with `scale: 0.01` means 53.20 °C.
-EntityDto _tempEntity({double? scale, String? valueField}) => EntityDto(
+EntityDto _tempEntity(
+        {double? scale, String? valueField, bool canNotify = false}) =>
+    EntityDto(
       name: 'Current Temperature',
       platform: 'sensor',
       deviceClass: 'temperature',
       unit: 'C',
       stateCharacteristic: _tempChar,
-      canNotify: false,
+      canNotify: canNotify,
       hasFormat: true,
       valueField: valueField ?? 'current_temp_raw',
       valueScale: scale,
@@ -83,6 +88,55 @@ void main() {
     await tester.pumpWidget(_wrap(_tempEntity(), _codecReturning(87)));
     await tester.pumpAndSettle();
 
+    expect(find.text('87'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a notify-only characteristic waits for its first notification '
+      'instead of wearing a read error', (tester) async {
+    // Discovery says the characteristic cannot be read; the old behavior
+    // issued the read anyway and showed its failure until the first
+    // notification arrived. readError proves no read is attempted now.
+    final notify = StreamController<List<int>>.broadcast();
+    addTearDown(notify.close);
+    final ble = FakeBleService(
+      servicesToReturn: const [
+        BleDiscoveredService(uuid: 's', characteristics: [
+          BleDiscoveredCharacteristic(
+            uuid: _tempChar,
+            canRead: false,
+            canWrite: false,
+            canNotify: true,
+          ),
+        ]),
+      ],
+      readError: Exception('reads refused'),
+      notifyStream: notify.stream,
+    );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(ble),
+        specCodecProvider.overrideWithValue(_codecReturning(87)),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: EntitySensorCard(
+            deviceId: 'd',
+            serviceUuid: 's',
+            entity: _tempEntity(canNotify: true),
+            specYaml: 'y',
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.textContaining('Could not read'), findsNothing);
+
+    notify.add(const [87]);
+    await tester.pump();
+    await tester.pump();
     expect(find.text('87'), findsOneWidget);
   });
 

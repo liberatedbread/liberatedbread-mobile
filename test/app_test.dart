@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/app.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/screens/groups_screen.dart';
 import 'package:liberated_bread_mobile/screens/home_shell.dart';
 import 'package:liberated_bread_mobile/screens/saved_devices_screen.dart';
 import 'package:liberated_bread_mobile/screens/scan_screen.dart';
@@ -41,6 +42,7 @@ void main() {
     // Nearby is the landing tab: scanning is what someone opens the app to do.
     expect(find.text('Nearby'), findsOneWidget);
     expect(find.text('Saved'), findsOneWidget);
+    expect(find.text('Groups'), findsOneWidget);
     expect(find.text('Wi-Fi'), findsOneWidget);
   });
 
@@ -134,5 +136,11 @@ void main() {
 
     expect(find.byType(SavedDevicesScreen), findsOneWidget);
     expect(find.text('No saved devices yet'), findsOneWidget);
+
+    await tester.tap(find.text('Groups'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(GroupsScreen), findsOneWidget);
+    expect(find.text('No groups yet'), findsOneWidget);
   });
 }

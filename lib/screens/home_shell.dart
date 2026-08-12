@@ -2,16 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter/material.dart';
 
+import 'groups_screen.dart';
 import 'saved_devices_screen.dart';
 import 'scan_screen.dart';
 import 'wifi_scan_screen.dart';
 
-/// The app's three top-level destinations.
+/// The app's four top-level destinations.
 ///
 /// Devices arrive by two different radios and are worth keeping afterwards,
 /// which is three jobs and used to be one screen: a BLE scan with a saved-device
 /// footer and nowhere at all for Wi-Fi hardware. A bottom bar makes each one
-/// reachable in a tap and gives Wi-Fi somewhere to live.
+/// reachable in a tap and gives Wi-Fi somewhere to live. Groups sits between
+/// Saved and Wi-Fi: it is built *from* the saved devices, and it is the tab
+/// where acting on several of them at once lives.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -42,6 +45,7 @@ class _HomeShellState extends State<HomeShell> {
         children: [
           ScanScreen(active: _index == 0),
           const SavedDevicesScreen(),
+          const GroupsScreen(),
           const WifiScanScreen(),
         ],
       ),
@@ -58,6 +62,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.memory_outlined),
             selectedIcon: Icon(Icons.memory),
             label: 'Saved',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.workspaces_outlined),
+            selectedIcon: Icon(Icons.workspaces),
+            label: 'Groups',
           ),
           NavigationDestination(
             icon: Icon(Icons.wifi_find_outlined),
