@@ -773,6 +773,46 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       final cid = prior?.cid ??
           900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
 
+      // Animations take a different path: this hardware can't play a stored
+      // multi-frame file, so each frame is stored as its own single-frame
+      // microapp and the set is played as a LOOPING PLAYLIST (verified on
+      // hardware — a `.eff` upload commits but never renders). See
+      // `_storeAnimationPlaylist`.
+      if (options.kind == _StoredKind.animation) {
+        final reuse = (prior != null && prior.frameCids.length == allFrames.length)
+            ? prior.frameCids
+            : null;
+        final stored = await _storeAnimationPlaylist(
+          specYaml: specYaml,
+          frames: allFrames,
+          width: width,
+          height: height,
+          name: options.name,
+          reuseCids: reuse,
+        );
+        await store.save(
+          widget.deviceId,
+          SavedDesign(
+            name: options.name,
+            cid: stored.cids.first,
+            kind: 'animation',
+            contentHash: contentHash,
+            savedAt: DateTime.now(),
+            frameCids: stored.cids,
+            frameSlots: stored.slots,
+          ),
+        );
+        if (mounted) {
+          setState(() {}); // the replay list gains/refreshes an entry
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('Saved "${options.name}" — now looping '
+                    '${stored.cids.length} frames on the device.')),
+          );
+        }
+        return; // handled; skip the single-upload picture/text path below
+      }
+
       // The play write the plan tacks on carries this rolling serial, distinct
       // from the pre-play `ui_start_sync`/`effect_list` writes below.
       final playSeq = _nextSequence();
@@ -805,16 +845,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             sequence: playSeq,
           );
         case _StoredKind.animation:
-          plan = await codec.encodeStoredAnimation(
-            specYaml: specYaml,
-            width: width,
-            height: height,
-            frames: allFrames,
-            name: options.name,
-            cid: cid,
-            frameMs: frameMs,
-            sequence: playSeq,
-          );
+          // Animations are handled by the playlist path above and return
+          // before reaching here; the stored-file (`.eff`) path is dead —
+          // it commits on the device but never renders.
+          throw StateError('animation is handled by the playlist path');
       }
 
       Log.ble.info('storing "${options.name}" (${options.kind.name}, cid $cid'
@@ -946,6 +980,138 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         );
   }
 
+  /// Store a multi-frame animation as a LOOPING PLAYLIST of single-frame
+  /// microapps — the only way this hardware plays custom multi-frame content (a
+  /// stored `.eff` commits but never renders; verified live). Each frame is a
+  /// type-3 AMX still; once all are committed, the device's own effect list
+  /// gives each its slot, and a looping playlist over those slots plays them in
+  /// order and persists after disconnect.
+  ///
+  /// Returns the stored frame cids and their device slots (play order). Throws
+  /// — into the caller's error path — if the device refuses a frame.
+  Future<({List<int> cids, List<int> slots})> _storeAnimationPlaylist({
+    required String specYaml,
+    required List<List<int>> frames,
+    required int width,
+    required int height,
+    required String name,
+    List<int>? reuseCids,
+  }) async {
+    final ble = ref.read(bleServiceProvider);
+    final codec = ref.read(specCodecProvider);
+
+    // A block of contiguous cids: re-use the prior ones on a byte-identical
+    // re-save so the device overwrites its slots instead of hoarding copies.
+    final base = 900001 + (DateTime.now().millisecondsSinceEpoch % 88000);
+    final cids = (reuseCids != null && reuseCids.length == frames.length)
+        ? reuseCids
+        : [for (var i = 0; i < frames.length; i++) base + i];
+
+    String serviceUuid = '';
+    String? notifyUuid;
+    String writeUuid = '';
+    for (var i = 0; i < frames.length; i++) {
+      final plan = await codec.encodeStoredImage(
+        specYaml: specYaml,
+        width: width,
+        height: height,
+        rgb: frames[i],
+        name: '$name ${i + 1}',
+        cid: cids[i],
+        // Short per-frame dwell; the device advances the playlist on its own
+        // timer between items.
+        timeSecs: 1,
+        scroll: 'none',
+        speed: 5,
+        sequence: _nextSequence(),
+      );
+      serviceUuid = plan.serviceUuid;
+      notifyUuid = plan.responseCharacteristicUuid;
+      writeUuid = plan.playWrite?.characteristicUuid ?? writeUuid;
+      Log.ble.info('animation frame ${i + 1}/${frames.length} '
+          '(cid ${cids[i]}) to ${widget.deviceId}');
+      final confirmed = _awaitUploadVerdict(codec, plan, specYaml);
+      unawaited(confirmed.then((_) {}, onError: (_) {}));
+      for (final w in plan.uploadWrites) {
+        await ble.writeCharacteristic(
+            widget.deviceId, plan.serviceUuid, w.characteristicUuid, w.bytes);
+      }
+      await confirmed; // a refusal throws into the caller's catch
+    }
+
+    // Read each frame's device slot from the effect list — the playlist
+    // addresses items by slot, and a slot-0 playlist does not cycle.
+    final slots =
+        await _resolveEffectSlots(serviceUuid, notifyUuid, writeUuid, cids);
+    await _playAnimationPlaylist(
+      specYaml: specYaml,
+      serviceUuid: serviceUuid,
+      writeUuid: writeUuid,
+      cids: cids,
+      slots: slots,
+    );
+    return (cids: cids, slots: slots);
+  }
+
+  /// Send M_EFFECT_LIST and read back each stored frame's device-assigned slot,
+  /// in the order of [cids] (0 for any the list didn't return).
+  Future<List<int>> _resolveEffectSlots(
+    String serviceUuid,
+    String? notifyUuid,
+    String writeUuid,
+    List<int> cids,
+  ) async {
+    if (notifyUuid == null || serviceUuid.isEmpty || writeUuid.isEmpty) {
+      return [for (final _ in cids) 0];
+    }
+    final ble = ref.read(bleServiceProvider);
+    final codec = ref.read(specCodecProvider);
+    final slotByCid = <int, int>{};
+    final sub = ble
+        .subscribeCharacteristic(widget.deviceId, serviceUuid, notifyUuid)
+        .listen((bytes) async {
+      for (final e
+          in await codec.decodeEffectList(specYaml: widget.specYaml, bytes: bytes)) {
+        slotByCid[e.cid] = e.slot;
+      }
+    });
+    await _sendFramedCommand(widget.specYaml, serviceUuid, writeUuid, 'effect_list');
+    // Give the device time to stream its (multi-packet) list back.
+    await Future<void>.delayed(const Duration(seconds: 3));
+    unawaited(sub.cancel());
+    return [for (final cid in cids) slotByCid[cid] ?? 0];
+  }
+
+  /// Set and start the looping playlist for [cids]/[slots]: `set_playlist` +
+  /// `set_mode_loop`, then play the first frame to kick it off (setting the
+  /// playlist alone does not start it). Shared by save and replay.
+  Future<void> _playAnimationPlaylist({
+    required String specYaml,
+    required String serviceUuid,
+    required String writeUuid,
+    required List<int> cids,
+    required List<int> slots,
+  }) async {
+    final ble = ref.read(bleServiceProvider);
+    final codec = ref.read(specCodecProvider);
+    final playlist = await codec.encodeSetPlaylist(
+      specYaml: specYaml,
+      cids: cids,
+      slots: slots,
+      sequence: _nextSequence(),
+    );
+    for (final w in playlist.writes) {
+      await ble.writeCharacteristic(
+          widget.deviceId, playlist.serviceUuid, w.characteristicUuid, w.bytes);
+    }
+    // Kick the loop off: set_playlist + loop mode alone do not start it, but
+    // playing the first frame does, and loop mode then advances the rest.
+    final start = await codec.encodeStoredPlay(
+        specYaml: specYaml, cid: cids.first, sequence: _nextSequence());
+    await ble.writeCharacteristic(widget.deviceId, start.serviceUuid,
+        start.write.characteristicUuid, start.write.bytes);
+  }
+
   /// Resolves `true` once the device confirms the stored upload committed,
   /// `false` when it stays silent past a bounded wait; throws when the device
   /// actively refuses it.
@@ -1026,12 +1192,27 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             play.write.characteristicUuid, 'ui_start_sync');
         _doodleSessionOpen = false;
       }
-      await ref.read(bleServiceProvider).writeCharacteristic(
-            widget.deviceId,
-            play.serviceUuid,
-            play.write.characteristicUuid,
-            play.write.bytes,
-          );
+      // An animation replays by RE-SETTING its looping playlist (the frames
+      // still live on the device, at the slots captured when it was saved); a
+      // picture/text replays with one play write.
+      if (design.frameCids.length > 1) {
+        await _playAnimationPlaylist(
+          specYaml: widget.specYaml,
+          serviceUuid: play.serviceUuid,
+          writeUuid: play.write.characteristicUuid,
+          cids: design.frameCids,
+          slots: design.frameSlots.length == design.frameCids.length
+              ? design.frameSlots
+              : [for (final _ in design.frameCids) 0],
+        );
+      } else {
+        await ref.read(bleServiceProvider).writeCharacteristic(
+              widget.deviceId,
+              play.serviceUuid,
+              play.write.characteristicUuid,
+              play.write.bytes,
+            );
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Playing "${design.name}".')),
@@ -1407,8 +1588,16 @@ class _StoredSaveDialog extends StatefulWidget {
 class _StoredSaveDialogState extends State<_StoredSaveDialog> {
   final _nameController = TextEditingController(text: 'My design');
   final _textController = TextEditingController(text: 'Hello');
-  _StoredKind _kind = _StoredKind.picture;
+  late _StoredKind _kind;
   String _scroll = 'none';
+
+  @override
+  void initState() {
+    super.initState();
+    // A multi-frame canvas is an animation by default — saving "the current
+    // settings" means the design the user actually built.
+    _kind = widget.frameCount > 1 ? _StoredKind.animation : _StoredKind.picture;
+  }
 
   static const _scrollLabels = {
     'none': 'No scroll',
