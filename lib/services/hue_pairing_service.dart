@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'package:clock/clock.dart';
+
 import '../core/log.dart';
 import 'hub_http_client.dart';
 import 'spec_codec.dart';
@@ -66,12 +68,15 @@ class HuePairingService {
       values: const {'devicetype': deviceType},
     );
 
-    final deadline = DateTime.now().add(window);
+    // clock.now(), not DateTime.now(): in production they are identical, but
+    // under a widget test the deadline then rides the fake clock that pump()
+    // advances, so the timeout path is exercised without real wall-time waits.
+    final deadline = clock.now().add(window);
     var attempt = 0;
     var wasCancelled = false;
     unawaited(cancelled?.then((_) => wasCancelled = true));
 
-    while (DateTime.now().isBefore(deadline)) {
+    while (clock.now().isBefore(deadline)) {
       if (wasCancelled) throw PairingCancelledException();
       attempt += 1;
       onAttempt?.call(attempt);

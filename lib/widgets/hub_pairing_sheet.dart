@@ -24,7 +24,8 @@ class HubPairingSheet extends ConsumerStatefulWidget {
   final String bridgeId;
 
   /// The polling window and cadence. Real callers keep the service defaults;
-  /// tests shrink them because the deadline runs on wall-clock time.
+  /// tests shrink them so a handful of pumps crosses the window — the service
+  /// reads its deadline off package:clock, which widget-test pumps advance.
   final Duration window;
   final Duration interval;
 

@@ -62,8 +62,8 @@ void main() {
                       specYaml: 'yaml',
                       host: '10.0.0.2',
                       bridgeId: 'BRIDGE',
-                      // Small real-time window: the poll deadline runs on the
-                      // wall clock, which widget-test pumps do not advance.
+                      // Small window the pump loop crosses: the service reads
+                      // its deadline off package:clock, which pump() advances.
                       window: Duration(milliseconds: 200),
                       interval: Duration(milliseconds: 5),
                     ),
