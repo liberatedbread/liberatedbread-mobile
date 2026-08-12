@@ -369,9 +369,10 @@ void main() {
       WidgetTester tester, {
       required List<http.Request> received,
       int statusCode = 200,
+      List<NetworkEntityDto> entities = remoteEntities,
     }) async {
       codec = FakeSpecCodec(
-        networkEntities: (_) => remoteEntities,
+        networkEntities: (_) => entities,
         networkHttpRequest: (name, _) => HttpRequestDto(
           method: 'POST',
           path: switch (name) {
@@ -407,8 +408,7 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
               device: rokuDevice,
-              controls: const NetworkControls(
-                  specYaml: 'yaml', entities: remoteEntities)),
+              controls: NetworkControls(specYaml: 'yaml', entities: entities)),
         ),
       ));
       await tester.pumpAndSettle();
@@ -465,6 +465,84 @@ void main() {
       expect(find.text('The device is refusing commands'), findsOneWidget);
       expect(find.textContaining('answered discovery'), findsOneWidget);
     });
+
+    NetworkEntityDto button(String name, [String? icon]) => NetworkEntityDto(
+          name: name,
+          platform: 'button',
+          icon: icon,
+          stateCommand: '',
+          options: [],
+          actions: [
+            NetworkActionDto(
+              role: 'press',
+              commandName: 'press_${name.toLowerCase().replaceAll(' ', '_')}',
+              transport: 'http',
+              userParams: [],
+              readBack: [],
+            ),
+          ],
+        );
+
+    testWidgets('lays the full key set out like a remote', (tester) async {
+      // The whole Roku entity list from the spec, placed by name: D-pad with
+      // OK in the middle, rockers for volume and channel, inputs in a wrap.
+      final fullRemote = [
+        button('Power On', 'mdi:power'),
+        button('Power Off', 'mdi:power-off'),
+        button('Back', 'mdi:arrow-u-left-top'),
+        button('Home', 'mdi:home'),
+        button('Up', 'mdi:chevron-up'),
+        button('Left', 'mdi:chevron-left'),
+        button('OK'),
+        button('Right', 'mdi:chevron-right'),
+        button('Down', 'mdi:chevron-down'),
+        button('Replay', 'mdi:replay'),
+        button('Options', 'mdi:asterisk'),
+        button('Rewind', 'mdi:rewind'),
+        button('Play/Pause', 'mdi:play-pause'),
+        button('Fast Forward', 'mdi:fast-forward'),
+        button('Volume Down', 'mdi:volume-minus'),
+        button('Mute', 'mdi:volume-mute'),
+        button('Volume Up', 'mdi:volume-plus'),
+        button('Channel Up', 'mdi:chevron-double-up'),
+        button('Channel Down', 'mdi:chevron-double-down'),
+        button('Search', 'mdi:magnify'),
+        button('Find Remote', 'mdi:remote'),
+        button('HDMI 1', 'mdi:hdmi-port'),
+        button('HDMI 2', 'mdi:hdmi-port'),
+        button('AV', 'mdi:video-input-component'),
+        button('Antenna', 'mdi:antenna'),
+      ];
+      await pumpRemote(tester, received: [], entities: fullRemote);
+
+      // The D-pad's keys are icon buttons; OK is the labelled centre.
+      Finder iconKey(String tooltip) => find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == tooltip);
+      for (final key in ['Up', 'Down', 'Left', 'Right']) {
+        expect(iconKey(key), findsOneWidget,
+            reason: '$key should be an icon key on the D-pad');
+      }
+      expect(find.widgetWithText(FilledButton, 'OK'), findsOneWidget);
+
+      // The rockers: volume and channel as icon keys, not labelled chips.
+      for (final key in ['Volume Up', 'Volume Down', 'Mute']) {
+        expect(iconKey(key), findsOneWidget);
+      }
+
+      // Inputs get their own section; nothing landed in the leftover wrap.
+      expect(find.text('Inputs'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'HDMI 1'), findsOneWidget);
+      expect(find.widgetWithText(FilledButton, 'Antenna'), findsOneWidget);
+
+      // Up sits directly above OK, Down directly below — the pad's shape.
+      final upPos = tester.getCenter(iconKey('Up'));
+      final okPos = tester.getCenter(find.widgetWithText(FilledButton, 'OK'));
+      final downPos = tester.getCenter(iconKey('Down'));
+      expect(upPos.dx, closeTo(okPos.dx, 1));
+      expect(downPos.dx, closeTo(okPos.dx, 1));
+      expect(upPos.dy, lessThan(okPos.dy));
+      expect(okPos.dy, lessThan(downPos.dy));
+    });
   });
 
   // ── The channel launcher: options that live on the device ───────────────
@@ -515,9 +593,12 @@ void main() {
 
     /// A virtual Roku: serves both query lists, records launches, and moves
     /// its foreground channel when one arrives — like the device does.
+    /// [appsStatus]/[appsBody] let a test make the device refuse the list.
     Future<List<http.Request>> pumpChannels(
       WidgetTester tester, {
       String activeApp = '<active-app><app id="837">YouTube</app></active-app>',
+      int appsStatus = 200,
+      String appsBody = apps,
     }) async {
       final received = <http.Request>[];
       var current = activeApp;
@@ -529,7 +610,7 @@ void main() {
       final roku = MockClient((request) async {
         received.add(request);
         if (request.url.path == '/query/apps') {
-          return http.Response(apps, 200);
+          return http.Response(appsBody, appsStatus);
         }
         if (request.url.path == '/query/active-app') {
           return http.Response(current, 200);
@@ -597,6 +678,21 @@ void main() {
       final netflix =
           tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Netflix'));
       expect(netflix.selected, isTrue);
+    });
+
+    testWidgets('a refused list says so, instead of reading as no channels',
+        (tester) async {
+      // Limited mode answers /query/apps with 400 and this body — the fleet's
+      // other spelling of 403. The list exists; the device will not share it.
+      await pumpChannels(tester,
+          appsStatus: 400,
+          appsBody: 'ECP command not allowed in Limited mode.');
+
+      expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsNothing);
+      expect(
+          find.textContaining('refusing to share this list'), findsOneWidget);
+      expect(find.text('The device is refusing commands'), findsOneWidget);
+      expect(find.text('The device listed nothing here.'), findsNothing);
     });
 
     testWidgets('the home screen reads as no channel selected', (tester) async {

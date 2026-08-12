@@ -138,8 +138,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       }
       if (_needsDescription) {
         final client = ref.read(soapControlClientProvider);
-        _description ??=
-            await client.fetchDescription(widget.device.host, port);
+        _description ??= await client.fetchDescription(
+          widget.device.host,
+          port,
+          // Where the device said its description lives, when it said —
+          // /setup.xml is the fallback, not the rule (a Viera's LOCATION
+          // names /nrc/ddd.xml).
+          path: widget.device.ssdpDescriptionPath ?? '/setup.xml',
+        );
         await _refreshState();
       }
       await _refreshQuerySources();
@@ -220,6 +226,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           HttpRequestDto(method: state.method, path: state.path, body: ''),
         );
         _currentOption[entity.name] = readCurrentValue(current, state);
+      } on ControlRefusedException {
+        // A refused list is the same device-side gate as a refused keypress —
+        // show the note that names the setting. Without this the user sees an
+        // empty channel list on a TV they know has channels, with no hint why.
+        _controlRefused = true;
       } catch (e) {
         // Logged, not surfaced: an absent list is visible on its own, and a
         // banner about it would bury the controls that do work.
@@ -423,16 +434,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _controlGateNote(),
                 const SizedBox(height: 12),
               ],
+              // The channel picker comes first: launching Plex or Prime is
+              // the tap a TV screen exists for, and the remote below it is
+              // for everything else. Only devices that declare buttons at
+              // all (a Roku) ever see this order change — a buttonless
+              // device's cards read exactly as before.
+              for (final entity in _entities
+                  .where((entity) => entity.platform != 'button')) ...[
+                _entityCard(entity),
+                const SizedBox(height: 12),
+              ],
               // The remote's buttons share one card: twenty-seven separate
               // cards would bury the D-pad below the fold, and a remote is
               // one control surface, not a list of readings.
               if (_buttons.isNotEmpty) ...[
                 _remoteCard(_buttons),
-                const SizedBox(height: 12),
-              ],
-              for (final entity in _entities
-                  .where((entity) => entity.platform != 'button')) ...[
-                _entityCard(entity),
                 const SizedBox(height: 12),
               ],
               const SizedBox(height: 16),
@@ -509,30 +525,198 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
   }
 
-  /// Every `button` entity as one card of momentary controls, in the spec's
-  /// own declaration order — the spec lays its buttons out the way the
-  /// physical remote does, and preserving that order is what makes the card
-  /// read as a remote.
+  /// The remote's buttons as one remote-shaped card: power up top, a D-pad
+  /// with OK in the middle, transport keys beneath it, then volume and
+  /// channel rockers — the arrangement a hand expects from the physical
+  /// remote, rather than one long wrap. Buttons are placed by the entity
+  /// names the spec declares (it names them after the keys they send);
+  /// anything this layout does not know by name lands in a wrap at the
+  /// bottom, so a spec addition never renders an unreachable control.
   Widget _remoteCard(List<NetworkEntityDto> buttons) {
+    final byName = {for (final entity in buttons) entity.name: entity};
+    final placed = <String>{};
+    NetworkEntityDto? take(String name) {
+      final entity = byName[name];
+      if (entity != null) placed.add(name);
+      return entity;
+    }
+
+    List<NetworkEntityDto> takeAll(List<String> names) {
+      final taken = <NetworkEntityDto>[];
+      for (final name in names) {
+        final entity = take(name);
+        if (entity != null) taken.add(entity);
+      }
+      return taken;
+    }
+
+    final power = takeAll(const ['Power On', 'Power Off']);
+    final nav = takeAll(const ['Back', 'Home']);
+    final up = take('Up');
+    final left = take('Left');
+    final ok = take('OK');
+    final right = take('Right');
+    final down = take('Down');
+    final underPad = takeAll(const ['Replay', 'Options']);
+    final transport = takeAll(const ['Rewind', 'Play/Pause', 'Fast Forward']);
+    final volume = takeAll(const ['Volume Up', 'Mute', 'Volume Down']);
+    final channel = takeAll(const ['Channel Up', 'Channel Down']);
+    final misc = takeAll(const ['Search', 'Find Remote']);
+    final inputs = takeAll(
+        const ['HDMI 1', 'HDMI 2', 'HDMI 3', 'HDMI 4', 'AV', 'Antenna']);
+    final leftover = [
+      for (final entity in buttons)
+        if (!placed.contains(entity.name)) entity,
+    ];
+
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    Widget labeledRow(List<NetworkEntityDto> entities,
+            {MainAxisAlignment alignment = MainAxisAlignment.center}) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: alignment,
+            children: [
+              for (final entity in entities)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: _remoteButton(entity),
+                ),
+            ],
+          ),
+        );
+
+    Widget keyCell(NetworkEntityDto? entity) => SizedBox(
+          width: 72,
+          height: 52,
+          child: entity == null ? null : Center(child: _remoteKey(entity)),
+        );
+
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Remote',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600)),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final entity in buttons) _remoteButton(entity),
-            ],
-          ),
+              style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          if (power.isNotEmpty)
+            labeledRow(power, alignment: MainAxisAlignment.end),
+          if (nav.isNotEmpty) labeledRow(nav),
+          if (up != null ||
+              left != null ||
+              ok != null ||
+              right != null ||
+              down != null)
+            Center(
+              child: Column(
+                children: [
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    keyCell(null),
+                    keyCell(up),
+                    keyCell(null),
+                  ]),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    keyCell(left),
+                    keyCell(ok),
+                    keyCell(right),
+                  ]),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    keyCell(null),
+                    keyCell(down),
+                    keyCell(null),
+                  ]),
+                ],
+              ),
+            ),
+          if (underPad.isNotEmpty) labeledRow(underPad),
+          // Transport keys are icons on every physical remote; labels here
+          // are what overflowed the old wrap on narrow screens.
+          if (transport.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (final entity in transport)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: _remoteKey(entity),
+                    ),
+                ],
+              ),
+            ),
+          if (volume.isNotEmpty || channel.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  if (volume.isNotEmpty)
+                    Column(children: [
+                      for (final entity in volume)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: _remoteKey(entity),
+                        ),
+                    ]),
+                  if (channel.isNotEmpty)
+                    Column(children: [
+                      for (final entity in channel)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: _remoteKey(entity),
+                        ),
+                    ]),
+                ],
+              ),
+            ),
+          if (misc.isNotEmpty) labeledRow(misc),
+          if (inputs.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('Inputs',
+                style:
+                    text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 4),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [for (final entity in inputs) _remoteButton(entity)],
+            ),
+          ],
+          if (leftover.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [for (final entity in leftover) _remoteButton(entity)],
+            ),
+          ],
         ],
       ),
+    );
+  }
+
+  /// An icon-only remote key for the D-pad and rockers, where a fixed shape
+  /// reads as the pad it is. Falls back to the labeled button when the spec
+  /// names no drawable icon — for a key like OK the name IS the picture.
+  Widget _remoteKey(NetworkEntityDto entity) {
+    final action = _actionFor(entity, 'press');
+    final busy = _sending.contains(entity.name);
+    final icon = entityIconFor(icon: entity.icon);
+    if (icon == null && !busy) return _remoteButton(entity);
+    return IconButton.filledTonal(
+      tooltip: entity.name,
+      onPressed: (busy || action == null)
+          ? null
+          : () => unawaited(_send(entity, action)),
+      icon: busy
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(icon),
     );
   }
 
@@ -670,14 +854,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             ),
           // A device-sourced list that came back empty is worth a word: the
           // chips are simply absent otherwise, which reads as a bug rather
-          // than as a device that answered with nothing.
+          // than as a device that answered with nothing. A refusal reads
+          // differently again — the list exists, the device will not share
+          // it until its control setting changes.
           if (entity.optionsSource != null && options.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
                 _loading
                     ? 'Asking the device...'
-                    : 'The device listed nothing here.',
+                    : _controlRefused
+                        ? 'The device is refusing to share this list. Enable '
+                            'control by mobile apps on it, then refresh.'
+                        : 'The device listed nothing here.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),

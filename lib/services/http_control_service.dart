@@ -1,5 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:async';
+
 import 'package:http/http.dart' as http;
 
 import '../core/error_text.dart';
@@ -29,9 +31,12 @@ class HttpControlClient {
   ///
   /// The body is returned rather than discarded because query endpoints ride
   /// the same transport; a keypress caller just ignores it. Non-2xx statuses
-  /// throw — 403 as its own type, because on this transport it is a device
-  /// policy ("network control disabled") rather than a network failure, and
-  /// the caller should say so instead of suggesting a rescan.
+  /// throw — 403 (and Roku's 400 "Limited mode" spelling of the same answer)
+  /// as its own type, because on this transport it is a device policy
+  /// ("network control disabled") rather than a network failure, and the
+  /// caller should say so instead of suggesting a rescan. Timeouts and
+  /// refused connections are user-facing too: the generic "did not accept
+  /// that" fallback blamed the button for what is a sleeping TV.
   Future<String> send(String host, int port, HttpRequestDto request) async {
     // Resolved against the device's address rather than assembled with
     // `Uri(path: ...)`, which treats the whole rendered target as path data:
@@ -41,18 +46,32 @@ class HttpControlClient {
     // included — so resolving preserves both halves as written.
     final uri = Uri.parse('http://$host:$port').resolve(request.path);
     final http.Response response;
-    switch (request.method.toUpperCase()) {
-      case 'GET':
-        response = await _http.get(uri).timeout(timeout);
-      case 'POST':
-        // ECP commands carry an empty body and no headers; a spec that
-        // declares a body gets it sent verbatim.
-        response = await _http.post(uri, body: request.body).timeout(timeout);
-      default:
-        throw HttpControlException(
-            'unsupported method ${request.method} for $uri');
+    try {
+      switch (request.method.toUpperCase()) {
+        case 'GET':
+          response = await _http.get(uri).timeout(timeout);
+        case 'POST':
+          // ECP commands carry an empty body and no headers; a spec that
+          // declares a body gets it sent verbatim.
+          response = await _http.post(uri, body: request.body).timeout(timeout);
+        default:
+          throw HttpControlException(
+              'unsupported method ${request.method} for $uri');
+      }
+    } on TimeoutException {
+      throw const ControlTimeoutException();
+    } on http.ClientException {
+      // Connection refused, no route, DNS — the device is not there to
+      // answer. Same user question as a timeout, different wording.
+      throw const ControlUnreachableException();
     }
-    if (response.statusCode == 403) {
+    if (response.statusCode == 403 ||
+        // A Roku in "Limited" control mode answers some gated endpoints with
+        // 400 and this body instead of 403 (observed both spellings on one
+        // OS 15.2.4 fleet, against the same endpoint, minutes apart). It is
+        // the same refusal, so it gets the same exception.
+        (response.statusCode == 400 &&
+            response.body.contains('Limited mode'))) {
       throw const ControlRefusedException();
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -61,6 +80,28 @@ class HttpControlClient {
     }
     return response.body;
   }
+}
+
+/// The device took too long to answer (the request deadline passed).
+///
+/// On the devices this transport exists for that usually means a TV whose
+/// network stack is asleep: a Roku in deep standby keeps no ECP server, and
+/// PowerOn only reaches one sitting in "Fast TV Start" standby. That is a
+/// device state, not an app fault — so it gets a written message rather than
+/// the generic "did not accept that" fallback, which blamed the button.
+class ControlTimeoutException implements UserFacingException {
+  const ControlTimeoutException();
+  @override
+  String get message => 'The device did not answer in time. It may be '
+      'asleep or off the network — wake it and try again.';
+}
+
+/// The device could not be connected to at all (refused, no route).
+class ControlUnreachableException implements UserFacingException {
+  const ControlUnreachableException();
+  @override
+  String get message => 'The device is not reachable. It may be off or '
+      'have a new address — try scanning again.';
 }
 
 /// The transport failed: unreachable host, unexpected status, bad method.
