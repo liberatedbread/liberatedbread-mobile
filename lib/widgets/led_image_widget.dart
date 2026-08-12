@@ -773,46 +773,6 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       final cid = prior?.cid ??
           900001 + (DateTime.now().millisecondsSinceEpoch % 90000);
 
-      // Animations take a different path: this hardware can't play a stored
-      // multi-frame file, so each frame is stored as its own single-frame
-      // microapp and the set is played as a LOOPING PLAYLIST (verified on
-      // hardware — a `.eff` upload commits but never renders). See
-      // `_storeAnimationPlaylist`.
-      if (options.kind == _StoredKind.animation) {
-        final reuse = (prior != null && prior.frameCids.length == allFrames.length)
-            ? prior.frameCids
-            : null;
-        final stored = await _storeAnimationPlaylist(
-          specYaml: specYaml,
-          frames: allFrames,
-          width: width,
-          height: height,
-          name: options.name,
-          reuseCids: reuse,
-        );
-        await store.save(
-          widget.deviceId,
-          SavedDesign(
-            name: options.name,
-            cid: stored.cids.first,
-            kind: 'animation',
-            contentHash: contentHash,
-            savedAt: DateTime.now(),
-            frameCids: stored.cids,
-            frameSlots: stored.slots,
-          ),
-        );
-        if (mounted) {
-          setState(() {}); // the replay list gains/refreshes an entry
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text('Saved "${options.name}" — now looping '
-                    '${stored.cids.length} frames on the device.')),
-          );
-        }
-        return; // handled; skip the single-upload picture/text path below
-      }
-
       // The play write the plan tacks on carries this rolling serial, distinct
       // from the pre-play `ui_start_sync`/`effect_list` writes below.
       final playSeq = _nextSequence();
@@ -845,10 +805,19 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             sequence: playSeq,
           );
         case _StoredKind.animation:
-          // Animations are handled by the playlist path above and return
-          // before reaching here; the stored-file (`.eff`) path is dead —
-          // it commits on the device but never renders.
-          throw StateError('animation is handled by the playlist path');
+          // A multi-frame animation is ONE .eff holding every frame; the
+          // device animates it internally (the vendor's model — verified from
+          // the decompiled app + p2p.proto).
+          plan = await codec.encodeStoredAnimation(
+            specYaml: specYaml,
+            width: width,
+            height: height,
+            frames: allFrames,
+            name: options.name,
+            cid: cid,
+            frameMs: frameMs,
+            sequence: playSeq,
+          );
       }
 
       Log.ble.info('storing "${options.name}" (${options.kind.name}, cid $cid'
@@ -899,6 +868,10 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
           charUuid,
           play.bytes,
         );
+        // Pin the device to THIS design: fixed mode stops it from
+        // autorunning/randomly cycling every stored effect once the app
+        // disconnects, and it persists device-side.
+        await _pinAutorunFixed(specYaml, plan.serviceUuid);
       }
 
       await store.save(
@@ -980,158 +953,23 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         );
   }
 
-  /// Store a multi-frame animation as a LOOPING PLAYLIST of single-frame
-  /// microapps — the only way this hardware plays custom multi-frame content (a
-  /// stored `.eff` commits but never renders; verified live). Each frame is a
-  /// type-3 AMX still; once all are committed, the device's own effect list
-  /// gives each its slot, and a looping playlist over those slots plays them in
-  /// order and persists after disconnect.
-  ///
-  /// Returns the stored frame cids and their device slots (play order). Throws
-  /// — into the caller's error path — if the device refuses a frame.
-  Future<({List<int> cids, List<int> slots})> _storeAnimationPlaylist({
-    required String specYaml,
-    required List<List<int>> frames,
-    required int width,
-    required int height,
-    required String name,
-    List<int>? reuseCids,
-  }) async {
-    final ble = ref.read(bleServiceProvider);
-    final codec = ref.read(specCodecProvider);
-
-    // A block of contiguous cids: re-use the prior ones on a byte-identical
-    // re-save so the device overwrites its slots instead of hoarding copies.
-    final base = 900001 + (DateTime.now().millisecondsSinceEpoch % 88000);
-    final cids = (reuseCids != null && reuseCids.length == frames.length)
-        ? reuseCids
-        : [for (var i = 0; i < frames.length; i++) base + i];
-
-    String serviceUuid = '';
-    String? notifyUuid;
-    String writeUuid = '';
-    for (var i = 0; i < frames.length; i++) {
-      final plan = await codec.encodeStoredImage(
-        specYaml: specYaml,
-        width: width,
-        height: height,
-        rgb: frames[i],
-        name: '$name ${i + 1}',
-        cid: cids[i],
-        // Short per-frame dwell; the device advances the playlist on its own
-        // timer between items.
-        timeSecs: 1,
-        scroll: 'none',
-        speed: 5,
-        sequence: _nextSequence(),
-      );
-      serviceUuid = plan.serviceUuid;
-      notifyUuid = plan.responseCharacteristicUuid;
-      writeUuid = plan.playWrite?.characteristicUuid ?? writeUuid;
-      Log.ble.info('animation frame ${i + 1}/${frames.length} '
-          '(cid ${cids[i]}) to ${widget.deviceId}');
-      final confirmed = _awaitUploadVerdict(codec, plan, specYaml);
-      unawaited(confirmed.then((_) {}, onError: (_) {}));
-      for (final w in plan.uploadWrites) {
-        await ble.writeCharacteristic(
-            widget.deviceId, plan.serviceUuid, w.characteristicUuid, w.bytes);
-      }
-      await confirmed; // a refusal throws into the caller's catch
-    }
-
-    // Read each frame's device slot from the effect list — the playlist
-    // addresses items by slot, and a slot-0 playlist does not cycle.
-    final slots =
-        await _resolveEffectSlots(serviceUuid, notifyUuid, writeUuid, cids);
-    await _playAnimationPlaylist(
-      specYaml: specYaml,
-      serviceUuid: serviceUuid,
-      writeUuid: writeUuid,
-      cids: cids,
-      slots: slots,
-    );
-    return (cids: cids, slots: slots);
+  /// Pin the device to the currently-playing design: fixed autorun mode, so
+  /// once the app disconnects the device HOLDS this one effect instead of
+  /// autorunning/randomly cycling every stored effect (the persisted
+  /// disconnect behaviour). See [SpecCodec.encodeAutorunMode].
+  Future<void> _pinAutorunFixed(String specYaml, String serviceUuid) async {
+    final autorun = await ref.read(specCodecProvider).encodeAutorunMode(
+          specYaml: specYaml,
+          mode: AutorunMode.fixed,
+          sequence: _nextSequence(),
+        );
+    await ref.read(bleServiceProvider).writeCharacteristic(
+          widget.deviceId,
+          autorun.serviceUuid,
+          autorun.write.characteristicUuid,
+          autorun.write.bytes,
+        );
   }
-
-  /// Send M_EFFECT_LIST and read back each stored frame's device-assigned slot,
-  /// in the order of [cids] (0 for any the list didn't return).
-  Future<List<int>> _resolveEffectSlots(
-    String serviceUuid,
-    String? notifyUuid,
-    String writeUuid,
-    List<int> cids,
-  ) async {
-    if (notifyUuid == null || serviceUuid.isEmpty || writeUuid.isEmpty) {
-      return [for (final _ in cids) 0];
-    }
-    final ble = ref.read(bleServiceProvider);
-    final codec = ref.read(specCodecProvider);
-    final slotByCid = <int, int>{};
-    final sub = ble
-        .subscribeCharacteristic(widget.deviceId, serviceUuid, notifyUuid)
-        .listen((bytes) async {
-      for (final e
-          in await codec.decodeEffectList(specYaml: widget.specYaml, bytes: bytes)) {
-        slotByCid[e.cid] = e.slot;
-      }
-    });
-    await _sendFramedCommand(widget.specYaml, serviceUuid, writeUuid, 'effect_list');
-    // Give the device time to stream its (multi-packet) list back.
-    await Future<void>.delayed(const Duration(seconds: 3));
-    unawaited(sub.cancel());
-    return [for (final cid in cids) slotByCid[cid] ?? 0];
-  }
-
-  /// Set and start the looping playlist for [cids]/[slots]: `set_playlist` +
-  /// `set_mode_loop`, then `play_next` to start cycling. Shared by save and
-  /// replay.
-  ///
-  /// The start step is `play_next`, NOT a single play: the vendor drives the
-  /// playlist with M_PLAY_NEXT (verified in smartdawn_longer2 — set-playlist is
-  /// followed by play_next, never play_effect). Playing one effect instead pins
-  /// the panel to that single frame in single-play mode, so it only starts
-  /// cycling once the app disconnects — the bug this replaces.
-  Future<void> _playAnimationPlaylist({
-    required String specYaml,
-    required String serviceUuid,
-    required String writeUuid,
-    required List<int> cids,
-    required List<int> slots,
-  }) async {
-    final ble = ref.read(bleServiceProvider);
-    final codec = ref.read(specCodecProvider);
-    final playlist = await codec.encodeSetPlaylist(
-      specYaml: specYaml,
-      cids: cids,
-      slots: slots,
-      sequence: _nextSequence(),
-    );
-    for (final w in playlist.writes) {
-      await ble.writeCharacteristic(
-          widget.deviceId, playlist.serviceUuid, w.characteristicUuid, w.bytes);
-    }
-    // Pace the cycle to the editor's frame interval — the same setting the
-    // live preview/stream uses — via the global play-speed command.
-    final speed = await codec.encodePlaySpeed(
-      specYaml: specYaml,
-      speed: _playSpeedForInterval(_intervalMs),
-      sequence: _nextSequence(),
-    );
-    await ble.writeCharacteristic(widget.deviceId, speed.serviceUuid,
-        speed.write.characteristicUuid, speed.write.bytes);
-    // Start the loop the way the vendor does: advance into the playlist with
-    // play_next (the device then keeps cycling on its own timer).
-    await _sendFramedCommand(specYaml, serviceUuid, writeUuid, 'play_next');
-  }
-
-  /// Map the editor's frame interval (ms) to the device's play-speed value.
-  ///
-  /// The device's speed→cadence relationship isn't documented; this is a first
-  /// linear guess — a faster (shorter) interval asks for a higher speed —
-  /// mapping the editor's default 200ms to the vendor's default 100, clamped to
-  /// the [1, 100] slider range. Calibrate against hardware.
-  int _playSpeedForInterval(int intervalMs) =>
-      (20000 / intervalMs.clamp(1, 20000)).round().clamp(1, 100);
 
   /// Resolves `true` once the device confirms the stored upload committed,
   /// `false` when it stays silent past a bounded wait; throws when the device
@@ -1213,27 +1051,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
             play.write.characteristicUuid, 'ui_start_sync');
         _doodleSessionOpen = false;
       }
-      // An animation replays by RE-SETTING its looping playlist (the frames
-      // still live on the device, at the slots captured when it was saved); a
-      // picture/text replays with one play write.
-      if (design.frameCids.length > 1) {
-        await _playAnimationPlaylist(
-          specYaml: widget.specYaml,
-          serviceUuid: play.serviceUuid,
-          writeUuid: play.write.characteristicUuid,
-          cids: design.frameCids,
-          slots: design.frameSlots.length == design.frameCids.length
-              ? design.frameSlots
-              : [for (final _ in design.frameCids) 0],
-        );
-      } else {
-        await ref.read(bleServiceProvider).writeCharacteristic(
-              widget.deviceId,
-              play.serviceUuid,
-              play.write.characteristicUuid,
-              play.write.bytes,
-            );
-      }
+      // Every stored design (picture, text, animation) is one effect on the
+      // device: play it by cid, then pin the device to it (fixed autorun) so it
+      // holds this design across disconnect.
+      await ref.read(bleServiceProvider).writeCharacteristic(
+            widget.deviceId,
+            play.serviceUuid,
+            play.write.characteristicUuid,
+            play.write.bytes,
+          );
+      await _pinAutorunFixed(widget.specYaml, play.serviceUuid);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Playing "${design.name}".')),
@@ -1544,10 +1371,20 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     if (saved.isEmpty) return const [];
     return [
       const SizedBox(height: 12),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: Text('Saved designs',
-            style: Theme.of(context).textTheme.titleSmall),
+      Row(
+        children: [
+          Expanded(
+            child: Text('Saved designs',
+                style: Theme.of(context).textTheme.titleSmall),
+          ),
+          IconButton(
+            key: const Key('clear-device-designs'),
+            icon: const Icon(Icons.delete_sweep_outlined),
+            tooltip: 'Clear saved designs from the device',
+            visualDensity: VisualDensity.compact,
+            onPressed: _saving ? null : _confirmClearDeviceDesigns,
+          ),
+        ],
       ),
       const SizedBox(height: 4),
       Wrap(
@@ -1565,6 +1402,80 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         ],
       ),
     ];
+  }
+
+  /// Confirm, then delete every stored design from the device. Clearing the
+  /// device's own effect storage is what lets a freshly loaded design be the
+  /// only thing the device can show after disconnect (with nothing else to
+  /// autorun/randomly pick).
+  Future<void> _confirmClearDeviceDesigns() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Clear designs from device?'),
+        content: const Text(
+            'Removes the designs this app stored on the device. Built-in '
+            'effects are left alone.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Clear')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _clearDeviceDesigns();
+  }
+
+  /// Delete the app's stored designs from the device: a best-effort
+  /// clear-all, then a per-cid remove for each design we recorded (the
+  /// vendor-verified path), then forget them locally.
+  Future<void> _clearDeviceDesigns() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final ble = ref.read(bleServiceProvider);
+      final codec = ref.read(specCodecProvider);
+      final store = ref.read(savedDesignsStoreProvider);
+      final specYaml = widget.specYaml;
+
+      Future<void> send(StoredPlayDto w) => ble.writeCharacteristic(
+            widget.deviceId,
+            w.serviceUuid,
+            w.write.characteristicUuid,
+            w.write.bytes,
+          );
+
+      // Bulk clear (best-effort; the vendor deletes one-by-one instead).
+      await send(await codec.encodeRemoveAllApps(
+          specYaml: specYaml, sequence: _nextSequence()));
+      // Then remove each design we know we stored, by cid.
+      for (final design in store.load(widget.deviceId)) {
+        await send(await codec.encodeRemoveApp(
+            specYaml: specYaml, cid: design.cid, sequence: _nextSequence()));
+      }
+      await store.clear(widget.deviceId);
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Cleared saved designs from the device.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _error = friendlyErrorText(
+              e,
+              context: 'clear designs from ${widget.deviceId}',
+              fallback: 'Could not clear designs from the device.',
+            ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }
 
@@ -2029,6 +1940,25 @@ class _FrameControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Always-visible count: the frame chips scroll, so a 7-frame preset
+        // would otherwise look like just the first few.
+        Text(
+          frameCount == 1
+              ? '1 frame'
+              : 'Frame ${current + 1} of $frameCount',
+          style: text.labelMedium,
+        ),
+        const SizedBox(height: 4),
+        _frameRow(),
+      ],
+    );
+  }
+
+  Widget _frameRow() {
     return Row(
       children: [
         Expanded(
