@@ -149,6 +149,13 @@ class SavedDesignsStore {
     return null;
   }
 
+  /// Forget every design recorded for [deviceId] — the app's side of a
+  /// "clear the device's stored designs" action (the caller sends the device
+  /// the deletes).
+  Future<void> clear(String deviceId) async {
+    await _prefs.remove('$_keyPrefix$deviceId');
+  }
+
   /// Insert or update [design], newest-first. An entry with the same cid OR
   /// the same content is replaced — the same device slot under a new name is
   /// one entry, not two.

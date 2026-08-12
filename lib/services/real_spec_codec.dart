@@ -439,4 +439,28 @@ class RealSpecCodec implements SpecCodec {
   }) =>
       rust.encodePlaySpeed(
           specYaml: specYaml, speed: speed, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeAutorunMode({
+    required String specYaml,
+    required int mode,
+    required int sequence,
+  }) =>
+      rust.encodeAutorunMode(
+          specYaml: specYaml, mode: mode, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeRemoveApp({
+    required String specYaml,
+    required int cid,
+    required int sequence,
+  }) =>
+      rust.encodeRemoveApp(specYaml: specYaml, cid: cid, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeRemoveAllApps({
+    required String specYaml,
+    required int sequence,
+  }) =>
+      rust.encodeRemoveAllApps(specYaml: specYaml, sequence: sequence);
 }

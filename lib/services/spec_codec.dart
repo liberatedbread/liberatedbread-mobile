@@ -443,4 +443,34 @@ abstract class SpecCodec {
     required int speed,
     required int sequence,
   });
+
+  /// Encode the play/loop-mode command (M_SET_AUTORUN_MODE). [mode] is
+  /// `0=fixed | 1=repeat | 2=random`. Sending fixed after playing a design
+  /// pins the device to it across disconnect (instead of randomly cycling all
+  /// stored effects).
+  Future<StoredPlayDto> encodeAutorunMode({
+    required String specYaml,
+    required int mode,
+    required int sequence,
+  });
+
+  /// Encode the delete-one-stored-design command by cid (M_REMOVE_APP).
+  Future<StoredPlayDto> encodeRemoveApp({
+    required String specYaml,
+    required int cid,
+    required int sequence,
+  });
+
+  /// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
+  Future<StoredPlayDto> encodeRemoveAllApps({
+    required String specYaml,
+    required int sequence,
+  });
+}
+
+/// Play/loop-mode values for [SpecCodec.encodeAutorunMode].
+class AutorunMode {
+  static const int fixed = 0;
+  static const int repeat = 1;
+  static const int random = 2;
 }
