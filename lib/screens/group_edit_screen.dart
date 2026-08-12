@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/device_category.dart';
+import '../core/error_text.dart';
 import '../providers/device_group_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/device_group_store.dart';
@@ -44,6 +45,7 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
     if (name.isEmpty || _selected.isEmpty || _saving) return;
     setState(() => _saving = true);
     final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
     final notifier = ref.read(deviceGroupsProvider.notifier);
     final existing = widget.group;
     // Membership keeps the saved-devices order (recency), not tap order —
@@ -53,16 +55,34 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
     // is invisible on this screen and must not be silently re-serialized.
     final ordered = [
       for (final device in ref.read(savedDevicesProvider))
-        if (_selected.contains(device.id) &&
-            !kNonGroupableCategories
-                .contains(DeviceCategory.parse(device.category)))
+        if (_selected.contains(device.id) && isGroupable(device.category))
           device.id,
     ];
-    if (existing == null) {
-      await notifier.create(name: name, deviceIds: ordered);
-    } else {
-      await notifier.update(existing.copyWith(name: name, deviceIds: ordered));
+    try {
+      if (existing == null) {
+        await notifier.create(name: name, deviceIds: ordered);
+      } else {
+        await notifier
+            .update(existing.copyWith(name: name, deviceIds: ordered));
+      }
+    } catch (e) {
+      // A failed prefs write must not strand the screen: without this the
+      // error escapes to the zone, the button stays stuck on "saving", and
+      // the user gets no say in what happened.
+      messenger.showSnackBar(SnackBar(
+        content: Text(friendlyErrorText(
+          e,
+          context: 'save group',
+          fallback: 'Could not save this group.',
+        )),
+      ));
+      return;
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
+    // Re-checked after the awaits: if the user backed out mid-save, popping
+    // now would dismiss whatever screen replaced this one.
+    if (!mounted) return;
     navigator.pop();
   }
 
@@ -104,11 +124,8 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
     // with no known kind is offered: battery reads work without a spec.
     final candidates = [
       for (final device in ref.watch(savedDevicesProvider))
-        if (!kNonGroupableCategories
-            .contains(DeviceCategory.parse(device.category)))
-          device,
+        if (isGroupable(device.category)) device,
     ];
-    final canSave = _name.text.trim().isNotEmpty && _selected.isNotEmpty;
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -129,7 +146,6 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
           children: [
             TextField(
               controller: _name,
-              onChanged: (_) => setState(() {}),
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
                 labelText: 'Group name',
@@ -160,11 +176,21 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
               const SizedBox(height: 10),
             ],
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: canSave && !_saving ? _save : null,
-              style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
-              icon: const Icon(Icons.check),
-              label: Text(widget.group == null ? 'Create group' : 'Save'),
+            // Listens to the controller directly so typing re-evaluates only
+            // this button, not a per-keystroke rebuild of the whole picker
+            // list above it. (Selection changes still go through setState.)
+            ListenableBuilder(
+              listenable: _name,
+              builder: (context, _) {
+                final canSave =
+                    _name.text.trim().isNotEmpty && _selected.isNotEmpty;
+                return FilledButton.icon(
+                  onPressed: canSave && !_saving ? _save : null,
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+                  icon: const Icon(Icons.check),
+                  label: Text(widget.group == null ? 'Create group' : 'Save'),
+                );
+              },
             ),
           ],
         ),
@@ -214,7 +240,7 @@ class _PickRow extends StatelessWidget {
                 onChanged: (value) => onChanged(value ?? false),
               ),
               Icon(
-                category?.icon ?? Icons.bluetooth,
+                category?.icon ?? unknownDeviceIcon,
                 size: 20,
                 color: scheme.onSurfaceVariant,
               ),

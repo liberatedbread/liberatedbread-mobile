@@ -85,13 +85,31 @@ void main() {
 
   testWidgets('lists custom groups with live member counts', (tester) async {
     SharedPreferences.setMockInitialValues({
-      ..._seededDevices(),
+      'saved_devices_v1': jsonEncode([
+        {
+          'id': 'AA:BB:CC:DD:EE:02',
+          'name': 'ACME_Bedroom',
+          'lastSeen': '2026-08-11T09:00:00.000',
+          'category': 'light',
+        },
+        {
+          'id': 'AA:BB:CC:DD:EE:05',
+          'name': 'OBD Dongle',
+          'lastSeen': '2026-08-11T06:00:00.000',
+          'category': 'vehicle',
+        },
+      ]),
       'device_groups_v1': jsonEncode([
         {
           'id': 'g1',
           'name': 'Bedroom',
-          // One live member, one forgotten id that must not count.
-          'deviceIds': ['AA:BB:CC:DD:EE:02', 'GO:NE:00:00:00:00'],
+          // One live member, one forgotten id, and one whose recorded kind
+          // turned out non-groupable — the count is what a run would touch.
+          'deviceIds': [
+            'AA:BB:CC:DD:EE:02',
+            'GO:NE:00:00:00:00',
+            'AA:BB:CC:DD:EE:05',
+          ],
         },
       ]),
     });
@@ -100,7 +118,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('My groups'), findsOneWidget);
-    // The forgotten id must not count — only the live member does.
+    // Neither the forgotten id nor the OBD dongle counts — only the live
+    // groupable member does, matching what groupMembersProvider will run.
     expect(
       find.descendant(
         of: find.ancestor(
@@ -123,10 +142,10 @@ void main() {
     expect(find.byType(GroupEditScreen), findsOneWidget);
   });
 
-  test('pluralCategoryLabel reads naturally', () {
-    expect(pluralCategoryLabel(DeviceCategory.light), 'Lights');
-    expect(pluralCategoryLabel(DeviceCategory.switch_), 'Switches');
-    expect(pluralCategoryLabel(DeviceCategory.climate), 'Climate');
-    expect(pluralCategoryLabel(DeviceCategory.tv), 'TVs');
+  test('pluralLabel reads naturally', () {
+    expect(DeviceCategory.light.pluralLabel, 'Lights');
+    expect(DeviceCategory.switch_.pluralLabel, 'Switches');
+    expect(DeviceCategory.climate.pluralLabel, 'Climate');
+    expect(DeviceCategory.tv.pluralLabel, 'TVs');
   });
 }

@@ -18,11 +18,31 @@ pub struct GenericProtocol {
     /// means constructing a protocol clones a refcount instead of
     /// deep-cloning the whole spec tree on each encode/decode hop.
     spec: Arc<DeviceSpec>,
+
+    /// When set, encode lookups are confined to this service. Characteristic
+    /// UUIDs repeat across services with different command tables, and a
+    /// caller that names the service (the group runner carries the resolved
+    /// action's own pair) must not have its command resolved against a twin
+    /// declared under another service. `None` keeps the historical
+    /// whole-spec search the per-characteristic control widgets rely on.
+    service_scope: Option<String>,
 }
 
 impl GenericProtocol {
     pub fn new(spec: Arc<DeviceSpec>) -> Self {
-        Self { spec }
+        Self {
+            spec,
+            service_scope: None,
+        }
+    }
+
+    /// A protocol whose encode lookups are confined to `service_uuid` when
+    /// one is given; identical to [`Self::new`] otherwise.
+    pub fn scoped(spec: Arc<DeviceSpec>, service_uuid: Option<String>) -> Self {
+        Self {
+            spec,
+            service_scope: service_uuid,
+        }
     }
 }
 
@@ -33,12 +53,13 @@ impl DeviceProtocol for GenericProtocol {
         command_name: &str,
         params: &HashMap<String, f64>,
     ) -> Result<Vec<u8>, ProtocolError> {
-        let (_, characteristic) = self
-            .spec
-            .find_writable_characteristic(char_uuid)
-            .ok_or_else(|| ProtocolError::CharacteristicNotFound {
-                uuid: char_uuid.to_string(),
-            })?;
+        let found = match self.service_scope.as_deref() {
+            Some(scope) => self.spec.find_writable_characteristic_in(scope, char_uuid),
+            None => self.spec.find_writable_characteristic(char_uuid),
+        };
+        let (_, characteristic) = found.ok_or_else(|| ProtocolError::CharacteristicNotFound {
+            uuid: char_uuid.to_string(),
+        })?;
 
         let commands =
             characteristic
@@ -198,6 +219,84 @@ services:
             )
             .unwrap();
         assert_eq!(bytes, vec![0x01, 0x01]);
+    }
+
+    /// One characteristic UUID under two services, with different command
+    /// tables — the vendor-channel reuse case. A scoped protocol must answer
+    /// from the named service; the unscoped one keeps the historical
+    /// document-order answer the per-characteristic widgets rely on.
+    #[test]
+    fn a_service_scope_resolves_the_named_services_twin() {
+        let spec = Arc::new(
+            parse_device_spec(
+                r#"
+device:
+  name: "Twin"
+  manufacturer: "Test"
+  manufacturer_status: "abandoned"
+  protocol: "ble"
+services:
+  - uuid: "0000aaa0-0000-1000-8000-00805f9b34fb"
+    name: "Channel A"
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "A"
+        properties: ["write"]
+        commands:
+          go:
+            description: "A's go"
+            value: [0xA0]
+  - uuid: "0000bbb0-0000-1000-8000-00805f9b34fb"
+    name: "Channel B"
+    characteristics:
+      - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+        name: "B"
+        properties: ["write"]
+        commands:
+          go:
+            description: "B's go"
+            value: [0xB0]
+"#,
+            )
+            .unwrap(),
+        );
+        let char_uuid = "0000ffe1-0000-1000-8000-00805f9b34fb";
+
+        let scoped_b = GenericProtocol::scoped(
+            Arc::clone(&spec),
+            Some("0000bbb0-0000-1000-8000-00805f9b34fb".to_string()),
+        );
+        assert_eq!(
+            scoped_b
+                .encode_command(char_uuid, "go", &HashMap::new())
+                .unwrap(),
+            vec![0xB0]
+        );
+
+        // A short-form spelling of the same service names the same twin —
+        // callers hand back what discovery reported.
+        let scoped_short = GenericProtocol::scoped(Arc::clone(&spec), Some("aaa0".to_string()));
+        assert_eq!(
+            scoped_short
+                .encode_command(char_uuid, "go", &HashMap::new())
+                .unwrap(),
+            vec![0xA0]
+        );
+
+        // A scope naming a service the spec does not declare resolves nothing
+        // rather than falling back to a twin the caller did not mean.
+        let scoped_wrong = GenericProtocol::scoped(Arc::clone(&spec), Some("cccc".to_string()));
+        assert!(scoped_wrong
+            .encode_command(char_uuid, "go", &HashMap::new())
+            .is_err());
+
+        let unscoped = GenericProtocol::new(spec);
+        assert_eq!(
+            unscoped
+                .encode_command(char_uuid, "go", &HashMap::new())
+                .unwrap(),
+            vec![0xA0]
+        );
     }
 
     #[test]

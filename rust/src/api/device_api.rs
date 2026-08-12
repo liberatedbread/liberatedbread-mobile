@@ -11,6 +11,7 @@ use flutter_rust_bridge::frb;
 use crate::codec::types::DecodedValue;
 use crate::protocol::dispatch::select_protocol;
 use crate::protocol::profiles;
+use crate::protocol::traits::DeviceProtocol;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
@@ -2223,6 +2224,16 @@ pub fn encode_command(
     command_name: String,
     params: HashMap<String, f64>,
 ) -> anyhow::Result<Vec<u8>> {
+    // With a spec AND a service, the lookup is confined to that service:
+    // characteristic UUIDs repeat across services with different command
+    // tables, and a caller naming both halves of the pair (the group runner)
+    // must get the pair it named. Spec-only keeps the historical whole-spec
+    // search; service-only still selects a standard profile.
+    if let (Some(yaml), Some(service)) = (spec_yaml.as_deref(), &service_uuid) {
+        let spec = crate::protocol::dispatch::parse_or_cached(yaml)?;
+        let proto = crate::protocol::generic::GenericProtocol::scoped(spec, Some(service.clone()));
+        return Ok(proto.encode_command(&char_uuid, &command_name, &params)?);
+    }
     let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }
