@@ -2927,6 +2927,61 @@ pub fn encode_play_speed(
     })
 }
 
+/// Encode the play/loop-mode command (M_SET_AUTORUN_MODE). `mode` is
+/// `fixed(0) | repeat(1) | random(2)`. Sending fixed after playing a design
+/// pins the device to it across disconnect.
+pub fn encode_autorun_mode(
+    spec_yaml: String,
+    mode: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_autorun_mode(&spec, mode, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode the delete-one-stored-design command (M_REMOVE_APP) by cid.
+pub fn encode_remove_app(
+    spec_yaml: String,
+    cid: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_remove_app(&spec, cid, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
+pub fn encode_remove_all_apps(
+    spec_yaml: String,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_remove_all_apps(&spec, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
 /// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
 ///
 /// The device answers a list request with several framed notifications; the

@@ -368,14 +368,15 @@ void main() {
       expect(call.scroll, 'left');
       expect(call.cid, greaterThanOrEqualTo(900001));
 
-      // Both uploader writes, then the effect-list refresh, then the play
-      // write LAST — the vendor's store → refresh-list → show order (the
-      // fake's effect_list encodes to empty bytes).
+      // Both uploader writes, then effect-list refresh, then the play write,
+      // then the autorun-fixed pin — the vendor's store → refresh → show, plus
+      // pinning the device to this design across disconnect.
       expect(ble.writes.map((w) => w.charUuid).toList(),
-          ['uploader', 'uploader', 'ddp', 'ddp']);
-      expect(ble.writes.last.value, [9], reason: 'the play write comes last');
-      expect(codec.encodeCalls.map((c) => c.commandName), ['effect_list'],
-          reason: 'the effect list is refreshed before playing, as the app does');
+          ['uploader', 'uploader', 'ddp', 'ddp', 'ddp']);
+      expect(ble.writes[3].value, [9], reason: 'the play write follows the list');
+      expect(codec.encodeCalls.map((c) => c.commandName), ['effect_list']);
+      expect(codec.encodeAutorunModeCalls, [0],
+          reason: 'fixed mode pins the device to this design after play');
     });
 
     testWidgets('the Text kind reveals a text field and blocks an empty save',
@@ -412,10 +413,10 @@ void main() {
     });
 
     testWidgets(
-        'saving an animation stores each frame and sets a looping playlist',
+        'saving an animation uploads one .eff and pins the device to it',
         (tester) async {
-      // This hardware cannot play a stored multi-frame file; an animation is
-      // stored as one microapp PER FRAME and played as a looping playlist.
+      // A multi-frame animation is ONE .eff holding every frame (the vendor's
+      // model); the device animates it. After play, autorun-fixed pins it.
       final codec = FakeSpecCodec();
       final ble = FakeBleService();
       await tester.pumpWidget(_wrap(
@@ -441,17 +442,18 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
-      // One microapp upload per frame, no stored-animation (.eff) call.
-      expect(codec.encodeStoredCalls, hasLength(2),
-          reason: 'both frames stored as single-frame microapps');
-      expect(codec.encodeAnimationCalls, isEmpty,
-          reason: 'the dead .eff path is not used');
-      // The frames are then set as one looping playlist.
-      expect(codec.encodeSetPlaylistCalls, hasLength(1));
-      expect(codec.encodeSetPlaylistCalls.single, hasLength(2),
-          reason: 'the playlist has both frame cids');
+      // ONE stored-animation (.eff) upload with both frames — not a per-frame
+      // microapp and not a playlist.
+      expect(codec.encodeAnimationCalls, hasLength(1),
+          reason: 'one .eff holds every frame');
+      expect(codec.encodeAnimationCalls.single.frameCount, 2);
+      expect(codec.encodeStoredCalls, isEmpty,
+          reason: 'no per-frame microapp uploads');
+      expect(codec.encodeSetPlaylistCalls, isEmpty,
+          reason: 'the playlist path is retired');
+      // Played then pinned with fixed autorun mode.
+      expect(codec.encodeAutorunModeCalls, [0]);
       expect(ble.writes, isNotEmpty);
-      expect(find.textContaining('looping 2 frames'), findsOneWidget);
     });
 
     testWidgets('a failed save surfaces an error and re-enables the button',
@@ -576,9 +578,9 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp'],
-          reason: 'confirmation releases the effect-list refresh, then the play');
-      expect(ble.writes.last.value, [9], reason: 'the play write comes last');
+      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp', 'ddp'],
+          reason: 'confirmation releases effect-list, play, then autorun-fixed');
+      expect(ble.writes[2].value, [9], reason: 'the play write follows the list');
       expect(find.textContaining('now playing'), findsOneWidget);
     });
 
@@ -674,9 +676,10 @@ void main() {
 
       await tester.pump(const Duration(seconds: 10)); // the verdict timeout
       await tester.pump();
-      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp'],
-          reason: 'the effect-list refresh then the play still go out');
-      expect(ble.writes.last.value, [9]);
+      expect(ble.writes.map((w) => w.charUuid),
+          ['uploader', 'ddp', 'ddp', 'ddp'],
+          reason: 'effect-list, play, then autorun-fixed still go out');
+      expect(ble.writes[2].value, [9]);
     });
 
     testWidgets('a silent device is reported as unconfirmed, not "now playing"',
@@ -806,9 +809,50 @@ void main() {
 
       expect(codec.encodeStoredPlayCalls.map((c) => c.cid), [cid],
           reason: 'replay addresses the stored item by its cid');
-      expect(ble.writes.length, writesBefore + 1);
-      expect(ble.writes.last.charUuid, 'ddp');
+      // The play write, then the autorun-fixed pin.
+      expect(ble.writes.length, writesBefore + 2);
+      expect(ble.writes.map((w) => w.charUuid).skip(writesBefore), ['ddp', 'ddp']);
+      expect(codec.encodeAutorunModeCalls, contains(0),
+          reason: 'replay also pins the device to the design');
       expect(find.text('Playing "Sunrise".'), findsOneWidget);
+    });
+
+    testWidgets('clearing device designs removes them and empties the list',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      // Save one design so the "Saved designs" strip (with the clear button)
+      // appears.
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('stored-name-field')), 'Gone');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      final cid = codec.encodeStoredCalls.single.cid;
+      expect(find.byType(ActionChip), findsOneWidget);
+
+      await _scrollAndTap(tester, find.byKey(const Key('clear-device-designs')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Clear'));
+      await tester.pumpAndSettle();
+
+      // Bulk clear, then a per-cid remove of the one design we stored.
+      expect(codec.encodeRemoveAllAppsCalls, 1);
+      expect(codec.encodeRemoveAppCalls, [cid]);
+      // The local list is emptied — the strip disappears.
+      expect(find.byType(ActionChip), findsNothing);
+      expect(find.text('Saved designs'), findsNothing);
     });
 
     testWidgets('re-saving identical content re-uses the same device slot',
@@ -848,6 +892,8 @@ void main() {
 
       // Different content gets its own slot.
       final grid = find.byKey(const Key('led-image-grid'));
+      await tester.ensureVisible(grid);
+      await tester.pumpAndSettle();
       await tester.tapAt(tester.getTopLeft(grid) + const Offset(4, 4));
       await tester.pump();
       await save('Third');

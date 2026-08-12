@@ -459,6 +459,26 @@ Future<StoredPlayDto> encodePlaySpeed(
     RustLib.instance.api.crateApiDeviceApiEncodePlaySpeed(
         specYaml: specYaml, speed: speed, sequence: sequence);
 
+/// Encode the play/loop-mode command (M_SET_AUTORUN_MODE). `mode` is
+/// `fixed(0) | repeat(1) | random(2)`. Sending fixed after playing a design
+/// pins the device to it across disconnect.
+Future<StoredPlayDto> encodeAutorunMode(
+        {required String specYaml, required int mode, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeAutorunMode(
+        specYaml: specYaml, mode: mode, sequence: sequence);
+
+/// Encode the delete-one-stored-design command (M_REMOVE_APP) by cid.
+Future<StoredPlayDto> encodeRemoveApp(
+        {required String specYaml, required int cid, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeRemoveApp(
+        specYaml: specYaml, cid: cid, sequence: sequence);
+
+/// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
+Future<StoredPlayDto> encodeRemoveAllApps(
+        {required String specYaml, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeRemoveAllApps(
+        specYaml: specYaml, sequence: sequence);
+
 /// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
 ///
 /// The device answers a list request with several framed notifications; the

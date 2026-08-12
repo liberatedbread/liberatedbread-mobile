@@ -335,6 +335,38 @@ pub fn encode_set_playlist(
     Ok((service, vec![set_pl, loop_cmd]))
 }
 
+/// A `SimpleMessage {i1: value}` protobuf payload — `08 <varint>`. The shape a
+/// handful of DDP commands carry (play speed, autorun mode, remove-by-cid).
+fn simple_message_i1(value: u32) -> Vec<u8> {
+    let mut payload = vec![0x08];
+    write_varint(&mut payload, value as u64);
+    payload
+}
+
+/// Frame a command whose only payload is `SimpleMessage {i1: value}`, resolving
+/// its service. Shared by the play-speed / autorun / remove-app encoders.
+fn encode_simple_i1_command(
+    spec: &DeviceSpec,
+    command: &str,
+    value: u32,
+    sequence: u16,
+) -> Result<(String, EncodedWrite), ProtocolError> {
+    let write = build_framed_command(
+        spec,
+        command,
+        HashMap::new(),
+        HashMap::from([("payload".to_string(), simple_message_i1(value))]),
+        sequence,
+    )?;
+    let service =
+        service_for_characteristic(spec, &write.characteristic_uuid).ok_or_else(|| {
+            ProtocolError::ImageUploadUnsupported {
+                reason: format!("the {command} characteristic belongs to no service"),
+            }
+        })?;
+    Ok((service, write))
+}
+
 /// Encode M_SET_PLAY_SPEED — the global speed at which the device advances
 /// effects/the playlist. SimpleMessage `{i1: speed}` (the vendor's slider,
 /// default 100). Used to pace a multi-frame animation's cycle.
@@ -343,19 +375,48 @@ pub fn encode_play_speed(
     speed: u32,
     sequence: u16,
 ) -> Result<(String, EncodedWrite), ProtocolError> {
-    let mut payload = vec![0x08];
-    write_varint(&mut payload, speed as u64);
+    encode_simple_i1_command(spec, "set_play_speed", speed, sequence)
+}
+
+/// Encode M_SET_AUTORUN_MODE — the real play/loop-mode control. `mode` is
+/// `fixed(0) | repeat(1) | random(2)`. Sending `fixed(0)` after playing a
+/// stored design makes the device HOLD that one effect across disconnect
+/// instead of autorunning/randomly cycling every stored effect.
+pub fn encode_autorun_mode(
+    spec: &DeviceSpec,
+    mode: u32,
+    sequence: u16,
+) -> Result<(String, EncodedWrite), ProtocolError> {
+    encode_simple_i1_command(spec, "set_autorun_mode", mode, sequence)
+}
+
+/// Encode M_REMOVE_APP — delete ONE stored user design (DIY micro-app) by its
+/// cid. SimpleMessage `{i1: cid}` (the vendor sends only the cid, not the slot).
+pub fn encode_remove_app(
+    spec: &DeviceSpec,
+    cid: u32,
+    sequence: u16,
+) -> Result<(String, EncodedWrite), ProtocolError> {
+    encode_simple_i1_command(spec, "remove_app", cid, sequence)
+}
+
+/// Encode M_REMOVE_ALL_APPS — clear all stored micro-apps in one command
+/// (header only). Best-effort (the vendor app deletes one-by-one instead).
+pub fn encode_remove_all_apps(
+    spec: &DeviceSpec,
+    sequence: u16,
+) -> Result<(String, EncodedWrite), ProtocolError> {
     let write = build_framed_command(
         spec,
-        "set_play_speed",
+        "remove_all_apps",
         HashMap::new(),
-        HashMap::from([("payload".to_string(), payload)]),
+        HashMap::new(),
         sequence,
     )?;
     let service =
         service_for_characteristic(spec, &write.characteristic_uuid).ok_or_else(|| {
             ProtocolError::ImageUploadUnsupported {
-                reason: "the set_play_speed characteristic belongs to no service".to_string(),
+                reason: "the remove_all_apps characteristic belongs to no service".to_string(),
             }
         })?;
     Ok((service, write))
@@ -533,6 +594,35 @@ services:
               cid: { type: "uint32", endianness: "big", default: 0 }
               osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
+          set_autorun_mode:
+            description: "Set play/loop mode."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD0, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes" }
+          remove_app:
+            description: "Delete a stored design by cid."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x5D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes" }
+          remove_all_apps:
+            description: "Clear all stored designs."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x80, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
       - uuid: "01010074-1972-1925-3022-077119514e44"
         name: "DDP Notify"
         properties: ["notify"]
@@ -654,6 +744,38 @@ services:
         assert_eq!(&writes[0].bytes[10..12], &[0x0A, 0x42]);
         // set_mode_loop mt = 09 CB.
         assert_eq!(&writes[1].bytes[10..12], &[0x09, 0xCB]);
+    }
+
+    #[test]
+    fn autorun_mode_encodes_fixed() {
+        // set_autorun_mode {i1: 0} (fixed): F0 04 | sn | len | 09 D0 | header | 08 00
+        let (service, w) = encode_autorun_mode(&spec(), 0, 3).unwrap();
+        assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
+        assert_eq!(w.bytes[0], 3, "fragment serial carries the sequence");
+        assert_eq!(w.bytes[4], 0xF0);
+        assert_eq!(&w.bytes[10..12], &[0x09, 0xD0], "mt = M_SET_AUTORUN_MODE");
+        // payload {i1:0} = 08 00 at the tail.
+        assert_eq!(&w.bytes[w.bytes.len() - 2..], &[0x08, 0x00]);
+    }
+
+    #[test]
+    fn remove_app_encodes_cid_only() {
+        // remove_app {i1: cid}: mt 0B 5D, payload 08 <cid varint>. cid 79009 = a1 e9 04.
+        let (_, w) = encode_remove_app(&spec(), 79009, 4).unwrap();
+        assert_eq!(&w.bytes[10..12], &[0x0B, 0x5D], "mt = M_REMOVE_APP");
+        assert_eq!(
+            &w.bytes[w.bytes.len() - 4..],
+            &[0x08, 0xA1, 0xE9, 0x04],
+            "payload SimpleMessage {{i1: cid}} — cid only, no slot"
+        );
+    }
+
+    #[test]
+    fn remove_all_apps_is_header_only() {
+        let (_, w) = encode_remove_all_apps(&spec(), 5).unwrap();
+        assert_eq!(&w.bytes[10..12], &[0x0B, 0x80], "mt = M_REMOVE_ALL_APPS");
+        // header-only: 4-byte frag + 20-byte DNX = 24, no payload.
+        assert_eq!(w.bytes.len(), 24);
     }
 
     #[test]

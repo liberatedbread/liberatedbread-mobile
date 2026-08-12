@@ -772,12 +772,52 @@ class FakeSpecCodec implements SpecCodec {
     required int sequence,
   }) async {
     encodePlaySpeedCalls.add(speed);
-    return StoredPlayDto(
-      serviceUuid: 'srv',
-      write: ImageWriteDto(
-          characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [9])),
-    );
+    return _framedStub();
   }
+
+  /// Every autorun mode [encodeAutorunMode] was asked to set, in order.
+  final List<int> encodeAutorunModeCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeAutorunMode({
+    required String specYaml,
+    required int mode,
+    required int sequence,
+  }) async {
+    encodeAutorunModeCalls.add(mode);
+    return _framedStub();
+  }
+
+  /// Every cid [encodeRemoveApp] was asked to delete, in order.
+  final List<int> encodeRemoveAppCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeRemoveApp({
+    required String specYaml,
+    required int cid,
+    required int sequence,
+  }) async {
+    encodeRemoveAppCalls.add(cid);
+    return _framedStub();
+  }
+
+  /// How many times [encodeRemoveAllApps] was called.
+  int encodeRemoveAllAppsCalls = 0;
+
+  @override
+  Future<StoredPlayDto> encodeRemoveAllApps({
+    required String specYaml,
+    required int sequence,
+  }) async {
+    encodeRemoveAllAppsCalls++;
+    return _framedStub();
+  }
+
+  StoredPlayDto _framedStub() => StoredPlayDto(
+        serviceUuid: 'srv',
+        write: ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [9])),
+      );
 
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(
