@@ -695,6 +695,18 @@ void main() {
       expect(find.text('The device listed nothing here.'), findsNothing);
     });
 
+    testWidgets('an unanswered list says the device did not answer',
+        (tester) async {
+      // Distinct from refused and from empty: the query failed outright
+      // (asleep TV, stale address), and "listed nothing" would be a lie.
+      await pumpChannels(tester, appsStatus: 500, appsBody: 'gone');
+
+      expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsNothing);
+      expect(find.textContaining('did not answer'), findsOneWidget);
+      expect(find.text('The device listed nothing here.'), findsNothing);
+      expect(find.text('The device is refusing commands'), findsNothing);
+    });
+
     testWidgets('the home screen reads as no channel selected', (tester) async {
       // Roku's home screen answers with an <app> carrying no id at all.
       await pumpChannels(tester,

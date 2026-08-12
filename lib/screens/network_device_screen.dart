@@ -76,6 +76,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// note stays up after the error text is replaced by the next attempt.
   bool _controlRefused = false;
 
+  /// Names of entities whose device-sourced list never arrived — the query
+  /// failed outright (timeout, unreachable), as opposed to answered-empty.
+  /// The two read very differently on screen, and "listed nothing" is a lie
+  /// about a device that said nothing at all.
+  final Set<String> _optionsUnavailable = {};
+
   /// Name of the entity a SOAP send is in flight for, or null.
   ///
   /// HTTP button presses overlap freely — a volume press must not wait for
@@ -233,6 +239,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           HttpRequestDto(method: options.method, path: options.path, body: ''),
         );
         _fetchedOptions[entity.name] = readQuerySource(body, options);
+        _optionsUnavailable.remove(entity.name);
 
         final state = entity.stateSource;
         if (state == null) continue;
@@ -248,8 +255,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // empty channel list on a TV they know has channels, with no hint why.
         _controlRefused = true;
       } catch (e) {
-        // Logged, not surfaced: an absent list is visible on its own, and a
-        // banner about it would bury the controls that do work.
+        // Not an error-page failure — the buttons beside the list still work —
+        // but not silent either: the card says the list could not be loaded,
+        // which is a different thing from the device listing nothing.
+        _optionsUnavailable.add(entity.name);
         Log.net.debug('query source failed for ${entity.name}: $e');
       }
     }
@@ -1006,7 +1015,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           // chips are simply absent otherwise, which reads as a bug rather
           // than as a device that answered with nothing. A refusal reads
           // differently again — the list exists, the device will not share
-          // it until its control setting changes.
+          // it until its control setting changes — and a query that never
+          // got an answer is different from both.
           if (entity.optionsSource != null && options.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
@@ -1016,7 +1026,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     : _controlRefused
                         ? 'The device is refusing to share this list. Enable '
                             'control by mobile apps on it, then refresh.'
-                        : 'The device listed nothing here.',
+                        : _optionsUnavailable.contains(entity.name)
+                            ? 'The device did not answer. It may be asleep — '
+                                'refresh to try again.'
+                            : 'The device listed nothing here.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
