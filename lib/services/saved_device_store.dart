@@ -1,8 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:convert';
-
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'prefs_json_list.dart';
 
 /// A device the user has paired with and wants to keep.
 ///
@@ -14,22 +14,45 @@ class SavedDevice {
   final String name;
   final DateTime lastSeen;
 
+  /// The matched spec's `device.category` wire string ("light", "sensor", …),
+  /// recorded once a spec match resolves during a connection. Kept as the raw
+  /// string rather than a parsed enum for the same reason the Rust core does:
+  /// a spec pack newer than this build may use categories the enum has not
+  /// heard of yet, and they must survive a save/load round trip.
+  final String? category;
+
+  /// Identity key of the matched spec (`specKeyFor` in
+  /// device_spec_match_provider.dart), so group operations can find the spec
+  /// for a device that is currently out of range. Null until a match has been
+  /// recorded — including every record saved before these fields existed.
+  final String? specKey;
+
   const SavedDevice({
     required this.id,
     required this.name,
     required this.lastSeen,
+    this.category,
+    this.specKey,
   });
 
+  /// Only the fields the merge path ([SavedDevicesNotifier.touch]) actually
+  /// refreshes. Deliberately NOT category/specKey: `??`-merging can never
+  /// clear a field, which is exactly why `recordMatch` replaces the whole
+  /// record instead — dead parameters here would invite that trap back.
   SavedDevice copyWith({String? name, DateTime? lastSeen}) => SavedDevice(
         id: id,
         name: name ?? this.name,
         lastSeen: lastSeen ?? this.lastSeen,
+        category: category,
+        specKey: specKey,
       );
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
         'lastSeen': lastSeen.toIso8601String(),
+        if (category != null) 'category': category,
+        if (specKey != null) 'specKey': specKey,
       };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
@@ -38,12 +61,16 @@ class SavedDevice {
     final id = json['id'];
     final name = json['name'];
     final lastSeen = json['lastSeen'];
+    final category = json['category'];
+    final specKey = json['specKey'];
     if (id is! String || id.isEmpty || name is! String) return null;
     final parsed = lastSeen is String ? DateTime.tryParse(lastSeen) : null;
     return SavedDevice(
       id: id,
       name: name,
       lastSeen: parsed ?? DateTime.fromMillisecondsSinceEpoch(0),
+      category: category is String && category.isNotEmpty ? category : null,
+      specKey: specKey is String && specKey.isNotEmpty ? specKey : null,
     );
   }
 
@@ -69,29 +96,9 @@ class SavedDeviceStore {
   SavedDeviceStore(this._prefs);
 
   /// Saved devices, most recently seen first.
-  List<SavedDevice> load() {
-    final raw = _prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return const [];
-
-    List<dynamic> decoded;
-    try {
-      final value = jsonDecode(raw);
-      if (value is! List) return const [];
-      decoded = value;
-    } on FormatException {
-      // Unreadable blob: treat as empty rather than throwing on startup.
-      return const [];
-    }
-
-    final devices = <SavedDevice>[];
-    for (final entry in decoded) {
-      if (entry is! Map<String, dynamic>) continue;
-      final device = SavedDevice.fromJson(entry);
-      if (device != null) devices.add(device);
-    }
-    devices.sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
-    return devices;
-  }
+  List<SavedDevice> load() =>
+      loadPrefsJsonList(_prefs, _key, SavedDevice.fromJson)
+        ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
 
   /// Insert or update [device], keeping the list newest-first.
   Future<List<SavedDevice>> save(SavedDevice device) async {
@@ -107,6 +114,6 @@ class SavedDeviceStore {
     return devices;
   }
 
-  Future<void> _write(List<SavedDevice> devices) => _prefs.setString(
-      _key, jsonEncode(devices.map((d) => d.toJson()).toList()));
+  Future<void> _write(List<SavedDevice> devices) =>
+      savePrefsJsonList(_prefs, _key, devices, (d) => d.toJson());
 }

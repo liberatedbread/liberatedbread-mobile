@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/device_group_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
@@ -55,8 +56,17 @@ class SavedDevicesScreen extends ConsumerWidget {
 
   Future<void> _forget(
       BuildContext context, WidgetRef ref, SavedDevice saved) async {
+    // Everything context- or ref-derived is resolved before the first await:
+    // both lookups throw once this screen is disposed, and a forget should
+    // finish even if the user navigates away mid-write.
     final messenger = ScaffoldMessenger.of(context);
-    await ref.read(savedDevicesProvider.notifier).remove(saved.id);
+    final savedDevices = ref.read(savedDevicesProvider.notifier);
+    final groups = ref.read(deviceGroupsProvider.notifier);
+    await forgetDevice(
+      savedDevices: savedDevices,
+      groups: groups,
+      deviceId: saved.id,
+    );
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
 

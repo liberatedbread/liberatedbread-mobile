@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/hex.dart';
 import '../core/log.dart';
+import '../models/ble_discovered_service.dart';
 import '../services/spec_codec.dart';
 import 'device_spec_provider.dart';
 import 'spec_choice_provider.dart';
@@ -27,6 +28,26 @@ class SpecMatchRequest {
     required this.deviceName,
     required this.serviceUuids,
   });
+
+  /// The canonical request for a device whose services have been discovered.
+  ///
+  /// Owns the cache key's construction: UUIDs normalized and sorted, so
+  /// discovery order and casing cannot mint distinct family keys. Every
+  /// post-discovery call site (the control panel, the device screen's match
+  /// recorder, the group runner's resolver) builds through this factory —
+  /// hand-rolling the key at any of them risks splitting the cache, which
+  /// costs a second full-catalogue FFI match per connect and, worse, lets
+  /// one site record a different outcome than another renders.
+  SpecMatchRequest.forServices({
+    required String deviceId,
+    required String deviceName,
+    required List<BleDiscoveredService> services,
+  }) : this(
+          deviceId: deviceId,
+          deviceName: deviceName,
+          serviceUuids: [for (final s in services) normalizeUuid(s.uuid)]
+            ..sort(),
+        );
 
   @override
   bool operator ==(Object other) =>
@@ -96,6 +117,19 @@ class SpecMatchOutcome {
 /// name-prefix being refined upstream without orphaning the stored choice.
 String specKeyFor(DeviceSpecDto spec) =>
     '${spec.deviceName}|${spec.manufacturer}';
+
+/// The parsed catalogue indexed by [specKeyFor], for resolving stored keys
+/// back to (spec, yaml) pairs.
+///
+/// Insertion order makes duplicates resolve the way [matchedDeviceSpecProvider]
+/// does: remote pack specs load after bundled ones, so on an identity
+/// collision the pack entry wins. This is the ONE place that shadowing rule
+/// is encoded for key lookups — consumers that need it (the group member
+/// resolver) build the map here rather than re-implementing the scan.
+Map<String, ({DeviceSpecDto spec, String yaml})> specEntriesByKey(
+  List<({DeviceSpecDto spec, String yaml})> parsed,
+) =>
+    {for (final entry in parsed) specKeyFor(entry.spec): entry};
 
 /// Strength of the evidence behind one [MatchResult], strongest first.
 ///

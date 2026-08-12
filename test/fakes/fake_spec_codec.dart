@@ -64,8 +64,12 @@ class FakeSpecCodec implements SpecCodec {
   final Object? encodeStoredError;
 
   final List<
-          ({String charUuid, String commandName, Map<String, double> params})>
-      encodeCalls = [];
+      ({
+        String? serviceUuid,
+        String charUuid,
+        String commandName,
+        Map<String, double> params,
+      })> encodeCalls = [];
 
   final List<
       ({
@@ -106,6 +110,16 @@ class FakeSpecCodec implements SpecCodec {
   /// Every rendered plain-HTTP command, in call order.
   final List<({String commandName, Map<String, String> values})>
       renderNetworkHttpCommandCalls = [];
+
+  /// Returned by [listNetworkInstances]. Defaults to no children.
+  final List<NetworkInstanceDto> instances;
+
+  /// Returned by [readNetworkInstance], as a function of the instance id.
+  List<NetworkRoleReadingDto> Function(String instanceId)? instanceReadings;
+
+  /// Thrown by the http render calls when set — how a test stands in for an
+  /// unpaired render (missing credential) failing visibly.
+  final Object? httpRenderError;
 
   /// Returned by [readNetworkEntity], as a function of entity name and the
   /// returned values.
@@ -149,6 +163,9 @@ class FakeSpecCodec implements SpecCodec {
     this.networkRequest,
     this.networkHttpRequest,
     this.networkReading,
+    this.instances = const [],
+    this.instanceReadings,
+    this.httpRenderError,
   }) : encoded = encoded ?? Uint8List(0);
 
   @override
@@ -196,6 +213,7 @@ class FakeSpecCodec implements SpecCodec {
     required Map<String, double> params,
   }) async {
     encodeCalls.add((
+      serviceUuid: serviceUuid,
       charUuid: charUuid,
       commandName: commandName,
       params: Map.of(params),
@@ -293,9 +311,38 @@ class FakeSpecCodec implements SpecCodec {
   }) async {
     renderNetworkHttpCommandCalls
         .add((commandName: commandName, values: values));
+    if (httpRenderError != null) throw httpRenderError!;
     return networkHttpRequest?.call(commandName, values) ??
         HttpRequestDto(method: 'POST', path: '/fake/$commandName', body: '');
   }
+
+  @override
+  Future<HttpRequestDto> renderNetworkHttpStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required Map<String, String> values,
+  }) async {
+    if (httpRenderError != null) throw httpRenderError!;
+    return networkHttpRequest?.call(stateCommand, values) ??
+        HttpRequestDto(method: 'GET', path: '/fake/$stateCommand', body: '');
+  }
+
+  @override
+  Future<List<NetworkInstanceDto>> listNetworkInstances({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+  }) async =>
+      instances;
+
+  @override
+  Future<List<NetworkRoleReadingDto>> readNetworkInstance({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+    required String instanceId,
+  }) async =>
+      instanceReadings?.call(instanceId) ?? const [];
 
   @override
   Future<SoapRequestDto> renderNetworkStateRequest({
@@ -460,6 +507,138 @@ class FakeSpecCodec implements SpecCodec {
               characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [2])),
         );
   }
+
+  // ── LIFX (binary UDP) ───────────────────────────────────────────────────
+
+  /// Bytes returned by every LIFX builder/render method. A test that only
+  /// checks a send happened does not need to configure this.
+  Uint8List lifxBytes = Uint8List.fromList(const [1, 2, 3]);
+
+  /// Returned by [decodeLifxState]; defaults to a powered-off warm white.
+  LifxStateDto? lifxState;
+
+  /// Returned by [decodeLifxZones]; defaults to no zones.
+  LifxZonesDto? lifxZones;
+
+  /// Returned by [parseLifxStateService].
+  LifxServiceDto? lifxService;
+
+  /// Every [renderLifxCommand] call, in order, with the params it carried.
+  final List<
+      ({
+        String action,
+        Map<String, double> params,
+        String targetMac,
+        int sequence
+      })> renderLifxCalls = [];
+
+  @override
+  Future<int> lifxPort() async => 56700;
+
+  @override
+  Future<Uint8List> renderLifxCommand({
+    required String action,
+    required Map<String, double> params,
+    required String targetMac,
+    required int sequence,
+  }) async {
+    renderLifxCalls.add((
+      action: action,
+      params: Map.of(params),
+      targetMac: targetMac,
+      sequence: sequence,
+    ));
+    return lifxBytes;
+  }
+
+  @override
+  Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) async =>
+      lifxBytes;
+
+  @override
+  Future<Uint8List> buildLifxStateRequest({
+    required String targetMac,
+    required int sequence,
+  }) async =>
+      lifxBytes;
+
+  @override
+  Future<Uint8List> buildLifxZonesRequest({
+    required String targetMac,
+    required int start,
+    required int end,
+    required int sequence,
+  }) async =>
+      lifxBytes;
+
+  @override
+  Future<LifxServiceDto> parseLifxStateService({
+    required List<int> bytes,
+  }) async =>
+      lifxService ??
+      const LifxServiceDto(mac: 'd0:73:d5:00:04:a3', service: 1, port: 56700);
+
+  @override
+  Future<LifxStateDto> decodeLifxState({required List<int> bytes}) async =>
+      lifxState ??
+      const LifxStateDto(
+        powerOn: false,
+        red: 255,
+        green: 255,
+        blue: 255,
+        brightness: 255,
+        hue: 0,
+        saturation: 0,
+        kelvin: 3500,
+        label: 'LIFX Z',
+      );
+
+  @override
+  Future<LifxZonesDto> decodeLifxZones({required List<int> bytes}) async =>
+      lifxZones ?? const LifxZonesDto(zonesCount: 0, zoneIndex: 0, colors: []);
+
+  /// Returned by [decodeLifxAccessPoint].
+  LifxAccessPointDto? lifxAccessPoint;
+
+  /// Every [renderLifxSetAccessPoint] call, in order — so a provisioning test
+  /// can assert the SSID/password/security handed over, without a real strip.
+  final List<({String ssid, String password, int security, int sequence})>
+      setAccessPointCalls = [];
+
+  @override
+  Future<int> lifxDefaultSecurity() async => 5;
+
+  @override
+  Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) async =>
+      lifxBytes;
+
+  @override
+  Future<Uint8List> renderLifxSetAccessPoint({
+    required String ssid,
+    required String password,
+    required int security,
+    required int sequence,
+  }) async {
+    setAccessPointCalls.add((
+      ssid: ssid,
+      password: password,
+      security: security,
+      sequence: sequence,
+    ));
+    return lifxBytes;
+  }
+
+  @override
+  Future<LifxAccessPointDto> decodeLifxAccessPoint({
+    required List<int> bytes,
+  }) async =>
+      lifxAccessPoint ??
+      const LifxAccessPointDto(
+        ssid: 'HomeNet',
+        security: 5,
+        strength: -40,
+        channel: 11,
+      );
 
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(

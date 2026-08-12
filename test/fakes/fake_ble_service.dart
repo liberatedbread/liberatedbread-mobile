@@ -201,23 +201,29 @@ class FakeBleService implements BleService {
 
   /// Every characteristic [subscribeCharacteristic] was called for, in order.
   ///
-  /// A widget that remounts re-subscribes, and the real service has no
-  /// reference counting behind `setNotifyValue`, so a duplicate here is a
-  /// characteristic that can end up silently disabled. Counting them is the
-  /// only way a widget test can see that from outside.
+  /// The real service now REFERENCE COUNTS notify enable/disable per
+  /// characteristic (issue #29): concurrent subscriptions share one CCCD
+  /// enable, and only the last cancel disables. Duplicates here are therefore
+  /// normal for widgets that share a characteristic; [liveSubscriberCount]
+  /// answers "how many are on this characteristic right now".
   final List<String> subscriptions = [];
 
   /// Every characteristic whose notify stream was cancelled, in order.
   ///
-  /// The real service answers a cancel with `setNotifyValue(false)` on the
-  /// peripheral — with no reference counting, so one widget's teardown mutes
-  /// the characteristic for every other widget still listening. A test that
-  /// needs to prove "nothing tore this down" (the folded service cards must
-  /// not silence the readings above them) asserts this list stays empty.
-  /// With the default done-immediately empty [notifyStream] the listener's
-  /// auto-cancel lands here too, so such tests supply a stream that stays
-  /// open (e.g. a broadcast controller's).
+  /// Under the real service's refcounting, a cancel only reaches the
+  /// peripheral (`setNotifyValue(false)`) when it is the LAST subscriber's —
+  /// a test that needs "nothing muted this characteristic for the remaining
+  /// widgets" asserts [liveSubscriberCount] stays above zero rather than
+  /// this list staying empty. This list still records every stream-level
+  /// cancel. With the default done-immediately empty [notifyStream] the
+  /// listener's auto-cancel lands here too, so tests that hold a
+  /// subscription open supply a stream that stays open (e.g. a broadcast
+  /// controller's).
   final List<String> cancelledSubscriptions = [];
+
+  /// Live subscriptions per characteristic UUID (listened minus cancelled),
+  /// the fake's view of the real service's per-characteristic interest count.
+  final Map<String, int> liveSubscriberCount = {};
 
   @override
   Stream<List<int>> subscribeCharacteristic(
@@ -230,6 +236,7 @@ class FakeBleService implements BleService {
     final controller = StreamController<List<int>>();
     StreamSubscription<List<int>>? sub;
     controller.onListen = () {
+      liveSubscriberCount[charUuid] = (liveSubscriberCount[charUuid] ?? 0) + 1;
       sub = source.listen(
         controller.add,
         onError: controller.addError,
@@ -240,6 +247,7 @@ class FakeBleService implements BleService {
     };
     controller.onCancel = () async {
       cancelledSubscriptions.add(charUuid);
+      liveSubscriberCount[charUuid] = (liveSubscriberCount[charUuid] ?? 1) - 1;
       await sub?.cancel();
     };
     return controller.stream;

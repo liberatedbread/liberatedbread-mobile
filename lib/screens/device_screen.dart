@@ -7,6 +7,7 @@ import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/device_spec_match_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/ble_service.dart';
@@ -38,6 +39,18 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   List<BleDiscoveredService> _services = [];
   late final BleService _bleService;
   StreamSubscription<BleConnectionState>? _connSub;
+  // Watches the spec match for the connected device and records the outcome
+  // (category + spec key) on the saved-device record, so grouping can
+  // classify this device while it is out of range. A listener rather than a
+  // one-shot read: the user answering the spec chooser resolves the same
+  // family later, and that answer must be captured too.
+  ProviderSubscription<AsyncValue<SpecMatchOutcome>>? _matchSub;
+
+  /// The in-flight saved-record write from [_connect]'s `touch()`. The spec
+  /// match listener awaits it before `recordMatch`, because the two write the
+  /// same record and recordMatch treats "not saved yet" as "never saved".
+  /// Errors are already swallowed at the source, so awaiting cannot throw.
+  Future<void>? _saveInFlight;
   // True once connect() has established a link we still own. Guards teardown so
   // exactly one disconnect() runs per established connection.
   bool _connected = false;
@@ -90,16 +103,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // path's own catch, and the user sees a connection that worked reported
       // as one that failed.
       try {
-        unawaited(
-          ref
-              .read(savedDevicesProvider.notifier)
-              .touch(
-                id: widget.device.id,
-                name: widget.device.displayName,
-                seenAt: DateTime.now(),
-              )
-              .catchError((Object _) {}),
-        );
+        // Kept, not just fired: the spec-match listener awaits this before
+        // recordMatch, so the two writes can't race (see [_saveInFlight]).
+        _saveInFlight = ref
+            .read(savedDevicesProvider.notifier)
+            .touch(
+              id: widget.device.id,
+              name: widget.device.displayName,
+              seenAt: DateTime.now(),
+            )
+            .catchError((Object _) {});
       } catch (e) {
         Log.ble.warning(
           'could not record ${widget.device.id} in saved devices',
@@ -120,6 +133,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
         _services = services;
         _state = _ScreenState.ready;
       });
+      _watchSpecMatch(services);
       if (_openFindWhenReady) {
         _openFindWhenReady = false;
         _openFind();
@@ -178,10 +192,61 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     // subscription teardown can stall inside the widget-test fake zone.
     unawaited(_connSub?.cancel());
     _connSub = null;
+    _matchSub?.close();
+    _matchSub = null;
     if (_connected) {
       _connected = false;
       await _bleService.disconnect(widget.device.id).catchError((Object _) {});
     }
+  }
+
+  /// Record what spec this device matched on its saved record.
+  ///
+  /// The request is built exactly the way [DeviceControlPanel] builds its own
+  /// (same normalization, same sort), so both hit one cached family entry and
+  /// this adds no FFI work. `fireImmediately` catches a match that already
+  /// resolved; later firings catch the user answering the spec chooser.
+  void _watchSpecMatch(List<BleDiscoveredService> services) {
+    _matchSub?.close();
+    if (services.isEmpty) return;
+    _matchSub = ref.listenManual(
+      matchedDeviceSpecProvider(SpecMatchRequest.forServices(
+        deviceId: widget.device.id,
+        deviceName: widget.device.displayName,
+        services: services,
+      )),
+      fireImmediately: true,
+      (previous, next) async {
+        final chosen = next.valueOrNull?.chosen;
+        if (chosen == null) return;
+        // Let _connect()'s touch() land first. recordMatch treats an absent
+        // record as "never saved" and skips silently — without this order a
+        // match resolving faster than the first preferences write would drop
+        // the category until the next connect.
+        await _saveInFlight;
+        if (!mounted) return;
+        // Same shape as the touch() call in _connect(), for the same reason:
+        // the first notifier read builds it, which reads the store
+        // synchronously — a throw there must not become an unhandled error.
+        try {
+          unawaited(
+            ref
+                .read(savedDevicesProvider.notifier)
+                .recordMatch(
+                  id: widget.device.id,
+                  category: chosen.spec.category,
+                  specKey: specKeyFor(chosen.spec),
+                )
+                .catchError((Object _) {}),
+          );
+        } catch (e) {
+          Log.ble.warning(
+            'could not record the spec match for ${widget.device.id}',
+            error: e,
+          );
+        }
+      },
+    );
   }
 
   /// Observe the live connection state so an unexpected disconnect flips the
@@ -209,6 +274,8 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
     // neither leak the pending connection nor double-disconnect here.
     unawaited(_connSub?.cancel());
     _connSub = null;
+    _matchSub?.close();
+    _matchSub = null;
     if (_connected) {
       _connected = false;
       // unawaited() does not swallow errors, so attach a catchError to keep a

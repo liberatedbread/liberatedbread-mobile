@@ -33,6 +33,7 @@ DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
     );
 
 const _plugEntity = NetworkEntityDto(
+  isInstanced: false,
   name: 'Plug',
   platform: 'switch',
   stateCommand: 'GetBinaryState',

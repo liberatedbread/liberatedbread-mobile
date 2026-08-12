@@ -124,6 +124,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ImageWritePlanDto dco_decode_image_write_plan_dto(dynamic raw);
 
   @protected
+  LifxAccessPointDto dco_decode_lifx_access_point_dto(dynamic raw);
+
+  @protected
+  LifxServiceDto dco_decode_lifx_service_dto(dynamic raw);
+
+  @protected
+  LifxStateDto dco_decode_lifx_state_dto(dynamic raw);
+
+  @protected
+  LifxZoneColorDto dco_decode_lifx_zone_color_dto(dynamic raw);
+
+  @protected
+  LifxZonesDto dco_decode_lifx_zones_dto(dynamic raw);
+
+  @protected
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
@@ -151,6 +166,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ImageWriteDto> dco_decode_list_image_write_dto(dynamic raw);
 
   @protected
+  List<LifxZoneColorDto> dco_decode_list_lifx_zone_color_dto(dynamic raw);
+
+  @protected
   List<Uint8List> dco_decode_list_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -166,10 +184,21 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<NetworkEntityDto> dco_decode_list_network_entity_dto(dynamic raw);
 
   @protected
+  List<NetworkInstanceDto> dco_decode_list_network_instance_dto(dynamic raw);
+
+  @protected
   List<NetworkOptionDto> dco_decode_list_network_option_dto(dynamic raw);
 
   @protected
   List<NetworkReadBackDto> dco_decode_list_network_read_back_dto(dynamic raw);
+
+  @protected
+  List<NetworkRoleReadingDto> dco_decode_list_network_role_reading_dto(
+      dynamic raw);
+
+  @protected
+  List<NetworkSourceParamDto> dco_decode_list_network_source_param_dto(
+      dynamic raw);
 
   @protected
   List<ParameterDto> dco_decode_list_parameter_dto(dynamic raw);
@@ -230,6 +259,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEntityDto dco_decode_network_entity_dto(dynamic raw);
 
   @protected
+  NetworkInstanceDto dco_decode_network_instance_dto(dynamic raw);
+
+  @protected
   NetworkOptionDto dco_decode_network_option_dto(dynamic raw);
 
   @protected
@@ -240,6 +272,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkReadingKind dco_decode_network_reading_kind(dynamic raw);
+
+  @protected
+  NetworkRoleReadingDto dco_decode_network_role_reading_dto(dynamic raw);
+
+  @protected
+  NetworkSourceParamDto dco_decode_network_source_param_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -466,6 +504,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  LifxAccessPointDto sse_decode_lifx_access_point_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  LifxServiceDto sse_decode_lifx_service_dto(SseDeserializer deserializer);
+
+  @protected
+  LifxStateDto sse_decode_lifx_state_dto(SseDeserializer deserializer);
+
+  @protected
+  LifxZoneColorDto sse_decode_lifx_zone_color_dto(SseDeserializer deserializer);
+
+  @protected
+  LifxZonesDto sse_decode_lifx_zones_dto(SseDeserializer deserializer);
+
+  @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
@@ -499,6 +553,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<LifxZoneColorDto> sse_decode_list_lifx_zone_color_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<Uint8List> sse_decode_list_list_prim_u_8_strict(
       SseDeserializer deserializer);
 
@@ -518,11 +576,23 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<NetworkInstanceDto> sse_decode_list_network_instance_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<NetworkOptionDto> sse_decode_list_network_option_dto(
       SseDeserializer deserializer);
 
   @protected
   List<NetworkReadBackDto> sse_decode_list_network_read_back_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<NetworkRoleReadingDto> sse_decode_list_network_role_reading_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<NetworkSourceParamDto> sse_decode_list_network_source_param_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -590,6 +660,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkEntityDto sse_decode_network_entity_dto(SseDeserializer deserializer);
 
   @protected
+  NetworkInstanceDto sse_decode_network_instance_dto(
+      SseDeserializer deserializer);
+
+  @protected
   NetworkOptionDto sse_decode_network_option_dto(SseDeserializer deserializer);
 
   @protected
@@ -602,6 +676,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   NetworkReadingKind sse_decode_network_reading_kind(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkRoleReadingDto sse_decode_network_role_reading_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  NetworkSourceParamDto sse_decode_network_source_param_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -848,6 +930,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       ImageWritePlanDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_lifx_access_point_dto(
+      LifxAccessPointDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lifx_service_dto(
+      LifxServiceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lifx_state_dto(LifxStateDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lifx_zone_color_dto(
+      LifxZoneColorDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_lifx_zones_dto(LifxZonesDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
@@ -883,6 +983,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<ImageWriteDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_lifx_zone_color_dto(
+      List<LifxZoneColorDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_list_prim_u_8_strict(
       List<Uint8List> self, SseSerializer serializer);
 
@@ -903,12 +1007,24 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<NetworkEntityDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_network_instance_dto(
+      List<NetworkInstanceDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_network_option_dto(
       List<NetworkOptionDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_network_read_back_dto(
       List<NetworkReadBackDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_network_role_reading_dto(
+      List<NetworkRoleReadingDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_network_source_param_dto(
+      List<NetworkSourceParamDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_parameter_dto(
@@ -984,6 +1100,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkEntityDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_network_instance_dto(
+      NetworkInstanceDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_network_option_dto(
       NetworkOptionDto self, SseSerializer serializer);
 
@@ -998,6 +1118,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_network_reading_kind(
       NetworkReadingKind self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_role_reading_dto(
+      NetworkRoleReadingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_network_source_param_dto(
+      NetworkSourceParamDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);

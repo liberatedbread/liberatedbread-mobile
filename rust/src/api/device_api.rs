@@ -11,6 +11,7 @@ use flutter_rust_bridge::frb;
 use crate::codec::types::DecodedValue;
 use crate::protocol::dispatch::select_protocol;
 use crate::protocol::profiles;
+use crate::protocol::traits::DeviceProtocol;
 use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
@@ -1128,9 +1129,29 @@ pub struct NetworkActionDto {
     /// Values to read from the device and pass along with the send. Not
     /// optional bookkeeping: skipping these clears settings.
     pub read_back: Vec<NetworkReadBackDto>,
+    /// Parameters filled from stored pairing credentials (`credential:` on an
+    /// http command). Sending without one must fail visibly — an unpaired
+    /// client improvising a request is the bug the spec's no-default rule
+    /// exists to prevent.
+    pub credentials: Vec<NetworkSourceParamDto>,
+    /// Parameters filled with the addressed child's id (`instance:`), for
+    /// actions bound by an instanced entity.
+    pub instance_params: Vec<NetworkSourceParamDto>,
     /// Declared bounds of the value parameter, in the wire's own units.
     pub min: Option<f64>,
     pub max: Option<f64>,
+}
+
+/// A command parameter filled from a client-held value rather than the UI:
+/// `credential:<name>` (a per-device secret stored at pairing) or
+/// `instance:<key>` (the id of the child a hub command addresses). Parsed
+/// out of the spec's `source` so Dart never parses that string.
+#[derive(Debug, Clone)]
+pub struct NetworkSourceParamDto {
+    /// Parameter of the command being sent that this value fills.
+    pub param: String,
+    /// The credential's name (`username`) or the instance key (`id`).
+    pub name: String,
 }
 
 /// A resolved XML query source: the request to make and how to read entries
@@ -1167,6 +1188,16 @@ pub struct NetworkEntityDto {
     /// [`render_network_state_request`]; one call serves every entity bound
     /// to the same command.
     pub state_command: String,
+    /// The one transport this entity's actions ride (`soap` | `http`), or
+    /// `None` for a pure reading with no actions. Surfaced at entity level
+    /// because it is what routes the whole device screen — a hub gets a
+    /// different screen from a Wemo plug.
+    pub transport: Option<String>,
+    /// True when the entity is a template stamped out per child behind a
+    /// hub: enumerate with [`list_network_instances`], read each child with
+    /// [`read_network_instance`], and fill each action's `instance_params`
+    /// with the child's id when sending.
+    pub is_instanced: bool,
     /// Name of the returned value carrying the reading.
     pub value_field: Option<String>,
     /// Option table for a `select`, in declaration order. Empty otherwise.
@@ -1229,6 +1260,35 @@ pub struct NetworkReadingDto {
 
 impl NetworkActionDto {
     fn from(action: &bindings::NetworkAction<'_>) -> Self {
+        use crate::protocol::http::SourceScheme;
+        let mut read_back = Vec::new();
+        let mut credentials = Vec::new();
+        let mut instance_params = Vec::new();
+        for (param, source) in &action.read_back {
+            // The three source schemes, each to its own surface. A source in
+            // a shape this does not understand is dropped rather than guessed
+            // at: the caller then cannot pre-fill that parameter, and the
+            // spec's `default` carries the send (or, on http, resolution
+            // already declined the command).
+            match crate::protocol::http::parse_source(source) {
+                Some(SourceScheme::State { command, field }) => {
+                    read_back.push(NetworkReadBackDto {
+                        param: (*param).to_string(),
+                        command: command.to_string(),
+                        field: field.to_string(),
+                    });
+                }
+                Some(SourceScheme::Credential(name)) => credentials.push(NetworkSourceParamDto {
+                    param: (*param).to_string(),
+                    name: name.to_string(),
+                }),
+                Some(SourceScheme::Instance(key)) => instance_params.push(NetworkSourceParamDto {
+                    param: (*param).to_string(),
+                    name: key.to_string(),
+                }),
+                None => {}
+            }
+        }
         Self {
             role: action.role.to_string(),
             command_name: action.command_name.to_string(),
@@ -1238,27 +1298,77 @@ impl NetworkActionDto {
                 .clone()
                 .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string()),
             user_params: action.user_params.iter().map(|p| p.to_string()).collect(),
-            read_back: action
-                .read_back
-                .iter()
-                .filter_map(|(param, source)| {
-                    // "state:<command>.<field>". A source in a shape this
-                    // does not understand is dropped rather than guessed at:
-                    // the caller then simply cannot pre-fill that parameter,
-                    // and the spec's `default` carries the send.
-                    let rest = source.strip_prefix("state:")?;
-                    let (command, field) = rest.split_once('.')?;
-                    Some(NetworkReadBackDto {
-                        param: (*param).to_string(),
-                        command: command.to_string(),
-                        field: field.to_string(),
-                    })
-                })
-                .collect(),
+            read_back,
+            credentials,
+            instance_params,
             min: action.min,
             max: action.max,
         }
     }
+
+    /// A LIFX control as a network action. LIFX actions are synthesised from the
+    /// entity's `features` rather than resolved from spec `commands`, so they
+    /// carry no read-back and always the `lifx` transport — the UI dispatches on
+    /// that to the UDP client and calls [`render_lifx_command`] rather than
+    /// rendering a SOAP/HTTP request.
+    fn from_lifx(control: &crate::protocol::lifx::LifxControl) -> Self {
+        Self {
+            role: control.role.to_string(),
+            command_name: control.command_name.to_string(),
+            transport: crate::protocol::lifx::TRANSPORT.to_string(),
+            user_params: control
+                .user_params
+                .iter()
+                .map(|p| (*p).to_string())
+                .collect(),
+            read_back: Vec::new(),
+            // LIFX is unauthenticated and single-device: no paired credential
+            // to fill, no hub child to address.
+            credentials: Vec::new(),
+            instance_params: Vec::new(),
+            min: control.min,
+            max: control.max,
+        }
+    }
+}
+
+/// The controllable LIFX entities of a spec, as network entity DTOs. LIFX has
+/// no `commands`/`services` the generic resolver could execute, so its `light`
+/// entities are synthesised directly from `features` — see
+/// [`crate::protocol::lifx::network_entities`]. State is not polled through a
+/// SOAP `state_command` (there is none); the UI reads it live with
+/// [`build_lifx_state_request`] + [`decode_lifx_state`], so `state_command` is
+/// left empty and the entity survives on its actions alone.
+fn lifx_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
+    crate::protocol::lifx::network_entities(spec)
+        .into_iter()
+        .map(|entity| NetworkEntityDto {
+            name: entity.name,
+            platform: Some("light".to_string()),
+            // The whole device screen routes on this: a lifx entity gets the
+            // LIFX light card and the UDP client, not a SOAP/HTTP path.
+            transport: Some(crate::protocol::lifx::TRANSPORT.to_string()),
+            // A strip is one device, not a hub of children.
+            is_instanced: false,
+            device_class: None,
+            icon: None,
+            unit: None,
+            state_endpoint: None,
+            state_command: String::new(),
+            value_field: None,
+            options: Vec::new(),
+            options_source: None,
+            state_source: None,
+            actions: entity
+                .controls
+                .iter()
+                .map(NetworkActionDto::from_lifx)
+                .collect(),
+            setpoint_min: None,
+            setpoint_max: None,
+            setpoint_step: None,
+        })
+        .collect()
 }
 
 /// Resolve an entity's query source against the spec's endpoint catalogue.
@@ -1292,6 +1402,12 @@ pub fn network_entities_for_device(
     ssdp_targets: Vec<String>,
 ) -> anyhow::Result<Vec<NetworkEntityDto>> {
     let spec = parse_device_spec(&spec_yaml)?;
+    // LIFX is driven by a dedicated binary-UDP handler, not the generic
+    // command resolver (which rejects a non-SOAP/HTTP transport). Its light
+    // entities are synthesised from `features` before the generic path runs.
+    if spec.protocol_handler.as_deref() == Some(crate::protocol::lifx::HANDLER_NAME) {
+        return Ok(lifx_network_entities(&spec));
+    }
     Ok(bindings::network_entities_for_targets(&spec, &ssdp_targets)
         .into_iter()
         .map(|entity| {
@@ -1309,6 +1425,17 @@ pub fn network_entities_for_device(
                 // gathering state commands must skip the empty string rather
                 // than render a request from it.
                 state_command: entity.state_command.clone().unwrap_or_default(),
+                // Every resolved action on one entity rides one transport —
+                // a spec binding a light's toggle to SOAP and its slider to
+                // HTTP would be describing two devices — so the first
+                // action's answer is the entity's.
+                transport: actions.first().map(|a| {
+                    a.command
+                        .transport
+                        .clone()
+                        .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
+                }),
+                is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),
                 options: entity
                     .options()
@@ -1433,48 +1560,51 @@ pub fn read_network_entity(
         .find(|e| e.name == entity_name)
         .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))?;
     let returned = returned.into_iter().collect();
-    Ok(
-        crate::protocol::soap::read_entity(&spec, entity, &returned).map(|reading| {
-            use crate::protocol::soap::EntityReading;
-            match reading {
-                EntityReading::OnOff(on) => NetworkReadingDto {
-                    kind: NetworkReadingKind::OnOff,
-                    is_on: Some(on),
-                    label: None,
-                    number: None,
-                    raw: if on { "1" } else { "0" }.to_string(),
-                },
-                EntityReading::Option { raw, label } => NetworkReadingDto {
-                    kind: NetworkReadingKind::Option,
-                    is_on: None,
-                    label: Some(label),
-                    number: None,
-                    raw,
-                },
-                EntityReading::UnknownOption { raw } => NetworkReadingDto {
-                    kind: NetworkReadingKind::UnknownOption,
-                    is_on: None,
-                    label: None,
-                    number: None,
-                    raw,
-                },
-                EntityReading::Number(n) => NetworkReadingDto {
-                    kind: NetworkReadingKind::Number,
-                    is_on: None,
-                    label: None,
-                    number: Some(n),
-                    raw: format_number(n),
-                },
-                EntityReading::Text(raw) => NetworkReadingDto {
-                    kind: NetworkReadingKind::Text,
-                    is_on: None,
-                    label: None,
-                    number: None,
-                    raw,
-                },
-            }
-        }),
-    )
+    Ok(crate::protocol::soap::read_entity(&spec, entity, &returned).map(reading_to_dto))
+}
+
+/// One [`EntityReading`] as the DTO Dart draws — shared by the SOAP and HTTP
+/// read paths so a reading means the same thing whichever transport carried
+/// it.
+fn reading_to_dto(reading: crate::protocol::soap::EntityReading) -> NetworkReadingDto {
+    use crate::protocol::soap::EntityReading;
+    match reading {
+        EntityReading::OnOff(on) => NetworkReadingDto {
+            kind: NetworkReadingKind::OnOff,
+            is_on: Some(on),
+            label: None,
+            number: None,
+            raw: if on { "1" } else { "0" }.to_string(),
+        },
+        EntityReading::Option { raw, label } => NetworkReadingDto {
+            kind: NetworkReadingKind::Option,
+            is_on: None,
+            label: Some(label),
+            number: None,
+            raw,
+        },
+        EntityReading::UnknownOption { raw } => NetworkReadingDto {
+            kind: NetworkReadingKind::UnknownOption,
+            is_on: None,
+            label: None,
+            number: None,
+            raw,
+        },
+        EntityReading::Number(n) => NetworkReadingDto {
+            kind: NetworkReadingKind::Number,
+            is_on: None,
+            label: None,
+            number: Some(n),
+            raw: format_number(n),
+        },
+        EntityReading::Text(raw) => NetworkReadingDto {
+            kind: NetworkReadingKind::Text,
+            is_on: None,
+            label: None,
+            number: None,
+            raw,
+        },
+    }
 }
 
 /// A number as its shortest honest string: `240` not `240.0`, `53.2` intact.
@@ -1484,6 +1614,320 @@ fn format_number(n: f64) -> String {
     } else {
         n.to_string()
     }
+}
+
+// ── Network (HTTP) hub control ──────────────────────────────────────────────
+//
+// A hub is a population rather than a device, so two jobs join the render
+// side (`render_network_http_command`, above): enumerating the children one
+// state reply carries, and reading one child's roles out of it. Dart owns the
+// I/O (TLS, the credential store, the socket); this side owns everything the
+// spec knows.
+
+/// One child behind a hub, as enumerated from a state reply.
+#[derive(Debug, Clone)]
+pub struct NetworkInstanceDto {
+    /// The hub's own id for the child — what fills each action's
+    /// `instance_params` when sending.
+    pub id: String,
+    /// The child's human-facing name, falling back to the id.
+    pub label: String,
+}
+
+/// One role's reading on one child — `is_on`, `brightness`, … paired with
+/// its decoded value.
+#[derive(Debug, Clone)]
+pub struct NetworkRoleReadingDto {
+    pub role: String,
+    pub reading: NetworkReadingDto,
+}
+
+/// Render the request that reads a state command's values over HTTP — on an
+/// instanced entity, the one GET that enumerates every child and carries all
+/// their state. `values` fills the path's placeholders (the pairing
+/// credential, on the Hue bridge); a missing one fails the render, the same
+/// visible failure a credential-less write gets.
+pub fn render_network_http_state_request(
+    spec_yaml: String,
+    state_command: String,
+    values: HashMap<String, String>,
+) -> anyhow::Result<HttpRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request = crate::protocol::http::render_state_request(
+        &spec,
+        &state_command,
+        &values.into_iter().collect(),
+    )?;
+    Ok(HttpRequestDto::from(request))
+}
+
+/// Enumerate the children an instanced entity's state reply carries, in the
+/// hub's own order (numeric ids numerically, so light 2 lists before 10).
+pub fn list_network_instances(
+    spec_yaml: String,
+    entity_name: String,
+    state_reply: String,
+) -> anyhow::Result<Vec<NetworkInstanceDto>> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let entity = find_entity(&spec, &entity_name)?;
+    Ok(crate::protocol::http::list_instances(entity, &state_reply)?
+        .into_iter()
+        .map(|instance| NetworkInstanceDto {
+            id: instance.id,
+            label: instance.label,
+        })
+        .collect())
+}
+
+/// Read one child's roles out of an instanced entity's state reply. Empty
+/// for a child the reply no longer carries — which renders as unknown, never
+/// as a fabricated "off".
+pub fn read_network_instance(
+    spec_yaml: String,
+    entity_name: String,
+    state_reply: String,
+    instance_id: String,
+) -> anyhow::Result<Vec<NetworkRoleReadingDto>> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let entity = find_entity(&spec, &entity_name)?;
+    Ok(
+        crate::protocol::http::read_instance_entity(entity, &state_reply, &instance_id)?
+            .into_iter()
+            .map(|(role, reading)| NetworkRoleReadingDto {
+                role,
+                reading: reading_to_dto(reading),
+            })
+            .collect(),
+    )
+}
+
+fn find_entity<'a>(
+    spec: &'a crate::spec::types::DeviceSpec,
+    entity_name: &str,
+) -> anyhow::Result<&'a crate::spec::types::Entity> {
+    spec.entities
+        .iter()
+        .find(|e| e.name == entity_name)
+        .ok_or_else(|| anyhow::anyhow!("no entity named '{entity_name}' in this spec"))
+}
+
+// ── LIFX (binary UDP) ───────────────────────────────────────────────────────
+// LIFX speaks a binary LAN protocol over UDP unicast, not text-over-TCP like
+// SOAP/HTTP. So instead of a rendered request DTO the caller POSTs, these return
+// the datagram *bytes* the caller sends over its own UDP socket, and take the
+// reply bytes back to decode — the byte-in/byte-out shape of the BLE codec, one
+// transport over. See `crate::protocol::lifx`.
+
+/// The UDP port every LIFX device listens on. Exposed so the Dart client need
+/// not hardcode it separately from the protocol module.
+pub fn lifx_port() -> u16 {
+    crate::protocol::lifx::PORT
+}
+
+/// Render one LIFX control action into the datagram bytes to send.
+///
+/// `action` is a `command_name` from [`network_entities_for_device`] on a LIFX
+/// spec (`turn_on`, `set_color`, `set_zone_color`, …); `params` carries the
+/// UI-owned values (`red`/`green`/`blue`/`brightness` on 0..=255, `kelvin` on
+/// 1500..=9000, `zone` a zone index). `target_mac` is `d0:73:d5:…` or empty for
+/// a device not yet identified (the all-zero target unicast firmware accepts).
+/// `sequence` is the caller's counter, echoed in any reply for correlation.
+pub fn render_lifx_command(
+    action: String,
+    params: HashMap<String, f64>,
+    target_mac: String,
+    sequence: u8,
+) -> anyhow::Result<Vec<u8>> {
+    let target = crate::protocol::lifx::parse_mac(&target_mac);
+    Ok(crate::protocol::lifx::render_command(
+        &action, &params, target, sequence,
+    )?)
+}
+
+/// The tagged-broadcast `GetService` datagram — the discovery probe every LIFX
+/// device answers with a `StateService`.
+pub fn build_lifx_discovery_probe(sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_service(sequence)
+}
+
+/// The `LightGet` datagram that asks a device for its current colour and power.
+pub fn build_lifx_state_request(target_mac: String, sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_color(crate::protocol::lifx::parse_mac(&target_mac), sequence)
+}
+
+/// The `GetColorZones` datagram asking for the colours of zones `start..=end`.
+pub fn build_lifx_zones_request(target_mac: String, start: u8, end: u8, sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_color_zones(
+        crate::protocol::lifx::parse_mac(&target_mac),
+        start,
+        end,
+        sequence,
+    )
+}
+
+/// A decoded `StateService` reply: which device answered (MAC), on which
+/// service (1 = UDP) and port. The IP is the datagram's source address, which
+/// the socket already knows.
+#[derive(Debug, Clone)]
+pub struct LifxServiceDto {
+    pub mac: String,
+    pub service: u8,
+    pub port: u32,
+}
+
+/// A decoded light `State` reply, in the units the UI works in: RGB and
+/// brightness on 0..=255 for the colour swatch and slider, plus the raw HSBK
+/// channels and the device's label.
+#[derive(Debug, Clone)]
+pub struct LifxStateDto {
+    pub power_on: bool,
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub brightness: u8,
+    pub hue: u16,
+    pub saturation: u16,
+    pub kelvin: u16,
+    pub label: String,
+}
+
+/// One zone's colour, RGB + brightness on 0..=255.
+#[derive(Debug, Clone)]
+pub struct LifxZoneColorDto {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+    pub brightness: u8,
+}
+
+/// A decoded multizone reply: the strip's total zone count, the index this
+/// batch starts at, and the colours it carries.
+#[derive(Debug, Clone)]
+pub struct LifxZonesDto {
+    pub zones_count: u8,
+    pub zone_index: u8,
+    pub colors: Vec<LifxZoneColorDto>,
+}
+
+/// Format a 6-byte MAC as the `d0:73:d5:00:04:a3` string the UI and discovery
+/// key on.
+fn format_mac(mac: [u8; 6]) -> String {
+    mac.iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+fn brightness_to_byte(brightness: u16) -> u8 {
+    (f64::from(brightness) / f64::from(u16::MAX) * 255.0).round() as u8
+}
+
+/// Decode a `StateService` datagram (the discovery reply).
+pub fn parse_lifx_state_service(bytes: Vec<u8>) -> anyhow::Result<LifxServiceDto> {
+    let s = crate::protocol::lifx::parse_state_service(&bytes)?;
+    Ok(LifxServiceDto {
+        mac: format_mac(s.mac),
+        service: s.service,
+        port: s.port,
+    })
+}
+
+/// Decode a light `State` (107) datagram into a UI-facing reading.
+pub fn decode_lifx_state(bytes: Vec<u8>) -> anyhow::Result<LifxStateDto> {
+    let s = crate::protocol::lifx::parse_state(&bytes)?;
+    let (red, green, blue) = crate::protocol::lifx::hsbk_to_rgb(&s.color);
+    Ok(LifxStateDto {
+        power_on: s.power_on,
+        red,
+        green,
+        blue,
+        brightness: brightness_to_byte(s.color.brightness),
+        hue: s.color.hue,
+        saturation: s.color.saturation,
+        kelvin: s.color.kelvin,
+        label: s.label,
+    })
+}
+
+/// Decode a `StateMultiZone` (506) or `StateZone` (503) datagram into per-zone
+/// colours. Routed by the datagram's own message type.
+pub fn decode_lifx_zones(bytes: Vec<u8>) -> anyhow::Result<LifxZonesDto> {
+    use crate::protocol::lifx::{decode_reply, Reply};
+    let mz = match decode_reply(&bytes)? {
+        Reply::Zones(mz) => mz,
+        other => anyhow::bail!("expected a zone reply, got {other:?}"),
+    };
+    Ok(LifxZonesDto {
+        zones_count: mz.zones_count,
+        zone_index: mz.zone_index,
+        colors: mz
+            .colors
+            .iter()
+            .map(|c| {
+                let (red, green, blue) = crate::protocol::lifx::hsbk_to_rgb(c);
+                LifxZoneColorDto {
+                    red,
+                    green,
+                    blue,
+                    brightness: brightness_to_byte(c.brightness),
+                }
+            })
+            .collect(),
+    })
+}
+
+// ── LIFX SoftAP provisioning ─────────────────────────────────────────────────
+// The legacy access-point family that onboards an unprovisioned strip onto WiFi,
+// spoken over the device's own setup AP. The exchange is unauthenticated and the
+// passphrase is plaintext (the setup AP is the only transport protection), so the
+// caller must send it once and never persist it. Unverified against hardware and
+// legacy-firmware only — Matter-era units onboard over BLE and ignore these.
+
+/// One network an unprovisioned device reported it can see (a `StateAccessPoint`
+/// reply), for the user to pick from.
+#[derive(Debug, Clone)]
+pub struct LifxAccessPointDto {
+    pub ssid: String,
+    /// The `SECURITY_PROTOCOL` byte (1 OPEN, 3 WPA-TKIP, 5 WPA2-AES, …), passed
+    /// straight back in the `SetAccessPoint` for the chosen network.
+    pub security: u8,
+    /// Signal strength as the device reported it (higher is stronger).
+    pub strength: i32,
+    pub channel: u16,
+}
+
+/// The default `SECURITY_PROTOCOL` (WPA2-AES) to try for a manually-typed SSID
+/// that never appeared in a scan.
+pub fn lifx_default_security() -> u8 {
+    crate::protocol::lifx::SECURITY_WPA2_AES
+}
+
+/// The `GetAccessPoints` datagram that asks an unprovisioned device to scan.
+pub fn build_lifx_get_access_points(sequence: u8) -> Vec<u8> {
+    crate::protocol::lifx::get_access_points(sequence)
+}
+
+/// The `SetAccessPoint` datagram handing the device its home-network
+/// credentials. `password` is sent in plaintext (the legacy exchange has no
+/// credential encryption) — do not persist it.
+pub fn render_lifx_set_access_point(
+    ssid: String,
+    password: String,
+    security: u8,
+    sequence: u8,
+) -> Vec<u8> {
+    crate::protocol::lifx::set_access_point(&ssid, &password, security, sequence)
+}
+
+/// Decode a `StateAccessPoint` (0x132) scan-result datagram.
+pub fn decode_lifx_access_point(bytes: Vec<u8>) -> anyhow::Result<LifxAccessPointDto> {
+    let ap = crate::protocol::lifx::parse_state_access_point(&bytes)?;
+    Ok(LifxAccessPointDto {
+        ssid: ap.ssid,
+        security: ap.security,
+        strength: i32::from(ap.strength),
+        channel: ap.channel,
+    })
 }
 
 /// The axes on which one spec identity matched one observation. Every field is
@@ -2069,6 +2513,16 @@ pub fn encode_command(
     command_name: String,
     params: HashMap<String, f64>,
 ) -> anyhow::Result<Vec<u8>> {
+    // With a spec AND a service, the lookup is confined to that service:
+    // characteristic UUIDs repeat across services with different command
+    // tables, and a caller naming both halves of the pair (the group runner)
+    // must get the pair it named. Spec-only keeps the historical whole-spec
+    // search; service-only still selects a standard profile.
+    if let (Some(yaml), Some(service)) = (spec_yaml.as_deref(), &service_uuid) {
+        let spec = crate::protocol::dispatch::parse_or_cached(yaml)?;
+        let proto = crate::protocol::generic::GenericProtocol::scoped(spec, Some(service.clone()));
+        return Ok(proto.encode_command(&char_uuid, &command_name, &params)?);
+    }
     let proto = select_protocol(spec_yaml.as_deref(), service_uuid.as_deref())?;
     Ok(proto.encode_command(&char_uuid, &command_name, &params)?)
 }

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:multicast_dns/multicast_dns.dart';
 
@@ -19,6 +20,52 @@ const _serviceEnumerationQuery = '_services._dns-sd._udp.local';
 
 const _ssdpAddress = '239.255.255.250';
 const _ssdpPort = 1900;
+
+/// LIFX LAN-protocol discovery. LIFX devices answer a broadcast `GetService`
+/// (message type 2) with a `StateService` (type 3) whose header carries the
+/// device MAC. This is the only reliable way to find LIFX hardware — a shared
+/// `_hap._tcp` mDNS sighting ranks only "possible", and Matter-firmware units
+/// drop `_hap._tcp` entirely — and a LIFX-shaped answer is a strong, non-shared
+/// identity. The synthetic search target below is what a matched device is keyed
+/// on, mirrored by the spec's `identification.ssdp_search_targets`.
+const _lifxPort = 56700;
+const _lifxBroadcast = '255.255.255.255';
+const _lifxSearchTarget = 'lifx:udp';
+
+/// The tagged-broadcast `GetService` probe (sequence 0). Byte-for-byte the
+/// packet `crate::protocol::lifx::get_service(0)` builds. Discovery reads only a
+/// reply's message type and 6-byte MAC, so it builds the probe and parses those
+/// fields here in Dart rather than crossing the FFI for every datagram — exactly
+/// as the SSDP and mDNS transports parse their own replies. A unit test pins the
+/// bytes so the Dart and Rust builders cannot drift.
+Uint8List lifxGetServiceProbe() {
+  final packet = Uint8List(36);
+  packet[0] = 36; // size (u16 LE): header only, no payload
+  packet[2] = 0x00; // protocol | addressable | tagged = 0x3400 (u16 LE)
+  packet[3] = 0x34;
+  // source = "LBRG" (0x4C425247) little-endian, echoed in replies so a device's
+  // answer can be told from another controller's traffic on the segment.
+  packet[4] = 0x47;
+  packet[5] = 0x52;
+  packet[6] = 0x42;
+  packet[7] = 0x4C;
+  packet[22] = 0x01; // res_required
+  packet[32] = 2; // message type: GetService
+  return packet;
+}
+
+/// The device MAC from a `StateService` (type 3) reply, or null for any other
+/// datagram. LIFX packs the 6-byte MAC into the header's target field at
+/// offset 8.
+String? lifxStateServiceMac(List<int> data) {
+  if (data.length < 36) return null;
+  final type = data[32] | (data[33] << 8);
+  if (type != 3) return null;
+  return data
+      .sublist(8, 14)
+      .map((b) => b.toRadixString(16).padLeft(2, '0'))
+      .join(':');
+}
 
 /// Parse an SSDP response into its headers, lowercased keys.
 ///
@@ -233,6 +280,10 @@ class RealNetworkScanService implements NetworkScanService {
           _runSsdp(session, emit, timeout, extraSearchTargets)
               .catchError((Object e) {
             Log.net.warning('SSDP discovery failed', error: e);
+            return TransportOutcome.failed;
+          }),
+          _runLifx(session, emit, timeout).catchError((Object e) {
+            Log.net.warning('LIFX discovery failed', error: e);
             return TransportOutcome.failed;
           }),
         ]);
@@ -497,6 +548,66 @@ class RealNetworkScanService implements NetworkScanService {
     }
   }
 
+  /// Broadcast a LIFX `GetService` and collect the `StateService` replies.
+  ///
+  /// The third discovery transport, alongside mDNS and SSDP. A LIFX-shaped
+  /// answer identifies a device far more confidently than the shared
+  /// `_hap._tcp` mDNS type it also advertises, and it is the only signal a
+  /// Matter-firmware unit gives at all. Any datagram counts as
+  /// [TransportOutcome.heard] — the question is whether replies reach this app —
+  /// but only a `StateService` becomes a device row.
+  Future<TransportOutcome> _runLifx(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
+        reuseAddress: true);
+    session.lifxSocket = socket;
+    socket.broadcastEnabled = true;
+    var heard = false;
+    try {
+      final probe = lifxGetServiceProbe();
+      final target = InternetAddress(_lifxBroadcast);
+      // Sent more than once: UDP is lossy, and a dropped probe means a strip
+      // that is simply never heard from.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(probe, target, _lifxPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        heard = true;
+        final mac = lifxStateServiceMac(datagram.data);
+        if (mac == null) continue;
+        emit(NetworkDevice(
+          host: datagram.address.address,
+          name: '',
+          port: _lifxPort,
+          ssdpTargets: const [_lifxSearchTarget],
+          txt: {'mac': mac},
+          sources: const {NetworkDiscoverySource.ssdp},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.lifxSocket = null;
+    }
+  }
+
   /// End [session]: stop its transports, and give the multicast lock back if
   /// it is still the session holding it.
   ///
@@ -531,6 +642,7 @@ class RealNetworkScanService implements NetworkScanService {
 class _ScanSession {
   MDnsClient? mdns;
   RawDatagramSocket? ssdpSocket;
+  RawDatagramSocket? lifxSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -553,5 +665,7 @@ class _ScanSession {
     mdns = null;
     ssdpSocket?.close();
     ssdpSocket = null;
+    lifxSocket?.close();
+    lifxSocket = null;
   }
 }

@@ -806,6 +806,283 @@ void main() {
       );
     });
 
+    test(
+        'a second subscriber keeps notifications alive when the first '
+        'cancels', () async {
+      // Issue #29: six sensor tiles and the raw service card all subscribe to
+      // one combined-packet characteristic, and the panel's ListView disposes
+      // children scrolled out of cache. The CCCD must only be disabled when
+      // the LAST subscriber goes away.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final first = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      final received = <List<int>>[];
+      final second = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // The enable is shared, not repeated per subscriber.
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        hasLength(1),
+        reason: 'two subscribers should share one CCCD enable',
+      );
+
+      await first.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        ble.platformCalls,
+        isNot(contains('setNotify:${EmulatedUuids.batteryLevel}=false')),
+        reason: 'the second subscriber still wants notifications',
+      );
+
+      // And they still flow.
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [70]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(received, [
+        [70]
+      ]);
+
+      await second.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        ble.platformCalls,
+        contains('setNotify:${EmulatedUuids.batteryLevel}=false'),
+        reason: 'the last cancel is the one that quiets the peripheral',
+      );
+    });
+
+    test(
+        'a cancel parked on an in-flight enable never disables a successor '
+        'subscription', () async {
+      // The freeze issue #29's refcount exists to prevent, through a second
+      // door: A cancels while its shared enable is still in flight, the
+      // deferred disable parks on that enable, B re-subscribes meanwhile.
+      // The disable must yield to B's fresh share instead of landing last
+      // and silencing it.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      // No CCCD confirmations: every enable resolves only after the 3s
+      // spurious-timeout window, which is the in-flight window under test.
+      bulb.confirmsCccdWrites = false;
+      await service.connect(_bulbId);
+
+      final first = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      // Cancel while the enable is mid-flight; do not await — the release
+      // itself is what parks on the enable.
+      unawaited(first.cancel());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final received = <List<int>>[];
+      final second = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+
+      // Both enables ride out their 3s windows (they serialize on fbp's
+      // operation mutex), plus slack.
+      await Future<void>.delayed(const Duration(milliseconds: 7000));
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false'),
+        isEmpty,
+        reason: "A's deferred disable must yield to B's live share",
+      );
+
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [61]);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(received, [
+        [61]
+      ]);
+      await second.cancel();
+    });
+
+    test('a subscription abandoned before its enable writes no CCCD at all',
+        () async {
+      // Cancelling before the characteristic lookup finishes must abort the
+      // shared enable: a CCCD write (and on pairing-required peripherals,
+      // the system pairing dialog behind it) for zero subscribers is pure
+      // harm.
+      ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      // Cancel in the same turn, before discovery's microtask confirmation
+      // can complete the lookup.
+      await sub.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('setNotify:')),
+        isEmpty,
+        reason: 'nobody was left to enable notifications for',
+      );
+    });
+
+    test(
+        'a redundant connect keeps live shares, and connection claims keep '
+        'the link up until the last owner leaves', () async {
+      // flutter_blue_plus no-ops connect() on an open link, so CCCD state
+      // survives — live shares must too. And with two claims on the link
+      // (device screen + group run), the first disconnect must not tear it
+      // down under the other.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final received = <List<int>>[];
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      await service.connect(_bulbId); // second owner, same open link
+      await service.disconnect(_bulbId); // first owner leaves
+
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('disconnect:')),
+        isEmpty,
+        reason: 'one owner remains; the link must stay up',
+      );
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [58]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+          received,
+          [
+            [58]
+          ],
+          reason: 'the share survived the redundant connect');
+
+      await sub.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        ble.platformCalls,
+        contains('setNotify:${EmulatedUuids.batteryLevel}=false'),
+        reason: 'the share was not orphaned: last cancel still disables',
+      );
+
+      await service.disconnect(_bulbId); // last owner leaves
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('disconnect:')),
+        isNotEmpty,
+      );
+    });
+
+    test(
+        'a connect issued while the first is still in flight does not '
+        'expire the shares that first owner goes on to install', () async {
+      // Both connects are issued while the device is down. With a pre-await
+      // isConnected snapshot, both would read "this call turned the link
+      // over" — and whichever resumed second would expire the notify shares
+      // the first owner had installed on the (single, shared) link by then.
+      // Connects serialize per device instead, so the second call observes
+      // the link the first established and leaves its shares alone.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      final first = service.connect(_bulbId);
+      final second = service.connect(_bulbId);
+      await first;
+
+      final received = <List<int>>[];
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await second;
+
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [42]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+          received,
+          [
+            [42]
+          ],
+          reason: 'the trailing connect must not have expired the share');
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        hasLength(1),
+        reason: 'one live share, enabled once — never expired and redone',
+      );
+
+      // Both queued connects took a claim: the first release keeps the link.
+      await sub.cancel();
+      await service.disconnect(_bulbId);
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('disconnect:')),
+        isEmpty,
+        reason: 'the second (serialized) connect still owns a claim',
+      );
+      await service.disconnect(_bulbId);
+      expect(
+        ble.platformCalls.where((c) => c.startsWith('disconnect:')),
+        isNotEmpty,
+      );
+    });
+
+    test(
+        'a reconnect enables notifications afresh even with a stale '
+        'subscription open', () async {
+      // A subscription from a previous link that was never cancelled must
+      // neither satisfy the new link's enable (CCCD state died with the old
+      // connection) nor, when finally cancelled, disable notifications under
+      // the new link's subscribers.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+      final stale = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await service.disconnect(_bulbId);
+
+      await service.connect(_bulbId);
+      final received = <List<int>>[];
+      final fresh = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen(received.add);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=true'),
+        hasLength(2),
+        reason: 'the new link needs its own CCCD enable',
+      );
+
+      // The stale handle finally goes away; the fresh subscriber must not
+      // lose its stream over it.
+      await stale.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        ble.platformCalls
+            .where((c) => c == 'setNotify:${EmulatedUuids.batteryLevel}=false'),
+        isEmpty,
+        reason: 'a dead share never writes into the new connection',
+      );
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [66]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(received, [
+        [66]
+      ]);
+
+      await fresh.cancel();
+    });
+
     test('drops notifications sent after the subscription is torn down',
         () async {
       final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));

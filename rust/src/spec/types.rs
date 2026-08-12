@@ -506,11 +506,49 @@ pub struct Entity {
     /// Maps entity roles onto the named fields of the characteristic's
     /// `format:` block — e.g. `value: battery_percent` for a sensor, or
     /// `is_on: power_state` for a light. Left untyped because the key set
-    /// differs per platform.
+    /// differs per platform. On an instanced HTTP entity the values are
+    /// dotted JSON paths that resolve inside one child's object
+    /// (`is_on: state.on`).
     #[serde(default)]
     pub state_mapping: HashMap<String, serde_yaml::Value>,
+    /// Declares this entity a template stamped out per child behind a hub:
+    /// the `state_command` reply is a JSON object keyed by child id, and
+    /// each id fills the like-named `instance:` parameter of the bound
+    /// commands. Tolerantly parsed — a block this crate cannot read yields
+    /// `None`, and the entity degrades to a non-instanced one that resolves
+    /// no readings, which is the schema's own documented fallback.
+    #[serde(default, deserialize_with = "de_instances")]
+    pub instances: Option<EntityInstances>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// The `instances:` block of a hub-child template entity.
+#[derive(Debug, Clone, Deserialize)]
+pub struct EntityInstances {
+    /// Name of the identifier the state reply is keyed by — and of the
+    /// `instance:` parameter the bound commands substitute it into. The
+    /// shared name is the coupling.
+    pub keyed_by: String,
+    /// Dotted path, inside one child's object, to its human-facing name.
+    /// Absent means callers fall back to the bare id.
+    #[serde(default)]
+    pub label_path: Option<String>,
+    #[serde(flatten)]
+    pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// Tolerant `instances:` deserializer: a block whose shape this crate cannot
+/// read yields `None` instead of failing the spec — the schema's documented
+/// fallback for a consumer that predates the key. A consumer that DOES know
+/// the key must not be stricter, so a future spec extending the block still
+/// loads here.
+fn de_instances<'de, D>(deserializer: D) -> Result<Option<EntityInstances>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<serde_yaml::Value>::deserialize(deserializer)?;
+    Ok(raw.and_then(|value| serde_yaml::from_value(value).ok()))
 }
 
 impl Entity {
@@ -676,6 +714,51 @@ impl DeviceSpec {
     /// The write-path mirror of [`Self::find_decodable_characteristic`].
     pub fn find_writable_characteristic(&self, uuid: &str) -> Option<(&Service, &Characteristic)> {
         self.find_characteristic_where(uuid, |c| c.commands.is_some())
+    }
+
+    /// The `http_endpoints` entry named `name`, out of the untyped extension
+    /// block. Endpoints stay untyped — each transport reads two or three keys
+    /// and the catalogue's entries vary widely — so this hands back the raw
+    /// value for the caller to pick from.
+    pub fn http_endpoint(&self, name: &str) -> Option<&serde_yaml::Value> {
+        self.extensions
+            .get("http_endpoints")?
+            .as_sequence()?
+            .iter()
+            .find(|entry| entry.get("name").and_then(|n| n.as_str()) == Some(name))
+    }
+
+    /// [`Self::find_writable_characteristic`], confined to one service.
+    ///
+    /// Characteristic UUIDs repeat across services (vendor channels reuse
+    /// 0xFFE1-style UUIDs, and one spec can bind the same UUID to different
+    /// command tables per service), so a caller that knows which service it
+    /// means — the group runner carries the resolved action's own pair — must
+    /// not be answered from a twin under another service. Matching accepts
+    /// short and long spellings of the same SIG-assigned UUID, since callers
+    /// hand back what discovery reported.
+    pub fn find_writable_characteristic_in(
+        &self,
+        service_uuid: &str,
+        char_uuid: &str,
+    ) -> Option<(&Service, &Characteristic)> {
+        let target = crate::protocol::profiles::normalize_uuid(service_uuid);
+        let mut fallback = None;
+        for service in &self.services {
+            if crate::protocol::profiles::normalize_uuid(&service.uuid) != target {
+                continue;
+            }
+            for characteristic in &service.characteristics {
+                if !characteristic.uuid.eq_ignore_ascii_case(char_uuid) {
+                    continue;
+                }
+                if characteristic.commands.is_some() {
+                    return Some((service, characteristic));
+                }
+                fallback.get_or_insert((service, characteristic));
+            }
+        }
+        fallback
     }
 
     /// Entities that actually bind to a characteristic in this spec.

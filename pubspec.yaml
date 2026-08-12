@@ -16,6 +16,13 @@ dependencies:
   flutter_riverpod: ^2.4.0
   flutter_secure_storage: ^9.2.0
   http: ^1.2.0
+  # sha256 for the hub TLS trust-on-first-use pin (hub_http_client.dart) and
+  # for the ECP2 signed-session handshake (ecp2_control_service.dart).
+  crypto: ^3.0.7
+  # A test-advanceable clock: hue_pairing_service.dart reads its pairing
+  # deadline off clock.now() so widget tests cross the window with pump(),
+  # while production stays on DateTime.now(). Already transitive via fake_async.
+  clock: ^1.1.1
   path_provider: ^2.1.0
   permission_handler: ^11.3.0
   shared_preferences: ^2.2.0
@@ -28,7 +35,6 @@ dependencies:
   liberated_bread_core:
     path: rust_builder
   multicast_dns: ^0.3.3+1
-  crypto: ^3.0.7
 
 dev_dependencies:
   flutter_test:

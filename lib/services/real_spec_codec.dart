@@ -142,6 +142,44 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
+  Future<HttpRequestDto> renderNetworkHttpStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required Map<String, String> values,
+  }) =>
+      rust.renderNetworkHttpStateRequest(
+        specYaml: specYaml,
+        stateCommand: stateCommand,
+        values: values,
+      );
+
+  @override
+  Future<List<NetworkInstanceDto>> listNetworkInstances({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+  }) =>
+      rust.listNetworkInstances(
+        specYaml: specYaml,
+        entityName: entityName,
+        stateReply: stateReply,
+      );
+
+  @override
+  Future<List<NetworkRoleReadingDto>> readNetworkInstance({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+    required String instanceId,
+  }) =>
+      rust.readNetworkInstance(
+        specYaml: specYaml,
+        entityName: entityName,
+        stateReply: stateReply,
+        instanceId: instanceId,
+      );
+
+  @override
   Future<SoapRequestDto> renderNetworkStateRequest({
     required String specYaml,
     required String stateCommand,
@@ -245,4 +283,84 @@ class RealSpecCodec implements SpecCodec {
     required int cid,
   }) =>
       rust.encodeStoredPlay(specYaml: specYaml, cid: cid);
+
+  @override
+  Future<int> lifxPort() => rust.lifxPort();
+
+  @override
+  Future<Uint8List> renderLifxCommand({
+    required String action,
+    required Map<String, double> params,
+    required String targetMac,
+    required int sequence,
+  }) =>
+      rust.renderLifxCommand(
+        action: action,
+        params: params,
+        targetMac: targetMac,
+        sequence: sequence,
+      );
+
+  @override
+  Future<Uint8List> buildLifxDiscoveryProbe({required int sequence}) =>
+      rust.buildLifxDiscoveryProbe(sequence: sequence);
+
+  @override
+  Future<Uint8List> buildLifxStateRequest({
+    required String targetMac,
+    required int sequence,
+  }) =>
+      rust.buildLifxStateRequest(targetMac: targetMac, sequence: sequence);
+
+  @override
+  Future<Uint8List> buildLifxZonesRequest({
+    required String targetMac,
+    required int start,
+    required int end,
+    required int sequence,
+  }) =>
+      rust.buildLifxZonesRequest(
+        targetMac: targetMac,
+        start: start,
+        end: end,
+        sequence: sequence,
+      );
+
+  @override
+  Future<LifxServiceDto> parseLifxStateService({required List<int> bytes}) =>
+      rust.parseLifxStateService(bytes: bytes);
+
+  @override
+  Future<LifxStateDto> decodeLifxState({required List<int> bytes}) =>
+      rust.decodeLifxState(bytes: bytes);
+
+  @override
+  Future<LifxZonesDto> decodeLifxZones({required List<int> bytes}) =>
+      rust.decodeLifxZones(bytes: bytes);
+
+  @override
+  Future<int> lifxDefaultSecurity() => rust.lifxDefaultSecurity();
+
+  @override
+  Future<Uint8List> buildLifxGetAccessPoints({required int sequence}) =>
+      rust.buildLifxGetAccessPoints(sequence: sequence);
+
+  @override
+  Future<Uint8List> renderLifxSetAccessPoint({
+    required String ssid,
+    required String password,
+    required int security,
+    required int sequence,
+  }) =>
+      rust.renderLifxSetAccessPoint(
+        ssid: ssid,
+        password: password,
+        security: security,
+        sequence: sequence,
+      );
+
+  @override
+  Future<LifxAccessPointDto> decodeLifxAccessPoint(
+          {required List<int> bytes}) =>
+      rust.decodeLifxAccessPoint(bytes: bytes);
 }

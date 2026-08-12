@@ -61,3 +61,13 @@ tool/branding/package-lock.json
 # Device logs from scripts/ci-emulator-tests.sh (CI uploads them as artifacts;
 # running it locally drops them here)
 emulator-logcat*.txt
+
+# The iOS half of the same thing, from scripts/ci-ios-tests.sh. This entry was
+# missing while the Android one was present, and the two zero-byte files it
+# should have covered were committed by accident in 28fa427 — the very commit
+# that taught the script to write them. Running the script locally (which the
+# script is written to support) then rewrites tracked files, so `git status`
+# shows a diff nobody made and a real run's multi-MB device log is one
+# `git commit -a` away from the history.
+ios-simulator-log*.txt
+ios-crash-reports/

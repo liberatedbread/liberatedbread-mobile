@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/log.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
+import '../services/lifx_control_service.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import 'device_spec_match_provider.dart';
@@ -26,6 +27,11 @@ final httpControlClientProvider =
 /// substitution rule: tests drive it from a scripted socket, not a network.
 final ecp2ControlServiceProvider =
     Provider<Ecp2ControlService>((ref) => Ecp2ControlService());
+
+/// The LIFX binary-UDP transport — same substitution rule, for tests that
+/// answer (or drop) a datagram with a fake socket instead of a real strip.
+final lifxControlClientProvider =
+    Provider<LifxControlClient>((ref) => LifxControlClient());
 
 /// Identity of one network device the control layer is asked about.
 ///
@@ -58,14 +64,20 @@ class NetworkControlRequest {
 }
 
 /// The matched spec's YAML plus the controls it declares for this device, or
-/// null when the matched spec declares none (a hub, a printer — most of the
-/// network catalogue). Null is what keeps the plain details sheet for those.
+/// null when the matched spec declares none (a printer — much of the network
+/// catalogue). Null is what keeps the plain details sheet for those.
 @immutable
 class NetworkControls {
   final String specYaml;
   final List<NetworkEntityDto> entities;
 
   const NetworkControls({required this.specYaml, required this.entities});
+
+  /// Whether these controls describe a hub — a device fronting children that
+  /// must be paired with and enumerated. This is what routes the tap: Roku is
+  /// `http` too but has no instanced children and no pairing, so it keeps the
+  /// ordinary control screen; only a hub gets the paired one.
+  bool get isHub => entities.any((e) => e.isInstanced);
 }
 
 /// Resolve what the catalogue lets us control on one network device.

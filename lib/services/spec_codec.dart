@@ -45,9 +45,17 @@ export '../src/rust/api/device_api.dart'
         NetworkReadBackDto,
         NetworkReadingDto,
         NetworkReadingKind,
+        NetworkSourceParamDto,
+        NetworkInstanceDto,
+        NetworkRoleReadingDto,
         SoapRequestDto,
         HttpRequestDto,
-        QuerySourceDto;
+        QuerySourceDto,
+        LifxServiceDto,
+        LifxStateDto,
+        LifxZoneColorDto,
+        LifxZonesDto,
+        LifxAccessPointDto;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -178,6 +186,34 @@ abstract class SpecCodec {
     required Map<String, String> values,
   });
 
+  /// Render the HTTP request that reads a state command's values — on an
+  /// instanced entity, the one GET that enumerates every child and carries
+  /// all their state. [values] fills the path's placeholders (the pairing
+  /// credential, on a Hue bridge); a missing one fails the render.
+  Future<HttpRequestDto> renderNetworkHttpStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required Map<String, String> values,
+  });
+
+  /// Enumerate the children an instanced entity's state reply carries, in the
+  /// hub's own order.
+  Future<List<NetworkInstanceDto>> listNetworkInstances({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+  });
+
+  /// Read one child's roles out of an instanced entity's state reply. Empty
+  /// for a child the reply no longer carries — rendered as unknown, never as
+  /// a fabricated "off".
+  Future<List<NetworkRoleReadingDto>> readNetworkInstance({
+    required String specYaml,
+    required String entityName,
+    required String stateReply,
+    required String instanceId,
+  });
+
   /// Render the argument-less request that reads a state command's values.
   Future<SoapRequestDto> renderNetworkStateRequest({
     required String specYaml,
@@ -263,4 +299,79 @@ abstract class SpecCodec {
     required String specYaml,
     required int cid,
   });
+
+  // ── LIFX (binary UDP) ─────────────────────────────────────────────────────
+  // LIFX speaks a binary LAN protocol over UDP, so — unlike SOAP/HTTP — these
+  // return the datagram *bytes* the UDP client sends, and take reply bytes back
+  // to decode. The byte-in/byte-out shape of the BLE codec, one transport over.
+
+  /// The UDP port every LIFX device listens on (56700). Sourced from Rust so
+  /// the client never hardcodes a second copy that could drift.
+  Future<int> lifxPort();
+
+  /// Render one LIFX control action into the datagram bytes to send.
+  ///
+  /// [action] is a LIFX entity action's `commandName` (`turn_on`, `set_color`,
+  /// `set_zone_color`, …); [params] carries the UI-owned values
+  /// (`red`/`green`/`blue`/`brightness` on 0–255, `kelvin` 1500–9000, `zone` a
+  /// zone index). [targetMac] is `d0:73:d5:…` or empty for a device not yet
+  /// identified; [sequence] is the caller's counter, echoed in any reply.
+  Future<Uint8List> renderLifxCommand({
+    required String action,
+    required Map<String, double> params,
+    required String targetMac,
+    required int sequence,
+  });
+
+  /// The tagged-broadcast `GetService` probe every LIFX device answers with a
+  /// `StateService`.
+  Future<Uint8List> buildLifxDiscoveryProbe({required int sequence});
+
+  /// The `LightGet` datagram that asks a device for its colour and power.
+  Future<Uint8List> buildLifxStateRequest({
+    required String targetMac,
+    required int sequence,
+  });
+
+  /// The `GetColorZones` datagram asking for the colours of zones [start]–[end].
+  Future<Uint8List> buildLifxZonesRequest({
+    required String targetMac,
+    required int start,
+    required int end,
+    required int sequence,
+  });
+
+  /// Decode a `StateService` discovery reply (MAC, service, port).
+  Future<LifxServiceDto> parseLifxStateService({required List<int> bytes});
+
+  /// Decode a light `State` reply into a UI-facing reading (RGB, brightness,
+  /// power, label).
+  Future<LifxStateDto> decodeLifxState({required List<int> bytes});
+
+  /// Decode a `StateMultiZone`/`StateZone` reply into per-zone colours.
+  Future<LifxZonesDto> decodeLifxZones({required List<int> bytes});
+
+  // ── LIFX SoftAP provisioning ──────────────────────────────────────────────
+  // The legacy access-point family that onboards an unprovisioned strip onto
+  // WiFi over its own setup AP. Unauthenticated, plaintext passphrase — send it
+  // once, never persist it.
+
+  /// The default security byte (WPA2-AES) to try for a manually-typed SSID that
+  /// never appeared in a scan.
+  Future<int> lifxDefaultSecurity();
+
+  /// The `GetAccessPoints` datagram asking an unprovisioned device to scan.
+  Future<Uint8List> buildLifxGetAccessPoints({required int sequence});
+
+  /// The `SetAccessPoint` datagram handing the device its home-network
+  /// credentials. [password] is sent in plaintext — do not persist it.
+  Future<Uint8List> renderLifxSetAccessPoint({
+    required String ssid,
+    required String password,
+    required int security,
+    required int sequence,
+  });
+
+  /// Decode a `StateAccessPoint` scan-result reply.
+  Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes});
 }

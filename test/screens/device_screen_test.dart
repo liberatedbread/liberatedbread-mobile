@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,7 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/screens/find_device_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
@@ -378,5 +381,46 @@ void main() {
       expect(find.text('Address'), findsNothing);
       expect(find.text('Address block'), findsNothing);
     });
+  });
+
+  testWidgets('a resolved spec match lands on the saved-device record',
+      (tester) async {
+    final matched = DeviceSpecDto(
+      deviceName: 'Example Smart Bulb',
+      manufacturer: 'Acme Corp',
+      manufacturerStatus: 'abandoned',
+      protocol: 'ble',
+      category: 'light',
+      localNamePrefixes: const [],
+      serviceUuids: const [],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      ssdpSearchTargets: const [],
+      services: const [],
+      entities: const [],
+    );
+    final fake = FakeBleService(servicesToReturn: const [
+      BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+    ]);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+        matchedDeviceSpecProvider.overrideWith((ref, request) async =>
+            SpecMatchOutcome.auto(MatchedSpec(spec: matched, yaml: 'yaml'))),
+      ],
+      child: MaterialApp(home: DeviceScreen(device: _device)),
+    ));
+    await tester.pumpAndSettle();
+
+    final element = tester.element(find.byType(DeviceScreen));
+    final container = ProviderScope.containerOf(element, listen: false);
+    final saved = container
+        .read(savedDevicesProvider)
+        .firstWhere((d) => d.id == _device.id);
+    expect(saved.category, 'light');
+    expect(saved.specKey, 'Example Smart Bulb|Acme Corp');
   });
 }
