@@ -8,6 +8,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Hub children and paired credentials (P12), building on the `method` that
+  Roku's remote just added to `commands`: two new parameter `source` schemes
+  and one entity key. `credential:<name>` names a per-device secret the
+  client stored at pairing; `instance:<key>` names the id of the child a hub
+  command currently addresses; both inherit the `source` contract that a
+  renderer holding no value must fail the send visibly, because an unpaired
+  client quietly issuing requests is the bug the contract exists to prevent.
+  `entities[].instances` declares an entity a template stamped out per child:
+  the `state_command` reply is a JSON object keyed by child id, enumeration
+  and every child's state in one request, and `state_mapping` paths resolve
+  inside each child's object. The `method`/`path` pair the Roku work
+  introduced now also carries the Hue GET-and-PUT-on-one-resource case in its
+  note. A `headers:` vocabulary (CLIP v2 moves the credential into a header)
+  is deliberately deferred and flagged in the proposal
+- The Hue Bridge spec now walks as well as talks: a `commands:` block
+  (`create_user` pairing plus `light_turn_on` / `light_turn_off` /
+  `light_set_brightness`, each with its rendered `example_body`), an
+  instanced `Hue Light` entity bound to the one `GET …/lights` call that
+  enumerates and reads every child at once, `payload_formats.V1Envelope`
+  capturing the v1 array envelope and the three error types a client must
+  know (101 keep-polling, 1 re-pair, 201 carry-`on:true`), example request
+  and response bodies on the Bridge Config / Create User / Lights / Set
+  Light State endpoints, and the TLS facts a client cannot proceed without —
+  per-device leaf whose CN is the lowercase bridgeid, signed by Signify's
+  private `root-bridge` CA, so the correct verification is CN-check plus
+  trust-on-first-use pinning keyed by bridgeid, never a public-chain check
+  and never an HTTP fallback on pin failure. `scripts/test_hue_spec.py`
+  transcribes pairing, rendering, typed substitution (`bri` renders as a
+  JSON number), child enumeration and the bridgeid-is-the-MAC-in-EUI-64
+  rule from the YAML alone, stdlib only, and diffs them against the spec's
+  own examples — the same keep-it-honest bar `test_wemo_spec.py` set for
+  SOAP. Brightness is 1–254 with `"on": true` riding along, write replies
+  are per-attribute acknowledgements so read-back is mandatory, and the
+  YAML spells the `"on"` key quoted because unquoted `on` is a boolean in
+  YAML 1.1
 - `airthings-wave-family` binds temperature and humidity to each model's
   combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
   `b42e3b98`). The SIG characteristics (2A6E/2A6F) are app-derived and
