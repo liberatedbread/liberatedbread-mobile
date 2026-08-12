@@ -20,7 +20,7 @@ use super::types::{
     TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
-use crate::protocol::{http, soap};
+use crate::protocol::{http, kasa, soap};
 
 /// Whether a characteristic's payloads must pass through a byte transform
 /// this crate does not implement, making any raw write to it wrong on the
@@ -858,6 +858,12 @@ fn qualify_network<'a>(
             {
                 return None;
             }
+        }
+        kasa::TRANSPORT => {
+            // The invocation IS the JSON body; a Kasa command without one has
+            // nothing to send, exactly as a SOAP command without its service
+            // or an HTTP command without its path does.
+            command.body.as_ref()?;
         }
         _ => return None,
     }

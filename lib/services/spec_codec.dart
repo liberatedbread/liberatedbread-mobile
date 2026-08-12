@@ -50,6 +50,7 @@ export '../src/rust/api/device_api.dart'
         NetworkRoleReadingDto,
         SoapRequestDto,
         HttpRequestDto,
+        KasaRequestDto,
         QuerySourceDto,
         LifxServiceDto,
         LifxStateDto,
@@ -219,6 +220,37 @@ abstract class SpecCodec {
     required String specYaml,
     required String stateCommand,
   });
+
+  /// Render a named `transport: tcp-json` command into the JSON to send — the
+  /// Kasa sibling of [renderNetworkCommand]/[renderNetworkHttpCommand], for
+  /// the TP-Link Smart Home protocol (JSON over a raw TCP socket on port 9999).
+  /// The action's `transport` field says which renderer to call.
+  Future<KasaRequestDto> renderNetworkKasaCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+  });
+
+  /// Render the JSON that polls a Kasa state command (`get_sysinfo`) — the Kasa
+  /// counterpart of [renderNetworkStateRequest].
+  Future<KasaRequestDto> renderNetworkKasaStateRequest({
+    required String specYaml,
+    required String stateCommand,
+  });
+
+  /// Encrypt and length-frame a Kasa JSON request for the TCP control socket.
+  /// The XOR-autokey cipher lives in Rust; a client just writes these bytes.
+  Future<List<int>> kasaEncodeFrame({required String json});
+
+  /// Decode a length-framed Kasa TCP reply back to its JSON text. Throws on a
+  /// short/truncated frame rather than returning garbage.
+  Future<String> kasaDecodeFrame({required List<int> frame});
+
+  /// Encrypt a Kasa JSON request as a UDP discovery datagram (no length prefix).
+  Future<List<int>> kasaEncryptDatagram({required String json});
+
+  /// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
+  Future<String> kasaDecodeDatagram({required List<int> datagram});
 
   /// Decode one entity's state from the name→value pairs a state call
   /// returned. Null when the reply did not carry the entity's value — which

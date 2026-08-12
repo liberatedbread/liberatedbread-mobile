@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -1292239895;
+  int get rustContentHash => -1861901751;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -169,6 +169,16 @@ abstract class RustLibApi extends BaseApi {
   Future<List<ProfileInfoDto>> crateApiDeviceApiIdentifyStandardProfiles(
       {required List<String> serviceUuids});
 
+  Future<String> crateApiDeviceApiKasaDecodeDatagram(
+      {required List<int> datagram});
+
+  Future<String> crateApiDeviceApiKasaDecodeFrame({required List<int> frame});
+
+  Future<Uint8List> crateApiDeviceApiKasaEncodeFrame({required String json});
+
+  Future<Uint8List> crateApiDeviceApiKasaEncryptDatagram(
+      {required String json});
+
   Future<int> crateApiDeviceApiLifxDefaultSecurity();
 
   Future<int> crateApiDeviceApiLifxPort();
@@ -248,6 +258,14 @@ abstract class RustLibApi extends BaseApi {
       {required String specYaml,
       required String stateCommand,
       required Map<String, String> values});
+
+  Future<KasaRequestDto> crateApiDeviceApiRenderNetworkKasaCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values});
+
+  Future<KasaRequestDto> crateApiDeviceApiRenderNetworkKasaStateRequest(
+      {required String specYaml, required String stateCommand});
 
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand});
@@ -846,12 +864,114 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String> crateApiDeviceApiKasaDecodeDatagram(
+      {required List<int> datagram}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(datagram, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 18, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiKasaDecodeDatagramConstMeta,
+      argValues: [datagram],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiKasaDecodeDatagramConstMeta =>
+      const TaskConstMeta(
+        debugName: 'kasa_decode_datagram',
+        argNames: ['datagram'],
+      );
+
+  @override
+  Future<String> crateApiDeviceApiKasaDecodeFrame({required List<int> frame}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(frame, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 19, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiKasaDecodeFrameConstMeta,
+      argValues: [frame],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiKasaDecodeFrameConstMeta =>
+      const TaskConstMeta(
+        debugName: 'kasa_decode_frame',
+        argNames: ['frame'],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiKasaEncodeFrame({required String json}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(json, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 20, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiKasaEncodeFrameConstMeta,
+      argValues: [json],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiKasaEncodeFrameConstMeta =>
+      const TaskConstMeta(
+        debugName: 'kasa_encode_frame',
+        argNames: ['json'],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiKasaEncryptDatagram(
+      {required String json}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(json, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 21, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiKasaEncryptDatagramConstMeta,
+      argValues: [json],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiKasaEncryptDatagramConstMeta =>
+      const TaskConstMeta(
+        debugName: 'kasa_encrypt_datagram',
+        argNames: ['json'],
+      );
+
+  @override
   Future<int> crateApiDeviceApiLifxDefaultSecurity() {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 18, port: port_);
+            funcId: 22, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_u_8,
@@ -875,7 +995,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 19, port: port_);
+            funcId: 23, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_u_16,
@@ -904,7 +1024,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(entityName, serializer);
         sse_encode_String(stateReply, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 20, port: port_);
+            funcId: 24, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_network_instance_dto,
@@ -930,7 +1050,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(yaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 21, port: port_);
+            funcId: 25, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_device_spec_dto,
@@ -960,7 +1080,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(deviceName, serializer);
         sse_encode_list_String(advertisedServiceUuids, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 22, port: port_);
+            funcId: 26, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_match_result,
@@ -988,7 +1108,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_list_spec_identity_dto(identities, serializer);
         sse_encode_box_autoadd_network_device_dto(device, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 23, port: port_);
+            funcId: 27, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_scan_match,
@@ -1016,7 +1136,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_list_spec_identity_dto(identities, serializer);
         sse_encode_box_autoadd_scanned_device_dto(device, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 24, port: port_);
+            funcId: 28, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_scan_match,
@@ -1046,7 +1166,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_String(specYaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 25, port: port_);
+            funcId: 29, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -1070,7 +1190,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 26, port: port_);
+            funcId: 30, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -1099,7 +1219,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(charUuid, serializer);
         sse_encode_list_prim_u_8_loose(value, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 27, port: port_);
+            funcId: 31, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -1126,7 +1246,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(specYaml, serializer);
         sse_encode_list_String(ssdpTargets, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 28, port: port_);
+            funcId: 32, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_network_entity_dto,
@@ -1152,7 +1272,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(bytes, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 29, port: port_);
+            funcId: 33, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_lifx_service_dto,
@@ -1182,7 +1302,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(entityName, serializer);
         sse_encode_Map_String_String_None(returned, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 30, port: port_);
+            funcId: 34, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_network_reading_dto,
@@ -1214,7 +1334,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(stateReply, serializer);
         sse_encode_String(instanceId, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 31, port: port_);
+            funcId: 35, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_network_role_reading_dto,
@@ -1246,7 +1366,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(targetMac, serializer);
         sse_encode_u_8(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 32, port: port_);
+            funcId: 36, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -1278,7 +1398,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_8(security, serializer);
         sse_encode_u_8(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 33, port: port_);
+            funcId: 37, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -1308,7 +1428,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(commandName, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 34, port: port_);
+            funcId: 38, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_soap_request_dto,
@@ -1338,7 +1458,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(commandName, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 35, port: port_);
+            funcId: 39, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_http_request_dto,
@@ -1368,7 +1488,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(stateCommand, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 36, port: port_);
+            funcId: 40, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_http_request_dto,
@@ -1387,6 +1507,63 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<KasaRequestDto> crateApiDeviceApiRenderNetworkKasaCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(commandName, serializer);
+        sse_encode_Map_String_String_None(values, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 41, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_kasa_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkKasaCommandConstMeta,
+      argValues: [specYaml, commandName, values],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkKasaCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_kasa_command',
+        argNames: ['specYaml', 'commandName', 'values'],
+      );
+
+  @override
+  Future<KasaRequestDto> crateApiDeviceApiRenderNetworkKasaStateRequest(
+      {required String specYaml, required String stateCommand}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(stateCommand, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 42, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_kasa_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkKasaStateRequestConstMeta,
+      argValues: [specYaml, stateCommand],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkKasaStateRequestConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_kasa_state_request',
+        argNames: ['specYaml', 'stateCommand'],
+      );
+
+  @override
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand}) {
     return handler.executeNormal(NormalTask(
@@ -1395,7 +1572,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(specYaml, serializer);
         sse_encode_String(stateCommand, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 37, port: port_);
+            funcId: 43, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_soap_request_dto,
@@ -1592,8 +1769,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 17)
-      throw Exception('unexpected arr length: expect 17 but see ${arr.length}');
+    if (arr.length != 18)
+      throw Exception('unexpected arr length: expect 18 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -1607,11 +1784,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       macPrefixes: dco_decode_list_mac_prefix_dto(arr[9]),
       mdnsServiceType: dco_decode_opt_String(arr[10]),
       ssdpSearchTargets: dco_decode_list_String(arr[11]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[12]),
-      services: dco_decode_list_service_dto(arr[13]),
-      entities: dco_decode_list_entity_dto(arr[14]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[15]),
-      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[16]),
+      lanProtocols: dco_decode_list_String(arr[12]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[13]),
+      services: dco_decode_list_service_dto(arr[14]),
+      entities: dco_decode_list_entity_dto(arr[15]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[16]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[17]),
     );
   }
 
@@ -1764,6 +1942,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       serviceUuid: dco_decode_String(arr[0]),
       writes: dco_decode_list_image_write_dto(arr[1]),
       nextFrameIndex: dco_decode_u_32(arr[2]),
+    );
+  }
+
+  @protected
+  KasaRequestDto dco_decode_kasa_request_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 1)
+      throw Exception('unexpected arr length: expect 1 but see ${arr.length}');
+    return KasaRequestDto(
+      json: dco_decode_String(arr[0]),
     );
   }
 
@@ -2104,14 +2293,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   NetworkDeviceDto dco_decode_network_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return NetworkDeviceDto(
       name: dco_decode_String(arr[0]),
       hostname: dco_decode_opt_String(arr[1]),
       serviceTypes: dco_decode_list_String(arr[2]),
       ssdpTargets: dco_decode_list_String(arr[3]),
-      port: dco_decode_opt_box_autoadd_u_16(arr[4]),
+      answeredLanProtocols: dco_decode_list_String(arr[4]),
+      port: dco_decode_opt_box_autoadd_u_16(arr[5]),
     );
   }
 
@@ -2473,8 +2663,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return SpecIdentityDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
@@ -2485,7 +2675,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       macPrefixes: dco_decode_list_mac_prefix_dto(arr[6]),
       mdnsServiceType: dco_decode_opt_String(arr[7]),
       ssdpSearchTargets: dco_decode_list_String(arr[8]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[9]),
+      lanProtocols: dco_decode_list_String(arr[9]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[10]),
     );
   }
 
@@ -2797,6 +2988,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
     var var_mdnsServiceType = sse_decode_opt_String(deserializer);
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
+    var var_lanProtocols = sse_decode_list_String(deserializer);
     var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     var var_services = sse_decode_list_service_dto(deserializer);
     var var_entities = sse_decode_list_entity_dto(deserializer);
@@ -2817,6 +3009,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         macPrefixes: var_macPrefixes,
         mdnsServiceType: var_mdnsServiceType,
         ssdpSearchTargets: var_ssdpSearchTargets,
+        lanProtocols: var_lanProtocols,
         defaultPort: var_defaultPort,
         services: var_services,
         entities: var_entities,
@@ -2994,6 +3187,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serviceUuid: var_serviceUuid,
         writes: var_writes,
         nextFrameIndex: var_nextFrameIndex);
+  }
+
+  @protected
+  KasaRequestDto sse_decode_kasa_request_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_json = sse_decode_String(deserializer);
+    return KasaRequestDto(json: var_json);
   }
 
   @protected
@@ -3527,12 +3727,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_hostname = sse_decode_opt_String(deserializer);
     var var_serviceTypes = sse_decode_list_String(deserializer);
     var var_ssdpTargets = sse_decode_list_String(deserializer);
+    var var_answeredLanProtocols = sse_decode_list_String(deserializer);
     var var_port = sse_decode_opt_box_autoadd_u_16(deserializer);
     return NetworkDeviceDto(
         name: var_name,
         hostname: var_hostname,
         serviceTypes: var_serviceTypes,
         ssdpTargets: var_ssdpTargets,
+        answeredLanProtocols: var_answeredLanProtocols,
         port: var_port);
   }
 
@@ -3990,6 +4192,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
     var var_mdnsServiceType = sse_decode_opt_String(deserializer);
     var var_ssdpSearchTargets = sse_decode_list_String(deserializer);
+    var var_lanProtocols = sse_decode_list_String(deserializer);
     var var_defaultPort = sse_decode_opt_box_autoadd_u_16(deserializer);
     return SpecIdentityDto(
         deviceName: var_deviceName,
@@ -4001,6 +4204,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         macPrefixes: var_macPrefixes,
         mdnsServiceType: var_mdnsServiceType,
         ssdpSearchTargets: var_ssdpSearchTargets,
+        lanProtocols: var_lanProtocols,
         defaultPort: var_defaultPort);
   }
 
@@ -4281,6 +4485,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
     sse_encode_opt_String(self.mdnsServiceType, serializer);
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
+    sse_encode_list_String(self.lanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
     sse_encode_list_service_dto(self.services, serializer);
     sse_encode_list_entity_dto(self.entities, serializer);
@@ -4405,6 +4610,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.serviceUuid, serializer);
     sse_encode_list_image_write_dto(self.writes, serializer);
     sse_encode_u_32(self.nextFrameIndex, serializer);
+  }
+
+  @protected
+  void sse_encode_kasa_request_dto(
+      KasaRequestDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.json, serializer);
   }
 
   @protected
@@ -4823,6 +5035,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.hostname, serializer);
     sse_encode_list_String(self.serviceTypes, serializer);
     sse_encode_list_String(self.ssdpTargets, serializer);
+    sse_encode_list_String(self.answeredLanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.port, serializer);
   }
 
@@ -5189,6 +5402,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
     sse_encode_opt_String(self.mdnsServiceType, serializer);
     sse_encode_list_String(self.ssdpSearchTargets, serializer);
+    sse_encode_list_String(self.lanProtocols, serializer);
     sse_encode_opt_box_autoadd_u_16(self.defaultPort, serializer);
   }
 

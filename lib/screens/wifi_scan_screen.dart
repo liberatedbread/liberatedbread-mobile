@@ -336,15 +336,19 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   }
 
   static String _transportLabel(NetworkDevice device) {
-    final both = device.sources.length > 1;
-    if (both) return 'mDNS + SSDP';
-    // `sources` is required but carries no non-empty invariant, and `.first`
-    // on an empty set throws inside a list builder — an awkward place to find
-    // out. Naming the transport is the least important thing on the row.
-    if (device.sources.isEmpty) return '';
-    return device.sources.first == NetworkDiscoverySource.mdns
-        ? 'mDNS'
-        : 'SSDP';
+    // A set, so a device heard on more than one transport (mDNS + SSDP) reads
+    // as both, deduplicated and in a stable order. `sources` carries no
+    // non-empty invariant, so an empty set is simply an empty label — naming
+    // the transport is the least important thing on the row.
+    final labels = <String>{
+      for (final source in device.sources)
+        switch (source) {
+          NetworkDiscoverySource.mdns => 'mDNS',
+          NetworkDiscoverySource.ssdp => 'SSDP',
+          NetworkDiscoverySource.lanProbe => 'LAN',
+        }
+    };
+    return labels.join(' + ');
   }
 
   /// What the device said about itself, for one no spec matched.

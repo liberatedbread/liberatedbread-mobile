@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Parse a device spec from a YAML string and return a DTO.
@@ -67,6 +67,49 @@ Future<HttpRequestDto> renderNetworkHttpCommand(
         required Map<String, String> values}) =>
     RustLib.instance.api.crateApiDeviceApiRenderNetworkHttpCommand(
         specYaml: specYaml, commandName: commandName, values: values);
+
+/// Render a named `transport: tcp-json` command into the JSON to send — the
+/// Kasa sibling of [`render_network_command`] / [`render_network_http_command`].
+/// A command for another transport is declined; the action's `transport` says
+/// which renderer to call.
+Future<KasaRequestDto> renderNetworkKasaCommand(
+        {required String specYaml,
+        required String commandName,
+        required Map<String, String> values}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderNetworkKasaCommand(
+        specYaml: specYaml, commandName: commandName, values: values);
+
+/// Render the JSON that polls a Kasa state command (`get_sysinfo`). The Kasa
+/// counterpart of [`render_network_state_request`]; the poll is a first-class
+/// command with a `body`, so it renders the same way a control does.
+Future<KasaRequestDto> renderNetworkKasaStateRequest(
+        {required String specYaml, required String stateCommand}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderNetworkKasaStateRequest(
+        specYaml: specYaml, stateCommand: stateCommand);
+
+/// Encrypt and length-frame a Kasa JSON request for the TCP control socket
+/// (port 9999). Dart writes the returned bytes and reads the reply back through
+/// [`kasa_decode_frame`]; the cipher stays in one tested place rather than
+/// re-implemented in Dart.
+Future<Uint8List> kasaEncodeFrame({required String json}) =>
+    RustLib.instance.api.crateApiDeviceApiKasaEncodeFrame(json: json);
+
+/// Decode a length-framed Kasa TCP reply back to its JSON text, for Dart to
+/// parse with `dart:convert`. Errors on a short/truncated frame or non-UTF-8
+/// payload rather than returning garbage.
+Future<String> kasaDecodeFrame({required List<int> frame}) =>
+    RustLib.instance.api.crateApiDeviceApiKasaDecodeFrame(frame: frame);
+
+/// Encrypt a Kasa JSON request as a UDP discovery datagram — the same cipher
+/// as [`kasa_encode_frame`] but with no length prefix, which is how the
+/// broadcast probe and its replies are framed.
+Future<Uint8List> kasaEncryptDatagram({required String json}) =>
+    RustLib.instance.api.crateApiDeviceApiKasaEncryptDatagram(json: json);
+
+/// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
+Future<String> kasaDecodeDatagram({required List<int> datagram}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiKasaDecodeDatagram(datagram: datagram);
 
 /// Render the argument-less request that reads a state command's values —
 /// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
@@ -667,6 +710,11 @@ class DeviceSpecDto {
   /// SSDP/UPnP search targets this device answers to.
   final List<String> ssdpSearchTargets;
 
+  /// Vendor LAN protocols this device is identified by answering (Kasa's
+  /// `tplink-smarthome`). A strong network identifier for hardware with no
+  /// mDNS/SSDP presence.
+  final List<String> lanProtocols;
+
   /// Default TCP port for the device's local API.
   final int? defaultPort;
   final List<ServiceDto> services;
@@ -701,6 +749,7 @@ class DeviceSpecDto {
     required this.macPrefixes,
     this.mdnsServiceType,
     required this.ssdpSearchTargets,
+    required this.lanProtocols,
     this.defaultPort,
     required this.services,
     required this.entities,
@@ -722,6 +771,7 @@ class DeviceSpecDto {
       macPrefixes.hashCode ^
       mdnsServiceType.hashCode ^
       ssdpSearchTargets.hashCode ^
+      lanProtocols.hashCode ^
       defaultPort.hashCode ^
       services.hashCode ^
       entities.hashCode ^
@@ -745,6 +795,7 @@ class DeviceSpecDto {
           macPrefixes == other.macPrefixes &&
           mdnsServiceType == other.mdnsServiceType &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
+          lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort &&
           services == other.services &&
           entities == other.entities &&
@@ -1204,6 +1255,30 @@ class ImageWritePlanDto {
           nextFrameIndex == other.nextFrameIndex;
 }
 
+/// A rendered Kasa request: the JSON to send, before the cipher and framing.
+///
+/// The third transport's sibling of [`SoapRequestDto`] / [`HttpRequestDto`].
+/// The whole invocation is this JSON; the caller turns it into wire bytes with
+/// [`kasa_encode_frame`] (TCP control) or [`kasa_encrypt_datagram`] (UDP
+/// discovery), and the address is the one discovery established.
+class KasaRequestDto {
+  final String json;
+
+  const KasaRequestDto({
+    required this.json,
+  });
+
+  @override
+  int get hashCode => json.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is KasaRequestDto &&
+          runtimeType == other.runtimeType &&
+          json == other.json;
+}
+
 /// One network an unprovisioned device reported it can see (a `StateAccessPoint`
 /// reply), for the user to pick from.
 class LifxAccessPointDto {
@@ -1567,6 +1642,12 @@ class NetworkDeviceDto {
   /// SSDP search targets it answered to.
   final List<String> ssdpTargets;
 
+  /// Vendor LAN protocols this device *answered* during discovery — Kasa's
+  /// `tplink-smarthome`, set when a get_sysinfo probe got a reply. Matched
+  /// against a spec's `lan_protocols`; the strong identifier for hardware
+  /// that advertises no mDNS/SSDP.
+  final List<String> answeredLanProtocols;
+
   /// Port the advertised service listens on.
   final int? port;
 
@@ -1575,6 +1656,7 @@ class NetworkDeviceDto {
     this.hostname,
     required this.serviceTypes,
     required this.ssdpTargets,
+    required this.answeredLanProtocols,
     this.port,
   });
 
@@ -1584,6 +1666,7 @@ class NetworkDeviceDto {
       hostname.hashCode ^
       serviceTypes.hashCode ^
       ssdpTargets.hashCode ^
+      answeredLanProtocols.hashCode ^
       port.hashCode;
 
   @override
@@ -1595,6 +1678,7 @@ class NetworkDeviceDto {
           hostname == other.hostname &&
           serviceTypes == other.serviceTypes &&
           ssdpTargets == other.ssdpTargets &&
+          answeredLanProtocols == other.answeredLanProtocols &&
           port == other.port;
 }
 
@@ -2310,6 +2394,11 @@ class SpecIdentityDto {
   /// SSDP search targets, for the Wi-Fi scan path.
   final List<String> ssdpSearchTargets;
 
+  /// Vendor LAN protocols this device is identified by answering (Kasa). A
+  /// strong signal: matched against the protocols a discovered device
+  /// actually answered.
+  final List<String> lanProtocols;
+
   /// Default TCP port. The weakest network signal by far -- port 80 says
   /// nothing -- so it only ever ranks, never identifies.
   final int? defaultPort;
@@ -2324,6 +2413,7 @@ class SpecIdentityDto {
     required this.macPrefixes,
     this.mdnsServiceType,
     required this.ssdpSearchTargets,
+    required this.lanProtocols,
     this.defaultPort,
   });
 
@@ -2338,6 +2428,7 @@ class SpecIdentityDto {
       macPrefixes.hashCode ^
       mdnsServiceType.hashCode ^
       ssdpSearchTargets.hashCode ^
+      lanProtocols.hashCode ^
       defaultPort.hashCode;
 
   @override
@@ -2354,6 +2445,7 @@ class SpecIdentityDto {
           macPrefixes == other.macPrefixes &&
           mdnsServiceType == other.mdnsServiceType &&
           ssdpSearchTargets == other.ssdpSearchTargets &&
+          lanProtocols == other.lanProtocols &&
           defaultPort == other.defaultPort;
 }
 

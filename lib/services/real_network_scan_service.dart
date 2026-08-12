@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -12,6 +13,7 @@ import '../core/stop_signal.dart';
 import '../models/network_device.dart';
 import 'multicast_lock.dart';
 import 'network_scan_service.dart';
+import 'spec_codec.dart';
 
 /// The DNS-SD meta-query that enumerates every service type on the link.
 /// Asking this instead of a fixed list is what lets the scan find a device
@@ -66,6 +68,14 @@ String? lifxStateServiceMac(List<int> data) {
       .map((b) => b.toRadixString(16).padLeft(2, '0'))
       .join(':');
 }
+
+/// TP-Link Kasa discovery: a directed broadcast of the XOR-encoded
+/// get_sysinfo to UDP 9999, which only devices speaking the tplink-smarthome
+/// protocol answer. The protocol token the answer identifies the device by.
+const _kasaBroadcast = '255.255.255.255';
+const _kasaPort = 9999;
+const _kasaProbeJson = '{"system":{"get_sysinfo":null}}';
+const _kasaProtocol = 'tplink-smarthome';
 
 /// Parse an SSDP response into its headers, lowercased keys.
 ///
@@ -228,7 +238,14 @@ class RealNetworkScanService implements NetworkScanService {
   /// assert the scan takes it and gives it back.
   final MulticastLock multicastLock;
 
-  RealNetworkScanService({MulticastLock? multicastLock})
+  /// The spec codec, used only for the Kasa XOR cipher on the discovery
+  /// datagram. Optional: without it the Kasa broadcast transport is skipped
+  /// (mDNS and SSDP are unaffected), which is what the socket-level tests that
+  /// construct this service directly rely on. Production wires the real codec
+  /// through `networkScanServiceProvider`.
+  final SpecCodec? codec;
+
+  RealNetworkScanService({MulticastLock? multicastLock, this.codec})
       : multicastLock = multicastLock ?? MulticastLock();
 
   /// The scan currently entitled to the lock, or null between scans.
@@ -272,6 +289,7 @@ class RealNetworkScanService implements NetworkScanService {
         // Both halves run concurrently and are allowed to fail independently:
         // a platform that blocks one (iOS multicast entitlements, a network
         // with IGMP snooping) should still return what the other found.
+        final codec = this.codec;
         final outcomes = await Future.wait([
           _runMdns(session, emit, timeout).catchError((Object e) {
             Log.net.warning('mDNS discovery failed', error: e);
@@ -286,6 +304,14 @@ class RealNetworkScanService implements NetworkScanService {
             Log.net.warning('LIFX discovery failed', error: e);
             return TransportOutcome.failed;
           }),
+          // The Kasa transport, when a codec is wired to run the cipher. Its
+          // outcome joins the others, so a granted local-network permission
+          // heard over broadcast counts the same as one heard over multicast.
+          if (codec != null)
+            _runKasa(session, emit, timeout, codec).catchError((Object e) {
+              Log.net.warning('Kasa discovery failed', error: e);
+              return TransportOutcome.failed;
+            }),
         ]);
 
         final failure = scanFailureFor(
@@ -608,6 +634,105 @@ class RealNetworkScanService implements NetworkScanService {
     }
   }
 
+  /// Find TP-Link Kasa plugs by the protocol they answer.
+  ///
+  /// A directed broadcast of the XOR-encoded get_sysinfo to 255.255.255.255:9999
+  /// — only a tplink-smarthome device replies, and the reply carries its full
+  /// sysinfo. Structurally the SSDP half's twin (bind, broadcast, listen with an
+  /// absolute deadline), but the cipher and the reply's JSON are the codec's and
+  /// dart:convert's rather than SSDP's plaintext headers.
+  Future<TransportOutcome> _runKasa(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+    SpecCodec codec,
+  ) async {
+    final probe = await codec.kasaEncryptDatagram(json: _kasaProbeJson);
+    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
+        reuseAddress: true);
+    session.kasaSocket = socket;
+    socket.broadcastEnabled = true;
+    var heard = false;
+    try {
+      final target = InternetAddress(_kasaBroadcast);
+      // Sent more than once: UDP, and a dropped probe is a plug never heard.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(probe, target, _kasaPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        // A reply on our ephemeral port means the broadcast reached a device
+        // that answered — the permission question is settled whether or not
+        // this particular datagram decodes.
+        heard = true;
+        final device = await _kasaDeviceFrom(datagram, codec);
+        if (device != null) emit(device);
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.kasaSocket = null;
+    }
+  }
+
+  /// Build a device from a Kasa reply datagram, or null when it does not decode
+  /// to a get_sysinfo answer (stray UDP noise on the port).
+  Future<NetworkDevice?> _kasaDeviceFrom(
+      Datagram datagram, SpecCodec codec) async {
+    final String json;
+    try {
+      json = await codec.kasaDecodeDatagram(datagram: datagram.data);
+    } catch (_) {
+      return null;
+    }
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(json);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final system = decoded['system'];
+    final sysinfo = system is Map ? system['get_sysinfo'] : null;
+    if (sysinfo is! Map) return null;
+
+    String? str(String key) {
+      final value = sysinfo[key];
+      return value is String && value.isNotEmpty ? value : null;
+    }
+
+    final alias = str('alias');
+    final model = str('model');
+    final mac = str('mac') ?? str('mic_mac');
+    final deviceId = str('deviceId');
+    return NetworkDevice(
+      host: datagram.address.address,
+      // The user's own name for the plug, falling back to the model.
+      name: alias ?? model ?? '',
+      port: _kasaPort,
+      answeredLanProtocols: const [_kasaProtocol],
+      txt: {
+        if (model != null) 'model': model,
+        if (mac != null) 'mac': mac,
+        if (deviceId != null) 'deviceId': deviceId,
+      },
+      sources: const {NetworkDiscoverySource.lanProbe},
+      discoveredAt: DateTime.now(),
+    );
+  }
+
   /// End [session]: stop its transports, and give the multicast lock back if
   /// it is still the session holding it.
   ///
@@ -643,6 +768,7 @@ class _ScanSession {
   MDnsClient? mdns;
   RawDatagramSocket? ssdpSocket;
   RawDatagramSocket? lifxSocket;
+  RawDatagramSocket? kasaSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -667,5 +793,7 @@ class _ScanSession {
     ssdpSocket = null;
     lifxSocket?.close();
     lifxSocket = null;
+    kasaSocket?.close();
+    kasaSocket = null;
   }
 }

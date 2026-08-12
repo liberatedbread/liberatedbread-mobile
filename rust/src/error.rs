@@ -54,6 +54,9 @@ pub enum ProtocolError {
     #[error("state reply is not the JSON shape the spec promises: {0}")]
     InvalidStateReply(String),
 
+    #[error("malformed device reply: {0}")]
+    MalformedReply(String),
+
     #[error("standard profile does not support commands")]
     ProfileReadOnly,
 
