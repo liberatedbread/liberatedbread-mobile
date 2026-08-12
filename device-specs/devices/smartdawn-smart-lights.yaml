@@ -497,17 +497,19 @@ services:
               payload: { type: "bytes", description: "SimpleMessage {i1: speed} protobuf" }
           set_playlist:
             description: >
-              Set the effect playlist — the ordered set of stored effects the
-              device cycles when looping. M_SET_PL (mt=2610) with a PlayList
-              protobuf {i1: 0, i2: count, 4: [repeated PlayListItem
-              {i1: 0, i2: effect_id/cid, i3: slot}]}. VERIFIED on the wire
-              (smartdawn_longer2.pcapng): a 4-effect playlist was set as
-              `0800 1004 2207 0800 10<cid> 18<slot> ...` repeated. The client
-              builds the protobuf payload (repeated + nested, so a Rust
-              builder like the container encoders, not a flat template); this
-              is how a multi-frame custom "animation" is played on-device —
-              each frame stored as its own microapp, then set as a looping
-              playlist (see set_mode_loop).
+              Save the ordered set of stored effects the device cycles — the
+              "playlist" a multi-frame animation loops. M_BOOKMARK_SAVE
+              (mt=2626) with a protobuf {i1: 0 (bookmark id), i2: count,
+              4: [repeated {i1: 0, i2: effect_id/cid, i3: slot}]}. VERIFIED on
+              the wire (smartdawn_longer2.pcapng t=121.7): a 4-effect set was
+              saved as `0800 1004 2207 0800 10<cid> 18<slot> ...` repeated. The
+              client builds the protobuf payload (repeated + nested, so a Rust
+              builder, not a flat template). To PLAY the set, follow this with
+              M_PLAY_NEXT (play_next) — the vendor sends play_next after the
+              save (t=129.4/130.9), NOT play_effect; playing a single effect
+              instead pins the panel to that one frame in single-play mode.
+              i3 (slot) must be each effect's DEVICE-ASSIGNED slot from
+              M_EFFECT_LIST — a slot-0 set does not cycle.
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x42, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
