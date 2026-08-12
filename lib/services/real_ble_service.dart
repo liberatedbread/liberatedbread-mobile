@@ -786,11 +786,21 @@ class RealBleService implements BleService {
     // logs them via friendlyErrorText — logging them here too would duplicate.
     Log.ble.info('connecting to $deviceId');
     final device = BluetoothDevice.fromId(deviceId);
+    // Whether this call actually turns the link over. flutter_blue_plus
+    // treats connect() on an already-connected device as a no-op, so a
+    // second caller (a group run touching a device a screen already holds)
+    // must NOT expire live notify shares — CCCD state survives because the
+    // link never dropped.
+    final wasConnected = device.isConnected;
     await device.connect(timeout: const Duration(seconds: 15));
     Log.ble.info('connected to $deviceId');
+    // Track overlapping owners: the device screen and a group run can both
+    // hold the same physical link, and whichever disconnects first must not
+    // tear it down under the other (see disconnect()).
+    _connectionClaims[deviceId] = (_connectionClaims[deviceId] ?? 0) + 1;
     // A fresh link starts from fresh CCCD state; shares from the previous
     // one must not be inherited (see _expireNotifyShares).
-    _expireNotifyShares(deviceId);
+    if (!wasConnected) _expireNotifyShares(deviceId);
     // The MTU decides the usable write payload (ATT MTU - 3). This is not a
     // nicety: SmartDawn's BIN (TUTU) channel does NOT reassemble fragments, so
     // each image chunk (up to ~200 B) must fit in a single write — which needs
@@ -824,6 +834,18 @@ class RealBleService implements BleService {
 
   @override
   Future<void> disconnect(String deviceId) async {
+    // Last claim out tears the link down; earlier releases just let go. A
+    // release with no claim at all (cleanup after a failed connect) falls
+    // through to the platform disconnect, which is the desired best-effort
+    // for a half-open link.
+    final claims = _connectionClaims[deviceId] ?? 0;
+    if (claims > 1) {
+      _connectionClaims[deviceId] = claims - 1;
+      Log.ble.debug(
+          'disconnect($deviceId) released a claim; ${claims - 1} remain');
+      return;
+    }
+    _connectionClaims.remove(deviceId);
     Log.ble.info('disconnecting from $deviceId');
     _servicesCache.remove(deviceId);
     // Invalidate any discovery still in flight: a discoverServices whose
@@ -961,6 +983,12 @@ class RealBleService implements BleService {
   /// per-connection state.
   final Map<String, int> _connectionGeneration = {};
 
+  /// Overlapping owners of one physical link, per device. fbp connections
+  /// are per-device, not per-caller, so two callers (device screen + group
+  /// run) connecting to the same peripheral share a link — and a late
+  /// disconnect from one used to kill it under the other.
+  final Map<String, int> _connectionClaims = {};
+
   int _generationOf(String deviceId) => _connectionGeneration[deviceId] ?? 0;
 
   /// Find a specific BLE characteristic by service and characteristic UUID.
@@ -1078,22 +1106,26 @@ class RealBleService implements BleService {
     // every subscriber still on screen. The share below enables once for the
     // first subscriber and disables only when the last interest is released.
     final key = _notifyShareKey(deviceId, serviceUuid, charUuid);
-    final share = _notifyShares.putIfAbsent(key, () => _NotifyShare());
-    share.interest++;
+    // Claimed in onListen, not here: a stream that is built but never
+    // listened to must hold no interest (a pinned count would block the
+    // CCCD disable for every real subscriber after it) and start no radio
+    // work.
+    _NotifyShare? share;
     var releasedInterest = false;
     // Exactly once per subscription: onCancel and setup-failure both funnel
     // through here, whichever happens (or happens first).
     Future<void> releaseInterest() async {
-      if (releasedInterest) return;
+      final claimed = share;
+      if (releasedInterest || claimed == null) return;
       releasedInterest = true;
-      share.interest--;
-      if (share.interest > 0) return;
-      if (identical(_notifyShares[key], share)) _notifyShares.remove(key);
+      claimed.interest--;
+      if (claimed.interest > 0) return;
+      if (identical(_notifyShares[key], claimed)) _notifyShares.remove(key);
       // A share expired by connect/disconnect must never write into the NEXT
       // connection's CCCD state — that link's subscriptions own it now.
-      if (share.dead) return;
-      final enabled = share.enable;
-      share.enable = null;
+      if (claimed.dead) return;
+      final enabled = claimed.enable;
+      claimed.enable = null;
       if (enabled == null) return;
       // Disable only after the shared enable resolves: a disable overtaking
       // its own in-flight enable would leave the peripheral pushing.
@@ -1101,57 +1133,78 @@ class RealBleService implements BleService {
       // setNotifyValue throws — a no-op teardown is acceptable here.
       try {
         final char = await enabled;
+        // While this release was parked on the in-flight enable, a successor
+        // subscription may have claimed the characteristic under a fresh
+        // share. Its enable is queued behind ours on fbp's mutex, so a
+        // disable sent now would land LAST and silence the successor while
+        // it believes itself subscribed — the very freeze the refcount
+        // exists to prevent. The characteristic is theirs now; leave it on.
+        if (_notifyShares.containsKey(key)) return;
         await _setNotifyValue(char, enable: false);
       } catch (_) {
         // Best-effort: ignore failures during teardown.
       }
     }
 
-    () async {
-      try {
-        // One CCCD enable per characteristic no matter how many cards want
-        // it; later subscribers await the same future (and share its error).
-        share.enable ??= () async {
-          final char =
-              await _findCharacteristic(deviceId, serviceUuid, charUuid);
-          // Logged BEFORE the enable so a hang inside setNotifyValue (a CCCD
-          // write the peripheral never acks) is visible as an unanswered line
-          // instead of the log only ever showing successes.
-          Log.ble.debug('enabling notifications for $charUuid on $deviceId');
-          // Subscribing writes the CCCD, which a pairing-required peripheral
-          // refuses like any other attribute access — so the same translation
-          // applies, and a spec-declared sensor reports "pair this device"
-          // instead of a raw GATT code.
-          await _pairingAware(
-              deviceId, () => _setNotifyValue(char, enable: true));
-          // Once per shared enable. The notifications themselves are
-          // deliberately NOT logged — that is the tight loop this logging
-          // must stay out of.
-          Log.ble.debug('notifications enabled for $charUuid on $deviceId');
-          return char;
-        }();
-        final char = await share.enable!;
-        if (cancelled) return; // onCancel already released this interest.
-        // Use onValueReceived rather than lastValueStream: the latter replays
-        // the last cached value on listen, which would surface a stale reading
-        // as if it were a fresh notification. onValueReceived only emits
-        // genuinely fresh reads/notifications.
-        sub = char.onValueReceived.listen(
-          (value) => controller.add(value),
-          onError: (Object error) => controller.addError(error),
-          onDone: () async {
-            if (!controller.isClosed) await controller.close();
-          },
-        );
-      } catch (e) {
-        controller.addError(e);
-        if (!controller.isClosed) await controller.close();
-        // A failed setup holds no interest; the last release drops the share
-        // so the next subscriber retries the enable instead of inheriting
-        // this failure forever.
-        await releaseInterest();
-      }
-    }();
+    controller.onListen = () {
+      final claimed = _notifyShares.putIfAbsent(key, () => _NotifyShare());
+      share = claimed;
+      claimed.interest++;
+      () async {
+        try {
+          // One CCCD enable per characteristic no matter how many cards want
+          // it; later subscribers await the same future (and share its
+          // error).
+          claimed.enable ??= () async {
+            final char =
+                await _findCharacteristic(deviceId, serviceUuid, charUuid);
+            // Everyone may have left while the lookup ran (an empty-services
+            // retry ladder alone can take ~6s). Enabling now would write a
+            // CCCD — and, on a pairing-required peripheral, pop the system
+            // pairing dialog — for nobody, then need undoing.
+            if (claimed.dead || claimed.interest <= 0) {
+              throw StateError('notify subscription abandoned before enable');
+            }
+            // Logged BEFORE the enable so a hang inside setNotifyValue (a
+            // CCCD write the peripheral never acks) is visible as an
+            // unanswered line instead of the log only ever showing successes.
+            Log.ble.debug('enabling notifications for $charUuid on $deviceId');
+            // Subscribing writes the CCCD, which a pairing-required
+            // peripheral refuses like any other attribute access — so the
+            // same translation applies, and a spec-declared sensor reports
+            // "pair this device" instead of a raw GATT code.
+            await _pairingAware(
+                deviceId, () => _setNotifyValue(char, enable: true));
+            // Once per shared enable. The notifications themselves are
+            // deliberately NOT logged — that is the tight loop this logging
+            // must stay out of.
+            Log.ble
+                .debug('notifications enabled for $charUuid on $deviceId');
+            return char;
+          }();
+          final char = await claimed.enable!;
+          if (cancelled) return; // onCancel already released this interest.
+          // Use onValueReceived rather than lastValueStream: the latter
+          // replays the last cached value on listen, which would surface a
+          // stale reading as if it were a fresh notification. onValueReceived
+          // only emits genuinely fresh reads/notifications.
+          sub = char.onValueReceived.listen(
+            (value) => controller.add(value),
+            onError: (Object error) => controller.addError(error),
+            onDone: () async {
+              if (!controller.isClosed) await controller.close();
+            },
+          );
+        } catch (e) {
+          controller.addError(e);
+          if (!controller.isClosed) await controller.close();
+          // A failed setup holds no interest; the last release drops the
+          // share so the next subscriber retries the enable instead of
+          // inheriting this failure forever.
+          await releaseInterest();
+        }
+      }();
+    };
 
     controller.onCancel = () async {
       cancelled = true;
