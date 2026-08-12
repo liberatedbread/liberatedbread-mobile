@@ -1,8 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:convert';
-
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'prefs_json_list.dart';
 
 /// A user-named collection of saved devices ("Living Room", "Bike lights"),
 /// acted on as one thing by the group operations.
@@ -80,28 +80,8 @@ class DeviceGroupStore {
   DeviceGroupStore(this._prefs);
 
   /// Groups in creation order.
-  List<DeviceGroup> load() {
-    final raw = _prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return const [];
-
-    List<dynamic> decoded;
-    try {
-      final value = jsonDecode(raw);
-      if (value is! List) return const [];
-      decoded = value;
-    } on FormatException {
-      // Unreadable blob: treat as empty rather than throwing on startup.
-      return const [];
-    }
-
-    final groups = <DeviceGroup>[];
-    for (final entry in decoded) {
-      if (entry is! Map<String, dynamic>) continue;
-      final group = DeviceGroup.fromJson(entry);
-      if (group != null) groups.add(group);
-    }
-    return groups;
-  }
+  List<DeviceGroup> load() =>
+      loadPrefsJsonList(_prefs, _key, DeviceGroup.fromJson);
 
   /// Insert or update [group] (matched by id): updates keep their place in
   /// the list, new groups append at the end.
@@ -142,6 +122,6 @@ class DeviceGroupStore {
     return groups;
   }
 
-  Future<void> _write(List<DeviceGroup> groups) => _prefs.setString(
-      _key, jsonEncode(groups.map((g) => g.toJson()).toList()));
+  Future<void> _write(List<DeviceGroup> groups) =>
+      savePrefsJsonList(_prefs, _key, groups, (g) => g.toJson());
 }

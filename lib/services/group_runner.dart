@@ -20,12 +20,20 @@ class GroupMember {
   final DeviceSpecDto? spec;
   final String? specYaml;
 
-  const GroupMember({
+  /// What [spec] supports, derived once at construction. The detail screen
+  /// re-renders every row on every run event and the runner checks each
+  /// member again, and none of them should walk the spec's entity tree per
+  /// look. Empty when [spec] is null — which means "unknown until connect",
+  /// not "nothing works": the runner can still resolve a spec after
+  /// discovery, and the battery read needs none at all.
+  final Set<GroupOp> specOps;
+
+  GroupMember({
     required this.id,
     required this.name,
     this.spec,
     this.specYaml,
-  });
+  }) : specOps = spec == null ? const {} : supportedGroupOps(spec);
 }
 
 /// Where one member is in the run. `queued` is the UI's initial row state;
@@ -129,9 +137,7 @@ class GroupRunner {
       // chance (the SIG battery path needs no spec), and a member with no
       // stored match may still resolve one after discovery.
       final knownSpec = member.spec;
-      if (op.isCommand &&
-          knownSpec != null &&
-          !supportedGroupOps(knownSpec).contains(op)) {
+      if (op.isCommand && knownSpec != null && !member.specOps.contains(op)) {
         yield GroupRunEvent(
           deviceId: member.id,
           status: GroupDeviceStatus.skipped,

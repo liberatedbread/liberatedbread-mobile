@@ -7,22 +7,10 @@ import '../core/device_category.dart';
 import '../providers/device_group_provider.dart';
 import '../providers/saved_device_provider.dart';
 import '../services/device_group_store.dart';
+import '../services/saved_device_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'group_detail_screen.dart';
 import 'group_edit_screen.dart';
-
-/// "Lights" reads right where "Light" would not: section titles for the
-/// automatic by-kind groups. Categories whose label is a mass noun keep it.
-String pluralCategoryLabel(DeviceCategory category) => switch (category) {
-      DeviceCategory.switch_ => 'Switches',
-      DeviceCategory.climate ||
-      DeviceCategory.energy ||
-      DeviceCategory.fitness ||
-      DeviceCategory.health ||
-      DeviceCategory.irrigation =>
-        category.label,
-      _ => '${category.label}s',
-    };
 
 /// The Groups tab: the saved devices bucketed by kind, plus the user's own
 /// named groups, each opening a screen that acts on all members at once.
@@ -35,7 +23,7 @@ class GroupsScreen extends ConsumerWidget {
     final saved = ref.watch(savedDevicesProvider);
     final auto = ref.watch(autoGroupsProvider);
     final custom = ref.watch(deviceGroupsProvider);
-    final savedIds = {for (final device in saved) device.id};
+    final savedById = {for (final device in saved) device.id: device};
 
     return Scaffold(
       backgroundColor: scheme.surface,
@@ -59,7 +47,7 @@ class GroupsScreen extends ConsumerWidget {
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
                 children: [
                   ..._byTypeSection(context, auto),
-                  ..._myGroupsSection(context, custom, savedIds),
+                  ..._myGroupsSection(context, custom, savedById),
                   ..._unidentifiedSection(context, auto),
                 ],
               ),
@@ -77,7 +65,7 @@ class GroupsScreen extends ConsumerWidget {
       for (final group in groups) ...[
         GroupTile(
           icon: group.category.icon,
-          title: pluralCategoryLabel(group.category),
+          title: group.category.pluralLabel,
           subtitle: group.devices.length == 1
               ? '1 device'
               : '${group.devices.length} devices',
@@ -94,17 +82,22 @@ class GroupsScreen extends ConsumerWidget {
     ];
   }
 
-  List<Widget> _myGroupsSection(
-      BuildContext context, List<DeviceGroup> custom, Set<String> savedIds) {
+  List<Widget> _myGroupsSection(BuildContext context, List<DeviceGroup> custom,
+      Map<String, SavedDevice> savedById) {
     if (custom.isEmpty) return const [];
     return [
       SectionHeader(label: 'My groups', count: custom.length),
       const SizedBox(height: 12),
       for (final group in custom) ...[
         Builder(builder: (context) {
-          // Forgotten devices leave a group silently; the count reflects what
-          // a run would actually touch.
-          final liveMembers = group.deviceIds.where(savedIds.contains).length;
+          // The count reflects what a run would actually touch — the same
+          // filter groupMembersProvider applies: forgotten devices leave a
+          // group silently, and so does a member whose recorded kind turned
+          // out to be non-groupable.
+          final liveMembers = group.deviceIds.where((id) {
+            final device = savedById[id];
+            return device != null && isGroupable(device.category);
+          }).length;
           return GroupTile(
             icon: Icons.workspaces_outlined,
             title: group.name,
@@ -140,7 +133,7 @@ class GroupsScreen extends ConsumerWidget {
       const SizedBox(height: 12),
       for (final device in unidentified) ...[
         GroupTile(
-          icon: Icons.bluetooth,
+          icon: unknownDeviceIcon,
           title: device.name.isNotEmpty ? device.name : 'Unknown device',
           subtitle: device.id,
           onTap: null,

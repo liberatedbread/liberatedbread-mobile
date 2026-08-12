@@ -14,7 +14,6 @@ import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
-import '../core/hex.dart';
 import '../core/log.dart';
 import 'find_device_screen.dart';
 
@@ -46,6 +45,12 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   // one-shot read: the user answering the spec chooser resolves the same
   // family later, and that answer must be captured too.
   ProviderSubscription<AsyncValue<SpecMatchOutcome>>? _matchSub;
+
+  /// The in-flight saved-record write from [_connect]'s `touch()`. The spec
+  /// match listener awaits it before `recordMatch`, because the two write the
+  /// same record and recordMatch treats "not saved yet" as "never saved".
+  /// Errors are already swallowed at the source, so awaiting cannot throw.
+  Future<void>? _saveInFlight;
   // True once connect() has established a link we still own. Guards teardown so
   // exactly one disconnect() runs per established connection.
   bool _connected = false;
@@ -98,16 +103,16 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // path's own catch, and the user sees a connection that worked reported
       // as one that failed.
       try {
-        unawaited(
-          ref
-              .read(savedDevicesProvider.notifier)
-              .touch(
-                id: widget.device.id,
-                name: widget.device.displayName,
-                seenAt: DateTime.now(),
-              )
-              .catchError((Object _) {}),
-        );
+        // Kept, not just fired: the spec-match listener awaits this before
+        // recordMatch, so the two writes can't race (see [_saveInFlight]).
+        _saveInFlight = ref
+            .read(savedDevicesProvider.notifier)
+            .touch(
+              id: widget.device.id,
+              name: widget.device.displayName,
+              seenAt: DateTime.now(),
+            )
+            .catchError((Object _) {});
       } catch (e) {
         Log.ble.warning(
           'could not record ${widget.device.id} in saved devices',
@@ -204,18 +209,22 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   void _watchSpecMatch(List<BleDiscoveredService> services) {
     _matchSub?.close();
     if (services.isEmpty) return;
-    final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
-      ..sort();
     _matchSub = ref.listenManual(
-      matchedDeviceSpecProvider(SpecMatchRequest(
+      matchedDeviceSpecProvider(SpecMatchRequest.forServices(
         deviceId: widget.device.id,
         deviceName: widget.device.displayName,
-        serviceUuids: serviceUuids,
+        services: services,
       )),
       fireImmediately: true,
-      (previous, next) {
+      (previous, next) async {
         final chosen = next.valueOrNull?.chosen;
         if (chosen == null) return;
+        // Let _connect()'s touch() land first. recordMatch treats an absent
+        // record as "never saved" and skips silently — without this order a
+        // match resolving faster than the first preferences write would drop
+        // the category until the next connect.
+        await _saveInFlight;
+        if (!mounted) return;
         // Same shape as the touch() call in _connect(), for the same reason:
         // the first notifier read builds it, which reads the store
         // synchronously — a throw there must not become an unhandled error.

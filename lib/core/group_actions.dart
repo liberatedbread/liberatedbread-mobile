@@ -25,6 +25,8 @@ import 'package:flutter/material.dart';
 import '../models/ble_discovered_service.dart';
 import '../services/spec_codec.dart';
 import 'decoded_number.dart';
+import 'entity_live_value.dart';
+import 'find_device.dart' show discoveredPairKey, discoveredWritablePairs;
 import 'hex.dart';
 
 /// The Bluetooth SIG Battery Service and its Battery Level characteristic —
@@ -32,6 +34,11 @@ import 'hex.dart';
 /// `rust/src/protocol/profiles/battery.rs`.
 const String batteryServiceUuid = '0000180f-0000-1000-8000-00805f9b34fb';
 const String batteryLevelCharUuid = '00002a19-0000-1000-8000-00805f9b34fb';
+
+// Normalized once: these two are compared inside per-service and
+// per-characteristic loops that hot paths re-enter per member.
+final String _normalizedBatteryService = normalizeUuid(batteryServiceUuid);
+final String _normalizedBatteryLevel = normalizeUuid(batteryLevelCharUuid);
 
 /// The decoded field name the SIG battery profile emits, pinned by
 /// `rust/src/protocol/profiles/battery.rs`. Spec-declared battery entities do
@@ -53,18 +60,24 @@ enum GroupOp {
 
   const GroupOp(this.icon, this.label);
 
-  /// Whether this op writes commands (vs. reading values). Command ops can be
-  /// ruled out per member from the spec alone; read ops always get a chance,
-  /// because the SIG battery path needs no spec at all.
-  bool get isCommand =>
-      this == turnOn || this == turnOff || this == setBrightness;
-
   String get roleName => switch (this) {
         turnOn => 'turn_on',
         turnOff => 'turn_off',
         setBrightness => 'set_brightness',
         readBattery || readSensors => '',
       };
+
+  /// Whether this op writes commands (vs. reading values). Derived from
+  /// [roleName] — command ops are exactly the ones bound to an entity action
+  /// role — so a new op cannot be in one partition and out of the other.
+  bool get isCommand => roleName.isNotEmpty;
+
+  /// Whether the runner can attempt this op for a member with no resolved
+  /// spec. Battery reads can: the SIG Battery Service decodes through the
+  /// standard profile with no spec at all. Both the runner's skip logic and
+  /// the detail screen's button enablement derive from this, so the two
+  /// cannot disagree about what a spec-less member may do.
+  bool get worksWithoutSpec => this == readBattery;
 }
 
 /// One encodable command write resolved for a member: encode [commandName] on
@@ -119,26 +132,39 @@ class GroupRead {
 /// one).
 Set<GroupOp> supportedGroupOps(DeviceSpecDto spec) {
   final ops = <GroupOp>{};
-  for (final entity in spec.entities) {
-    final isControl = entity.platform == 'light' || entity.platform == 'switch';
-    if (isControl) {
-      for (final action in entity.actions) {
-        if (action.commandName == null) continue;
-        switch (action.role) {
-          case 'turn_on':
-            ops.add(GroupOp.turnOn);
-          case 'turn_off':
-            ops.add(GroupOp.turnOff);
-          case 'set_brightness':
-            ops.add(GroupOp.setBrightness);
-        }
-      }
+  for (final (entity: _, :action) in _controlActions(spec)) {
+    switch (action.role) {
+      case 'turn_on':
+        ops.add(GroupOp.turnOn);
+      case 'turn_off':
+        ops.add(GroupOp.turnOff);
+      case 'set_brightness':
+        ops.add(GroupOp.setBrightness);
     }
+  }
+  for (final entity in spec.entities) {
     if (_isSpecBatteryEntity(entity)) ops.add(GroupOp.readBattery);
     if (_isSensorEntity(entity)) ops.add(GroupOp.readSensors);
   }
   if (_declaresSigBattery(spec)) ops.add(GroupOp.readBattery);
   return ops;
+}
+
+/// The control-entity actions a group command op may bind: light/switch
+/// entities' sendable actions. ONE definition, consumed by both
+/// [supportedGroupOps] (eligibility) and [resolveGroupWrites] (execution) —
+/// two hand-kept copies of this filter would let a badge promise what a run
+/// then never writes, or vice versa.
+Iterable<({EntityDto entity, EntityActionDto action})> _controlActions(
+  DeviceSpecDto spec,
+) sync* {
+  for (final entity in spec.entities) {
+    if (entity.platform != 'light' && entity.platform != 'switch') continue;
+    for (final action in entity.actions) {
+      if (action.commandName == null) continue;
+      yield (entity: entity, action: action);
+    }
+  }
 }
 
 bool _isSpecBatteryEntity(EntityDto entity) =>
@@ -158,20 +184,13 @@ bool _isSensorEntity(EntityDto entity) =>
 
 bool _declaresSigBattery(DeviceSpecDto spec) {
   for (final service in spec.services) {
-    if (normalizeUuid(service.uuid) != normalizeUuid(batteryServiceUuid)) {
-      continue;
-    }
+    if (normalizeUuid(service.uuid) != _normalizedBatteryService) continue;
     for (final char in service.characteristics) {
-      if (normalizeUuid(char.uuid) == normalizeUuid(batteryLevelCharUuid)) {
-        return true;
-      }
+      if (normalizeUuid(char.uuid) == _normalizedBatteryLevel) return true;
     }
   }
   return false;
 }
-
-String _pairKey(String serviceUuid, String charUuid) =>
-    '${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
 
 /// Map [percent] (0–100) onto an action's declared parameter range. The
 /// catalogue's brightness ranges genuinely differ — 0–100, 5–100, 0–255,
@@ -213,44 +232,33 @@ List<GroupWrite> resolveGroupWrites({
 }) {
   assert(op.isCommand, 'read ops resolve through resolve*Reads');
 
-  // Writable discovered characteristics by service|char pair — the same
-  // admission rule (and reasoning) as detectAlertActions: the pair matters
-  // because vendor channels reuse characteristic UUIDs across services.
-  final writable = <String>{};
-  for (final service in services) {
-    for (final char in service.characteristics) {
-      if (char.canWrite) writable.add(_pairKey(service.uuid, char.uuid));
-    }
-  }
+  // The admission set detectAlertActions uses, from the one shared builder:
+  // writable pairs, because vendor channels reuse characteristic UUIDs
+  // across services.
+  final writable = discoveredWritablePairs(services);
 
   final writes = <GroupWrite>[];
-  for (final entity in spec.entities) {
-    if (entity.platform != 'light' && entity.platform != 'switch') continue;
-    for (final action in entity.actions) {
-      if (action.role != op.roleName) continue;
-      final commandName = action.commandName;
-      if (commandName == null) continue;
-      if (!writable.contains(
-        _pairKey(action.serviceUuid, action.characteristicUuid),
-      )) {
-        continue;
-      }
-      writes.add(GroupWrite(
-        serviceUuid: action.serviceUuid,
-        charUuid: action.characteristicUuid,
-        commandName: commandName,
-        params: switch (op) {
-          GroupOp.setBrightness => _paramsFor(
-              action,
-              brightness:
-                  brightnessDeviceValue(action, brightnessPercent ?? 100),
-            ),
-          // Switch cards send no parameters for on/off; light actions carrying
-          // user params get full-on defaults (see _paramsFor).
-          _ => entity.platform == 'switch' ? const {} : _paramsFor(action),
-        },
-      ));
+  for (final (:entity, :action) in _controlActions(spec)) {
+    if (action.role != op.roleName) continue;
+    if (!writable.containsKey(
+      discoveredPairKey(action.serviceUuid, action.characteristicUuid),
+    )) {
+      continue;
     }
+    writes.add(GroupWrite(
+      serviceUuid: action.serviceUuid,
+      charUuid: action.characteristicUuid,
+      commandName: action.commandName!,
+      params: switch (op) {
+        GroupOp.setBrightness => _paramsFor(
+            action,
+            brightness: brightnessDeviceValue(action, brightnessPercent ?? 100),
+          ),
+        // Switch cards send no parameters for on/off; light actions carrying
+        // user params get full-on defaults (see _paramsFor).
+        _ => entity.platform == 'switch' ? const {} : _paramsFor(action),
+      },
+    ));
   }
   return writes;
 }
@@ -290,13 +298,9 @@ List<GroupRead> resolveBatteryReads({
   // for the same reason detectAlertActions pins Alert Level to Immediate
   // Alert — 2a19 hanging off some vendor service is not the standard profile.
   for (final service in services) {
-    if (normalizeUuid(service.uuid) != normalizeUuid(batteryServiceUuid)) {
-      continue;
-    }
+    if (normalizeUuid(service.uuid) != _normalizedBatteryService) continue;
     for (final char in service.characteristics) {
-      if (normalizeUuid(char.uuid) != normalizeUuid(batteryLevelCharUuid)) {
-        continue;
-      }
+      if (normalizeUuid(char.uuid) != _normalizedBatteryLevel) continue;
       if (!char.canRead) continue;
       return [
         GroupRead(
@@ -379,11 +383,11 @@ String? _owningReadableService(
 /// Render one completed group read for a member row: "87 %", "23.5 °C",
 /// "heating". Null when the decode produced nothing displayable.
 ///
-/// Spec-based reads follow the entity's own semantics — `valueField` picks
-/// the field, `valueScale`/`precision` shape the number, the entity's unit
-/// wins — via the same decoded_number helpers every other reading surface
-/// uses. The SIG path reads the profile's pinned `battery_percent` field and
-/// states the unit the SIG defines for it.
+/// Spec-based reads go through [EntityLiveValue] — the ONE place the
+/// value-picking, scaling and unit rules live — so a group row and the
+/// device screen cannot disagree about what the same characteristic read
+/// means. The SIG path reads the profile's pinned `battery_percent` field
+/// and states the unit the SIG defines for it.
 String? groupReadingDisplay(GroupRead read, List<DecodedValueDto> decoded) {
   if (decoded.isEmpty) return null;
   if (!read.specBased) {
@@ -393,16 +397,14 @@ String? groupReadingDisplay(GroupRead read, List<DecodedValueDto> decoded) {
     return '${labelledTextOf(value)} %';
   }
   final entity = read.entity;
-  final field = entity?.valueField;
-  final value = field == null
-      ? decoded.first
-      : decoded.where((d) => d.name == field).firstOrNull;
-  if (value == null) return null;
-  final text = labelledTextOf(
-    value,
-    scaleOverride: entity?.valueScale,
-    precision: entity?.precision,
+  if (entity == null) return null;
+  final live = EntityLiveValue(
+    entity: entity,
+    status: EntityValueStatus.live,
+    decoded: decoded,
   );
-  final unit = unitOf(value, entityUnit: entity?.unit);
+  final text = live.display;
+  if (text == null) return null;
+  final unit = live.unit;
   return unit == null ? text : '$text $unit';
 }

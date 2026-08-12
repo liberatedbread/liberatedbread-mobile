@@ -48,12 +48,6 @@ class DeviceControlPanel extends ConsumerWidget {
       );
     }
 
-    // Normalize (lowercase) + sort the UUIDs so the family cache key is stable
-    // regardless of discovery order/casing; the Rust matcher is already
-    // case-insensitive, so this only affects the key's stability.
-    final serviceUuids = [for (final s in services) normalizeUuid(s.uuid)]
-      ..sort();
-
     // Names standard services the spec does not describe. Watched, not read:
     // it resolves a frame or two after the first build, and the cards should
     // gain their names when it does rather than on the next unrelated
@@ -68,10 +62,10 @@ class DeviceControlPanel extends ConsumerWidget {
     // showing the raw browser until the match resolves.
     final outcome = ref
         .watch(matchedDeviceSpecProvider(
-          SpecMatchRequest(
+          SpecMatchRequest.forServices(
             deviceId: deviceId,
             deviceName: deviceName,
-            serviceUuids: serviceUuids,
+            services: services,
           ),
         ))
         .valueOrNull;
