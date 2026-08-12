@@ -1,0 +1,55 @@
+# Frontier Silicon internet radios — Device Spec (research note)
+# Venice modules: Hama, TechniSat, Roberts, Revo, Medion, Silvercrest, Auna,
+# Teufel, Pinell, Como Audio. Local FSAPI (NetRemote) fully documented;
+# HA core integration exists.
+
+device:
+  id: frontier-silicon-radio
+  name: Frontier Silicon/Smart Venice-based internet radios (UNDOK/OKTIV platform)
+  manufacturer: Frontier Smart Technologies modules; many retail brands
+  category: internet_radio
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+
+lan:
+  discovery:
+    - ssdp: upnp MediaRenderer
+  control:
+    protocol: http          # GET requests, XML responses
+    port: 80                # some models: 2244 — probe http://<ip>:<port>/device
+    auth: pin               # default 1234; NetRemote PIN in device menu
+    session: >
+      GET /fsapi/CREATE_SESSION?pin=1234 -> sid; single controlling session
+      on older firmware (new session invalidates UNDOK app)
+
+protocol:
+  note: >
+    FSAPI node tree addressed via /fsapi/GET|SET/netRemote.* nodes.
+    Documented in flammy/fsapi FSAPI.md and MatrixEditor/fsapi-tools.
+    Covers power, volume, mute, mode/source select, play control, presets,
+    text display readback, equaliser.
+  commands:
+    create_session: "GET /fsapi/CREATE_SESSION?pin=<pin>"
+    volume: "netRemote.sys.audio.volume"
+    mute: "netRemote.sys.audio.mute"
+    mode_select: "netRemote.sys.mode"
+    play_control: "netRemote.play.control"
+    now_playing: "netRemote.play.info.*"
+    friendly_name: "netRemote.sys.info.friendlyName"
+    presets: "netRemote.nav.presets family"
+
+status:
+  apk_acquired: false    # FSAPI documented; apps are thin clients
+  apk_decompiled: false
+  uuids_recovered: false # n/a — no BLE
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: mixed      # portal/app support dead for some brands; local API unaffected
+  references:
+    - home-assistant.io/integrations/frontier_silicon (iot_class: local_polling)
+    - github.com/flammy/fsapi
+    - github.com/MatrixEditor/fsapi-tools
+    - github.com/zhelev/python-afsapi

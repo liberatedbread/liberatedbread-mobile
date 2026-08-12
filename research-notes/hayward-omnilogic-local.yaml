@@ -1,0 +1,54 @@
+# Hayward OmniLogic / OmniHub / OmniPL — Device Spec (research note)
+# Manufacturer ACTIVE (2026-08). Local UDP/XML API on port 10444, RE'd.
+
+device:
+  id: hayward-omnilogic-local
+  name: Hayward OmniLogic / OmniHub / OmniPL pool controllers
+  manufacturer: Hayward — active
+  category: pool_controller
+  safety_class: MEDIUM  # pumps, heaters, chlorinators
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Controller answers local UDP/XML API on the LAN — same protocol the vendor
+    app uses on-premise. Cloud account not required for local control.
+
+lan:
+  discovery:
+    protocol: none_documented   # user supplies controller IP; static IP recommended
+  control:
+    protocol: udp
+    port: 10444  # DEFAULT_CONTROLLER_PORT in pyomnilogic_local
+    framing: >
+      Binary lead-message header (message id, message type, version string,
+      client type) + payload. XML-API messages carry XML payloads mirroring
+      Hayward's cloud XML schema; "simple" messages carry bare command bodies.
+      Some message types are always zlib-compressed regardless of header flag.
+    auth: none on LAN
+
+protocol:
+  note: >
+    Fully documented by implementation in cryptk/python-omnilogic-local
+    (PyPI) and the HACS integration cryptk/haomnilogic-local.
+  commands:
+    request_configuration: XML RequestConfiguration
+    pump_speed: documented (VS presets + custom RPM/%)
+    light_control: on/off, brightness, show
+    heater_setpoint: documented
+    chlorinator_timed_percent: documented (ORP mode unsupported)
+    valve_relay: documented
+
+status:
+  apk_acquired: false   # not needed — community library documents protocol
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false       # manufacturer active; cloud optional
+  confidence: confirmed
+  references:
+    - github.com/cryptk/haomnilogic-local
+    - pypi.org/project/python-omnilogic-local
+    - community.home-assistant.io/t/hayward-pools-local-integration-announcement/584634 (2023-06-22)

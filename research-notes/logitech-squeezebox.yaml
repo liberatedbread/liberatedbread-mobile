@@ -1,0 +1,68 @@
+# Logitech Squeezebox family — Device Spec (research note)
+# Hardware discontinued 2012; mysqueezebox.com shut down Feb 2024.
+# Local path: self-hosted Lyrion Music Server (open source, actively maintained).
+
+device:
+  id: logitech-squeezebox
+  name: Squeezebox Classic/Duet/Boom/Radio/Touch/Transporter (+ UE Smart Radio conversion)
+  manufacturer: Logitech (Slim Devices lineage) — hardware EOL 2012
+  category: network_audio_player
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Players are LAN clients of a self-hosted Lyrion Music Server (LMS).
+    All control protocols are unauthenticated and LAN-scoped; no cloud
+    account is needed for local library playback, radio URLs, or control.
+
+lan:
+  discovery:
+    method: udp_broadcast
+    port: 3483            # UDP discovery probes player->server; DHCP option also supported
+  control:
+    - protocol: slimproto
+      transport: tcp
+      port: 3483          # binary player<->server control + audio; opcodes HELO/STAT/STRM/audg
+      auth: none
+    - protocol: cli       # telnet-style text command line interface
+      transport: tcp
+      port: 9090
+      auth: none
+      examples:
+        - "<mac> play"
+        - "<mac> playlist add <url>"
+        - "<mac> mixer volume 40"
+        - "<mac> status"
+    - protocol: json-rpc  # POST /jsonrpc.js {"method":"slim.request",...}
+      transport: http
+      port: 9000          # same port serves web UI and /stream.mp3 audio
+      auth: optional http basic
+
+protocol:
+  note: >
+    Server side is open source (LMS-Community/slimserver, GPL); a clean-room
+    Python reimplementation (endegelaende/resonance-server, 2026) controls
+    real hardware. Spec work = transcribe SlimProto framing + CLI/JSON-RPC
+    command matrix from slimserver source, not wire RE.
+  commands:
+    play: CLI/JSON-RPC "play"
+    pause: CLI/JSON-RPC "pause"
+    playlist_add_url: 'CLI "playlist add <url>"'
+    volume: 'CLI "mixer volume <0-100>"'
+    status: 'CLI "status" (JSON-RPC returns structured player state)'
+
+status:
+  apk_acquired: false     # n/a — no vendor app; server is the open-source artifact
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE
+  protocol_recovered: true  # fully public via slimserver source + community docs
+  hci_snoop_needed: false
+  cloud_dead: true        # hardware EOL 2012; mysqueezebox.com retired Feb 2024
+  server_alive: true      # Lyrion Music Server 9.x, active 2026
+  references:
+    - github.com/LMS-Community/slimserver
+    - github.com/endegelaende/resonance-server
+    - diyaudio.com/community/threads/mysqueezebox-com-shutting-down.408366 (2024-01-27)
+    - home-assistant.io/integrations/squeezebox (iot_class: local_push)

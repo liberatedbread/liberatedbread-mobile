@@ -1,0 +1,51 @@
+# OpenSprinkler — Device Spec (research note)
+# Open-source controller; documented local HTTP API; company active (firmware 2025-11).
+
+device:
+  id: opensprinkler
+  name: OpenSprinkler v3.x / OSPi (open-source irrigation controller)
+  manufacturer: OpenThings / Rayshobby LLC — active
+  category: irrigation_controller
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Built-in web server; every function is a documented HTTP GET. Open
+    firmware (github.com/OpenSprinkler/OpenSprinkler-Firmware). No account
+    of any kind required.
+
+lan:
+  discovery:
+    protocol: none_needed   # static IP / DHCP reservation
+  control:
+    protocol: http
+    port: 80
+    auth: pw=<md5(device_password)> query param; default password "opendoor"
+    response: JSON
+
+protocol:
+  note: Vendor-published API document; unified firmware.
+  commands:
+    controller_vars: GET /jc?pw=..
+    station_names: GET /jn?pw=..
+    programs: GET /jp?pw=..
+    enable_operation: GET /cv?pw=..&en=1
+    manual_station_run: GET /cm?pw=..&sid=<n>&en=1&t=<secs>
+    station_stop: GET /cm?pw=..&sid=<n>&en=0
+    program_control: GET /cp?pw=..&pid=<n>
+
+status:
+  apk_acquired: false   # n/a — open firmware
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true  # vendor-documented
+  hci_snoop_needed: false
+  cloud_dead: false
+  confidence: confirmed
+  notes: weather-adjust cloud service is open source and self-hostable
+  references:
+    - github.com/OpenSprinkler/OpenSprinkler-Firmware
+    - github.com/OpenSprinkler/OpenSprinkler-Weather
+    - support.opensprinkler.com (API document)

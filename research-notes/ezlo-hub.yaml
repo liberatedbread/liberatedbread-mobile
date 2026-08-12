@@ -1,0 +1,59 @@
+# Ezlo Hubs (Ezlo Plus / Secure / Atom / PlugHub) — Device Spec (research note)
+# Local HTTP(S)/WebSocket "hub.*" JSON API on port 17000.
+# Auth can be disabled for LAN (offlineAnonymousAccess/offlineInsecureAccess).
+
+device:
+  id: ezlo-hub
+  name: Ezlo Plus / Ezlo Secure / Ezlo Atom / Ezlo PlugHub
+  manufacturer: Ezlo Innovation
+  category: smart_home_hub
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Hub runs a local HTTP(S) server on port 17000 exposing the Ezlo "hub.*"
+    JSON API (hub.items.list, hub.item.value.set, hub.scenes.run, ...).
+    Default mode needs a bearer/basic token derived from the Ezlo cloud
+    account; settings offlineAnonymousAccess / offlineInsecureAccess disable
+    auth for LAN-only use (documented on community.ezlo.com 2020-2024).
+
+lan:
+  discovery: dhcp-scan        # no known mDNS; find via router/AP client list
+  control:
+    protocol: https           # self-signed cert; ignore verification locally
+    port: 17000
+    auth: token-or-none       # token from Ezlo account, or disable auth entirely
+    api_explorer: https://apitool.ezlo.com
+    methods:
+      - hub.info.get
+      - hub.items.list
+      - hub.item.value.set
+      - hub.scenes.run
+      - hub.devices.list
+
+protocol:
+  note: >
+    Same JSON method family as Ezlo cloud API, served directly by the hub.
+    Community-documented ("CW's Idiot Guide", 2020); vendor provides
+    apitool.ezlo.com as a live API explorer. WebSocket transport variant
+    also available on the hub.
+  commands:
+    list_devices: hub.devices.list
+    set_value: hub.item.value.set
+    run_scene: hub.scenes.run
+
+status:
+  apk_acquired: false      # not needed — curl-level API once auth off
+  apk_decompiled: false
+  uuids_recovered: false   # n/a
+  protocol_recovered: true # community-documented + apitool.ezlo.com
+  hci_snoop_needed: false
+  cloud_dead: false        # Ezlo alive 2026 but subscription push + outages reported 2025
+  one_time_cloud: true     # account needed to provision hub / set anonymous access
+  rating: confirmed
+  references:
+    - community.ezlo.com/t/cws-idiot-guide-to-ezlo-platform-http-api-commands-aka-luup-requests/215106 (2020-09)
+    - community.ezlo.com/t/ezlo-rest-api-documentation-etc/217675 (auth-off confirmed 2024-08)
+    - support.ezlo.com/hc/en-us/articles/8165438132252 (2024-02)

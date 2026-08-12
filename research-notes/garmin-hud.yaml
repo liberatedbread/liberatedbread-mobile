@@ -1,0 +1,50 @@
+# Garmin HUD / HUD+ — research note
+# Product discontinued 2015 (Garmin support FAQ). Companion apps delisted and
+# unfetchable via apk-pure (verified 2026-08-04). Protocol fully RE'd by
+# community; working ESP32 client exists. No cloud dependency at any point.
+
+device:
+  id: garmin-hud
+  name: Garmin HUD / HUD+ portable head-up display
+  manufacturer: Garmin (product discontinued 2015; company active)
+  category: vehicle_hud
+  safety_class: LOW  # display-only VFD, no vehicle bus connection
+
+transport:
+  type: bluetooth_classic_spp
+  local_only: true
+
+bluetooth:
+  pairing:
+    name_pattern: "GARMIN HUD+"
+    pin: "1234"
+    role: device is SPP server; host connects as master (by name or MAC)
+  rfcomm:
+    - uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      name: spp
+
+protocol:
+  note: >
+    DLE-framed binary protocol over SPP. Frame: 0x10 0x7B, len=payload+6,
+    payloadLen, 0x00 0x00 0x00, 0x55 0x15, payload, checksum, 0x10 0x03.
+    0x10 in payload escaped as 0x10 0x10. Checksum =
+    -(0xEB + 2*payloadLen + sum(payload)) & 0xFF. Config/brightness frames
+    use sub-header 0x56 0x15 instead of 0x55 0x15. Digit 0 encoded as 0x0A.
+  commands:
+    "0x01": turn arrow / direction (angle bitmask; roundabout in/out)
+    "0x02": lane guidance (arrow + outline)
+    "0x03": distance to turn (4 digits, decimal flag, units 0/1/3/5 = none/m/km/mi)
+    "0x05": clock (traffic/colon flags)
+    "0x06": speed and speed limit (digits, speeding/slash/icon flags)
+  references:
+    - https://github.com/andydoswell/ESP32-Garmin-Hud   # working ESP32 client
+    - https://hackaday.com/2022/10/30/garmin-hud-got-discontinued-but-not-trashed/
+    # upstream RE credit: gabonator, Frank Huebenthal, skyforce Shen
+
+status:
+  apk_acquired: false      # companion apps delisted; not on apk-pure (tried 2026-08-04)
+  apk_needed: false        # protocol fully documented by open-source clients
+  protocol_recovered: true # from andydoswell/ESP32-Garmin-Hud + upstream write-ups
+  hci_snoop_needed: false
+  cloud_dependency: none
+  feasibility: confirmed_easy

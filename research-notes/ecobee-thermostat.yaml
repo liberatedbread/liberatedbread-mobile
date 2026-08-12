@@ -1,0 +1,44 @@
+# Ecobee Smart Thermostats — Device Spec (research note)
+# No native local API; local control via Apple HomeKit (HAP) only.
+
+device:
+  id: ecobee-thermostat
+  name: ecobee3 lite / ecobee4 / SmartThermostat w/ voice / Enhanced / Premium / Essential (2025)
+  manufacturer: ecobee (subsidiary of Generac since 2021; active)
+  category: thermostat_hvac
+  safety_class: MEDIUM
+
+transport:
+  type: wifi
+  local_only: true   # via HomeKit HAP; no vendor local REST API exists
+  note: >
+    Local path is Apple HomeKit only: mDNS _hap._tcp, pair with the
+    8-digit on-device code (Settings > HomeKit), control via HA
+    homekit_controller or any HAP client. Remove the stat from Apple Home
+    first. Capabilities: current/target temp, mode off/heat/cool/auto,
+    humidity. NOT exposed locally: full SmartSensor data (915 MHz
+    proprietary), schedules, eco+, ventilator. Initial provisioning is
+    normally app+account assisted; offline cold-start undocumented.
+
+lan:
+  discovery:
+    protocol: mdns
+    service: _hap._tcp
+  control:
+    protocol: homekit-hap   # HAP over IP, standard pairing/encryption
+    characteristics: thermostat service (current/target temp, mode, humidity)
+    clients: [home-assistant homekit_controller, any HAP controller]
+
+status:
+  rating: confirmed   # multiple community local-HAP implementations
+  apk_acquired: false # n/a — HAP is on-device
+  apk_decompiled: false
+  protocol_recovered: true  # HAP is documented/open (HAP-python, homekit_controller)
+  cloud_dead: false   # active; but dev API keys frozen 2024-03-28, gen-1 deprecated 2024-07-31
+  caveats:
+    - gen-1 Smart/EMS deprecated by vendor 2024-07-31 (no remote control)
+    - ecobee stopped new developer API keys 2024-03-28
+  references:
+    - wiki.innovo.net/en/ecobee (2025-06-09)
+    - community.home-assistant.io/t/491319 (2023-04-07)
+    - github.com/home-assistant/core/issues/54094 (2021-08-05)

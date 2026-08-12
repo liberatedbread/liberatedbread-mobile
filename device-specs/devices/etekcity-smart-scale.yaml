@@ -1,0 +1,131 @@
+# ETEKCITY ESN00 Smart Scale — Device Spec
+# Generated from static analysis of com.etekcity.vesyncplatform
+# APK source: apkeep (Google Play mirror)
+# XAPK SHA-256: ec0b8b02c52801851b85ca45dae8c56e5cce469bd7e3e0dc859ddd354b7185e3
+
+device:
+  name: "ETEKCITY ESN00 Smart Nutrition Scale"
+  manufacturer: "ETEKCITY (VeSync platform)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "scale"
+  notes: >
+    The VeSync app is a multi-device platform. The ESN00 kitchen scale's own
+    BLE interface is service 0x1910 with characteristics 0x2C10 (read),
+    0x2C11 (write / write-without-response) and 0x2C12 (notify / indicate),
+    confirmed twice: by hardware reverse engineering (hertzg/metekcity, built
+    from HCI-snoop plus noble against a real ESN00) and by the VeSync APK's
+    own ESN00 code path (the mj0 BLE profile for BLE_MODEL 49314 = 0xC0A2).
+    An earlier guess placing the scale on service FFA0 or FFE0 was wrong —
+    those UUIDs belong to other VeSync device classes (the FFE0/FFFx map is
+    the ESF-551-class body/fitness scale interface). The advertised local
+    name is "Etekcity Nutrition Scale". FCC ID 2AB22-ESN00 (variant
+    2AB22-ESN002).
+
+    Frame format (both directions, big-endian): FE EF | model u16 (0xC0A2) |
+    type u8 | len u8 | payload[len] | checksum u8. Total frame length is
+    len + 7; checksum = (type + len + sum of payload bytes) & 0xFF. Example:
+    fe ef c0 a2 c0 01 00 c1 sets unit g (0xC0 + 0x01 + 0x00 = 0xC1).
+
+    Commands (client to scale): 0xC0 set unit (1-byte enum), 0xC1 tare
+    (payload 00), 0xC2 sync food/nutrition (36 bytes: 12 u16BE values scaled
+    x10 — kcal, kcal-from-fat, fat, sat-fat, trans-fat, cholesterol, sodium,
+    potassium, carbs, fiber, sugars, protein), 0xC3 query region, 0xC4 set
+    backlight/auto-off timeout (1 byte seconds; app offers 30/45/60/120,
+    default 120). Reports (scale to client): 0xD0 weight (payload: sign u8,
+    weight u16BE in 0.1 g, unit u8, stable u8 — streamed continuously),
+    0xD1 unit state, 0xD2 battery (value / 10 V; app flags low at 2.4 V or
+    less), 0xD3 tare state, 0xD4 region (1 = US; gates fl'oz unit
+    availability), 0xD5 auto-off state, 0xE0 overflow ("Err", max 5000 g per
+    the manual), 0xE2 low voltage, 0xE4 item-on-scale. Unit enum: 0=g,
+    1=lb:oz, 2=ml(water), 3=fl'oz(water), 4=ml(milk), 5=fl'oz(milk), 6=oz.
+
+    A working MIT-licensed parser/serializer is published as the npm package
+    @metekcity/esn00-packet v2.0.0 (hertzg/metekcity monorepo, with a Web
+    Bluetooth demo). The scale has no OTA update support (isSupportOta=false
+    in the APK's ESN00DeviceProvider) and no firmware downloads exist from
+    vendor, FCC or GitHub.
+
+    Research status: protocol confirmed by two independent sources — hardware
+    RE with captured packet samples, and the APK's own ESN00 classes — that
+    agree everywhere they overlap. No HCI-snoop gap remains.
+
+  identification:
+    local_name_prefix: "Etekcity Nutrition Scale"
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      The scale itself needs no provisioning: it is a BLE peripheral that
+      advertises and streams weight to whatever connects. The VeSync app asks
+      for an account, but that is the app's requirement, not the scale's — the
+      account exists to sync readings to VeSync's cloud, and nothing in the
+      recovered service map suggests the scale is bound to it.
+
+      Hardware-confirmed: hertzg/metekcity's Web Bluetooth demo connects by
+      advertised name and streams weight with no account and no bonding, and
+      the vendor manual documents no pairing PIN or bonding flow. The scale
+      is a single-connection BLE peripheral.
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT and read weight notifications directly, bypassing
+          the VeSync app and account entirely.
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Place a load on the scale, or tap it, to wake it from standby."
+            actor: user
+          - action: "Scan for the scale (advertised name \"Etekcity Nutrition Scale\") and connect over GATT."
+            actor: client
+          - action: "Subscribe to report characteristic 0x2C12 on service 0x1910."
+            actor: client
+            expect: "Weight reports (type 0xD0: sign u8, weight u16BE in 0.1 g, unit u8, stable u8) stream as the load changes."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. No reset command was recovered from the app, and the
+        scale is not known to store per-user state that a reset would clear.
+        Removing the batteries is the only power-cycle path observed.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The scale joins no network, so there is nothing to rejoin. A new client
+        may connect once the previous one disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        No WiFi passphrase is involved — the scale is BLE-only. A VeSync account
+        credential is held by the app, not by the scale.
+
+services:
+  - uuid: "00001910-0000-1000-8000-00805f9b34fb"
+    name: "ESN00 Scale Service"
+    notes: >
+      The ESN00's only vendor service, confirmed by hardware GATT
+      enumeration (hertzg/metekcity) and by the VeSync APK's own ESN00
+      profile (service 0x1910, write 0x2C11, notify 0x2C12). The unit also
+      exposes the standard 0x1800 (0x2A00/0x2A01) and 0x180A
+      (0x2A23/0x2A50) services. All commands and reports use the
+      FE EF C0 A2 frame format documented in the device notes. (The FFA0 /
+      FFE0 services previously listed here were misattributed from other
+      VeSync device classes.)
+    characteristics:
+      - uuid: "00002c10-0000-1000-8000-00805f9b34fb"
+        name: "Scale Read"
+        notes: "Read characteristic; in practice the streamed 0x2C12 reports carry the live data."
+        properties: ["read"]
+      - uuid: "00002c11-0000-1000-8000-00805f9b34fb"
+        name: "Command Write"
+        notes: "Command writes: 0xC0 set unit, 0xC1 tare, 0xC2 sync nutrition (36 B), 0xC3 query region, 0xC4 backlight/auto-off timeout."
+        properties: ["write", "write_without_response"]
+      - uuid: "00002c12-0000-1000-8000-00805f9b34fb"
+        name: "Scale Report"
+        notes: "Reports arrive as notifications/indications: 0xD0 weight, 0xD1 unit, 0xD2 battery (/10 V), 0xD3 tare, 0xD4 region, 0xD5 auto-off, 0xE0 overflow, 0xE2 low voltage, 0xE4 item-on-scale."
+        properties: ["notify", "indicate"]
