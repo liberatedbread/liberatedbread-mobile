@@ -1,8 +1,8 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
-import 'dart:convert';
-
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'prefs_json_list.dart';
 
 /// A device the user has paired with and wants to keep.
 ///
@@ -35,18 +35,16 @@ class SavedDevice {
     this.specKey,
   });
 
-  SavedDevice copyWith({
-    String? name,
-    DateTime? lastSeen,
-    String? category,
-    String? specKey,
-  }) =>
-      SavedDevice(
+  /// Only the fields the merge path ([SavedDevicesNotifier.touch]) actually
+  /// refreshes. Deliberately NOT category/specKey: `??`-merging can never
+  /// clear a field, which is exactly why `recordMatch` replaces the whole
+  /// record instead — dead parameters here would invite that trap back.
+  SavedDevice copyWith({String? name, DateTime? lastSeen}) => SavedDevice(
         id: id,
         name: name ?? this.name,
         lastSeen: lastSeen ?? this.lastSeen,
-        category: category ?? this.category,
-        specKey: specKey ?? this.specKey,
+        category: category,
+        specKey: specKey,
       );
 
   Map<String, dynamic> toJson() => {
@@ -98,29 +96,9 @@ class SavedDeviceStore {
   SavedDeviceStore(this._prefs);
 
   /// Saved devices, most recently seen first.
-  List<SavedDevice> load() {
-    final raw = _prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return const [];
-
-    List<dynamic> decoded;
-    try {
-      final value = jsonDecode(raw);
-      if (value is! List) return const [];
-      decoded = value;
-    } on FormatException {
-      // Unreadable blob: treat as empty rather than throwing on startup.
-      return const [];
-    }
-
-    final devices = <SavedDevice>[];
-    for (final entry in decoded) {
-      if (entry is! Map<String, dynamic>) continue;
-      final device = SavedDevice.fromJson(entry);
-      if (device != null) devices.add(device);
-    }
-    devices.sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
-    return devices;
-  }
+  List<SavedDevice> load() =>
+      loadPrefsJsonList(_prefs, _key, SavedDevice.fromJson)
+        ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
 
   /// Insert or update [device], keeping the list newest-first.
   Future<List<SavedDevice>> save(SavedDevice device) async {
@@ -136,6 +114,6 @@ class SavedDeviceStore {
     return devices;
   }
 
-  Future<void> _write(List<SavedDevice> devices) => _prefs.setString(
-      _key, jsonEncode(devices.map((d) => d.toJson()).toList()));
+  Future<void> _write(List<SavedDevice> devices) =>
+      savePrefsJsonList(_prefs, _key, devices, (d) => d.toJson());
 }
