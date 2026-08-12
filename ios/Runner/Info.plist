@@ -75,6 +75,9 @@
 		<string>_dyson_mqtt._tcp</string>
 		<string>_ankivector._tcp</string>
 		<string>_rabbitair._udp</string>
+		<string>_philipstv_rpc._tcp</string>
+		<string>_viziocast._tcp</string>
+		<string>_androidtvremote2._tcp</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

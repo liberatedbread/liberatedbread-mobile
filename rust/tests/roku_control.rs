@@ -212,6 +212,49 @@ fn choosing_a_channel_renders_the_documented_launch() {
     assert_eq!(sneaky.path, "/launch/12%2F..%2Fx");
 }
 
+#[test]
+fn the_keyboard_types_one_lit_keypress_per_character() {
+    // The text entity: a stateless input whose valued `submit` is the Lit_
+    // key form and whose fixed `press` is backspace — the two halves of
+    // typing into a field the device never reports the contents of.
+    let entities = liberated_bread_core::api::device_api::network_entities_for_device(
+        ROKU.to_string(),
+        vec!["roku:ecp".to_string()],
+    )
+    .expect("the vendored spec resolves");
+    let keyboard = entities
+        .iter()
+        .find(|e| e.name == "Keyboard")
+        .expect("the Keyboard text entity is on the surface");
+    assert_eq!(keyboard.platform.as_deref(), Some("text"));
+    assert!(keyboard.state_command.is_empty());
+
+    let submit = keyboard
+        .actions
+        .iter()
+        .find(|a| a.role == "submit")
+        .expect("a valued submit action");
+    assert_eq!(submit.transport, "http");
+    assert_eq!(submit.user_params, vec!["char".to_string()]);
+    let backspace = keyboard
+        .actions
+        .iter()
+        .find(|a| a.role == "press")
+        .expect("the backspace press action");
+
+    let spec = spec();
+    // A bare letter passes through; a space is percent-encoded after the
+    // literal Lit_ prefix, exactly as ecp_common documents.
+    let typed =
+        http::render_request(&spec, &submit.command_name, &values(&[("char", "a")])).unwrap();
+    assert_eq!(typed.path, "/keypress/Lit_a");
+    let space =
+        http::render_request(&spec, &submit.command_name, &values(&[("char", " ")])).unwrap();
+    assert_eq!(space.path, "/keypress/Lit_%20");
+    let deleted = http::render_request(&spec, &backspace.command_name, &no_values()).unwrap();
+    assert_eq!(deleted.path, "/keypress/Backspace");
+}
+
 fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs
         .iter()
