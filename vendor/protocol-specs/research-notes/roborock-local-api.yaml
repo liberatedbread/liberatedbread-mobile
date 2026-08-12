@@ -1,0 +1,50 @@
+# Roborock S7 MaxV and newer — Device Spec (research note)
+# Local protocol on UDP 58867 (python-roborock / HA core roborock integration,
+# iot_class local_polling). One-time cloud login required to obtain local keys.
+
+device:
+  id: roborock-local-api
+  name: Roborock S7 MaxV/Ultra, S8 series, Q5/Q7/Q8/Q Revo series and later
+  manufacturer: Roborock — active brand
+  category: robot_vacuum
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true   # after one-time cloud key fetch; WAN blockable
+  note: >
+    Post-miio Roborock local protocol. HA core roborock integration talks
+    to the robot on UDP 58867 (L01 message family); per-device AES keys are
+    fetched once from the Roborock cloud during account login. Some client
+    builds silently fall back to cloud when the local connection fails —
+    enforce locality with a WAN block.
+
+lan:
+  discovery:
+    method: udp_broadcast  # discovery + control share UDP 58867
+  control:
+    protocol: roborock-l01
+    port: 58867            # UDP
+    crypto: AES with per-device local key (cloud-issued at setup)
+    reference: python-roborock (github.com/humbertogontijo/python-roborock)
+
+protocol:
+  note: >
+    Versioned message families (A01...L01) with nonce/session negotiation;
+    distinct from miio. python-roborock `protocols/` package is the de-facto
+    spec. HA core roborock is iot_class local_polling.
+  commands:
+    start/stop/dock/segment_clean: via python-roborock command enums
+    maps: binary map format v1 (community parsers exist)
+
+status:
+  apk_acquired: false   # com.roborock.smart not fetched; protocol covered by python-roborock
+  protocol_recovered: true
+  rating: confirmed
+  cloud_dead: false
+  cloud_bootstrap: required   # one-time Roborock account login for local keys; no account-free path known
+  references:
+    - home-assistant.io/integrations/roborock (port 58867 note; local_polling)
+    - github.com/humbertogontijo/python-roborock
+    - community.home-assistant.io/t/roborock-integration-across-vlan/829992 (2025-01)
+    - github.com/home-assistant/core/issues/151913 (local connect failure → cloud fallback)

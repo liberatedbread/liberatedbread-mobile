@@ -1,0 +1,69 @@
+# iLEDColor LED Panel — Device Spec
+# Generated from static analysis of com.led.iledcolor
+# APK source: apkeep (Google Play mirror)
+# XAPK SHA-256: df33e91e2467f7c379bcaa7b497bb1bed91aea9a282817b1af632283d79f1505
+
+device:
+  id: iledcolor-led-panel
+  name: iLEDColor LED Matrix Panel (DreamPanel v3)
+  manufacturer: Shenzhen I-ledshow Technology Co., Ltd.
+  category: led_panel
+  safety_class: LOW
+  note: >
+    This app replaced SPOTLED for DreamPanel v3 hardware (horizontal serial
+    number). Built on JieLi (JL) Bluetooth OTA SDK. LED command format is
+    embedded in JL proprietary protocol inside native libraries.
+
+transport:
+  type: ble
+  local_only: TBD  # App requires account registration — may gate cloud content only
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — may be from SPOTLED prefix "LBXDRMSKIN_LED_"
+    probe_first: "0000ff20-0000-1000-8000-00805f9b34fb"  # Check SPOTLED compatibility
+
+  services:
+    - uuid: "0000ae00-0000-1000-8000-00805f9b34fb"
+      name: jl_ota_service
+      description: JieLi Bluetooth OTA service (used for data transport)
+      characteristics:
+        - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
+          name: jl_ota_write
+          description: JL OTA write characteristic (data/commands to device)
+          properties: [write, write_no_response]
+        - uuid: "0000ae02-0000-1000-8000-00805f9b34fb"
+          name: jl_ota_notify
+          description: JL OTA notification characteristic
+          properties: [notify]
+
+  # Standard profiles also referenced
+  standard_services:
+    - uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      name: serial_port
+      note: Standard SPP — may be used as alternative data channel
+    - uuid: "0000110b-0000-1000-8000-00805f9b34fb"
+      name: audio_sink
+    - uuid: "0000111e-0000-1000-8000-00805f9b34fb"
+      name: handsfree
+
+protocol:
+  note: >
+    LED control commands are sent through the JL OTA data pipe (0000ae01).
+    The actual LED command format (brightness, image upload, GIF frames) is
+    embedded within JL's proprietary protocol and encoded in native .so libraries.
+    Static analysis cannot recover the command format — HCI snoop is essential.
+  architecture:
+    sdk: JieLi (JL) Bluetooth OTA SDK
+    native_libs: true  # config.armeabi_v7a.apk (9.4MB)
+    ble_manager: ec/c.java (BleManager)
+    ota_handler: ec/f.java (extends JL OTA impl)
+    send_thread: ec/i.java (queued BLE writes)
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true  # JL OTA service UUIDs found
+  protocol_recovered: false  # LED command format in native libs — needs HCI snoop
+  hci_snoop_essential: true
+  native_re_required: true  # May need .so disassembly if snoop unavailable

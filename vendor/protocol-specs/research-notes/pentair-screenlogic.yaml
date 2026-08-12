@@ -1,0 +1,56 @@
+# Pentair ScreenLogic / ScreenLogic2 Protocol Adapter — Device Spec (research note)
+# Manufacturer ACTIVE (2026-08). Local path fully RE'd: UDP 1444 discovery + TCP 80 binary API.
+
+device:
+  id: pentair-screenlogic
+  name: Pentair ScreenLogic2 Protocol Adapter (IntelliTouch/EasyTouch/SunTouch/IntelliCenter)
+  manufacturer: Pentair — active
+  category: pool_controller
+  safety_class: MEDIUM  # pumps, heaters, chlorinators; keep stop-all prominent
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Protocol adapter brick bridges panel RS-485 to LAN (Ethernet or Wi-Fi).
+    Local binary protocol fully reverse engineered; vendor cloud/app optional.
+
+lan:
+  discovery:
+    protocol: udp_broadcast
+    address: 255.255.255.255
+    port: 1444
+    payload: 8-byte discovery packet
+    response: adapter IP, TCP port, type, gateway name
+  control:
+    protocol: tcp
+    port: 80  # default; adapter returns actual port in discovery reply
+    auth: challenge-response login with panel admin password (SHA-256 based)
+    framing: little-endian header — sender id, 16-bit message code, 32-bit length
+    push: async status messages stream on the same socket after login
+
+protocol:
+  note: >
+    Message codes for circuit control, body setpoints, schedules, pumps,
+    chlorinator (IntelliChlor), IntelliChem chemistry and light shows are
+    enumerated in parnic/node-screenlogic and dieselrabbit/screenlogicpy.
+  commands:
+    login: documented in screenlogicpy / node-screenlogic
+    get_pool_status: documented (message code family 125xx)
+    set_circuit_state: documented
+    set_setpoint: documented
+    chlorinator_output: documented
+
+status:
+  apk_acquired: false   # not needed — two community libraries document the protocol
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false       # manufacturer active; cloud optional
+  confidence: confirmed   # HA core integration pentair_screenlogic, local_polling
+  references:
+    - github.com/parnic/node-screenlogic
+    - github.com/dieselrabbit/screenlogicpy
+    - home-assistant.io/integrations/screenlogic
+    - community.ui.com/questions/Enabling-UDP-Broadcast-between-VLANs/842a44e1 (2022)

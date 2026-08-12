@@ -1,0 +1,55 @@
+# Belfryboy WiFiLogger (Davis Vantage consoles) — Device Spec (research note)
+# Third-party Wi-Fi datalogger retrofitting local HTTP/JSON/MQTT onto Davis
+# Vantage Pro2/Vue/Envoy consoles. Active vendor as of 2026-08.
+# Sources checked 2026-08-07: wifilogger.net, meteo-shopping.com listing,
+# community.openenergymonitor.org wflexp.json thread, HA community topic 88966.
+
+device:
+  id: belfryboy-wifilogger
+  name: Belfryboy WiFiLogger / WiFiLogger 2 (Davis console datalogger)
+  manufacturer: Belfryboy (Poland)
+  category: weather_station
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    ESP-based module in the console datalogger port. Serves a local web UI,
+    exposes wflexp.json over HTTP, publishes JSON over MQTT, supports custom
+    HTTP/FTP upload endpoints, and bridges the Davis LOOP serial command set
+    over TCP for local software (WeeWX, CumulusMX). No cloud account needed.
+
+lan:
+  control:
+    - protocol: http
+      port: 80
+      endpoints:
+        - GET /                # config + live view web UI
+        - GET /wflexp.json     # current conditions + archive export (JSON)
+    - protocol: mqtt
+      note: JSON publish to user-configured broker (LAN broker works)
+    - protocol: tcp
+      note: Davis LOOP/DMP command bridge for local weather software
+
+protocol:
+  note: >
+    wflexp.json carries current conditions and archive records in JSON.
+    MQTT payload is JSON. Underlying console data uses the classic Davis
+    LOOP packet format bridged from the console UART.
+  commands:
+    read_current: GET /wflexp.json or MQTT subscribe
+    loop_bridge: TCP connection, issue Davis LOOP command
+
+status:
+  apk_acquired: false    # n/a — no companion app; web UI config
+  apk_decompiled: false
+  uuids_recovered: false # n/a
+  protocol_recovered: true  # vendor-documented outputs
+  hci_snoop_needed: false
+  cloud_dead: false      # active vendor; cloud never required
+  rating: confirmed
+  references:
+    - wifilogger.net
+    - meteo-shopping.com/en/software-and-datalogger/567-wifi-logger-v2-pour-vantage-pro-2vantage-vue.html
+    - community.openenergymonitor.org/t/davis-wifi-logger-wflexp-json/17163

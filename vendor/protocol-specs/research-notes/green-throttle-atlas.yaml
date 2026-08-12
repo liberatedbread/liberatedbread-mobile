@@ -1,0 +1,43 @@
+# Green Throttle Atlas controller — Device Spec
+# Company shut down late 2013; assets acqui-hired by Google (confirmed 2014-03-12).
+# Arena companion app pulled from Play Store Nov 2013 — UNFETCHABLE (package id unconfirmed).
+
+device:
+  id: green-throttle-atlas
+  name: Green Throttle Atlas Bluetooth controller
+  manufacturer: Green Throttle Games (defunct 2013; assets to Google 2014-03-12)
+  category: game_controller
+  safety_class: LOW
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  profiles:
+    - hid   # post-2013-09 firmware: standard HID gamepad
+    - spp   # original firmware: proprietary protocol via Arena app/SDK (dead)
+
+bluetooth_classic:
+  pairing:
+    notes: >
+      Units with the Sep 2013 "HID Compatible" firmware pair as generic HID
+      gamepads. Original-firmware units depended on the Arena app (delisted
+      Nov 2013) for pairing and multi-controller support. Whether the HID
+      firmware update can still be applied without Arena is UNKNOWN.
+
+protocol:
+  note: >
+    HID mode: standard gamepad, no vendor protocol. SPP mode: proprietary and
+    undocumented; no public RE found. Arena APK (if a mirror ever surfaces) or
+    HCI snoop on hardware would be required to document it.
+
+status:
+  apk_acquired: false   # Arena app delisted Nov 2013; package id unconfirmed; not fetched
+  apk_decompiled: false
+  protocol_recovered: false  # HID mode needs none; SPP mode undocumented
+  hci_snoop_needed: true     # only if documenting the legacy SPP mode
+  cloud_dependency: none for HID-firmware units; legacy units tied to dead Arena app
+  rating_note: hypothesis on firmware-update path; HID usability confirmed by vendor PR
+  references:
+    - techcrunch.com Google acquisition (2014-03-12)
+    - pressreleases.triplepointpr.com HID-compatible Atlas PR (2013-09-17)
+    - droid-life.com (2014-03-12)

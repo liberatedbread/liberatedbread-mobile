@@ -1,0 +1,70 @@
+# BLE Pulse Oximeter (SP001/BerryMed) — Device Spec
+# Generated from static analysis of com.wakeup.smartspo (Wearfit BO)
+# APK source: apkeep (Google Play mirror)
+# APK SHA-256: 37834803 bytes bare APK
+
+device:
+  id: ble-pulse-oximeter
+  name: BLE Fingertip Pulse Oximeter (SP001 / BerryMed)
+  manufacturer: Manridy (likely ODM)
+  category: medical_sensor
+  safety_class: LOW  # Readings indicative only, not for clinical diagnosis
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "BerryMed", "SP001" speculative
+    service_uuids: []  # TBD
+
+  # Nordic UART Service (primary)
+  services:
+    - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      name: nordic_uart_service
+      description: Nordic UART service (standard async serial bridge)
+      characteristics:
+        - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_rx
+          description: RX characteristic (write commands to device)
+          properties: [write, write_no_response]
+        - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_tx
+          description: TX characteristic (notifications from device)
+          properties: [notify]
+
+  # SMART_BRACELET alternate service
+  alternate_services:
+    - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+      name: smart_bracelet_service
+      characteristics:
+        - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+          name: smart_bracelet_measurement
+
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+    - uuid: "00001804-0000-1000-8000-00805f9b34fb"
+      name: tx_power
+
+protocol:
+  note: >
+    Uses standard Nordic UART service. Data format for SpO2/PR/PI readings
+    is sent as notifications on UART TX characteristic.
+    Packet size: 20 bytes (MTU-3).
+    Data parsing via chignon package (BroadcastCommand, BroadcastData, DataPacket).
+  expected_measurements:
+    - spO2_percent
+    - pulse_rate_bpm
+    - perfusion_index_percent
+  packet_size: 20
+  mtu_overhead: 3
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true  # Nordic UART service UUIDs found
+  protocol_recovered: false  # Data frame format TBD — needs HCI snoop
+  hci_snoop_needed: true
+  reference: github.com/jcomas/PulseOximeterSP001  # Existing partial implementation

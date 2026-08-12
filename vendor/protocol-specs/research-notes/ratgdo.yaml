@@ -1,0 +1,58 @@
+# ratgdo — Device Spec (research note)
+# Open-source hardware by Paul Wieland / ratcloud llc. ACTIVE
+# (paulwieland.github.io/ratgdo reachable 2026-08-07; URC integration
+# announced 2025-10-14). Fully local: ESPHome API, MQTT, or HomeKit.
+# The standard rescue for MyQ-locked Security+ 2.0 openers.
+
+device:
+  id: ratgdo
+  name: ratgdo v2 / ratgdo disco garage door control board
+  manufacturer: ratcloud llc (Paul Wieland) — open-source hardware
+  category: garage_door_controller
+  safety_class: MEDIUM  # unattended door actuation; honors opener obstruction sensors; respect lock state
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    ESP32/ESP8266 board wired to opener terminals; decodes the Security+
+    2.0 obfuscated serial protocol (yellow learn button openers) that
+    defeats plain dry-contact relays, and also supports generic dry-contact
+    mode for other brands. Three firmware flavors, all LAN-only: ESPHome
+    (native API, HA auto-discovery), MQTT (open/close/light/lock topics +
+    LWT), HomeKit (local HAP). No account or cloud of any kind.
+
+lan:
+  discovery:
+    mdns: "ESPHome/HomeKit firmwares advertise via mDNS; HA auto-discovers"
+  control:
+    protocols: [esphome-api, mqtt, hap]
+    provisioning: device AP + local web UI
+
+protocol:
+  note: >
+    Not a vendor protocol to RE — firmware is open source
+    (github.com/PaulWieland/ratgdo, ratgdo/esphome-ratgdo). MQTT command
+    set: open, close, light, lock (+ status/LWT topics). ESPHome entities:
+    cover, light, lock, sensors (obstruction, motion, button). Sec+ 2.0
+    serial line details documented in the repo wiki.
+  commands:
+    open: mqtt topic command / esphome cover.open
+    close: mqtt topic command / esphome cover.close
+    light: mqtt "light" / esphome light toggle
+    lock: mqtt "lock" / esphome lock (disables remotes)
+
+status:
+  apk_acquired: false   # n/a — no companion app
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true  # open source
+  hci_snoop_needed: false
+  cloud_dead: false         # no cloud exists
+  rating: confirmed
+  references:
+    - paulwieland.github.io/ratgdo/ (order + quickstart)
+    - github.com/PaulWieland/ratgdo + github.com/ratgdo/esphome-ratgdo
+    - arstechnica.com/gadgets/2024/09/i-home-automated-my-garage-door-finally-with-a-ratgdo/ (2024-09-06)
+    - urc-automation.com/urc-and-ratgdo-announce-integration-with-total-control/ (2025-10-14)
+    - community.home-assistant.io/t/ratgdo-local-mqtt-control-.../437380 (2022-07-06+)

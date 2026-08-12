@@ -1,0 +1,44 @@
+# Friday Lock (Friday Labs / Friday Home FLSS)
+# No APK acquired — research only; weakly-sourced "defunct" verdict
+
+device:
+  id: friday-lock
+  name: Friday Lock (FLSS, v1/v2)
+  manufacturer: Friday Labs ApS / Friday Home (Denmark) — appears defunct
+  category: smart_lock
+  safety_class: HIGH  # physical access control
+
+transport:
+  type: ble  # + Apple HomeKit (HAP over BLE); Wi-Fi via bridge
+  local_only: true  # via HomeKit, if pairing is lock-local (standard HAP setup code)
+
+cloud:
+  status: dead_unverified  # product discontinued; fridayhome.com 404 as of 2026-08-03;
+                           # last sign of life Feb 2020 (HomeKit News v2 review);
+                           # no formal shutdown/acquisition announcement found
+  setup_dependency: unknown — if HomeKit setup-code flow is used, none;
+                    if vendor app account required, unpaired locks may be stranded
+
+ble:
+  advertising:
+    name_patterns: []  # TBD
+    service_uuids: []  # TBD
+  services: []  # vendor protocol un-RE'd; HomeKit uses standard HAP services
+
+protocol:
+  note: >
+    Best local path is standard Apple HomeKit (HAP over BLE) — no RE required if
+    the lock exposes the normal HAP setup-code pairing. Vendor's own BLE protocol
+    is not publicly reverse-engineered and the companion APK is unavailable.
+
+status:
+  apk_acquired: false  # gone from Play; APK Pure misses on all plausible ids (2026-08-03)
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: false  # skip unless HomeKit path fails
+  reference: homekitnews.com/2020/02/10/friday-smart-lock-version-2/
+  open_questions:
+    - authoritative company-death source (Danish CVR registry)
+    - HomeKit setup code printed on lock/manual?
+    - surviving Friday Home APK + package id

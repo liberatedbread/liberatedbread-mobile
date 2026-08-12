@@ -1,0 +1,69 @@
+# Quicklynks BM2 / BM6 12V battery monitor — research note
+# Vendor ACTIVE (app updated 2025-10-30 on Play) — not abandoned; included per category
+# brief as a fully-documented local-BLE reference. No account, no cloud.
+
+device:
+  id: quicklynks-bm2
+  name: 12V BLE Battery Monitor (BM2 / BM6 / ANCEL BM200 / Sealey BT2020)
+  manufacturer: Quicklynks / ICS Technology (many rebrands)
+  category: vehicle_battery_monitor
+  safety_class: LOW  # passive 12V telemetry; cranking/charging tests are measurements only
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: []  # clones vary; BM6 uses manufacturer adverts w/ rotating payload
+    service_uuids: []
+  services:
+    - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
+      name: bm2_service
+      characteristics:
+        - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+          name: write
+          properties: [write]
+        - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
+          name: notify
+          properties: [notify]
+    - uuid: "0000fee0-0000-1000-8000-00805f9b34fb"
+      name: secondary_channel
+      description: fee0/fee1 present in app dex; role TBD (config/history?)
+    - uuid: "f000ffc0-0451-4000-b000-000000000000"
+      name: ti_oad
+      description: TI over-air download (ffc0/ffc1/ffc2) — CC254x-based hardware
+
+protocol:
+  note: >
+    Fully reverse engineered by community. BM2: plain GATT request/response on
+    fff3/fff4 — voltage read and ~35-day history download implemented in Python,
+    ESPHome, and Home Assistant. BM6/ANCEL BM200: encrypted manufacturer adverts,
+    decoded per tarball.ca writeup. No pairing, account, or cloud involvement.
+  expected_measurements:
+    - voltage
+    - cranking_voltage_profile
+    - charging_voltage
+    - history_35d
+  references:
+    - https://github.com/KrystianD/bm2-battery-monitor
+    - https://github.com/andystewart999/ha_bm2monitor
+    - https://www.tarball.ca/posts/reverse-engineering-the-bm6-ble-battery-monitor/
+    - https://community.home-assistant.io/t/bm6-battery-monitor-esphome/806239
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # strings-only triage; protocol already public — no need
+  uuids_recovered: true
+  protocol_recovered: true   # via prior art, not this repo
+  hci_snoop_needed: false
+  cloud_dependency: none
+  vendor_risk: low           # app maintained; Play listing updated 2025-10-30
+
+apk:
+  - package: com.dc.battery.monitor2
+    version: 3.8.0
+    version_code: 111
+    sha256: 7fcdf2a2e2416f3f0655c8c704f97e1b2e37c6d8951a5bf84c82c93da1bbc94d
+    source: apkeep apk-pure
+    note: listed on Play as "BM2 - Battery Monitor BLE"; includes Wear OS companion

@@ -1,0 +1,1238 @@
+# Hisense VIDAA / Android TV (remoteapp MQTT) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Local control of Hisense smart TVs via the on-device MQTT broker the
+# official RemoteNow / VIDAA mobile apps speak to, on TCP port 36669. Three
+# authentication generations exist in the field (static, legacy-dynamic,
+# modern-dynamic with mutual TLS); remoteapp_common carries the wire format,
+# the credential algorithms and the pairing flows. Nothing here was replayed
+# against hardware by this project — every command is "reported" from the
+# community clients cited in helpful_urls.
+
+device:
+  name: "Hisense VIDAA TV (remoteapp MQTT)"
+  manufacturer: "Hisense"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "tv"
+  transport: "mqtt"
+  notes: >
+    Hisense TVs run an on-device MQTT broker on TCP port 36669 (mosquitto
+    1.4.2 on the oldest observed firmware) which exists to serve the official
+    RemoteNow and VIDAA mobile apps. All control is publish/subscribe:
+    commands go to /remoteapp/tv/{service}/{client_id}/actions/{action} and
+    answers come back on /remoteapp/mobile/{client_id}/... or on broadcast
+    topics under /remoteapp/mobile/broadcast/. The service vocabulary is
+    remote_service (sendkey), ui_service (state, sources, apps, pairing) and
+    platform_service (volume, tokens). Despite the brief's expectation of a
+    distinct older port: no source documents a listener on 36668 — the
+    "older remoteapp protocol" is the same broker on the same 36669 without
+    TLS and with the static hisenseservice/multimqttservice login, not a
+    different port. Discovery is SSDP/DLNA (the TV is a UPnP MediaRenderer)
+    plus a Hisense-specific UDP broadcast on port 36671; identity comes from
+    the UPnP device descriptor on port 38400 (18400 on some VIDAA versions).
+    There is no way to power these TVs on over this protocol — the broker is
+    down in standby, so wake is Wake-on-LAN to the TV's MAC.
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    notes: >
+      Hisense publishes nothing about this interface. Everything here was
+      recovered by the community from packet captures, the RemoteNow and
+      VIDAA Android APKs (libmqttcrypt.so in particular), and live probing —
+      Krazy998/mqtt-hisensetv documented the broker and topic vocabulary in
+      2019, newAM/hisensetv and sehaas/ha_hisense_tv productised the static
+      and cert generations, and warrenrees/pyvidaa reverse-engineered the
+      dynamic credential algorithm from the VIDAA app's native library and
+      verified it end-to-end on a live set (field notes dated 2026-08-04).
+      The VIDAA app itself is Baidu-packed and certificate-pinned, which is
+      why the modern generation took until 2024-2026 to document.
+
+  identification:
+    ssdp_search_targets:
+      - "urn:schemas-upnp-org:device:MediaRenderer:1"
+    # A DLNA renderer search target is not unique to Hisense — Samsung,
+    # Philips and many others answer it too. The Hisense-specific signal is
+    # in the descriptor at the LOCATION/38400 URL: manufacturer "Hisense"
+    # and a modelDescription whose key=value lines carry vidaa_support and
+    # transport_protocol. See discovery.methods[0].ssdp.match.
+    default_port: 36669
+    identity_keys:
+      primary: "mac"
+      secondary: "ip"
+      display: "friendlyName"
+
+  discovery:
+    methods:
+      - type: "ssdp"
+        ssdp:
+          search_targets: ["urn:schemas-upnp-org:device:MediaRenderer:1"]
+          query_path: "/MediaServer/rendererdevicedesc.xml"
+          match:
+            description: >
+              Keep only renderers whose fetched descriptor has manufacturer
+              "Hisense" — or, stronger, a modelDescription containing
+              vidaa_support=1 or a transport_protocol key. Older firmware
+              reports vidaa_support=0 while still speaking the protocol, so
+              transport_protocol (a VIDAA-specific key unrelated UPnP
+              renderers never publish) must also count as a match.
+            rule: "manufacturer == 'Hisense' OR modelDescription contains 'vidaa_support=1' OR modelDescription contains 'transport_protocol='"
+            manufacturer_exact: "Hisense"
+          response_mapping:
+            location:
+              url: "LOCATION"
+              action: "fetch_xml"
+              parse:
+                device_identity:
+                  stable_keys:
+                    - source: "xml://device/modelDescription#mac"
+                      key: "mac"
+                  display:
+                    source: "xml://device/friendlyName"
+                  variant:
+                    source: "xml://device/modelName"
+                parse_rules:
+                  - "The descriptor is served on port 38400 (some VIDAA OS versions use 18400; try both, 38400 first), at path /MediaServer/rendererdevicedesc.xml."
+                  - "modelDescription is not prose but newline-separated key=value pairs: mac, macWifi, macEthernet, brand, vidaa_support, transport_protocol. Parse it as a map, not as text."
+                  - "modelName is often literally 'Renderer' — model identity comes from modelDescription.brand and friendlyName, not modelName."
+                  - "macEthernet and macWifi are reported separately; Wake-on-LAN must target whichever interface the TV actually uses, and the descriptor does not say which."
+                example: |
+                  <root xmlns="urn:schemas-upnp-org:device-1-0">
+                    <device>
+                      <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+                      <friendlyName>Living Room TV</friendlyName>
+                      <manufacturer>Hisense</manufacturer>
+                      <modelName>Renderer</modelName>
+                      <modelDescription>mac=38D65D000000
+                  macEthernet=38D65D000000
+                  macWifi=38D65D000001
+                  brand=his
+                  vidaa_support=1
+                  transport_protocol=3290</modelDescription>
+                    </device>
+                  </root>
+      - type: "mdns"
+        mdns:
+          service_type: "_googlecast._tcp.local."
+          identity_mapping:
+            stable_keys:
+              - source: "name"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["mac"]
+      display: "friendlyName"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Two unrelated things both called "setup" here. Network onboarding is
+      entirely on the TV's own screen (Settings > Network); there is no
+      app-driven provisioning protocol to reimplement. CLIENT pairing is the
+      real gate and it is part of the MQTT protocol itself: an unpaired
+      client can connect and subscribe to broadcast topics, but commands are
+      ignored until the client id has been authorized by a PIN shown on the
+      TV screen. The pairing exchange is documented step by step in
+      remoteapp_common.pairing. On modern (VIDAA-app-era) firmware pairing
+      additionally requires the mutual-TLS client certificate, which the TV
+      never issues — it must be extracted from the official app, the
+      cert-provisioning gap recorded in credentials.notes below.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          Guided first-run setup on the TV itself: language, network
+          selection, passphrase entry on the on-screen keyboard, optional
+          VIDAA/Hisense account link. The account gates app-store features,
+          not the local broker.
+        steps:
+          - action: "Power on the TV and follow the on-screen setup with the remote."
+            actor: "user"
+          - action: "Select the WiFi network (or plug in Ethernet) and enter the passphrase on the TV itself."
+            actor: "user"
+            expect: "TV reports a successful connection."
+          - action: "Confirm the broker is reachable from the LAN."
+            actor: "client"
+            request:
+              protocol: "mqtt"
+              action: "CONNECT to <tv-ip>:36669, subscribe /remoteapp/mobile/broadcast/ui_service/state"
+            expect: "Retained state message with a statetype field arrives immediately on subscribe (the state topic is retained)."
+          - action: "Pair the client id: trigger the on-screen PIN, then publish the 4-digit code."
+            actor: "client"
+            request:
+              protocol: "mqtt"
+              action: "/remoteapp/tv/ui_service/{client_id}/actions/authenticationcode"
+            expect: "Reply {\"result\": 1} on /remoteapp/mobile/{client_id}/ui_service/data/authenticationcode; on modern firmware, a tokenissuance message follows."
+          - action: "Read the 4-digit PIN from the TV screen and type it into the client within about 60 seconds."
+            actor: "user"
+    factory_reset:
+      confidence: "medium"
+      effect: "Clears network credentials, the VIDAA/Hisense account link, the paired-client list (every authorized client id must re-pair), installed-app sign-ins and all settings; the TV returns to first-run setup."
+      procedures:
+        - name: "Menu factory reset (VIDAA)"
+          indicator: "TV reboots into the first-run wizard."
+          steps:
+            - action: "Settings > Support > Reset to Factory Default (on Android-TV-based Hisense sets: Settings > Device Preferences > Reset)."
+              actor: "user"
+              notes: "Menu paths vary by OS generation and region; both spellings are reported. No hardware pinhole reset is documented for these sets."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Settings > Network > (select the network) re-runs only the network
+        step. Paired clients survive; a factory reset is never needed just
+        to change routers.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "WiFi credentials"
+        - "List of authorized client ids (the MAC-shaped uuid each paired client chose)"
+        - "Issued access/refresh tokens per paired client (modern firmware)"
+        - "RemoteCA private root material guarding the broker (never leaves the TV)"
+      issued_to_client:
+        - "accesstoken + refreshtoken (modern firmware only, via the tokenissuance topic; accesstoken becomes the MQTT password)"
+      notes: >
+        THE CERT-PROVISIONING GAP: on VIDAA-era firmware the broker demands
+        mutual TLS, and the client certificate is NOT provisioned by any
+        pairing flow — the TV has no protocol for enrolling a new
+        certificate. Every working client presents the same cert baked into
+        the official app: CN=VidaaAppAndroidV01, issued by the private
+        RemoteCA root, extracted from the VIDAA APK's PKCS#12 keystore
+        (assets/client_mobile_android.p12, or res/3R.p12 under newer
+        obfuscated resource names; store password
+        186e990688070325a1c4b0ce275d2388, recovered from libmqttcrypt.so).
+        RemoteNow-era sets that require certs accept the older
+        rcm_certchain_pem.cer / rcm_pem_privkey.pkcs8 pair circulated in
+        d3nd3/Hisense-mqtt-keyfiles. A clean-room client therefore cannot
+        complete modern pairing without redistributing Hisense's key
+        material or asking the user to extract it — that, not the topic
+        vocabulary, is the barrier to a fully open implementation.
+
+  variants:
+    - model: "75P7"
+      name: "Hisense 75P7 (2019, VIDAA U 2.5 era)"
+      identification:
+        model_name: "75P7"
+      characteristics:
+        - "Model the original Krazy998/mqtt-hisensetv documentation was written against: plain or self-signed-TLS broker, static hisenseservice/multimqttservice login, no client certificate, mosquitto 1.4.2."
+    - model: "H43A6250UK"
+      name: "Hisense H43A6250UK"
+      identification:
+        model_name: "H43A6250UK"
+      characteristics:
+        - "Reported by newAM/hisensetv to have no TLS at all on 36669 — plain MQTT with the static login."
+    - model: "A71"
+      name: "Hisense A71 series"
+      identification:
+        model_name: "A71"
+      characteristics:
+        - "sehaas/ha_hisense_tv's reference hardware: mandatory client certificates with the static login; gettvstate returns no state but doubles as the pairing trigger."
+    - model: "55U7KQ"
+      name: "Hisense 55U7KQ (2023, VIDAA-app-only)"
+      identification:
+        model_name: "55U7KQ"
+      characteristics:
+        - "Rejects the static login outright ('Connection refused: Identifier rejected'); pairs only with the VIDAA app. Dynamic timestamp-derived credentials required (Krazy998 issue #14)."
+    - model: "32A35HUV_0002"
+      name: "Hisense 32A35HUV (firmware V0002.09.01O.P0814, MTK9602)"
+      identification:
+        model_name: "32A35HUV"
+      characteristics:
+        - "pyvidaa's live-probed set (2026-08-04): modern auth verified end to end; gettvstate unanswered on this firmware — state arrives only as unsolicited broadcast; standby reported as statetype fake_sleep_0."
+
+helpful_urls:
+  - title: "warrenrees/pyvidaa — the maintained library, and the deepest protocol analysis"
+    url: "https://github.com/warrenrees/pyvidaa"
+    description: "Python library (plus Home Assistant component and MQTT bridge) reverse-engineered from the VIDAA app; discovery code, credential generation and live field notes."
+  - title: "pyvidaa — VIDAA_PROTOCOL_ANALYSIS.md"
+    url: "https://github.com/warrenrees/pyvidaa/blob/master/VIDAA_PROTOCOL_ANALYSIS.md"
+    description: "The primary source for the TLS details, the P12 password, the dynamic credential algorithm (with worked example), the pairing flow, and 2026-08-04 live-wire findings."
+  - title: "Krazy998/mqtt-hisensetv — the original 2019 topic documentation"
+    url: "https://github.com/Krazy998/mqtt-hisensetv"
+    description: "First public write-up of the broker: static credentials, sendkey/sourcelist/changesource/launchapp/changevolume vocabulary, authenticationcode pairing."
+  - title: "Krazy998/mqtt-hisensetv issue #14 — cracking the VIDAA-era dynamic auth"
+    url: "https://github.com/Krazy998/mqtt-hisensetv/issues/14"
+    description: "The thread where the timestamp-based username/password scheme was captured and eventually reproduced, including token obtain/refresh scripts."
+  - title: "newAM/hisensetv — Python API and CLI (static-login era)"
+    url: "https://github.com/newAM/hisensetv"
+    description: "Reference implementation of the {MAC}$normal client id, the gettvstate pairing trigger, and the --no-ssl fallback for uncertified models."
+  - title: "sehaas/ha_hisense_tv — Home Assistant integration (client-cert era)"
+    url: "https://github.com/sehaas/ha_hisense_tv"
+    description: "Documents the mosquitto bridge configuration with client certificates and the PIN pairing flow inside Home Assistant."
+  - title: "d3nd3/Hisense-mqtt-keyfiles — RemoteNow-era client certificate pair"
+    url: "https://github.com/d3nd3/Hisense-mqtt-keyfiles"
+    description: "rcm_certchain_pem.cer / rcm_pem_privkey.pkcs8 extracted from the RemoteNow app; the cert some pre-VIDAA models demand."
+  - title: "Home Assistant community — Hisense TV Control thread"
+    url: "https://community.home-assistant.io/t/hisense-tv-control/97638"
+    description: "Six years of model-by-model reports: which sets need TLS, which need certs, channel_param changechannel payloads, bridge configs."
+
+evidence:
+  provenance: >
+    This project has NOT probed a Hisense TV. Every fact above is "reported"
+    from the cited community sources, of which the strongest is pyvidaa's
+    2026-08-04 field-notes section: an explicitly tagged live/native/
+    inferred record against a 32A35HUV_0002 (firmware V0002.09.01O.P0814),
+    including byte-for-byte reproduction of the modern credential algorithm
+    and a corrected (wildcards work) topic surface. The 2019 static-login
+    vocabulary rests on Krazy998's original capture against a 75P7.
+  open_questions:
+    - "No source documents any listener on port 36668; treated here as a premise error until a capture says otherwise."
+    - "Whether the broker really isolates one client's topics from another is unconfirmed — the one isolation experiment predates the discovery that wildcard subscriptions work, and has not been repeated."
+    - "changechannel exists but takes an opaque channel_param string read from livetv state; there is no documented way to tune to channel N without first learning that string from the TV."
+
+# Everything needed to build a session byte for byte, in the role ecp_common
+# plays for Roku. The whole control surface is MQTT publish/subscribe; for
+# `commands` entries below, `path` IS the topic (MQTT has no path; the
+# command schema's path key is the closest fit) and `example_body` is the
+# exact payload.
+remoteapp_common:
+  transport: "MQTT v3.1.1"
+  broker:
+    host: "<tv-ip>, from discovery"
+    port: 36669
+    server_software: "mosquitto 1.4.2 reported on 2019-era firmware (Krazy998)"
+    keepalive_seconds: 20
+    keepalive_notes: >
+      These TVs vanish from the network in standby without closing the
+      session, so keepalive is what bounds how long a dead session looks
+      alive: paho gives up at roughly 1.5x. The old 60s default meant ~90s
+      before a powered-off TV was noticed.
+    port_36668_note: >
+      No source documents a listener on 36668. Older models run the SAME
+      broker on 36669 with no TLS and the static login (newAM's --no-ssl
+      flag exists for exactly those sets). If a scan shows 36668 open on
+      some set, its role is unestablished — capture it before writing it
+      down.
+  tls:
+    generations:
+      - name: "plain"
+        description: "No TLS at all. Oldest sets (e.g. H43A6250UK)."
+      - name: "tls_selfsigned"
+        description: "TLS with a self-signed server certificate; clients must disable verification (encryption on, validate off)."
+      - name: "mtls"
+        description: "Mutual TLS: the client must present the app-bundled certificate CN=VidaaAppAndroidV01 (issuer CN=RemoteCA) or the RemoteNow-era rcm pair — see device.setup.credentials.notes for the provisioning gap. Server certificate issued by the same private RemoteCA root; CN is 'RemoteCA', so hostname checks always fail and verification stays off even in careful clients."
+  authentication:
+    generations:
+      - name: "static"
+        applies: "Pre-dynamic firmware (pyvidaa: transport_protocol below 3000)"
+        client_id: "Arbitrary; convention is the client's own MAC with $normal appended (newAM), or a plain name like 'HomeAssistant'. Reusing a client id drops the older session, so do not share ids between integrations."
+        username: "hisenseservice"
+        password: "multimqttservice"
+      - name: "legacy_dynamic"
+        applies: "VIDAA-app-era firmware before the modern tweak (pyvidaa: 3000 <= transport_protocol < 3290; e.g. the 2023 A6K/55U8KQ captures)"
+        algorithm: >
+          All MD5 hex digests uppercase. Let PATTERN =
+          "38D65DC30F45109A369A86FCE866A85B", uuid = the client's chosen
+          MAC-shaped identifier (colon-separated, any case as minted), ts =
+          current unix time in seconds, and crosssum(ts) = sum of the
+          decimal digits of ts. Then:
+          client_id = uuid + "$his$" + md5(PATTERN + "$" + uuid)[:6] +
+          "_vidaacommon_001"; username = "his$" + ts; password =
+          md5(ts + "$" + md5("his" + (crosssum(ts) % 10) +
+          "h*i&s%e!r^v0i1c9")[:6]).
+        validity: >
+          The TV checks the timestamp in the username, so a generated
+          login works only for roughly +/-4 hours. Passwords carry no
+          TV-specific material — one capture worked on a second TV
+          (issue #14), which is a security note as much as an
+          implementation one.
+      - name: "modern_dynamic"
+        applies: "Current VIDAA firmware (pyvidaa: transport_protocol >= 3290); requires the mtls generation above"
+        algorithm: >
+          Identical to legacy_dynamic with two changes: the password suffix
+          is "h!i@s#$v%i^d&a*a" instead of "h*i&s%e!r^v0i1c9", and the
+          username's timestamp is obfuscated — username = "his$" + (ts XOR
+          0x569814772b03a968). pyvidaa reproduces all three values
+          byte-for-byte against the app on a live set (2026-08-04); its
+          worked example: uuid 56:b8:88:4e:f7:19, ts 1766974704 →
+          client_id 56:b8:88:4e:f7:19$his$256DBF_vidaacommon_001,
+          username his$6239759786168176024, password
+          C3BA44782E18ABF4892AC44D79A622D2.
+        notes: >
+          The uuid is minted by the CLIENT, not read from hardware — the
+          app generates a fresh MAC-shaped value on every reinstall, and
+          the client id carries both the uuid and md5(PATTERN$uuid)[:6],
+          so the check is self-consistent. Any stable, self-consistent
+          identifier is believed acceptable (pyvidaa: inferred, not
+          verified). The app opens a second connection with operation
+          "vidaavoice" instead of "vidaacommon"; one connection suffices
+          for control. A _002 client-id suffix exists in the binary but
+          only _001 has been observed on the wire.
+    after_pairing: >
+      Once paired, modern firmware issues tokens: the accesstoken becomes
+      the MQTT password (same client_id and username) until it expires
+      (accesstoken_duration_day, observed 2-30 days), after which the
+      client reconnects once with the OLD credential algorithm to publish
+      {"refreshtoken": "<saved>"} to
+      /remoteapp/tv/platform_service/{client_id}/data/gettoken and reads a
+      fresh pair from
+      /remoteapp/mobile/{client_id}/platform_service/data/tokenissuance.
+      The refresh token itself lasts refreshtoken_duration_day (observed
+      30-365) — miss that window and the client must re-pair with a PIN.
+  pairing:
+    static_generation:
+      - "Connect with the static login; subscribe to /remoteapp/mobile/{client_id}/ui_service/data/authenticationcode."
+      - "Publish anything to /remoteapp/tv/ui_service/{client_id}/actions/gettvstate — the request doubles as the pairing trigger; the TV shows a 4-digit PIN."
+      - "User reads the PIN; client publishes {\"authNum\": \"XXXX\"} to /remoteapp/tv/ui_service/{client_id}/actions/authenticationcode."
+      - "Reply {\"result\": 1} on the authenticationcode data topic means the client id (its uuid) is now authorized. Any other result is a refusal; the PIN dialog times out in about 60 seconds."
+    modern_generation:
+      - "Connect over mTLS with dynamic credentials; subscribe to the client's data topics (or /remoteapp/# — see topic_format.wildcards)."
+      - "Publish {\"app_version\": 2, \"connect_result\": 0, \"device_type\": \"Mobile App\"} to /remoteapp/tv/ui_service/{client_id}/actions/vidaa_app_connect."
+      - "TV either pushes an empty message on /remoteapp/mobile/{client_id}/ui_service/data/authentication (PIN now on screen) or answers vidaa_app_connect with {\"connect_result\": 1} — already authorized, no PIN needed."
+      - "User reads the 4-digit PIN; client publishes {\"authNum\": \"XXXX\"} to actions/authenticationcode; {\"result\": 1, \"info\": \"\"} confirms."
+      - "Publish {\"refreshtoken\": \"\"} to /remoteapp/tv/platform_service/{client_id}/data/gettoken and read accesstoken/refreshtoken (+ durations and issue times) from platform_service/data/tokenissuance. Store them — they replace the password from now on (see authentication.after_pairing)."
+      - "Publish anything to actions/authenticationcodeclose to dismiss the dialog."
+    user_visible: >
+      The PIN appears as an on-screen dialog without the user touching the
+      TV; the user's only job is reading four digits into the client
+      within the ~60s timeout. TVs may cap the number of paired clients —
+      old pairings are removable in the TV's settings.
+  topic_format:
+    publish: "/remoteapp/tv/{service}/{client_id}/actions/{action} (token refresh uses .../platform_service/{client_id}/data/gettoken instead of actions/)"
+    subscribe_client: "/remoteapp/mobile/{client_id}/{service}/data/{datatype} — replies addressed to this client"
+    subscribe_broadcast: "/remoteapp/mobile/broadcast/{service}/... — state all clients share; /remoteapp/mobile/broadcast/ui_service/state is RETAINED, so a fresh subscriber learns the current statetype immediately"
+    wildcards: >
+      Long believed denied by the broker; a 2026-08-04 live probe found
+      /remoteapp/# granted and delivering (the earlier SUBACK-0x80 claim
+      was a broken calibration). Treat specific subscriptions as the
+      contract and wildcards as a debugging convenience — the belief has
+      flipped once already.
+    payloads: >
+      Payloads are plain JSON, or a bare string where the vocabulary says
+      so: sendkey takes the key name itself ("KEY_POWER"), changevolume
+      takes the bare decimal level ("50"), and several query actions take
+      an empty payload (publish a zero-length message or a single "0" —
+      both are in circulation).
+  state_vocabulary:
+    statetype:
+      fake_sleep_0: "standby (match this exactly — fake_sleep_1 is WAKING, followed by remote_launcher)"
+      fake_sleep_1: "waking"
+      remote_launcher: "home screen"
+      remote_setting: "a settings menu is open"
+      sourceswitch: "external input; carries sourceid, sourcename, displayname, is_signal"
+      livetv: "watching a tuner channel; carries channel_name, channel_num, channel_param, sourceid — and EPG fields (progname, starttime, endtime) on older firmware; NO sourcename/displayname"
+    notes: >
+      On the pyvidaa-probed firmware gettvstate is never answered — state
+      arrives only as unsolicited broadcast on
+      /remoteapp/mobile/broadcast/ui_service/state — while the 2019
+      documentation shows gettvstate producing exactly that state object.
+      A client must therefore treat the broadcast topic as the state
+      channel and gettvstate as, at best, a poke. Volume changes broadcast
+      on /remoteapp/mobile/broadcast/platform_service/actions/volumechange.
+  key_vocabulary:
+    power: ["KEY_POWER"]
+    navigation: ["KEY_UP", "KEY_DOWN", "KEY_LEFT", "KEY_RIGHT", "KEY_OK", "KEY_OK_LONG_PRESS", "KEY_RETURNS", "KEY_MENU", "KEY_HOME", "KEY_EXIT"]
+    volume: ["KEY_VOLUMEUP", "KEY_VOLUMEDOWN", "KEY_MUTE", "KEY_MUTE_LONG_PRESS", "KEY_VOICEUP", "KEY_VOICEDOWN"]
+    playback: ["KEY_PLAY", "KEY_PAUSE", "KEY_STOP", "KEY_FORWARDS", "KEY_BACK"]
+    digits: ["KEY_0", "KEY_1", "KEY_2", "KEY_3", "KEY_4", "KEY_5", "KEY_6", "KEY_7", "KEY_8", "KEY_9", "KEY_CHANNELDOT"]
+    channel: ["KEY_CHANNELUP", "KEY_CHANNELDOWN"]
+    color: ["KEY_RED", "KEY_GREEN", "KEY_YELLOW", "KEY_BLUE"]
+    pointer: ["KEY_LEFTMOUSEKEYS", "KEY_UDDLEFTMOUSEKEYS", "KEY_UDULEFTMOUSEKEYS", "KEY_ZOOMIN", "KEY_ZOOMOUT"]
+    misc: ["KEY_SUBTITLE", "KEY_INFO"]
+    notes: >
+      Wire spellings are the VIDAA APK's: back is KEY_RETURNS and rewind is
+      KEY_BACK, the two most surprising names in the table. KEY_POWER is a
+      toggle — there is no separate power-on key, and no network power-on
+      at all (broker is down in standby): power-on is Wake-on-LAN to the
+      TV's MAC, Ethernet far more reliably than WiFi.
+  transport_gap: >
+    The reference app speaks HTTP (GET/POST, empty body) and SOAP today.
+    This device needs an MQTT client with: TLS and client-certificate
+    support, per-connection dynamic credential generation (the MD5/XOR
+    algorithm above), the pairing flow with user-supplied PIN, token
+    storage and scheduled refresh, and JSON-over-MQTT command payloads.
+    None of that maps onto either supported transport, so the `commands`
+    below declare transport: "mqtt" — schema-legal but not yet executable
+    by the reference app. They are written as invocations so that an MQTT
+    transport, once added, can run them unchanged.
+
+http_endpoints:
+  - method: "GET"
+    path: "/MediaServer/rendererdevicedesc.xml"
+    name: "UPnP Device Descriptor"
+    description: >
+      The DLNA/UPnP MediaRenderer descriptor, on port 38400 (18400 on some
+      VIDAA OS versions — try both, 38400 first; the SSDP LOCATION header
+      says which). friendlyName is the user-facing name; modelName is
+      often literally "Renderer"; the identity lives in modelDescription,
+      a newline-separated key=value map (mac, macWifi, macEthernet, brand,
+      vidaa_support, transport_protocol). This is the ONLY HTTP surface
+      documented on these TVs — every control path is MQTT.
+    response_body:
+      content_type: "text/xml"
+      example: |
+        <root xmlns="urn:schemas-upnp-org:device-1-0">
+          <device>
+            <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+            <friendlyName>Living Room TV</friendlyName>
+            <manufacturer>Hisense</manufacturer>
+            <modelName>Renderer</modelName>
+            <modelDescription>mac=38D65D000000
+        macEthernet=38D65D000000
+        macWifi=38D65D000001
+        brand=his
+        vidaa_support=1
+        transport_protocol=3290</modelDescription>
+          </device>
+        </root>
+
+# The topic/action catalogue — what exists, what it takes, what it returns.
+# Direction is from the client's perspective (schema convention): the client
+# PUBLISHES commands to /remoteapp/tv/... and SUBSCRIBES to /remoteapp/mobile/...
+mqtt_topics:
+  # -- Commands (client publishes) --
+  - topic: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    name: "Send Key"
+    direction: "publish"
+    description: >
+      One remote key press. Payload is the bare key name from
+      remoteapp_common.key_vocabulary (e.g. KEY_POWER) — not JSON.
+    payload_format:
+      encoding: "string"
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/gettvstate"
+    name: "Get TV State"
+    direction: "publish"
+    description: >
+      Ask for the current state object (and, on unpaired clients, trigger
+      the PIN dialog). Empty payload. NOT answered on all firmware — the
+      pyvidaa-probed set never replies; treat the retained broadcast state
+      topic as authoritative and this as a poke.
+    payload_format:
+      encoding: "string"
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/sourcelist"
+    name: "Get Source List"
+    direction: "publish"
+    description: >
+      Ask for the input list; the reply arrives on this client's
+      ui_service/data/sourcelist as a JSON array of
+      {sourceid, sourcename, displayname, is_signal, is_lock, hotel_mode}.
+      Empty payload.
+    payload_format:
+      encoding: "string"
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/changesource"
+    name: "Change Source"
+    direction: "publish"
+    description: >
+      Switch input. Payload {"sourceid": "3"}; sourceid alone is
+      sufficient (sourcename optional — and spell it without the space,
+      "HDMI1", if sent; the 2019 docs note "HDMI 1" with a space errors).
+      Ids: 0 TV, 1 AV, 2 Component, 3-6 HDMI 1-4.
+    payload_format:
+      encoding: "json"
+      fields:
+        - name: "sourceid"
+          type: "string"
+          description: "Input id as a decimal string."
+          required: true
+        - name: "sourcename"
+          type: "string"
+          description: "Optional; no space ('HDMI1')."
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/launchapp"
+    name: "Launch App"
+    direction: "publish"
+    description: >
+      Launch an installed app. VIDAA payload: {"name": "Netflix",
+      "urlType": 37, "storeType": 0, "url": "netflix"} — url is the short
+      store name; urlType 37 means exactly that. Android-TV-based sets
+      instead take the Android package name in url with urlType 0 (newAM's
+      table: com.netflix.ninja, com.google.android.youtube.tv,
+      com.amazon.amazonvideo.livingroom, com.disney.disneyplus, ...).
+      Names for either form come from the applist reply.
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/applist"
+    name: "Get App List"
+    direction: "publish"
+    description: "Ask for installed apps; the reply (name, appId, url per app) arrives on this client's ui_service/data/applist. Empty payload."
+    payload_format:
+      encoding: "string"
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/changechannel"
+    name: "Change Channel"
+    direction: "publish"
+    description: >
+      Tune to a specific channel. Payload {"channel_param": "<opaque>"} —
+      the string is learned from the livetv state object's channel_param
+      field (or captured while the official app sets a favourite); there
+      is no documented way to construct it from a channel number. Treated
+      as VIDAA-era; hypothesis-grade for general use.
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/tv/platform_service/{client_id}/actions/getvolume"
+    name: "Get Volume"
+    direction: "publish"
+    description: >
+      Ask for volume; reply {"volume_type": 0, "volume_value": N} on this
+      client's platform_service/data/volume (or the broadcast volumechange
+      topic). Empty payload.
+    payload_format:
+      encoding: "string"
+  - topic: "/remoteapp/tv/platform_service/{client_id}/actions/changevolume"
+    name: "Change Volume"
+    direction: "publish"
+    description: "Set absolute volume. Payload is the bare decimal level 0-100 as a string, not JSON."
+    payload_format:
+      encoding: "string"
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/vidaa_app_connect"
+    name: "VIDAA App Connect (pairing trigger)"
+    direction: "publish"
+    description: "Modern pairing step 1: payload {\"app_version\": 2, \"connect_result\": 0, \"device_type\": \"Mobile App\"} puts the PIN dialog on the TV screen."
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/tv/ui_service/{client_id}/actions/authenticationcode"
+    name: "Send Authentication Code"
+    direction: "publish"
+    description: "Pairing step 2: payload {\"authNum\": \"XXXX\"} with the 4-digit PIN on screen. Success replies {\"result\": 1} on this client's ui_service/data/authenticationcode."
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/tv/platform_service/{client_id}/data/gettoken"
+    name: "Get/Refresh Token"
+    direction: "publish"
+    description: "Modern pairing step 3 and every later refresh: payload {\"refreshtoken\": \"\"} to mint the first pair, {\"refreshtoken\": \"<saved>\"} to rotate. Replies on this client's platform_service/data/tokenissuance."
+    payload_format:
+      encoding: "json"
+  # -- Replies and state (client subscribes) --
+  - topic: "/remoteapp/mobile/broadcast/ui_service/state"
+    name: "TV State Broadcast"
+    direction: "subscribe"
+    description: >
+      THE state channel: retained JSON object keyed by statetype
+      (fake_sleep_0/1, remote_launcher, remote_setting, sourceswitch,
+      livetv — see remoteapp_common.state_vocabulary). livetv carries
+      channel_name/channel_num/channel_param and, on older firmware, EPG
+      fields; sourceswitch carries sourceid/sourcename/displayname.
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/mobile/broadcast/platform_service/actions/volumechange"
+    name: "Volume Broadcast"
+    direction: "subscribe"
+    description: "Volume changes as the TV sees them (remote included): {\"volume_type\": 0, \"volume_value\": N}."
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/mobile/{client_id}/ui_service/data/sourcelist"
+    name: "Source List Reply"
+    direction: "subscribe"
+    description: "Reply to the sourcelist action: JSON array of {sourceid, sourcename, displayname, is_signal, is_lock, hotel_mode}."
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/mobile/{client_id}/ui_service/data/applist"
+    name: "App List Reply"
+    direction: "subscribe"
+    description: "Reply to the applist action: JSON array with name, appId and url per installed app — the values launchapp takes."
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/mobile/{client_id}/ui_service/data/authenticationcode"
+    name: "Authentication Result"
+    direction: "subscribe"
+    description: "Pairing verdict: {\"result\": 1} (modern firmware: {\"result\": 1, \"info\": \"\"}) on success."
+    payload_format:
+      encoding: "json"
+  - topic: "/remoteapp/mobile/{client_id}/ui_service/data/authentication"
+    name: "PIN Dialog Notification"
+    direction: "subscribe"
+    description: "Empty-payload push meaning the PIN dialog is on screen (modern pairing); the sibling topics authenticationcodetoast/authenticationcodeclose track its lifecycle."
+    payload_format:
+      encoding: "string"
+  - topic: "/remoteapp/mobile/{client_id}/platform_service/data/tokenissuance"
+    name: "Token Issuance"
+    direction: "subscribe"
+    description: "Access/refresh tokens after pairing or refresh: {accesstoken, accesstoken_time, accesstoken_duration_day, refreshtoken, refreshtoken_time, refreshtoken_duration_day}."
+    payload_format:
+      encoding: "json"
+
+# One invocation per remote key, in the shape entities can bind — the
+# catalogue's one-command-per-option convention applied to an MQTT remote:
+# the chosen value (which key) sits in example_body, the payload. Every
+# sendkey command shares one topic; `path` is that topic and {client_id} is
+# connection state (the paired identity), substituted at connect time per
+# remoteapp_common.topic_format, not a per-command blank a control would
+# fill.
+#
+# transport is "mqtt" throughout: schema-legal, but the reference app only
+# implements http/soap today — see remoteapp_common.transport_gap. Nothing
+# here is "confirmed": the vocabulary is the VIDAA APK's as documented by
+# pyvidaa/Krazy998/newAM and exercised daily by their users, but this
+# project has no Hisense hardware and has replayed none of it.
+commands:
+  # -- Power. Toggle only; power-ON from standby is Wake-on-LAN, not MQTT. --
+  press_power:
+    description: "Power toggle (standby<->on). The broker is down while the TV is off, so this only ever turns a TV OFF over MQTT — power on is WoL."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_POWER"
+    verification: "reported"
+
+  # -- Navigation.
+  press_up:
+    description: "D-pad up."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_UP"
+    verification: "reported"
+  press_down:
+    description: "D-pad down."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_DOWN"
+    verification: "reported"
+  press_left:
+    description: "D-pad left."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_LEFT"
+    verification: "reported"
+  press_right:
+    description: "D-pad right."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_RIGHT"
+    verification: "reported"
+  press_ok:
+    description: "OK — select the focused item."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_OK"
+    verification: "reported"
+  press_back:
+    description: "Back one screen. The wire spelling is KEY_RETURNS."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_RETURNS"
+    verification: "reported"
+  press_home:
+    description: "Home screen."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_HOME"
+    verification: "reported"
+  press_menu:
+    description: "Menu."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_MENU"
+    verification: "reported"
+  press_exit:
+    description: "Exit the current app/menu."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_EXIT"
+    verification: "reported"
+
+  # -- Volume (step keys; absolute set is set_volume below).
+  press_volume_up:
+    description: "Volume up one step."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_VOLUMEUP"
+    verification: "reported"
+  press_volume_down:
+    description: "Volume down one step."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_VOLUMEDOWN"
+    verification: "reported"
+  press_mute:
+    description: "Mute toggle."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_MUTE"
+    verification: "reported"
+
+  # -- Live TV.
+  press_channel_up:
+    description: "Next tuner channel."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_CHANNELUP"
+    verification: "reported"
+  press_channel_down:
+    description: "Previous tuner channel."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_CHANNELDOWN"
+    verification: "reported"
+
+  # -- Playback transport.
+  press_play:
+    description: "Play."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_PLAY"
+    verification: "reported"
+  press_pause:
+    description: "Pause."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_PAUSE"
+    verification: "reported"
+  press_stop:
+    description: "Stop."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_STOP"
+    verification: "reported"
+  press_fast_forward:
+    description: "Fast-forward. The wire spelling is KEY_FORWARDS."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_FORWARDS"
+    verification: "reported"
+  press_rewind:
+    description: "Rewind. The wire spelling is KEY_BACK — NOT KEY_REWIND; do not confuse it with KEY_RETURNS (the Back button)."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_BACK"
+    verification: "reported"
+
+  # -- Digits.
+  press_0:
+    description: "Digit 0."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_0"
+    verification: "reported"
+  press_1:
+    description: "Digit 1."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_1"
+    verification: "reported"
+  press_2:
+    description: "Digit 2."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_2"
+    verification: "reported"
+  press_3:
+    description: "Digit 3."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_3"
+    verification: "reported"
+  press_4:
+    description: "Digit 4."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_4"
+    verification: "reported"
+  press_5:
+    description: "Digit 5."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_5"
+    verification: "reported"
+  press_6:
+    description: "Digit 6."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_6"
+    verification: "reported"
+  press_7:
+    description: "Digit 7."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_7"
+    verification: "reported"
+  press_8:
+    description: "Digit 8."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_8"
+    verification: "reported"
+  press_9:
+    description: "Digit 9."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_9"
+    verification: "reported"
+
+  # -- Colour buttons and misc.
+  press_red:
+    description: "Red colour button."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_RED"
+    verification: "reported"
+  press_green:
+    description: "Green colour button."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_GREEN"
+    verification: "reported"
+  press_yellow:
+    description: "Yellow colour button."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_YELLOW"
+    verification: "reported"
+  press_blue:
+    description: "Blue colour button."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_BLUE"
+    verification: "reported"
+  press_subtitle:
+    description: "Subtitle toggle."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_SUBTITLE"
+    verification: "reported"
+  press_info:
+    description: "Info."
+    transport: "mqtt"
+    service: "remote_service"
+    action: "sendkey"
+    path: "/remoteapp/tv/remote_service/{client_id}/actions/sendkey"
+    example_body: "KEY_INFO"
+    verification: "reported"
+
+  # -- Parameterised commands.
+  set_volume:
+    description: "Set absolute volume, 0-100. The payload is the bare decimal level as a string, NOT JSON."
+    transport: "mqtt"
+    service: "platform_service"
+    action: "changevolume"
+    path: "/remoteapp/tv/platform_service/{client_id}/actions/changevolume"
+    parameters:
+      volume:
+        type: "integer"
+        required: true
+        min: 0
+        max: 100
+        description: "Absolute volume level; rendered into the payload as the bare decimal string."
+    example_body: "50"
+    verification: "reported"
+  set_source:
+    description: "Switch input by numeric id. Ids are the fixed table 0 TV, 1 AV, 2 Component, 3-6 HDMI 1-4; sourcelist reports which of them the set actually has."
+    transport: "mqtt"
+    service: "ui_service"
+    action: "changesource"
+    path: "/remoteapp/tv/ui_service/{client_id}/actions/changesource"
+    parameters:
+      sourceid:
+        type: "string"
+        required: true
+        enum: ["0", "1", "2", "3", "4", "5", "6"]
+        description: "Input id as a decimal string."
+    example_body: '{"sourceid": "3"}'
+    verification: "reported"
+  launch_app:
+    description: >
+      Launch an installed app. On VIDAA sets url is the short store name
+      with urlType 37 (netflix, youtube, amazon, disneyplus, plex); on
+      Android-TV-based sets url is the Android package name and urlType is
+      0. Both forms, with names, come from the applist reply.
+    transport: "mqtt"
+    service: "ui_service"
+    action: "launchapp"
+    path: "/remoteapp/tv/ui_service/{client_id}/actions/launchapp"
+    arguments:
+      name: "{name}"
+      url: "{url}"
+      urlType: 37
+      storeType: 0
+    parameters:
+      name:
+        type: "string"
+        required: true
+        description: "Display name exactly as applist reports it, e.g. 'Netflix'."
+      url:
+        type: "string"
+        required: true
+        description: "VIDAA short name ('netflix') or Android package name ('com.netflix.ninja'); matches the urlType the set expects."
+    example_body: '{"name": "Netflix", "urlType": 37, "storeType": 0, "url": "netflix"}'
+    verification: "reported"
+
+# The remote, as controls, in remote-layout order: power, navigation,
+# volume, live TV, transport, digits, colour buttons, misc. These buttons
+# are declarations for an MQTT-capable consumer — the reference app cannot
+# execute any of them yet (remoteapp_common.transport_gap).
+entities:
+  - platform: "button"
+    name: "Power"
+    icon: "mdi:power"
+    commands:
+      press: "press_power"
+    notes: "Toggle. Turning the TV ON from standby is Wake-on-LAN, not this button — the broker is down while off."
+  - platform: "button"
+    name: "Up"
+    icon: "mdi:chevron-up"
+    commands:
+      press: "press_up"
+  - platform: "button"
+    name: "Left"
+    icon: "mdi:chevron-left"
+    commands:
+      press: "press_left"
+  - platform: "button"
+    name: "OK"
+    commands:
+      press: "press_ok"
+  - platform: "button"
+    name: "Right"
+    icon: "mdi:chevron-right"
+    commands:
+      press: "press_right"
+  - platform: "button"
+    name: "Down"
+    icon: "mdi:chevron-down"
+    commands:
+      press: "press_down"
+  - platform: "button"
+    name: "Back"
+    icon: "mdi:arrow-u-left-top"
+    commands:
+      press: "press_back"
+  - platform: "button"
+    name: "Home"
+    icon: "mdi:home"
+    commands:
+      press: "press_home"
+  - platform: "button"
+    name: "Menu"
+    icon: "mdi:menu"
+    commands:
+      press: "press_menu"
+  - platform: "button"
+    name: "Exit"
+    icon: "mdi:exit-to-app"
+    commands:
+      press: "press_exit"
+  - platform: "button"
+    name: "Volume Up"
+    icon: "mdi:volume-plus"
+    commands:
+      press: "press_volume_up"
+  - platform: "button"
+    name: "Mute"
+    icon: "mdi:volume-mute"
+    commands:
+      press: "press_mute"
+  - platform: "button"
+    name: "Volume Down"
+    icon: "mdi:volume-minus"
+    commands:
+      press: "press_volume_down"
+  - platform: "button"
+    name: "Channel Up"
+    icon: "mdi:chevron-double-up"
+    commands:
+      press: "press_channel_up"
+  - platform: "button"
+    name: "Channel Down"
+    icon: "mdi:chevron-double-down"
+    commands:
+      press: "press_channel_down"
+  - platform: "button"
+    name: "Rewind"
+    icon: "mdi:rewind"
+    commands:
+      press: "press_rewind"
+  - platform: "button"
+    name: "Play"
+    icon: "mdi:play"
+    commands:
+      press: "press_play"
+  - platform: "button"
+    name: "Pause"
+    icon: "mdi:pause"
+    commands:
+      press: "press_pause"
+  - platform: "button"
+    name: "Stop"
+    icon: "mdi:stop"
+    commands:
+      press: "press_stop"
+  - platform: "button"
+    name: "Fast Forward"
+    icon: "mdi:fast-forward"
+    commands:
+      press: "press_fast_forward"
+  - platform: "button"
+    name: "1"
+    commands:
+      press: "press_1"
+  - platform: "button"
+    name: "2"
+    commands:
+      press: "press_2"
+  - platform: "button"
+    name: "3"
+    commands:
+      press: "press_3"
+  - platform: "button"
+    name: "4"
+    commands:
+      press: "press_4"
+  - platform: "button"
+    name: "5"
+    commands:
+      press: "press_5"
+  - platform: "button"
+    name: "6"
+    commands:
+      press: "press_6"
+  - platform: "button"
+    name: "7"
+    commands:
+      press: "press_7"
+  - platform: "button"
+    name: "8"
+    commands:
+      press: "press_8"
+  - platform: "button"
+    name: "9"
+    commands:
+      press: "press_9"
+  - platform: "button"
+    name: "0"
+    commands:
+      press: "press_0"
+  - platform: "button"
+    name: "Red"
+    commands:
+      press: "press_red"
+  - platform: "button"
+    name: "Green"
+    commands:
+      press: "press_green"
+  - platform: "button"
+    name: "Yellow"
+    commands:
+      press: "press_yellow"
+  - platform: "button"
+    name: "Blue"
+    commands:
+      press: "press_blue"
+  - platform: "button"
+    name: "Subtitle"
+    icon: "mdi:subtitles"
+    commands:
+      press: "press_subtitle"
+  - platform: "button"
+    name: "Info"
+    icon: "mdi:information"
+    commands:
+      press: "press_info"
+
+  # Absolute volume. State is the broadcast volumechange topic — the TV
+  # reports remote-pressed changes there too, so the number tracks the
+  # physical remote for free.
+  - platform: "number"
+    name: "Volume"
+    icon: "mdi:volume-high"
+    min: 0
+    max: 100
+    step: 1
+    state_topic: "/remoteapp/mobile/broadcast/platform_service/actions/volumechange"
+    commands:
+      set_value: "set_volume"
+    notes: "State arrives as {\"volume_type\": 0, \"volume_value\": N}; read volume_value."
+
+  # Input picker. The option table is fixed by the protocol (unlike Roku's
+  # channel list, ids are a constant, so no options_source is needed — and
+  # the dynamic half, which inputs the set actually has, is the sourcelist
+  # action's JSON reply, which the XML/HTTP-shaped options_source contract
+  # cannot express anyway).
+  - platform: "select"
+    name: "Input"
+    icon: "mdi:video-input-hdmi"
+    state_topic: "/remoteapp/mobile/broadcast/ui_service/state"
+    state_mapping:
+      options:
+        "0": "TV"
+        "1": "AV"
+        "2": "Component"
+        "3": "HDMI 1"
+        "4": "HDMI 2"
+        "5": "HDMI 3"
+        "6": "HDMI 4"
+    commands:
+      select_option: "set_source"
+    notes: >
+      Current input: read statetype from the state topic — "sourceswitch"
+      carries sourceid directly; "livetv" is the tuner (sourceid "0");
+      anything else (remote_launcher, remote_setting) is an app or menu,
+      i.e. no input selected. Filter the static option list against the
+      sourcelist reply: a set with three HDMIs still accepts the ids, but
+      only offers what sourcelist reported.
+
+  # State surfaces, for a consumer that can subscribe. Not bound to
+  # controls: the topic alone identifies the reading, per the state_topic
+  # contract.
+  - platform: "sensor"
+    name: "TV State"
+    state_topic: "/remoteapp/mobile/broadcast/ui_service/state"
+    notes: "The statetype field (fake_sleep_0 = standby; fake_sleep_1 = waking, NOT asleep; remote_launcher = home; livetv/sourceswitch carry channel/source detail)."
