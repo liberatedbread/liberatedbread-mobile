@@ -269,11 +269,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   "ECP command not allowed in Limited mode." as 400 on one TV and 403 on
   two others (the same TV switching spellings within minutes), and
   `/query/media-player` answers 403, while `/query/device-info` and
-  `/query/active-app` stay open. Also records, from a jadx teardown of The
-  Roku App (Official) 14.0.0.9462138, that the official app survives
-  Limited mode via an authenticated "ECP2" channel (JWT +
-  WebSocket, tied to the signed-in Roku account) that a local third-party
-  client cannot reproduce.
+  `/query/active-app` stay open. Also documents **ECP2**, the authenticated
+  WebSocket session the official app uses, from a jadx teardown of The Roku
+  App (Official) 14.0.0.9462138 plus a live re-implementation: client-id
+  auth needs no Roku account (the secret ships in the APK), and over it
+  `query-apps` and `key-press` answer 200 even in Limited mode.
 
 - `schema.json` no longer defines the parameter `auto` key twice. The
   checksum extension added a second `"auto"` member to the same `properties`
