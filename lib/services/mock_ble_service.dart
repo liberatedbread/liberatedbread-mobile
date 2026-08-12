@@ -105,7 +105,10 @@ class MockBleService implements BleService {
   final Map<String, List<BleDiscoveredService>> _servicesCache = {};
 
   final _random = Random(42);
-  final Map<String, bool> _connected = {};
+  /// Connection claims per device, mirroring RealBleService: overlapping
+  /// owners (device screen + group run) share one link, and only the last
+  /// release drops it.
+  final Map<String, int> _connected = {};
   final Map<String, Map<String, List<int>>> _writtenValues = {};
   final Map<String, StreamController<BleConnectionState>> _connectionStreams =
       {};
@@ -286,12 +289,17 @@ class MockBleService implements BleService {
   @override
   Future<void> connect(String deviceId) async {
     await Future<void>.delayed(const Duration(milliseconds: 500));
-    _connected[deviceId] = true;
+    _connected[deviceId] = (_connected[deviceId] ?? 0) + 1;
     _connectionStream(deviceId).add(BleConnectionState.connected);
   }
 
   @override
   Future<void> disconnect(String deviceId) async {
+    final claims = _connected[deviceId] ?? 0;
+    if (claims > 1) {
+      _connected[deviceId] = claims - 1;
+      return;
+    }
     _connected.remove(deviceId);
     _connectionStream(deviceId).add(BleConnectionState.disconnected);
   }
@@ -442,7 +450,7 @@ class MockBleService implements BleService {
   @override
   Future<int> readRssi(String deviceId) async {
     await Future<void>.delayed(const Duration(milliseconds: 80));
-    if (!(_connected[deviceId] ?? false)) {
+    if ((_connected[deviceId] ?? 0) == 0) {
       throw StateError('Not connected to $deviceId');
     }
     // A slow approach/retreat cycle (16 reads per period, ±9 dBm) plus
@@ -469,7 +477,7 @@ class MockBleService implements BleService {
     controller = StreamController<List<int>>(
       onListen: () {
         timer = Timer.periodic(const Duration(seconds: 2), (t) {
-          if (controller.isClosed || !(_connected[deviceId] ?? false)) {
+          if (controller.isClosed || (_connected[deviceId] ?? 0) == 0) {
             t.cancel();
             _notifyControllers.remove(controller);
             if (!controller.isClosed) controller.close();

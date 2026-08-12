@@ -158,9 +158,19 @@ class GroupRunner {
         var spec = knownSpec;
         var specYaml = member.specYaml;
         if (spec == null && _resolveSpec != null) {
-          final resolved = await _resolveSpec(member, services);
-          spec = resolved?.spec;
-          specYaml = resolved?.yaml;
+          try {
+            // Timed like every other await in this pipeline: a matcher that
+            // hangs (FFI, pack load) must not wedge the generator — an
+            // un-timed suspension here can't even be cancelled, because the
+            // finally-disconnect only runs when the generator resumes.
+            final resolved =
+                await _resolveSpec(member, services).timeout(discoverTimeout);
+            spec = resolved?.spec;
+            specYaml = resolved?.yaml;
+          } on TimeoutException {
+            // Proceed spec-less: battery still works through the SIG path,
+            // and command ops report an honest skip.
+          }
         }
 
         yield GroupRunEvent(
