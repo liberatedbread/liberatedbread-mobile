@@ -1,0 +1,56 @@
+# Valetudo-supported rooted robot vacuums — Device Spec (research note)
+# Valetudo = on-robot cloud replacement: local web UI (:80), REST /api/v2,
+# MQTT + HA autodiscovery. Rooting (Dennis Giese / Dustbuilder) is fully
+# account-free for supported models. Upstream supported list fetched 2026-08-07.
+
+device:
+  id: valetudo-rooted-vacuums
+  name: Valetudo-supported vacuums (Xiaomi V1/1C/1T/X10 Plus, Dreame D9/L10/Z10/W10/L10s/L20/L40/X30/X40 family, Roborock S4-S7/Q7 Max, MOVA, Viomi V6/SE, Eureka J15/J12/E20, Cecotec Conga 3290/3790, Proscenic M6 Pro, Commodore CVR 200, IKOHS LS22)
+  manufacturer: "various (Xiaomi-ecosystem OEMs: Roborock, Dreame, 3irobotix, Viomi)"
+  category: robot_vacuum
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    After rooting + Valetudo install, all control is LAN-local: HTTP web UI
+    and REST API on robot port 80, MQTT to a LAN broker (Home Assistant
+    autodiscovery). No vendor account at any point for documented root
+    methods; WAN can be permanently blocked.
+
+lan:
+  discovery:
+    method: network_scan   # robot on LAN DHCP; hostname configurable
+  control:
+    - protocol: http-rest
+      port: 80
+      endpoints: "/api/v2/* (Swagger-documented on-robot)"
+    - protocol: mqtt
+      port: 1883  # to LAN broker; HA MQTT vacuum autodiscovery
+      note: full state + commands incl. segments/zones/go-to
+
+protocol:
+  note: >
+    Valetudo normalizes each vendor firmware's internals into one stable
+    local API (Valetudo REST + MQTT). Rooting methods per family: OTA
+    exploit (old Xiaomi V1), 3.3V UART + Dreame breakout PCB (Dreame-made
+    units), ADB (3irobotix CRL-200S family), Dustbuilder custom firmware.
+    Hardware-revision traps documented upstream (1C mc1808-only, L20 Ultra
+    serial check, Q7 Max NAND era, Viomi v8 = brick risk).
+  commands:
+    basic: start/pause/stop/dock, fan speed, water grade
+    maps: segments/zones/go-to, virtual walls, no-go/no-mop areas
+    consumables + statistics: via REST
+
+status:
+  apk_acquired: false   # n/a — on-robot software, no companion APK involved
+  protocol_recovered: true
+  rating: confirmed      # per-model testing claimed upstream; mature project since 2019
+  cloud_dead: false      # vendors alive; Valetudo makes the cloud irrelevant
+  cloud_bootstrap: none  # account-free for supported root methods
+  references:
+    - valetudo.cloud/pages/general/supported-robots.html (fetched 2026-08-07)
+    - github.com/Hypfer/Valetudo (release 2025.08.0+)
+    - dustbuilder.dontvacuum.me (custom firmware builder)
+    - dontvacuum.me (Dennis Giese rooting research)

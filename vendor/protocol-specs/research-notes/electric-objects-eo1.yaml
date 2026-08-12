@@ -1,0 +1,59 @@
+# Electric Objects EO1 / EO2 — Device Spec (research note)
+# Company shut down 2017-06 (art app sold to Giphy); vendor cloud dead
+# Local path: open-source replacement on-device app (spalt/EO1) + LAN partner app
+
+device:
+  id: electric-objects-eo1
+  name: Electric Objects EO1 (2014) / EO2 (2016) art frame
+  manufacturer: Electric Objects Inc. — shut down June 2017
+  category: art_display
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Frame is a stock-ish Android device (USB host: keyboard/mouse via OTG,
+    Win+B opens browser, sideloading allowed). Community home-screen
+    replacement app (spalt/EO1) renders art from a user-controlled source;
+    its companion "Partner App" pushes images/video and control commands to
+    the frame over the LAN. No vendor servers in the loop.
+
+lan:
+  provisioning:
+    method: on-device        # keyboard/mouse via USB OTG; WiFi set in Android settings
+  control:
+    protocol: http           # partner app -> device app, same-subnet; port/format
+    port: TBD                # transcribe from github.com/spalt/EO1 app-partner/ source
+    note: >
+      Partner App (Android) pushes images/video and sets brightness,
+      quiet hours, slideshow interval, skip-next on the frame over LAN.
+  content_source:
+    current: flickr-api      # personal API key; EO app caches media locally
+    caveat: Flickr stopped free-account API apps in 2025; backend rework in progress
+    alternatives: any local HTTP image source is a straightforward mod (open source)
+
+protocol:
+  note: >
+    Rescue architecture, not vendor protocol: replacement device app +
+    LAN partner app. Wire format to be transcribed from spalt/EO1 source.
+  commands:
+    push_media: partner app -> frame (LAN)
+    set_brightness: partner app -> frame (LAN)
+    set_quiet_hours: partner app -> frame (LAN)
+    slideshow_next: partner app -> frame (LAN)
+    display_art: on-device app, local render of cached stills/MP4
+
+status:
+  apk_acquired: false     # via apkeep — not needed; replacement app is open source
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE
+  protocol_recovered: true   # community implementation exists and is in use
+  hci_snoop_needed: false
+  cloud_dead: true        # company dead 2017-06; vendor backend gone
+  rating: confirmed       # spalt/EO1 GitHub project; EO2 variant path unverified
+  references:
+    - github.com/spalt/EO1 (replacement device app + LAN partner app)
+    - github.com/crushallhumans/eo1-iframe (EO-format art cache)
+    - theverge.com/circuitbreaker/2017/6/27/15881980 (2017-06-27 shutdown)
+    - theharanguer.com/2023/07/a-eulogy-to-the-electric-objects-e01/ (2023-07-11)

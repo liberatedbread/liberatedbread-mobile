@@ -1,0 +1,57 @@
+# Kamigami (Dash Robotics) — Research Note
+# Companion app APK source: apkeep (APKPure)
+# APK SHA-256: 1e6cc823f6503c3033a147e2ca2631a2ff158613efa39d3b2b68d58f24cc21d1
+
+device:
+  id: kamigami
+  name: Kamigami origami hexapod robots
+  manufacturer: Dash Robotics (UC Berkeley spinout; defunct ~2019 after Mattel distribution ended)
+  category: toy_robot
+  safety_class: NONE
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — needs live scan
+    service_uuids: []
+
+  # Recovered from com.dashrobotics.kamigami2 v1.4.0 static sweep
+  services:
+    - uuid: "708a96f0-f200-4e2f-96f0-9bc43c3a31c8"
+      name: kamigami_control_service
+      description: Custom control service (role mapping TBD)
+      characteristics:
+        - uuid: "708a96f1-f200-4e2f-96f0-9bc43c3a31c8"
+          name: char_f1
+          description: Likely command write — confirm via jadx/HCI snoop
+        - uuid: "708a96f2-f200-4e2f-96f0-9bc43c3a31c8"
+          name: char_f2
+          description: Likely notify — confirm via jadx/HCI snoop
+    - uuid: "f000ffc0-0451-4000-b000-000000000000"
+      name: ti_oad_service
+      description: TI CC25xx Over-Air Download (firmware update) — indicates TI BLE SoC
+    - uuid: "00001530-1212-efde-1523-785feabcd123"
+      name: nordic_legacy_dfu
+      description: Nordic legacy DFU UUID also present (possibly dev-board legacy; verify against live robot)
+
+protocol:
+  note: >
+    No published opcode map. App compiles drag-and-drop programs into Instruction
+    sequences sent over BLE (Java, largely unobfuscated class names:
+    com.dashrobotics.kamigami2.models.Instruction/Game). Direct drive, RGB LED,
+    sounds, IR fire/hit between robots. Berkeley BML lab drove Kamigami swarms
+    via BLE in research (BML-MultiRobot/kamigami_common, ROS — mostly sim).
+  references:
+    - github.com/BML-MultiRobot/kamigami_common
+
+status:
+  apk_acquired: true          # com.dashrobotics.kamigami2 1.4.0 via apkeep apk-pure (bare APK)
+  apk_decompiled: false       # strings sweep only; jadx pass expected to be quick (unobfuscated)
+  uuids_recovered: true       # service + 2 chars + TI OAD + Nordic DFU anchors
+  protocol_recovered: false   # greenfield — one decompile + one HCI snoop needed
+  hci_snoop_needed: true
+  cloud_dependency: none
+  difficulty: easy_greenfield

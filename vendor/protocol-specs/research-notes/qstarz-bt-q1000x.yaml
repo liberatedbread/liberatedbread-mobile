@@ -1,0 +1,63 @@
+# Qstarz BT-Q1000X GPS Logger — Device Spec (research note)
+# Company alive (racing pivot) but BT-Q classic line discontinued; no Android app for this line
+
+device:
+  id: qstarz-bt-q1000x
+  name: Qstarz BT-Q1000X Bluetooth GPS Travel Recorder
+  manufacturer: Qstarz International (Taiwan) — alive, pivoted to BLE racing telemetry
+  also_covers:
+    - Qstarz BT-Q1000 / BT-Q1000X
+    - Qstarz BT-Q1000eX / BT-Q1000XT (10 Hz racing variants)
+    - Qstarz BT-Q818 / BT-Q818XT (receiver-only siblings)
+    - Qstarz BT-Q1300S
+  category: gps_logger
+  safety_class: NONE
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+
+bluetooth_classic:
+  profiles: [SPP]
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+  pairing_pin: "0000"
+  bluetooth_version: "1.2/2.0"
+  notes: >
+    Standard SPP. Pair with PIN 0000, rfcomm bind, feed gpsd. Live NMEA needs
+    nothing vendor-specific. Log download/config use the GENERIC MediaTek MTK
+    serial protocol (gpsbabel 'mtk' format lists BT-Q1000/X/eX as confirmed).
+    BT747 configures and downloads over SPP; USB (internal Prolific/CP210x
+    bridge) is the robust fallback — gpsbabel notes some MTK loggers only
+    accept commands over USB.
+
+protocol:
+  live_position:
+    format: NMEA 0183 (GGA, RMC, GSA, GSV)
+    tools: [gpsd, gpsbabel]
+  log_download:
+    chipset: MediaTek MTK II
+    config_commands: PMTK-style text packets ($PMTK...*checksum CRLF)
+    log_format: MTK binary (gpsbabel mtk-bin), blocks dumped over SPP/USB
+    tools: [BT747, gpsbabel mtk/mtk-bin]
+    capacity_points: 400000  # eX/XT variants; base Q1000 lower
+    update_rate: "up to 10 Hz track (eX/XT)"
+
+related_app:
+  package: com.qstarz.qracing
+  note: >
+    Current QRacing app is for BLE racing devices ONLY (LT-8000GT/BL-1000GT/
+    LT-6000S) and cannot talk to BT-Q hardware. XAPK fetched via apkeep
+    (apk-pure), SHA-256 e1a87dd59257ecdf5fdf57dd05189b2bccc66e97fc7e07394e3b60c6f7bea80e.
+    Dex triage: BluetoothGatt/BluetoothLeScanner present, zero RFCOMM/SPP usage.
+
+status:
+  android_app_existed: false  # for the BT-Q line; QTravel was Windows-only abandonware
+  apk_acquired: true   # com.qstarz.qracing (related BLE app, out of category)
+  apk_needed: false    # BT747 + gpsbabel cover everything
+  protocol_recovered: true   # generic MTK protocol, documented + open implementations
+  hci_snoop_needed: false
+  cloud_dependency: none
+  references:
+    - https://www.qstarz.com/Products/GPS%20Products/BT-Q1000X-S.htm
+    - https://www.gpsbabel.org/htmldoc-development/fmt_mtk.html
+    - http://www.bt747.org/

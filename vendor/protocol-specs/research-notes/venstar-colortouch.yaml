@@ -1,0 +1,69 @@
+# Venstar ColorTouch / Explorer Wi-Fi Thermostats — Device Spec (research note)
+# Vendor-documented local HTTP(S) API; company ACTIVE as of 2026-08
+
+device:
+  id: venstar-colortouch
+  name: Venstar ColorTouch T7850/T7900/T8850/T8900 (+T5800/T5900/T6800/T6900 w/ ACC0454 Wi-Fi Key; First Alert THERM-500 rebadge)
+  manufacturer: Venstar Inc. (Chatsworth, CA) — active
+  category: thermostat_hvac
+  safety_class: MEDIUM  # HVAC actuator control; unauth HTTP option
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Vendor-documented local HTTP/HTTPS JSON API, enabled on-device at
+    Menu > WiFi > Local API. No cloud account or provisioning step needed;
+    Skyport cloud is optional and can be left off entirely.
+
+lan:
+  discovery:
+    protocol: SDDP   # Control4 Simple Device Discovery
+    announce: NOTIFY ALIVE SDDP/1.0 from port 1902
+    type_string: "venstar:control4_thermostat_proxy:colortouch"
+    alternative: static/DHCP-reserved IP (recommended by vendor docs)
+  control:
+    protocol: http-https
+    port: 80 or 443 (user-selected)
+    auth: none | http-basic (user-configured)
+    tls_note: >
+      HTTPS uses a device self-signed cert chained to Venstar "Skyport
+      Root CA" (CN=CT1A_<serial>), TLS 1.2. No client cert required.
+    endpoints:
+      - GET  /                      -> {"api_ver":9,"type":"residential","model":"COLORTOUCH","firmware":"x.yz"}
+      - GET  /query/info            -> mode/state/temps/setpoints/humidity
+      - GET  /query/sensors         -> onboard + remote sensors
+      - GET  /query/runtimes        -> last 7 days runtimes
+      - GET  /query/alerts
+      - GET  /query/programs        -> program schedule (read)
+      - POST /control               <- {"mode":0-3,"fan":0-1,"heattemp":F,"cooltemp":F}
+      - POST /settings              <- {"tempunits":0|1,"away":...,"schedule":...}
+    mode_enum: {0: off, 1: heat, 2: cool, 3: auto}
+    fan_enum: {0: auto, 1: on}
+    limits: >
+      No documented API for screen brightness, clock (no NTP!), vacation
+      mode, or setpoint limits. Firmware auto-updates cannot be disabled;
+      unit reboots to apply. Phones ctupdate.skyport.io at boot even with
+      cloud off (sinkhole if undesired).
+
+protocol:
+  note: >
+    Fully vendor-documented ("Venstar Local API" PDF). Community drivers
+    exist for Home Assistant (core, local_polling), Hubitat, Vera, RTI,
+    Control4. JSON request/response; POST bodies are flat key/value JSON.
+  commands:
+    set_mode: 'POST /control {"mode":N}'
+    set_setpoints: 'POST /control {"heattemp":X,"cooltemp":Y}'
+    set_fan: 'POST /control {"fan":N}'
+    read_state: 'GET /query/info'
+
+status:
+  rating: confirmed   # vendor-documented + HA core integration
+  apk_acquired: false # not needed — no app involvement in local path
+  apk_decompiled: false
+  protocol_recovered: true  # vendor documentation + multiple implementations
+  cloud_dead: false         # vendor active; cloud optional
+  references:
+    - home-assistant.io/integrations/venstar (accessed 2026-08-07)
+    - karlquinsland.com/venstar-t7850-teardown-review (2022-04-23)
+    - github.com/toggledbits/VenstarColorTouch-Hubitat

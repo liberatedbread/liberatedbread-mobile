@@ -1,0 +1,56 @@
+# Transystem i-Blue 747 GPS Logger — Device Spec (research note)
+# Vendor line discontinued; no Android/iOS app ever existed (Windows-only utility, abandonware)
+
+device:
+  id: iblue-747
+  name: Transystem i-Blue 747 / 747A+ Bluetooth GPS Data Logger
+  manufacturer: Transystem Inc. (Taiwan) — consumer GPS line discontinued; vendor site unreachable 2026-08
+  also_covers:
+    - i-Blue 747Pro / 747Pro S
+    - i-Blue 821 (MTK logger, gpsbabel-confirmed)
+    - i-Blue 737 / 757 (SPP NMEA receiver siblings)
+    - Transystem GLOG 760 / TripMate 850 (same MTK platform)
+  category: gps_logger
+  safety_class: NONE
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+
+bluetooth_classic:
+  profiles: [SPP]
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+  pairing_pin: "0000"
+  bluetooth_version: "2.0"
+  usb_fallback: "Silicon Labs CP210x USB-serial (747A+), guaranteed bidirectional"
+  notes: >
+    Standard SPP. Pair PIN 0000, rfcomm bind, feed gpsd for live NMEA.
+    Log download/config use the generic MediaTek MTK serial protocol
+    (gpsbabel 'mtk' format: i-Blue 747/747A+/821 confirmed working).
+    BT747 can configure over SPP; gpsbabel warns some MTK loggers only
+    accept commands over USB — use USB if SPP commands time out.
+
+protocol:
+  live_position:
+    format: NMEA 0183 (GGA, RMC, GSA, GSV)
+    tools: [gpsd, gpsbabel]
+  log_download:
+    chipset: MediaTek MTK (MT3318/MT3329 family)
+    config_commands: PMTK-style text packets ($PMTK...*checksum CRLF)
+    log_format: MTK binary (gpsbabel mtk-bin); 16 MB flash, ~100k-125k waypoints
+    tools: [BT747, gpsbabel mtk/mtk-bin, MTKBabel (perl)]
+  known_bugs:
+    - GPS week-number rollover mis-dates logs on same-era Transystem firmware
+      (GLOG 760 confirmed; BT747 v2.2.1+ adds +1024 weeks for pre-2009 dates)
+
+status:
+  android_app_existed: false  # Windows-only config utility, abandonware
+  apk_acquired: false
+  apk_needed: false  # BT747 / gpsbabel / MTKBabel fully replace vendor software
+  protocol_recovered: true  # generic MTK protocol, multiple open implementations
+  hci_snoop_needed: false
+  cloud_dependency: none
+  references:
+    - https://www.gpsbabel.org/htmldoc-development/fmt_mtk.html
+    - http://www.bt747.org/
+    - https://www.rigacci.org/wiki/doku.php/doc/appunti/hardware/gps_logger_i_blue_747
