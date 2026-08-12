@@ -728,6 +728,39 @@ impl DeviceSpec {
             .find(|entry| entry.get("name").and_then(|n| n.as_str()) == Some(name))
     }
 
+    /// [`Self::find_writable_characteristic`], confined to one service.
+    ///
+    /// Characteristic UUIDs repeat across services (vendor channels reuse
+    /// 0xFFE1-style UUIDs, and one spec can bind the same UUID to different
+    /// command tables per service), so a caller that knows which service it
+    /// means — the group runner carries the resolved action's own pair — must
+    /// not be answered from a twin under another service. Matching accepts
+    /// short and long spellings of the same SIG-assigned UUID, since callers
+    /// hand back what discovery reported.
+    pub fn find_writable_characteristic_in(
+        &self,
+        service_uuid: &str,
+        char_uuid: &str,
+    ) -> Option<(&Service, &Characteristic)> {
+        let target = crate::protocol::profiles::normalize_uuid(service_uuid);
+        let mut fallback = None;
+        for service in &self.services {
+            if crate::protocol::profiles::normalize_uuid(&service.uuid) != target {
+                continue;
+            }
+            for characteristic in &service.characteristics {
+                if !characteristic.uuid.eq_ignore_ascii_case(char_uuid) {
+                    continue;
+                }
+                if characteristic.commands.is_some() {
+                    return Some((service, characteristic));
+                }
+                fallback.get_or_insert((service, characteristic));
+            }
+        }
+        fallback
+    }
+
     /// Entities that actually bind to a characteristic in this spec.
     ///
     /// Specs are hand-authored and some declare an entity whose

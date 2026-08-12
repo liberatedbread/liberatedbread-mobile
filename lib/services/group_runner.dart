@@ -237,6 +237,10 @@ class GroupRunner {
     for (final write in writes) {
       final bytes = await _codec.encodeCommand(
         specYaml: specYaml,
+        // The pair, not just the characteristic: UUIDs repeat across
+        // services with different command tables, and the codec scopes its
+        // lookup to the named service.
+        serviceUuid: write.serviceUuid,
         charUuid: write.charUuid,
         commandName: write.commandName,
         params: write.params,

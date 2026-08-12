@@ -959,9 +959,12 @@ void main() {
       );
       bulb.pushNotification(EmulatedUuids.batteryLevel, [58]);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(received, [
-        [58]
-      ], reason: 'the share survived the redundant connect');
+      expect(
+          received,
+          [
+            [58]
+          ],
+          reason: 'the share survived the redundant connect');
 
       await sub.cancel();
       await Future<void>.delayed(const Duration(milliseconds: 20));

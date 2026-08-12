@@ -105,6 +105,7 @@ class MockBleService implements BleService {
   final Map<String, List<BleDiscoveredService>> _servicesCache = {};
 
   final _random = Random(42);
+
   /// Connection claims per device, mirroring RealBleService: overlapping
   /// owners (device screen + group run) share one link, and only the last
   /// release drops it.
