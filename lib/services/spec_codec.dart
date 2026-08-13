@@ -454,6 +454,24 @@ abstract class SpecCodec {
     required int sequence,
   });
 
+  /// Encode M_BOOKMARK_ENABLE — activate bookmark/playlist [listId] so the
+  /// device plays ONLY its items. Without it, playback stays over the whole
+  /// stored set (`play_next` cycles every effect). Sent as part of the loop
+  /// setup: clear → enable → set_playlist → play_next.
+  Future<StoredPlayDto> encodeBookmarkEnable({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  });
+
+  /// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist [listId] before a
+  /// re-save, so the loop replaces the old list instead of accumulating.
+  Future<StoredPlayDto> encodeBookmarkClear({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  });
+
   /// Encode the delete-one-stored-design command by cid (M_REMOVE_APP).
   Future<StoredPlayDto> encodeRemoveApp({
     required String specYaml,

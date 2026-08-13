@@ -160,18 +160,23 @@ void main() {
           await ble.writeCharacteristic(
               deviceId, pl.serviceUuid, w.characteristicUuid, w.bytes);
         }
-        // Kick playback off in case setting the playlist + loop mode does not
-        // itself start it: play the first frame by cid.
-        final startPlay = await codec.encodeStoredPlay(
-            specYaml: specYaml, cid: r, sequence: nextSeq());
-        await ble.writeCharacteristic(deviceId, startPlay.serviceUuid,
-            startPlay.write.characteristicUuid, startPlay.write.bytes);
+        // Start the loop cycling with play_next — the vendor's bookmark-loop
+        // start command, and exactly what the app's _saveAnimationLoop sends.
+        // (play_effect/encodeStoredPlay instead PINS one frame while connected.)
+        expect(slotByCid[r], isNotNull,
+            reason: 'a stored type-3 frame must register in the effect list');
+        final pn = await codec.encodeCommand(
+            specYaml: specYaml,
+            charUuid: _ddpWrite,
+            commandName: 'play_next',
+            params: {'sn': nextSeq().toDouble()});
+        await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, pn);
         // ignore: avoid_print
-        print('PLAYLIST_SET+PLAY at ${DateTime.now().millisecondsSinceEpoch} '
+        print('PLAYLIST_SET+PLAY_NEXT at ${DateTime.now().millisecondsSinceEpoch} '
             '— WATCH THE PANEL NOW for red/green/blue');
 
-        // Hold ~50s connected so it can be watched cycling before disconnect.
-        for (var t = 0; t < 50; t++) {
+        // Hold ~15s connected so it can be watched cycling before disconnect.
+        for (var t = 0; t < 15; t++) {
           await Future<void>.delayed(const Duration(seconds: 1));
         }
       } finally {

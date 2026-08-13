@@ -801,6 +801,32 @@ class FakeSpecCodec implements SpecCodec {
     return _framedStub();
   }
 
+  /// Every [encodeBookmarkEnable] call's listId, in order.
+  final List<int> encodeBookmarkEnableCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeBookmarkEnable({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) async {
+    encodeBookmarkEnableCalls.add(listId);
+    return _framedStub();
+  }
+
+  /// Every [encodeBookmarkClear] call's listId, in order.
+  final List<int> encodeBookmarkClearCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeBookmarkClear({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) async {
+    encodeBookmarkClearCalls.add(listId);
+    return _framedStub();
+  }
+
   /// How many times [encodeRemoveAllApps] was called.
   int encodeRemoveAllAppsCalls = 0;
 

@@ -450,6 +450,24 @@ class RealSpecCodec implements SpecCodec {
           specYaml: specYaml, mode: mode, sequence: sequence);
 
   @override
+  Future<StoredPlayDto> encodeBookmarkEnable({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) =>
+      rust.encodeBookmarkEnable(
+          specYaml: specYaml, listId: listId, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeBookmarkClear({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) =>
+      rust.encodeBookmarkClear(
+          specYaml: specYaml, listId: listId, sequence: sequence);
+
+  @override
   Future<StoredPlayDto> encodeRemoveApp({
     required String specYaml,
     required int cid,

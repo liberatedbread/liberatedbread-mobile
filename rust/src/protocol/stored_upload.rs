@@ -301,12 +301,14 @@ pub struct PlaylistItem {
     pub slot: u32,
 }
 
-/// Encode the writes that make the device LOOP a list of stored effects: the
-/// playlist (M_SET_PL) then loop mode (M_SET_MODE_LOOP). This is how a
-/// multi-frame custom animation plays on this hardware — each frame is stored
-/// as its own single-frame microapp (the type-3 AMX path that renders), then
-/// the frames are set as a looping playlist. `sequence` seeds the two writes'
-/// rolling serials.
+/// Encode the M_BOOKMARK_SAVE write that populates a bookmark/playlist with a
+/// set of stored effects (each frame of a multi-frame animation is one stored
+/// type-3 microapp). This is ONLY the save — the vendor's full sequence is
+/// `bookmark_clear` -> `bookmark_enable` -> this -> `play_next`; the caller
+/// sends the clear/enable/play around it (see the FFI wrappers). An earlier
+/// version also emitted M_SET_MODE_LOOP (0x09CB), which the vendor NEVER sends
+/// and which did not scope playback — that write is gone. `sequence` seeds the
+/// write's rolling serial.
 pub fn encode_set_playlist(
     spec: &DeviceSpec,
     items: &[PlaylistItem],
@@ -320,19 +322,12 @@ pub fn encode_set_playlist(
         HashMap::from([("payload".to_string(), payload)]),
         sequence,
     )?;
-    let loop_cmd = build_framed_command(
-        spec,
-        "set_mode_loop",
-        HashMap::new(),
-        HashMap::new(),
-        sequence.wrapping_add(1),
-    )?;
     let service = service_for_characteristic(spec, &set_pl.characteristic_uuid).ok_or_else(|| {
         ProtocolError::ImageUploadUnsupported {
             reason: "the set_playlist characteristic belongs to no service".to_string(),
         }
     })?;
-    Ok((service, vec![set_pl, loop_cmd]))
+    Ok((service, vec![set_pl]))
 }
 
 /// A `SimpleMessage {i1: value}` protobuf payload — `08 <varint>`. The shape a
@@ -388,6 +383,29 @@ pub fn encode_autorun_mode(
     sequence: u16,
 ) -> Result<(String, EncodedWrite), ProtocolError> {
     encode_simple_i1_command(spec, "set_autorun_mode", mode, sequence)
+}
+
+/// Encode M_BOOKMARK_ENABLE — ACTIVATE bookmark/playlist `list_id` so the device
+/// plays only its items. SimpleMessage `{i1: listId}`. Without this the device
+/// keeps autorunning its whole stored set, so `play_next` cycles every effect
+/// rather than the list (the decompiled app sends this on playlist select).
+pub fn encode_bookmark_enable(
+    spec: &DeviceSpec,
+    list_id: u32,
+    sequence: u16,
+) -> Result<(String, EncodedWrite), ProtocolError> {
+    encode_simple_i1_command(spec, "bookmark_enable", list_id, sequence)
+}
+
+/// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist `list_id`. SimpleMessage
+/// `{i1: listId}`. Sent before `set_playlist` so a re-save replaces the list
+/// rather than accumulating stale items across saves.
+pub fn encode_bookmark_clear(
+    spec: &DeviceSpec,
+    list_id: u32,
+    sequence: u16,
+) -> Result<(String, EncodedWrite), ProtocolError> {
+    encode_simple_i1_command(spec, "bookmark_clear", list_id, sequence)
 }
 
 /// Encode M_REMOVE_APP — delete ONE stored user design (DIY micro-app) by its
@@ -594,6 +612,26 @@ services:
               cid: { type: "uint32", endianness: "big", default: 0 }
               osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
+          bookmark_enable:
+            description: "Enable a bookmark/playlist."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x3F, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes" }
+          bookmark_clear:
+            description: "Clear a bookmark/playlist."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x41, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes" }
           set_autorun_mode:
             description: "Set play/loop mode."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD0, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
@@ -719,7 +757,7 @@ services:
     }
 
     #[test]
-    fn set_playlist_frames_two_writes_on_the_command_channel() {
+    fn set_playlist_is_one_bookmark_save_write_no_mode_loop() {
         let (service, writes) = encode_set_playlist(
             &spec(),
             &[
@@ -730,20 +768,29 @@ services:
         )
         .unwrap();
         assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
-        assert_eq!(writes.len(), 2, "set_playlist then set_mode_loop");
-        // Both are fragment-framed on the DDP Write characteristic, with rolling
-        // serials 5 and 6.
-        assert_eq!(writes[0].bytes[0], 5);
-        assert_eq!(writes[1].bytes[0], 6);
-        for w in &writes {
-            assert_eq!(w.characteristic_uuid, "01020074-1972-1925-3022-077119514e44");
-            assert_eq!(&w.bytes[0..1], &[w.bytes[0]]); // frag header present
-            assert_eq!(w.bytes[4], 0xF0, "DNX flag after the 4-byte frag header");
-        }
-        // set_playlist mt = 0A 42 at DNX offset 6 (whole-packet 10).
-        assert_eq!(&writes[0].bytes[10..12], &[0x0A, 0x42]);
-        // set_mode_loop mt = 09 CB.
-        assert_eq!(&writes[1].bytes[10..12], &[0x09, 0xCB]);
+        // ONLY the bookmark_save — the bogus M_SET_MODE_LOOP (0x09CB) the vendor
+        // never sends is gone; clear/enable/play are separate writes now.
+        assert_eq!(writes.len(), 1, "just M_BOOKMARK_SAVE");
+        let w = &writes[0];
+        assert_eq!(w.bytes[0], 5, "fragment serial carries the sequence");
+        assert_eq!(w.characteristic_uuid, "01020074-1972-1925-3022-077119514e44");
+        assert_eq!(w.bytes[4], 0xF0, "DNX flag after the 4-byte frag header");
+        // set_playlist mt = 0A 42 (M_BOOKMARK_SAVE) at whole-packet offset 10.
+        assert_eq!(&w.bytes[10..12], &[0x0A, 0x42]);
+    }
+
+    #[test]
+    fn bookmark_enable_and_clear_are_simple_i1_on_the_command_channel() {
+        // bookmark_enable {i1: listId} -> mt 0A 3F, payload 08 <listId>
+        let (service, en) = encode_bookmark_enable(&spec(), 0, 7).unwrap();
+        assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
+        assert_eq!(en.bytes[0], 7, "fragment serial carries the sequence");
+        assert_eq!(&en.bytes[10..12], &[0x0A, 0x3F], "mt = M_BOOKMARK_ENABLE");
+        assert_eq!(&en.bytes[en.bytes.len() - 2..], &[0x08, 0x00], "i1=0 payload");
+        // bookmark_clear {i1: listId} -> mt 0A 41
+        let (_s, cl) = encode_bookmark_clear(&spec(), 0, 8).unwrap();
+        assert_eq!(&cl.bytes[10..12], &[0x0A, 0x41], "mt = M_BOOKMARK_CLEAR");
+        assert_eq!(&cl.bytes[cl.bytes.len() - 2..], &[0x08, 0x00], "i1=0 payload");
     }
 
     #[test]
@@ -861,7 +908,7 @@ services:
                 width: 2,
                 height: 2,
                 frames: &frames,
-                fps: 20,
+                timestamp: 0,
             },
             0,
         )

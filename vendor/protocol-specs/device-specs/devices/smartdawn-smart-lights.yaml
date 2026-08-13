@@ -65,7 +65,7 @@ device:
     M_DEVICE_INFO_NOTIFY (mt=2103) and a periodic M_PLAY_PROGRESS_NOTIFY
     (mt=2630) stream on the DDP notify characteristic; fragment-framed
     M_SET_POWEROFF/M_SET_POWERON commands (single-fragment, big-endian
-    header fields, correct len) are acknowledged with
+    header fields) are acknowledged with
     M_POWER_STATUS_NOTIFY (mt=2105) and visibly pause/resume playback,
     while the SAME packets written WITHOUT the 4-byte fragment header are
     silently ignored — the framing is mandatory, not advisory. Commands
@@ -261,10 +261,37 @@ features:
     # for live streaming — throughput is MTU-bound.
     animation: true
 
-  # DEVICE-SIDE STORAGE: persist a picture as a standalone microapp that plays
-  # after disconnect (the vendor's 图文 / "image-text" program). Unlike the live
-  # doodle path above, this survives power-off and is played from the device's
-  # own effect list.
+  # DEVICE-SIDE STORAGE: persist a picture, scrolling text, or multi-frame
+  # animation as a standalone microapp that plays after disconnect (the
+  # vendor's 图文 / "image-text" program). Unlike the live doodle path above,
+  # this survives power-off and is played from the device's own effect list.
+  #
+  # TWO container families over this same uploader flow (confirmed from the
+  # vendor app's decompiled H5 bundle + p2p.proto, 2026-08-11):
+  #   * PICTURE / SCROLLING TEXT -> "DN" AMX microapp, UploadRequest.type=3,
+  #     NO path (the default `file_type` below). One still (+ optional scroll).
+  #   * MULTI-FRAME ANIMATION -> a single "DNMX"/"DNX2" .eff container holding
+  #     EVERY frame, UploadRequest.type=0, path="<cid>.eff". The mobile core's
+  #     `encode_stored_animation` overrides the default file_type to 0 for this
+  #     kind. UNTESTED / DORMANT on the JY25CUT curtain: hardware (2026-08-12)
+  #     shows this container COMMITS but never registers as a playable effect,
+  #     and it appears in ZERO captures — this curtain has no .eff renderer. The
+  #     curtain's real animation is (a) LIVE-streamed frames (DDP DISPLAY
+  #     datatype-0x01) or (b) a cycle of stored type-3 stills (set_playlist +
+  #     play_next). This .eff path is retained for the vendor's matrix-panel
+  #     "video import" feature and a future dedicated capture; do not treat it as
+  #     the curtain animation path. The DEVICE animates the frames internally;
+  #     the app never streams frames during playback. Two header bytes the vendor writes literally and
+  #     the device appears to key on: the cadence byte at DNMX[124]/DNX2[158] is
+  #     the vendor's FIXED constant 20 (NOT a per-effect fps derived from the
+  #     preview slider), and DNMX[18..22] is a real wall-clock unix timestamp
+  #     (a `.eff` committed with a 0 timestamp never rendered on the JY25CUT).
+  #     Playback speed, if adjustable, is the separate set_play_speed command.
+  # PLAYBACK (both kinds): M_PLAY_EFFECT (play_effect) {i1: cid, i2: slot}.
+  # A freshly stored item plays with slot 0; an item replayed from the effect
+  # list uses its device-assigned slot. To keep the device on ONE design after
+  # disconnect (it otherwise autoruns/randomly cycles ALL stored effects),
+  # follow the play with set_autorun_mode {i1: 0 = fixed}.
   #
   # VERIFIED against smartdawn_capture_a_lot_of_custom_animations.pcapng
   # (2026-08-10) and byte-for-byte reproduced by the mobile core: it is built
@@ -288,6 +315,14 @@ features:
     # Play the freshly stored item by its cid right after upload — the vendor's
     # store-then-show. Named from the DDP Write characteristic's commands.
     play_command: "play_effect"
+    # Where the device answers the upload: M_UPLOAD_START_RESPONSE (mt=2931,
+    # i1==0 accept, i3 = resume offset) and M_UPLOAD_COMPLETE (mt=2934, i1==0
+    # success), fragment-framed like every DDP push. WAIT for the completion
+    # before sending play_command: the vendor app does, and playing a cid the
+    # device has not committed yet is a silent no-op (observed live on the
+    # JY25CUT curtain — the play write is ACKed at GATT level while the panel
+    # keeps showing what it was showing).
+    response_characteristic: "01010074-1972-1925-3022-077119514e44"
     max_width: 255
     max_height: 255
     resolution_source: "device_reported"
@@ -339,18 +374,23 @@ services:
       characteristic below. Treat DISPLAY-packet streaming as a dormant/
       legacy capability until an on-air capture shows it in use.
 
-      Command templates below cover the 20-byte extended header; "{sn}",
-      "{len}", "{ts}" and "{payload}" are the variable parts. No-payload
-      commands send the header alone (len = 20). The templates do NOT
+      Command templates below cover the 20-byte extended header; "{sn}"
+      and "{payload}" are the variable parts. The templates do NOT
       include the 4-byte fragment header: each characteristic's `framing`
       block declares it machine-readably (scheme `daniao_fragment`), and
       encoders MUST apply it to every write — live testing (2026-08-08,
       JY25CUT curtain) confirmed the controller silently ignores unframed
       command packets and acknowledges framed ones. Multi-byte header
       fields (sn, len, cid, osn) are big-endian, declared per-parameter
-      via `endianness`; `len`/`sn` are transport fields the encoder fills
-      (`auto: packet_length` / `auto: sequence` — a constant sn of 0 was
-      accepted on hardware).
+      via `endianness`. WIRE-TRUTH (all four 2026-08 captures, every
+      write to the DDP-write handle 0x0013): `len`=0, `osn`=0, `ts`=0,
+      `cid`=0 for EVERY command — the header after mt is 12 zero bytes —
+      with the SOLE exception of time_sync (mt=0x09C8), whose osn is 1.
+      Earlier revisions filled `len` with packet_length and `osn` with 1;
+      those bytes differed from the vendor on the wire (the tolerant device
+      parsed them anyway), so the defaults are now 0 to match the captures
+      byte-for-byte. `sn` is a per-message serial the encoder fills
+      (`auto: sequence`; a constant 0 was also accepted on hardware).
     initialization:
       - characteristic: "01010074-1972-1925-3022-077119514e44"
         subscribe: true
@@ -378,9 +418,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD2, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (header + payload); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           power_off:
             description: >
@@ -389,9 +429,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD3, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           set_brightness:
             description: >
@@ -406,9 +446,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCD, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{brightness}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (22: header + 2-byte protobuf); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
               brightness: { type: "varint", min: 1, max: 255, description: "Brightness level 1-255; encoded as a protobuf varint (1 byte for <=127, 2 bytes above)." }
           play_next:
@@ -416,18 +456,18 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2C, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           play_prev:
             description: "Previous effect. M_PLAY_PREV (mt=2605), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           play_effect:
             description: >
@@ -447,22 +487,141 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2E, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{effect_id}", 0x10, "{slot}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed, accounts for the varint widths" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0, description: "DNX header cid field; the app sends 0 (the item id rides in the payload as effect_id)" }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
               effect_id: { type: "varint", min: 0, description: "SimpleMessage.i1 — the effect/microapp id (cid) to play; protobuf varint" }
               slot: { type: "varint", min: 0, default: 0, description: "SimpleMessage.i2 — playback slot; protobuf varint (0 from the app)" }
+          effect_list:
+            description: >
+              Fetch the device's stored-effect list. M_EFFECT_LIST (mt=2904),
+              no payload; the device answers with effect-list notifications on
+              DDP Notify (entries carry index, id/cid and name). The vendor
+              app sends this between M_UPLOAD_COMPLETE and M_PLAY_EFFECT when
+              showing a freshly stored item (smartdawn_longer2.pcapng
+              t=205.93-205.99: 0x0B58 at 205.93, play at 205.99), and again
+              at connect to populate its effect picker.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x58, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
           set_play_speed:
             description: "Set effect speed. M_SET_PLAY_SPEED (mt=2523), SimpleMessage {i1: speed}."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xDB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes", description: "SimpleMessage {i1: speed} protobuf" }
+          set_autorun_mode:
+            description: >
+              THE play/loop-mode control (M_SET_AUTORUN_MODE, mt=2512),
+              SimpleMessage {i1: mode} where mode = fixed(0) | repeat(1) |
+              random(2). Confirmed from the vendor H5 bundle: this — NOT the
+              dead set_mode_loop/single (2507/2508, which the vendor never
+              sends) — is how playback mode is set, and it PERSISTS device-side.
+              After playing a stored design, send {i1: 0 = fixed} so the device
+              HOLDS that one effect instead of autorunning/randomly cycling all
+              stored effects on disconnect (the reported "random pick on
+              disconnect" behaviour). {i1: 1 = repeat} cycles the whole stored
+              list; {i1: 2 = random} shuffles it.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD0, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: mode} protobuf, encoder-built" }
+          remove_app:
+            description: >
+              Delete ONE stored user design (DIY micro-app) from the device by
+              its cid. M_REMOVE_APP (mt=2909), SimpleMessage {i1: cid}. NOTE the
+              vendor deletes DIY effects as micro-apps with THIS command (not
+              the proto's M_REMOVE_EFFECT 2903, which it never sends), and sends
+              ONLY the cid — the slot is not transmitted. Only user effects
+              (EffectInfo.diy==1) should be removed, never built-ins (diy==0).
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x5D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: cid} protobuf, encoder-built" }
+          remove_all_apps:
+            description: >
+              Clear ALL stored MINIPROG micro-apps in one command
+              (M_REMOVE_ALL_APPS, mt=2944), header only. Defined in the vendor
+              proto but the vendor app never sends it (it deletes one-by-one via
+              remove_app), so treat as best-effort; enumerating the effect list
+              and removing each diy==1 item with remove_app is the verified path.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x80, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          set_playlist:
+            description: >
+              Save a bookmark/playlist set (M_BOOKMARK_SAVE, mt=2626) with a
+              protobuf {i1: listId, i2: count, 4: [repeated {i1: 0, i2: cid,
+              i3: slot}]}. OBSERVED on the wire (smartdawn_longer2.pcapng frame
+              5977): the vendor's ENTIRE playlist setup is just
+              M_BOOKMARK_SAVE followed by M_PLAY_NEXT (x2) — there is NO
+              bookmark_clear and NO bookmark_enable anywhere in any capture (the
+              two M_*_LIST reads that precede it are UI queries, not writes).
+              i1 (entry idx) is 0 for every entry in the capture; i3 (slot) is
+              each effect's device-assigned slot from M_EFFECT_LIST. This is the
+              app's cycling-loop mechanism for stored stills. Whether the saved
+              list SCOPES autorun (and survives disconnect) is still being
+              verified on hardware.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x42, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "PlayList protobuf, encoder-built from the stored frame cids" }
+          bookmark_enable:
+            description: >
+              SPECULATIVE — NOT observed in ANY of the four 2026-08 captures.
+              Presumed M_BOOKMARK_ENABLE (mt=2623), SimpleMessage {i1: listId}.
+              Was hypothesised to "scope" autorun to a list, but the vendor's
+              real playlist setup is only M_BOOKMARK_SAVE -> M_PLAY_NEXT (see
+              set_playlist), so this command is unused by the app. Kept defined
+              for future investigation; do NOT send it as part of the loop flow.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x3F, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: listId} protobuf, encoder-built" }
+          bookmark_clear:
+            description: >
+              SPECULATIVE — NOT observed in ANY of the four 2026-08 captures.
+              Presumed M_BOOKMARK_CLEAR (mt=2625), SimpleMessage {i1: listId}.
+              The vendor re-saves a list with M_BOOKMARK_SAVE directly (no prior
+              clear), so this command is unused by the app. Kept defined for
+              future investigation; do NOT send it as part of the loop flow.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x41, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: listId} protobuf, encoder-built" }
           set_color_mode:
             description: >
               Set color/palette mode. M_SET_COLOR_MODE (mt=2603); related
@@ -471,9 +630,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes" }
           set_mode_loop:
@@ -481,18 +640,18 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           set_mode_single:
             description: "Play a single effect once. M_SET_MODE_SINGLE (mt=2508), no payload."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCC, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           time_sync:
             description: >
@@ -501,7 +660,7 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xC8, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
               osn: { type: "uint16", endianness: "big", default: 1 }
               ts: { type: "uint8", default: 0 }
@@ -511,18 +670,18 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x08, 0x38, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           music_start:
             description: "Enter music-reactive mode. M_MUSIC_START (mt=2611); M_MUSIC_STOP = 2612."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x33, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes" }
           device_mic_start:
@@ -535,9 +694,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x5A, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           ui_end_sync:
             description: >
@@ -550,9 +709,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           ui_start_sync:
             description: >
@@ -561,9 +720,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6A, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           doodle_start:
             description: >
@@ -581,9 +740,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x8D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           dev_start:
             description: >
@@ -600,9 +759,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xEB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           dev_exit:
             description: >
@@ -611,9 +770,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xEE, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           show_pixel:
             description: >
@@ -625,9 +784,9 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xED, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length; encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
               payload: { type: "bytes", description: "SimpleMessage {i1, i2} protobuf" }
           reboot:
@@ -635,18 +794,18 @@ services:
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x27, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
           factory_reset:
             description: "Factory reset. M_FACTORY_RESET (mt=2598), no payload. Not verified on hardware."
             template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x26, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
             parameters:
               sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
-              len: { type: "uint16", endianness: "big", auto: "packet_length", description: "total packet length (20, header only); encoder-computed" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
               cid: { type: "uint32", endianness: "big", default: 0 }
-              osn: { type: "uint16", endianness: "big", default: 1 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
               ts: { type: "uint8", default: 0 }
 
       - uuid: "01010074-1972-1925-3022-077119514e44"
