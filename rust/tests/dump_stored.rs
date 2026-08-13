@@ -214,3 +214,51 @@ fn real_spec_matches_the_captures_byte_for_byte() {
     assert_eq!(header, [0u8; 12], "all-zero DDP header");
     assert!(payload.is_empty(), "play_next carries no payload");
 }
+
+/// Diagnose the "stuck-red strand" report: is a SOLID stored still actually
+/// uniform in the image layer, and does blue differ structurally from green?
+/// If the container is identical except for the packed colour, the encoding is
+/// uniform and any on-panel mixing is hardware/camera, not us.
+#[test]
+fn solid_stills_are_byte_uniform_across_colours() {
+    let yaml = spec_yaml();
+    let solid = |r: u8, g: u8, b: u8| {
+        let mut v = Vec::with_capacity(20 * 20 * 3);
+        for _ in 0..20 * 20 {
+            v.extend_from_slice(&[r, g, b]);
+        }
+        v
+    };
+    let container = |rgb: Vec<u8>| {
+        let p = encode_stored_image(
+            yaml.clone(), 20, 20, rgb, "solid".to_string(), 900100, 5,
+            "none".to_string(), 0, 0,
+        )
+        .expect("encode");
+        // reassemble container from uploader DATA payloads (skip the START)
+        let mut c = Vec::new();
+        for w in p.upload_writes.iter().skip(1) {
+            c.extend_from_slice(&w.bytes[8..]);
+        }
+        c
+    };
+    let red = container(solid(255, 0, 0));
+    let green = container(solid(0, 255, 0));
+    let blue = container(solid(0, 0, 255));
+    println!("container len: red={} green={} blue={}", red.len(), green.len(), blue.len());
+    assert_eq!(red.len(), green.len());
+    assert_eq!(green.len(), blue.len());
+    // Which byte offsets differ between the three solids? A uniform solid image
+    // (1 palette colour, all indices identical) means ONLY the palette colour
+    // bytes differ — a small, contiguous set — never the index region.
+    let diffs_rg: Vec<usize> = (0..red.len()).filter(|&i| red[i] != green[i]).collect();
+    let diffs_gb: Vec<usize> = (0..green.len()).filter(|&i| green[i] != blue[i]).collect();
+    println!("bytes differing red vs green: {} at {:?}", diffs_rg.len(),
+        &diffs_rg[..diffs_rg.len().min(12)]);
+    println!("bytes differing green vs blue: {} at {:?}", diffs_gb.len(),
+        &diffs_gb[..diffs_gb.len().min(12)]);
+    // Dump the differing bytes' values for green vs blue to see the palette.
+    for &i in diffs_gb.iter().take(12) {
+        println!("  offset {i}: green={:#04x} blue={:#04x}", green[i], blue[i]);
+    }
+}

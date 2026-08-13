@@ -298,6 +298,23 @@ class FakeSpecCodec implements SpecCodec {
         );
   }
 
+  /// The resolution [advertisedResolution] returns — a test sets it to simulate
+  /// a device that advertises its panel size. Null (default) means "not
+  /// advertised", the common case.
+  PanelResolutionDto? advertisedResolutionResult;
+
+  /// The manufacturer data [advertisedResolution] was last called with.
+  Map<int, List<int>>? advertisedResolutionArg;
+
+  @override
+  Future<PanelResolutionDto?> advertisedResolution({
+    required String specYaml,
+    required Map<int, List<int>> manufacturerData,
+  }) async {
+    advertisedResolutionArg = manufacturerData;
+    return advertisedResolutionResult;
+  }
+
   @override
   Future<List<NetworkEntityDto>> networkEntitiesForDevice({
     required String specYaml,

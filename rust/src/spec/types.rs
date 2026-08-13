@@ -85,6 +85,19 @@ pub struct DeviceSpec {
 /// Every field but `type` is optional and unknown keys sweep into
 /// `extensions`: these blocks are hand-written across the catalogue and a new
 /// annotation must not fail existing parses.
+/// How to read the real panel resolution from the BLE advertisement's
+/// manufacturer-specific data. Offsets index into the manufacturer-data VALUE
+/// — the bytes after the 2-byte company id, as most stacks report it (e.g.
+/// BlueZ `ManufacturerData` keyed by company id). SmartDawn's JY25CUT curtain
+/// advertises company `0x61EA` with width at byte 4 and height at byte 5
+/// (`03 e8 00 64 14 14 …` → 20×20).
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResolutionAdvertisement {
+    pub company_id: u16,
+    pub width_offset: usize,
+    pub height_offset: usize,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Feature {
     #[serde(rename = "type")]
@@ -101,6 +114,12 @@ pub struct Feature {
     /// resolution comes from the device at runtime.
     #[serde(default)]
     pub resolution_source: Option<String>,
+    /// For `device_reported` panels: where the real width/height live in the
+    /// BLE advertisement's manufacturer-specific data, so a client can default
+    /// the canvas to the true panel size BEFORE connecting (the alternative is
+    /// making the user guess). Absent when the resolution is not advertised.
+    #[serde(default)]
+    pub resolution_advertisement: Option<ResolutionAdvertisement>,
     /// Commands a client sends, in this order, before the first frame of an
     /// upload — named from the spec's own `commands`, so their bytes stay in
     /// the command templates and only the choreography lives here.
