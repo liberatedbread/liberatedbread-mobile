@@ -216,6 +216,17 @@ features:
     max_width: 255
     max_height: 255
     resolution_source: "device_reported"
+    # Where the REAL panel size lives in the advertisement, so a client can
+    # default the canvas to it before connecting instead of guessing (a 16×16
+    # default on a 20×20 curtain leaves the outer strands unwritten -> they hold
+    # stale colour). Offsets index the manufacturer-data VALUE (bytes after the
+    # 2-byte company id, as BlueZ reports it). DN0B88 advertises company 0x61EA
+    # with `03 e8 00 64 14 14 00 00 72 74 00 00` -> width=byte[4]=0x14,
+    # height=byte[5]=0x14 = 20×20 (from MFD.java; see research-notes).
+    resolution_advertisement:
+      company_id: 0x61EA
+      width_offset: 4
+      height_offset: 5
     # The choreography, stated rather than left for a client to hardcode: the
     # byte sequences live in these commands' own templates on the DDP channel,
     # and this says which of them open a session and in what order. Sending

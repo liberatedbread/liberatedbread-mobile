@@ -1194,6 +1194,73 @@ void main() {
     expect(find.widgetWithText(TextFormField, '255'), findsOneWidget);
   });
 
+  testWidgets(
+      'a device-reported panel snaps the canvas to its advertised resolution',
+      (tester) async {
+    // The panel advertises 20×20; the canvas must default to that (not the
+    // 16×16 guess), or a drawing leaves the outer strands unwritten.
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec()
+      ..advertisedResolutionResult =
+          const PanelResolutionDto(width: 20, height: 20);
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: deviceReported,
+        specYaml: 'yaml',
+        manufacturerData: {
+          0x61EA: [3, 232, 0, 100, 20, 20]
+        },
+      ),
+      ble: FakeBleService(),
+      codec: codec,
+    ));
+
+    // Starts at the 16×16 guess, then snaps to the advertised 20×20 once the
+    // async lookup returns.
+    expect(find.byKey(const ValueKey('led-canvas-width-16')), findsOneWidget);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
+    expect(find.byKey(const ValueKey('led-canvas-height-20')), findsOneWidget);
+    // The advertised payload reached the codec.
+    expect(codec.advertisedResolutionArg, {
+      0x61EA: [3, 232, 0, 100, 20, 20]
+    });
+  });
+
+  testWidgets('an empty advertisement leaves the canvas at the default',
+      (tester) async {
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec()
+      ..advertisedResolutionResult =
+          const PanelResolutionDto(width: 20, height: 20);
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: deviceReported,
+        specYaml: 'yaml',
+        // No advertisement captured (e.g. reconnect): no lookup, stays default.
+      ),
+      ble: FakeBleService(),
+      codec: codec,
+    ));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('led-canvas-width-16')), findsOneWidget);
+    expect(codec.advertisedResolutionArg, isNull);
+  });
+
   testWidgets('switching to Static stops a running preview', (tester) async {
     await tester.pumpWidget(_wrap(
       const LedImageWidget(

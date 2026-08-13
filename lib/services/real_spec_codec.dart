@@ -110,6 +110,19 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
+  Future<PanelResolutionDto?> advertisedResolution({
+    required String specYaml,
+    required Map<int, List<int>> manufacturerData,
+  }) =>
+      rust.advertisedResolution(
+        specYaml: specYaml,
+        manufacturerData: [
+          for (final e in manufacturerData.entries)
+            (e.key, Uint8List.fromList(e.value)),
+        ],
+      );
+
+  @override
   Future<List<NetworkEntityDto>> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,

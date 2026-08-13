@@ -267,6 +267,7 @@ class ScanResultCoalescer {
     required bool isConnectable,
     List<String> serviceUuids = const [],
     List<int> companyIds = const [],
+    Map<int, List<int>> manufacturerData = const {},
     DateTime? seenAt,
   }) {
     final at = seenAt ?? DateTime.now();
@@ -292,6 +293,7 @@ class ScanResultCoalescer {
       lastSeen: at,
       serviceUuids: serviceUuids,
       companyIds: companyIds,
+      manufacturerData: manufacturerData,
     );
     _emitted[id] = device;
     return device;
@@ -580,10 +582,12 @@ class RealBleService implements BleService {
                   for (final uuid in advertisement.serviceUuids)
                     uuid.str128.toLowerCase(),
                 ],
-                // manufacturerData is keyed by company ID. A device may carry
-                // several records; the payloads are not read here, only who
-                // they claim to be from.
+                // manufacturerData is keyed by company ID. Keep both the keys
+                // (the cheap identity signal every consumer uses) and the full
+                // payloads (a few specs read a real value out of them — e.g. a
+                // pixel panel advertising its true resolution).
                 companyIds: advertisement.manufacturerData.keys.toList(),
+                manufacturerData: advertisement.manufacturerData,
                 // When the advertisement was heard, not when this batch was
                 // processed — fbp re-pushes silent devices in every batch with
                 // their original timestamp, and that is exactly the signal a

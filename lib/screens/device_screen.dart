@@ -411,6 +411,7 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
                 deviceId: widget.device.id,
                 deviceName: widget.device.displayName,
                 services: _services,
+                manufacturerData: widget.device.manufacturerData,
               ),
             ),
           ],

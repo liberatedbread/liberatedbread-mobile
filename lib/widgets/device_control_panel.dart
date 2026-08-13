@@ -33,11 +33,18 @@ class DeviceControlPanel extends ConsumerWidget {
   final String deviceName;
   final List<BleDiscoveredService> services;
 
+  /// The device's advertised manufacturer data (company id -> value bytes),
+  /// from the scan. Forwarded to the pixel editor so a panel that advertises
+  /// its real resolution can size the canvas to it. Empty for devices reached
+  /// without a fresh scan (e.g. reconnect), which just falls back to defaults.
+  final Map<int, List<int>> manufacturerData;
+
   const DeviceControlPanel({
     super.key,
     required this.deviceId,
     required this.deviceName,
     required this.services,
+    this.manufacturerData = const {},
   });
 
   @override
@@ -184,6 +191,7 @@ class DeviceControlPanel extends ConsumerWidget {
           imageUpload: match.spec.imageUpload!,
           storedUpload: match.spec.storedUpload,
           specYaml: match.yaml,
+          manufacturerData: manufacturerData,
         ),
       // A treadmill gets its transport-and-speed card above everything else:
       // the per-characteristic command widgets below expose the same commands,
