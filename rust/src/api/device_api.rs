@@ -204,12 +204,17 @@ pub struct PlaylistWritesDto {
     pub writes: Vec<ImageWriteDto>,
 }
 
-/// One entry of the device's stored-effect list: a stored item's id and its
-/// device-assigned slot. A playlist must address items by this slot.
+/// One entry of the device's stored-effect list: a stored item's id, its
+/// device-assigned slot, the `type` the firmware filed it under, and whether it
+/// is a user "DIY" effect. `type`/`diy` are diagnostic: they reveal which
+/// family the device accepted an upload as (e.g. a `.eff` we sent as `type = 0`
+/// versus the `type = 3` AMX microapps the captures show playing).
 #[derive(Debug, Clone)]
 pub struct EffectEntryDto {
     pub cid: u32,
     pub slot: u32,
+    pub type_: u32,
+    pub diy: u32,
 }
 
 /// The BLE writes that push one image frame to a device, in send order.
@@ -2799,11 +2804,18 @@ pub fn encode_stored_text(
     Ok(stored_plan_to_dto(plan))
 }
 
-/// Encode the BLE writes that PERSIST a multi-frame animation on the device.
+/// Encode the BLE writes that PERSIST a multi-frame animation as a single
+/// `.eff` container.
+///
+/// UNTESTED / DORMANT on the JY25CUT curtain: hardware confirms a `.eff`
+/// commits but never registers as a playable effect there (see
+/// `daniao_store::build_animation_container`). Kept for the vendor's matrix
+/// panels and a future dedicated capture; the curtain's animation path is the
+/// cycling-stills loop (`encode_stored_image` per frame + `encode_set_playlist`
+/// + `play_next`), NOT this.
 ///
 /// `frames` are the screens in play order, each row-major RGB888
-/// `width * height * 3` bytes. Stored as the vendor's raw `.eff` animation
-/// (a different container from the still/scrolling microapp), played by cid.
+/// `width * height * 3` bytes.
 pub fn encode_stored_animation(
     spec_yaml: String,
     width: u32,
@@ -2817,20 +2829,25 @@ pub fn encode_stored_animation(
     use crate::protocol::daniao_store::StoredAnimation;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let frame_refs: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
-    // The container stores a frame RATE; the editor thinks in the interval
-    // its preview slider sets. Round to the nearest fps and clamp into the
-    // header byte's range so a slow slider cannot wrap to a fast animation.
-    let fps = (1000 + frame_ms / 2)
-        .checked_div(frame_ms)
-        // An unset (0) interval falls back to the vendor's own rate.
-        .map_or(20, |per_sec| per_sec.clamp(1, 255)) as u8;
+    // The container carries a fixed cadence constant (see `build_animation_container`),
+    // so `frame_ms` no longer feeds the header. It is retained on the FFI so the
+    // caller can drive a separate `set_play_speed` command without a signature
+    // churn once that path is wired.
+    let _ = frame_ms;
+    // The DNMX header stamps wall-clock seconds; the device appears to key on a
+    // non-zero value. Fall back to 0 only if the clock is somehow before the
+    // epoch (it never is), which the builder tolerates.
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or(0);
     let anim = StoredAnimation {
         name: &name,
         cid,
         width,
         height,
         frames: &frame_refs,
-        fps,
+        timestamp,
     };
     let plan =
         crate::protocol::stored_upload::encode_stored_animation(&spec, &anim, sequence as u16)?;
@@ -2947,6 +2964,43 @@ pub fn encode_autorun_mode(
     })
 }
 
+/// Encode M_BOOKMARK_ENABLE — activate bookmark/playlist `list_id` so the device
+/// plays only its items (without this, playback stays over the whole stored set).
+pub fn encode_bookmark_enable(
+    spec_yaml: String,
+    list_id: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_bookmark_enable(&spec, list_id, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist `list_id` before a re-save.
+pub fn encode_bookmark_clear(
+    spec_yaml: String,
+    list_id: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_bookmark_clear(&spec, list_id, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
 /// Encode the delete-one-stored-design command (M_REMOVE_APP) by cid.
 pub fn encode_remove_app(
     spec_yaml: String,
@@ -3000,6 +3054,8 @@ pub fn decode_effect_list(spec_yaml: String, bytes: Vec<u8>) -> anyhow::Result<V
         .map(|e| EffectEntryDto {
             cid: e.cid,
             slot: e.slot,
+            type_: e.type_,
+            diy: e.diy,
         })
         .collect())
 }

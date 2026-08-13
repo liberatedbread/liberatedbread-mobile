@@ -413,10 +413,12 @@ void main() {
     });
 
     testWidgets(
-        'saving an animation uploads one .eff and pins the device to it',
+        'saving an animation stores each frame as a still and loops them',
         (tester) async {
-      // A multi-frame animation is ONE .eff holding every frame (the vendor's
-      // model); the device animates it. After play, autorun-fixed pins it.
+      // This curtain has no .eff renderer, so a multi-frame animation is stored
+      // as a CYCLE of type-3 stills: one upload per frame, then a bookmark set,
+      // then play_next to start looping. No single .eff, and no autorun-fixed
+      // (that would freeze the loop on one frame).
       final codec = FakeSpecCodec();
       final ble = FakeBleService();
       await tester.pumpWidget(_wrap(
@@ -442,18 +444,42 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
-      // ONE stored-animation (.eff) upload with both frames — not a per-frame
-      // microapp and not a playlist.
-      expect(codec.encodeAnimationCalls, hasLength(1),
-          reason: 'one .eff holds every frame');
-      expect(codec.encodeAnimationCalls.single.frameCount, 2);
-      expect(codec.encodeStoredCalls, isEmpty,
-          reason: 'no per-frame microapp uploads');
-      expect(codec.encodeSetPlaylistCalls, isEmpty,
-          reason: 'the playlist path is retired');
-      // Played then pinned with fixed autorun mode.
-      expect(codec.encodeAutorunModeCalls, [0]);
+      // One still upload per frame (not a single .eff).
+      expect(codec.encodeStoredCalls, hasLength(2),
+          reason: 'each frame is stored as its own still');
+      expect(codec.encodeStoredCalls.every((c) => c.scroll == 'none'), isTrue,
+          reason: 'a frame is a plain still, not a scroll');
+      expect(codec.encodeAnimationCalls, isEmpty,
+          reason: 'no single-.eff upload on this curtain');
+      // The loop is set up the vendor's actual on-wire way: set_playlist(save)
+      // → play_next. There is NO bookmark_clear/bookmark_enable in any capture,
+      // so the app must not send them.
+      expect(codec.encodeBookmarkClearCalls, isEmpty,
+          reason: 'bookmark_clear is not in any capture — do not send it');
+      expect(codec.encodeBookmarkEnableCalls, isEmpty,
+          reason: 'bookmark_enable is not in any capture — do not send it');
+      expect(codec.encodeSetPlaylistCalls, hasLength(1));
+      expect(codec.encodeSetPlaylistCalls.single, hasLength(2),
+          reason: 'both frame cids are in the loop');
+      expect(codec.encodeCalls.map((c) => c.commandName), contains('play_next'));
+      // A loop must NOT be pinned to one frame with fixed autorun.
+      expect(codec.encodeAutorunModeCalls, isEmpty);
       expect(ble.writes, isNotEmpty);
+    });
+
+    test('diyEffectCidsToClear keeps only diy==1 cids (scopes the loop)', () {
+      // The device autoruns EVERY stored diy effect, so a scoped loop needs the
+      // others removed first (hardware-verified 2026-08-12: clear diy → store →
+      // the panel cycles ONLY the new frames). Built-in / non-diy effects
+      // (diy==0) are left alone.
+      final cids = diyEffectCidsToClear(const [
+        EffectEntryDto(cid: 111, slot: 1, type: 1, diy: 1),
+        EffectEntryDto(cid: 222, slot: 2, type: 1, diy: 1),
+        EffectEntryDto(cid: 333, slot: 3, type: 3, diy: 0),
+      ]);
+      expect(cids, [111, 222]);
+      expect(cids, isNot(contains(333)),
+          reason: 'non-diy (built-in) effects are left alone');
     });
 
     testWidgets('a failed save surfaces an error and re-enables the button',
@@ -582,6 +608,11 @@ void main() {
           reason: 'confirmation releases effect-list, play, then autorun-fixed');
       expect(ble.writes[2].value, [9], reason: 'the play write follows the list');
       expect(find.textContaining('now playing'), findsOneWidget);
+
+      // Drain the background effect-list diagnostic timer so it does not leak
+      // past the test (it logs what the device reported holding, off the play
+      // path).
+      await tester.pump(const Duration(seconds: 3));
     });
 
     testWidgets('a device-side refusal fails the save and never plays',
@@ -680,6 +711,9 @@ void main() {
           ['uploader', 'ddp', 'ddp', 'ddp'],
           reason: 'effect-list, play, then autorun-fixed still go out');
       expect(ble.writes[2].value, [9]);
+
+      // Drain the background effect-list diagnostic timer (off the play path).
+      await tester.pump(const Duration(seconds: 3));
     });
 
     testWidgets('a silent device is reported as unconfirmed, not "now playing"',
@@ -724,6 +758,9 @@ void main() {
       expect(find.textContaining('now playing'), findsNothing,
           reason: 'an unconfirmed save must not claim playback');
       expect(find.textContaining('did not confirm'), findsOneWidget);
+
+      // Drain the background effect-list diagnostic timer (off the play path).
+      await tester.pump(const Duration(seconds: 3));
     });
 
     testWidgets('two replays of the same design use distinct sequences',
@@ -815,6 +852,84 @@ void main() {
       expect(codec.encodeAutorunModeCalls, contains(0),
           reason: 'replay also pins the device to the design');
       expect(find.text('Playing "Sunrise".'), findsOneWidget);
+    });
+
+    testWidgets('pinning a single design as default holds it (fixed autorun)',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Sunrise');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      final cid = codec.encodeStoredCalls.single.cid;
+      // Ignore the save's own fixed-pin; assert on the button's effect.
+      codec.encodeAutorunModeCalls.clear();
+      await _scrollAndTap(tester, find.byKey(Key('saved-default-$cid')));
+      await tester.pumpAndSettle();
+
+      // A single design is held on disconnect: replay it, then FIXED autorun.
+      expect(codec.encodeStoredPlayCalls.map((c) => c.cid), contains(cid));
+      expect(codec.encodeAutorunModeCalls, contains(0),
+          reason: 'fixed = hold this one design after disconnect');
+      expect(find.textContaining('as the device default'), findsOneWidget);
+    });
+
+    testWidgets('pinning an animation default re-sets the loop and repeats it',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Animation'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.byTooltip('Add frame'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      // The design's cid is frame 0's cid (the base id).
+      final baseCid = codec.encodeStoredCalls.first.cid;
+      codec.encodeSetPlaylistCalls.clear();
+      codec.encodeAutorunModeCalls.clear();
+      await _scrollAndTap(tester, find.byKey(Key('saved-default-$baseCid')));
+      await tester.pumpAndSettle();
+
+      // A loop keeps cycling on disconnect: re-set the bookmark, then REPEAT.
+      expect(codec.encodeSetPlaylistCalls, hasLength(1),
+          reason: 'the loop is re-established');
+      expect(codec.encodeAutorunModeCalls, contains(1),
+          reason: 'repeat = keep cycling after disconnect');
+      expect(find.textContaining('as the device default'), findsOneWidget);
     });
 
     testWidgets('clearing device designs removes them and empties the list',

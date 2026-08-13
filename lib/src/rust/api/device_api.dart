@@ -405,11 +405,18 @@ Future<StoredUploadPlanDto> encodeStoredText(
         speed: speed,
         sequence: sequence);
 
-/// Encode the BLE writes that PERSIST a multi-frame animation on the device.
+/// Encode the BLE writes that PERSIST a multi-frame animation as a single
+/// `.eff` container.
+///
+/// UNTESTED / DORMANT on the JY25CUT curtain: hardware confirms a `.eff`
+/// commits but never registers as a playable effect there (see
+/// `daniao_store::build_animation_container`). Kept for the vendor's matrix
+/// panels and a future dedicated capture; the curtain's animation path is the
+/// cycling-stills loop (`encode_stored_image` per frame + `encode_set_playlist`
+/// + `play_next`), NOT this.
 ///
 /// `frames` are the screens in play order, each row-major RGB888
-/// `width * height * 3` bytes. Stored as the vendor's raw `.eff` animation
-/// (a different container from the still/scrolling microapp), played by cid.
+/// `width * height * 3` bytes.
 Future<StoredUploadPlanDto> encodeStoredAnimation(
         {required String specYaml,
         required int width,
@@ -466,6 +473,23 @@ Future<StoredPlayDto> encodeAutorunMode(
         {required String specYaml, required int mode, required int sequence}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeAutorunMode(
         specYaml: specYaml, mode: mode, sequence: sequence);
+
+/// Encode M_BOOKMARK_ENABLE — activate bookmark/playlist `list_id` so the device
+/// plays only its items (without this, playback stays over the whole stored set).
+Future<StoredPlayDto> encodeBookmarkEnable(
+        {required String specYaml,
+        required int listId,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeBookmarkEnable(
+        specYaml: specYaml, listId: listId, sequence: sequence);
+
+/// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist `list_id` before a re-save.
+Future<StoredPlayDto> encodeBookmarkClear(
+        {required String specYaml,
+        required int listId,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeBookmarkClear(
+        specYaml: specYaml, listId: listId, sequence: sequence);
 
 /// Encode the delete-one-stored-design command (M_REMOVE_APP) by cid.
 Future<StoredPlayDto> encodeRemoveApp(
@@ -865,19 +889,27 @@ class DeviceSpecDto {
           storedUpload == other.storedUpload;
 }
 
-/// One entry of the device's stored-effect list: a stored item's id and its
-/// device-assigned slot. A playlist must address items by this slot.
+/// One entry of the device's stored-effect list: a stored item's id, its
+/// device-assigned slot, the `type` the firmware filed it under, and whether it
+/// is a user "DIY" effect. `type`/`diy` are diagnostic: they reveal which
+/// family the device accepted an upload as (e.g. a `.eff` we sent as `type = 0`
+/// versus the `type = 3` AMX microapps the captures show playing).
 class EffectEntryDto {
   final int cid;
   final int slot;
+  final int type;
+  final int diy;
 
   const EffectEntryDto({
     required this.cid,
     required this.slot,
+    required this.type,
+    required this.diy,
   });
 
   @override
-  int get hashCode => cid.hashCode ^ slot.hashCode;
+  int get hashCode =>
+      cid.hashCode ^ slot.hashCode ^ type.hashCode ^ diy.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -885,7 +917,9 @@ class EffectEntryDto {
       other is EffectEntryDto &&
           runtimeType == other.runtimeType &&
           cid == other.cid &&
-          slot == other.slot;
+          slot == other.slot &&
+          type == other.type &&
+          diy == other.diy;
 }
 
 /// One resolved control action: which command a role sends and what the UI

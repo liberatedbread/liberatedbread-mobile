@@ -279,6 +279,14 @@ const MT_EFFECT_LIST: u16 = 2904;
 pub struct EffectEntry {
     pub cid: u32,
     pub slot: u32,
+    /// Effect kind the device filed this under (protobuf field 2). The captures
+    /// only ever show playable DIY microapps as `type = 3` (AMX); a `.eff`
+    /// upload we sent as `type = 0` shows up here (or is absent) so we can see
+    /// which family the firmware actually accepted.
+    pub type_: u32,
+    /// Whether the device considers this a user "DIY" effect (field 7) versus a
+    /// built-in. Distinguishes the designs we stored from the factory catalogue.
+    pub diy: u32,
 }
 
 /// Parse one M_EFFECT_LIST notification (mt 2904) into its effect entries.
@@ -325,11 +333,14 @@ pub fn parse_effect_list(notification: &[u8]) -> Vec<EffectEntry> {
     out
 }
 
-/// Read `slot` (field 1) and `cid` (field 4) out of one effect-list entry,
-/// skipping the other fields. Returns `None` when the entry carries no cid.
+/// Read `slot` (field 1), `type` (field 2), `cid` (field 4) and `diy`
+/// (field 7) out of one effect-list entry, skipping the rest. Returns `None`
+/// when the entry carries no cid.
 fn parse_effect_entry(mut entry: &[u8]) -> Option<EffectEntry> {
     let mut slot = 0u32;
     let mut cid = 0u32;
+    let mut type_ = 0u32;
+    let mut diy = 0u32;
     while let Some((&tag, rest)) = entry.split_first() {
         let field = tag >> 3;
         let wire = tag & 0x07;
@@ -338,7 +349,9 @@ fn parse_effect_entry(mut entry: &[u8]) -> Option<EffectEntry> {
                 let (v, rest) = parse_varint(rest)?;
                 match field {
                     1 => slot = v as u32,
+                    2 => type_ = v as u32,
                     4 => cid = v as u32,
+                    7 => diy = v as u32,
                     _ => {}
                 }
                 entry = rest;
@@ -355,7 +368,12 @@ fn parse_effect_entry(mut entry: &[u8]) -> Option<EffectEntry> {
             _ => return None, // an unexpected wire type: stop, keep what we have
         }
     }
-    (cid != 0).then_some(EffectEntry { cid, slot })
+    (cid != 0).then_some(EffectEntry {
+        cid,
+        slot,
+        type_,
+        diy,
+    })
 }
 
 /// Decode ONE notification from the response characteristic into an
@@ -502,7 +520,15 @@ services:
             .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
             .collect();
         let entries = parse_effect_list(&bytes);
-        assert_eq!(entries, vec![EffectEntry { cid: 79009, slot: 33 }]);
+        assert_eq!(
+            entries,
+            vec![EffectEntry {
+                cid: 79009,
+                slot: 33,
+                type_: 1,
+                diy: 1,
+            }]
+        );
     }
 
     #[test]

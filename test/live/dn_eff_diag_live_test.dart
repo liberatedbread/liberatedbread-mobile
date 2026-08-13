@@ -70,7 +70,47 @@ void main() {
         return seq;
       }
 
+      // Upload a type-3 AMX still FIRST, as the control: it is the kind the
+      // captures show playing, so it MUST show up in the effect list. If it
+      // does and the .eff does not, registration (not our capture) is the
+      // difference.
+      Future<void> uploadStill(int picCid) async {
+        final pic = await codec.encodeStoredImage(
+          specYaml: specYaml,
+          width: _w,
+          height: _h,
+          rgb: _solid(0, 180, 0),
+          name: 'ctrl still',
+          cid: picCid,
+          timeSecs: 5,
+          scroll: 'none',
+          speed: 0,
+          sequence: nextSeq(),
+        );
+        final f = ble
+            .subscribeCharacteristic(
+                deviceId, pic.serviceUuid, pic.responseCharacteristicUuid!)
+            .asyncMap((b) =>
+                codec.decodeStoredUploadEvent(specYaml: specYaml, bytes: b))
+            .where((e) => e != null)
+            .cast<StoredUploadEventDto>()
+            .firstWhere((e) =>
+                e.kind == StoredUploadEventKind.complete ||
+                e.kind == StoredUploadEventKind.failed)
+            .timeout(const Duration(seconds: 40));
+        for (final w in pic.uploadWrites) {
+          await ble.writeCharacteristic(
+              deviceId, pic.serviceUuid, w.characteristicUuid, w.bytes);
+        }
+        final v = await f;
+        // ignore: avoid_print
+        print('CONTROL type-3 still cid=$picCid VERDICT ${v.kind}');
+      }
+
       try {
+        final picCid = 970000 + (DateTime.now().millisecondsSinceEpoch % 4000);
+        await uploadStill(picCid);
+
         final frames = [
           _solid(255, 0, 0),
           _solid(0, 255, 0),
@@ -114,27 +154,50 @@ void main() {
         // ignore: avoid_print
         print('EFF VERDICT ${v.kind} code ${v.code}');
 
-        // Does the .eff register as a playable effect? Dump the list.
-        final slotByCid = <int, int>{};
+        // Does the .eff register as a playable effect? Dump the FULL list with
+        // type/diy so we can see every entry, not just a partial first batch.
+        final byCid = <int, ({int slot, int type, int diy})>{};
+        var notifCount = 0;
         final sub = ble
             .subscribeCharacteristic(deviceId, _ddpService, _ddpNotify)
             .listen((bytes) async {
-          for (final e in await codec.decodeEffectList(
-              specYaml: specYaml, bytes: bytes)) {
-            slotByCid[e.cid] = e.slot;
+          final decoded =
+              await codec.decodeEffectList(specYaml: specYaml, bytes: bytes);
+          if (decoded.isNotEmpty) notifCount++;
+          for (final e in decoded) {
+            byCid[e.cid] = (slot: e.slot, type: e.type, diy: e.diy);
           }
         });
-        final el = await codec.encodeCommand(
-            specYaml: specYaml,
-            charUuid: _ddpWrite,
-            commandName: 'effect_list',
-            params: {'sn': nextSeq().toDouble()});
-        await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, el);
-        await Future<void>.delayed(const Duration(seconds: 4));
+        // Ask a few times over a long window — the device answers a list request
+        // in a burst of fragments, and one request can under-report.
+        for (var r = 0; r < 3; r++) {
+          final el = await codec.encodeCommand(
+              specYaml: specYaml,
+              charUuid: _ddpWrite,
+              commandName: 'effect_list',
+              params: {'sn': nextSeq().toDouble()});
+          await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, el);
+          await Future<void>.delayed(const Duration(seconds: 4));
+        }
         await sub.cancel();
         // ignore: avoid_print
-        print('EFF REGISTERED? cid=$cid slot=${slotByCid[cid]} '
-            '(total effects seen: ${slotByCid.length})');
+        print('EFF LIST: ${byCid.length} effects over $notifCount notifs');
+        for (final entry in byCid.entries) {
+          final tag = entry.key == cid
+              ? '  <-- OUR .eff (type-0)'
+              : entry.key == picCid
+                  ? '  <-- CONTROL still (type-3)'
+                  : '';
+          // ignore: avoid_print
+          print('  cid=${entry.key} slot=${entry.value.slot} '
+              'type=${entry.value.type} diy=${entry.value.diy}$tag');
+        }
+        // ignore: avoid_print
+        print('CONTROL type-3 still cid=$picCid '
+            '${byCid.containsKey(picCid) ? 'REGISTERED' : 'MISSING'}');
+        // ignore: avoid_print
+        print('EFF type-0 .eff cid=$cid '
+            '${byCid.containsKey(cid) ? 'REGISTERED slot=${byCid[cid]!.slot}' : 'MISSING'}');
 
         // Play it by cid (slot 0, as the plan's play write does) and watch.
         final play = plan.playWrite!;
@@ -149,7 +212,7 @@ void main() {
 
         // If a slot was learned and differs, also try play_effect with the real
         // slot, in case .eff play needs the slot like the playlist did.
-        final realSlot = slotByCid[cid];
+        final realSlot = byCid[cid]?.slot;
         if (realSlot != null && realSlot != 0) {
           final bySlot = await codec.encodeCommand(
               specYaml: specYaml,
