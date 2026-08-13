@@ -199,12 +199,22 @@ class LedImageWidget extends ConsumerStatefulWidget {
   final StoredUploadDto? storedUpload;
   final String specYaml;
 
+  /// The device's advertised manufacturer data (company id -> value bytes),
+  /// captured at scan. For a `device_reported` panel that advertises its real
+  /// resolution (see the spec's `resolution_advertisement`), this lets the
+  /// canvas default to the true panel size instead of a guessed 16×16 — a
+  /// too-small canvas leaves the panel's outer strands unwritten. Empty when
+  /// no advertisement was captured; the canvas then falls back to the default
+  /// the user can adjust.
+  final Map<int, List<int>> manufacturerData;
+
   const LedImageWidget({
     super.key,
     required this.deviceId,
     required this.imageUpload,
     this.storedUpload,
     required this.specYaml,
+    this.manufacturerData = const {},
   });
 
   @override
@@ -291,6 +301,33 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   void initState() {
     super.initState();
     _applySpecDefaults();
+    unawaited(_applyReportedResolution());
+  }
+
+  /// Snap the canvas to the device's ADVERTISED resolution, when it reports one.
+  ///
+  /// A `device_reported` panel starts at a guessed default (see
+  /// [_applySpecDefaults]); if its advertisement carried the real width/height
+  /// (per the spec's `resolution_advertisement`), resize to that so a drawing
+  /// covers EVERY strand — a 16×16 canvas on a 20×20 curtain leaves the outer
+  /// strands unwritten. Runs async off the codec and only resizes while the
+  /// canvas is still the untouched default, so it never discards user edits.
+  Future<void> _applyReportedResolution() async {
+    if (!_spec.resolutionDeviceReported || widget.manufacturerData.isEmpty) {
+      return;
+    }
+    final defaultW = initialCanvasSize(_spec.maxWidth);
+    final defaultH = initialCanvasSize(_spec.maxHeight);
+    final res = await ref.read(specCodecProvider).advertisedResolution(
+          specYaml: widget.specYaml,
+          manufacturerData: widget.manufacturerData,
+        );
+    if (res == null || !mounted) return;
+    final untouched = _width == defaultW &&
+        _height == defaultH &&
+        _frames.length == 1 &&
+        _frames.first.every((b) => b == 0);
+    if (untouched) _resizeCanvas(width: res.width, height: res.height);
   }
 
   /// Derive the canvas from the spec, discarding whatever was on it.
@@ -344,6 +381,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       _error = null;
       _applySpecDefaults();
     });
+    unawaited(_applyReportedResolution());
   }
 
   @override

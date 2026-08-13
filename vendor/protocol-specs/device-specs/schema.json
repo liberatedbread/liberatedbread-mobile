@@ -1226,6 +1226,30 @@
             "enum": ["fixed", "device_reported"],
             "description": "Whether max_width/max_height are the panel's actual size ('fixed') or platform upper bounds with the real per-model resolution reported by the device at runtime ('device_reported'). Clients should let the user set the canvas size for device_reported panels they have not yet queried."
           },
+          "resolution_advertisement": {
+            "type": "object",
+            "description": "For 'device_reported' panels: where the real width/height sit in the BLE advertisement's manufacturer-specific data, so a client can default the canvas to the true panel size before connecting. Offsets index the manufacturer-data VALUE (bytes after the 2-byte company id).",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535,
+                "description": "Bluetooth SIG company id of the manufacturer-data record carrying the resolution."
+              },
+              "width_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Byte offset of width within the manufacturer-data value."
+              },
+              "height_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Byte offset of height within the manufacturer-data value."
+              }
+            },
+            "required": ["company_id", "width_offset", "height_offset"],
+            "additionalProperties": false
+          },
           "animation": {
             "type": "boolean",
             "description": "Whether the device accepts multi-frame sequences (animations), not just a single static image (for image_upload)."

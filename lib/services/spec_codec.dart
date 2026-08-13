@@ -23,6 +23,7 @@ export '../src/rust/api/device_api.dart'
         FormatFieldDto,
         DecodedValueDto,
         ImageUploadDto,
+        PanelResolutionDto,
         ImageWriteDto,
         ImageWritePlanDto,
         StoredUploadDto,
@@ -157,6 +158,17 @@ abstract class SpecCodec {
     required List<int> rgb,
     required int frameIndex,
     required int maxPayloadPerWrite,
+  });
+
+  /// The device's REAL panel resolution, read from its advertisement per the
+  /// spec's `image_upload.resolution_advertisement`. Lets a `device_reported`
+  /// panel's editor default the canvas to the true size before connecting.
+  /// [manufacturerData] is company id -> value bytes (as the scan captured it).
+  /// Null when the spec declares no advertised resolution, no record matches,
+  /// or the bytes are out of range.
+  Future<PanelResolutionDto?> advertisedResolution({
+    required String specYaml,
+    required Map<int, List<int>> manufacturerData,
   });
 
   /// The controls a spec declares for one discovered network device — the

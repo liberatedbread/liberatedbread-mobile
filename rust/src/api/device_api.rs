@@ -110,6 +110,13 @@ pub struct ImageUploadDto {
     pub default_frame_interval_ms: Option<u32>,
 }
 
+/// A panel's real pixel resolution, resolved from the device's advertisement.
+#[derive(Debug, Clone)]
+pub struct PanelResolutionDto {
+    pub width: u32,
+    pub height: u32,
+}
+
 /// A spec's declared device-side STORAGE capability: whether this device can
 /// persist content that plays standalone after disconnect, and whether this
 /// build can encode the container it wants.
@@ -657,6 +664,52 @@ fn image_upload_dto(spec: &DeviceSpec) -> Option<ImageUploadDto> {
         min_frame_interval_ms: feature.min_frame_interval_ms,
         default_frame_interval_ms: feature.default_frame_interval_ms,
     })
+}
+
+/// Resolve a `device_reported` panel's REAL width/height from its BLE
+/// advertisement, per the spec's `image_upload.resolution_advertisement`.
+///
+/// `manufacturer_data` is the advertisement's manufacturer-specific records as
+/// `(company_id, value_bytes)` — the value being the bytes after the 2-byte
+/// company id, the way most BLE stacks report it. Returns `None` (canvas falls
+/// back to a default the user can adjust) when: the spec declares no
+/// advertisement layout, no record matches the declared company id, an offset
+/// is out of range, or a byte is 0 / above the platform bound. This is what
+/// lets the editor default the canvas to the true panel size before connecting
+/// — a 16×16 default on a 20×20 curtain leaves the outer strands unwritten.
+pub fn advertised_resolution(
+    spec_yaml: String,
+    manufacturer_data: Vec<(u16, Vec<u8>)>,
+) -> anyhow::Result<Option<PanelResolutionDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let Some(adv) = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")
+        .and_then(|f| f.resolution_advertisement.as_ref())
+    else {
+        return Ok(None);
+    };
+    let max = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")
+        .and_then(|f| f.max_width.max(f.max_height))
+        .unwrap_or(255);
+    let Some((_, bytes)) = manufacturer_data
+        .iter()
+        .find(|(cid, _)| *cid == adv.company_id)
+    else {
+        return Ok(None);
+    };
+    let read = |off: usize| -> Option<u32> {
+        let v = *bytes.get(off)? as u32;
+        (v >= 1 && v <= max).then_some(v)
+    };
+    match (read(adv.width_offset), read(adv.height_offset)) {
+        (Some(width), Some(height)) => Ok(Some(PanelResolutionDto { width, height })),
+        _ => Ok(None),
+    }
 }
 
 /// Build the stored-upload DTO from a spec's `stored_upload` feature.
@@ -3607,6 +3660,45 @@ services:
     fn spec_without_image_feature_has_no_image_upload() {
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
         assert!(dto.image_upload.is_none());
+    }
+
+    #[test]
+    fn advertised_resolution_reads_the_declared_offsets() {
+        // The JY25CUT curtain's real advertisement: company 0x61EA, width at
+        // byte 4, height at byte 5 -> 0x14, 0x14 = 20x20.
+        let mfd = vec![(
+            0x61EAu16,
+            vec![0x03, 0xe8, 0x00, 0x64, 0x14, 0x14, 0x00, 0x00, 0x72, 0x74, 0x00, 0x00],
+        )];
+        let r = advertised_resolution(IMAGE_SPEC_YAML.into(), mfd)
+            .unwrap()
+            .expect("resolution resolves from the advertised bytes");
+        assert_eq!((r.width, r.height), (20, 20));
+    }
+
+    #[test]
+    fn advertised_resolution_is_none_when_signal_is_missing_or_bad() {
+        let yaml = IMAGE_SPEC_YAML.to_string();
+        // Wrong company id -> no match.
+        assert!(advertised_resolution(yaml.clone(), vec![(0x1234, vec![0; 8])])
+            .unwrap()
+            .is_none());
+        // Right company, but a zero byte at the width offset is not a real size.
+        assert!(advertised_resolution(
+            yaml.clone(),
+            vec![(0x61EA, vec![0, 0, 0, 0, 0x00, 0x14, 0, 0])]
+        )
+        .unwrap()
+        .is_none());
+        // Offset past the end of the record.
+        assert!(advertised_resolution(yaml.clone(), vec![(0x61EA, vec![0, 0, 0])])
+            .unwrap()
+            .is_none());
+        // A spec with no resolution_advertisement never resolves one.
+        let plain = yaml.replace("resolution_advertisement:", "unused_key:");
+        assert!(advertised_resolution(plain, vec![(0x61EA, vec![0, 0, 0, 0, 20, 20])])
+            .unwrap()
+            .is_none());
     }
 
     #[test]
