@@ -55,6 +55,10 @@ export '../src/rust/api/device_api.dart'
         HttpRequestDto,
         KasaRequestDto,
         RabbitAirRequestDto,
+        RoombaRequestDto,
+        RoombaAnnouncementDto,
+        RoombaIncomingDto,
+        RoombaParsedDto,
         QuerySourceDto,
         LifxServiceDto,
         LifxStateDto,
@@ -332,6 +336,80 @@ abstract class SpecCodec {
     required String replyJson,
     required int localNowSecs,
   });
+
+  // ── Roomba (MQTT over TLS, on the robot) ─────────────────────────────────
+  //
+  // The whole protocol is koalazak/dorita980's work (MIT). Dart owns the TLS
+  // socket because Rust does no I/O here; every byte that goes through it is
+  // built and read on the Rust side, so the framing exists in one tested place.
+
+  /// The nine ASCII bytes broadcast to `255.255.255.255:5678` to find robots.
+  Future<List<int>> roombaDiscoveryProbe();
+
+  /// Parse one discovery datagram. Null — not an error — for a datagram that
+  /// is not from a robot: the probe is a broadcast and reaches every host on
+  /// the segment, so a scan must not fail because a printer answered.
+  Future<RoombaAnnouncementDto?> roombaParseAnnouncement({
+    required List<int> datagram,
+  });
+
+  /// The 7-byte password-disclosure probe, written on a TLS connection to
+  /// `<robot>:8883` while the robot is in disclosure mode.
+  Future<List<int>> roombaPasswordProbe();
+
+  /// Extract the password from a disclosure reply. The whole returned string
+  /// is the credential — Roomba passwords begin with `:` and contain `:`
+  /// separators, so a caller must never split it. Throws with text meant to be
+  /// shown: "not in disclosure mode" (hold the button again) and "this model
+  /// cannot disclose locally" (use the account route) are different answers.
+  Future<String> roombaParsePasswordReply({required List<int> reply});
+
+  /// Render a named `transport: mqtt` command. [epochSeconds] is the caller's
+  /// clock and is required — the codec has none, and a silently defaulted
+  /// timestamp is a plausible-but-wrong request.
+  Future<RoombaRequestDto> renderNetworkRoombaCommand({
+    required String specYaml,
+    required String commandName,
+    required int epochSeconds,
+  });
+
+  /// Flatten a state payload into the dotted paths entities bind to
+  /// (`state.reported.batPct`). Booleans arrive as `1`/`0` so an entity's
+  /// `on_when: nonzero` reads them. An unparseable payload yields an empty map
+  /// rather than throwing: a dropped connection delivers half a message, and
+  /// that must not take the control screen down.
+  Future<Map<String, String>> roombaStateFields({required String payload});
+
+  /// MQTT CONNECT, with the BLID as both client id and username.
+  Future<List<int>> roombaConnectPacket({
+    required String blid,
+    required String password,
+  });
+
+  /// MQTT SUBSCRIBE at QoS 0.
+  Future<List<int>> roombaSubscribePacket({
+    required String topic,
+    required int packetId,
+  });
+
+  /// MQTT PUBLISH at QoS 0 — the robot does not acknowledge commands.
+  Future<List<int>> roombaPublishPacket({
+    required String topic,
+    required String payload,
+  });
+
+  /// MQTT PINGREQ, to hold the session open inside the keepalive window.
+  Future<List<int>> roombaPingreqPacket();
+
+  /// MQTT DISCONNECT. Always sent on the way out: the robot serves one local
+  /// client at a time, so dropping the socket without it leaves the owner
+  /// locked out of their own app until the robot notices.
+  Future<List<int>> roombaDisconnectPacket();
+
+  /// Parse whole MQTT packets out of whatever has arrived so far, and say how
+  /// many bytes they consumed. The remainder is a partial packet and must be
+  /// kept — a TLS stream splits and coalesces wherever it likes.
+  Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer});
 
   /// Decode one entity's state from the name→value pairs a state call
   /// returned. Null when the reply did not carry the entity's value — which
