@@ -24,8 +24,10 @@ import 'led_designs.dart';
 /// autoruns. Non-diy / built-in effects (diy==0) are excluded: hardware showed
 /// they do not join the autorun rotation, and removing them is not ours to do.
 /// Pure so the diy/built-in split is unit-testable without the BLE machinery.
-List<int> diyEffectCidsToClear(Iterable<EffectEntryDto> entries) =>
-    [for (final e in entries) if (e.diy == 1) e.cid];
+List<int> diyEffectCidsToClear(Iterable<EffectEntryDto> entries) => [
+      for (final e in entries)
+        if (e.diy == 1) e.cid
+    ];
 
 /// Usable bytes per BLE write for a given ATT MTU.
 ///
@@ -414,7 +416,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // so start from what the BLE layer already buffered on that characteristic,
     // then add anything the poke below elicits.
     final collected = <List<int>>[
-      ...ble.recentNotifications(widget.deviceId, probe.serviceUuid, notifyChar),
+      ...ble.recentNotifications(
+          widget.deviceId, probe.serviceUuid, notifyChar),
     ];
     final sub = ble
         .subscribeCharacteristic(widget.deviceId, probe.serviceUuid, notifyChar)
@@ -434,8 +437,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     } finally {
       await sub.cancel();
     }
-    final info =
-        await codec.deviceInfoResolution(notifications: collected);
+    final info = await codec.deviceInfoResolution(notifications: collected);
     return info == null ? null : (width: info.width, height: info.height);
   }
 
@@ -1129,8 +1131,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         } else {
           // The upload was sent but the device never confirmed it committed,
           // so the play may not have taken. Do not claim it is playing.
-          message =
-              'Saved "${options.name}", but the device did not confirm — '
+          message = 'Saved "${options.name}", but the device did not confirm — '
               'try Replay if it is not showing.';
         }
         ScaffoldMessenger.of(context)
@@ -1387,7 +1388,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 
     final slots = [for (final c in frameCids) slotByCid[c] ?? 0];
     Log.ble.info('${widget.deviceId} loop slots: '
-        '${[for (var i = 0; i < frameCids.length; i++) '${frameCids[i]}->${slots[i]}'].join(', ')}');
+        '${[
+      for (var i = 0; i < frameCids.length; i++) '${frameCids[i]}->${slots[i]}'
+    ].join(', ')}');
 
     // Set up + start the loop on the device: set_playlist(save) → play_next
     // (the vendor's actual on-wire sequence; see _startLoop).
@@ -1416,23 +1419,23 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       specYaml: specYaml,
     );
     await ref.read(savedDesignsStoreProvider).save(
-      widget.deviceId,
-      SavedDesign(
-        name: options.name,
-        cid: baseCid,
-        kind: options.kind.name,
-        contentHash: contentHash,
-        savedAt: DateTime.now(),
-        frameCids: result.frameCids,
-        frameSlots: result.slots,
-        // Keep the pixels so replay can RE-UPLOAD: a later save clears this
-        // design's frames off the device, so cid-only replay would show nothing.
-        frames: [for (final f in frames) Uint8List.fromList(f)],
-        width: width,
-        height: height,
-        frameMs: _intervalMs,
-      ),
-    );
+          widget.deviceId,
+          SavedDesign(
+            name: options.name,
+            cid: baseCid,
+            kind: options.kind.name,
+            contentHash: contentHash,
+            savedAt: DateTime.now(),
+            frameCids: result.frameCids,
+            frameSlots: result.slots,
+            // Keep the pixels so replay can RE-UPLOAD: a later save clears this
+            // design's frames off the device, so cid-only replay would show nothing.
+            frames: [for (final f in frames) Uint8List.fromList(f)],
+            width: width,
+            height: height,
+            frameMs: _intervalMs,
+          ),
+        );
 
     if (mounted) {
       setState(() {}); // the replay list gains/refreshes an entry
@@ -1630,8 +1633,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final codec = ref.read(specCodecProvider);
     final byCid = <int, EffectEntryDto>{};
     final sub = notify.listen((bytes) async {
-      for (final e in await codec.decodeEffectList(
-          specYaml: specYaml, bytes: bytes)) {
+      for (final e
+          in await codec.decodeEffectList(specYaml: specYaml, bytes: bytes)) {
         byCid[e.cid] = e;
       }
     });
@@ -1752,7 +1755,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       if (mounted) {
         setState(() => _error = friendlyErrorText(
               e,
-              context: 'set "${design.name}" as the default on ${widget.deviceId}',
+              context:
+                  'set "${design.name}" as the default on ${widget.deviceId}',
               fallback: 'Could not set the device default.',
             ));
       }
@@ -2643,9 +2647,7 @@ class _FrameControls extends StatelessWidget {
         // Always-visible count: the frame chips scroll, so a 7-frame preset
         // would otherwise look like just the first few.
         Text(
-          frameCount == 1
-              ? '1 frame'
-              : 'Frame ${current + 1} of $frameCount',
+          frameCount == 1 ? '1 frame' : 'Frame ${current + 1} of $frameCount',
           style: text.labelMedium,
         ),
         const SizedBox(height: 4),
