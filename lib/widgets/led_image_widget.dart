@@ -410,7 +410,12 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     final writeChar = probe.playWrite?.characteristicUuid;
     if (notifyChar == null || writeChar == null) return null;
 
-    final collected = <List<int>>[];
+    // The device pushes its info ONCE on connect — before this editor mounted —
+    // so start from what the BLE layer already buffered on that characteristic,
+    // then add anything the poke below elicits.
+    final collected = <List<int>>[
+      ...ble.recentNotifications(widget.deviceId, probe.serviceUuid, notifyChar),
+    ];
     final sub = ble
         .subscribeCharacteristic(widget.deviceId, probe.serviceUuid, notifyChar)
         .listen(collected.add);

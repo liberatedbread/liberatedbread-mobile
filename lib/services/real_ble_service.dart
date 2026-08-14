@@ -883,6 +883,7 @@ class RealBleService implements BleService {
     _connectionGeneration[deviceId] = _generationOf(deviceId) + 1;
     _mtuUnknown.remove(deviceId);
     _expireNotifyShares(deviceId);
+    _recentNotifications.removeWhere((key, _) => key.startsWith('$deviceId|'));
     final device = BluetoothDevice.fromId(deviceId);
     try {
       await device.disconnect();
@@ -1116,6 +1117,23 @@ class RealBleService implements BleService {
     });
   }
 
+  /// Recent raw notifications per "deviceId|charUuid" (lowercased), oldest
+  /// first, capped so a connect-time push survives without unbounded growth.
+  final Map<String, List<List<int>>> _recentNotifications = {};
+  static const int _recentNotificationsCap = 16;
+
+  void _recordRecent(String deviceId, String charUuid, List<int> value) {
+    final ring = _recentNotifications.putIfAbsent(
+        '$deviceId|${charUuid.toLowerCase()}', () => <List<int>>[]);
+    ring.add(List<int>.of(value));
+    if (ring.length > _recentNotificationsCap) ring.removeAt(0);
+  }
+
+  @override
+  List<List<int>> recentNotifications(
+          String deviceId, String serviceUuid, String charUuid) =>
+      _recentNotifications['$deviceId|${charUuid.toLowerCase()}'] ?? const [];
+
   @override
   Stream<List<int>> subscribeCharacteristic(
     String deviceId,
@@ -1222,7 +1240,10 @@ class RealBleService implements BleService {
           // stale reading as if it were a fresh notification. onValueReceived
           // only emits genuinely fresh reads/notifications.
           sub = char.onValueReceived.listen(
-            (value) => controller.add(value),
+            (value) {
+              _recordRecent(deviceId, charUuid, value);
+              controller.add(value);
+            },
             onError: (Object error) => controller.addError(error),
             onDone: () async {
               if (!controller.isClosed) await controller.close();

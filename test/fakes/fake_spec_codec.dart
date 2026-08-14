@@ -324,11 +324,16 @@ class FakeSpecCodec implements SpecCodec {
   /// actually ran — should stay 0 when the advertisement or cache answered).
   int deviceInfoResolutionCalls = 0;
 
+  /// The notifications [deviceInfoResolution] was last given (so a test can
+  /// check the buffered connect-time push was folded in).
+  List<List<int>>? deviceInfoResolutionArg;
+
   @override
   Future<PanelResolutionDto?> deviceInfoResolution({
     required List<List<int>> notifications,
   }) async {
     deviceInfoResolutionCalls++;
+    deviceInfoResolutionArg = notifications;
     return deviceInfoResolutionResult;
   }
 
