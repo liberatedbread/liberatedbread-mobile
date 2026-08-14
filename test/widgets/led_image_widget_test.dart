@@ -1307,6 +1307,11 @@ void main() {
       ..storedResponseChar = 'notify'
       ..deviceInfoResolutionResult =
           const PanelResolutionDto(width: 20, height: 20);
+    // The connect-time push the BLE layer buffered before the editor mounted.
+    final ble = FakeBleService()
+      ..recentNotificationsToReturn = [
+        const [0xf1, 0x01, 0x00, 0x01]
+      ];
     // The query waits a real ~2.5s to collect the device's push, so drive it
     // under runAsync (real timers) rather than the fake test clock.
     await tester.runAsync(() async {
@@ -1318,7 +1323,7 @@ void main() {
               StoredUploadDto(containerFormat: 'daniao_amx', encodable: true),
           specYaml: 'yaml',
         ),
-        ble: FakeBleService(),
+        ble: ble,
         codec: codec,
       ));
       // Let the post-frame lookup fire and its collection window elapse.
@@ -1327,6 +1332,8 @@ void main() {
     await tester.pump(); // rebuild after the resize
 
     expect(codec.deviceInfoResolutionCalls, 1);
+    // The buffered connect-time push was folded into the decode.
+    expect(codec.deviceInfoResolutionArg, contains(const [0xf1, 0x01, 0x00, 0x01]));
     expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
     // And it was cached for next time.
     expect(_prefs.getString('panel_res_AA:BB'), '20x20');
