@@ -47,7 +47,7 @@ class NetworkDevice {
   /// port wins over one that merely restates the SSDP LOCATION, and within
   /// one transport the first sighting wins — so a device heard on both
   /// transports reads the same regardless of which answered first. Display
-  /// material, not a contract; control paths use [ssdpPort].
+  /// material, not a contract; control paths use [controlPort].
   final int? port;
 
   /// The port from the SSDP `LOCATION` URL specifically, when this device
@@ -101,6 +101,26 @@ class NetworkDevice {
     this.server,
     this.txt = const {},
   });
+
+  /// Where to send control traffic: the SSDP `LOCATION` port when this device
+  /// answered SSDP, else whatever the one advertised service claimed.
+  ///
+  /// The contract [port] documents but cannot enforce, in one place, because
+  /// reading [port] instead is a silent wrong answer rather than a crash. A
+  /// device that answers both transports advertises unrelated mDNS services
+  /// with ports of their own — a Roku TV publishes `_airplay._tcp` on 7000,
+  /// `_display._tcp` on 7250 and `_hap._tcp` on 44003 while ECP lives on the
+  /// LOCATION port 8060 — and [mergedWith] deliberately prefers the SRV port
+  /// for display, so which of those [port] ends up holding is decided by
+  /// whichever service type resolved first. None of them answer ECP: the
+  /// AirPlay port replies 403 to a keypress, which reads exactly like the
+  /// device-side "Control by mobile apps" gate, so the wrong port does not
+  /// even fail honestly.
+  ///
+  /// mDNS-only sightings (a Kasa plug's probe reply, a LIFX strip) have no
+  /// [ssdpPort] and fall through to [port], which for them IS the control
+  /// port.
+  int? get controlPort => ssdpPort ?? port;
 
   /// What to call this in a list: the advertised name, else the hostname with
   /// its `.local` suffix trimmed, else the bare address.
