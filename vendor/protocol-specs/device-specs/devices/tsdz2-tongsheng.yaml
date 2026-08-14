@@ -6,6 +6,8 @@ device:
   name: "Tongsheng TSDZ2 Mid-Drive"
   manufacturer: "Tongsheng"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "uart"
   category: "motor"
   notes: >

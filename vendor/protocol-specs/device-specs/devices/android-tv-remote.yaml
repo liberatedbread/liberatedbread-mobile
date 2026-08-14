@@ -24,6 +24,8 @@ device:
   name: "Android TV / Google TV (Android TV Remote Protocol v2)"
   manufacturer: "Google (platform); Nvidia, Sony, TCL, Hisense, onn and others (devices)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "tv"
   transport: "tls-protobuf"

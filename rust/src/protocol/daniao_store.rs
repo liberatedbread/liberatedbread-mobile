@@ -142,11 +142,10 @@ pub struct StoredAnimation<'a> {
     pub height: u32,
     /// Each frame is row-major RGB888, `width * height * 3` bytes, in play order.
     pub frames: &'a [&'a [u8]],
-    /// Playback rate, frames per second (both container headers carry it).
-    /// The vendor's own captures use 20; the editor derives it from the
-    /// preview's frame interval so the stored item plays at the speed the
-    /// user tuned on screen.
-    pub fps: u8,
+    /// Unix seconds stamped into the DNMX header (`[18..22]`). The vendor writes
+    /// the wall clock here; the device appears to use it to order/identify a
+    /// stored effect, so a real value (not 0) is what a committed `.eff` needs.
+    pub timestamp: u32,
 }
 
 /// The largest palette the image layer's 4-bit indices can address.
@@ -285,9 +284,28 @@ pub fn build_text_container(program: &StoredText<'_>) -> Result<Vec<u8>, Protoco
 /// raw. Uploaded as `file_type: 0` with a `<cid>.eff` path (see
 /// [`super::stored_upload`]).
 ///
-/// NOTE: unlike the "DN" builder, this format has no capture to byte-match — it
-/// is ported from the vendor code and its structure is asserted in tests, but
-/// the render wants hardware confirmation.
+/// This is the vendor's GIF/video-effect container, cross-checked field-for-
+/// field against the SmartDawn app's own encoder (`startExec` / `writeItemHeader`
+/// / `encode` in its H5 bundle): DNMX master header, DNX2 item header, then
+/// column-major frames. It uploads as `file_type` 0 with a `<cid>.eff` path —
+/// the vendor's own choice for animations, distinct from the AMX/type-3 path
+/// pictures and text use (see [`super::stored_upload`]).
+///
+/// UNTESTED / DORMANT on the JY25CUT curtain. Hardware-confirmed 2026-08-12: a
+/// `.eff` built here COMMITS (M_UPLOAD_COMPLETE) but never registers in the
+/// device's effect list, so it does not play — this curtain has no `.eff`
+/// renderer. It appears in ZERO packet captures; the vendor drives curtain
+/// animation by LIVE streaming + cycling stored type-3 stills instead. This
+/// builder is retained (not deleted) for the vendor's "video import" feature on
+/// its matrix panels and for a future dedicated `.eff` capture — do NOT wire it
+/// as the curtain's animation path; use the cycling-stills loop for that.
+///
+/// NOTE: no on-wire capture of a multi-frame animation exists, so the byte
+/// layout is reconstructed from the vendor H5 bundle's `.eff` writer. The
+/// cadence byte at `[124]`/`[158]` is written as the vendor's fixed constant
+/// `20` (it hardcodes it regardless of the preview rate — it reads as a format
+/// value, not a per-effect fps); playback speed, if the device honours it, is a
+/// separate `set_play_speed` command, not this field.
 pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, ProtocolError> {
     let width = anim.width as usize;
     let height = anim.height as usize;
@@ -305,11 +323,6 @@ pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, 
     if anim.frames.is_empty() {
         return Err(ProtocolError::ImageDimensionsInvalid {
             reason: "animation has no frames".to_string(),
-        });
-    }
-    if anim.fps == 0 {
-        return Err(ProtocolError::ImageDimensionsInvalid {
-            reason: "animation frame rate must be at least 1 fps".to_string(),
         });
     }
     for (i, frame) in anim.frames.iter().enumerate() {
@@ -340,17 +353,26 @@ pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, 
 
     // ── DNMX header (block 0) ──
     buf[0..4].copy_from_slice(b"DNMX");
-    // [4] is 3 when a frame fits a u16 size field, 4 when it needs u32.
-    buf[4] = if stride > u16::MAX as usize { 4 } else { 3 };
+    // [4] is 3 when a frame fits a u16 size field, 4 when it needs u32. The
+    // vendor keys this on the UNPADDED frame length (`width*height*3`), so
+    // match that rather than the 4-padded `stride` — the two differ only for a
+    // frame whose unpadded size lands in (65532, 65535], unreachable on a 255²
+    // panel, but this keeps the header byte-identical to the app's.
+    buf[4] = if frame_px > u16::MAX as usize { 4 } else { 3 };
     buf[5] = 1;
     write_u16_le(&mut buf, 6, anim.width as u16);
     write_u16_le(&mut buf, 8, anim.height as u16);
     write_u32_le(&mut buf, 10, frame_px as u32);
     write_u32_le(&mut buf, 14, anim.cid);
-    // [18..22] timestamp — left 0; it is metadata the device does not key on,
-    // and a deterministic build is worth more than a clock read here.
+    // [18..22] wall-clock seconds. The vendor always writes a real timestamp;
+    // a committed `.eff` left at 0 never rendered on the JY25CUT, so the device
+    // appears to key on this. Caller supplies the clock read (kept out of here
+    // so the builder stays pure/testable).
+    write_u32_le(&mut buf, 18, anim.timestamp);
     write_name(&mut buf, 38, anim.name, 24);
-    buf[124] = anim.fps;
+    // [124] is the vendor's fixed cadence constant (always 20), NOT a per-effect
+    // fps derived from the preview slider.
+    buf[124] = 20;
     // Item descriptor @128: offset of the DNX2 block, the (4-padded) frame size,
     // the frame count, then the vendor's [0,0,1,_,_,0] trailer.
     write_u32_le(&mut buf, 128, 4096);
@@ -378,7 +400,7 @@ pub fn build_animation_container(anim: &StoredAnimation<'_>) -> Result<Vec<u8>, 
     write_u16_le(&mut buf, h + 15, anim.height as u16);
     write_name(&mut buf, h + 56, anim.name, 32);
     buf[h + 157] = 1;
-    buf[h + 158] = anim.fps;
+    buf[h + 158] = 20;
 
     // ── Frames (from offset 8192), each column-major, padded to `stride` ──
     for frame in anim.frames {
@@ -832,16 +854,18 @@ mod tests {
             width: 2,
             height: 2,
             frames: &frames,
-            fps: 5,
+            timestamp: 0x1234_5678,
         })
         .unwrap();
 
         assert_eq!(buf.len() % 4096, 0);
         assert_eq!(&buf[0..4], b"DNMX");
-        // The play rate rides in BOTH headers — the editor's preview interval,
-        // not the vendor capture's constant 20.
-        assert_eq!(buf[124], 5, "DNMX frame rate");
-        assert_eq!(buf[4096 + 158], 5, "DNX2 frame rate");
+        // Both cadence bytes carry the vendor's fixed constant 20, not a
+        // per-effect rate.
+        assert_eq!(buf[124], 20, "DNMX cadence constant");
+        assert_eq!(buf[4096 + 158], 20, "DNX2 cadence constant");
+        // The caller's wall-clock stamp lands at [18..22], little-endian.
+        assert_eq!(&buf[18..22], &0x1234_5678u32.to_le_bytes(), "timestamp");
         assert_eq!(buf[4], 3, "frame fits a u16 size field");
         assert_eq!(&buf[6..8], &2u16.to_le_bytes(), "width");
         assert_eq!(&buf[8..10], &2u16.to_le_bytes(), "height");
@@ -874,7 +898,7 @@ mod tests {
             width: 2,
             height: 2,
             frames: &[],
-            fps: 20,
+            timestamp: 0,
         })
         .is_err());
 
@@ -886,24 +910,9 @@ mod tests {
             width: 2,
             height: 2,
             frames: &frames,
-            fps: 20,
+            timestamp: 0,
         })
         .is_err());
-
-        let frame = vec![0u8; 12];
-        let one: Vec<&[u8]> = vec![&frame];
-        assert!(
-            build_animation_container(&StoredAnimation {
-                name: "x",
-                cid: 1,
-                width: 2,
-                height: 2,
-                frames: &one,
-                fps: 0,
-            })
-            .is_err(),
-            "a zero frame rate would store an unplayable item"
-        );
     }
 
     #[test]

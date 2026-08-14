@@ -9,6 +9,8 @@ device:
   name: "Govee H6001 Smart Bulb"
   manufacturer: "Govee (Shenzhen Intellirocks Tech / iHoment)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "light"
   notes: >
@@ -27,6 +29,12 @@ device:
     via OldBulbUtil + the generic com.govee.rgblight path (00010203
     scheme); the 0xFFE0/0xFFE1 UUIDs belong to the H6101/H6104 BleComm
     classes, not to H6001.
+    GROUP CONTROL: the Govee Home app can address several bulbs at once —
+    GroupControlHelper.java writes group commands to characteristic
+    0xFFE1 under service 0xFFE0. That is the H6101/H6104 sibling GATT
+    profile, not the H6001's own 00010203-…-1910 profile, so group control
+    applies to FFE0-family bulbs (app-derived, not hardware-verified on
+    H6001).
     CONFIDENCE: HIGH for command format and GATT profile (on-device
     captures, corroborated by multiple independent RE efforts); the
     advertised name pattern is unconfirmed (siblings advertise
@@ -203,3 +211,9 @@ references:
   - "https://github.com/chvolkmann/govee_btled"
   - "https://github.com/egold555/Govee-Reverse-Engineering"
   - "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"
+  - "https://github.com/jonahclarsen/bluetooth_lights_controller"
+  - "https://github.com/Rolandjg/Govee-bulb-control"
+  - "https://github.com/axelson/govee_phx"
+  # Rolandjg/Govee-bulb-control is tested on H6001 hardware.
+  # timniklas/hass-govee-ble-lights was deleted upstream (404 as of
+  # 2026-08); forks survive.

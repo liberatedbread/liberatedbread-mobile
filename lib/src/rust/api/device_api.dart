@@ -9,8 +9,39 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
+
+/// Resolve a `device_reported` panel's REAL width/height from its BLE
+/// advertisement, per the spec's `image_upload.resolution_advertisement`.
+///
+/// `manufacturer_data` is the advertisement's manufacturer-specific records as
+/// `(company_id, value_bytes)` — the value being the bytes after the 2-byte
+/// company id, the way most BLE stacks report it. Returns `None` (canvas falls
+/// back to a default the user can adjust) when: the spec declares no
+/// advertisement layout, no record matches the declared company id, an offset
+/// is out of range, or a byte is 0 / above the platform bound. This is what
+/// lets the editor default the canvas to the true panel size before connecting
+/// — a 16×16 default on a 20×20 curtain leaves the outer strands unwritten.
+Future<PanelResolutionDto?> advertisedResolution(
+        {required String specYaml,
+        required List<(int, Uint8List)> manufacturerData}) =>
+    RustLib.instance.api.crateApiDeviceApiAdvertisedResolution(
+        specYaml: specYaml, manufacturerData: manufacturerData);
+
+/// Resolve a panel's REAL width/height from its M_DEVICE_INFO_NOTIFY push
+/// (mt=2103) — the second source, used when the advertisement is not on hand
+/// (a reconnect with no fresh scan). `notifications` is the raw notify events
+/// collected in a short window off the DDP notify characteristic; they are
+/// reassembled (a ~130-byte DeviceInfo spans ~9 notifications at a 23-byte MTU)
+/// and searched for the DeviceInfo frame, whose protobuf field 8 is width and
+/// field 9 is height. Also tries each notification whole, in case a higher MTU
+/// delivered it unfragmented. `None` when no DeviceInfo is present or a value is
+/// out of the 1..=255 u8 range.
+Future<PanelResolutionDto?> deviceInfoResolution(
+        {required List<Uint8List> notifications}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiDeviceInfoResolution(notifications: notifications);
 
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
@@ -362,7 +393,8 @@ Future<StoredUploadPlanDto> encodeStoredImage(
         required int cid,
         required int timeSecs,
         required String scroll,
-        required int speed}) =>
+        required int speed,
+        required int sequence}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeStoredImage(
         specYaml: specYaml,
         width: width,
@@ -372,7 +404,8 @@ Future<StoredUploadPlanDto> encodeStoredImage(
         cid: cid,
         timeSecs: timeSecs,
         scroll: scroll,
-        speed: speed);
+        speed: speed,
+        sequence: sequence);
 
 /// Encode the BLE writes that PERSIST a scrolling-text marquee on the device.
 ///
@@ -389,7 +422,8 @@ Future<StoredUploadPlanDto> encodeStoredText(
         required int cid,
         required int timeSecs,
         required String scroll,
-        required int speed}) =>
+        required int speed,
+        required int sequence}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeStoredText(
         specYaml: specYaml,
         textWidth: textWidth,
@@ -399,13 +433,21 @@ Future<StoredUploadPlanDto> encodeStoredText(
         cid: cid,
         timeSecs: timeSecs,
         scroll: scroll,
-        speed: speed);
+        speed: speed,
+        sequence: sequence);
 
-/// Encode the BLE writes that PERSIST a multi-frame animation on the device.
+/// Encode the BLE writes that PERSIST a multi-frame animation as a single
+/// `.eff` container.
+///
+/// UNTESTED / DORMANT on the JY25CUT curtain: hardware confirms a `.eff`
+/// commits but never registers as a playable effect there (see
+/// `daniao_store::build_animation_container`). Kept for the vendor's matrix
+/// panels and a future dedicated capture; the curtain's animation path is the
+/// cycling-stills loop (`encode_stored_image` per frame + `encode_set_playlist`
+/// + `play_next`), NOT this.
 ///
 /// `frames` are the screens in play order, each row-major RGB888
-/// `width * height * 3` bytes. Stored as the vendor's raw `.eff` animation
-/// (a different container from the still/scrolling microapp), played by cid.
+/// `width * height * 3` bytes.
 Future<StoredUploadPlanDto> encodeStoredAnimation(
         {required String specYaml,
         required int width,
@@ -413,7 +455,8 @@ Future<StoredUploadPlanDto> encodeStoredAnimation(
         required List<Uint8List> frames,
         required String name,
         required int cid,
-        required int frameMs}) =>
+        required int frameMs,
+        required int sequence}) =>
     RustLib.instance.api.crateApiDeviceApiEncodeStoredAnimation(
         specYaml: specYaml,
         width: width,
@@ -421,7 +464,8 @@ Future<StoredUploadPlanDto> encodeStoredAnimation(
         frames: frames,
         name: name,
         cid: cid,
-        frameMs: frameMs);
+        frameMs: frameMs,
+        sequence: sequence);
 
 /// Decode one notification from the stored-upload response characteristic.
 ///
@@ -435,11 +479,84 @@ Future<StoredUploadEventDto?> decodeStoredUploadEvent(
         specYaml: specYaml, bytes: bytes);
 
 /// Encode the play-by-cid command for RE-triggering a previously stored item
-/// — the replay path, no upload involved.
+/// — the replay path, no upload involved. `sequence` is a per-connection
+/// rolling counter (Dart owns it); a distinct value each press keeps two
+/// replays of the same cid from colliding on the wire and being de-duped.
 Future<StoredPlayDto> encodeStoredPlay(
-        {required String specYaml, required int cid}) =>
+        {required String specYaml, required int cid, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeStoredPlay(
+        specYaml: specYaml, cid: cid, sequence: sequence);
+
+/// Encode the global play-speed command (M_SET_PLAY_SPEED, `{i1: speed}`) —
+/// how fast the device advances the playlist. `speed` is the vendor's slider
+/// value (default 100). Returns the framed write to send.
+Future<StoredPlayDto> encodePlaySpeed(
+        {required String specYaml,
+        required int speed,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodePlaySpeed(
+        specYaml: specYaml, speed: speed, sequence: sequence);
+
+/// Encode the play/loop-mode command (M_SET_AUTORUN_MODE). `mode` is
+/// `fixed(0) | repeat(1) | random(2)`. Sending fixed after playing a design
+/// pins the device to it across disconnect.
+Future<StoredPlayDto> encodeAutorunMode(
+        {required String specYaml, required int mode, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeAutorunMode(
+        specYaml: specYaml, mode: mode, sequence: sequence);
+
+/// Encode M_BOOKMARK_ENABLE — activate bookmark/playlist `list_id` so the device
+/// plays only its items (without this, playback stays over the whole stored set).
+Future<StoredPlayDto> encodeBookmarkEnable(
+        {required String specYaml,
+        required int listId,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeBookmarkEnable(
+        specYaml: specYaml, listId: listId, sequence: sequence);
+
+/// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist `list_id` before a re-save.
+Future<StoredPlayDto> encodeBookmarkClear(
+        {required String specYaml,
+        required int listId,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeBookmarkClear(
+        specYaml: specYaml, listId: listId, sequence: sequence);
+
+/// Encode the delete-one-stored-design command (M_REMOVE_APP) by cid.
+Future<StoredPlayDto> encodeRemoveApp(
+        {required String specYaml, required int cid, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeRemoveApp(
+        specYaml: specYaml, cid: cid, sequence: sequence);
+
+/// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
+Future<StoredPlayDto> encodeRemoveAllApps(
+        {required String specYaml, required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeRemoveAllApps(
+        specYaml: specYaml, sequence: sequence);
+
+/// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
+///
+/// The device answers a list request with several framed notifications; the
+/// caller decodes each and merges them to map a stored frame's cid to the slot
+/// a playlist must use. A notification that is not an effect list yields an
+/// empty list.
+Future<List<EffectEntryDto>> decodeEffectList(
+        {required String specYaml, required List<int> bytes}) =>
     RustLib.instance.api
-        .crateApiDeviceApiEncodeStoredPlay(specYaml: specYaml, cid: cid);
+        .crateApiDeviceApiDecodeEffectList(specYaml: specYaml, bytes: bytes);
+
+/// Encode the writes that loop a set of stored frames as an animation: the
+/// set-playlist command then loop mode. `cids` and `slots` are the stored
+/// frames in play order (paired by index); `slots` are the device-assigned
+/// slots (pass 0 when unknown — play addresses customs by cid). `sequence` is
+/// the rolling counter's next value.
+Future<PlaylistWritesDto> encodeSetPlaylist(
+        {required String specYaml,
+        required List<int> cids,
+        required List<int> slots,
+        required int sequence}) =>
+    RustLib.instance.api.crateApiDeviceApiEncodeSetPlaylist(
+        specYaml: specYaml, cids: cids, slots: slots, sequence: sequence);
 
 /// Decode raw bytes from a BLE read/notify into named values.
 ///
@@ -801,6 +918,39 @@ class DeviceSpecDto {
           entities == other.entities &&
           imageUpload == other.imageUpload &&
           storedUpload == other.storedUpload;
+}
+
+/// One entry of the device's stored-effect list: a stored item's id, its
+/// device-assigned slot, the `type` the firmware filed it under, and whether it
+/// is a user "DIY" effect. `type`/`diy` are diagnostic: they reveal which
+/// family the device accepted an upload as (e.g. a `.eff` we sent as `type = 0`
+/// versus the `type = 3` AMX microapps the captures show playing).
+class EffectEntryDto {
+  final int cid;
+  final int slot;
+  final int type;
+  final int diy;
+
+  const EffectEntryDto({
+    required this.cid,
+    required this.slot,
+    required this.type,
+    required this.diy,
+  });
+
+  @override
+  int get hashCode =>
+      cid.hashCode ^ slot.hashCode ^ type.hashCode ^ diy.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is EffectEntryDto &&
+          runtimeType == other.runtimeType &&
+          cid == other.cid &&
+          slot == other.slot &&
+          type == other.type &&
+          diy == other.diy;
 }
 
 /// One resolved control action: which command a role sends and what the UI
@@ -1991,6 +2141,28 @@ class NetworkSourceParamDto {
           name == other.name;
 }
 
+/// A panel's real pixel resolution, resolved from the device's advertisement.
+class PanelResolutionDto {
+  final int width;
+  final int height;
+
+  const PanelResolutionDto({
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  int get hashCode => width.hashCode ^ height.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PanelResolutionDto &&
+          runtimeType == other.runtimeType &&
+          width == other.width &&
+          height == other.height;
+}
+
 class ParameterDto {
   final String name;
   final String valueType;
@@ -2081,6 +2253,31 @@ class ParameterDto {
           unit == other.unit &&
           default_ == other.default_ &&
           auto == other.auto;
+}
+
+/// The framed writes that set a looping playlist of stored effects — the
+/// set-playlist command then loop mode. Written in order to the command
+/// characteristic; this is how a multi-frame animation plays (each frame a
+/// stored microapp, looped).
+class PlaylistWritesDto {
+  final String serviceUuid;
+  final List<ImageWriteDto> writes;
+
+  const PlaylistWritesDto({
+    required this.serviceUuid,
+    required this.writes,
+  });
+
+  @override
+  int get hashCode => serviceUuid.hashCode ^ writes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PlaylistWritesDto &&
+          runtimeType == other.runtimeType &&
+          serviceUuid == other.serviceUuid &&
+          writes == other.writes;
 }
 
 /// A characteristic within a standard profile.

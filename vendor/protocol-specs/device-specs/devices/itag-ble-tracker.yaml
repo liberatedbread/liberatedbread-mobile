@@ -6,6 +6,8 @@ device:
   name: "iTag BLE Key Finder"
   manufacturer: "Unbranded / various OEMs"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "tracker"
   notes: >

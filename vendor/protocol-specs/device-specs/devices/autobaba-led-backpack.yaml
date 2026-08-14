@@ -6,6 +6,8 @@ device:
   name: "AUTOBABA LED Backpack"
   manufacturer: "LOY SPACE / popled.cn"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >
@@ -190,7 +192,15 @@ services:
               key: "cmd.rotate"
               value_type: "int"
           play_program:
-            description: 'Play a program by index. JSON: {"cmd":{"pgm_play":{"model":0,"index":N}},"sno":N}'
+            description: >
+              Play a program by index. This uni-app binding sends the
+              single-slot form: {"cmd":{"pgm_play":{"model":0,"index":N}},
+              "sno":N}. The sibling com.yj.led (LED space) binding sends
+              pgm_play with the full 60-slot ids_pro array instead — both are
+              real JSON shapes for the same LOY SPACE pgm_play opcode across
+              app versions (see led-space.yaml play_program). On the wire,
+              hardware-verified RE (samrodrigues/loy-space-protocol) shows
+              program selection is a single zero-based slot index.
             encoding: "json"
             payload:
               key: "cmd.pgm_play.index"

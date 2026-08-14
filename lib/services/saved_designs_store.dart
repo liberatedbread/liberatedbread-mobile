@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -38,12 +39,43 @@ class SavedDesign {
   final String contentHash;
   final DateTime savedAt;
 
+  /// For an `animation`: the stored frame cids, in play order. The animation
+  /// plays as a looping playlist of these (each a single-frame microapp), so
+  /// replay re-sets that playlist rather than playing one cid. Empty/absent for
+  /// a single-item picture or text.
+  final List<int> frameCids;
+
+  /// For an `animation`: each frame's device-assigned slot (parallel to
+  /// [frameCids]), captured from the effect list at save time. The playlist
+  /// addresses items by slot, so replay reuses these rather than re-reading the
+  /// list. Empty/absent for a picture or text.
+  final List<int> frameSlots;
+
+  /// For an `animation`: the RGB888 pixels of each frame (row-major,
+  /// `width*height*3` bytes), so replay can RE-UPLOAD the design. The device is
+  /// wiped of a design's frames whenever a later save scopes a new loop, so
+  /// addressing old cids alone would replay nothing — keeping the pixels lets
+  /// replay store them afresh. Empty/absent for designs saved before this field
+  /// existed (they fall back to cid-only replay).
+  final List<Uint8List> frames;
+
+  /// Canvas geometry + cadence for [frames], needed to re-encode them on replay.
+  final int width;
+  final int height;
+  final int frameMs;
+
   const SavedDesign({
     required this.name,
     required this.cid,
     required this.kind,
     required this.contentHash,
     required this.savedAt,
+    this.frameCids = const [],
+    this.frameSlots = const [],
+    this.frames = const [],
+    this.width = 0,
+    this.height = 0,
+    this.frameMs = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -52,6 +84,14 @@ class SavedDesign {
         'kind': kind,
         'contentHash': contentHash,
         'savedAt': savedAt.toIso8601String(),
+        if (frameCids.isNotEmpty) 'frameCids': frameCids,
+        if (frameSlots.isNotEmpty) 'frameSlots': frameSlots,
+        if (frames.isNotEmpty) ...{
+          'frames': [for (final f in frames) base64Encode(f)],
+          'width': width,
+          'height': height,
+          'frameMs': frameMs,
+        },
       };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
@@ -66,12 +106,46 @@ class SavedDesign {
     }
     final savedAt = json['savedAt'];
     final parsed = savedAt is String ? DateTime.tryParse(savedAt) : null;
+    final rawFrames = json['frameCids'];
+    final frameCids = rawFrames is List
+        ? rawFrames.whereType<int>().toList(growable: false)
+        : const <int>[];
+    final rawSlots = json['frameSlots'];
+    final frameSlots = rawSlots is List
+        ? rawSlots.whereType<int>().toList(growable: false)
+        : const <int>[];
+    final rawPixels = json['frames'];
+    final frames = <Uint8List>[];
+    if (rawPixels is List) {
+      for (final f in rawPixels) {
+        // Any unreadable entry drops re-upload for this design and leaves
+        // cid-replay. Skipping just the bad one would silently replay a
+        // SHORTER animation than the user saved, which reads as the device
+        // losing frames rather than as the record being damaged.
+        if (f is! String) {
+          frames.clear();
+          break;
+        }
+        try {
+          frames.add(base64Decode(f));
+        } on FormatException {
+          frames.clear();
+          break;
+        }
+      }
+    }
     return SavedDesign(
       name: name,
       cid: cid,
       kind: kind,
       contentHash: hash,
       savedAt: parsed ?? DateTime.fromMillisecondsSinceEpoch(0),
+      frameCids: frameCids,
+      frameSlots: frameSlots,
+      frames: frames,
+      width: json['width'] is int ? json['width'] as int : 0,
+      height: json['height'] is int ? json['height'] as int : 0,
+      frameMs: json['frameMs'] is int ? json['frameMs'] as int : 0,
     );
   }
 }
@@ -121,6 +195,13 @@ class SavedDesignsStore {
       if (design.contentHash == contentHash) return design;
     }
     return null;
+  }
+
+  /// Forget every design recorded for [deviceId] — the app's side of a
+  /// "clear the device's stored designs" action (the caller sends the device
+  /// the deletes).
+  Future<void> clear(String deviceId) async {
+    await _prefs.remove('$_keyPrefix$deviceId');
   }
 
   /// Insert or update [design], newest-first. An entry with the same cid OR

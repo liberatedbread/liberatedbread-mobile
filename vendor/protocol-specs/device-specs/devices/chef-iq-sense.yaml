@@ -6,6 +6,8 @@ device:
   name: "Chef iQ Sense"
   manufacturer: "Chefman / Chef iQ"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -14,7 +16,10 @@ device:
     React Native app with Hermes bytecode (v96); protocol logic decompiled via hermes-dec.
     Five BLE UUID families for different device generations and functions.
     BLE manufacturer ID: 0x05CD. Device name: exactly "CQ60".
-    Temperatures are IEEE 754 single-precision floats, natively in Fahrenheit.
+    Temperatures are IEEE 754 single-precision floats; the unit on the wire is
+    NOT determinable from the app code (parseBytesData is a plain readFloatLE
+    with no conversion) and is governed by the writable 9C6FFFC0 Temperature
+    Unit characteristic.
     Probe data uses TLV (Tag-Length-Value) binary encoding with typed attribute IDs.
     Three command channels: thermometer (048A), system (9C6F), FTP/OTA (F640).
     Cloud: api.chefiq.com (REST), graph.chefiq.com (GraphQL), iot.chefiq.com (MQTT).
@@ -30,15 +35,36 @@ device:
     simpler local integration than the GATT protocol below. Packet type is the
     low nibble of byte 0 (0x0 ASCII name, 0x1 temperature, 0x3 status with
     MAC + battery on newer versions); the remaining nibbles carry a
-    major.minor.patch protocol version (V2/V3 documented; 5.0.0 seen on
-    current CQ60). Temperatures are signed int16 little-endian in tenths of
-    a degree C; an unmeasured ring sends a sentinel >= 0x7FF0 (0x7FFB
-    typical). Battery byte 0-255 maps to 0-100 %. The hub advertises under
-    the same manufacturer ID with a longer (>= 20 B) payload -- a clean
-    programmatic discriminator from probes. Sources: Invader444/chefiq-ble
-    (PyPI), ble_monitor >= 12.8.0, ITSpecialist111 ChefIQ integration.
+    major.minor.patch protocol version decoded as major = byte 1 high nibble,
+    minor = byte 1 low nibble, patch = byte 0 high nibble (5.0.0 seen on
+    current CQ60). Probe payloads are at most 18 bytes; the hub advertises
+    under the same manufacturer ID with a longer (>= 20 B) payload -- a clean
+    programmatic discriminator from probes. Temperature packet (type 0x1),
+    V3 layout (protocol major >= 3; hardware-verified against a live CQ60 at
+    5.0.0 by chefiq_ble): ambient [2:4], food [4:6], tip1 [6:8],
+    tip2 [8:10], tip3 [10:12], tip4 [12:14], ambient mirror [14:16]. All
+    temperatures are signed int16 little-endian in tenths of a degree C; an
+    unmeasured ring sends a sentinel >= 0x7FF0 (0x7FFB typical), and
+    consumers should drop any decoded temperature outside the plausible
+    window -40..600 C rather than surface a sentinel. Status packet
+    (type 0x3, V3, min 10 bytes): battery percent byte at [8], SoC
+    temperature (raw byte, whole degrees C) at [9], probe MAC in the same
+    packet. Older layouts (reconstructed, NOT hardware-verified): V2
+    (major == 2) carries battery [2], soc [3], ambient [4:6], food [6:8],
+    tip1-3 [8:10]..[12:14], ambient mirror [14:16]; legacy carries
+    MAC [2:8], battery [8], soc [9], food [10:12], ambient [12:14],
+    ambient mirror [14:16]. Battery scaling is CONTESTED between the cited
+    sources: ITSpecialist111 documents the battery byte as 0-255 mapping to
+    0-100 %, while chefiq_ble (the hardware-verified implementation) emits
+    the raw byte directly as the percent with no scaling -- treat the exact
+    scaling as unconfirmed until checked against a probe at a known charge.
+    Sources: Invader444/chefiq-ble (PyPI), ble_monitor >= 12.8.0 (added
+    CQ60 passive decoding), ITSpecialist111 ChefIQ integration,
+    formula97/homeassistant-chefiq.
     FCC IDs: hub 2AC7Z-ESP32WROVERE (modular approval, ESP32-WROVER-E);
-    probes 2A2YP-CQ60QPROBE (earlier v1 grant 2A2YP-CQ60PROBE).
+    probes 2A2YP-CQ60QPROBE (earlier v1 grant 2A2YP-CQ60PROBE; ISED
+    IC 27740-CQ60QPROBE; a 2024-12-18 FCC C2PC adds probe models
+    CQ60-PRC-01/02/03/04).
   identification:
     local_name_prefix: "CQ60"
     service_uuids:
@@ -162,25 +188,35 @@ services:
         properties: ["notify"]
         notes: >
           Notifications carry TLV (Tag-Length-Value) records with typed
-          attribute IDs; temperatures are IEEE 754 float32 (SingleFloat),
-          natively Fahrenheit (the app applies no unit conversion in the
-          decode path; the display unit is governed by the 9C6FFFC0
-          Temperature Unit characteristic). TLV frame layout, read directly
+          attribute IDs; temperatures are IEEE 754 float32 (SingleFloat).
+          The app applies NO unit conversion in the decode path
+          (parseBytesData is a plain readFloatLE), so the unit on the wire
+          is NOT determinable from the code; it is governed by the writable
+          9C6FFFC0 Temperature Unit characteristic. TLV frame layout, read directly
           from the app's own parser (processBLEData / parseBytesData in the
           v5.3.0 Hermes bundle decompile; research/chef-iq-sense/app/): a
           sequence of attribute entries, each
           [attr_id uint16 LE][type uint8][length uint8][value length bytes].
           The per-entry type byte (DataTypeEnum: 0 bool, 1-6 signed/unsigned
-          8/16/32-bit LE ints, 9 float32 LE rounded to 2 decimals,
-          11 utf8 string, 12 hex byte array, 13 MAC address, 14 JSON)
+          8/16/32-bit LE ints, 7 SignedInt64, 8 UnsignedInt64, 9 float32 LE
+          rounded to 2 decimals, 10 DoubleFloat, 11 utf8 string,
+          12 hex byte array, 13 MAC address, 14 JSON)
           drives decoding. One notification can carry several per-probe
           records: a new record starts when an attribute ID repeats, and
           attribute 16 (probe_address, MAC) is the record delimiter.
           Attribute IDs (AttributeEnum, confirmed in the same decompile):
-          16 ProbeAddress, 34 BatteryLevel (uint8), 35 IcTemp (f32),
+          0 Timestamp (u32), 16 ProbeAddress (MAC), 17 Type (i8),
+          19 HwVersion (str), 20 FwVersion (str), 21 SerialNumber (str),
+          22 ServiceConfig (u8), 23 Name (str), 24 Registered (bool),
+          25 DockNumber (u8 -- which hub dock slot the probe sits in),
+          26 Size, 27 Color, 28 Number, 29 IsIncompatible (bool),
+          32 IsActive (bool -- probe docked/charging state), 33 Rssi (i8),
+          34 BatteryLevel (uint8), 35 IcTemp (f32),
           36 InternalTemp (f32), 37 AmbientTemp (f32), 38 IsOverheat (bool),
           39 IsSensorFail (bool), 40-43 Tip1-Tip4 temps (f32),
-          44 Ext1Temp (f32). Because records are tagged, fields have NO
+          44 Ext1Temp (f32). The same enum defines session attributes
+          48-90 and notification attributes 91-123 -- see 048af001 Session
+          Data. Because records are tagged, fields have NO
           fixed byte offsets, so no declarative format block is possible —
           parse the TLV envelope instead. Confidence: confirmed against the
           app's parser code, not yet against hardware. Neither downloaded
@@ -195,6 +231,31 @@ services:
       - uuid: "048af001-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Session Data"
         properties: ["notify"]
+        notes: >
+          TLV-encoded like 048af000 Probe Data (same frame layout and
+          per-entry DataTypeEnum); records are split on attribute 48
+          (SessionId) as the delimiter. Session attribute IDs from the app
+          v5.3.0 decompile (AttributeEnum): 48 SessionId (str),
+          49 CookingCategory (u8), 50 CookingMethod (u8), 51 PresetId (str),
+          56 CookingTime (u32), 57 EstimatedCookingTime (u32),
+          59 TargetTemp (f32), 60 RecipeId (str), 61 GuidedId (str),
+          62 AutoCancel (bool), 80 RemainingTime (u32),
+          81 TotalElapsedTime (u32), 82 ProgressPercent (f32),
+          83 FlipStatus (bool), 84 OperatingState (u8),
+          85 OperatingWarning (u8), 86 OperatingError (u8),
+          88 RemainingCookingTime (u32), 89 SessionInternalTemp (f32),
+          90 SessionAmbientTemp (f32). The enum further defines
+          notification attributes 91-123 (93 NotificationConditionStatus,
+          94 NotificationConditionMetCount, 112 NotificationId,
+          113 NotificationCategory, 114 NotificationDescription,
+          115 NotificationStepIndex, 116 NotificationReminder,
+          117 NotificationTriggerStart, 118 NotificationTimer,
+          119 NotificationAudioClips, 120 NotificationCondition,
+          121 NotificationEstimatedTime, 122 NotificationTriggerCancel,
+          123 IgnoreOnStart) -- these ride in TLV records returned by the
+          cooking-state/session notification commands, distinct from the
+          plain-JSON payloads of 048af020/21/22. Confidence: confirmed
+          against the app's parser code, not yet against hardware.
 
       - uuid: "048af010-cd06-4d57-a048-ccd5cb9f8f43"
         name: "Docked List"
@@ -308,8 +369,16 @@ services:
           u32 LE @1, responseCode int8 @5, size u16 LE @6, followed by
           `size` payload bytes. Attribute-bearing commands (e.g.
           get_probe_attributes, start_session) return payloads in the same
-          TLV encoding as 048af000 Probe Data. Evidence: app v5.3.0
-          decompile (processHeaderInfo).
+          TLV encoding as 048af000 Probe Data. responseCode values
+          (CommandAPIResponse enum in the app's shared constants module,
+          consumed by the command error-mapping path): 0 OK, -1 FAIL,
+          -2 ERR_INVALID_COMMAND, -3 ERR_HEAP_ALLOC, -4 ERR_MOUNT_POINT,
+          -5 ERR_PARTITION, -6 ERR_DIGEST, -7 ERR_SIZE, -8 ERR_WRITE; the
+          enum sits beside the FTP command constants and appears shared
+          across the command services. Evidence: app v5.3.0
+          decompile (processHeaderInfo; CommandAPIResponse at
+          bundle.js:~851484, consumed ~2485200-2485255). Confidence:
+          app-derived, not hardware-verified.
 
   - uuid: "9c6f00fc-0420-41c1-bd98-7a015c45dc5a"
     name: "System/Config Service (Family B)"
@@ -434,6 +503,14 @@ services:
             length: 1
             name: "temp_unit"
             type: "uint8"
+            # Decodes the active temperature unit for the connected Probe Data
+            # (048AF000) float32 temps, which carry no unit on the wire. Raw
+            # value matches the set_fahrenheit (0) / set_celsius (1) commands
+            # above. This is the unit_reference target named by the temperature
+            # entities.
+            unit_values:
+              0: "F"
+              1: "C"
 
       - uuid: "9c6fffc1-0420-41c1-bd98-7a015c45dc5a"
         name: "Data Update Interval"
@@ -558,28 +635,67 @@ entities:
   - platform: "sensor"
     name: "Internal Temperature"
     device_class: "temperature"
-    unit: "F"
     state_characteristic: "048af000-cd06-4d57-a048-ccd5cb9f8f43"
     notes: >
       Consumes TLV attribute 36 (InternalTemp, float32) from the Probe
       Data notify — attribute ID and type confirmed in the app v5.3.0
       decompile; see that characteristic's notes for the TLV frame layout
-      (no fixed offsets — parse the envelope). The connectionless
-      advertisement path (int16 LE, 0.1 °C) is the alternative and reports
-      in °C, not °F.
+      (no fixed offsets — parse the envelope). Unit source is a device
+      setting, not fixed: the wire float32 carries no unit (the app applies
+      no conversion in the decode path), so read the active unit from the
+      9C6FFFC0 Temperature Unit characteristic's temp_unit field
+      (unit_reference 9c6fffc0-…-dc5a.temp_unit; unit_values 0 = °F, 1 = °C)
+      before rendering. No out-of-box default unit is claimed here because
+      none is evidenced — the app writes the setting from the phone locale
+      on setup. Consumers that want an unambiguous reading can instead use
+      the connectionless advertisement path (int16 LE, 0.1 °C), which is
+      always in °C.
 
   - platform: "sensor"
     name: "Ambient Temperature"
     device_class: "temperature"
-    unit: "F"
     state_characteristic: "048af000-cd06-4d57-a048-ccd5cb9f8f43"
     notes: >
       Consumes TLV attribute 37 (AmbientTemp, float32) from the Probe
-      Data notify — same decode path and caveats as Internal Temperature;
-      the advertisement path remains the °C alternative.
+      Data notify — same decode path and caveats as Internal Temperature.
+      Unit source is a device setting: read the active unit from the
+      9C6FFFC0 temp_unit field (unit_reference 9c6fffc0-…-dc5a.temp_unit;
+      unit_values 0 = °F, 1 = °C) before rendering; no out-of-box default
+      is claimed (none evidenced). The connectionless advertisement path
+      (int16 LE, 0.1 °C) remains the unambiguous °C alternative.
 
   - platform: "sensor"
     name: "Battery"
     device_class: "battery"
     unit: "%"
     state_characteristic: "9c6ff052-0420-41c1-bd98-7a015c45dc5a"
+
+helpful_urls:
+  - title: "Invader444/chefiq-ble (PyPI: chefiq_ble)"
+    url: "https://github.com/Invader444/chefiq-ble"
+    description: >
+      Working open implementation of the connectionless advertisement path;
+      its parser documents the V3 temperature/status byte layouts and was
+      verified against a live CQ60 (protocol 5.0.0).
+  - title: "custom-components/ble_monitor"
+    url: "https://github.com/custom-components/ble_monitor"
+    description: >
+      Passive BLE monitor that added Chef iQ CQ60 advertisement decoding in
+      12.8.0 (Jan 2024); independent second source for the manufacturer-data
+      format.
+  - title: "formula97/homeassistant-chefiq"
+    url: "https://github.com/formula97/homeassistant-chefiq"
+    description: >
+      Fourth independent open-source consumer of the Chef iQ advertisement
+      protocol; evidence of an active RE community around the CQ60.
+  - title: "ITSpecialist111 ChefIQ Probe Home Assistant Integration"
+    url: "https://github.com/ITSpecialist111/ChefIQ_Probe_HomeAssistant_Integration"
+    description: >
+      Native local-push HA integration for the probes; third advertisement
+      source, though its 0-255 battery scaling disagrees with chefiq_ble.
+  - title: "FCC ID 2A2YP-CQ60QPROBE filings (fcc.report)"
+    url: "https://fcc.report/FCC-ID/2A2YP-CQ60QPROBE"
+    description: >
+      Probe grant (CHEF PROBE-V2, granted 2023-07-28) with user manual,
+      internal photos and BLE test report; includes the 2024-12-18 C2PC
+      adding probe models CQ60-PRC-01/02/03/04 (ISED IC 27740-CQ60QPROBE).

@@ -267,6 +267,7 @@ class ScanResultCoalescer {
     required bool isConnectable,
     List<String> serviceUuids = const [],
     List<int> companyIds = const [],
+    Map<int, List<int>> manufacturerData = const {},
     DateTime? seenAt,
   }) {
     final at = seenAt ?? DateTime.now();
@@ -292,6 +293,7 @@ class ScanResultCoalescer {
       lastSeen: at,
       serviceUuids: serviceUuids,
       companyIds: companyIds,
+      manufacturerData: manufacturerData,
     );
     _emitted[id] = device;
     return device;
@@ -580,10 +582,12 @@ class RealBleService implements BleService {
                   for (final uuid in advertisement.serviceUuids)
                     uuid.str128.toLowerCase(),
                 ],
-                // manufacturerData is keyed by company ID. A device may carry
-                // several records; the payloads are not read here, only who
-                // they claim to be from.
+                // manufacturerData is keyed by company ID. Keep both the keys
+                // (the cheap identity signal every consumer uses) and the full
+                // payloads (a few specs read a real value out of them — e.g. a
+                // pixel panel advertising its true resolution).
                 companyIds: advertisement.manufacturerData.keys.toList(),
+                manufacturerData: advertisement.manufacturerData,
                 // When the advertisement was heard, not when this batch was
                 // processed — fbp re-pushes silent devices in every batch with
                 // their original timestamp, and that is exactly the signal a
@@ -1112,6 +1116,23 @@ class RealBleService implements BleService {
     });
   }
 
+  /// Recent raw notifications per "deviceId|charUuid" (lowercased), oldest
+  /// first, capped so a connect-time push survives without unbounded growth.
+  final Map<String, List<List<int>>> _recentNotifications = {};
+  static const int _recentNotificationsCap = 16;
+
+  void _recordRecent(String deviceId, String charUuid, List<int> value) {
+    final ring = _recentNotifications.putIfAbsent(
+        '$deviceId|${charUuid.toLowerCase()}', () => <List<int>>[]);
+    ring.add(List<int>.of(value));
+    if (ring.length > _recentNotificationsCap) ring.removeAt(0);
+  }
+
+  @override
+  List<List<int>> recentNotifications(
+          String deviceId, String serviceUuid, String charUuid) =>
+      _recentNotifications['$deviceId|${charUuid.toLowerCase()}'] ?? const [];
+
   @override
   Stream<List<int>> subscribeCharacteristic(
     String deviceId,
@@ -1151,6 +1172,10 @@ class RealBleService implements BleService {
       claimed.interest--;
       if (claimed.interest > 0) return;
       if (identical(_notifyShares[key], claimed)) _notifyShares.remove(key);
+      // The share is finished either way below (dead shares return early), so
+      // drop its recorder here rather than in each exit. A successor share
+      // attaches its own with its own enable.
+      await claimed.detachRecorder();
       // A share expired by connect/disconnect must never write into the NEXT
       // connection's CCCD state — that link's subscriptions own it now.
       if (claimed.dead) return;
@@ -1209,6 +1234,15 @@ class RealBleService implements BleService {
             // deliberately NOT logged — that is the tight loop this logging
             // must stay out of.
             Log.ble.debug('notifications enabled for $charUuid on $deviceId');
+            // Fill the recent-notification ring from HERE — once per share,
+            // not once per subscriber. Every subscriber listens to the same
+            // broadcast onValueReceived, so recording in each of them would
+            // enter one physical notification N times and evict the buffer N
+            // times faster: with six sensor tiles on a characteristic, the
+            // 16-deep ring would hold under three real pushes. Torn down
+            // with the share in releaseInterest/_expireNotifyShares.
+            claimed.recorder ??= char.onValueReceived
+                .listen((value) => _recordRecent(deviceId, charUuid, value));
             return char;
           }();
           final char = await claimed.enable!;
@@ -1257,18 +1291,31 @@ class RealBleService implements BleService {
           String deviceId, String serviceUuid, String charUuid) =>
       '$deviceId|${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
 
-  /// Detach every notify share for [deviceId], marking them dead.
+  /// Detach every notify share for [deviceId], marking them dead, and drop
+  /// what those shares buffered.
   ///
   /// Called when the device's link turns over (connect and disconnect both):
   /// CCCD state does not survive a connection, so surviving shares would let
   /// a subscriber from the previous link skip the enable on the new one — or
   /// a late cancel from the old link disable notifications under the new
   /// link's subscribers.
+  ///
+  /// The recent-notification rings are cleared HERE, with the shares that
+  /// filled them, because they have the same lifetime: [recentNotifications]
+  /// promises what was seen on THIS connection. Clearing only in disconnect()
+  /// missed the case that matters most — a dropped link, where nothing calls
+  /// disconnect() and the reconnect would hand the next link the previous
+  /// one's pushes.
   void _expireNotifyShares(String deviceId) {
     final prefix = '$deviceId|';
+    _recentNotifications.removeWhere((key, _) => key.startsWith(prefix));
     _notifyShares.removeWhere((key, share) {
       if (!key.startsWith(prefix)) return false;
       share.dead = true;
+      // The stream this recorder is on belongs to the old link. Detaching is
+      // fire-and-forget: the callers of this are sync, and a cancel that
+      // hangs on a vanished device must not stall connect/disconnect.
+      unawaited(share.detachRecorder());
       return true;
     });
   }
@@ -1358,4 +1405,27 @@ class _NotifyShare {
   /// Set when the link this share belongs to turned over. A dead share never
   /// writes the CCCD again: the next connection's subscriptions own it.
   bool dead = false;
+
+  /// The one listener feeding this characteristic's recent-notification ring,
+  /// attached with the shared enable — see [RealBleService.recentNotifications].
+  ///
+  /// Cancelled by [detachRecorder], which every path that drops this share
+  /// funnels through; the lint only knows how to see a cancel in the function
+  /// that opened the subscription.
+  // ignore: cancel_subscriptions
+  StreamSubscription<List<int>>? recorder;
+
+  /// Stop recording for this share. Idempotent, and tolerant of a cancel that
+  /// throws: a recorder left attached would keep filling the ring for a link
+  /// nobody is subscribed to any more.
+  Future<void> detachRecorder() async {
+    final attached = recorder;
+    recorder = null;
+    if (attached == null) return;
+    try {
+      await attached.cancel();
+    } catch (_) {
+      // Best-effort: the device may already be gone.
+    }
+  }
 }

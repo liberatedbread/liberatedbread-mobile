@@ -1,15 +1,14 @@
 # GAPS.md
 
-Last updated: 2026-07-30
+Last updated: 2026-08-12
 
-## Remaining Gaps: 2
+## Remaining Gaps: 1
 
 | Target | Status |
 |--------|--------|
 | **ifreqtech-speaker-mic** | No companion APK exists — BT Classic hardware bridge (HFP + likely SPP). Requires HCI snoop on physical device. RE blocked until hardware in hand. |
-| **led-space** | Target researched (`targets/led-space.md`) but no spec written yet. |
 
-## Resolved: 26 of 27 original targets
+## Resolved: 27 of 27 original targets
 
 | Target | Resolution |
 |--------|-----------|
@@ -35,11 +34,16 @@ Last updated: 2026-07-30
 | bmw-motorcycle-motoscan | → obd2-bluetooth-adapter.yaml (OBD-II/CAN) |
 | motorcycle-ground-effect-lighting | → split: proglow ✅, seeblue ✅, opt7=elk-bledom ✅, xkglow ✅ |
 | roku-local-remote | → roku-ecp.yaml (protocol fully documented) |
+| led-space | → led-space.yaml (third app on the LOY SPACE / popled.cn platform; Wi-Fi AP/UDP 9090 path documented from com.yj.led static analysis) |
 
-## Uncertain: m6-fitness-band
+## Resolved: m6-fitness-band (was "Uncertain")
 
-`com.veryfit.multi` (Veryfit 2.0, 7.5MB) downloaded. May or may not be the correct
-companion app. A spec (`m6-fitness-band.yaml`) has since been written from it, but
-the app-to-device match is unconfirmed, so treat the spec as provisional.
+RESOLVED 2026-07-31: the Veryfit 2.0 (`com.veryfit.multi`) app-to-device match was
+positively REFUTED by the M6's own stock firmware dump (rbaron/m6-reveng) — no 0AF0
+UUID exists anywhere in the 512 kB flash. The M6 is an LT716-platform device speaking
+the FitPro protocol (NUS + 0xCD-framed commands + Telink OTA, advertised name "M6",
+companion app `xfkj.fitpro`). `m6-fitness-band.yaml` was re-targeted accordingly and
+keeps the Veryfit analysis only as a clearly-labeled mis-attribution note. See
+`research/m6-fitness-band/CONFIRMATION.md` §C.
 
-## Validation: 71/71 passing (70 device specs + 1 example)
+## Validation: 92/92 passing (91 device specs + 1 example)

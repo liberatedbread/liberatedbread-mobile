@@ -1,13 +1,15 @@
-# BLE Pulse Oximeter (SP001/BerryMed) — Device Spec
+# BLE Pulse Oximeter (SP001 / "F7") — Device Spec
 # Generated from static analysis of com.wakeup.smartspo (Wearfit BO)
 # APK source: apkeep (Google Play mirror)
 # APK SHA-256: 82853e9c52db3eb2c8c7808af87bf3067f2e29d3948df034e9535ee75f2abc64
 # (37,834,803-byte bare APK)
 
 device:
-  name: "BLE Fingertip Pulse Oximeter (SP001 / BerryMed)"
+  name: 'BLE Fingertip Pulse Oximeter (SP001 / "F7")'
   manufacturer: "Manridy (likely ODM)"
   manufacturer_status: "abandoned"
+  testing:
+    status: untested
   protocol: "ble"
   category: "health"
   notes: >
@@ -21,6 +23,24 @@ device:
 
     Expected measurements: SpO2%, pulse rate (BPM), perfusion index (%).
 
+    Discovery/identification (hardware-observed by OximeterF7Bridge): the
+    device advertises BLE name "F7" and advertised service UUID
+    6e40f431-b5a3-f393-e0a9-e50e24dcca9e — distinct from the Nordic UART
+    service 6e400001 it exposes after connection. Connection quirks: the
+    device advertises only at power-up, accepts a single connection attempt,
+    and will not reconnect after going out of range without a power cycle.
+    Companion apps: "Sapiential SpO2" (Android; display name of
+    com.wakeup.smartspo), "Wearfit BO" (iOS).
+
+    OTA/DFU surface (app-derived, not hardware-verified): the app checked a
+    vendor firmware API (now dead, verified 2026-07-30) and flashed via
+    Nordic DFU (service/DfuService.java), with OTA command characteristic
+    0000ff03-0000-1000-8000-00805f9b34fb and ISP command characteristic
+    6e40ff03-b5a3-f393-e0a9-e50e24dcca9e referenced in BluetoothLeService.
+    A Dallas/Maxim CRC8 (dscrc_table) exists in utils/CRC8.java, most likely
+    used for DFU/packet integrity; no public firmware images could be
+    obtained.
+
     Research status: APK acquired, decompiled. Nordic UART service UUIDs
     recovered. Poll/response frame format confirmed by the hardware-tested
     OximeterF7Bridge (github.com/joba-1/OximeterF7Bridge) and the APK's
@@ -32,6 +52,11 @@ device:
     the Wearfit BO app returns 404 on Google Play, and the vendor firmware
     update API no longer responds (all verified 2026-07-30). Generic F7/SP001
     clones remain on sale.
+
+  identification:
+    local_name_prefix: "F7"
+    service_uuids:
+      - "6e40f431-b5a3-f393-e0a9-e50e24dcca9e"
 
   setup:
     required: false
@@ -57,7 +82,7 @@ device:
         steps:
           - action: "Clip the oximeter onto a finger; it powers on and begins advertising."
             actor: user
-          - action: "Scan for the device and connect over GATT."
+          - action: 'Scan for the device (BLE name "F7") and connect over GATT. Note: it advertises only at power-up and accepts one connection attempt — after a failed connect or an out-of-range drop, power-cycle it before retrying.'
             actor: client
           - action: "Subscribe to notifications on the UART TX characteristic."
             actor: client
@@ -68,10 +93,13 @@ device:
       applicable: "unknown"
       confidence: low
       effect: >
-        Not established. The device stores no credential or binding that a reset
-        would clear, so a reset may not exist at all; no reset command was found
-        in the decompiled app. Power-cycling by removing the batteries is the
-        only state change observed, and whether it clears anything is untested.
+        Not established on the F7 itself. The app's CommandManager does
+        contain a resetBand command (opcode 0xFF, frame AB 00 03 FF FF 80),
+        but it belongs to the shared Wearfit band-family command set and its
+        effect on the oximeter is unverified; the device stores no credential
+        or binding that a reset would clear, so a reset may not exist at all.
+        Power-cycling by removing the batteries is the only state change
+        observed, and whether it clears anything is untested.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -96,10 +124,15 @@ services:
         name: "UART RX"
         notes: >
           RX characteristic (write commands to device). Host-to-device command
-          frames are AB 00 <len> FF <cmd> 80 <args...>; recovered commands:
-          0x20 = get version, 0x30 = measurement poll, 0x93 = time sync,
-          0x25/0x28 = enter bootloader / bootloader MAC, 0x99 = music control
-          (byte at offset 6: 0=play/pause, 1=prev, 2=next).
+          frames are AB 00 <len> FF <cmd> 80 <args...>; recovered commands
+          (CommandManager.java): 0x20 = get version, 0x30 = measurement poll,
+          0x93 = time sync, 0x25/0x28 = enter bootloader / bootloader MAC,
+          0x99 = music control (byte at offset 6: 0=play/pause, 1=prev,
+          2=next), 0x7E = weather update (3 arg bytes), 0x86 = body-temp
+          measure, 0x87 = switch speed, 0x7D = alarm start (arg 1) / stop
+          (arg 0), 0xB1 = motor/vibration text, 0xFF = reset band. Commands
+          beyond 0x30 belong to the shared Wearfit band-family set and are
+          app-derived, not verified against F7 hardware.
         properties: ["write", "write_without_response"]
         commands:
           poll_measurement:
@@ -125,8 +158,18 @@ services:
 
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
     name: "Smart Bracelet Service"
-    notes: "Alternate service also referenced in the Wearfit app."
+    notes: >
+      Referenced-but-probably-absent. fff0/fff4 appear in the APK only in a
+      static UUID-to-name table (model/ble/GattAttributes.java, copied from
+      Google's BluetoothLeGatt sample); no code path ever reads or writes
+      fff4, and the hardware-tested OximeterF7Bridge found only the Nordic
+      UART service on a real device.
     characteristics:
       - uuid: "0000fff4-0000-1000-8000-00805f9b34fb"
         name: "Smart Bracelet Measurement"
         properties: ["write", "notify"]
+
+references:
+  - "https://github.com/joba-1/OximeterF7Bridge"
+  - "https://github.com/jcomas/PulseOximeterSP001"
+  - "https://web.archive.org/web/20220528040458/http://www.manridy.com/en/product-19070-18734-169757.html"

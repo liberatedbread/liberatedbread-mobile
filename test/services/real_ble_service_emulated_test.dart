@@ -1190,6 +1190,155 @@ void main() {
             : 'the spurious-timeout tolerance only applies on Linux');
   });
 
+  group('recentNotifications', () {
+    test('buffers pushes so a late subscriber can still recover them',
+        () async {
+      // The point of the ring: a device that announces itself ONCE on connect
+      // (the SmartDawn curtain's panel size) pushes before the widget that
+      // wants it exists. Whoever was subscribed at the time captures it.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [83]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(
+        service.recentNotifications(
+            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        [
+          [84],
+          [83]
+        ],
+      );
+
+      await sub.cancel();
+    });
+
+    test('one push is buffered once however many subscribers share it',
+        () async {
+      // The ring is filled from the SHARED enable, not from each subscriber's
+      // listener. Recording per subscriber would enter one physical push N
+      // times and evict the buffer N times faster — on a characteristic with
+      // several cards on it, the connect-time push this exists to recover
+      // would be gone before anyone asked for it.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final first = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      final second = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(
+        service.recentNotifications(
+            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        [
+          [84]
+        ],
+      );
+
+      await first.cancel();
+      await second.cancel();
+    });
+
+    test('a released characteristic stops filling the ring', () async {
+      // The recorder rides the share, so the last cancel must take it with
+      // it — a recorder outliving its subscribers would keep buffering for a
+      // characteristic nobody is watching.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [83]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(
+        service.recentNotifications(
+            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        [
+          [84]
+        ],
+        reason: 'the push after the last cancel must not be buffered',
+      );
+    });
+
+    test('disconnecting clears the buffer', () async {
+      // The ring is per-connection: a stale push replayed into the next link
+      // would size a canvas from the previous device's answer.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+
+      await service.disconnect(_bulbId);
+
+      expect(
+        service.recentNotifications(
+            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        isEmpty,
+      );
+    });
+
+    test('a dropped link does not carry its pushes into the reconnect',
+        () async {
+      // The buffer is per-connection, and a link the peripheral drops never
+      // reaches disconnect() — so the clear has to ride the same link-turnover
+      // path the notify shares do, or a reconnect starts holding the previous
+      // link's pushes as if the device had just sent them.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      bulb.dropLink();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+
+      await service.connect(_bulbId);
+
+      expect(
+        service.recentNotifications(
+            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        isEmpty,
+      );
+    });
+  });
+
   group('link loss', () {
     test('a peripheral that drops the link is reported as disconnected',
         () async {

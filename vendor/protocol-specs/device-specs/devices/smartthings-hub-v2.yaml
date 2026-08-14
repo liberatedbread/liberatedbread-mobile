@@ -6,9 +6,11 @@ device:
   name: "SmartThings Hub v2"
   manufacturer: "Samsung SmartThings"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "hub"
-  transport: "websocket"
+  transport: "https"
   notes: >
     SmartThings Hub v2 advertises local SmartThings, Edge driver, and Matter
     services via mDNS. The primary identity is the _smartthings._tcp TXT
@@ -117,12 +119,28 @@ smartthings_local_protocol:
   edge_driver_service:
     service_type: "_smartthings-hedge._tcp.local."
     port: 8766
-    transport: "WebSocket"
-    confidence: "unverified"
+    transport: "HTTPS"
+    confidence: "medium"
+    confidence_notes: >
+      App-derived, not exercised on hardware: the vendor app's hub
+      diagnostics flow discovers _smartthings-hedge._tcp.local. via mDNS and
+      matches the endpoint against its L3_HTTPS protocol, then talks to it
+      through a plain Retrofit HTTPS interface (iv/d). The feat=ctrl TXT key
+      remains probe-only — the app never reads the hedge TXT record.
     notes: >
-      Service and port are corroborated by community observation (Nov 2024),
-      but the WebSocket transport and the feat=ctrl TXT key rest solely on
-      this spec's own probe — no public source documents them.
+      Service and port are corroborated by community observation (Nov 2024)
+      and by the vendor app's mDNS discovery. The transport is HTTPS, not
+      WebSocket: the app matches the discovered endpoint against
+      DiagnosticsProtocol.L3_HTTPS. The feat=ctrl TXT key rests solely on
+      this spec's own probe — treat it as unverified.
+    auth:
+      confidence: "medium"
+      type: "bearer"
+      notes: >
+        App-derived: requests carry an Authorization: Bearer header built
+        from a cloud-issued HubEdgeAuthentication (access_token plus a
+        client public certificate), obtained from the cloud API via
+        POST /hubdevices/{hubDeviceId}/hedge/auth.
     txt:
       feat: "ctrl"
   matter_controller:
@@ -137,6 +155,16 @@ smartthings_local_protocol:
       instance-specific, not normative.
     txt:
       T: 6
+  cloud_hedge_api:
+    confidence: "medium"
+    notes: >
+      App-derived, not hardware-verified: the vendor app also speaks a
+      cloud-side "hedge" API family for Matter and Thread management
+      (MatterService) — e.g. /hedge/request/{hubId}/devices/{deviceId}/matter/fabrics,
+      /hedge/request/{hubId}/matter/rendezvous, and
+      /hedge/request/{hubId}/thread/networkInfo — plus Matter DCL
+      vendor/product lookups. These are cloud REST endpoints reached through
+      Samsung's backend, not endpoints served by the hub itself.
   local_https_api:
     port: 9495
     transport: "HTTPS"
@@ -170,7 +198,22 @@ http_endpoints:
     path: "/"
     name: "SmartThings Local Service Root"
     status: "unverified"
-    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge WebSocket service."
+    description: "Primary _smartthings._tcp service endpoint on port 8081 (probe-observed only; the 2016 community capture's TXT path=/ supports a root path existing, but no public documentation of an HTTP API on 8081 exists). Edge control is advertised separately on the hedge HTTPS service."
+  - method: "GET"
+    path: "/devices/hub/connectionState"
+    name: "Hub Connection State (hedge, port 8766)"
+    status: "unverified"
+    description: "App-derived, not exercised on hardware: hedge HTTPS endpoint used by the vendor app's hub diagnostics flow. Authenticated with a cloud-issued HubEdgeAuthentication bearer token (see smartthings_local_protocol.edge_driver_service.auth)."
+  - method: "GET"
+    path: "/util/diagnosticLogsDownload"
+    name: "Diagnostic Logs Download (hedge, port 8766)"
+    status: "unverified"
+    description: "App-derived, not exercised on hardware: hedge HTTPS endpoint returning the hub's diagnostic logs, same bearer auth as /devices/hub/connectionState."
+  - method: "POST"
+    path: "/util/reboot"
+    name: "Hub Reboot (hedge, port 8766)"
+    status: "unverified"
+    description: "App-derived, not exercised on hardware: hedge HTTPS endpoint that reboots the hub, same bearer auth as /devices/hub/connectionState."
   - method: "GET"
     path: "/drivers"
     name: "Edge Drivers (port 9495)"

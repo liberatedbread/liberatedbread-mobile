@@ -24,6 +24,10 @@ features:
     max_width: 255
     max_height: 255
     resolution_source: "device_reported"
+    resolution_advertisement:
+      company_id: 0x61EA
+      width_offset: 4
+      height_offset: 5
     animation: true
     default_frame_interval_ms: 200
     # The upload choreography and the buffer tag it writes under, stated by

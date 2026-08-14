@@ -6,6 +6,8 @@ device:
   name: "Samsung Tizen Smart TV (2016+)"
   manufacturer: "Samsung Electronics"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "tv"
   # Deliberately not "http": the primary control surface is a WebSocket

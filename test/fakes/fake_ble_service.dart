@@ -253,6 +253,15 @@ class FakeBleService implements BleService {
     return controller.stream;
   }
 
+  /// What [recentNotifications] returns — a test sets it to simulate a
+  /// connect-time push already buffered by the service.
+  List<List<int>> recentNotificationsToReturn = const [];
+
+  @override
+  List<List<int>> recentNotifications(
+          String deviceId, String serviceUuid, String charUuid) =>
+      recentNotificationsToReturn;
+
   @override
   Future<int> mtu(String deviceId) async => mtuToReturn;
 

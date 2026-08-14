@@ -6,6 +6,8 @@ device:
   name: "CoolLEDX LED Sign"
   manufacturer: "Juntong Technology"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >
@@ -22,9 +24,11 @@ device:
     MUST branch on the advertised name.
 
     FRAMING (basic protocol): 0x01 | escape(uint16_be payload_length || payload) | 0x03.
-    Because 0x01 and 0x03 are frame delimiters, any byte below 0x04 anywhere inside the
-    escaped region is replaced by a 0x02 prefix plus (byte + 4):
-      0x00 -> 02 04, 0x01 -> 02 05, 0x02 -> 02 06, 0x03 -> 02 07.
+    Because 0x01 and 0x03 are frame delimiters, each 0x01, 0x02 or 0x03 byte anywhere
+    inside the escaped region is replaced by a 0x02 prefix plus (byte + 4):
+      0x01 -> 02 05, 0x02 -> 02 06, 0x03 -> 02 07.
+    0x00 is NOT escaped — it passes through verbatim (confirmed in the vendor app's
+    encoder, 2026-08 audit; the community driver's "0x00 -> 02 04" was wrong).
     Escape 0x02 first when transforming a buffer or the newly-inserted escape prefixes
     get double-escaped. Note the schema's `framing.length_prefix` flag below records the
     length prefix; the escaping layer has no schema representation and is described here.
@@ -42,13 +46,38 @@ device:
     CONFIDENCE: service/characteristic UUIDs, advertisement layout, frame structure,
     escaping rules and the CoolLEDX command bytes for music/text/image/animation/mode/
     speed/brightness/switch are HIGH (independent community driver, built from BLE HCI
-    snoops). Command bytes marked "unconfirmed" below (0x0A transfer, 0x11 show icon,
-    0x12 power down, 0x13 button on, 0x15 mirror) are LOW — they come from secondary
-    references and have not been observed on the wire. 0x0C invert, 0x0D clear, 0x1F
-    query and 0x23 initialize were observed on a CoolLEDM, not a CoolLEDX.
+    snoops). A 2026-08 audit of the vendor app (jadx of com.jtkj.led1248) independently
+    confirms the fff0/fff1 service/characteristic, the framing and escaping above, the
+    0x0A begin-transfer byte and command bytes 0x01-0x09 including mode values
+    0x01-0x08, speed and brightness; the same app drives CoolLED, CoolLEDA and CoolLEDS
+    through the same basic-protocol builders as CoolLEDX. App-derived facts are
+    source-confirmed but not hardware-verified.
+    Command bytes marked "unconfirmed" below (0x11 show icon, 0x12 power down, 0x13
+    button on, 0x15 mirror) are LOW and now weaker: they come from secondary references
+    and appear nowhere in the app's basic-protocol builders. 0x23 initialize is in the
+    same position — a CoolLEDM observation, absent from the basic builders.
+    0x0C invert, 0x0D clear and 0x1F query were observed on a CoolLEDM, not a CoolLEDX.
+    Note 0x0D also exists on the basic protocol, but as password verify — see
+    verify_password below.
     The text/image/animation payload bodies are client-rendered bitmaps and are NOT
     specified here; see the coolledx-driver render module.
     Source: github.com/UpDryTwist/coolledx-driver (original RE credited to CrimsonClyde).
+
+    APP AUDIT (2026-08, jadx of com.jtkj.led1248 — app-derived, not hardware-verified):
+    CHUNKED TRANSFER: large payloads are split into 128-byte chunks, each sent as its
+    own framed command whose command byte is the data type (0x02 text, 0x03 image,
+    0x04 animation). Chunk body: 0x00 | total payload length (uint16_be) | chunk index
+    (uint16_be) | chunk length (uint8) | chunk data | XOR checksum of all preceding
+    body bytes. The device ACKs every chunk with a 5-byte notification — byte 0 echoes
+    the data type, bytes 2-3 carry the chunk index (big-endian), byte 4 the status
+    (ERROR CODES above) — and the app sends the next chunk only after a success status.
+    A transfer opens with the 0x0A begin-transfer command.
+    CONNECTION: the app requests MTU 247 and paces writes 15 ms apart.
+    PASSWORD: 0x0D verify / 0x0E set exist on the basic protocol. The app applies them
+    to CoolLEDS always and to CoolLEDX only when a password has been configured, so a
+    stock CoolLEDX stays open; physical proximity remains the only access control.
+    FIRMWARE: the app bundles a CoolLEDU OTA image (assets/coolledu.bin) — advanced
+    family, consistent with the OTA note below.
 
     NEW INFO (2026-07 verification — additions only, no discrepancies found):
     the CoolLED1248 Android app is actively developed (updated 2026-07-02;
@@ -152,18 +181,22 @@ device:
       identification:
         local_name_prefix: "CoolLED"
       notes: >
-        Original, fixed 48x12, monochrome. Nominally basic protocol, but no
-        implementation has been verified against one. Not discoverable.
+        Original, fixed 48x12, monochrome. Basic protocol confirmed in the vendor
+        app (same builders as CoolLEDX, 2026-08 audit), not verified against
+        hardware. Not discoverable.
     - model: "CoolLEDA"
       identification:
         local_name_prefix: "CoolLEDA"
       notes: >
-        Fixed 32x16. Nominally basic protocol, unverified against hardware.
-        Not discoverable.
+        Fixed 32x16. Basic protocol confirmed in the vendor app (2026-08 audit),
+        not verified against hardware. Not discoverable.
     - model: "CoolLEDS"
       identification:
         local_name_prefix: "CoolLEDS"
-      notes: "Basic-protocol family per upstream, unverified. Not discoverable."
+      notes: >
+        Basic protocol confirmed in the vendor app (shares the CoolLEDX builders
+        per geometry, 2026-08 audit), not verified against hardware. The app
+        always enforces its optional password on this variant. Not discoverable.
     - model: "CoolLEDM"
       identification:
         local_name_prefix: "CoolLEDM"
@@ -233,7 +266,9 @@ services:
               icon:
                 type: "bytes"
           set_mode:
-            description: "Set display mode."
+            description: >
+              Set display mode. App-confirmed (2026-08 audit): the vendor app sends
+              0x01-0x08 (static, left, right, up, down, snowflake, picture, laser).
             template: [0x06, "{mode}"]
             parameters:
               mode:
@@ -262,6 +297,24 @@ services:
           power_off:
             description: "Switch the sign off (command 0x09)."
             value: [0x09, 0x00]
+          begin_transfer:
+            description: >
+              Begin transfer (0x0A). App-confirmed (2026-08 audit): sent once, with
+              no payload, before a chunked text/image/animation upload.
+            value: [0x0A]
+          verify_password:
+            description: >
+              Password verify (0x0D). App-confirmed on the basic protocol (2026-08
+              audit), not verified against hardware. Payload: one random byte, then
+              each password digit (one nibble per byte) XOR the random byte, then a
+              XOR checksum of the obfuscated digits. Optional on CoolLEDX — the app
+              sends it only when a password is configured (always on CoolLEDS);
+              0x0E sets the password. Distinct from the 0x0D "clear" observed on
+              CoolLEDM (advanced family).
+            template: [0x0D, "{payload}"]
+            parameters:
+              payload:
+                type: "bytes"
           invert_display:
             description: "Invert the display. Confirmed on CoolLEDM; unverified on CoolLEDX."
             template: [0x0C, "{inverted}"]
@@ -277,7 +330,9 @@ services:
             value: [0x1F]
           initialize:
             description: >
-              Initialize with a battery-level byte (0x23). Confirmed on CoolLEDM.
+              Initialize with a battery-level byte (0x23). Observed on a CoolLEDM
+              only; appears nowhere in the vendor app's basic-protocol builders
+              (2026-08 audit), so unproven — and now weaker — on CoolLEDX.
             template: [0x23, "{battery_level}"]
             parameters:
               battery_level:
@@ -285,13 +340,22 @@ services:
                 min: 0
                 max: 255
           power_down:
-            description: "UNCONFIRMED (secondary source): power down (0x12)."
+            description: >
+              UNCONFIRMED (secondary source): power down (0x12). Not found in the
+              vendor app's basic-protocol builders (2026-08 audit) — likely absent
+              on this family.
             value: [0x12]
           show_icon:
-            description: "UNCONFIRMED (secondary source): show icon (0x11)."
+            description: >
+              UNCONFIRMED (secondary source): show icon (0x11). Not found in the
+              vendor app's basic-protocol builders (2026-08 audit) — likely absent
+              on this family.
             value: [0x11]
           mirror_display:
-            description: "UNCONFIRMED (secondary source): mirror or similar (0x15)."
+            description: >
+              UNCONFIRMED (secondary source): mirror or similar (0x15). Not found
+              in the vendor app's basic-protocol builders (2026-08 audit) — likely
+              absent on this family.
             value: [0x15]
 
 entities:

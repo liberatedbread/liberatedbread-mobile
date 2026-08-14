@@ -6,6 +6,8 @@ device:
   name: "Philips Hue Bridge"
   manufacturer: "Signify / Philips Hue"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "hub"
   transport: "http"

@@ -53,6 +53,22 @@ Widget _wrap(
       ),
     );
 
+/// The canvas Width/Height field showing [value].
+///
+/// The fields carry no keys — each owns its own text so it can snap back from
+/// unparseable input — so anchor on the label the field is labelled with and
+/// assert on the text inside that one field. Anchoring matters: with a square
+/// canvas both fields show the same number, and a bare text match cannot tell
+/// which dimension actually took the size.
+Finder _canvasSizeShowing(String label, int value, {int max = 255}) =>
+    find.descendant(
+      of: find.ancestor(
+        of: find.text('$label (1-$max)'),
+        matching: find.byType(TextFormField),
+      ),
+      matching: find.text('$value'),
+    );
+
 /// Scroll [finder] into view, then tap it — the editor column is taller than
 /// the test viewport.
 Future<void> _scrollAndTap(WidgetTester tester, Finder finder) async {
@@ -368,14 +384,16 @@ void main() {
       expect(call.scroll, 'left');
       expect(call.cid, greaterThanOrEqualTo(900001));
 
-      // Both uploader writes then the play write went out, in order.
+      // Both uploader writes, then effect-list refresh, then the play write,
+      // then the autorun-fixed pin — the vendor's store → refresh → show, plus
+      // pinning the device to this design across disconnect.
       expect(ble.writes.map((w) => w.charUuid).toList(),
-          ['uploader', 'uploader', 'ddp']);
-      expect(ble.writes.map((w) => w.value).toList(), [
-        [10, 11],
-        [12, 13],
-        [9],
-      ]);
+          ['uploader', 'uploader', 'ddp', 'ddp', 'ddp']);
+      expect(ble.writes[3].value, [9],
+          reason: 'the play write follows the list');
+      expect(codec.encodeCalls.map((c) => c.commandName), ['effect_list']);
+      expect(codec.encodeAutorunModeCalls, [0],
+          reason: 'fixed mode pins the device to this design after play');
     });
 
     testWidgets('the Text kind reveals a text field and blocks an empty save',
@@ -412,8 +430,12 @@ void main() {
     });
 
     testWidgets(
-        'saving an animation sends every frame via encodeStoredAnimation',
+        'saving an animation stores each frame as a still and loops them',
         (tester) async {
+      // This curtain has no .eff renderer, so a multi-frame animation is stored
+      // as a CYCLE of type-3 stills: one upload per frame, then a bookmark set,
+      // then play_next to start looping. No single .eff, and no autorun-fixed
+      // (that would freeze the loop on one frame).
       final codec = FakeSpecCodec();
       final ble = FakeBleService();
       await tester.pumpWidget(_wrap(
@@ -435,18 +457,80 @@ void main() {
 
       await _scrollAndTap(tester, find.text('Save to device'));
       await tester.pumpAndSettle();
-
-      // The Animation kind is now selectable.
-      await tester.tap(find.text('Animation').last);
-      await tester.pumpAndSettle();
+      // A multi-frame canvas defaults the dialog to Animation.
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
 
-      expect(codec.encodeAnimationCalls, hasLength(1));
-      final call = codec.encodeAnimationCalls.single;
-      expect(call.frameCount, 2, reason: 'both frames stored');
-      expect(call.width, 4);
+      // One still upload per frame (not a single .eff).
+      expect(codec.encodeStoredCalls, hasLength(2),
+          reason: 'each frame is stored as its own still');
+      expect(codec.encodeStoredCalls.every((c) => c.scroll == 'none'), isTrue,
+          reason: 'a frame is a plain still, not a scroll');
+      expect(codec.encodeAnimationCalls, isEmpty,
+          reason: 'no single-.eff upload on this curtain');
+      // The loop is set up the vendor's actual on-wire way: set_playlist(save)
+      // → play_next. There is NO bookmark_clear/bookmark_enable in any capture,
+      // so the app must not send them.
+      expect(codec.encodeBookmarkClearCalls, isEmpty,
+          reason: 'bookmark_clear is not in any capture — do not send it');
+      expect(codec.encodeBookmarkEnableCalls, isEmpty,
+          reason: 'bookmark_enable is not in any capture — do not send it');
+      expect(codec.encodeSetPlaylistCalls, hasLength(1));
+      expect(codec.encodeSetPlaylistCalls.single, hasLength(2),
+          reason: 'both frame cids are in the loop');
+      expect(
+          codec.encodeCalls.map((c) => c.commandName), contains('play_next'));
+      // A loop must NOT be pinned to one frame with fixed autorun.
+      expect(codec.encodeAutorunModeCalls, isEmpty);
       expect(ble.writes, isNotEmpty);
+    });
+
+    testWidgets('an animation cycles in-app with play_effect while connected',
+        (tester) async {
+      // The curtain holds one frame while connected, so the app steps the loop
+      // itself with play_effect — no disconnect needed to see it animate.
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Animation'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.byTooltip('Add frame'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3)); // drain save + let it tick
+      expect(
+          codec.encodeCalls.map((c) => c.commandName), contains('play_effect'),
+          reason: 'the in-app cycle steps frames with play_effect');
+      // Dispose the widget so the periodic timer is cancelled before teardown.
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
+    test('diyEffectCidsToClear keeps only diy==1 cids (scopes the loop)', () {
+      // The device autoruns EVERY stored diy effect, so a scoped loop needs the
+      // others removed first (hardware-verified 2026-08-12: clear diy → store →
+      // the panel cycles ONLY the new frames). Built-in / non-diy effects
+      // (diy==0) are left alone.
+      final cids = diyEffectCidsToClear(const [
+        EffectEntryDto(cid: 111, slot: 1, type: 1, diy: 1),
+        EffectEntryDto(cid: 222, slot: 2, type: 1, diy: 1),
+        EffectEntryDto(cid: 333, slot: 3, type: 3, diy: 0),
+      ]);
+      expect(cids, [111, 222]);
+      expect(cids, isNot(contains(333)),
+          reason: 'non-diy (built-in) effects are left alone');
     });
 
     testWidgets('a failed save surfaces an error and re-enables the button',
@@ -571,9 +655,18 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp'],
-          reason: 'confirmation is what releases the play write');
+      expect(
+          ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp', 'ddp'],
+          reason:
+              'confirmation releases effect-list, play, then autorun-fixed');
+      expect(ble.writes[2].value, [9],
+          reason: 'the play write follows the list');
       expect(find.textContaining('now playing'), findsOneWidget);
+
+      // Drain the background effect-list diagnostic timer so it does not leak
+      // past the test (it logs what the device reported holding, off the play
+      // path).
+      await tester.pump(const Duration(seconds: 3));
     });
 
     testWidgets('a device-side refusal fails the save and never plays',
@@ -668,7 +761,102 @@ void main() {
 
       await tester.pump(const Duration(seconds: 10)); // the verdict timeout
       await tester.pump();
-      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp']);
+      expect(
+          ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp', 'ddp'],
+          reason: 'effect-list, play, then autorun-fixed still go out');
+      expect(ble.writes[2].value, [9]);
+
+      // Drain the background effect-list diagnostic timer (off the play path).
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a silent device is reported as unconfirmed, not "now playing"',
+        (tester) async {
+      // The play write still goes out (best-effort), but the UI must not claim
+      // the design is playing when the device never confirmed the commit.
+      final ble = FakeBleService();
+      final codec = FakeSpecCodec(
+        storedPlan: StoredUploadPlanDto(
+          serviceUuid: 'svc',
+          uploadWrites: [
+            ImageWriteDto(
+                characteristicUuid: 'uploader',
+                bytes: Uint8List.fromList([10])),
+          ],
+          playWrite: ImageWriteDto(
+              characteristicUuid: 'ddp', bytes: Uint8List.fromList([9])),
+          responseCharacteristicUuid: 'notify',
+          cid: 900126,
+        ),
+      );
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Quiet');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 10)); // verdict timeout
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('now playing'), findsNothing,
+          reason: 'an unconfirmed save must not claim playback');
+      expect(find.textContaining('did not confirm'), findsOneWidget);
+
+      // Drain the background effect-list diagnostic timer (off the play path).
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('two replays of the same design use distinct sequences',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Loop');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      await _scrollAndTap(tester, find.widgetWithText(ActionChip, 'Loop'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      await _scrollAndTap(tester, find.widgetWithText(ActionChip, 'Loop'));
+      await tester.pumpAndSettle();
+
+      // Both presses addressed the same cid but with different rolling
+      // sequences, so the two play writes are distinct on the wire.
+      expect(codec.encodeStoredPlayCalls, hasLength(2));
+      expect(codec.encodeStoredPlayCalls[0].cid,
+          codec.encodeStoredPlayCalls[1].cid,
+          reason: 'same design');
+      expect(codec.encodeStoredPlayCalls[0].sequence,
+          isNot(codec.encodeStoredPlayCalls[1].sequence),
+          reason: 'a firmware that de-dupes by serial must see two packets');
     });
 
     testWidgets(
@@ -710,11 +898,133 @@ void main() {
       await _scrollAndTap(tester, find.widgetWithText(ActionChip, 'Sunrise'));
       await tester.pumpAndSettle();
 
-      expect(codec.encodeStoredPlayCalls, [cid],
+      expect(codec.encodeStoredPlayCalls.map((c) => c.cid), [cid],
           reason: 'replay addresses the stored item by its cid');
-      expect(ble.writes.length, writesBefore + 1);
-      expect(ble.writes.last.charUuid, 'ddp');
+      // The play write, then the autorun-fixed pin.
+      expect(ble.writes.length, writesBefore + 2);
+      expect(
+          ble.writes.map((w) => w.charUuid).skip(writesBefore), ['ddp', 'ddp']);
+      expect(codec.encodeAutorunModeCalls, contains(0),
+          reason: 'replay also pins the device to the design');
       expect(find.text('Playing "Sunrise".'), findsOneWidget);
+    });
+
+    testWidgets('pinning a single design as default holds it (fixed autorun)',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Sunrise');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      final cid = codec.encodeStoredCalls.single.cid;
+      // Ignore the save's own fixed-pin; assert on the button's effect.
+      codec.encodeAutorunModeCalls.clear();
+      await _scrollAndTap(tester, find.byKey(Key('saved-default-$cid')));
+      await tester.pumpAndSettle();
+
+      // A single design is held on disconnect: replay it, then FIXED autorun.
+      expect(codec.encodeStoredPlayCalls.map((c) => c.cid), contains(cid));
+      expect(codec.encodeAutorunModeCalls, contains(0),
+          reason: 'fixed = hold this one design after disconnect');
+      expect(find.textContaining('as the device default'), findsOneWidget);
+    });
+
+    testWidgets('pinning an animation default re-sets the loop and repeats it',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Animation'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.byTooltip('Add frame'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+
+      // The design's cid is frame 0's cid (the base id).
+      final baseCid = codec.encodeStoredCalls.first.cid;
+      codec.encodeSetPlaylistCalls.clear();
+      codec.encodeAutorunModeCalls.clear();
+      await _scrollAndTap(tester, find.byKey(Key('saved-default-$baseCid')));
+      await tester.pumpAndSettle();
+
+      // A loop keeps cycling on disconnect: re-set the bookmark, then REPEAT.
+      expect(codec.encodeSetPlaylistCalls, hasLength(1),
+          reason: 'the loop is re-established');
+      expect(codec.encodeAutorunModeCalls, contains(1),
+          reason: 'repeat = keep cycling after disconnect');
+      expect(find.textContaining('as the device default'), findsOneWidget);
+    });
+
+    testWidgets('clearing device designs removes them and empties the list',
+        (tester) async {
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      // Save one design so the "Saved designs" strip (with the clear button)
+      // appears.
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Gone');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      final cid = codec.encodeStoredCalls.single.cid;
+      expect(find.byType(ActionChip), findsOneWidget);
+
+      await _scrollAndTap(
+          tester, find.byKey(const Key('clear-device-designs')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Clear'));
+      await tester.pumpAndSettle();
+
+      // Bulk clear, then a per-cid remove of the one design we stored.
+      expect(codec.encodeRemoveAllAppsCalls, 1);
+      expect(codec.encodeRemoveAppCalls, [cid]);
+      // The local list is emptied — the strip disappears.
+      expect(find.byType(ActionChip), findsNothing);
+      expect(find.text('Saved designs'), findsNothing);
     });
 
     testWidgets('re-saving identical content re-uses the same device slot',
@@ -754,6 +1064,8 @@ void main() {
 
       // Different content gets its own slot.
       final grid = find.byKey(const Key('led-image-grid'));
+      await tester.ensureVisible(grid);
+      await tester.pumpAndSettle();
       await tester.tapAt(tester.getTopLeft(grid) + const Offset(4, 4));
       await tester.pump();
       await save('Third');
@@ -937,6 +1249,146 @@ void main() {
     await tester.pump();
     expect(find.widgetWithText(TextFormField, '999'), findsNothing);
     expect(find.widgetWithText(TextFormField, '255'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a device-reported panel snaps the canvas to its advertised resolution',
+      (tester) async {
+    // The panel advertises 20×20; the canvas must default to that (not the
+    // 16×16 guess), or a drawing leaves the outer strands unwritten.
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec()
+      ..advertisedResolutionResult =
+          const PanelResolutionDto(width: 20, height: 20);
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: deviceReported,
+        specYaml: 'yaml',
+        manufacturerData: {
+          0x61EA: [3, 232, 0, 100, 20, 20]
+        },
+      ),
+      ble: FakeBleService(),
+      codec: codec,
+    ));
+
+    // Starts at the 16×16 guess, then snaps to the advertised 20×20 once the
+    // async lookup returns.
+    expect(_canvasSizeShowing('Width', 16), findsOneWidget);
+    await tester.pumpAndSettle();
+    expect(_canvasSizeShowing('Width', 20), findsOneWidget);
+    expect(_canvasSizeShowing('Height', 20), findsOneWidget);
+    // The advertised payload reached the codec.
+    expect(codec.advertisedResolutionArg, {
+      0x61EA: [3, 232, 0, 100, 20, 20]
+    });
+  });
+
+  testWidgets('a reconnect with no advertisement uses the cached resolution',
+      (tester) async {
+    // Second source: nothing advertised, but a prior session cached the size.
+    await _prefs.setString('panel_res_AA:BB', '20x20');
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec();
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: deviceReported,
+        specYaml: 'yaml',
+      ),
+      ble: FakeBleService(),
+      codec: codec,
+    ));
+    await tester.pumpAndSettle();
+    expect(_canvasSizeShowing('Width', 20), findsOneWidget);
+    // The cache answered, so no BLE DeviceInfo query was needed.
+    expect(codec.deviceInfoResolutionCalls, 0);
+  });
+
+  testWidgets('with no advertisement or cache, DeviceInfo sizes the canvas',
+      (tester) async {
+    // Third source: query the device (mt=2103) and cache the answer.
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec()
+      ..storedResponseChar = 'notify'
+      ..deviceInfoResolutionResult =
+          const PanelResolutionDto(width: 20, height: 20);
+    // The connect-time push the BLE layer buffered before the editor mounted.
+    final ble = FakeBleService()
+      ..recentNotificationsToReturn = [
+        const [0xf1, 0x01, 0x00, 0x01]
+      ];
+    // The query waits a real ~2.5s to collect the device's push, so drive it
+    // under runAsync (real timers) rather than the fake test clock.
+    await tester.runAsync(() async {
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: deviceReported,
+          storedUpload:
+              StoredUploadDto(containerFormat: 'daniao_amx', encodable: true),
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+      // Let the post-frame lookup fire and its collection window elapse.
+      await Future<void>.delayed(const Duration(seconds: 3));
+    });
+    await tester.pump(); // rebuild after the resize
+
+    expect(codec.deviceInfoResolutionCalls, 1);
+    // The buffered connect-time push was folded into the decode.
+    expect(codec.deviceInfoResolutionArg,
+        contains(const [0xf1, 0x01, 0x00, 0x01]));
+    expect(_canvasSizeShowing('Width', 20), findsOneWidget);
+    // And it was cached for next time.
+    expect(_prefs.getString('panel_res_AA:BB'), '20x20');
+  });
+
+  testWidgets('an empty advertisement with no storage leaves the default',
+      (tester) async {
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec();
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: deviceReported,
+        specYaml: 'yaml',
+        // No advertisement, no storedUpload -> no source; stays at the default.
+      ),
+      ble: FakeBleService(),
+      codec: codec,
+    ));
+    await tester.pumpAndSettle();
+    expect(_canvasSizeShowing('Width', 16), findsOneWidget);
+    expect(codec.advertisedResolutionArg, isNull);
+    expect(codec.deviceInfoResolutionCalls, 0);
   });
 
   testWidgets('switching to Static stops a running preview', (tester) async {

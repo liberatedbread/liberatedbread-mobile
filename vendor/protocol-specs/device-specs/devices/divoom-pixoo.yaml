@@ -2,6 +2,8 @@ device:
   name: Divoom Pixoo WiFi
   manufacturer: Divoom
   manufacturer_status: active
+  testing:
+    status: untested
   protocol: wifi
   category: display
   model: pixoo64_wifi
@@ -16,8 +18,18 @@ device:
     \ PixelEncode128 — the NDK algorithm lives in libtimebox.so, not the decompiled\
     \ Java.\nCOMMUNICATION:\
     \ Three channels in priority order:\n  1. Local HTTP (same LAN) → POST http://<ip>:9000/divoom_api\n\
-    \  2. MQTT (same LAN, fallback) → topics not fully analyzed\n  3. Remote (cloud\
-    \ relay) → POST to Divoom cloud, device polls\n\nThe device also exposes Divoom's\
+    \  2. MQTT (same LAN, fallback) → the PHONE hosts the broker: the app embeds\
+    \ an MQTT server plus a paho client to tcp://127.0.0.1:1883, and the device\
+    \ connects to it (MqttRequest.java; firmware contains app-MQTT client strings).\
+    \ Topics not fully analyzed.\n  3. Remote (cloud\
+    \ relay) → POST to Divoom cloud, device polls\n\nError semantics: local :9000\
+    \ responses return HTTP 200 even on rejection, with a non-zero error_code\
+    \ field in the JSON body (ztomer/divoom_lib divoomd/src/lan.rs).\n\nCloud hosts:\
+    \ the app uses https://appin.divoom-gz.com; sibling host https://app.divoom-gz.com\
+    \ is also live and used by Divoom's own docs and community clients (r12f/divoom).\
+    \ Firmware metadata is available unauthenticated: POST app.divoom-gz.com/Device/GetUpdateFileList\
+    \ (HardwareList) then Device/GetUpdateFileV3 (Hardware) returns FileId/Version/SHA-1;\
+    \ files are served from f.divoom-gz.com.\n\nThe device also exposes Divoom's\
     \ official documented third-party local API at POST http://<ip>:80/post (no\
     \ LocalToken; docs at docin.divoom-gz.com) — see http_endpoints.\n\nDEVICE TYPES: Pixoo64 (64x64),\
     \ Pixoo16 (16x16), Pixoo Max, Pixoo VJ, LCD 5-panel WiFi, and photo frame variants.\
@@ -29,7 +41,11 @@ device:
     \ supported models\n  DeviceFunction.java — device type enum, feature flags\n\
     \  DesignSendModel.java — send priority, HTTP/MQTT/Remote flow\n\n\nDiscovery:\
     \ No local discovery protocol (no UDP broadcast, mDNS, or BLE scan). Device registers\
-    \ with Divoom cloud; app queries Device/GetListV2 to get device IP and metadata.\n"
+    \ with Divoom cloud; app queries Device/GetListV2 to get device IP and metadata.\
+    \ Divoom's own third-party docs also offer a cloud LAN-discovery endpoint,\
+    \ POST https://app.divoom-gz.com/Device/ReturnSameLANDevice, which returns\
+    \ same-LAN devices (name, id, IP, MAC) — a documented alternative to GetListV2\
+    \ (still cloud-dependent).\n"
   identification:
     local_name_prefix: Pixoo16-WiFi,Pixoo16WiFi,Pixoo64,Di-Da
     local_name_contains:
@@ -467,3 +483,12 @@ http_endpoints:
     (fw >= 90096). A 2026-05 documentation update adds a DeviceToken
     field, so newer firmware may start gating this endpoint.'
   name: post_api
+references:
+- "https://play.google.com/store/apps/details?id=com.divoom.Divoom"
+- "http://docin.divoom-gz.com"
+- "https://github.com/ztomer/divoom_lib"
+- "https://github.com/r12f/divoom"
+- "https://github.com/james-coder/divum-bridge"
+- "https://github.com/gickowtf/pixoo-homeassistant"
+- "https://github.com/d03n3rfr1tz3/hass-divoom"
+- "https://github.com/SomethingWithComputers/pixoo"

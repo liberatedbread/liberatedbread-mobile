@@ -6,6 +6,8 @@ device:
   name: "Bafang BBS02 Mid-Drive"
   manufacturer: "Suzhou Bafang Electric Motor Science-Technology"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "uart"
   category: "motor"
   notes: >
