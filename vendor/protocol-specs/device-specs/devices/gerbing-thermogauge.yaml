@@ -14,6 +14,8 @@ device:
   name: "Gerbing / GYDE ThermoGauge Heated Clothing Controller"
   manufacturer: "GYDE (Gerbing Heated Clothing)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "wearable"
   model: "coreheat7"
@@ -37,7 +39,8 @@ device:
 
     TEMP READ FORMAT: 1 byte, unsigned. Display: ceil((raw/2+85)/5)*5.
       Units: inferred °F (raw=0→85, raw=142≈156, raw=255≈215).
-      TempControl mode active when 60 <= raw < 142 (~115-155°F).
+      TempControl mode active when 60 <= raw < 142 (~115-155°F) AND
+      heat outputs > 0 (Model::get_IsTempControl).
 
     BATTERY: 1 byte, 0-100%, standard SIG Battery Level (0x2A19).
 
@@ -47,7 +50,26 @@ device:
 
     SCAN FILTER: name Contains("Gerbing") || Contains("Gyde").
       Not a prefix match — substring anywhere in advertised name.
-      Auto-reconnect on device.ID match.
+      Auto-reconnect on device.ID match. The app scans NAME-ONLY —
+      it never filters by service UUID, so the advertisement contents
+      are unknown from the binary and identification.service_uuids /
+      discovery.ble.service_uuids are UNVERIFIABLE for Thermogauge
+      hardware. The sibling Snooz device advertises the HEAT service
+      729f0608-… (not the temp service), so scanning by ab06bd90-…
+      may well miss real devices — scan by name.
+
+    POLL LOOP: the app polls characteristics round-robin
+      (GetNextCharacteristicToPoll cycles channel index
+      1..NumDeviceOutputs) in addition to registering ValueUpdated —
+      device-side notify vs poll-only is unconfirmed.
+
+    TOKEN-AUTH SURFACE: the shared OEM module natively supports a
+      SET_TOKEN command (command id 6, per pysnooz's Snooz command
+      table) that the Thermogauge app never exercises. On Snooz, an
+      8-byte pairing token rides in the BLE manufacturer data
+      (pysnooz advertisement parsing). Whether Thermogauge firmware
+      implements or requires token auth is unknown — no auth was
+      needed in the app.
 
     BATTERY SAVER: level <=20% triggers heat clamp to max 20 (7.4V only,
       12V exempt). IL set_BatteryLevel: `ldc.i4.s 20; bgt.s end` — the
@@ -193,7 +215,8 @@ services:
               vendor app rounds UP to the next multiple of 5 for display
               (ceil(value/5)*5). Units are inferred °F, not confirmed
               (raw=0 -> 85, raw=142 ≈ 156, raw=255 -> 212.5 shown as 215).
-              TempControl mode is active while 60 <= raw < 142.
+              TempControl mode is active while 60 <= raw < 142 and heat
+              outputs are above 0.
 
       - uuid: "ab06bd92-cc16-11e4-8830-0800200c9a66"
         name: "Temperature Channel 2"
@@ -337,3 +360,9 @@ entities:
     device_class: "battery"
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
+
+references:
+  - "https://github.com/home-assistant/core/blob/dev/homeassistant/components/snooz/manifest.json"
+  - "https://pypi.org/project/pysnooz/0.8.6/"
+  - "https://community.home-assistant.io/t/controlling-snooz-white-noise-machine-with-esp32-and-esphome-ble-client/451542"
+  - "https://www.gerbing.com/products/gerbing-thermogauge-12v-bluetooth-temperature-controller"

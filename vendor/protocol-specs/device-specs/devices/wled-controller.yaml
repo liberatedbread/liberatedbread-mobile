@@ -6,6 +6,8 @@ device:
   name: "WLED Addressable LED Controller"
   manufacturer: "WLED project (Aircoookie and contributors)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "light"
   transport: "http"

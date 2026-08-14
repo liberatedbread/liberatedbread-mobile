@@ -70,15 +70,20 @@ nav:
           - Chef iQ Sense: devices/chef-iq-sense.md
           - AUTOBABA LED Backpack: devices/autobaba-led-backpack.md
           - Nyan BT Image Controller: devices/nyan-bt-image-controller.md
+          - LED space Wi-Fi LED Screen: devices/led-space.md
           - MoTool Slacker: devices/motool-slacker.md
           - AdMore Light Bar Pro: devices/admore-light-bar.md
           - ProGlow Motorcycle LED: devices/proglow-motorcycle-led.md
           - SeeBlue Motorcycle LED: devices/seeblue-motorcycle-led.md
           - SmartDawn Smart Lights: devices/smartdawn-smart-lights.md
           - KingSmith WalkingPad: devices/kingsmith-walkingpad.md
+          - UREVO Walking Pad: devices/urevo-walking-pad.md
           - Fardriver Motor Controller: devices/fardriver-controller.md
           - Kwikset Kevo Smart Lock: devices/kwikset-kevo.md
           - Schlage Smart Locks: devices/schlage-smart-locks.md
+          - Inkbird IBS-TH1/TH2 Hygrometer: devices/inkbird-ibs-th.md
+          - ThermoPro TP357-family Hygrometers: devices/thermopro-tp357.md
+          - Omron BLE Blood Pressure Monitors: devices/omron-connect.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md

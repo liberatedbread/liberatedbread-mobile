@@ -191,3 +191,54 @@ Answers:
 - Keep the curtain powered through the whole session; note the physical
   mode button behavior (press = next effect, hold = off, per FCC manual)
   if captures look desynced.
+
+## 7. Capture findings (2026-08-08..11, answering §3/§4)
+
+Captures analyzed: `smartdawn_capture.pcapng` (08-08), `smartdawn_longer.pcapng`
++ `smartdawn_longer2.pcapng` (08-08), and
+`smartdawn_capture_a_lot_of_custom_animations.pcapng` (08-10), all against the
+JY25CUT curtain "DN0B88" and SmartDawn app v1.2.4.
+
+DDP command channel on the wire (client handle 0x0013, Write Request): 4-byte
+fragment header `[serial][total][remaining][tag=0]`, then
+`F0 04 | sn16 | len16 | mt16-BE | 12-byte DNX header | protobuf`. The vendor
+app ROLLS the fragment serial across every write on the connection; a constant
+serial/sn was accepted live for ONE-SHOT commands, but de-dup behavior for
+byte-identical repeats is unconfirmed — clients should roll both.
+
+Command map verified on-air (all f0/04-framed, mt big-endian):
+
+| mt (hex) | name | payload | evidence |
+|---|---|---|---|
+| 0x09C8 | time_sync | {1: offset, 2: epoch-secs, 3: dst} | at connect, every capture |
+| 0x09CD | set_brightness | {i1: 1-255} | `08 b0 01` (=176), `08 ff 01` (=255) |
+| 0x09D2 | power_on | none | status power bit returns to 1 immediately after (twice) |
+| 0x09D3 | power_off | none | status power bit zeroes immediately after (twice) |
+| 0x0A2C | play_next | none | status current-effect steps E10→E11→E12 after each send |
+| 0x0A2E | play_effect | {i1: cid varint, i2: slot} | builtins use list index as slot; fresh customs slot 0 |
+| 0x0A3E | play-mode related | {1: 0} | paired after 0x0A43; semantics unconfirmed |
+| 0x0A42 | set playlist | {1:0, 2:count, 4:[{1,2:cid,3:idx}...]} | 4-entry sequence observed |
+| 0x0A51 | recolor effect | {1: cid, 2: idx, 3: {1:1, 2:[colors]}} | two recolors observed |
+| 0x0B58 | effect_list | none | device answers with stored-effect list notifications |
+
+Q8 ANSWERED (animation install flow): custom animations do NOT use
+mt 2918-2920 (never on the wire, any capture) and are NOT `.eff`/type-0
+uploads. They persist over the Uploader characteristic as "DN" AMX microapp
+containers exactly like pictures/text: `smartdawn_longer2` frames 6214-6252
+are a complete animation save — START UploadRequest {type=3, size=4096,
+packetnum=9, framesize=500, cid, NO path}, DATA packets with per-packet CRC8,
+then M_UPLOAD_COMPLETE on DDP Notify, then `0x0B58` effect-list refresh
+(t=205.93), then `0x0A2E` play-by-cid (t=205.99). The strings "DNMX"/"DNX2"
+and ".eff" appear in zero captures. Note the saved animation's container
+content ends by ~offset 541 of 4096 — far too small for raster frames — so
+the vendor's animation container encodes compact layer/program records, not
+per-frame rasters (layout per the H5 bundle's encoder, see the mobile core).
+
+Store-then-show sequencing (the JY25CUT will silently ignore a play for an
+uncommitted cid — GATT ACKs, panel unchanged): wait for M_UPLOAD_COMPLETE
+before M_PLAY_EFFECT; the spec's `stored_upload.response_characteristic`
+carries this contract.
+
+Device status notifications (DDP Notify, `F1 01` framed) include a power bit,
+current effect {name, index, cid}, and a ~1 Hz frame counter; short
+`14 08 39 …` messages ack power commands.

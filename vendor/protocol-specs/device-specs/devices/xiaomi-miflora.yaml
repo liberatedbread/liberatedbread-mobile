@@ -6,6 +6,8 @@ device:
   name: "Xiaomi Mi Flora Plant Sensor"
   manufacturer: "Xiaomi / HHCC Plant Technology Co., Ltd."
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -38,7 +40,11 @@ device:
     HHCCJCY09 Flower Care Max (Li-Po, advertises "Grow care garden"),
     HHCCJCY10 (Tuya variant, advertises "TY" with 0xFD50 Tuya service data —
     a different protocol), HHCCPOT002 (RoPot); the black Flower Care has no
-    Bluetooth at all.
+    Bluetooth at all. The decompiled Flower Care vendor app parses a 16-bit
+    product ID from the MiBeacon advertisement and recognizes 152 = 0x0098
+    (this device), 349 = 0x015D (RoPot) plus two more family members:
+    956 (a Grow Care plant monitor) and 957 (a thermometer variant);
+    956/957 are app-derived and not hardware-verified (medium confidence).
 
     SENSOR DATA (handle 0x35, 16 bytes, little-endian):
       bytes 0-1: temperature in 0.1°C (int16 LE)
@@ -62,7 +68,11 @@ device:
     CONFIDENCE: HIGH for handles, sensor data encoding, mode-change command,
     firmware-version parsing and history format — sourced from the miflora
     library source code in production use across Home Assistant and other
-    integrations. Advertised names "Flower care" / "Flower mate" are
+    integrations. The decompiled Flower Care vendor app independently
+    confirms the headline UUIDs (service 0x1204 with 0x1A00/0x1A01/0x1A02;
+    history characteristics 0x1A10/0x1A11/0x1A12), the history commands
+    (0xA00000/0xA1/0xA20000/0xA30000), the sensor data layout and product
+    ID 0x0098. Advertised names "Flower care" / "Flower mate" are
     community-documented.
 
   identification:
@@ -110,8 +120,12 @@ device:
     confidence: "high"
     notes: >
       No provisioning or pairing — read-only sensor. Connect and read handles
-      directly. No bonding required for data reads. Firmware update may need
-      bonding (unverified).
+      directly. No bonding required for data reads. Firmware update (OTA) is
+      Dialog SPOTA over service 0xFEF5 with the standard SPOTA
+      characteristics, driven by plain unbonded GATT notify/write — no
+      bonding; the app even removes any stale OS-level bond before
+      connecting (decompiled vendor app; app-derived, not hardware-verified:
+      medium confidence). This corroborates the DA14580 hardware hypothesis.
     methods:
       - type: "ble_direct"
         verified: false
@@ -172,7 +186,10 @@ services:
       0x1A01 (0x35, sensor data) and 0x1A02 (0x38, firmware+battery);
       0x1A10 (0x3E, history control), 0x1A11 (0x3C, history read) and
       0x1A12 (0x41, device time) — WatchFlower places the history
-      characteristics in a separate service 0x1206, vrachieru in 0x1204.
+      characteristics in a separate service 0x1206, vrachieru in 0x1204 —
+      the decompiled vendor app sides with WatchFlower: it addresses the
+      history characteristics (and the 0x1A12 RTC) through service 0x1206
+      (RTC additionally referenced under 0x1205).
       The miflora library still works by ATT handle, and the handle
       numbers are: 0x03=name, 0x33=mode_change, 0x35=sensor_data,
       0x38=fw_battery, 0x3C=history_read, 0x3E=history_control,
@@ -187,7 +204,10 @@ services:
           (mode change) on firmware ≥2.6.6 to enable real-time mode.
           Notifications are available: writing 0x0100 to handle 0x36 (this
           characteristic's CCCD) subscribes to sensor value notifications
-          (Warsaw Hackerspace wiki).
+          (Warsaw Hackerspace wiki). The decompiled vendor app parses the
+          light value as 24-bit from bytes 3-5, ignoring byte 6 (consistent
+          with the uint32 layout below — byte 6 is effectively unused), and
+          accepts any frame of 10+ bytes.
         format:
           - offset: 0
             length: 2
@@ -219,14 +239,21 @@ services:
         properties: ["write"]
         notes: >
           ATT handle 0x33. Write 0xA01F to enable real-time sensor mode
-          (required for firmware ≥2.6.6). Write 0xFDFF to blink the top LED
-          once. Write 0xB0FF to switch handle 0x35 into serial-number read
-          mode (ChrisScheffler wiki). Older firmware does not need the
-          mode-change write.
+          (required for firmware ≥2.6.6) and 0xC01F to disable it again
+          (decompiled vendor app; the app disables realtime mode when it
+          disconnects). Write 0xFDFF to blink the top LED once. Write
+          0xB0FF to switch handle 0x35 into serial-number read mode
+          (ChrisScheffler wiki); the vendor app confirms this and reads a
+          16-byte serial (32 hex chars) from handle 0x35 afterwards.
+          Older firmware does not need the mode-change write.
         commands:
           enable_realtime:
             description: "Enable real-time sensor read mode (fw ≥2.6.6)."
             value: [0xA0, 0x1F]
+            verification: "reported"
+          disable_realtime:
+            description: "Disable real-time sensor read mode (counterpart to 0xA01F; sent by the vendor app on disconnect)."
+            value: [0xC0, 0x1F]
             verification: "reported"
           blink_led:
             description: "Blink device LED once."
@@ -234,7 +261,7 @@ services:
             value: [0xFD, 0xFF]
             verification: "reported"
           serial_number_read:
-            description: "Switch handle 0x35 into serial-number read mode; read 0x35 afterwards for the serial."
+            description: "Switch handle 0x35 into serial-number read mode; read 0x35 afterwards for the 16-byte serial number."
             value: [0xB0, 0xFF]
             verification: "reported"
 
@@ -266,11 +293,18 @@ services:
         notes: >
           ATT handle 0x3E. Write 0xA00000 to init history read, 0xA20000 to
           clear history (CONFIRMED), 0xA1+2byte_addr to request a specific
-          history entry index.
+          history entry index. 0xA30000 is the history-sync-failed
+          acknowledgement: the miflora library defines it but never sends
+          it, while the decompiled vendor app DOES send it when a history
+          sync fails (app-derived, not hardware-verified).
         commands:
           history_read_init:
             description: "Initialize history read session."
             value: [0xA0, 0x00, 0x00]
+            verification: "reported"
+          history_read_fail:
+            description: "Signal that history synchronization failed (sent by the vendor app on sync failure)."
+            value: [0xA3, 0x00, 0x00]
             verification: "reported"
           history_clear:
             description: "Clear all stored history data on device. IRREVERSIBLE."

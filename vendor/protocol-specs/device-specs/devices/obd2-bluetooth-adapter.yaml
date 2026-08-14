@@ -8,6 +8,8 @@ device:
   name: "OBD-II Bluetooth Adapter (ELM327 / STN)"
   manufacturer: "Generic (ELM327 clones), ScanTool.net, Vgate, LELink"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "vehicle"
   notes: >

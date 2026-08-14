@@ -24,11 +24,21 @@ physical remote. Vendor is active and launching new models (CyberPad,
 - Confirmed BLE control path: retail listings and urevo.com state the app
   controls the treadmill "via Bluetooth" (Academy listing for E4S,
   2026-02-06; urevo.com app page).
-- RESOLVED 2026-08-10: full protocol recovered from the APK's Dart AOT
-  snapshot — see urevo-walking-pad.yaml. Pads speak either a UREVO custom
-  "UR" protocol (service 0xFFF0, framed BluePackA commands: start/stop/
-  pause/resume/set-speed all recovered) or standard FTMS (0x1826), per
-  model. No pairing/auth on the control path.
+- RESOLVED 2026-08-10 (refined 2026-08-12): frame grammar and command set
+  recovered from the APK's Dart AOT snapshot — see urevo-walking-pad.yaml.
+  The app routes pads to one of THREE protocol classes per model:
+  standard FTMS (service 0x1826); an "FT" proprietary class (service
+  0xFFF0, write 0xFFF2 / notify 0xFFF1, BluePackA frames with command
+  class 0x44); and UREVO's own "UR" class (matched by name prefix
+  URTM*/SYWP*, BluePackA frames with command class 0x53 — start/stop/
+  pause/resume/set-speed/config queries recovered — plus a BluePackB
+  5A A5 frame family, body not yet mapped). IMPORTANT: 0xFFF0 belongs to
+  the FT class only. The UR class has NO GATT service/characteristic UUID
+  constants anywhere in the binary (verified 2026-08-12 by full
+  string-table enumeration of libapp.so); the app binds its endpoints by
+  GATT enumeration and/or per-model cloud config, so the UR UUIDs must be
+  captured from hardware (HCI snoop) — do not guess them. No pairing/auth
+  on any control path.
 
 ## APK details
 - **Package**: `com.urevo.app` ("UREVO")
@@ -42,9 +52,11 @@ physical remote. Vendor is active and launching new models (CyberPad,
   parser + capstone (workspace/static/urevo-walking-pad/analysis/).
 
 ## Open questions (updated 2026-08-10)
-- BLE name prefix: `URTM*` match keys code-confirmed (URTM022 = SpaceWalk
-  Lite); exact matcher semantics + whether UR pads advertise 0xFFF0 need
-  one scan.
+- BLE name prefix: `URTM*`/`SYWP*` match keys code-confirmed (URTM022 =
+  SpaceWalk Lite); exact matcher semantics need one scan.
+- UR-class GATT endpoints: unknown — no UUID constants in the binary
+  (0xFFF0 is the FT class's service, not the UR class's). Needs a
+  hardware capture (HCI snoop) of a URTM*/SYWP* pad; do not guess.
 - FTMS vs custom: BOTH, per model (URTreadmill_* vs FTTreadmill_* classes,
   same numeric model codes). Resolved.
 - Pairing token / handshake: none on the control path. Resolved.

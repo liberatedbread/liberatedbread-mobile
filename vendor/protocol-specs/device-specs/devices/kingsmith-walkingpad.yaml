@@ -26,6 +26,8 @@ device:
   name: "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)"
   manufacturer: "KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   openness:
     status: "undocumented"
   protocol: "ble"

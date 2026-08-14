@@ -6,6 +6,8 @@ device:
   name: "NYAN BT Image Controller"
   manufacturer: "NYAN GEAR / LOY SPACE / popled.cn"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >

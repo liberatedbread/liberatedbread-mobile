@@ -6,6 +6,8 @@ device:
   name: "ELK-BLEDOM BLE LED Strip Controller"
   manufacturer: "Unbranded / various OEMs (Zhiling/DuoCo etc.)"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "light"
   notes: >
@@ -36,6 +38,26 @@ device:
     advertised name. LEDBLE, JACKYLED, "LED-" and XROCKER variants use
     write 0xFFE1 / notify 0xFFE2; DMRRBA-007 uses the Nordic UART service
     (write 0x6E400002, notify 0x6E400003).
+
+    OPT7 BRAND VARIANT: OPT7 (motorcycle/automotive accent lighting) ships
+    the same protocol; its Android app is com.opt7.glow (a rebrand of the
+    common "LED lamp" OEM app, package family com.szelk.ledlamppro). Its
+    name matcher (LPHelper.smali) accepts additional advertised names:
+    prefixes DCS-O, ELZ-O, CS-FanLED, MHRS-QA and "LED LIGHT STRIP",
+    substring matches "OB", "OE" and "E2P", plus WCT-family names via
+    DeviceName constants (ELK-BTCWCT*/ELK-BLEDWCT* and brand+suffix
+    compositions such as "OPT7" + "-BLED"/"-BLEDWCT").
+
+    SECOND CONTROL PATH — connectionless broadcast: besides the GATT
+    connection, the app can control devices purely over BLE advertising —
+    the PHONE itself advertises command frames
+    (ble/bulb/ElKBroadcast.smali and BulbBroadcast.smali,
+    twoadvertise/TwoBroadcast.smali, managed by BleTDBroadcastManager;
+    ElKBroadcast builds AdvertiseData and calls startAdvertising). The
+    UUID 90B1F4D2-6C0E-43D6-BA91-A8BBBC9375AA seen in this app is NOT a
+    GATT UUID: it is the fixed address/addressId the app assigns the
+    broadcast pseudo-device in its internal device database
+    (BlePackagingDevice.smali, BleExtKt.smali).
 
     CONFIDENCE: HIGH for service UUID, characteristic UUID, packet format,
     color/brightness/color-temperature commands — sourced from
@@ -130,6 +152,15 @@ device:
     - model: "JACKYLED"
       identification:
         local_name_prefix: "JACKYLED"
+    - model: "OPT7"
+      identification:
+        local_name_prefix: "OPT7"
+      notes: >
+        OPT7 brand variant (app com.opt7.glow). Its matcher also accepts
+        the advertised-name patterns listed in device.notes (DCS-O, ELZ-O,
+        CS-FanLED, MHRS-QA, "LED LIGHT STRIP", and names containing "OB",
+        "OE" or "E2P", plus WCT-family names). Supports the connectionless
+        advertising-broadcast control path described in device.notes.
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"

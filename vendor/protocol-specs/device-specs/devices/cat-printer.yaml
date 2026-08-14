@@ -6,6 +6,8 @@ device:
   name: "Cat Printer Mini Thermal Printer"
   manufacturer: "Unbranded / Yu Tian (YT01) / various OEMs"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "printer"
   notes: >
@@ -20,8 +22,19 @@ device:
     PROTOCOL: uses a custom BLE UART service (0xAE30) with TX/RX
     characteristics (0xAE01/0xAE02). Command frames have a fixed header:
     [0x51 0x78 command_id 0x00 payload_length 0x00] [payload] [crc8] [0xFF].
-    CRC8 is computed from the payload bytes using a lookup table.
+    CRC8 is CRC-8/SMBUS (poly 0x07, init 0x00, no reflection), computed
+    over the payload bytes only, via a 256-entry lookup table.
     Responses and flow-control signals arrive as notifications on 0xAE02.
+    macOS quirk: CoreBluetooth sometimes surfaces the service as 0xAF30
+    instead of 0xAE30 — tolerate both on Apple platforms (rbaron).
+
+    COMMANDS: 0xA0 retract_paper (uint16 LE pixel count), 0xA1 feed_paper
+    (uint16 LE pixel count), 0xA2 draw_bitmap, 0xA3 get_device_state,
+    0xA4 set_dpi_as_200, 0xA6 lattice markers (see below), 0xA8
+    get_device_info (payload 0x00), 0xA9 update_device, 0xAF set_energy,
+    0xBD set_speed, 0xBE apply_energy, 0xBF RLE rows (new-kind models).
+    Lattice marker fixed payloads (command 0xA6): start = AA 55 17 38 44
+    5F 5F 5F 44 38 2C, end = AA 55 17 00 00 00 00 00 00 00 17.
 
     MODEL FLAGS:
       is_new_kind: GB03 supports compressed data (send 0x12 prefix before
@@ -196,7 +209,8 @@ services:
       are not used by the main printing protocol.
 
       COMMAND FRAME: [0x51 0x78 cmd_id 0x00 payload_len 0x00] [payload] [crc8(payload)] [0xFF]
-      CRC8 uses a 256-entry lookup table. Payload length is 1 byte (max 255).
+      CRC8 is CRC-8/SMBUS (poly 0x07, init 0x00) over the payload only,
+      via a 256-entry lookup table. Payload length is 1 byte (max 255).
 
       FLOW CONTROL: device sends pause/resume on 0xAE02 (notify).
       Pause:   0x51 0x78 0xAE 0x01 0x01 0x00 0x10 0x70 0xFF
@@ -234,3 +248,16 @@ entities:
   - platform: "cover"
     name: "Print Feed"
     state_characteristic: "0000ae02-0000-1000-8000-00805f9b34fb"
+
+references:
+  - "https://github.com/NaitLee/Cat-Printer"
+  - "https://github.com/rbaron/catprinter"
+  - "https://github.com/lisp3r/bluetooth-thermal-printer"
+  - "https://github.com/WerWolv/PythonCatPrinter"
+  - "https://werwolv.net/blog/cat_printer"
+
+# Newer MXW01 model (outside this registry — no protocol section here):
+# a newer "cat printer" hardware revision with its own RE efforts —
+# https://github.com/MaikelChan/CatPrinterBLE ,
+# https://github.com/dave9123/MXW01-catprinter ,
+# https://github.com/jeremy46231/MXW01-catprinter

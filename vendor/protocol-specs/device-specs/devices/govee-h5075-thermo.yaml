@@ -6,6 +6,15 @@ device:
   name: "Govee H5075 Thermometer/Hygrometer"
   manufacturer: "Govee (Shenzhen Intellirocks Tech Co., Ltd.)"
   manufacturer_status: "active"
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >-
+      Advertisement decoding checked against third-party btsnoop/pcap captures
+      of real H5074/H5075/H5100/H5105/H5174 units archived in the research
+      store (govee-h5075-thermo/repo/BTData/). Captures were recorded by the
+      GoveeBTTempLogger author, not this project, and no hardware has been
+      driven from this spec here.
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -13,7 +22,19 @@ device:
     via manufacturer-specific advertisement data — no connection required
     for live readings. $10-15. Also covers H5072, H5074, H5100, H5101,
     H5104, H5105, H5110, H5111, H5174, H5177, H5179 variants with similar
-    advertisement formats.
+    advertisement formats, plus (per the govee-ble parser) H5129 (same
+    6-byte format as H5075), H5071/H5051/H5052 (9-byte little-endian
+    H5179-like layout at bytes 1-5), H5178/B5178 (9-byte manufacturer
+    0x0001 with a sensor_id byte at index 2 — 0=primary, 1=remote) and
+    H5112 (8-byte probe variant).
+
+    HARDWARE: Telink TLSR8253F512 BLE SoC; FCC ID 2AQA6-H5075 (grantee
+    Shenzhen Intellirocks Tech, 2019-12-13). Firmware updates are OTA via
+    the Govee Home app through the Telink OTA service
+    02f00000-0000-0000-0000-00000000fe00; no public firmware downloads
+    exist. The Govee Home app also probes for TI OAD service
+    F000FFC0-0451-4000-B000-000000000000 and 0xFD00 when identifying
+    OTA-capable devices.
 
     ADVERTISEMENT DECODING (H5075, manufacturer ID 0xEC88, 6-byte data):
       bytes 1-3: 24-bit value encoding temperature + humidity
@@ -205,6 +226,30 @@ device:
       identification:
         local_name_prefix: "Govee_H5179"
       notes: "9-byte format (manufacturer 0xEC88)."
+    - model: "H5129"
+      identification:
+        local_name_prefix: "H5129"
+      notes: "Same 6-byte format as H5075 (govee-ble parser matches local name substring 'H5129')."
+    - model: "H5071"
+      identification:
+        local_name_prefix: "H5071"
+      notes: "9-byte little-endian H5179-like layout, temp/humidity at bytes 1-5 (govee-ble parser)."
+    - model: "H5051"
+      identification:
+        local_name_prefix: "H5051"
+      notes: "Same 9-byte LE layout as H5071 (govee-ble parser)."
+    - model: "H5052"
+      identification:
+        local_name_prefix: "H5052"
+      notes: "Same 9-byte LE layout as H5071 (govee-ble parser)."
+    - model: "H5178"
+      identification:
+        local_name_prefix: "H5178"
+      notes: "9-byte format (manufacturer 0x0001) with sensor_id byte at index 2 (0=primary, 1=remote). B5178 shares it."
+    - model: "H5112"
+      identification:
+        local_name_prefix: "GV5112"
+      notes: "8-byte probe variant (govee-ble parser matches 'GV5112' or 'H5112')."
 
   payload_formats:
     H5075_Advertisement:
@@ -312,3 +357,11 @@ entities:
       Decoded from the advertisement battery byte (MSB = sensor error
       flag, value = byte & 0x7F) or via `aa 08` on char ...2011 — this
       family has no standard Battery Service 0x180F/0x2A19.
+
+references:
+  - "https://github.com/wcbonner/GoveeBTTempLogger"
+  - "https://github.com/Bluetooth-Devices/govee-ble"
+  - "https://www.home-assistant.io/integrations/govee_ble"
+  - "https://github.com/NHaag87/govee-api/blob/main/API_documentation/H5105_protocol.md"
+  - "https://github.com/Heckie75/govee-h5075-thermo-hygrometer"
+  - "https://fccid.io/2AQA6-H5075"
