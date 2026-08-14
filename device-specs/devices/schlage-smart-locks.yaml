@@ -676,6 +676,83 @@ protocol:
 # entities block — the lock entity would map state from the lock_state
 # command (result keys 0/12/14/21/25) and commands to lock_unlock.
 
+evidence:
+  live_hardware:
+    date: "2026-08-14"
+    environment: >
+      BlueZ hci0 + Python bleak on the owner's LAN (10.69.0.0/16); three
+      Schlage locks on site (front / kitchen / laundry doors), all
+      commissioned and in daily use. Strictly read-only mission: BLE
+      scanning and LAN discovery only. No pairing was attempted (SPAKE2
+      needs the printed programming code), nothing was written to any
+      lock, no state-changing command was sent.
+    ble_observations:
+      - >
+        One lock was captured advertising exactly once at the start of the
+        session: complete local name "SCHLAGE" followed by 8 uppercase hex
+        digits (serial-looking suffix), public Bluetooth address with OUI
+        B7:AC:C2 (recorded partially here on purpose — this is a security
+        device), RSSI -74 dBm, and manufacturer data under Bluetooth
+        company ID 315 ("Allegion" per registries/bluetooth-company-ids.tsv)
+        whose payload embeds the device's own MAC address.
+      - >
+        That captured advertisement contained NO service UUIDs at all —
+        specifically NOT the DataTransfer UUID
+        1f6b43aa-94de-4ba9-981c-da38823117bd that this spec says
+        Schlage-mode locks advertise (AD 0x06). Single sample from a
+        commissioned, in-use lock; the spec already notes (reported) that
+        commissioned locks change their advertising bytes, so this is
+        recorded as "not observed", not as a refutation.
+      - >
+        Roughly 75 minutes of subsequent scanning (several bleak scans, a
+        20-minute watcher armed to auto-connect, bluetoothctl) captured
+        zero further advertisements from any of the three locks: idle
+        Schlage locks advertise very rarely (they appear to sleep until
+        woken, e.g. by keypad touch). GATT enumeration therefore did NOT
+        happen — BlueZ refuses to connect to a device it cannot
+        rediscover ("Device not available") and the seen lock never
+        re-announced. The GATT service table in this spec remains
+        app+Go-library-derived, not hardware-observed.
+      - >
+        No lock was observed advertising the HomeKit-mode complete local
+        name "SENSE  " (trailing spaces) or any Apple HAP BLE signature:
+        no unit on site was in HAP-over-BLE mode at scan time —
+        consistent with all three being commissioned in Schlage mode (or
+        simply asleep).
+    lan_observations:
+      - >
+        Full mDNS enumeration (avahi-browse -a): no Schlage/Allegion
+        service instance of any kind, and no _hap._udp record on the LAN
+        — no Encode Plus here is in HomeKit mode. Consistent with the
+        spec's claim that Schlage-mode locks emit no mDNS and that
+        _hap._udp is HomeKit-only.
+      - >
+        SSDP M-SEARCH (ssdp:all): the only responders were Roku, Hue and
+        Synology devices — nothing Schlage. The ARP/neighbor table
+        contains no Schlage/Allegion OUI (none exists in
+        registries/ieee-oui.tsv), so lock IP addresses could not be
+        identified and no port scan was possible. This is consistent
+        with — but not positive proof of — the claim that Encode-family
+        WiFi has no local API: the locks make no discovery announcements
+        on the LAN at all.
+    claims_checked:
+      - claim: "Schlage-mode locks advertise DataTransfer UUID 1f6b43aa-94de-4ba9-981c-da38823117bd (AD 0x06)"
+        result: "not observed — the one captured advertisement (commissioned lock) carried no service UUIDs"
+      - claim: "locks are identifiable over BLE in Schlage mode"
+        result: "confirmed in principle — one lock observed advertising name 'SCHLAGE' + serial-looking hex suffix, Allegion company ID 315 in manufacturer data"
+      - claim: "Sense can sit in HAP-over-BLE mode (name 'SENSE  '), mutually exclusive with uWeave"
+        result: "not observed — no lock in HomeKit BLE mode on site"
+      - claim: "Encode-family WiFi has no local API; the only mDNS is the Encode Plus's HomeKit _hap._udp"
+        result: "consistent — no Schlage mDNS or SSDP service of any kind observed on the LAN"
+      - claim: "uWeave GATT profile 883f45ec-14cb-46aa-9864-9a4e782b33d0 is present after connect"
+        result: "untested — the lock never re-advertised, so no GATT connection could be made"
+    follow_up: >
+      Wake a lock (keypad touch) while scanning to capture its awake-state
+      advertisement and then enumerate GATT read-only. User disambiguation
+      is needed to map the advertised "SCHLAGE<hex>" name to the
+      front/kitchen/laundry doors. Any deeper protocol testing needs the
+      printed programming codes (SPAKE2) and was out of scope.
+
 sources:
   - type: "apk_decompilation"
     apk: "com.allegion.leopard 3.6.0 (sha256 73ad73952f585fb6fcc4d5f31a503c65903a1714077afc62781c6e6b1248219c) and 6.1.0 (sha256 0e87604de5e12f650badea5539ea0765f4b7ea5e29206db02b9cb1404631abdd), APKPure via apkeep"
