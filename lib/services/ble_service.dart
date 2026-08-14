@@ -171,6 +171,17 @@ abstract class BleService {
     String charUuid,
   );
 
+  /// The most recent raw notifications seen on [charUuid] this connection, oldest
+  /// first — a small ring the service fills whenever the characteristic is
+  /// subscribed. Lets a late subscriber recover a push it arrived too late for
+  /// (e.g. a device's connect-time info notification, which fires before the
+  /// editor that wants it has mounted). Empty when none were captured.
+  List<List<int>> recentNotifications(
+    String deviceId,
+    String serviceUuid,
+    String charUuid,
+  );
+
   /// The current ATT MTU for a connected device, in bytes.
   ///
   /// Callers that chunk bulk transfers (image frames) size their writes from
