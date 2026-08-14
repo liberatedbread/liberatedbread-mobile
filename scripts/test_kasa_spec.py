@@ -101,6 +101,20 @@ def read_relay_state(get_sysinfo_reply: dict, mapping: dict) -> bool:
     return float(raw) != 0.0
 
 
+def read_dotted_path(reply: dict, path: str):
+    """Resolve a state_mapping `value` dotted path against a decoded reply.
+
+    The sensor entities' paths are dotted from the reply ROOT
+    ("emeter.get_realtime.power"), resolved the way the schema's state_mapping
+    description spells it for nested JSON — the counterpart of how the switch's
+    bare `relay_state` is lifted out of the sysinfo object.
+    """
+    node = reply
+    for key in path.split("."):
+        node = node[key]
+    return node
+
+
 # ── The cipher reproduces the published vectors ──────────────────────────────
 
 
@@ -165,7 +179,7 @@ def test_relay_commands_render_the_documented_json(commands):
 def test_control_commands_take_no_caller_input(commands):
     """turn_on/turn_off are fixed roles: a switch has no value to fill a blank
     with, so the command must render from nothing."""
-    for name in ("relay_on", "relay_off", "get_sysinfo"):
+    for name in ("relay_on", "relay_off", "get_sysinfo", "get_emeter"):
         assert not user_parameters(commands[name]), (
             f"{name} must be sendable with no caller-supplied parameters"
         )
@@ -181,6 +195,23 @@ def test_commands_frame_onto_the_wire(protocol, commands):
         length = int.from_bytes(framed[:4], "big")
         assert length == len(framed) - 4, "the length prefix counts the payload"
         assert decrypt(framed[4:], initial_key) == body
+
+
+def test_get_emeter_frames_to_exact_bytes(protocol, commands):
+    """The get_emeter body renders as the documented emeter.get_realtime JSON,
+    and cipher + TCP framing produce one exact byte string — pinned as a
+    regression anchor the way the discovery datagram is pinned in the spec."""
+    command = commands["get_emeter"]
+    assert command["transport"] == "tcp-json"
+    body = command["body"]
+    assert command["example_body"] == body
+    assert json.loads(body) == {"emeter": {"get_realtime": None}}
+    initial_key = protocol["cipher"]["initial_key"]
+    framed = tcp_frame(body.encode(), initial_key)
+    assert framed.hex() == (
+        "00000020"
+        "d0f297fa9feb8efcdee49fbddabfcb94e683e28efa93fe9bb983ed98f498e598"
+    )
 
 
 # ── The switch entity resolves and decodes ───────────────────────────────────
@@ -219,3 +250,47 @@ def test_the_state_field_is_one_the_command_returns(entities, commands):
     switch = next(e for e in entities if e["platform"] == "switch")
     returned = {r["name"] for r in commands["get_sysinfo"]["returns"]}
     assert switch["state_mapping"]["value"] in returned
+
+
+# ── The emeter sensors resolve and decode ────────────────────────────────────
+
+
+def test_the_emeter_sensors_bind_get_emeter(entities, commands):
+    """Each sensor's state_command is the get_emeter command — and the path it
+    reads must end in a field get_emeter says it returns, the same poll/decode
+    agreement the switch is held to."""
+    sensors = [e for e in entities if e["platform"] == "sensor"]
+    assert len(sensors) == 4, "Voltage/Current/Power/Total Consumption"
+    returned = {r["name"] for r in commands["get_emeter"]["returns"]}
+    for sensor in sensors:
+        assert sensor["state_command"] == "get_emeter"
+        path = sensor["state_mapping"]["value"]
+        assert path.split(".")[-1] in returned, (
+            f"{sensor['name']}: {path!r} ends in a field get_emeter does not return"
+        )
+
+
+def test_an_emeter_reply_decodes_through_the_sensor_mappings(entities):
+    """A get_emeter reply (current firmware's plain float fields, in SI units)
+    resolves through every sensor's dotted state_mapping path — the poll a
+    consumer runs to fill the four meter tiles."""
+    reply = {
+        "emeter": {
+            "get_realtime": {
+                "voltage": 121.043,
+                "current": 0.362,
+                "power": 43.81,
+                "total": 12.345,
+                "err_code": 0,
+            }
+        }
+    }
+    expected = {
+        "Voltage": 121.043,
+        "Current": 0.362,
+        "Power": 43.81,
+        "Total Consumption": 12.345,
+    }
+    for sensor in (e for e in entities if e["platform"] == "sensor"):
+        value = read_dotted_path(reply, sensor["state_mapping"]["value"])
+        assert value == pytest.approx(expected[sensor["name"]])
