@@ -6,6 +6,8 @@ device:
   name: "SP107E/SP110E LED Controller"
   manufacturer: "Shenzhen Sperll Optoelectronic (SPLED)"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "light"
   notes: >

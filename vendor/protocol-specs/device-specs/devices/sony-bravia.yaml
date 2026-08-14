@@ -29,6 +29,8 @@ device:
   name: "Sony Bravia IRCC-IP / REST API"
   manufacturer: "Sony"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "tv"
   transport: "http"

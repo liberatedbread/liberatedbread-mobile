@@ -6,6 +6,8 @@ device:
   name: "iDotMatrix"
   manufacturer: "iDotMatrix / Tech"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >
@@ -15,11 +17,12 @@ device:
     Framed upload protocol — 16-byte header per 4096-byte payload chunk:
       [0-1]  total packet length (uint16 LE)
       [2]    command type: 1=GIF, 2=Image, 3=Text/MultiColor, 6=Phrase
-      [3]    sub-type: 0x00 data / 0x02 MultiColor/Phrase
+      [3]    sub-type: always 0x00 in framed uploads (sub-type 0x02 exists
+             only in the short MultiColor/Phrase commands below)
       [4]    chunk flag: 0=first, 2=continuation
       [5-8]  total data length (uint32 LE)
       [9-12] CRC32 of the entire data payload (java.util.zip.CRC32, LE)
-      [13-14] time/delay (uint16 BE)
+      [13-14] time/delay (uint16 LE)
       [15]   speed/type byte
       [16+]  payload
     BLE chunking: 509 bytes when MTU negotiated, else 18 bytes; 20 ms/chunk for
@@ -32,34 +35,56 @@ device:
     0x0cde = 3294 total; derkalle4 to_bytes(2,'little'); Homey §4.17
     size_lo/size_hi) — masked on full 4112-byte chunks because 0x1010 is
     byte-palindromic, it only bites on final/short chunks.
-    Display sizes (ScreenData.getLedSize): 1010=10x10, 1001=1x100, 1116=16x11,
-    1318=18x13, 1619=19x16, 1920=20x19, 2020=32x32 (default), 2010=10x20,
-    3010=10x30, 3820=20x38. 64x64 panels exist and use the same IDM- / 0x00FA
-    protocol family.
-    FLAGGED: exact image pixel encoding (RGB565 bitmap laid out by device type)
-    needs live BLE capture to confirm; text glyph width varies by device/font.
-    CONFIDENCE: framing header, CRC32, chunk sizes, command types 1=GIF/3=Text
-    and response format HIGH (hardware-verified on 0xFA02); command types
-    2=Image/6=Phrase and image pixel layout MEDIUM; the 0xFEE9 service UNPROVEN
-    (see below).
+    Display sizes (ScreenData.getLedSize, app v2.1.4): 1010=10x10, 1001=1x100,
+    1116=16x11, 1318=18x13, 1619=19x16, 1920=20x19, 2020=20x20 (default),
+    2010=10x20, 3010=10x30, 3820=20x38 (ScreenData.java:10/49-82). App v2.1.4
+    knows no 32x32 or 64x64 display code, but square 16x16 / 32x32 / 64x64
+    panels do exist and use this same IDM-/0x00FA protocol family
+    (derkalle4/python3-idotmatrix-library README, fbnlrz/homeyidotmatrix
+    hardware-verified on IDM-BC5C5F, tomglenn/idx-ai) — an app-vs-firmware gap,
+    not a limit of the hardware.
+    Upload format: every hardware-verified public client uploads an encoded PNG
+    (static) or GIF (animated) FILE, which the device decodes; the device crops
+    rather than resizes (Homey docs/idm.md §5). The app's BGRUtils.bitmap2RGB
+    RGB888 conversion (3 bytes/pixel R,G,B, row-major w*h*3,
+    ScreenData.getdiyImageSize:84-89) is an app-side artifact for its own DIY
+    canvas, not a raw-pixel wire format observed on any unit. Text glyph width
+    varies by device/font.
+    CONFIDENCE: framing header (incl. LE length/delay fields and sub-type=0),
+    CRC32, chunk sizes/pacing, command types 1=GIF/2=Image/3=Text and response
+    format HIGH (hardware-verified on 0xFA02; byte-for-byte confirmed in app
+    v2.1.4 jadx); command type 6=Phrase and image pixel layout MEDIUM
+    (app-derived); the 0xFEE9 service APP-PROVEN-UNUSED (see below).
     Evidence: 8none1/idotmatrix decoding_bytes.md + btsnoop,
     derkalle4/python3-idotmatrix-library (const.py, common.py, gif.py),
-    fbnlrz/homeyidotmatrix docs/idm.md (nRF-Connect-verified); app-side jadx:
-    GifAgreement.java:160-196/271-286 (framing, CRC32, response),
-    ScreenData.java (display sizes), CrcUtils.java (java.util.zip.CRC32).
+    fbnlrz/homeyidotmatrix docs/idm.md (nRF-Connect-verified); app-side jadx
+    v2.1.4: GifAgreement.java:158-208/269-287 (framing, CRC32, response),
+    ImageAgreement.java:141-198 (framing), TextAgreement.java:251-285 (framing),
+    GifAgreement.java:210-240 (509/18-byte chunking), GifAgreement.java:32 /
+    ImageAgreement.java:32 / TextAgreement.java:39 (20/20/50 ms pacing),
+    MutilColorAgreement.java:42-72 + PhraseAgreement.java:39-61 (short-command
+    sub-type 0x02), ScreenData.java (display sizes, DIY image size),
+    BGRUtils.java:41-61 (RGB888), CrcUtils.java:263-270 (java.util.zip.CRC32),
+    BleManager.java:75-78/260 (00FA service + 0xFA02 characteristic).
 
     Short command protocol — service 0xFA02: unframed length-prefixed byte
     commands ([len, 0x00, cmd, ...]) written to characteristic 0xFA02, with
     acks/notifications on 0xFA03. This is the protocol every public client
-    (python-idotmatrix, go-idot, Homey) speaks; name prefix "IDM-".
+    (python-idotmatrix, go-idot, Homey) speaks; name prefix "IDM-". App v2.1.4
+    confirms it: the app configures its BLE library with service 0x00FA and
+    write characteristic 0xFA02 and routes every command through it
+    (BleManager.java:75-78/260); the full short-command set is in
+    BleProtocolN.java.
 
-    UNPROVEN — service 0xFEE9 with characteristics
-    d44bc439-abfd-45a2-b575-925416129600/9601: present in jadx of
-    com.tech.idotmatrix (Ble.java:354-362), but no public source has observed
-    this service on iDotMatrix hardware; that UUID pair is a stock NXP BLE-UART
-    demo pair reused by many unrelated products. Kept below for completeness —
-    do not treat the framed protocol as FEE9-exclusive, and do not rely on
-    0xFEE9 being present.
+    APP-PROVEN-UNUSED — service 0xFEE9 with characteristics
+    d44bc439-abfd-45a2-b575-925416129600/9601: these UUIDs are merely the
+    shipped defaults of the app's third-party BLE library
+    (cn.com.heaton.blelibrary Ble.Options, Ble.java:354-358); the app overrides
+    them at init with service 0x00FA / characteristic 0xFA02
+    (BleManager.java:260), so they are dead config in com.tech.idotmatrix. That
+    UUID pair is also a stock NXP BLE-UART demo pair reused by many unrelated
+    products, and no public source has observed it on iDotMatrix hardware.
+    Kept below for completeness — do not rely on 0xFEE9 being present.
   identification:
     local_name_prefix: "IDM-"
     service_uuids:
@@ -137,23 +162,41 @@ device:
 # CRC32, and drives MTU-aware chunked writes. Declarative.
 protocol_handler: "idotmatrix_image"
 
-# Chunked RGB565 bitmap / GIF upload with CRC32 integrity per transfer.
+# Chunked PNG / GIF file upload with CRC32 integrity per transfer. Every public
+# hardware-verified client (derkalle4/python3-idotmatrix-library image.py/gif.py,
+# fbnlrz/homeyidotmatrix, 8none1) uploads an encoded PNG (static) or GIF
+# (animated) FILE — the device decodes it — never a raw pixel buffer; there is no
+# public evidence for a raw RGB565/RGB888 path. (The app's BGRUtils.bitmap2RGB
+# RGB888 conversion is an app-side artifact, not the observed wire format.)
+# Panel sizes: the community documents square 16x16 / 32x32 / 64x64 panels
+# (derkalle4 README, fbnlrz README+docs/idm.md hardware-verified on IDM-BC5C5F,
+# tomglenn/idx-ai). App v2.1.4's ScreenData size table lists only smaller/odd
+# codes (1010=10x10 .. 3820=20x38) and knows no 32x32 or 64x64 code — an
+# app-vs-firmware gap, so max here follows the real 64x64 hardware, not the app
+# table. The device crops rather than resizes, so a client should match the
+# panel's actual size (query the device / let the user choose).
 features:
   - type: "image_upload"
-    format: "rgb565"
-    max_width: 32
-    max_height: 32
+    format: "png"
+    animation: true
+    max_width: 64
+    max_height: 64
 
 services:
-  # UNPROVEN protocol (jadx of com.tech.idotmatrix only; never observed on hardware)
+  # APP-PROVEN-UNUSED — third-party BLE library defaults, overridden by the app
+  # at init with 0x00FA/0xFA02; never observed on hardware.
   - uuid: "0000fee9-0000-1000-8000-00805f9b34fb"
-    name: "iDotMatrix Data Service (unproven)"
+    name: "iDotMatrix Data Service (app-proven-unused)"
     notes: >
-      Found only in the vendor app (Ble.java:354-362). No public source has
-      observed this service on iDotMatrix hardware — the
-      d44bc439-…-9600/9601 pair is a stock NXP BLE-UART demo pair reused by
-      unrelated products. On all hardware-documented units the framed protocol
-      described here runs over 0xFA02 alongside the short commands.
+      These UUIDs are the shipped defaults of the app's third-party BLE
+      library (cn.com.heaton.blelibrary Ble.Options, Ble.java:354-358); the
+      app overrides them at init with service 0x00FA / characteristic 0xFA02
+      (BleManager.java:260), so this service is dead config in
+      com.tech.idotmatrix and no public source has observed it on iDotMatrix
+      hardware. The d44bc439-…-9600/9601 pair is also a stock NXP BLE-UART
+      demo pair reused by unrelated products. On all hardware-documented
+      units the framed protocol described here runs over 0xFA02 alongside
+      the short commands.
     characteristics:
       - uuid: "d44bc439-abfd-45a2-b575-925416129600"
         name: "Data Write/Read"
@@ -163,17 +206,19 @@ services:
           checksum: "crc32"
           max_chunk_size: 4096
         notes: >
-          All framed protocol commands (GIF/Image/Text/Phrase) are written here
-          on units that expose this service. 16-byte header (length field at
-          [0-1] is uint16 LITTLE-endian) + up to 4096-byte payload per frame;
-          CRC32 (java.util.zip.CRC32) over the whole data payload. Evidence:
-          Ble.java:355-356, GifAgreement.java:160-196; same framing verified on
-          0xFA02 by 8none1, derkalle4 gif.py and Homey docs/idm.md §4.17.
+          Library-default write characteristic, unused by the app (overridden
+          with 0xFA02 at init, BleManager.java:260). The framed protocol that
+          would run here — and does run on 0xFA02 — is a 16-byte header
+          (length field at [0-1] is uint16 LITTLE-endian) + up to 4096-byte
+          payload per frame; CRC32 (java.util.zip.CRC32) over the whole data
+          payload. Framing verified on 0xFA02 by 8none1, derkalle4 gif.py and
+          Homey docs/idm.md §4.17; app-side jadx v2.1.4:
+          GifAgreement.java:158-208.
 
       - uuid: "d44bc439-abfd-45a2-b575-925416129601"
         name: "Data Notify"
         properties: ["notify"]
-        notes: "Transfer-progress responses. Evidence: Ble.java:358, GifAgreement.java:271-286."
+        notes: "Library-default notify characteristic (Ble.java:358), unused by the app. The transfer-progress response format is verified on 0xFA03; app-side jadx v2.1.4: GifAgreement.java:269-287."
         format:
           - offset: 0
             length: 1
@@ -201,12 +246,20 @@ services:
     name: "iDotMatrix OTA Service"
     notes: >
       Jieli (杰理) OTA stack (com.jieli.jl_bt_ota.* in the app; Jieli's OTA SDK
-      is public as Jieli-Tech/Android-JL_OTA). Payloads are AES-256-CBC with a
-      hard-coded ASCII key in the app (com.heaton.baselib.utils.AESUtils,
-      app v2.1.1) and IV = 16 x ASCII '0'; not yet unlocked publicly — a
+      is public as Jieli-Tech/Android-JL_OTA). Not yet unlocked publicly — a
       session-dependent component is unsolved (235/256 two-byte inputs elicit
       responses). Evidence: fbnlrz/homeyidotmatrix docs/AE-SERVICE.md
       (hardware-probed).
+      The app (v2.1.4) bundles two OTA firmware images under assets/ota/
+      (TR2401R006_01_01_ota_mi.bin, TR2401R007_02_01_ota_mi.bin), so firmware
+      artifacts do exist inside the APK. The hard-coded ASCII AES-256-CBC key
+      with IV = 16 x ASCII '0' (com.heaton.baselib.utils.AESUtils /
+      CloudEncipher) is consumed by the app's cloud HTTP encryption —
+      request/response bodies for manage.heaton.com.cn, including the OTA
+      version-check call (CloudImageManager.java:176-190,
+      CloudAnimManager.java:164-182, OTAUpdataManager.java:204-206) — and is
+      NOT demonstrated to encrypt OTA wire payloads; no wire capture ties it
+      to this service.
     characteristics:
       - uuid: "0000ae01-0000-1000-8000-00805f9b34fb"
         name: "OTA Write"
@@ -228,6 +281,14 @@ services:
       scoreboard 08 00 0a 80 …, built-in effects [len, 0, 03, 02, style, 90,
       count, rgb…], music sync 06 00 00 02 …. Command acks arrive on 0xFA03 as
       05 00 <cmd> <sub> 01.
+      App v2.1.4 confirms this configuration byte-for-byte: the app overrides
+      its BLE library defaults with service 0x00FA + write characteristic
+      0xFA02 (BleManager.java:75-78/260) and sends the full short-command set
+      below from BleProtocolN.java (set-time :26-31, eco :33-35, reset :37-40,
+      brightness :42-45, rotate :57-59, countdown :66-68, chronograph :70-72,
+      scoreboard :74-78, clock :142-144, screen on/off :146-148, speed :133-136,
+      DIY :138-140, color :128-131, password set/verify :150-173, mic :80-87/
+      124-126/183-185, joint :187-189; LOCATE in Agreement.java:11-13).
     characteristics:
       - uuid: "0000fa02-0000-1000-8000-00805f9b34fb"
         name: "Write Data"
@@ -312,6 +373,82 @@ services:
           reset_step_2:
             description: "Factory reset, step 2 of 2 — completes the reset started by reset_step_1"
             value: [0x05, 0x00, 0x04, 0x80, 0x50]
+          verify_password:
+            description: "Verify 6-digit password, three 2-digit groups as bytes (app v2.1.4 jadx: BleProtocolN.java:161-173; app-derived, not yet hardware-verified)"
+            template: [0x07, 0x00, 0x05, 0x02, "{pwd_high}", "{pwd_mid}", "{pwd_low}"]
+            parameters:
+              pwd_high:
+                type: "uint8"
+                min: 0
+                max: 99
+              pwd_mid:
+                type: "uint8"
+                min: 0
+                max: 99
+              pwd_low:
+                type: "uint8"
+                min: 0
+                max: 99
+          eco_mode:
+            description: "Eco mode with six config bytes (app v2.1.4 jadx: BleProtocolN.java:33-35; app-derived, not yet hardware-verified — byte semantics unknown)"
+            template: [0x0A, 0x00, 0x02, 0x80, "{b1}", "{b2}", "{b3}", "{b4}", "{b5}", "{b6}"]
+            parameters:
+              b1:
+                type: "uint8"
+                min: 0
+                max: 255
+              b2:
+                type: "uint8"
+                min: 0
+                max: 255
+              b3:
+                type: "uint8"
+                min: 0
+                max: 255
+              b4:
+                type: "uint8"
+                min: 0
+                max: 255
+              b5:
+                type: "uint8"
+                min: 0
+                max: 255
+              b6:
+                type: "uint8"
+                min: 0
+                max: 255
+          locate:
+            description: "Locate device. This is a genuinely different frame from the short commands: not [len, 0x00, cmd, ...] but a 16-byte block whose first byte is 0x06 followed by ASCII 'LOCATE' and NUL padding (Agreement.getLocationDevice, jadx v2.1.4 Agreement.java:11-13). The bytes below are the PLAINTEXT — the app does not write them directly: BleProtocol.locationDevice sends getEncryptData(getLocationDevice()), which AES-encrypts the block in place via the native libAES (csh.tiro.cc.aes.cipher, key from keyExpansionDefault) before the single BLE write, so the actual on-wire bytes are the 16-byte ciphertext, not this plaintext. App-derived only; no community/hardware source (CONFIRMATION.md, derkalle4, Homey, 8none1) documents a locate command, so treat as unconfirmed."
+            verification: "hypothesis"
+            value: [0x06, 0x4C, 0x4F, 0x43, 0x41, 0x54, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+          set_mic_type:
+            description: "Set hardware microphone type (app v2.1.4 jadx: BleProtocolN.java:80-83; app-derived, not yet hardware-verified). Shares cmd/sub 0x0B 0x80 with mic_rhythm_command; the device dispatches on the frame's length byte (this one is length 0x05, one payload byte) rather than on cmd/sub alone."
+            template: [0x05, 0x00, 0x0B, 0x80, "{mic_type}"]
+            parameters:
+              mic_type:
+                type: "uint8"
+                min: 0
+                max: 255
+          mic_rhythm_command:
+            description: "Microphone rhythm control; first payload byte is mode+1 per app (app v2.1.4 jadx: BleProtocolN.java:183-185; app-derived, not yet hardware-verified). Shares cmd/sub 0x0B 0x80 with set_mic_type; the device dispatches on the frame's length byte (this one is length 0x06, two payload bytes) rather than on cmd/sub alone."
+            template: [0x06, 0x00, 0x0B, 0x80, "{mode_plus_1}", "{value}"]
+            parameters:
+              mode_plus_1:
+                type: "uint8"
+                min: 1
+                max: 255
+              value:
+                type: "uint8"
+                min: 0
+                max: 255
+          joint:
+            description: "Joint/splice setting for multi-panel setups (app v2.1.4 jadx: BleProtocolN.java:187-189; app-derived, not yet hardware-verified)"
+            template: [0x05, 0x00, 0x0C, 0x80, "{value}"]
+            parameters:
+              value:
+                type: "uint8"
+                min: 0
+                max: 255
 
       - uuid: "0000fa03-0000-1000-8000-00805f9b34fb"
         name: "Notify/Ack Data"

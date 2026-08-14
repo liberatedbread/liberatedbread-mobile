@@ -6,6 +6,8 @@ device:
   name: "Fardriver ND-series Motor Controller"
   manufacturer: "Nanjing Fardriver Controller Co."
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "motor"
   notes: >

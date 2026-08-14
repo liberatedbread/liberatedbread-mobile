@@ -12,6 +12,8 @@ device:
   name: "Frigidaire WiFi Window Air Conditioner"
   manufacturer: "Frigidaire (Electrolux)"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "climate"
   notes: >
@@ -170,7 +172,7 @@ http_endpoints:
   - method: "GET"
     path: "/appliance/api/v2/appliances?includeMetadata=true"
     name: "Appliance List"
-    description: "Cloud account enumeration path observed in APK strings."
+    description: "Cloud account enumeration path; path and GET method confirmed in the app's endpoint enum (GET_APPLIANCES_V2) against the api.ocp.electrolux.one production host."
     response_body:
       content_type: "application/json"
 
@@ -184,14 +186,27 @@ http_endpoints:
   - method: "PUT"
     path: "/appliance/api/v2/appliances/{applianceId}/command"
     name: "Appliance Command"
-    description: "Cloud command path observed in APK strings. Method is PUT (two independent RE clients and the official SDK agree); payload is a single-property JSON map, exact property set requires traffic capture."
+    description: >
+      Cloud command path; path and PUT method confirmed in the app's endpoint
+      enum (PUT_SEND_COMMAND). Payload is a single-property JSON map keyed by an
+      OCP attribute name, e.g. {"fanSpeedSetting": "LOW"} or {"executeCommand":
+      "ON"}, sent one property per call (medium confidence, app-derived, not
+      hardware-verified; exact serialization requires traffic capture).
+      This endpoint is the encoding referenced by every entity `commands` value
+      in this spec. Those values use two forms: a bare OCP attribute name (e.g.
+      set_temperature -> "targetTemperatureC") means "PUT this attribute with the
+      value the control supplies", i.e. {"<attribute>": <control value>}; the
+      form "<attribute>=<VALUE>" (e.g. turn_on -> "executeCommand=ON") means
+      "PUT this attribute with the literal VALUE", i.e. {"<attribute>":
+      "<VALUE>"}. There are no separately declared command blocks because OCP
+      control is attribute writes, not named commands.
     request_body:
       content_type: "application/json"
 
   - method: "POST"
     path: "/remote-control/api/v1/appliances/"
     name: "Remote Control"
-    description: "Cloud remote-control path observed in APK strings; exact payload requires traffic capture."
+    description: "String literal present only as a raw dex string in the analyzed APKs; no decompiled call site references it, so the HTTP method (POST shown is a placeholder) and payload are uncorroborated."
     request_body:
       content_type: "application/json"
 
@@ -199,57 +214,92 @@ entities:
   - platform: "climate"
     name: "Air Conditioner"
     features: ["target_temperature", "fan_mode", "hvac_mode"]
+    min_temp: 16
+    max_temp: 30
+    temp_step: 1
+    notes: >
+      OCP wire names below come from the app's bundled capability profile
+      (ac_daiane_capabilities.json) and its attribute-name enum; medium
+      confidence, app-derived, not verified against hardware.
+      targetTemperatureC is readwrite, 16-30 C in steps of 1 (the app's
+      attribute enum also maps a targetTemperatureF attribute; the bundled
+      profiles declare only the C spelling). hvac_mode values are
+      AUTO/COOL/FANONLY/HEAT; eco is not a mode value but the separate
+      energySavingMode attribute. fan_mode values are
+      AUTO/HIGH/MIDDLE/LOW/TURBO (the profile's spelling is "MIDDLE", not
+      Medium). Power is the write-only executeCommand attribute with
+      values ON/OFF.
+      Every `commands` value in this and the other entities below is an OCP
+      attribute write sent to the "Appliance Command" endpoint (PUT
+      .../appliances/{applianceId}/command); see that endpoint's description for
+      the encoding — a bare attribute name writes the control's value to that
+      attribute, and "attribute=VALUE" writes the literal VALUE.
     state_topic: "appliance/{device_id}/state"
     state_mapping:
-      current_temperature: "current_temperature"
-      target_temperature: "target_temperature"
-      fan_mode: "fan_speed"
+      current_temperature: "ambientTemperatureC"
+      target_temperature: "targetTemperatureC"
+      fan_mode: "fanSpeedSetting"
       hvac_mode: "mode"
     commands:
-      set_temperature: "set_temperature"
-      set_fan_mode: "set_fan_speed"
-      set_hvac_mode: "set_mode"
-      turn_on: "set_power_on"
-      turn_off: "set_power_off"
+      set_temperature: "targetTemperatureC"
+      set_fan_mode: "fanSpeedSetting"
+      set_hvac_mode: "mode"
+      turn_on: "executeCommand=ON"
+      turn_off: "executeCommand=OFF"
 
   - platform: "sensor"
     name: "Room Temperature"
     device_class: "temperature"
     unit: "°F"
+    notes: "ambientTemperatureC is the wire name in the app's attribute enum, but the bundled daiane profile declares no ambient-temperature attribute; low confidence until a traffic capture confirms it."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
-      value: "current_temperature"
+      value: "ambientTemperatureC"
 
   - platform: "binary_sensor"
     name: "Filter Alert"
     device_class: "problem"
+    notes: "filterState is a read-only enum (GOOD/CLEAN/CHANGE/BUY); any value other than GOOD is a problem state. cleanFilterAlertReset is a write-only attribute that clears the alert."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
-      value: "filter_alert"
+      value: "filterState"
 
   - platform: "switch"
     name: "Sleep Mode"
+    notes: "sleepMode attribute (readwrite, OFF/ON) per the app's attribute enum and the bundled emmanuelle capability profiles; the daiane window-AC profile omits it, so availability on window units is unverified. Medium confidence."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
-      value: "sleep_mode"
+      value: "sleepMode"
     commands:
-      turn_on: "set_sleep_on"
-      turn_off: "set_sleep_off"
+      turn_on: "sleepMode=ON"
+      turn_off: "sleepMode=OFF"
 
   - platform: "switch"
     name: "Display"
+    notes: "displayLight is an enum (DISPLAY_LIGHT_0/DISPLAY_LIGHT_100), not a boolean; the daiane profile declares it readwrite."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
-      value: "display"
+      value: "displayLight"
     commands:
-      turn_on: "set_display_on"
-      turn_off: "set_display_off"
+      turn_on: "displayLight=DISPLAY_LIGHT_100"
+      turn_off: "displayLight=DISPLAY_LIGHT_0"
+
+  - platform: "switch"
+    name: "Energy Saving (Eco)"
+    notes: "energySavingMode attribute (readwrite, OFF/ON) — eco is this separate attribute, not a value of mode. Per the daiane profile's triggers, turning it ON removes TURBO from the allowed fanSpeedSetting values."
+    state_topic: "appliance/{device_id}/state"
+    state_mapping:
+      value: "energySavingMode"
+    commands:
+      turn_on: "energySavingMode=ON"
+      turn_off: "energySavingMode=OFF"
 
   - platform: "switch"
     name: "Clean Air (Ionizer)"
+    notes: "cleanAirMode attribute (OFF/ON). The daiane profile marks it access 'read', so write support is unverified and the commands below are low confidence."
     state_topic: "appliance/{device_id}/state"
     state_mapping:
-      value: "clean_air"
+      value: "cleanAirMode"
     commands:
-      turn_on: "set_clean_air_on"
-      turn_off: "set_clean_air_off"
+      turn_on: "cleanAirMode=ON"
+      turn_off: "cleanAirMode=OFF"

@@ -26,6 +26,8 @@ device:
   name: "Panasonic Viera Network Remote Control"
   manufacturer: "Panasonic"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "tv"
   transport: "soap"

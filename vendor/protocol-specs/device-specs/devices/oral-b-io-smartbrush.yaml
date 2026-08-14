@@ -1,7 +1,10 @@
 device:
   name: Oral-B iO Smart Brush
   manufacturer: Procter & Gamble
-  model: iO Series (3/4/5/6/7/8/9/10)
+  # iO3 dropped: no source (app SDK, firmware manifests, either RE project)
+  # names an iO3 model byte — SonosMetadata.Model starts at M4. iO3 may reuse
+  # another type or lack BLE; unverified either way.
+  model: iO Series (4/5/6/7/8/9/10)
   category: health
   type: electric-toothbrush
   transport: ble
@@ -14,6 +17,8 @@ device:
   # P&G still ships the iO line; the protocol is simply closed. Per the schema's
   # own guidance that is 'active', not a bespoke 'production'.
   manufacturer_status: active
+  testing:
+    status: untested
   notes: |
     Extracted from com.pg.oralb.oralbapp v10.x (211MB APK, decompiled via jadx).
     Uses A0F0XXXX-5047-4D53-8208-4F72616C2D42 UUID scheme where XXXX is a
@@ -30,7 +35,16 @@ device:
     bytes 0x0031 (SONOS IO), 0x0034 (iO4), 0x0035 (iO5) and 0x0036 (E-Platform
     = iO6-iO10): E-Platform/iO4/iO5 images are Silicon Labs Gecko Bootloader
     GBL files, legacy SONOS images are TI CC2640 binaries; current firmware is
-    E-Platform V82 and iO4/iO5 V36.
+    E-Platform V82 and iO4/iO5 V36; the legacy SONOS firmware train tops
+    out at V50. China is served from a separate S3 host
+    (email-assets-271825783008-cn-north-1.s3.cn-north-1.amazonaws.com.cn).
+
+    Transport parameters (app v10.8.0 BLE SDK): the app negotiates a
+    515-byte MTU on connect, requests CONNECTION_PRIORITY_HIGH (50 ms
+    latency) for active sessions, and serializes commands per UUID — writes
+    to the same characteristic are queued, different characteristics
+    interleave (RxJava command queue). Session/history data uses FF29 in a
+    write-then-notify pattern with timestamp-based sync.
 
   # No local name prefix and no advertised service UUID: as the setup notes
   # below say, a scanner filtering on services never sees this brush at all.
@@ -123,7 +137,16 @@ services:
       - uuid: "A0F0FF04-5047-4D53-8208-4F72616C2D42"
         name: DeviceState
         properties: ["read"]
-        description: Current device state (brushing, idle, etc.)
+        description: >
+          Current device state. State enum (app v10, DeviceState.java):
+          0=UNKNOWN, 1=INIT, 2=IDLE, 3=RUN, 4=CHARGE, 5=SETUP,
+          6=FLIGHT_MENU, 7=CHARGE_FORBIDDEN, 8=PRE_RUN, 9=PAUSE,
+          10=POST_BRUSHING_STATISTICS, 113=FINAL_TEST, 114=PCB_TEST,
+          115=SLEEP, 116=TRANSPORT, 117=CALIBRATION_TEST. Plus SubState
+          flags: -1=UNKNOWN, 0=TRANSPORT_DISABLED_DEACTIVATE_TIMER_DISABLED,
+          1=TRANSPORT_ENABLED_DEACTIVATE_TIMER_DISABLED,
+          3=TRANSPORT_ENABLED_DEACTIVATE_TIMER_ENABLED. Advertising byte 7
+          carries the same State value.
       - uuid: "A0F0FF05-5047-4D53-8208-4F72616C2D42"
         name: BatteryLevel
         properties: ["read"]
@@ -135,7 +158,7 @@ services:
       - uuid: "A0F0FF07-5047-4D53-8208-4F72616C2D42"
         name: BrushingMode
         properties: ["read"]
-        description: Current brushing mode (12+ modes in V006+)
+        description: Current brushing mode (9 modes in the V006 enum; 11 total with the V009 additions)
       - uuid: "A0F0FF08-5047-4D53-8208-4F72616C2D42"
         name: BrushingTime
         properties: ["read"]
@@ -167,7 +190,13 @@ services:
       - uuid: "A0F0FF21-5047-4D53-8208-4F72616C2D42"
         name: Configure
         properties: ["write"]
-        description: Metadata read/write (device UUID, FW versions, etc.)
+        description: >
+          Metadata read/write (device UUID, FW versions, git commit hash).
+          Carries the SonosMetadata model: Model M4-M10 (M10 has value 16 —
+          no M3/iO3 exists), 19-value Color enum, Language enum,
+          GumGuardSetting (OFF/ON/HD), PostBrushingStatisticsConfiguration.
+          Metadata length grew 14 to 30 bytes at V008 (see
+          protocol_changelog).
       - uuid: "A0F0FF22-5047-4D53-8208-4F72616C2D42"
         name: RTC
         properties: ["write"]
@@ -279,7 +308,7 @@ advertising:
     - byte_offset: 5
       name: device_type
       size: 1
-      description: Brush model variant (iO 3-10)
+      description: Brush model variant (iO 4-10; no source names an iO3 byte)
     - byte_offset: 6
       name: software_version
       size: 1
@@ -287,7 +316,7 @@ advertising:
     - byte_offset: 7
       name: device_state
       size: 1
-      description: Device state (idle, running, charging, etc.)
+      description: Device state — same State enum as the FF04 DeviceState characteristic
     - byte_offset: 8
       name: status
       size: 1
@@ -401,7 +430,29 @@ protocol_versions:
   - V008
   - V009
 
+# Per-version deltas from the app's ProtocolVersion/Advertisement mappings.
+# Byte layouts change significantly across versions — read the protocol
+# version characteristic (or advertising byte 4) before parsing anything else.
+protocol_changelog:
+  V001: "Earliest known layout."
+  V002: "Extended sensor data."
+  V003: "Added pressure configuration."
+  V004: "Extended brushing modes."
+  V005: "Added charger passthrough."
+  V006: "New brushing-mode enum (CLEAN/SOFT/MASSAGE/POLISH/TURBO/...)."
+  V007: "Extended sonos metadata."
+  V008: "Extended metadata (14 to 30 bytes); advertising byte 13 becomes device sub-type."
+  V009: "Added SMART_ADAPT_MODE (0x0B) and GENTLE_WHITE (0x0C) modes."
+
 source:
   apk: com.pg.oralb.oralbapp v10.x (211MB)
   decompiled: jadx (25266 classes)
   date_extracted: "2026-07-28"
+
+references:
+  # MatrixEditor/oralb-io (GPL) additionally ships a working OTA client and
+  # the extracted P&G RSA public key used to verify firmware manifests.
+  - "https://github.com/MatrixEditor/oralb-io"
+  - "https://github.com/Bluetooth-Devices/oralb-ble"
+  - "https://www.home-assistant.io/integrations/oralb"
+  - "https://fw.iot-dev.alchemy.codes"
