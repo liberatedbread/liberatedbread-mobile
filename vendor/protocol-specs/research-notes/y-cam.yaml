@@ -1,0 +1,67 @@
+# Y-cam classic line (White/Black/Knight/Bullet HD/Cube HD) — Device Spec
+# Company closed (Crunchbase); y-cam.com domain reused by unrelated store
+# (2026-08-07). Classic line: fully local RTSP/MJPEG/ONVIF. Cloud line
+# (HomeMonitor/Evo): dead with company — excluded.
+
+device:
+  id: y-cam
+  name: Y-cam White/Black (S), Knight S, Bullet HD 720/1080, Cube HD 720/1080
+  manufacturer: Y-cam Solutions Ltd (UK) — CLOSED
+  category: ip_camera
+  safety_class: LOW  # privacy risk only
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Classic-generation Y-cams are self-contained LAN webcams: local web UI,
+    RTSP on 554, MJPEG/JPEG over HTTP, ONVIF on HD models. Verified working
+    with direct RTSP digest auth in a 2011 curl trace (server banner
+    Y-CAM:BULLET). No cloud component ever existed for this generation.
+
+lan:
+  discovery:
+    - ONVIF WS-Discovery (Bullet HD, Cube HD)
+    - vendor IP finder / DHCP client list
+  http_port: 80
+  rtsp_port: 554
+  default_credentials: admin / 1234   # all Y-cam manuals
+  endpoints:
+    rtsp_mpeg4: rtsp://IP:554/live_mpeg4.sdp      # White/Black/Bullet/Cube
+    rtsp_h264: rtsp://IP:554/live_h264.sdp        # Bullet HD (also _1 variant)
+    rtsp_cube: rtsp://IP:554/live/0/h264.sdp      # Cube HD
+    rtsp_onvif: rtsp://IP:554/live/0/onvif.sdp    # ONVIF models
+    mjpeg: /stream.jpg
+    snapshot: /snapshot.jpg?user=U&pwd=P
+    legacy_asf: /stream.asf                        # oldest White/Black
+
+protocol:
+  note: >
+    No vendor SDK survives (company dead, site gone); the interoperable
+    surface is RTSP + ONVIF + simple HTTP image endpoints, catalogued in the
+    iSpyConnect database (22 models) and NVR ecosystems (Synology, ZoneMinder
+    era). Auth is HTTP/RTSP digest or URL user/pwd params.
+  commands:
+    stream_rtsp: see lan.endpoints (model-dependent path)
+    snapshot: snapshot.jpg
+    config: local web UI
+
+status:
+  apk_acquired: false   # n/a — browser-driven; cloud-line app dead anyway
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — Wi-Fi/HTTP
+  protocol_recovered: true  # community/NVR-catalogued; RTSP verified in curl trace
+  hci_snoop_needed: false
+  cloud_dead: true   # company closed; cloud line bricked; classic line unaffected
+  rating: confirmed  # classic line; HomeMonitor HD Pro local MJPEG = hypothesis
+  security_notes: >
+    admin/1234 is public — change it; frozen firmware since ~2018; cleartext
+    HTTP; isolate on IoT VLAN. Do NOT buy the HomeMonitor/Evo cloud line.
+  references:
+    - ispyconnect.com/camera/y-cam (22 models, updated 2026-06)
+    - use-ip.co.uk YCBLHD6 quick-start PDF (admin/1234)
+    - curl.se mailing list 2011-06 (RTSP digest trace, Y-CAM:BULLET)
+    - community.synology.com "Buyer Beware - Y-Cam Cameras" (2016-02)
+    - eevblog.com forum: web portal retired 2020-03-31 (2020-07)
+    - crunchbase.com/organization/y-cam-solutions (Operating Status Closed)
+    - curl fetch y-cam.com -> ERA Protect Shopify store (2026-08-07)

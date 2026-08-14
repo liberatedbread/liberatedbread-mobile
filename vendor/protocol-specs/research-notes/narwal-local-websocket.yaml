@@ -1,0 +1,53 @@
+# Narwal Flow / Freo — Device Spec (research note)
+# Local WebSocket API on TCP 9002 with per-model AES product key (APK-extracted).
+# Community integration: sjmotew/NarwalIntegration (2026-02, MIT) — fully local.
+# Freo X Ultra (AX18) = cloud-only dud.
+
+device:
+  id: narwal-local-websocket
+  name: Narwal Flow (AX12), Flow 2, Freo Z10 Ultra (CX4), Z10 Pro/Turbo (AX26), X10 Pro (AX15), Xiaoyao 002 Max (CX7)
+  manufacturer: Narwal (Yunjing Intelligence, Dongguan) — active brand
+  category: robot_vacuum
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true   # after app-based Wi-Fi provisioning
+  note: >
+    Robot (OpenWrt Tina on Allwinner MR813-class SoC) serves a WebSocket
+    API on TCP 9002. Messages are AES-protected with a per-model product
+    key recovered from the vendor APK. Initial provisioning uses the Narwal
+    app/account; afterwards WAN can be blocked.
+
+lan:
+  discovery:
+    method: network_scan   # no documented mDNS; integration takes static IP/hostname
+  control:
+    protocol: websocket
+    port: 9002
+    crypto: AES with per-model product key (from APK analysis; family-level)
+    reference: github.com/sjmotew/NarwalIntegration (HACS, 2026-02)
+
+protocol:
+  note: >
+    Local start/stop/dock, room/area cleaning, maps and sensor state via
+    WebSocket JSON. Confirmed: Flow AX12, Flow 2, Freo Z10 Ultra CX4, Z10
+    Pro/Turbo AX26, X10 Pro AX15, Xiaoyao 002 Max CX7; J4/J5 keys exist
+    (untested). Flow FW v01.07.22+ needs a loaded map before vacuum.start.
+    Freo X Ultra (AX18) has NO local interface — cloud-only.
+  commands:
+    start: vacuum.start        # needs loaded map on newer Flow FW
+    room_clean: vacuum.clean_area
+    dock/stop: via integration service calls
+
+status:
+  apk_acquired: false   # package id not on Play mirror; apkeep attempts failed 2026-08-07
+  protocol_recovered: true    # by community; integration is the de-facto spec
+  rating: confirmed           # for listed models
+  rating_caveat: Freo X Ultra (AX18) cloud-only — dud
+  cloud_dead: false
+  cloud_bootstrap: provisioning-only   # Narwal account needed once for Wi-Fi setup
+  references:
+    - github.com/sjmotew/NarwalIntegration (+ sytchi.github.io/NarwalIntegration docs)
+    - bbs.hassbian.com/thread-32193-1-1.html (2026-04-24; model/key table)
+    - robotinfo.dev Narwal Freo hardware entry (Allwinner MR813, OpenWrt Tina)

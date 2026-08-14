@@ -1,0 +1,66 @@
+# Xiaomi M365 / Mi Scooter Family — Research Note
+# App: com.xiaomi.smarthome (Xiaomi Home mega-app)
+# XAPK source: apkeep (apk-pure)
+# XAPK SHA-256: 12aecd77fd18531e23c7bf43b91ba06b36a8cf7005b31d2fed7645d744ac63b6
+
+device:
+  id: xiaomi-m365-scooter
+  name: Xiaomi M365 / M365 Pro / 1S / Essential / Pro 2
+  manufacturer: Xiaomi (vendor ACTIVE; M365 product line discontinued)
+  category: electric_scooter
+  safety_class: HIGH  # vehicle; lock/speed/firmware writes are safety-relevant
+
+transport:
+  type: ble
+  local_only: true  # third-party apps (ScooterHacking Utility, macbury/m365) control
+                    # the scooter with no Xiaomi account or cloud session
+  cloud_needed_for:
+    - firmware_image_download  # mirrored at firmware.scooterhacking.org
+
+ble:
+  advertising:
+    name_patterns: []  # TBD per model ("MIScooter" prefix reported historically — verify)
+    service_uuids: []
+
+  # From prior art (irmo.de, ScooterHacking docs) — APK static pass skipped
+  # (mega-app, protocol already fully community-documented)
+  services:
+    - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      name: nordic_uart_service
+      description: UART bridge carrying the Xiaomi/Ninebot serial register protocol
+      confidence: prior_art_reported
+      characteristics:
+        - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_rx
+          description: write commands to scooter
+          properties: [write, write_no_response]
+        - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_tx
+          description: notifications from scooter
+          properties: [notify]
+
+protocol:
+  note: >
+    Xiaomi/Ninebot shared serial register protocol (read/write frames, CRC16)
+    over Nordic UART. Early M365 firmware accepted unauthenticated BLE writes
+    (lanrat.com 2019 auth-bypass, Zimperium disclosure); later firmwares add a
+    pairing handshake. Register maps and per-model quirks documented in
+    wiki.scooterhacking.org (guide-mi) and SHU sources. Peripheral side fully
+    cloned by camcamfresh/Xiaomi-M365-BLE-Controller-Replacement.
+  commands:
+    lock_unlock: register write (documented in SHU sources)
+    speed_mode: register write
+    telemetry: register reads (battery %, voltage, speed, ESC temp)
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # deliberate skip — prior art is complete
+  uuids_recovered: false # from APK; NUS UUIDs are prior-art-reported
+  protocol_recovered: true  # via community (SHU, macbury/m365, BLE controller clone)
+  hci_snoop_needed: false
+  reference:
+    - wiki.scooterhacking.org (guide-mi, shutility)
+    - github.com/macbury/m365 (Rust BLE client)
+    - github.com/camcamfresh/Xiaomi-M365-BLE-Controller-Replacement
+    - lanrat.com/posts/xiaomi-m365 (2019 auth-bypass analysis)
+    - irmo.de/2023/11/08/e-scooter-bluetooth-hacking (NUS transport teardown)

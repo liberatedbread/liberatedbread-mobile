@@ -1,0 +1,389 @@
+# BMW Motorcycle Diagnostics (MotoScan) — Device Specification
+# Status: In Progress — addressing scheme and service data model recovered from the
+#         shipped MotoScan app (de.wgsoft.motoscan, SHA-256
+#         21b590cb76641731bc448cd992114c5f2b83cc38eb87f8811b91aaf51d2c9055, signature
+#         verified as the genuine WGSoft.de build). The reset frames were recovered from
+#         the Kotlin control-unit classes — NOT from the native library, which holds the
+#         ECU description database rather than the wire protocol.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "BMW Motorcycle Diagnostics"
+  manufacturer: "BMW Motorrad"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "obd2"
+  category: "vehicle"
+  notes: >
+    BMW motorcycles (C-, F-, G-, K-, R- and S-series) expose service interval reset, fault
+    codes, live data, adaptations and ECU coding over the diagnostic connector. All of it
+    is dealer- or paid-tool-gated; MotoScan is the tool that covers it.
+
+    Addressing is BMW's 6F1 scheme: the tester transmits on a single CAN ID 0x6F1 with the
+    target ECU address carried as the first payload byte via CAN extended addressing
+    (ATCEA), and each ECU replies on 0x600 + its address. That is uniform across modules —
+    unlike Triumph, which uses four bespoke stacks.
+
+    The service interval has the same distance/date split found on the Triumph Tiger 900,
+    plus a separate valve-clearance service with its own remaining-distance counter and a
+    reset counter.
+
+    The reset is standard UDS WriteDataByIdentifier against BMW's 0xE1xx DID family, and
+    the read side matches the write layouts exactly. Service distance is a plain uint16 in
+    kilometres — no scaling, unlike the Triumph Tiger 900's divide-by-100.
+
+    CONFIDENCE: derived from the shipped app (verification: reported). Nothing has been
+    executed against a bike. Module addresses are still unknown.
+
+    SCOPE: this exists for repair-café and owner maintenance. The service reset is a write
+    and is meant to be used — stationary bike, engine off, owner's consent, values read
+    back first (22 E1 19 / 2B / 2C / 2D). ECU coding carries `advanced: true` rather than
+    being excluded: a salvaged module has to be coded to the bike before it works at all.
+    Dump the existing coding before changing it.
+
+    Module addresses are not published. Sweep them: every module is reached identically
+    with only the address byte changing, so scripts/obd_discover.py --bmw-scan finds the
+    live ones by asking each address for the standard VIN DID.
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      Nothing to provision. The bike is reached by plugging an adapter into its
+      diagnostic connector; the setup that matters is the adapter's, not the
+      vehicle's. BMW's D-CAN addressing needs a per-ECU init sequence, but
+      that is session initialisation rather than onboarding — see
+      obd.transport.
+    methods:
+      - type: "wired"
+        verified: false
+        description: >
+          Plug an adapter into the diagnostic connector and power the ignition.
+          There is no provisioning, no credential exchange and no pairing on
+          the vehicle side — whatever pairing is needed belongs to the adapter
+          (see device-specs/devices/obd2-bluetooth-adapter.yaml).
+        steps:
+          - action: "Locate the diagnostic connector — see obd.connector for its type and position."
+            actor: "user"
+          - action: "Plug in the adapter and switch the ignition on without starting the engine, unless a procedure says otherwise."
+            actor: "user"
+            expect: "The adapter powers up from the connector."
+          - action: "Initialise the adapter for this vehicle's CAN parameters, per obd.transport."
+            actor: "client"
+            notes: >
+              The AT/ST init sequence is vehicle-specific and is recorded in
+              obd.transport.notes; it is not a generic OBD-II session.
+    factory_reset:
+      applicable: false
+      effect: >
+        Not applicable. A vehicle holds no credentials or pairing state a
+        client can clear, so there is nothing a reset would undo. Adaptation
+        writes, coding and flashing are documented elsewhere in this spec and
+        are in scope — see the advanced request definitions and the risk tiers
+        in docs/protocols/obd2-common.md — but they are repair operations with
+        their own recovery paths, not a way to return the vehicle to an
+        unprovisioned state. Do not present them as a setup step.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Moving to a different adapter or host is a physical swap. The vehicle
+        keeps no record of which tool last connected.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Access control is physical: whoever can reach the connector can talk to
+        the vehicle. ECU coding implies a UDS SecurityAccess (0x27) seed/key
+        exchange somewhere in the stack, but that is a HYPOTHESIS: no 0x27
+        request construction was located in the shipped app — the service
+        reset DIDs above need no diagnostic session and no security access.
+
+obd:
+  role: "vehicle"
+
+  connector:
+    standard: "sae-j1962"
+    model_years: >
+      ~2017+ (EU4) bikes. Pre-2017 models use BMW's round 10-pin diagnostic
+      plug and need a 10-pin to OBD adapter cable.
+    verification: "reported"
+
+  transport:
+    standard: "iso15765-4"
+    bitrate: 500000
+    addressing: "11bit"
+    request_id: "0x6F1"
+    verification: "reported"
+    notes: >
+      BMW D-CAN. Single tester ID 0x6F1 with CAN extended addressing carrying
+      the target
+      ECU address; replies arrive on 0x600 + address. MotoScan's init, with <aa>
+      as the
+      target address: ATSPB, ATPBC101, ATSH6F1, ATFCSH6F1, ATFCSD<aa>300008,
+      ATFCSM1,
+      ATCEA<aa>, ATCM7FF, ATCF6<aa>, ATST90, ATBI, then STCSEGT1 / STCFCPC on
+      STN adapters.
+
+      D-CAN is only the 2017+ side. The app implements six KWP2000-over-K-line
+      protocol variants alongside it — "BMW Motorcycle KWP2000", "BMW KWP2000
+      FAST", "BMW Motorcycle KWP2000 FTE intialisation" [sic], "... FTE work",
+      "... OLD ABS ECU" and "... OLD MOT ECU" — which is what the pre-2017
+      10-pin K-line bikes (see obd.connector) are spoken to with. Their wire
+      format is not recovered here; this spec's request definitions are D-CAN
+      only.
+
+  # BMW's own toolchain describes each module with an EDIABAS SGBD (.prg), selected by a
+  # group file (.grp). Naming them lets a consumer resolve jobs, results and scaling from
+  # the authoritative definition instead of the offsets we recovered by hand. The files
+  # themselves are vendor copyright and are NOT redistributed here — they come from a
+  # licensed EDIABAS/INPA/ISTA installation.
+  description_files:
+    - type: "sgbd-grp"
+      name: "D_MOTOR.grp"
+      provides: ["jobs", "results"]
+      source: "EDIABAS/INPA/ISTA installation (ECU directory)"
+      verification: "hypothesis"
+      notes: >
+        Standard BMW engine group file. Named here as the conventional entry point when the
+        engine variant is unknown; not yet confirmed as the one these bikes use.
+
+  adapter_requirements:
+    - "CAN extended addressing (ATCEA) is mandatory — without it no BMW ECU is reachable."
+    - "Client-supplied flow control (ATFCSH/ATFCSD/ATFCSM) with a per-target header."
+    - "Long messages: coding and adaptation writes exceed a single frame. The UniCarScan UCSI-2100 handles this with a 255-byte message mode; STN adapters use STCSEGT1/STCFCPC."
+    - >
+      MotoScan ships its own adapter classification — ELM327_CLONE,
+      ELM327_ORIGINAL,
+      ELM327_UNKNOWN, OBDLINK_LX, OBDLINK_MX, OBDLINK_MX_PLUS, OBDLINK_MX_WIFI,
+      UCSI_2000
+      (UI text "UCSI-2000/2100") — and distinguishes a clone from an original at
+      runtime. A reworked third adapter generation, the UniCarScan UCSI-3000,
+      has been shipping since mid-2026 (dealer announcement); its behaviour is
+      expected to follow the UCSI-2100 but is not verified.
+
+  ecus:
+    - name: "KOMBI (instrument cluster)"
+      owns:
+        - "service interval (distance)"
+        - "service date"
+        - "odometer"
+        - "valve-clearance service counter"
+      verification: "reported"
+      description_files:
+        - type: "sgbd-prg"
+          name: "KOMBI.prg"
+          provides: ["jobs", "results", "ecu_address", "scaling"]
+          source: "EDIABAS/INPA/ISTA installation (ECU directory)"
+          verification: "hypothesis"
+          notes: >
+            The result names recovered from MotoScan's embedded database
+            (STAT_SERVICE_KMSTAND_DATA, STAT_SERVICE_DATUM_DATA, STAT_VENTILSPIELSERVICE_*)
+            are SGBD result names, so the cluster SGBD is where their scaling, units and the
+            module address are authoritatively defined. Exact filename per model family is
+            not yet confirmed.
+    - name: "ZFE (central body electronics)"
+      verification: "reported"
+    - name: "BMS (engine management)"
+      verification: "reported"
+    - name: "ABS (brake modulator)"
+      verification: "reported"
+    - name: "RDC (tyre pressure monitoring)"
+      verification: "reported"
+    - name: "DWA (alarm system)"
+      verification: "reported"
+    - name: "ESA (electronic suspension adjustment)"
+      verification: "reported"
+    - name: "EWS4 (immobiliser)"
+      verification: "reported"
+    - name: "TPM (tyre pressure, alongside RDC)"
+      verification: "reported"
+    - name: "OBC (on-board computer)"
+      verification: "reported"
+  # NOTE: no ILAF (adaptive headlight) ECU is listed — the only ILAF string in
+  # the app is a microcontroller status text ("Resets wegen illegalem
+  # Adresszugriff (HW Bit ILAF)"), a CPU illegal-address-fetch bit misread as a
+  # module in an earlier revision of this spec.
+  #
+  # The list above is the short version: the app carries ~65 cuX_* control-unit
+  # class strings — ten KOMBI variants (03/17/18/46/50/53/A/B2/HI/LO), ten BMS
+  # variants (MP1/X/O1/E2B/AE1/MS1/N/TVS/Z), four ABS variants (ABS, ABS1K,
+  # ABS9M, ABSVI), three DWA and three OBC variants, plus SAF, CCP, MESS, MRR,
+  # SRR, FSA, FSM, SME, EDME, SLZ, BSK and others. Coverage is far wider than
+  # the modules named here; the named ones are what this spec's requests have
+  # been verified against.
+
+  requests:
+    # ---- Service interval reset: UDS WriteDataByIdentifier on the 0xE1xx family ----
+    # The reset is implemented per cluster generation: the shared reset routine
+    # (abstract Cu.d0) is overridden in four concrete control-unit classes, so
+    # behaviour may differ between KOMBI generations. The frames below are the
+    # variant recovered from the KOMBI class (o7/g.smali).
+    - name: "set_cluster_clock"
+      description: >
+        Write the cluster clock from the current date and time. Issued for the SI_DATE_CAR
+        and SI_ALL reset scopes, before the service values are written.
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_tx", "flow_control"]
+      service: "2E"
+      request: "2E E1 2B ?? ?? ?? ?? ?? ?? ??"
+      writes: true
+      verification: "reported"
+      notes: "Fields hh mm ss dd MM yyyy_hi yyyy_lo. 2000 ms timeout, 1500 ms settle after."
+    - name: "set_service_date"
+      description: "Write the next service date. Issued for the SI_DATE and SI_ALL scopes."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_tx", "flow_control"]
+      service: "2E"
+      request: "2E E1 2C ?? ?? ?? ??"
+      writes: true
+      verification: "reported"
+      notes: "Fields dd MM yyyy_hi yyyy_lo."
+    - name: "set_service_distance"
+      description: >
+        Write the service distance. Issued for the SI_MILEAGE and SI_ALL scopes. Plain
+        uint16 kilometres — no scaling, in contrast to the Triumph Tiger 900.
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_tx", "flow_control"]
+      service: "2E"
+      request: "2E E1 2D ?? ??"
+      writes: true
+      verification: "reported"
+
+    # ---- Reads. Payload begins at offset 3 in every reply. Read-side timeout is 1000 ms. ----
+    - name: "read_odometer"
+      description: "Odometer. 7-byte reply, uint32 at offset 3."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx"]
+      service: "22"
+      request: "22 E1 19"
+      writes: false
+      verification: "reported"
+      results: ["STAT_SERVICE_KMSTAND_DATA"]
+    - name: "read_cluster_clock"
+      description: "Cluster clock. 10-byte reply: hh@3 mm@4 ss@5 dd@6 MM@7 yyyy@8-9."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx"]
+      service: "22"
+      request: "22 E1 2B"
+      writes: false
+      verification: "reported"
+    - name: "read_service_date"
+      description: "Next service date. 7-byte reply: dd@3 MM@4 yyyy@5-6."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx"]
+      service: "22"
+      request: "22 E1 2C"
+      writes: false
+      verification: "reported"
+      results: ["STAT_SERVICE_DATUM_DATA", "STAT_SERVICE_TAG_WERT", "STAT_SERVICE_MONAT_WERT", "STAT_SERVICE_JAHR_WERT"]
+    - name: "read_service_distance"
+      description: "Service distance. 5-byte reply, uint16 at offset 3."
+      command_class: "advanced"
+      requires: ["custom_headers", "multiframe_rx"]
+      service: "22"
+      request: "22 E1 2D"
+      writes: false
+      verification: "reported"
+      results: ["STAT_VENTILSPIELSERVICE_RESTWEG_WERT"]
+      notes: >
+        Result name association is inferred from the embedded database, not confirmed —
+        the reply may carry the oil-service distance rather than the valve-clearance one.
+
+    # ---- Actuator tests: UDS RoutineControl (0x31), routine family 0xFAxx, on the cluster ----
+    # Semantics recovered from the app's actuator-test table (p7/y.smali): each test is
+    # a named WGS_ACTOR_* entry with a start and a stop frame. App-derived, not run
+    # against a bike — do not guess further routines against a vehicle.
+    - name: "actuator_self_test"
+      description: "Cluster self-test. Start 31 FA 18 01, stop 31 FA 18."
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 18 01"
+      writes: true
+      verification: "reported"
+    - name: "actuator_lcd_segment_test"
+      description: "Cluster LCD segment test, positive and negative. 31 FA 17 01 / 31 FA 17 02; stop with 31 FA 17."
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 17 ??"
+      writes: true
+      verification: "reported"
+    - name: "actuator_indicator_led"
+      description: >
+        Switch one cluster indicator on/off: 31 FA 13 <sub> 01 (on) / 31 FA 13 <sub> 00 (off).
+        Sub-functions recovered: 01 warning yellow, 02 warning red, 03 neutral, 04 ABS,
+        05 turn-right telltale, 06 fuel reserve, 07 high beam, 08 turn-left telltale,
+        09 anti-theft, 0A ASC, 0B oil, 0C engine, 0D right turn lamp, 0F left turn lamp,
+        12 parking light, 13 low beam, 15 brake-fail/tail light.
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 13 ?? ??"
+      writes: true
+      verification: "reported"
+    - name: "actuator_gauge_sweep"
+      description: "Gauge needle sweep (RPM). 31 FA 0D 00 00."
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 0D 00 00"
+      writes: true
+      verification: "reported"
+    # Body-electronics actuators (blinkers, brake light, heated grips, horn, parking /
+    # low / high beam, accessory socket) live on the ZFE and are NOT part of this 31 FA
+    # family: the app drives them with 30 02 07 <id> 01/00 and 30 04 07 <id> <pwm> <pwm>
+    # frames instead (p7/e0.smali). Their layout is not yet recorded as request
+    # definitions here.
+
+  data_identifiers:
+    - did: "0xE119"
+      name: "Odometer"
+      type: "uint32"
+      unit: "km"
+      verification: "reported"
+    - did: "0xE12B"
+      name: "Cluster clock (hh mm ss dd MM yyyy)"
+      type: "date"
+      verification: "reported"
+    - did: "0xE12C"
+      name: "Next service date (dd MM yyyy)"
+      type: "date"
+      verification: "reported"
+    - did: "0xE12D"
+      name: "Service distance"
+      type: "uint16"
+      unit: "km"
+      verification: "reported"
+    - did: "0xF150"
+      name: "Identity DID read on connect"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF186"
+      name: "Identity DID (app builds 22 F1 86 alongside 22 F1 50)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF18A"
+      name: "Identity DID (app builds 22 F1 8A alongside 22 F1 50)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF18B"
+      name: "Identity DID (app builds 22 F1 8B alongside 22 F1 50)"
+      type: "bytes"
+      verification: "reported"
+
+references:
+  - "https://www.motoscan.de/"
+  - "https://play.google.com/store/apps/details?id=de.wgsoft.motoscan"
+  - "https://www.wgsoft.de/unicarscan-ucsi-2100"
+  - "https://www.wgsoft.de/download/all"
+  - "https://gallia.readthedocs.io/en/stable/uds/scan_modes.html"
+  - "https://www.bimmerforums.com/forum/showthread.php?2298830"
+  - "https://mechanics.stackexchange.com/questions/49744/bmw-can-bus-data-format"
+  - "https://www.hexgs911.com/"
+  - "https://www.bimmerguide.de/neuer-unicarscan-ucsi-2100-3000-diagnoseadapter/"
+  - "https://motoscan.en.aptoide.com/app"

@@ -1,0 +1,964 @@
+# SmartDawn Smart Lights (Hangzhou Daniao pixel-light platform)
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "SmartDawn Smart Lights"
+  manufacturer: "Hangzhou Daniao Technology Co., Ltd (SmartDawn/Minetom store brand)"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "light"
+  notes: >
+    SmartDawn (smartdawn.com, Shopify storefront linked to the Minetom
+    string-lights seller) sells addressable-RGB holiday lighting: RGBIC
+    permanent outdoor string lights, icicle/net/curtain lights, meteor-shower
+    tubes, cone trees. The products are white-label builds of Hangzhou Daniao
+    Technology's "point-controlled color light" platform — the same stack
+    behind Daniao's SuperPix (com.daniaokeji.cs) and legacy SmartPixel apps.
+
+    COMPANION APP: "SmartDawn" — Android com.daniaokeji.smartdawn (v1.2.4,
+    updated 2026-01-06), iOS id 6749049089. Features: music/mic reactive
+    modes, hand-drawn patterns, scrolling text, photo-to-light, groups,
+    timers. Local BLE control works without any account or cloud.
+
+    PROTOCOL: custom "DDP/DNX" stack, mapped from decompilation of the
+    official SmartDawn.apk v1.2.4 (jadx: com.daniaokeji.libs.bluetooth.
+    BleUtils5, com.daniaokeji.libs.udp.*) cross-checked against the app's
+    bundled H5 JavaScript (assets/HTML/assets/index-CL_jUmAY.js), which
+    implements the same encoders a second time, and the app's bundled
+    protobuf schema (assets/HTML/p2p.proto), which pins every message
+    type number and payload shape. Commands are protobuf messages wrapped
+    in a 20-byte extended DDP header, fragmented into BLE writes carrying
+    a 4-byte fragment header. Simple commands (power, brightness) need no
+    protobuf beyond a single SimpleMessage {i1} value. Re-verified against
+    the same APK on 2026-08-08 (sha256
+    58aaf3d6027c59aa5ab7876930fb16661d224d28220f58f227e35c2ddeca07aa,
+    fetched from the vendor's own CDN,
+    http://file.daniaokeji.com/download/SmartDawn.apk).
+
+    DISCOVERY: advertised local name is 6-8 chars starting with "DN"
+    (app-side filter, case-insensitive). The custom service UUID
+    00000074-1972-1925-3022-077119514e44 is what the official app's scan
+    filter names, but the JY25CUT curtain controller tested live
+    (2026-08-08, unit "DN0B88") does NOT include it in its advertisement —
+    the ADV carries only the local name and a manufacturer-data record
+    (company id 0x61ea + 12 payload bytes, observed
+    03 e8 00 64 14 14 00 00 72 74 00 00: fw_ver, factory id, product
+    type, width, height, group, vendor, run-mode/leader flags). Scan
+    matching must therefore key on the name prefix (and optionally the
+    manufacturer data); the service UUID is confirmed from the GATT table
+    after connecting.
+
+    WIFI VARIANTS: Daniao's platform also supports Wi-Fi control — same DDP
+    framing over UDP port 4048, device presence announcements to app UDP
+    port 14040, and AP-mode provisioning (controller AP "DN??????",
+    password "00000000"; or phone hotspot named i5g*/I5G* with password
+    "00000000"). Whether shipping SmartDawn-branded SKUs enable Wi-Fi is
+    unverified; the curtain lights are BLE-per-listing.
+
+    CONFIDENCE: HIGH for discovery, GATT layout, fragment framing,
+    extended-header layout, and the core command path — code-sourced from
+    two independent implementations inside the vendor's own app AND
+    verified live against JY25CUT curtain hardware (unit "DN0B88",
+    "DNX:S104-JY" per its DeviceInfo push) on 2026-08-08: connect +
+    subscribe needs no pairing; the device immediately pushes
+    M_DEVICE_INFO_NOTIFY (mt=2103) and a periodic M_PLAY_PROGRESS_NOTIFY
+    (mt=2630) stream on the DDP notify characteristic; fragment-framed
+    M_SET_POWEROFF/M_SET_POWERON commands (single-fragment, big-endian
+    header fields) are acknowledged with
+    M_POWER_STATUS_NOTIFY (mt=2105) and visibly pause/resume playback,
+    while the SAME packets written WITHOUT the 4-byte fragment header are
+    silently ignored — the framing is mandatory, not advisory. Commands
+    worked without a prior M_TIME_SYNC. M_SET_BRIGHTNESS (mt=2509, protobuf
+    SimpleMessage {i1}) is accepted without an ACK and the value echoes
+    back in the next M_DEVICE_INFO_NOTIFY brightness field. The pixel-push
+    path was also exercised live: M_DEV_START (mt=235) verifiably takes
+    over the display (the M_PLAY_PROGRESS_NOTIFY stream goes silent until
+    the mode is left), and full-canvas TUTU_RESTORE chunks then stream on
+    the BIN channel (format under the BIN Write characteristic).
+    M_GET_RUNNING_STATUS (mt=2104) produced no observable reply in that
+    session (framed or not) — its semantics stay medium confidence, as
+    does payload field usage for commands not exercised live (SimpleMessage
+    i1/i2/s1 semantics, ranges), which follows app call sites. Header shape
+    and UDP port 4048 echo the WLED/xLights DDP (Digital Display Protocol),
+    suggesting a derivation, but the DNX extended channel is
+    Daniao-specific.
+
+  identification:
+    # Advertised local name is 6-8 chars starting with "DN" (the official
+    # app's scan filter, case-insensitive) — see the DISCOVERY note above.
+    # Declared here as well as per-variant so clients that identify by the
+    # device-level block can match before/without service discovery.
+    local_name_prefix: "DN"
+    service_uuids:
+      - "00000074-1972-1925-3022-077119514e44"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "DN"
+          service_uuids:
+            - "00000074-1972-1925-3022-077119514e44"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      BLE models need no provisioning: power on, scan for the DN-prefixed
+      name (the tested JY25CUT unit does not advertise the 00000074-...
+      service UUID — see DISCOVERY), connect, subscribe to the DDP
+      and BIN notify characteristics, negotiate MTU (app requests 512,
+      payload MTU = negotiated - 3, fallback 20), then optionally send a
+      time sync (M_TIME_SYNC, mt=2504) — the official app always does, but
+      live testing (2026-08-08) confirmed power commands work without it.
+      No pairing, bonding, or authentication on the command path — auth
+      message types exist but serve cloud/sharing flows; the whole flow was
+      exercised on JY25CUT curtain hardware over BlueZ. Wi-Fi SKUs (if any
+      ship under SmartDawn) would use the AP-mode flow in the notes above
+      (low confidence for this brand).
+    methods:
+      - type: "ble_direct"
+        verified: true
+        description: >
+          Scan for a "DN"-prefixed name (6-8 chars) or the
+          00000074-1972-1925-3022-077119514e44 service UUID, connect, enable
+          notifications on the DDP (01010074-...) and BIN (02010074-...)
+          characteristics, request MTU, then send M_TIME_SYNC followed by
+          normal commands.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the lights; they advertise immediately."
+            actor: "user"
+            request:
+              protocol: "ble_gatt"
+          - action: >
+              Scan for the DN-prefixed name / 00000074-... service UUID and
+              connect; subscribe to both notify characteristics and raise MTU.
+            actor: "client"
+          - action: >
+              Send M_TIME_SYNC (mt=2504, TimeSync protobuf) then command
+              packets on the DDP write characteristic.
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        M_FACTORY_RESET (mt=2598) and M_REBOOT (mt=2599) commands exist in
+        the protocol. The controller hardware also has a physical mode
+        button (per the FCC manual: press to switch mode, hold to turn
+        off). No BLE bonding state exists to clear.
+      procedures:
+        - name: "Software factory reset"
+          steps:
+            - action: "Send M_FACTORY_RESET (mt=2598) over the DDP channel."
+              actor: "client"
+              expect: "Device resets to factory state (per app code; not captured on hardware)."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No bonding. Any central within range can connect and send commands.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE path has no credentials. Wi-Fi provisioning (Wi-Fi SKUs only)
+        uses the fixed AP/hotspot passphrase "00000000".
+
+  variants:
+    - model: "RGBIC permanent outdoor string lights (50/100/150/200 ft)"
+      identification:
+        local_name_prefix: "DN"
+    - model: "Smart curtain lights (JY25CUT series)"
+      identification:
+        local_name_prefix: "DN"
+    - model: "Smart icicle / net / meteor-shower / cone-tree / firecracker (HL1123) lights"
+      identification:
+        local_name_prefix: "DN"
+
+helpful_urls:
+  - title: "SmartDawn store — smart lights collection"
+    url: "https://smartdawn.com/collections/smart-lights"
+    description: "Vendor storefront listing the product families this spec covers."
+  - title: "SmartDawn on Google Play (com.daniaokeji.smartdawn)"
+    url: "https://play.google.com/store/apps/details?id=com.daniaokeji.smartdawn"
+    description: "Official companion app; v1.2.4 was the source of this protocol map (jadx decompile)."
+  - title: "Vendor-hosted SmartDawn APK (daniaokeji.com CDN)"
+    url: "http://file.daniaokeji.com/download/SmartDawn.apk"
+    description: "Direct download of the companion APK from the ODM's own server; v1.2.4 sha256 58aaf3d6027c59aa5ab7876930fb16661d224d28220f58f227e35c2ddeca07aa (fetched 2026-08-08, also matches the 2026-08-03 research-store copy)."
+  - title: "Hangzhou Daniao Technology (ODM)"
+    url: "https://daniaokeji.com/"
+    description: "Platform vendor behind SmartDawn/SuperPix/SmartPixel apps and controllers."
+  - title: "FCC-hosted SmartDawn curtain-lights manual"
+    url: "https://fccid.io/m/03e7be1bfdf844811e2d2cef87f6127da9424fa5c4ea7d89950479b3f244e0c4.pdf"
+    description: "User manual for JY25CUT-series curtain lights confirming BLE app control and the physical mode button."
+
+# Consumer-side encoder for the fragment framing + DDP pixel packets below —
+# what a client dispatches on to push image/animation frames (the transport
+# cannot be expressed as declarative command templates).
+protocol_handler: "daniao_ddp"
+
+features:
+  - type: "image_upload"
+    format: "rgb888"
+    # Platform bounds, not a panel size: width and height are u8 fields in
+    # the advertisement's manufacturer-data record and in the DeviceInfo
+    # protobuf (M_DEVICE_INFO_NOTIFY, mt=2103); each model reports its own
+    # resolution at runtime.
+    max_width: 255
+    max_height: 255
+    resolution_source: "device_reported"
+    # Where the REAL panel size lives in the advertisement, so a client can
+    # default the canvas to it before connecting instead of guessing (a 16×16
+    # default on a 20×20 curtain leaves the outer strands unwritten -> they hold
+    # stale colour). Offsets index the manufacturer-data VALUE (bytes after the
+    # 2-byte company id, as BlueZ reports it). DN0B88 advertises company 0x61EA
+    # with `03 e8 00 64 14 14 00 00 72 74 00 00` -> width=byte[4]=0x14,
+    # height=byte[5]=0x14 = 20×20 (from MFD.java; see research-notes).
+    resolution_advertisement:
+      company_id: 0x61EA
+      width_offset: 4
+      height_offset: 5
+    # The choreography, stated rather than left for a client to hardcode: the
+    # byte sequences live in these commands' own templates on the DDP channel,
+    # and this says which of them open a session and in what order. Sending
+    # M_DEV_START instead blanks the canvas — see the note below.
+    session_open: ["ui_end_sync", "doodle_start"]
+    # Buffer-type tag this flow writes under on the bulk channel: TUTU_RESTORE,
+    # because each write is a full-canvas redraw. The BIN characteristic itself
+    # declares no channel_tag precisely because the tag is per-flow.
+    channel_tag: 0x04
+    # The vendor app's draw / photo-to-light modes push pixels over the
+    # BIN channel, not the DDP channel — VERIFIED LIVE on JY25CUT curtain
+    # hardware (unit DN0B88) 2026-08-08. The working sequence (matches the
+    # vendor H5 app AND confirmed rendering full multi-color images,
+    # sequential images, and ~5fps animation on hardware):
+    #
+    #   1. M_UI_END_SYNC (mt=2411, no payload) on the DDP channel — suspends
+    #      the UI-mirror playback so the doodle canvas owns the display.
+    #   2. M_DOODLE_START (mt=2701) on the DDP channel. The H5 app sends
+    #      SimpleMessage {i1: showRate, i2: showRate} where showRate is
+    #      undefined, so the payload is EMPTY on the wire; an empty payload
+    #      was used in the live verification. (M_DOODLE_END mt=2702 exists
+    #      but the app never sends it — the session stays open; for a
+    #      multi-image stream DOODLE_START need not be resent per frame.)
+    #   3. The canvas as TUTU_RESTORE-tagged buffer arrays on the BIN Write
+    #      characteristic; format under that characteristic's notes. EACH
+    #      chunk MUST fit in a single BLE write — the device does NOT
+    #      reassemble BIN fragments (a split chunk renders only its first
+    #      strand), so negotiate a large ATT MTU (the app requests 527, the
+    #      device grants 512) before pushing images.
+    #
+    #   DO NOT send M_DEV_START (mt=235) for this path: it is the
+    #   developer/layout RAW-pixel mode (paired with M_DEV_SHOW_PIXEL) and it
+    #   BLANKS the doodle canvas — every DEV_START + TUTU_RESTORE attempt
+    #   rendered nothing on hardware, while the M_UI_END_SYNC path rendered
+    #   full images. (A DDP DISPLAY datatype-0x01 streaming encoder also ships
+    #   in the H5 bundle but has no call sites and did nothing observable —
+    #   dormant/legacy.)
+    #
+    # Stored, standalone-playable animations install via the Uploader
+    # characteristic (27923001-...): see its notes for the UploadRequest +
+    # 8-byte-header + CRC8 flow (device-side STORAGE, decoded from an
+    # over-the-air capture 2026-08-08). No documented minimum frame interval
+    # for live streaming — throughput is MTU-bound.
+    animation: true
+
+  # DEVICE-SIDE STORAGE: persist a picture, scrolling text, or multi-frame
+  # animation as a standalone microapp that plays after disconnect (the
+  # vendor's 图文 / "image-text" program). Unlike the live doodle path above,
+  # this survives power-off and is played from the device's own effect list.
+  #
+  # TWO container families over this same uploader flow (confirmed from the
+  # vendor app's decompiled H5 bundle + p2p.proto, 2026-08-11):
+  #   * PICTURE / SCROLLING TEXT -> "DN" AMX microapp, UploadRequest.type=3,
+  #     NO path (the default `file_type` below). One still (+ optional scroll).
+  #   * MULTI-FRAME ANIMATION -> a single "DNMX"/"DNX2" .eff container holding
+  #     EVERY frame, UploadRequest.type=0, path="<cid>.eff". The mobile core's
+  #     `encode_stored_animation` overrides the default file_type to 0 for this
+  #     kind. UNTESTED / DORMANT on the JY25CUT curtain: hardware (2026-08-12)
+  #     shows this container COMMITS but never registers as a playable effect,
+  #     and it appears in ZERO captures — this curtain has no .eff renderer. The
+  #     curtain's real animation is (a) LIVE-streamed frames (DDP DISPLAY
+  #     datatype-0x01) or (b) a cycle of stored type-3 stills (set_playlist +
+  #     play_next). This .eff path is retained for the vendor's matrix-panel
+  #     "video import" feature and a future dedicated capture; do not treat it as
+  #     the curtain animation path. The DEVICE animates the frames internally;
+  #     the app never streams frames during playback. Two header bytes the vendor writes literally and
+  #     the device appears to key on: the cadence byte at DNMX[124]/DNX2[158] is
+  #     the vendor's FIXED constant 20 (NOT a per-effect fps derived from the
+  #     preview slider), and DNMX[18..22] is a real wall-clock unix timestamp
+  #     (a `.eff` committed with a 0 timestamp never rendered on the JY25CUT).
+  #     Playback speed, if adjustable, is the separate set_play_speed command.
+  # PLAYBACK (both kinds): M_PLAY_EFFECT (play_effect) {i1: cid, i2: slot}.
+  # A freshly stored item plays with slot 0; an item replayed from the effect
+  # list uses its device-assigned slot. To keep the device on ONE design after
+  # disconnect (it otherwise autoruns/randomly cycles ALL stored effects),
+  # follow the play with set_autorun_mode {i1: 0 = fixed}.
+  #
+  # VERIFIED against smartdawn_capture_a_lot_of_custom_animations.pcapng
+  # (2026-08-10) and byte-for-byte reproduced by the mobile core: it is built
+  # ENTIRELY on-device — NO cloud. The vendor app fetches a `cid` and a base
+  # template over HTTP, but neither is content: the base template
+  # (commons/tuwen.amx, 180 B) is a static, device-independent asset the capture
+  # embeds verbatim, and hardware accepts a novel app-chosen cid (verified live).
+  #
+  # The container layout (256-byte "DN" header + TinyProgram protobuf + base AMX
+  # + options + packed pixels, padded to a 4096 multiple, header CRC8 poly 0x97)
+  # cannot be declarative — it is protobuf + CRC assembly — so `container_format`
+  # NAMES the consumer-side encoder (see the mobile core's `daniao_store`),
+  # exactly as `protocol_handler` names the live encoder. The transport is the
+  # Uploader characteristic's own 8-byte framing (see its notes below).
+  - type: "stored_upload"
+    container_format: "daniao_amx"
+    # UploadRequest.type on the wire: 3 = animation/microapp (0 = effect .eff).
+    file_type: 3
+    # Uploader DATA payload bytes per packet (the vendor's framesize).
+    frame_size: 500
+    # Play the freshly stored item by its cid right after upload — the vendor's
+    # store-then-show. Named from the DDP Write characteristic's commands.
+    play_command: "play_effect"
+    # Where the device answers the upload: M_UPLOAD_START_RESPONSE (mt=2931,
+    # i1==0 accept, i3 = resume offset) and M_UPLOAD_COMPLETE (mt=2934, i1==0
+    # success), fragment-framed like every DDP push. WAIT for the completion
+    # before sending play_command: the vendor app does, and playing a cid the
+    # device has not committed yet is a silent no-op (observed live on the
+    # JY25CUT curtain — the play write is ACKed at GATT level while the panel
+    # keeps showing what it was showing).
+    response_characteristic: "01010074-1972-1925-3022-077119514e44"
+    max_width: 255
+    max_height: 255
+    resolution_source: "device_reported"
+
+services:
+  - uuid: "00000074-1972-1925-3022-077119514e44"
+    name: "Daniao DDP Service"
+    notes: >
+      Single custom GATT service carrying the whole protocol. Two logical
+      channels: DDP (commands, DNX extended packets) and BIN (bulk/file
+      data such as effect, animation, layout and firmware uploads), plus an
+      uploader characteristic used in the firmware-update flow.
+
+      BLE FRAGMENT FRAMING (both channels): each logical packet is split
+      into writes of at most the negotiated payload MTU (app requests ATT
+      MTU 512, payload = MTU - 3, fallback 20). Every write carries a
+      4-byte fragment header: [message serial u8] [total fragments u8]
+      [fragments remaining after this one u8, counts down to 0] [channel
+      tag u8], followed by up to MTU-4 payload bytes. Reassembly keys on
+      bytes 0-2. The tag byte is 0x00 on the DDP channel; on the BIN
+      channel it identifies the buffer type — 1=TUTU_DOODLE (live doodle/
+      photo pixels), 2=TUTU_ERASE, 4=TUTU_RESTORE (full-canvas redraw),
+      16=MUSIC_BIN — read from the H5 bundle's B3 enum and
+      BleUtils5.sendBinData. Writes use WRITE_TYPE_NO_RESPONSE
+      (BleUtils5 sets write type 2 on the DDP writer).
+
+      EXTENDED (DNX) PACKET — the command format, 20-byte header:
+      [0]=0xF0 (flag nibble 0xF, version 0), [1]=0x04 (from-role; app
+      hardcodes 4=gateway), [2-3]=sn u16 BE, [4-5]=length u16 BE,
+      [6-7]=mt (message type) u16 BE, [8-11]=cid u32 BE (0 from app),
+      [12-13]=osn u16 BE, [14]=rcode u8 (0), [15]=ts u8 (random),
+      [16-17]=csum u16 BE (app sends 0), [18-19]=0x00 0x00, followed by an
+      optional protobuf payload. Default payload type is SimpleMessage
+      { int32 i1=1; int32 i2=2; string s1=3; string s2=4; int32 i3=5;
+      int32 i4=6; }.
+
+      STANDARD DDP PACKET (pixel/display data, datatype != 0xFF), 10-byte
+      header: [0]=flag (PUSH=0x01, QUERY=0x02, REPLY=0x04, STORAGE=0x08,
+      TIME=0x10, version bits 0xC0), [1]=sn u8, [2]=datatype
+      (DISPLAY=0x01, DNX=0xE6, CONFIG=0xFA, STATUS=0xFB), [3]=target
+      (app writes 0x01), [4-7]=offset u32 BE, [8-9]=psize u16 BE.
+      Note: the app's dead Java Header.getBytes() writes offset
+      little-endian while both live encoders (JS and decode path) treat it
+      big-endian — BE is canonical. CAVEAT: the encoder for these packets
+      (mkOrginDdp, flag 0xE1) ships in every Daniao H5 bundle checked
+      (SmartDawn 1.2.4, SuperPix 4.4.1, legacy SmartPixels) but has NO
+      call sites in any of them — the live pixel-push path in v1.2.4 is
+      the BIN-channel doodle flow described on the BIN Write
+      characteristic below. Treat DISPLAY-packet streaming as a dormant/
+      legacy capability until an on-air capture shows it in use.
+
+      Command templates below cover the 20-byte extended header; "{sn}"
+      and "{payload}" are the variable parts. The templates do NOT
+      include the 4-byte fragment header: each characteristic's `framing`
+      block declares it machine-readably (scheme `daniao_fragment`), and
+      encoders MUST apply it to every write — live testing (2026-08-08,
+      JY25CUT curtain) confirmed the controller silently ignores unframed
+      command packets and acknowledges framed ones. Multi-byte header
+      fields (sn, len, cid, osn) are big-endian, declared per-parameter
+      via `endianness`. WIRE-TRUTH (all four 2026-08 captures, every
+      write to the DDP-write handle 0x0013): `len`=0, `osn`=0, `ts`=0,
+      `cid`=0 for EVERY command — the header after mt is 12 zero bytes —
+      with the SOLE exception of time_sync (mt=0x09C8), whose osn is 1.
+      Earlier revisions filled `len` with packet_length and `osn` with 1;
+      those bytes differed from the vendor on the wire (the tolerant device
+      parsed them anyway), so the defaults are now 0 to match the captures
+      byte-for-byte. `sn` is a per-message serial the encoder fills
+      (`auto: sequence`; a constant 0 was also accepted on hardware).
+    initialization:
+      - characteristic: "01010074-1972-1925-3022-077119514e44"
+        subscribe: true
+      - characteristic: "02010074-1972-1925-3022-077119514e44"
+        subscribe: true
+    characteristics:
+      - uuid: "01020074-1972-1925-3022-077119514e44"
+        name: "DDP Write"
+        properties: ["write", "write_without_response"]
+        framing:
+          scheme: "daniao_fragment"
+          channel_tag: 0
+        notes: >
+          Command channel. Writes are BLE fragments (see service notes and
+          the `framing` block: 4-byte [serial][total][remaining][tag=0]
+          header on every write — MANDATORY, the device ignores unframed
+          packets) whose reassembled payload is one DDP packet — usually a
+          20-byte extended (DNX) header plus optional protobuf payload.
+          Responses arrive on the DDP notify characteristic.
+        commands:
+          power_on:
+            description: >
+              Turn lights on. M_SET_POWERON (mt=2514), extended header only,
+              no payload.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD2, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          power_off:
+            description: >
+              Turn lights off. M_SET_POWEROFF (mt=2515), extended header
+              only, no payload.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD3, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          set_brightness:
+            description: >
+              Set brightness. M_SET_BRIGHTNESS (mt=2509) with protobuf
+              SimpleMessage {i1: brightness} payload: 0x08 is the protobuf tag
+              for field 1 (i1), followed by the value as a protobuf varint.
+              The device's range is 1-255 (the vendor app's slider), so the
+              value MUST be a varint — 1-127 encode as a single byte, 128-255
+              as two. VERIFIED live 2026-08-08: sweeping 1..255 stepped the
+              panel across the full range. `len` is auto-computed and accounts
+              for the varint width.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCD, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{brightness}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              brightness: { type: "varint", min: 1, max: 255, description: "Brightness level 1-255; encoded as a protobuf varint (1 byte for <=127, 2 bytes above)." }
+          play_next:
+            description: "Next effect. M_PLAY_NEXT (mt=2604), no payload."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2C, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          play_prev:
+            description: "Previous effect. M_PLAY_PREV (mt=2605), no payload."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          play_effect:
+            description: >
+              Play a specific effect/microapp by its id. M_PLAY_EFFECT
+              (mt=2606) with a SimpleMessage {i1: effect_id, i2: slot} payload
+              — VERIFIED on the wire
+              (smartdawn_capture_a_lot_of_custom_animations.pcapng): the app
+              plays a freshly stored microapp by writing
+              `08 <effect_id varint> 10 <slot varint>` (e.g. cid 79009 -> 08 a1
+              e9 04 10 00). The `effect_id` is the item's cid, NOT the DNX
+              header `cid` field (which stays 0, as the app sends). The effect
+              list is fetched with M_EFFECT_LIST (mt=2904); catalog effect data
+              files download from
+              https://cdn.daniaokeji.com/effects/m1/<id/1000>/<id> (cached as
+              <id>.eff, FileCache.java), but a locally STORED microapp needs no
+              download — it plays by cid from device storage.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2E, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, 0x08, "{effect_id}", 0x10, "{slot}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0, description: "DNX header cid field; the app sends 0 (the item id rides in the payload as effect_id)" }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              effect_id: { type: "varint", min: 0, description: "SimpleMessage.i1 — the effect/microapp id (cid) to play; protobuf varint" }
+              slot: { type: "varint", min: 0, default: 0, description: "SimpleMessage.i2 — playback slot; protobuf varint (0 from the app)" }
+          effect_list:
+            description: >
+              Fetch the device's stored-effect list. M_EFFECT_LIST (mt=2904),
+              no payload; the device answers with effect-list notifications on
+              DDP Notify (entries carry index, id/cid and name). The vendor
+              app sends this between M_UPLOAD_COMPLETE and M_PLAY_EFFECT when
+              showing a freshly stored item (smartdawn_longer2.pcapng
+              t=205.93-205.99: 0x0B58 at 205.93, play at 205.99), and again
+              at connect to populate its effect picker.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x58, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          set_play_speed:
+            description: "Set effect speed. M_SET_PLAY_SPEED (mt=2523), SimpleMessage {i1: speed}."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xDB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: speed} protobuf" }
+          set_autorun_mode:
+            description: >
+              THE play/loop-mode control (M_SET_AUTORUN_MODE, mt=2512),
+              SimpleMessage {i1: mode} where mode = fixed(0) | repeat(1) |
+              random(2). Confirmed from the vendor H5 bundle: this — NOT the
+              dead set_mode_loop/single (2507/2508, which the vendor never
+              sends) — is how playback mode is set, and it PERSISTS device-side.
+              After playing a stored design, send {i1: 0 = fixed} so the device
+              HOLDS that one effect instead of autorunning/randomly cycling all
+              stored effects on disconnect (the reported "random pick on
+              disconnect" behaviour). {i1: 1 = repeat} cycles the whole stored
+              list; {i1: 2 = random} shuffles it.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD0, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: mode} protobuf, encoder-built" }
+          remove_app:
+            description: >
+              Delete ONE stored user design (DIY micro-app) from the device by
+              its cid. M_REMOVE_APP (mt=2909), SimpleMessage {i1: cid}. NOTE the
+              vendor deletes DIY effects as micro-apps with THIS command (not
+              the proto's M_REMOVE_EFFECT 2903, which it never sends), and sends
+              ONLY the cid — the slot is not transmitted. Only user effects
+              (EffectInfo.diy==1) should be removed, never built-ins (diy==0).
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x5D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: cid} protobuf, encoder-built" }
+          remove_all_apps:
+            description: >
+              Clear ALL stored MINIPROG micro-apps in one command
+              (M_REMOVE_ALL_APPS, mt=2944), header only. Defined in the vendor
+              proto but the vendor app never sends it (it deletes one-by-one via
+              remove_app), so treat as best-effort; enumerating the effect list
+              and removing each diy==1 item with remove_app is the verified path.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0B, 0x80, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          set_playlist:
+            description: >
+              Save a bookmark/playlist set (M_BOOKMARK_SAVE, mt=2626) with a
+              protobuf {i1: listId, i2: count, 4: [repeated {i1: 0, i2: cid,
+              i3: slot}]}. OBSERVED on the wire (smartdawn_longer2.pcapng frame
+              5977): the vendor's ENTIRE playlist setup is just
+              M_BOOKMARK_SAVE followed by M_PLAY_NEXT (x2) — there is NO
+              bookmark_clear and NO bookmark_enable anywhere in any capture (the
+              two M_*_LIST reads that precede it are UI queries, not writes).
+              i1 (entry idx) is 0 for every entry in the capture; i3 (slot) is
+              each effect's device-assigned slot from M_EFFECT_LIST. This is the
+              app's cycling-loop mechanism for stored stills. Whether the saved
+              list SCOPES autorun (and survives disconnect) is still being
+              verified on hardware.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x42, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "PlayList protobuf, encoder-built from the stored frame cids" }
+          bookmark_enable:
+            description: >
+              SPECULATIVE — NOT observed in ANY of the four 2026-08 captures.
+              Presumed M_BOOKMARK_ENABLE (mt=2623), SimpleMessage {i1: listId}.
+              Was hypothesised to "scope" autorun to a list, but the vendor's
+              real playlist setup is only M_BOOKMARK_SAVE -> M_PLAY_NEXT (see
+              set_playlist), so this command is unused by the app. Kept defined
+              for future investigation; do NOT send it as part of the loop flow.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x3F, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: listId} protobuf, encoder-built" }
+          bookmark_clear:
+            description: >
+              SPECULATIVE — NOT observed in ANY of the four 2026-08 captures.
+              Presumed M_BOOKMARK_CLEAR (mt=2625), SimpleMessage {i1: listId}.
+              The vendor re-saves a list with M_BOOKMARK_SAVE directly (no prior
+              clear), so this command is unused by the app. Kept defined for
+              future investigation; do NOT send it as part of the loop flow.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x41, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1: listId} protobuf, encoder-built" }
+          set_color_mode:
+            description: >
+              Set color/palette mode. M_SET_COLOR_MODE (mt=2603); related
+              commands M_SET_PALETTE (2601) and M_SET_COLOR_EXT (2628) carry
+              palette/color payloads.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x2B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes" }
+          set_mode_loop:
+            description: "Loop the effect playlist. M_SET_MODE_LOOP (mt=2507), no payload."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          set_mode_single:
+            description: "Play a single effect once. M_SET_MODE_SINGLE (mt=2508), no payload."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xCC, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          time_sync:
+            description: >
+              Sync device clock right after connect. M_TIME_SYNC (mt=2504)
+              with TimeSync protobuf {offset, time, dst}.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xC8, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "TimeSync {offset, time, dst} protobuf" }
+          get_running_status:
+            description: "Query running state. M_GET_RUNNING_STATUS (mt=2104); device answers with status/device-info notifications."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x08, 0x38, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          music_start:
+            description: "Enter music-reactive mode. M_MUSIC_START (mt=2611); M_MUSIC_STOP = 2612."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x33, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes" }
+          device_mic_start:
+            description: >
+              Start the controller's own microphone music mode (the app's
+              "BOARD" music path sends this plus M_PLAY_EFFECT; phone-mic
+              mode processes FFT on the phone). M_START_DEVICE_MIC
+              (mt=2650); M_STOP_DEVICE_MIC = 2651, sensitivity get/set =
+              2654/2655. From p2p.proto + H5 call sites.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x5A, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          ui_end_sync:
+            description: >
+              Suspend the device->app UI mirror so an editor (doodle / photo /
+              scroll text) owns the canvas. M_UI_END_SYNC (mt=2411), no payload.
+              This is the FIRST packet of the image/photo/animation push
+              sequence (then M_DOODLE_START, then TUTU_RESTORE chunks) —
+              verified live 2026-08-08. Paired with M_UI_START_SYNC (2410) to
+              resume playback on leave.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6B, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          ui_start_sync:
+            description: >
+              Resume the device->app UI mirror / playback after an editor
+              closes. M_UI_START_SYNC (mt=2410), no payload.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0x6A, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          doodle_start:
+            description: >
+              Open a live draw/photo pixel session (send dev_start first —
+              see its description). M_DOODLE_START (mt=2701); the H5 app
+              passes SimpleMessage {i1: showRate, i2: showRate} but
+              showRate is undefined in v1.2.4, so the wire payload is
+              EMPTY — verified working with no payload on hardware
+              (2026-08-08). Pixel data then flows as TUTU-tagged buffer
+              arrays on the BIN Write characteristic (see its notes).
+              M_DOODLE_END = 2702 exists but the app never sends it;
+              M_DOODLE_SCROLL = 2715. The wire payload is EMPTY (header only,
+              len=20), so the template carries no protobuf body — matching the
+              live-verified send.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x8D, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          dev_start:
+            description: >
+              Enter the developer/layout RAW-pixel mode. M_DEV_START (mt=235),
+              no payload. This addresses individual LEDs via M_DEV_SHOW_PIXEL
+              (mt=237) and is used by the app's LED-layout editor. IMPORTANT:
+              it is NOT the image/doodle path and it BLANKS the doodle canvas —
+              VERIFIED LIVE (2026-08-08) every M_DEV_START + TUTU_RESTORE
+              attempt rendered nothing, while per-pixel SHOW_PIXEL after
+              DEV_START lit individual LEDs. For image/photo/animation push use
+              M_UI_END_SYNC + M_DOODLE_START instead (see the image_upload
+              feature). Related: M_DEV_CLEAR (236) clears, M_DEV_EXIT (238)
+              leaves the mode.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xEB, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          dev_exit:
+            description: >
+              Leave the direct-pixel/canvas mode. M_DEV_EXIT (mt=238), no
+              payload.
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xEE, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          show_pixel:
+            description: >
+              Light one pixel while in the dev/doodle mode.
+              M_DEV_SHOW_PIXEL (mt=237) with SimpleMessage {i1: row-major
+              led index, i2: color packed as r<<8 | g<<16 | b<<24 (byte 0
+              unused)} — packing read from the H5 call sites (undo and
+              layout-test paths both use it).
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x00, 0xED, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00, "{payload}"]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+              payload: { type: "bytes", description: "SimpleMessage {i1, i2} protobuf" }
+          reboot:
+            description: "Reboot the controller. M_REBOOT (mt=2599), no payload."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x27, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+          factory_reset:
+            description: "Factory reset. M_FACTORY_RESET (mt=2598), no payload. Not verified on hardware."
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x0A, 0x26, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence", description: "message sequence; encoder-filled (a constant 0 was accepted on hardware)" }
+              len: { type: "uint16", endianness: "big", default: 0, description: "DDP length field; the vendor sends 0 on the wire for every DDP-write command (verified across all four 2026-08 captures; the device parses regardless of this field)" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 0 }
+              ts: { type: "uint8", default: 0 }
+
+      - uuid: "01010074-1972-1925-3022-077119514e44"
+        name: "DDP Notify"
+        properties: ["notify"]
+        notes: >
+          Command responses and state pushes, reassembled with the same
+          4-byte fragment header. Notable inbound messages:
+          M_DEVICE_INFO_NOTIFY (mt=2103, DeviceInfo protobuf with hardware,
+          ports, capacity, colorOrder, chipType, fwVer, effects,
+          productType, width, height), M_POWER_STATUS_NOTIFY (mt=2105),
+          M_PLAY_INFO_NOTIFY (mt=2610), M_PLAY_PROGRESS_NOTIFY (mt=2630),
+          M_NOTIFY_TWINKLE (mt=2597).
+
+      - uuid: "02020074-1972-1925-3022-077119514e44"
+        name: "BIN Write"
+        properties: ["write", "write_without_response"]
+        framing:
+          scheme: "daniao_fragment"
+          # channel_tag deliberately omitted: on this channel the tag byte
+          # identifies the buffer type per transfer (1=TUTU_DOODLE,
+          # 2=TUTU_ERASE, 4=TUTU_RESTORE, 16=MUSIC_BIN), so there is no one
+          # fixed value. Which tag a given flow uses is stated by that flow —
+          # see the image_upload feature's `channel_tag`.
+          # The vendor encoder flushes a chunk once header + pixel bytes reach
+          # this, so it is the ceiling a client sizes chunks to (the effective
+          # budget is the smaller of this and what one BLE write carries,
+          # because the device does not reassemble fragments here).
+          max_chunk_size: 200
+        notes: >
+          Bulk-data channel (same fragment framing, with a nonzero buffer
+          tag in fragment-header byte 3). Two confirmed uses in v1.2.4:
+          (1) file installs — effects, animations, layouts and other file
+          payloads, M_START_INSTALL_* (mt 2901/2906/2915/2918/2921),
+          *_PACKET, M_END_INSTALL_* flows; (2) live pixel push for the
+          draw / photo-to-light modes, VERIFIED LIVE on JY25CUT curtain
+          hardware 2026-08-08 (see the image_upload feature for the session
+          sequence, which is M_UI_END_SYNC then M_DOODLE_START — NOT
+          M_DEV_START, which blanks the canvas): after it, each full-canvas
+          redraw is one or more TUTU_RESTORE (tag 4) buffer arrays with
+          this exact layout (from the H5 bundle's TuTu.sendRecoveData,
+          ported and exercised against hardware):
+
+          CHUNK = [start_x u8][start_y u8][palette_count u8 <= 16]
+          + palette_count RGB triplets (the first <=16 distinct colors of
+          the canvas in row-major scan order) + RLE pixel data. Pixels are
+          traversed COLUMN-MAJOR (x outer, y inner); each run of identical
+          palette indices encodes as one byte (index << 4) | run_length
+          when run_length < 16, else (index << 4) followed by count bytes —
+          0xFF for each full 127, then the remainder byte. A chunk is
+          flushed when header + pixel bytes reach 200; the next chunk's
+          [start_x][start_y] is the coordinate where its first run began,
+          and runs do NOT span a chunk boundary. Canvases with more than 16
+          distinct colors cannot be expressed — quantize first.
+
+          CRITICAL (verified live 2026-08-08): the device does NOT reassemble
+          BLE fragments on this channel — it honors ONLY the first write of a
+          TUTU transfer. So each CHUNK must be sent as a SINGLE BLE write; a
+          chunk split across the 4-byte fragment framing renders only its
+          first fragment (e.g. one strand of the image, rest blank). This is
+          why the ~200-byte chunk cap and the large negotiated ATT MTU (app
+          requests 527, device grants 512) matter: with MTU 512 every chunk
+          fits one write. A full canvas may still be MANY chunks, each its own
+          single-write transfer placed by its [start_x][start_y]; the device
+          composites them. Sequential images and ~5fps animation work by
+          re-sending chunks this way (M_DOODLE_START need not be resent per
+          frame). Send M_UI_END_SYNC + M_DOODLE_START first, NOT M_DEV_START.
+
+          The live doodle path (finger drawing) instead sends TUTU_DOODLE
+          (tag 1) deltas: [1][r][g][b] + a bit-run-length encoding of WHICH
+          led indices changed to that one color (runs of skip/set with
+          7-bit counts, high bit = set). TUTU_ERASE=2 clears. Tag 16
+          (MUSIC_BIN) is defined in the H5 bundle alongside these but no
+          call site was found.
+
+      - uuid: "02010074-1972-1925-3022-077119514e44"
+        name: "BIN Notify"
+        properties: ["notify"]
+        notes: >
+          Responses/progress for the BIN channel (e.g.
+          M_INSTALL_EFFECTS_PACKET mt=2016 acknowledgements,
+          M_UPLOAD_PROGRESS mt=2933).
+
+      - uuid: "27923001-2072-1925-3022-077119514e44"
+        name: "Uploader"
+        properties: ["write"]
+        notes: >
+          Bulk file-upload channel for BOTH firmware OTA and device-side
+          STORAGE of effects/animations (persisted so they play standalone).
+          The second UUID group is 2072 — unlike every other characteristic
+          here, it does not share the 010x/020x-1972 pattern (confirmed in
+          BleUtils5, SmartDawn 1.2.4 and BleUtils3, SuperPix 4.4.1).
+
+          STORAGE UPLOAD (decoded from an over-the-air capture 2026-08-08 and
+          confirmed live — the handshake was replayed and the device ACKed):
+          the whole transfer runs on THIS characteristic; the device answers
+          on the DDP Notify characteristic. It does NOT use a DDP
+          M_UPLOAD_START_REQUEST (2930) write.
+            1. START packet (write here) = 8-byte header
+               [id u8][packetnum u16 BE][0x11][0xFF][packetnum u16 BE]
+               [crc8 over the WHOLE packet] followed by an UploadRequest
+               protobuf {id=1, type=2 (0=effect .eff, 3=animation), size=3,
+               offset=4 (0), packetnum=5=ceil(size/500), framesize=6 (500),
+               crc8=7 (0), path=8 (omitted for animations), cid=9}.
+            2. Device -> DDP Notify M_UPLOAD_START_RESPONSE (mt=2931),
+               SimpleMessage: i1==0 accept (i1!=0 fail); i3 = resume byte
+               offset (0 = start fresh). The device accepts a NOVEL cid, so
+               custom content can be stored, not just re-installed catalog
+               effects.
+            3. DATA packets (write here) = 8-byte header
+               [id][packetnum u16 BE][0x11][0xFF][remaining u16 BE]
+               [crc8 over the PAYLOAD ONLY] + up to framesize (500) bytes;
+               `remaining` counts down from packetnum-1 to 0. Payload is the
+               "DN" AMX container (256-byte header + TinyProgram protobuf,
+               CRC8 at header[9] over bytes 10.., padded to a 4096 multiple).
+            4. Device -> DDP Notify M_UPLOAD_COMPLETE (mt=2934), i1==0 success;
+               M_UPLOAD_PROGRESS (mt=2933) may stream during transfer. After
+               success the app refreshes M_EFFECT_LIST (2904) and plays it via
+               M_PLAY_EFFECT (2606) by cid.
+          CRC8 uses polynomial 0x97, MSB-first, init 0 — note the two DIFFERENT
+          scopes (whole-packet for START, payload-only for DATA), both verified
+          on the wire.
+
+          FIRMWARE OTA uses the same channel: M_START_UPDATE_FIRMWARE mt=2912,
+          M_UPDATE_FIRMWARE_PACKET mt=2913, M_END_UPDATE_FIRMWARE mt=2914.
+          Firmware binaries are fetched from
+          https://daniaokeji.com/led/ota?<product,fw,...> which returns
+          {code, fw:{version, desc, date, url}}.
+
+entities:
+  - platform: "light"
+    name: "SmartDawn Lights"
+    features: ["brightness", "effect", "color"]
+    state_characteristic: "01010074-1972-1925-3022-077119514e44"
+    # Explicit role bindings so a consumer resolves the control commands
+    # without name guessing. All three verified live on JY25CUT curtain
+    # hardware (2026-08-08): power_on/power_off ACK with
+    # M_POWER_STATUS_NOTIFY (mt=2105) and visibly pause/resume playback;
+    # set_brightness produces no ACK (fire-and-forget) but the set value is
+    # echoed back in the next M_DEVICE_INFO_NOTIFY's brightness field
+    # (field 26) — setting 50 read back as 50.
+    commands:
+      turn_on: "power_on"
+      turn_off: "power_off"
+      set_brightness: "set_brightness"
