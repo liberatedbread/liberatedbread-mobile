@@ -1,0 +1,56 @@
+# Casper Glow Light — Research Note (structured)
+
+device:
+  id: casper-glow
+  name: Casper Glow Light
+  manufacturer: Casper Sleep Inc.
+  category: sleep_light
+  safety_class: LOW  # Dimmable lamp only
+
+abandonment:
+  status: active_at_risk  # NOT abandoned — vendor alive, product still sold (2026-08)
+  evidence:
+    - url: https://casper.com/products/glow
+      date: "2026-08-03"
+      note: Product page live; still for sale
+    - url: https://www.nasdaq.com/press-release/casper-reports-fourth-quarter-2020-results-2021-02-24
+      date: "2021-02-24"
+      note: Casper financial distress; taken private 2022
+    - url: https://help.casper.com/s/article/My-glow-is-working-but-the-app-shows-it-as-being-not-connected-How-can-I-fix-this
+      note: Vendor help docs acknowledge chronic app connectivity issues
+
+transport:
+  type: ble
+  local_only: true
+  notes: >
+    Fully functional without app or account (on-device gestures). BLE control is
+    optional and completely local; no cloud involvement at any point.
+
+ble:
+  advertising:
+    name_patterns: []  # See pycasperglow for discovery details
+    service_uuids: []
+  services: []  # Protocol lives in pycasperglow; not re-derived here
+
+protocol:
+  note: >
+    BLE protocol fully reverse-engineered by the community. pycasperglow implements
+    brightness/on-off/battery over bleak; HA core integration casper_glow (added
+    2026.4, platinum by 2026.6) is built on it. Wake-up schedule programming
+    characteristic may be unmapped.
+
+prior_art:
+  - url: https://github.com/mikeodr/pycasperglow
+    note: Async Python BLE library (bleak) for Casper Glow
+  - url: https://www.home-assistant.io/integrations/casper_glow/
+    note: HA core integration, local BLE
+  - url: https://www.home-assistant.io/blog/2026/04/01/release-20264/
+    date: "2026-04-01"
+    note: Integration added in HA 2026.4
+
+status:
+  apk_acquired: false  # Package id unconfirmed; absent from apk-pure; not needed
+  apk_decompiled: false
+  uuids_recovered: false  # Available in pycasperglow — cite, don't duplicate
+  protocol_recovered: true  # By community (pycasperglow)
+  hci_snoop_needed: false

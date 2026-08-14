@@ -1,0 +1,90 @@
+# ETEKCITY ESN00 Smart Scale — Device Spec
+# Generated from static analysis of com.etekcity.vesyncplatform
+# APK source: apkeep (Google Play mirror)
+# XAPK SHA-256: ec0b8b02c52801851b85ca45dae8c56e5cce469bd7e3e0dc859ddd354b7185e3
+
+device:
+  id: etekcity-smart-scale
+  name: ETEKCITY ESN00 Smart Nutrition Scale
+  manufacturer: ETEKCITY (VeSync platform)
+  category: kitchen_scale
+  safety_class: LOW
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — "Etekcity", "ESN00" are speculative
+    service_uuids: []  # TBD — scan filter not yet analyzed
+
+  # Primary scale service (FFA0 family)
+  services:
+    - uuid: "0000ffa0-0000-1000-8000-00805f9b34fb"
+      name: scale_service
+      description: Primary scale data and control service
+      characteristics:
+        - uuid: "0000ffa1-0000-1000-8000-00805f9b34fb"
+          name: scale_write
+          description: Command write (tare, unit change, etc.)
+          properties: [write, write_no_response]
+        - uuid: "0000ffa2-0000-1000-8000-00805f9b34fb"
+          name: scale_notify
+          description: Weight data notification
+          properties: [notify]
+        - uuid: "0000ffa3-0000-1000-8000-00805f9b34fb"
+          name: scale_char3
+          description: Additional characteristic (purpose TBD)
+        - uuid: "0000ffa4-0000-1000-8000-00805f9b34fb"
+          name: scale_char4
+          description: Additional characteristic (purpose TBD)
+
+  # Sensor device service (alternate)
+  alternate_services:
+    - uuid: "0000ffe0-0000-1000-8000-00805f9b34fb"
+      name: sensor_service
+      characteristics:
+        - uuid: "0000fff3-0000-1000-8000-00805f9b34fb"
+          name: sensor_write
+        - uuid: "0000fff5-0000-1000-8000-00805f9b34fb"
+          name: sensor_notify
+        - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
+          name: scale_data1
+        - uuid: "0000fff2-0000-1000-8000-00805f9b34fb"
+          name: scale_data2
+        - uuid: "0000ffe1-0000-1000-8000-00805f9b34fb"
+          name: scale_config
+        - uuid: "0000ffe2-0000-1000-8000-00805f9b34fb"
+          name: scale_status
+
+  # Standard GATT profiles (for body composition if applicable)
+  standard_services:
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+    - uuid: "0000181b-0000-1000-8000-00805f9b34fb"
+      name: body_composition
+      note: Standard BCS profile — may be used for body comp scales
+    - uuid: "0000181d-0000-1000-8000-00805f9b34fb"
+      name: weight_scale
+      note: Standard weight scale profile
+
+protocol:
+  note: >
+    The VeSync app is a multi-device platform. The ESN00 kitchen scale
+    likely uses the FFA0 or FFE0 service. Command format TBD — HCI snoop
+    needed to determine exact byte encoding for weight data, tare, and
+    unit change commands.
+  commands:
+    tare: TBD
+    unit_change: TBD
+    weight_read: TBD  # Likely notification on ffa2 or fff5
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: true  # All service/characteristic UUIDs found
+  protocol_recovered: false  # Command byte format TBD — needs HCI snoop
+  hci_snoop_needed: true

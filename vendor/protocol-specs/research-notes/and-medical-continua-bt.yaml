@@ -1,0 +1,54 @@
+# A&D Medical Continua BT Classic Family — Device Spec (research note)
+# Sources: A&D press release 2009-08-03, MedM device pages, aandd.jp product page
+
+device:
+  id: and-medical-continua-bt
+  name: A&D Medical UA-767PBT-C(-i) BP monitor + UC-321PBT-C scale (Continua BT)
+  manufacturer: A&D Medical / A&D Company (company active; products discontinued)
+  category: medical_sensor
+  safety_class: MEDIUM  # BP readings inform medication decisions
+  models:
+    - ua-767pbt-c   # BP monitor, Bluetooth Class 1
+    - ua-767pbt-ci  # BP monitor, imperial/cuff variant; discontinued per MedM
+    - uc-321pbt-c   # precision weight scale
+
+transport:
+  type: bluetooth_classic
+  profile: hdp
+  local_only: true
+  hdp:
+    note: >
+      Bluetooth Health Device Profile (L2CAP data channels negotiated via
+      SDP/HDP) carrying ISO/IEEE 11073-20601 APDUs. Agent-initiated
+      connection: device connects out to a discoverable manager after each
+      measurement and pushes readings. First Continua-certified BP monitor
+      and scale (2009).
+    specializations:
+      blood_pressure: IEEE 11073-10407
+      weight_scale: IEEE 11073-10415
+    manager_options:
+      - github.com/signove/antidote  # open IEEE 11073-20601 stack, BlueZ HDP
+      - android.bluetooth.BluetoothHealth  # deprecated/removed on modern Android
+
+protocol:
+  note: >
+    Fully standards-based; no vendor framing to reverse-engineer.
+    BP readings: systolic/diastolic/MAP mmHg, pulse, timestamp,
+    25-measurement memory. Scale: weight (BMI on device display), timestamp.
+  expected_measurements:
+    - systolic_mmhg
+    - diastolic_mmhg
+    - mean_arterial_pressure_mmhg
+    - pulse_rate_bpm
+    - body_weight_kg
+
+cloud_status:
+  cloud_required: false  # never had a cloud dependency in the data path
+
+status:
+  apk_acquired: false     # companion app package id unverified; not needed
+  apk_decompiled: false
+  uuids_recovered: false  # HDP service records — read from device SDP
+  protocol_recovered: true  # IEEE 11073 standards + HDP profile are public
+  hci_snoop_needed: false
+  rating: confirmed

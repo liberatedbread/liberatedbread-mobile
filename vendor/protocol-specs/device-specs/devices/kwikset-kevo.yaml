@@ -1,0 +1,529 @@
+# Kwikset Kevo — Device Spec (BLE, inverted roles: lock is the CENTRAL)
+# Reverse-engineered from the Android app com.unikey.kevo v3.1.1.33967p
+# (versionCode 33967), unobfuscated, decompiled with jadx 1.5.1.
+#
+# Verification APK (obtained via apkeep / apk-pure, 2026-08):
+#   md5    cbf31ab2a5beb9918d3e246c0855ad2a
+#   sha256 02e7b8ebce18a897f43b33516254a2964c0c3d9d6fb9e3a2fee69fe7262ebc0d
+#   signing cert SHA1 04505561AF11DF80B14BE85B1E13B7593D2A95AB (genuine UniKey
+#   certificate; identical to the mirror metadata cited by the source report —
+#   the report's apk.gold copy has md5 cf92c4dc86795cbc9a765b7838c186bb, same
+#   version and signer, different zip packaging).
+#
+# Key source classes:
+#   com/unikey/kevo/dagger/BluetoothProductionComponent.java   (service UUID)
+#   com/unikey/sdk/support/bluetooth/gatt/BluetoothGattCharacteristics.java
+#   com/unikey/sdk/support/bluetooth/gatt/MakeServicesKt.java  (char properties)
+#   com/unikey/sdk/residential/hardware/BluetoothDefaultAdvertiseDataBuilder.java
+#   com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceChallengeResponseProtocolMachineDelegateImpl.java (HMAC)
+#   com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl.java (DBU client challenge)
+#   com/unikey/sdk/support/crypto/Secret.java                  (shared-secret derivation)
+#   com/unikey/kevo/application/KevoLockToggleCommand.java     (opcode 0x10)
+#   com/unikey/kevo/bluetooth/LocalCommandWorker.java          (opcodes 0x12/0x13/0x14)
+#
+# Every fact marked "confirmed" below was re-verified against the decompiled
+# v3.1.1.33967p APK above. Nothing here has been replayed against a lock; no
+# over-the-air capture exists yet, so lock-side behaviour (fragmentation,
+# exact nonce handling, LIC layout) remains untested.
+
+device:
+  name: "Kwikset Kevo"
+  manufacturer: "Kwikset / ASSA ABLOY (UniKey Technologies platform)"
+  manufacturer_status: "shutdown"
+  testing:
+    status: untested
+  category: "lock"
+  type: "electronic_door_lock"
+  protocol: "ble"
+  transport: "ble-gatt"
+  models:
+    - "Kevo (1st gen, model 925-GED1500-MK1)"
+    - "Kevo (2nd gen)"
+    - "Kevo Convert"
+    - "Kevo Plus (lock + RPU gateway bundle)"
+    - "Weiser Kevo / Baldwin Evolved (rebadges)"
+  notes: >
+    Touch-to-open smart deadbolt built on UniKey's BLE platform. ASSA ABLOY
+    shut down the Kevo app and web portal on 2025-11-14 (confirmed against
+    kwikset.com and ca.weiserlock.com support notices); the physical key and
+    key fobs still work, which proves the lock-side BLE auth is fully
+    self-contained. Local BLE is now the only electronic control path.
+
+    INVERTED BLE ROLES — the single most important fact about this device:
+    the LOCK is the BLE central and GATT client. It scans, connects, and
+    drives the session with reads and writes. The phone (or fob, or a local
+    controller) is the PERIPHERAL: it advertises manufacturer data under
+    company ID 0x015E and HOSTS the single GATT service listed below. There
+    are no NOTIFY characteristics; phone-to-lock data rides GATT read
+    responses because the lock polls. A local controller must therefore run
+    as a BLE peripheral with a GATT server (Linux BlueZ supports this), not
+    as the usual scanning central. This is why the Android app required
+    Android 5.0+ (first release with peripheral mode).
+
+    Security is entirely application-layer: no BLE pairing/bonding, no
+    link-layer encryption (per NCC Group's 2022 advisory). Authentication is
+    an HMAC-SHA256 challenge-response over a per-lock shared secret derived
+    from X25519 ECDH during enrollment.
+
+    There is NO WiFi/LAN protocol anywhere in the system (full-decompile
+    sweep: no DatagramSocket/MulticastSocket/NsdManager/WifiManager use in
+    com.unikey.*). The Kevo Plus gateway (RPU) is wired Ethernet + BLE only;
+    every gateway command historically transited the UniKey cloud. Its
+    vendor-documented "Local Debug" ports (TCP 499/11000) appear nowhere in
+    the app and have never been publicly investigated — the most interesting
+    unexplored local surface.
+
+    Research status: phone-side protocol fully mapped from the decompiled
+    APK (service/characteristic UUIDs, properties, opcodes, advertisement
+    format, HMAC construction, secret derivation, enrollment state machines,
+    DBU client challenge-response, absence of LAN code all re-verified in
+    v3.1.1.33967p). Lock-side
+    firmware behaviour, TLV certificate field names, LIC/time-sync layout
+    and the trailing bytes of the lock advertisement need one over-the-air
+    capture (no link-layer encryption, so any LE sniffer works).
+
+  setup:
+    required: true
+    confidence: medium
+    notes: >
+      The lock only answers HMAC challenge-responses keyed by a per-lock
+      shared secret, and that secret only comes into existence during an
+      enrollment exchange — so yes, provisioning is genuinely required.
+      Two routes exist: (a) extract the per-lock shared secret and device
+      certificate from a phone that was paired while the app still worked
+      (SharedPreferences `device_shared_secret` entries plus the sqlcipher
+      `kevo` database; the DB key is wrapped by an Android-Keystore RSA key,
+      so extraction needs the phone itself), or (b) self-enroll: implement
+      the tap-to-enroll exchange below from your own controller — it is
+      purely lock<->phone and needs no cloud (the official app registers the
+      new eKey to the cloud afterwards, but that step is irrelevant to local
+      operation; whether the lock later de-auths devices that never appear
+      in the cloud is UNKNOWN and needs a capture). Confidence is medium:
+      the full exchange is read out of the decompiled app but has not been
+      run against hardware here.
+    methods:
+      - type: ble_provisioning
+        description: >
+          Tap-to-enroll: the phone (or local controller) advertises as a
+          peripheral; the user touches the lock's interior program/enroll
+          control to make the lock scan and connect; certs and nonces are
+          exchanged over the phone-hosted GATT service and both sides derive
+          the shared secret. Command opcode 0x15 (tap-to-enroll) starts it.
+        verified: false
+        ble:
+          pairing_required: false
+          notes: >
+            No BLE link-layer pairing at all — enrollment is the
+            application-layer certificate exchange below. The controller
+            must advertise company ID 0x015E with the freshness-beacon
+            payload (see `advertising`) and host the GATT service before the
+            lock is put into enroll mode.
+        steps:
+          - action: "Advertise as a BLE peripheral (company 0x015E, payload [0x05 + 6 fresh random bytes]) and host the GATT service 86130247-E942-4FE5-AA46-E30768A0C1B0 with its four characteristics."
+            actor: client
+          - action: "Put the lock into enroll mode (physical control on the lock's interior unit; the vendor flow pairs this with touching the lock — 'tap-to-enroll')."
+            actor: user
+            expect: "The lock scans for company-0x015E adverts and connects to the controller."
+          - action: "Answer the enroll exchange driven by the lock via the COMMAND characteristic: device public cert (0x29), server public cert (0x28), phone 32-byte nonce (0x40); receive lock hardware cert (0x21), manufacturer cert chain (0x22), lock nonce (0x43) and the session certificate (0x60)."
+            actor: client
+            expect: "Lock writes the session certificate; STATUS ack 0x60 marks enroll success."
+          - action: "Derive and cache the shared secret: HMAC-SHA256(key = X25519(own private key, lock X25519 public key from certificate field 0x35), msg = lockNonce || phoneNonce), both nonces exactly 32 bytes."
+            actor: client
+            expect: "Subsequent challenge-response sessions (0x10/0x13/0x14 commands) authenticate."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        A reset exists (Kwikset support documents holding the interior "A"
+        button for ~20 s on 2nd-gen; 1st-gen differs) and clears enrolled
+        devices, after which every phone/fob must re-enroll. The exact
+        per-generation procedure is documented by the vendor, not
+        established here — a guessed sequence on a door lock can leave
+        someone locked out of their home.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        A previously enrolled client rejoins with its cached shared secret
+        (or re-runs the key-present flow with its device/permission
+        certificates if the cache was wiped — STATUS verdict 0xF0 forces
+        exactly that). A reset is only needed to revoke a lost credential.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "Per-client session certificates (UniKey TLV certs) and the derived shared secrets"
+        - "Own X25519/Ed25519 identity keypairs (issued at manufacture)"
+      issued_to_client:
+        - "Session certificate written by the lock at enroll (TLV field set recovered from use sites)"
+        - "Shared secret, derived independently on both sides, never transmitted"
+      notes: >
+        No WiFi exists anywhere in the system. Certificates are UniKey TLV
+        records [field:1][len:2 LE][value]; known fields include 0x30=role,
+        0x32=UUID, 0x35=X25519 public key, 0x36=Ed25519 public key,
+        0xB7=expiry, 0x14=issued-at, 0x11=cert type. Field names were
+        compile-time-stripped; numeric tags recovered from use sites.
+
+cloud:
+  required: false
+  vendor_service: "UniKey cloud (operated for Kwikset/Weiser/Baldwin)"
+  hosts:
+    - "https://resi-prd-api.unikey.com/api/"
+    - "wss://ws.unikey.com/ (derived in-app by string-replacing api.unikey.com/api)"
+  failure_mode: >
+    Already happened: ASSA ABLOY shut down the Kevo app and web portal on
+    2025-11-14. Remote lock/unlock, eKey management, lock history and Kevo
+    Plus gateway relay all stopped (every gateway command transited this
+    cloud — the app even surfaced literal '504 - Gateway timeout' strings
+    when the relay failed). Local BLE control, the physical key and key fobs
+    are unaffected. UniKey (a separate company) has offered continued
+    service to customers; local operation does not depend on it.
+  data_leaves_device:
+    - "lock/unlock commands and lock state (via the Kevo Plus gateway relay)"
+    - "lock event history (opcode 0x19 upload)"
+    - "account identity and enrolled eKeys"
+  auth:
+    type: "bearer_token"
+    notes: >
+      Authenticated REST (e.g. PUT /Users/{userId}/Locks/{lockId}/Commands
+      with body {"command":<int>,"deviceStates":[...]}) plus a per-user
+      WebSocket. Recorded for history only — the service is dead.
+  endpoints:
+    - path: "/Users/{userId}/Locks/{lockId}/Commands"
+      method: "PUT"
+      returns: "Remote lock/unlock relay via the Kevo Plus gateway (GatewayCommandType: LOCK=1, UNLOCK=2, BOLT_POSITION_QUERY=4, DEVICE_STATE_UPDATE=5, DEVICE_STATE_QUERY=6, TIME_SYNC=8, QUERY_HISTORY=16)"
+      verification: "confirmed"
+
+local_access:
+  status: "native"
+  covers:
+    - "lock / unlock / toggle / bolt-position query / battery level over local BLE, with no cloud involved"
+    - "tap-to-enroll of new controllers (lock<->phone exchange only)"
+    - "lock history pull (opcode 0x19) and firmware update transport (opcode 0x9B) over BLE"
+  not_covered:
+    - "remote access (was cloud + Kevo Plus gateway relay; the gateway has no documented LAN API — its 'Local Debug' ports TCP 499/11000 are unexplored)"
+    - "lock-side behaviour confirmation — no over-the-air capture has been made yet"
+    - "time sync / scheduled eKeys fidelity (Lock Information Certificate layout unknown — capture item)"
+
+identification:
+  manufacturer_id: "0x015E (UniKey Technologies)"
+  model_detection:
+    - method: "ble_manufacturer_data"
+      notes: >
+        The LOCK advertises manufacturer data with its per-lock 16-byte UUID
+        (the same lockId the cloud API used). Format 2 (21 bytes):
+        [0x02][16-byte UUID big-endian][u32 little-endian] under company
+        0x015E. Format 1 legacy (17 bytes): [16-byte UUID][u8] under company
+        0x5E01 — the same ID byte-swapped on the wire, a firmware quirk the
+        app filters for explicitly. A wildcard filter on company 0x015E
+        finds any lock (the app's admin/enroll scan). The app names the
+        trailing u32/u8 `sequenceNumber` (BluetoothAdvertisementParser),
+        but its on-wire semantics are unconfirmed (status/counter?) —
+        capture item.
+
+ble:
+  connection:
+    transport: "le"
+    phy_preference: "le_1m"
+    mtu_negotiation: false
+    bonding_required: false
+    roles: >
+      INVERTED: the lock is central + GATT client; the controller is
+      peripheral + GATT server + advertiser. The controller never connects
+      to the lock — it advertises and answers. (The phone app additionally
+      scans for lock adverts for presence/proximity, but all bulk data flows
+      over the phone-hosted service.)
+
+# NOTE on the services block: these are the characteristics a local
+# controller must HOST as a GATT server. `properties` describe the phone-side
+# implementation; the lock exercises them as the client (it READS what the
+# controller wrote into read-characteristics, and WRITES to the others).
+services:
+  - uuid: "86130247-E942-4FE5-AA46-E30768A0C1B0"
+    name: "UniKey Device Service (hosted by the phone/controller)"
+    description: >
+      The only GATT service in the system, and it lives on the CLIENT side —
+      the lock connects to it as GATT client. No NOTIFY characteristics
+      anywhere: the lock polls. A fifth characteristic 0x0969 is constructed
+      in the app's static initializer but never added to the service — dead
+      code, recorded here so nobody chases it.
+    characteristics:
+      - uuid: "00000989-0000-1000-8000-00805F9B34FB"
+        name: "UNIKEY_CHAR_COMMAND"
+        type: "command"
+        description: >
+          READ (phone side). The lock reads the phone's pending 4-byte
+          command [0,0,0,opcode]; the controller updates this value between
+          polls. See `protocol.commands` for opcodes.
+        properties: ["read"]
+      - uuid: "00000979-0000-1000-8000-00805F9B34FB"
+        name: "UNIKEY_CHAR_DATA_STREAM"
+        type: "data"
+        description: >
+          READ+WRITE (phone side). Bulk data: device UUIDs, nonces, HMAC
+          responses, firmware chunks. The lock both reads (phone's UUID,
+          32-byte HMAC) and writes (lock UUID, 32-byte nonce) here, with
+          fragment-tolerant concatenation.
+        properties: ["read", "write"]
+      - uuid: "00000999-0000-1000-8000-00805F9B34FB"
+        name: "UNIKEY_CHAR_STATUS"
+        type: "status"
+        description: >
+          WRITE (phone side). The lock writes 4-byte flow-control/status
+          messages; dispatch is on byte[3]. Values seen in the state
+          machines: 0x01 challenge-UUID begin/complete, 0x02 nonce challenge
+          start (byte[2] carries lock state), 0x03 HMAC request, 0x04
+          verdict (byte[0] result: 0x01 accepted / 0xF0 denied-and-wipe;
+          byte[1] battery), 0x06 DBU client-challenge HMAC complete
+          (byte[0]=0x01), 0x9A firmware version ([patch,minor,major]),
+          0x9B firmware-upgrade marker, 0x12 bolt-position family, 0x15
+          enroll begin result, 0x30 key-present begin. Enroll/key-present
+          acks: 0x21/0x22/0x24/0x31/0x38/0x40/0x42/0x43/0x60.
+        properties: ["write"]
+      - uuid: "00000959-0000-1000-8000-00805F9B34FB"
+        name: "UNIKEY_CHAR_CERTIFICATE"
+        type: "data"
+        description: >
+          READ+WRITE (phone side). UniKey TLV "certificate" channel (UPC):
+          enrollment, settings, history, firmware, result codes. Post-auth
+          certs are HMAC-signed: field 0x22 = HMAC-SHA256(sharedSecret,
+          serializedCert XOR nonce); nonces rotate every connection so
+          captured certs do not replay. Result certs carry field 0xBD result
+          codes (1=SUCCESS, 2=CONTINUE, 3=UNINITIALIZED, 4=COMMAND_TIMEOUT,
+          0=FAILURE, -1=FAILURE_SLEEPING, -3=FAILURE_BAD_UDATA,
+          -4=FAILURE_GATT, -5=FAILURE_NO_OWNER, -6=FAILURE_RESOURCES,
+          -7=PROTOCOL_ERROR, -8=FAILURE_DOOR_OPEN, -9=FAILURE_IR,
+          -10=FAILURE_BAD_DATA, -11=FAILURE_HAS_OWNER, -12=FAILURE_LOW_BATT,
+          -13=INVALID_CERTIFICATE, -14=FAILURE_RANGE, -15=FAILURE_INSIDE,
+          -16=UNAUTHORIZED).
+        properties: ["read", "write"]
+
+advertising:
+  discovery_method: "ble_scan"
+  notes: >
+    Two advertisers exist. The LOCK advertises its per-lock UUID in
+    manufacturer data (see `identification`). The CONTROLLER (phone role)
+    must advertise legacy-connectable at ~250 ms interval (400 x 0.625 ms),
+    lowest TX power, company ID 0x015E, payload of TLV-ish records: default
+    [0x05 + 6 fresh random bytes] (anti-replay freshness beacon, new
+    randomness per advert), optional [0x04, antennaOffset] (RSSI
+    calibration), slow mode [0x01,0x14,0,0,0].
+  manufacturer_data:
+    company_id: "0x015E"
+    controller_payload:
+      - bytes: [0x05, "6 fresh random bytes"]
+        meaning: "anti-replay freshness beacon"
+      - bytes: [0x04, "{antenna_offset}"]
+        meaning: "optional RSSI calibration offset"
+      - bytes: [0x01, 0x14, 0, 0, 0]
+        meaning: "slow mode marker"
+    lock_payload_format_2:
+      bytes: [0x02, "{16-byte lock UUID, big-endian}", "{u32 little-endian, semantics unknown}"]
+      company_id: "0x015E"
+    lock_payload_format_1_legacy:
+      bytes: ["{16-byte lock UUID, big-endian}", "{u8, semantics unknown}"]
+      company_id: "0x5E01 (0x015E byte-swapped — firmware quirk; filter for both)"
+
+protocol:
+  framing:
+    byte_order: "mixed"
+    crc:
+      algorithm: "CRC-16/BUYPASS"
+      polynomial: "0x8005"
+      notes: "Used per firmware-image block during BLE firmware update ([len u16][CRC16] per block). Not a general message CRC."
+    notes: >
+      Lock UUID and device UUID travel big-endian; multi-byte lengths inside
+      TLV certs are little-endian; the firmware version command carries the
+      version little-endian. Certificate TLV: [field:1][len:2 LE][value].
+
+  crypto:
+    primitives: ["X25519 ECDH", "Ed25519 signatures", "HMAC-SHA256", "SHA-256", "AES-128-CBC/NoPadding (IV prefixed, random per message)", "CRC-16/BUYPASS"]
+    implementation: "100% pure Java (JCA + vendored Tink X25519/Ed25519) — no native code"
+    shared_secret_derivation: >
+      At enroll/first contact: secret = HMAC-SHA256(key = X25519(phonePriv,
+      lockPub from certificate field 0x35), msg = lockNonce || phoneNonce),
+      both nonces exactly 32 bytes (Secret.Builder / CryptoDelegate).
+      Key-present (server-provisioned) route: the phone AES-128-CBC-decrypts
+      the permission's server-encrypted secret with key = X25519(serverPub,
+      phonePriv).
+    challenge_response: >
+      resp = HMAC-SHA256(key = sharedSecret, msg = nonce XOR cmd) — the
+      4-byte pending command is XORed into nonce bytes 0..3, then HMACed
+      (DeviceChallengeResponseProtocolMachineDelegateImpl.calculateHmac,
+      JCA HmacSHA256). The 32-byte result is left in DATA_STREAM for the
+      lock to read.
+
+  session_flow:
+    description: >
+      Normal touch-to-open / lock / unlock session, all driven by the lock
+      as GATT client (DeviceConnectionProtocolMachineImpl +
+      DeviceChallengeResponseProtocolMachineImpl):
+      1. Lock writes STATUS [0,0,0,0x01] — challenge-UUID begin.
+      2. Lock reads DATA_STREAM <- phone's 16-byte device UUID (BE).
+      3. Lock writes DATA_STREAM -> its 16-byte lock UUID (fragment-tolerant).
+      4. Lock writes STATUS [1,x,x,0x01] — complete; phone resolves/creates
+         the shared secret for that lock UUID (cached, else key-present flow).
+      5. Lock reads COMMAND <- phone's pending [0,0,0,opcode].
+      6. Lock writes STATUS [x,x,lockState,0x02] — nonce challenge start.
+      7. Lock writes DATA_STREAM -> 32-byte nonce.
+      8. Lock writes STATUS [...,0x03] — HMAC request.
+      9. Lock reads DATA_STREAM <- 32-byte HMAC (see crypto.challenge_response).
+      10. Lock writes STATUS [result,battery,x,0x04] — verdict: 0x01 accepted
+          (byte[1] = battery level); 0xF0 denied AND the phone wipes its
+          cached secret, forcing the key-present flow next time.
+    idle_pending_commands: [0x10, 0x19]
+    battery_reporting: "Byte[1] of the 0x04 verdict STATUS; no separate battery opcode."
+    verification: "reported"
+    verification_note: "State machine read from the decompiled APK; not replayed against a lock."
+
+  commands:
+    toggle:
+      id: 16
+      hex: "0x10"
+      name: "KevoLockToggleCommand"
+      direction: "client_to_device (read by lock from COMMAND characteristic)"
+      description: "Toggle lock/unlock — the touch-to-open command"
+      verification: "confirmed"
+    bolt_position_query:
+      id: 18
+      hex: "0x12"
+      name: "LocalCommandWorker.getBoltPositionCommand"
+      direction: "client_to_device"
+      description: "Bolt position / status query"
+      verification: "confirmed"
+    lock:
+      id: 19
+      hex: "0x13"
+      name: "LocalCommandWorker.lockCommand"
+      direction: "client_to_device"
+      description: "Lock the deadbolt"
+      verification: "confirmed"
+    unlock:
+      id: 20
+      hex: "0x14"
+      name: "LocalCommandWorker.unlockCommand"
+      direction: "client_to_device"
+      description: "Unlock the deadbolt"
+      verification: "confirmed"
+    tap_to_enroll:
+      id: 21
+      hex: "0x15"
+      name: "tapToEnrollCommand"
+      direction: "client_to_device"
+      description: "Tap-to-enroll a new authorized device (locks and Kevo Plus gateway; gateway enrolls as hardware type 19 / product descriptor RPU1)"
+      verification: "confirmed"
+    lock_history:
+      id: 25
+      hex: "0x19"
+      name: "LockHistoryCommand"
+      direction: "client_to_device"
+      description: "Request lock event history (uploaded to cloud in the official app; usable locally)"
+      verification: "confirmed"
+    firmware_upgrade:
+      id: 155
+      hex: "0x9B"
+      name: "firmwareUpgradeCommand"
+      direction: "client_to_device"
+      description: >
+        Begin firmware upgrade (command value [version LE..., 0x9B]). Two
+        transports: legacy DATA_STREAM (header -> ack 0x97; 256-byte chunks
+        -> ack 0x98 with next offset u24 LE; per-block [len u16][CRC16] ->
+        ack 0x9D; 0x9E = image verified) or UPC (900-byte chunks inside
+        signed certs; next offset in result field 0x9B). Image signing is
+        opaque to the app — lock-side.
+      verification: "confirmed"
+      advanced: true
+      advanced_reason: "Writes lock firmware. A failed or wrong image can brick the lock, and the image format/signing is not understood — the app treats it as an opaque blob. Recovery path is unknown; do not use until a capture documents the real flow."
+    null_command:
+      id: 0
+      hex: "0x00"
+      name: "null / dequeue sentinel"
+      direction: "client_to_device"
+      description: "No pending command (also 0xFF dequeue sentinel)"
+      verification: "confirmed"
+
+  enroll_exchange:
+    description: >
+      Tap-to-enroll (DeviceTapToEnrollProtocolMachineImpl): creates a
+      brand-new authorized device, lock<->phone only. Phone command bytes ->
+      steps: 0x29 device public cert (lock reads phone; acks STATUS
+      0x21/0x22, validity 0x24), 0x28 server public cert (acks 0x21/0x22),
+      0x40 phone 32-byte nonce (ack 0x40), 0x21 lock hardware cert (lock
+      writes; ack 0x21), 0x22 lock manufacturer cert chain (ack 0x22), 0x43
+      lock 32-byte nonce (ack 0x42), 0x60 session certificate (lock writes;
+      ack 0x60 = enroll success). The phone's own cert is generated once
+      (random UUID + 32-byte seed -> X25519 + Ed25519 keypairs) as a UniKey
+      TLV cert.
+    verification: "reported"
+    verification_note: "State machine read from the APK; not executed against a lock."
+
+  dbu_client_challenge:
+    description: >
+      Reverse-direction challenge
+      (DeviceDbuClientChallengeResponseProtocolMachineImpl +
+      DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl): after
+      bolt-position STATUS writes (byte[3]=0x12 with byte[0] 1/2/9/10) the
+      main challenge-response delegate calls challengeDbu() and the PHONE
+      challenges the LOCK to prove the lock also holds the shared secret.
+      Flow, all still driven by the lock as GATT client:
+      1. Lock reads DATA_STREAM <- phone's fresh 32-byte nonce
+         (CryptoDelegate.generateRandomBytes(32)).
+      2. Phone computes the expected response: HMAC-SHA256(key = sharedSecret,
+         msg = nonce XOR latestClientStatus) — latestClientStatus is the
+         lock's most recent STATUS write, cached by the main delegate, XORed
+         into nonce bytes 0..len(latestClientStatus)-1.
+      3. Lock writes DATA_STREAM -> its 32-byte HMAC (fragment-tolerant
+         accumulation).
+      4. Lock writes STATUS with byte[3]=0x06 AND byte[0]=0x01 — HMAC
+         complete; the phone then compares the lock's HMAC against its own
+         and authorizes / unauthorizes the connection accordingly
+         (ClientChallengeResponseStartState -> ValidateHmacState).
+    verification: "reported"
+    verification_note: "Read from decompiled state machines; not replayed against hardware."
+
+  remaining_unknowns:
+    - "Lock-side firmware behaviour: exact nonce lengths, fragmentation, session-cert construction (needs one OTA capture)"
+    - "TLV certificate field names (compile-time-stripped; numeric tags recovered from use sites)"
+    - "LIC / timing-cert layout for time sync"
+    - "Trailing u32/u8 semantics in the lock advertisement (the app names it `sequenceNumber`; on-wire meaning unconfirmed)"
+    - "Firmware image format/signing"
+    - "Whether the lock prunes self-enrolled devices that never appear in the cloud (the 0xF0 wipe verdict exists)"
+    - "What listens on the gateway's TCP 499/11000 (and 8100/8301/13252) 'Local Debug' ports"
+
+sources:
+  - type: "apk_decompilation"
+    apk: "com.unikey.kevo v3.1.1.33967p (versionCode 33967)"
+    md5: "cbf31ab2a5beb9918d3e246c0855ad2a"
+    sha256: "02e7b8ebce18a897f43b33516254a2964c0c3d9d6fb9e3a2fee69fe7262ebc0d"
+    signing_cert_sha1: "04505561AF11DF80B14BE85B1E13B7593D2A95AB"
+    obtained_via: "apkeep (apk-pure), 2026-08"
+    decompiler: "jadx 1.5.1"
+    key_files:
+      - "com/unikey/kevo/dagger/BluetoothProductionComponent.java"
+      - "com/unikey/sdk/support/bluetooth/gatt/BluetoothGattCharacteristics.java"
+      - "com/unikey/sdk/support/bluetooth/gatt/MakeServicesKt.java"
+      - "com/unikey/sdk/residential/hardware/BluetoothDefaultAdvertiseDataBuilder.java"
+      - "com/unikey/sdk/support/bluetooth/scanner/BluetoothUuidScanFilterBuilder.java"
+      - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceChallengeResponseProtocolMachineDelegateImpl.java"
+      - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl.java"
+      - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceConnectionProtocolMachineDelegateImpl.java"
+      - "com/unikey/sdk/support/crypto/Secret.java"
+      - "com/unikey/sdk/support/protocol/delegate/CryptoDelegate.java"
+      - "com/unikey/kevo/application/KevoLockToggleCommand.java"
+      - "com/unikey/kevo/bluetooth/LocalCommandWorker.java"
+      - "com/unikey/sdk/residential/legacy/serverlocksync/lockhistory/LockHistoryCommand.java"
+      - "com/unikey/sdk/residential/network/legacy/UniKeyConnection.java"
+  - type: "public_research"
+    url: "https://www.nccgroup.com/research/technical-advisory-kwiksetweiser-ble-proximity-authentication-in-kevo-smart-locks-vulnerable-to-relay-attacks/"
+    description: "NCC Group 2022 advisory: TTO relay attack (CVSS 6.8), no link-layer encryption, inverted BLE roles"
+  - type: "public_research"
+    url: "https://media.defcon.org/"
+    description: "DEF CON 24 'Picking Bluetooth Low Energy Locks' (Rose/Ramsey 2016) — Kevo was one of 4 locks NOT cryptographically broken"
+  - type: "vendor_notice"
+    url: "https://www.kwikset.com/support/answers/what-does-the-kevo-app-shutdown-mean-to-my-kevo-door-lock"
+    description: "Kwikset support: Kevo app and web portal shutdown 2025-11-14 (also ca.weiserlock.com)"
+  - type: "fcc_filing"
+    url: "https://fccid.io/NUL-MK1"
+    description: "Lock (gen-1, model 925-GED1500-MK1): BLE single-mode 2402-2480 MHz, UniKey HHI BLE module 450-00022-001, dual chip antennas for inside/outside discrimination"
+  - type: "fcc_filing"
+    url: "https://fcc.report/FCC-ID/nul924"
+    description: "Kevo Plus gateway ('Router Plugin Unit', model 924-GED1900-RPU): BLE + wired Ethernet, USB power"

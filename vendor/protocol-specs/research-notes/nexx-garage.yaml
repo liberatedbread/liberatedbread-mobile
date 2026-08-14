@@ -1,0 +1,44 @@
+# Nexx Garage — Device Spec (research note, DUD)
+# Vendor site live (getnexx.com reachable 2026-08-07) but product is
+# cloud-only: no LAN API documented or implemented; all community clients
+# (@jontg/nexx-garage-sdk, SmartThings, IFTTT) ride the Nexx cloud.
+# CISA ICSA-23-094-01 (2023-04): critical cloud vulns incl. hardcoded MQTT
+# creds; vendor ignored researcher/CISA/press. Verified dud 2026-08-07.
+
+device:
+  id: nexx-garage
+  name: Nexx Smart Garage NXG-100 / NXG-200 / NXG-300
+  manufacturer: Nexx (getnexx.com)
+  category: garage_door_controller
+  safety_class: HIGH  # unpatched remote-open vulnerability per CISA ICSA-23-094-01
+  dud: true
+  dud_reason: >
+    No local API; only software path is the vendor cloud (RE'd
+    nexx-garage-sdk is a cloud client). Firmware MQTT goes to Nexx's broker
+    with shared hardcoded credentials — a cloud path, not a local one.
+    Vendor unresponsive to CISA; no community custom firmware exists.
+
+transport:
+  type: wifi
+  local_only: false
+  note: >
+    Cloud MQTT + cloud REST only. Reflashing or MQTT-redirection would
+    require firmware-level work with no existing toolchain; not economical
+    versus ratgdo/OpenGarage/Meross MSG100 at the same price.
+
+protocol:
+  note: none local to document
+
+status:
+  apk_acquired: false
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: false
+  hci_snoop_needed: false
+  cloud_dead: false
+  rating: dud
+  references:
+    - cisa.gov/news-events/ics-advisories/icsa-23-094-01 (2023-04)
+    - borncity.com/win/2023/04/06/nexx-garage-door-remote-controller-vulnerability-allows-access-for-hackers/ (2023-04-06)
+    - npmjs.com/package/@jontg/nexx-garage-sdk (2022-12, RE'd cloud client)
+    - getnexx.com/products/nexx-smart-wi-fi-garage-door-controller-nxg-300

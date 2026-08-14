@@ -1,0 +1,692 @@
+# AdMore Light Bar Pro — Device Spec
+# Status: Complete — Protobuf schema fully extracted via blutter (Dart AOT disassembly).
+#   HCI capture pending for wire format validation on physical device.
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Protocol: Protobuf messages sent over Nordic UART Service (NUS) BLE profile.
+# Setting IDs and value tables come from the Flutter asset config/lb_config.xml
+# (primary source — every setting table below verified byte-for-byte against
+# it); protobuf identifiers and all 12 NUS UUIDs confirmed as libapp.so string
+# constants. App version analyzed: 2.1.0 (versionCode 44, confirmed from the
+# extracted AndroidManifest.xml).
+# Current app is 3.0.5 (June 2026) — the protobuf schema may have changed
+# since 2.1.0; re-extraction from 3.0.5 is the top follow-up.
+
+device:
+  name: "AdMore Light Bar Pro"
+  manufacturer: "AdMore Lighting Inc."
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "light"
+  notes: >
+    Bluetooth-enabled motorcycle brake light bar with accelerometer-based smart
+    braking. Uses Nordic UART Service (NUS) with protobuf-encoded messages.
+    Full Flutter app reverse engineering of AdMore Connect v2.1.0 (code 44).
+    App framework: Flutter/Dart with flutter_blue_plus, GetX, package:protobuf.
+    14 protobuf message types, 7 enums (complete values), KMsg routing with 36 route IDs.
+    Protobuf field numbers extracted via blutter (Dart SDK 3.3.3). All 14
+    message names and all 7 enum names are present as string constants in
+    libapp.so (app-confirmed).
+    DFU (app-derived, not hardware-verified): the device advertises as
+    "AdMore Light Bar DFU" in update mode and the app drives a Nordic legacy
+    DFU through the flutter nordic_dfu plugin. The app ships a debug DFU
+    package (assets/debug/debug_dfu.zip) in the legacy bin+dat manifest
+    format containing a 49,640-byte nRF52 application image — the first
+    firmware artifact seen for this device, pinning the SoC family to
+    Nordic nRF52.
+  identification:
+    local_name_prefix: "AdMore Light Bar"
+    local_name_dfu: "AdMore Light Bar DFU"
+    local_name_armband: "AdMore Armband"
+    local_name_armband_left: "AdMore Armband Left"
+    local_name_armband_right: "AdMore Armband Right"
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "AdMore Light Bar"
+          service_uuids:
+            - "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nordic UART Service device: no provisioning, no pairing PIN. Safety-
+      relevant hardware, so treat an unexpected disconnect as a state to fail
+      safe from rather than a setup problem.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          No provisioning step on the BLE link itself: the device advertises as
+          soon as it is powered on and accepts a connection from any central.
+          No network credential exchange and no pairing PIN happens on the wire,
+          so a replacement client only has to scan, connect and write. Note the
+          official AdMore Connect app does require creating an account (vendor
+          Quick Start Guide step 3b, app-help page and privacy policy) — that
+          account lives in the app's cloud flow, not on the device link.
+        ble:
+          advertised_name: "AdMore Light Bar"
+          pairing_required: false
+        steps:
+          - action: "Power the device and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect and run the documented initialization sequence, if the spec defines one."
+            actor: "client"
+    factory_reset:
+      confidence: "low"
+      effect: >
+        No credential state to clear. Power-cycling drops the current
+        connection, which is the actual remedy for the common failure mode:
+        the device already being connected to another central.
+      procedures:
+        - name: "Power cycle"
+          steps:
+            - action: "Remove power (or battery) for a few seconds and reapply."
+              actor: "user"
+              expect: "Device advertises again and accepts a new connection."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Nothing binds this device to a network or an owner, so switching
+        controllers is just connecting from the new one. If the old client is
+        an Android or iOS phone, remove the device from the OS Bluetooth list
+        as well — a cached bond can keep the phone reconnecting automatically
+        and holding the single available link.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Anything within radio range can connect and issue commands. Physical
+        proximity is the only access control.
+  protobuf:
+    package: "messaging_common"
+    schema_file: "lightbar.pb.dart"
+    enum_file: "lightbar.pbenum.dart"
+    message_types:
+      - name: "t_cmdAppNop"
+        cmd_id: 0
+        direction: "app_to_device"
+        fields: []
+      - name: "t_cmdAppInjectEvent"
+        cmd_id: 3
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "appEvent", type: "e_APP_EVT" }
+      - name: "t_cmdAppSetDstEvt"
+        cmd_id: 4
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "sktDstEvt", type: "e_SKT" }
+      - name: "t_cmdAppSetDstEvtDiag"
+        cmd_id: 5
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "sktDstEvt", type: "e_SKT" }
+      - name: "t_cmdAppQuery"
+        cmd_id: 6
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "query", type: "e_APP_QUERY" }
+      - name: "t_cmdAppQuery_Reply"
+        direction: "device_to_app"
+        fields:
+          - { number: 1, name: "queryReply", type: "string" }
+      - name: "t_cmdAppWriteString"
+        cmd_id: 7
+        direction: "app_to_device"
+        fields: []
+      - name: "t_cmdDssOperation"
+        cmd_id: 8
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "operation", type: "e_DSS_OPERATION" }
+      - name: "t_cmdDssSetData"
+        cmd_id: 9
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "config", type: "e_CONFIG" }
+          - { number: 2, name: "setvalue", type: "int32" }
+      - name: "t_cmdDssGetData"
+        cmd_id: 10
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "config", type: "e_CONFIG" }
+      - name: "t_cmdDssGetData_Reply"
+        direction: "device_to_app"
+        fields:
+          - { number: 1, name: "getvalue", type: "int32" }
+      - name: "t_cmdLosSetLight"
+        cmd_id: 16
+        direction: "app_to_device"
+        fields:
+          - { number: 1, name: "setLight", type: "e_LIGHT_OUTPUT" }
+          - { number: 2, name: "lightOn", type: "bool" }
+      - name: "t_evtAppEvent"
+        direction: "device_to_app"
+        fields:
+          - { number: 1, name: "appEvent", type: "e_APP_EVT" }
+      - name: "t_evtDiagMmsDecelData"
+        direction: "device_to_app"
+        fields:
+          - { number: 1, name: "samplePack1", type: "int32" }
+          - { number: 2, name: "samplePack2", type: "int32" }
+          - { number: 3, name: "samplePack3", type: "int32" }
+    enum_types:
+      - name: "e_CMD"
+        values:
+          0: "APP_NOP"
+          3: "APP_INJECT_EVENT"
+          4: "APP_SET_DST_EVT"
+          5: "APP_SET_DST_EVT_DIAG"
+          6: "APP_QUERY"
+          7: "APP_WRITE_STRING"
+          8: "DSS_OPERATION"
+          9: "DSS_SET_DATA"
+          10: "DSS_GET_DATA"
+          16: "LOS_SET_LIGHT"
+      - name: "e_APP_QUERY"
+        values:
+          0: "SERIAL"
+          1: "APP_VERSIONS"
+          2: "SYS_VERSIONS"
+          3: "HW_VERSIONS"
+      - name: "e_APP_EVT"
+        values:
+          0: "STARTUP"
+          1: "QUERY_STATE"
+          3: "SOFT_RESET"
+          4: "ENTER_DFU"
+          16: "KMSG_BLE_CONNECT"
+          17: "KMSG_BLE_CONNECT_READY"
+          18: "KMSG_BLE_DISCONNECT"
+          19: "KMSG_BLE_ADVERTISING_START"
+          20: "KMSG_BLE_ADVERTISING_STOP"
+          21: "KMSG_BLE_SCANNING_START"
+          22: "KMSG_BLE_SCANNING_STOP"
+          26: "KMSG_BLE_ARMBAND_L_CONNECT"
+          27: "KMSG_BLE_ARMBAND_L_DISCONNECT"
+          28: "KMSG_BLE_ARMBAND_R_CONNECT"
+          29: "KMSG_BLE_ARMBAND_R_DISCONNECT"
+          30: "KMSG_BLE_SIGNALS_CONNECT"
+          31: "KMSG_BLE_SIGNALS_DISCONNECT"
+          48: "MMS_TILT_DOWN"
+          49: "MMS_TILT_UP"
+          50: "MMS_DECEL_ON"
+          51: "MMS_DECEL_OFF"
+          52: "MMS_MOTION_ON"
+          53: "MMS_MOTION_OFF"
+          54: "MMS_QUERY_INFO"
+          55: "MMS_MOTION_STOP"
+          56: "LIS_BRAKE_ON"
+          57: "LIS_BRAKE_OFF"
+          58: "LIS_LEFT_ON"
+          59: "LIS_LEFT_OFF"
+          60: "LIS_RIGHT_ON"
+          61: "LIS_RIGHT_OFF"
+          62: "LIS_PWM_ON"
+          63: "LIS_PWM_OFF"
+          128: "BTN_DOWN"
+          129: "BTN_UP"
+          144: "ENTER_SLEEP"
+          145: "EXIT_SLEEP"
+      - name: "e_CONFIG"
+        values:
+          0: "NULL"
+          16: "LOS_PLATE_LIGHT_BRIGHTNESS"
+          17: "LOS_TAIL_LIGHT_BRIGHTNESS"
+          18: "LOS_BRAKE_LIGHT_BRIGHTNESS"
+          19: "LOS_TURN_LIGHT_BRIGHTNESS"
+          21: "LOS_BRAKE_FLASH_COUNT"
+          22: "LOS_BRAKE_FLASH_TIME_MS"
+          23: "LOS_BRAKE_STROBE_DURATION_MS"
+          26: "LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS"
+          31: "LOS_DEALER_DEMO_MODE"
+          32: "MMS_DECEL_OFF_DELAY_MS"
+          33: "MMS_DECEL_THRESHOLD"
+          34: "MMS_DECEL_COUNT"
+          36: "MMS_ENABLE_BRAKE_WHITE_STROBE"
+          37: "MMS_ENABLE_TIPOVER"
+          42: "LIS_ENABLE_BRAKE_INVERT"
+          43: "LIS_ENABLE_TWO_WIRE"
+          64: "ARMBAND_SIDE"
+          96: "TOTAL_SIZE"
+      - name: "e_DSS_OPERATION"
+        values:
+          0: "DATA_MAINTAIN"
+          1: "DATA_FACTORY_DEFAULT"
+          2: "DATA_RELOAD"
+          3: "DATA_COMMIT"
+          4: "DATA_ABANDON_RESTORE"
+      - name: "e_LIGHT_OUTPUT"
+        values:
+          0: "RESET_LIGHTS"
+          1: "TAIL_LIGHT"
+          2: "BRAKE_LIGHT"
+          3: "BRAKE_WHITE"
+          4: "LEFT_TURN"
+          5: "RIGHT_TURN"
+          6: "PLATE_LIGHT"
+          7: "BLUE_LIGHT"
+          10: "OVERRIDE_TILTOVER"
+          11: "OVERRIDE_HAZARD"
+          12: "OVERRIDE_DEMO"
+          13: "OVERRIDE_PROCESSION"
+          16: "TEST_BRAKE_LIGHT_LEFT"
+          17: "TEST_BRAKE_LIGHT_CENTER"
+          18: "TEST_BRAKE_LIGHT_RIGHT"
+          19: "TEST_BRAKE_WHITE"
+          20: "TEST_LEFT_TURN"
+          21: "TEST_RIGHT_TURN"
+          22: "TEST_PLATE_LIGHT"
+          23: "TEST_BLUE_LIGHT"
+          24: "TEST_RESET_LIGHTS"
+      - name: "e_SKT"
+        values:
+          0: "SRC_UNASSIGNED"
+          16: "SRC_CMD_BKND_APP"
+          17: "SRC_CMD_BKND_DIAG"
+          18: "DST_EVT_BKND_APP"
+          19: "DST_EVT_BKND_DIAG"
+          24: "DST_CMD_BLE_ENGINE"
+          25: "SRC_EVT_BLE_ENGINE"
+          26: "DST_EVT_BLE_ENGINE_APP"
+          32: "SRC_CMD_HOST_APP"
+          33: "SRC_CMD_HOST_DIAG"
+          34: "DST_EVT_HOST_APP"
+          35: "DST_EVT_HOST_DIAG"
+          64: "DST_CMD_APP"
+          65: "DST_CMD_APP_DIAG"
+          66: "DST_EVT_APP"
+          72: "SRC_CMD_APP"
+          73: "SRC_EVT_APP"
+          74: "SRC_EVT_APP_DIAG"
+          76: "SRC_CMD_UART_DIAG"
+          80: "DST_CMD_APP_ARML"
+          81: "DST_CMD_APP_DIAG_ARML"
+          82: "DST_EVT_APP_ARML"
+          84: "SRC_CMD_APP_ARML"
+          85: "SRC_EVT_APP_ARML"
+          86: "SRC_EVT_APP_DIAG_ARML"
+          88: "DST_CMD_APP_ARMR"
+          89: "DST_CMD_APP_DIAG_ARMR"
+          90: "DST_EVT_APP_ARMR"
+          92: "SRC_CMD_APP_ARMR"
+          93: "SRC_EVT_APP_ARMR"
+          94: "SRC_EVT_APP_DIAG_ARMR"
+          240: "DST_CMD_KMSG"
+          241: "DST_EVT_KMSG"
+          242: "SRC_CMD_KMSG"
+          243: "SRC_EVT_KMSG"
+  state_machine:
+    states:
+      - "INITIAL"
+      - "STARTUP"
+      - "SEARCHING"
+      - "SEARCH_FAIL"
+      - "CONNECT"
+      - "SETUP_DONE"
+      - "IDENTIFY"
+      - "SERIAL"
+      - "QUERY_STATE"
+      - "SETTINGS"
+      - "SAVING"
+      - "PROCESSING"
+      - "VERIFYING"
+      - "TRANSFERRING"
+      - "TRANSFER_FAIL"
+      - "DISCONNECT"
+      - "EXIT_SLEEP"
+      - "RECONNECTING"
+      - "RECONNECT_FAIL"
+  version_fields:
+    - field: "productFirmware"
+      description: "Firmware version"
+    - field: "productFirmwareBeta"
+      description: "Beta firmware version"
+    - field: "productBootloader"
+      description: "Bootloader version"
+    - field: "productSystem"
+      description: "System version"
+    - field: "productDatabase"
+      description: "Settings database version"
+    - field: "productModel"
+      description: "Hardware model"
+    - field: "productId"
+      description: "Unique device ID"
+
+services:
+  # All 12 NUS UUIDs below (the four service triplets ending DCCA9E, DCCAAE,
+  # DCCABE, DCCACE) are string constants in libapp.so — app-confirmed.
+  # Nordic UART Service — Light Bar
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+    name: "Nordic UART Service (Light Bar)"
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "NUS RX (App → Device)"
+        properties: ["write", "write_without_response"]
+        notes: >
+          App writes protobuf-encoded commands here. Settings are sent via
+          t_cmdDssSetData{config: e_CONFIG.<setting>, setvalue: <int>}.
+          Light control via t_cmdLosSetLight{setLight: e_LIGHT_OUTPUT.<light>, lightOn: <bool>}.
+          Each command is dispatched by its e_CMD value. The setting value
+          tables below are taken from the app asset config/lb_config.xml
+          (primary source), verified byte-for-byte against v2.1.0 (code 44).
+        commands:
+          # Light Output Settings (LOS)
+          set_tail_brightness:
+            description: "Set tail light brightness"
+            setting_id: "LOS_TAIL_LIGHT_BRIGHTNESS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 200, 400, 1000, 1500, 2000]
+                labels: ["OFF", "1", "2", "3", "4", "5"]
+          set_brake_brightness:
+            description: "Set brake light brightness"
+            setting_id: "LOS_BRAKE_LIGHT_BRIGHTNESS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [5000, 5500, 6000, 6500, 7000]
+                labels: ["6", "7", "8", "9", "10"]
+          set_flash_count:
+            description: "Set number of brake light flashes before solid"
+            setting_id: "LOS_BRAKE_FLASH_COUNT"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 2, 4, 6, 8, 10]
+                labels: ["OFF", "2", "4", "6", "8", "10"]
+          set_flash_speed:
+            description: "Set brake light flash speed (lower = faster)"
+            setting_id: "LOS_BRAKE_FLASH_TIME_MS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [50, 40, 30, 20, 10]
+                labels: ["1", "2", "3", "4", "5"]
+          set_strobe_duration:
+            description: "Set amber strobe duration on braking"
+            setting_id: "LOS_BRAKE_STROBE_DURATION_MS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 5000, 10000, 15000, 20000, -1]
+                labels: ["OFF", "5s", "10s", "15s", "20s", "ON"]
+          set_plate_light:
+            description: "Toggle license plate light"
+            setting_id: "LOS_PLATE_LIGHT_BRIGHTNESS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 8000]
+                labels: ["OFF", "ON"]
+          set_sequential_turn:
+            description: "Toggle sequential turn signals"
+            setting_id: "LOS_TURN_LIGHT_SEQUENTIAL_STEP_MS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 30]
+                labels: ["OFF", "ON"]
+          set_demo_mode:
+            description: "Toggle dealer demo mode (firmware ^1+)"
+            setting_id: "LOS_DEALER_DEMO_MODE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # Motion Management Settings (MMS)
+          set_accel_toggle:
+            description: "Enable/disable accelerometer sensor (app-local setting — see notes)"
+            setting_id: "MMS_DECEL_TOGGLE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+                notes: >
+                  MMS_DECEL_TOGGLE is app-local: lb_config.xml marks it
+                  isnative with PREFERENCE_CHANGE — a UI preference gating
+                  the dependent deceleration settings (delay, threshold,
+                  count), not a device config key. That is why it is absent
+                  from the device e_CONFIG enum (not an extraction gap).
+                  App-derived, not hardware-verified: whether toggling it
+                  writes anything to the device is unknown.
+          set_decel_sensitivity:
+            description: "Set deceleration sensitivity (50 = maximum)"
+            setting_id: "MMS_DECEL_THRESHOLD"
+            parameters:
+              value:
+                type: "int32"
+                min: 0
+                max: 4000
+                notes: "OFF=0, level 1=4000, level 2=3920, ..., level 50=80 (step -80)"
+          set_decel_delay:
+            description: "Set deceleration light delay (how long brake stays on after decel)"
+            setting_id: "MMS_DECEL_OFF_DELAY_MS"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [1000, 1500, 2000, 2500, 3000]
+                labels: ["1s", "1.5s", "2s", "2.5s", "3s"]
+          set_decel_duration:
+            description: "Set deceleration duration (how long decel must be detected)"
+            setting_id: "MMS_DECEL_COUNT"
+            parameters:
+              value:
+                type: "int32"
+                min: 5
+                max: 40
+          set_decel_strobe:
+            description: "Enable amber strobe on deceleration"
+            setting_id: "MMS_ENABLE_BRAKE_WHITE_STROBE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          set_tipover:
+            description: "Enable tip-over flash"
+            setting_id: "MMS_ENABLE_TIPOVER"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # Light Input Settings (LIS)
+          set_brake_invert:
+            description: "Enable inverted brake input logic (firmware ^1+)"
+            setting_id: "LIS_ENABLE_BRAKE_INVERT"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          set_two_wire:
+            description: "Enable two lamp mode (firmware ^1+)"
+            setting_id: "LIS_ENABLE_TWO_WIRE"
+            parameters:
+              value:
+                type: "int32"
+                allowed: [0, 1]
+                labels: ["OFF", "ON"]
+          # DSS (Data Storage Subsystem) commands
+          # Settings are sent as protobuf t_cmdDssSetData messages with
+          # config (e_CONFIG enum) and setvalue (int32). Reads use t_cmdDssGetData.
+          # System operations use t_cmdDssOperation.
+          # e_CONFIG enum maps setting names to integer IDs (see protobuf.enum_types).
+
+          # System commands
+          query_state:
+            description: "Query current device state"
+            setting_id: "APP_QUERY"
+          query_versions:
+            description: "Query firmware/hardware versions"
+            setting_id: "SYS_VERSIONS"
+          factory_reset:
+            description: "Reset to factory defaults"
+            setting_id: "DATA_FACTORY_DEFAULT"
+          commit_settings:
+            description: "Save settings to device"
+            setting_id: "DATA_COMMIT"
+          enter_dfu:
+            description: "Enter firmware update mode"
+            setting_id: "ENTER_DFU"
+          override_hazard:
+            description: "Activate hazard flasher"
+            setting_id: "OVERRIDE_HAZARD"
+          override_procession:
+            description: "Activate procession mode (amber wig-wag)"
+            setting_id: "OVERRIDE_PROCESSION"
+
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+        name: "NUS TX (Device → App)"
+        properties: ["notify"]
+        notes: >
+          Device sends protobuf-encoded responses and state events here.
+          Subscribe to notifications via CCCD (0x2902) to receive events.
+
+  # Nordic UART Service — Armband
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dccaae"
+    name: "Nordic UART Service (Armband)"
+    notes: >
+      Used for armband turn signal accessories. Provisioning flow: scan
+      "AdMore Armband" → connect → setArmbandSide(LEFT/RIGHT) → disconnect →
+      USB reset → rescan to verify. ArmbandType enum: LEFT, RIGHT, UNDEFINED.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dccaae"
+        name: "NUS RX (Armband)"
+        properties: ["write", "write_without_response"]
+        commands:
+          set_armband_side:
+            description: "Provision armband as LEFT or RIGHT"
+            setting_id: "ARMBAND_SIDE"
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dccaae"
+        name: "NUS TX (Armband)"
+        properties: ["notify"]
+
+  # Nordic UART Service — Unknown variant (suffix ...DCCABE)
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dccabe"
+    name: "Nordic UART Service (Unknown — possibly signals accessory)"
+    notes: >
+      UUID triplet confirmed as app constants in libapp.so; no app code path
+      names its role, so the accessory assignment remains a guess.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dccabe"
+        name: "NUS RX"
+        properties: ["write", "write_without_response"]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dccabe"
+        name: "NUS TX"
+        properties: ["notify"]
+
+  # Nordic UART Service — Unknown variant (suffix ...DCCACE)
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dccace"
+    name: "Nordic UART Service (Unknown — possibly diagnostic)"
+    notes: >
+      UUID triplet confirmed as app constants in libapp.so; no app code path
+      names its role, so the diagnostic assignment remains a guess.
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dccace"
+        name: "NUS RX"
+        properties: ["write", "write_without_response"]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dccace"
+        name: "NUS TX"
+        properties: ["notify"]
+
+entities:
+  - platform: "light"
+    name: "Tail Light"
+    features: ["brightness"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_brightness: "set_tail_brightness"
+
+  - platform: "light"
+    name: "Brake Light"
+    features: ["brightness"]
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_brightness: "set_brake_brightness"
+
+  - platform: "switch"
+    name: "License Plate Light"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "set_plate_light"
+      turn_off: "set_plate_light"
+
+  - platform: "switch"
+    name: "Sequential Turn Signals"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "set_sequential_turn"
+      turn_off: "set_sequential_turn"
+
+  - platform: "number"
+    name: "Brake Flash Count"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_value: "set_flash_count"
+
+  - platform: "number"
+    name: "Brake Flash Speed"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_value: "set_flash_speed"
+
+  - platform: "select"
+    name: "Amber Strobe Duration"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      select_option: "set_strobe_duration"
+
+  - platform: "switch"
+    name: "Accelerometer Sensor"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "set_accel_toggle"
+      turn_off: "set_accel_toggle"
+
+  - platform: "number"
+    name: "Deceleration Sensitivity"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_value: "set_decel_sensitivity"
+
+  - platform: "select"
+    name: "Deceleration Light Delay"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      select_option: "set_decel_delay"
+
+  - platform: "number"
+    name: "Deceleration Duration"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      set_value: "set_decel_duration"
+
+  - platform: "switch"
+    name: "Tip Over Flash"
+    state_characteristic: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+    commands:
+      turn_on: "set_tipover"
+      turn_off: "set_tipover"

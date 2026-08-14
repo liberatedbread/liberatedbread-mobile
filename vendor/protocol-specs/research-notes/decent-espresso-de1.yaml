@@ -1,0 +1,63 @@
+# Decent Espresso DE1 family — research note
+# Company ACTIVE; control is local by design (open-source de1app + BLE +
+# LAN HTTP/WebSocket interfaces). Cloud optional (visualizer/profiles only).
+
+device:
+  id: decent-espresso-de1
+  name: Decent Espresso DE1 / DE1+ / DE1PRO / DE1XXL
+  manufacturer: Decent Espresso (Hong Kong) — active
+  category: kitchen_appliance   # espresso machine
+  safety_class: MEDIUM  # 9 bar pressure + 96 C boiler; firmware enforces limits
+
+transport:
+  type: wifi+ble
+  local_only: true
+  note: >
+    Tablet front panel controls the machine over BLE (open-source de1app).
+    The tablet additionally exposes LAN APIs: built-in web server plugin,
+    third-party REST plugin (port 8888), and vendor "Streamline" HTTP +
+    WebSocket UI (developer preview 2026-02). No cloud needed for control.
+
+ble:
+  role: tablet (central) -> machine (peripheral)
+  note: >
+    Native control channel; GATT layout defined in open-source de1app
+    source. No pairing secret, no account. UUID table not yet transcribed
+    into a standalone spec.
+
+lan:
+  control:
+    - protocol: http-rest
+      port: 8888   # configurable
+      source: github.com/randomcoffeesnob/decent-advanced-rest-api (de1app plugin)
+      scope: machine state, shot start/stop, profiles, settings
+    - protocol: http + websocket
+      source: vendor Streamline UI (decentespresso.com blog 2026-02-14)
+      scope: full DE1 interface served from the machine
+
+protocol:
+  note: >
+    Vendor app (de1app, Tcl/Androwish) is open source, so the BLE protocol
+    is documented by implementation. REST/WebSocket layers are documented
+    by their respective plugins/blog posts.
+  commands:
+    shot_start_stop: via REST plugin / Streamline WebSocket / BLE
+    profile_load_edit: via REST plugin
+    machine_state: via all three interfaces
+
+status:
+  apk_acquired: false    # not needed — vendor app is open source
+  apk_decompiled: false
+  uuids_recovered: false # BLE UUIDs in de1app source, not yet transcribed
+  protocol_recovered: true  # by vendor open-sourcing, not RE
+  hci_snoop_needed: false
+  cloud_dead: false
+  rating: confirmed
+  open_questions:
+    - transcribe BLE GATT table into device spec
+    - Streamline WebSocket schema once out of preview
+  references:
+    - github.com/decentespresso/de1app (open-source control app)
+    - github.com/randomcoffeesnob/decent-advanced-rest-api (REST plugin, port 8888)
+    - decentespresso.com/blog/streamline_app_from_decent_espresso_developer_preview_version (2026-02-14)
+    - decentespresso.com/blog/app_release_137 (app v1.37 stable, 2025-03)

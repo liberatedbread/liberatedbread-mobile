@@ -1,0 +1,52 @@
+# Cobra iRadar / iRAD radar detector — research note
+# iRadar app/platform discontinued per Cobra support (support.cobra.com article
+# 47001281704); detectors work standalone. APK still fetchable via apk-pure
+# (verified 2026-08-04). Community RE of the RFCOMM protocol exists (MIT).
+
+device:
+  id: cobra-iradar
+  name: Cobra iRadar / iRAD 900 / SPX 7800BT bluetooth radar detector family
+  manufacturer: Cobra Electronics / Cedar Electronics (app discontinued; company active)
+  category: vehicle_radar_detector
+  safety_class: LOW  # receive-only; radar detectors illegal in some jurisdictions
+
+transport:
+  type: bluetooth_classic_rfcomm
+  local_only: true  # alert stream + settings are local; AURA camera DB was cloud
+
+bluetooth:
+  rfcomm:
+    - uuid: "00001101-0000-1000-8000-00805f9b34fb"
+      name: spp
+      note: app uses createInsecureRfcommSocketToServiceRecord (ConnectAsClientThread.java)
+  note: >
+    iRAD 900 generation is classic SPP. Newer detectors may use the BLE
+    UartService path also present in the APK — verify transport per model.
+
+protocol:
+  note: >
+    Detector pushes a frame every ~0.5 s: preamble 0x55, 2-byte size, action,
+    SEQ, alert flag 0x41 + alert-type byte. Host must reply with a 9-byte ACK
+    (action 0x02, ACK = last SEQ, decrementing counter) or the detector drops
+    the connection. Settings sync at connect is replayable. Frame parser in
+    APK (PacketProcessing.java) keys on preamble byte 85 = 0x55, matching the
+    community capture. Settings-write opcodes not fully mapped.
+  references:
+    - https://github.com/brandonasuncion/Reverse-Engineering-Bluetooth-Protocols
+
+status:
+  apk_acquired: true
+  apk_decompiled: true      # triage-level jadx
+  uuids_recovered: true     # standard SPP UUID
+  protocol_recovered: true  # alert/keepalive layer; settings write partial
+  hci_snoop_needed: false   # would only help for settings opcodes
+  cloud_dependency: partial # AURA speed-camera DB was cloud; core alerting local
+  feasibility: confirmed_moderate
+
+apk:
+  - package: com.cobra.iradar
+    version: 5.1.80
+    version_code: 142
+    sha256: 28ccb34e0b941b359b76b6b90e7bea59cc465102fd36fd7a81e66682f68a11e5
+    source: apkeep apk-pure
+    note: codebase under com.escortLive2 (merged Cobra/Escort stack)
