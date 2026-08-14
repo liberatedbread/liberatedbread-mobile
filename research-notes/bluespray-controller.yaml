@@ -1,0 +1,46 @@
+# BlueSpray Wi-Fi Irrigation Controller — Device Spec (research note)
+# Vendor-documented local REST API; no cloud dependency in normal operation.
+
+device:
+  id: bluespray-controller
+  name: BlueSpray web-based Wi-Fi irrigation controller (8/16/24 zone)
+  manufacturer: BlueSpray — small vendor, site live 2026-08
+  category: irrigation_controller
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    On-device web server; vendor-published HTTP REST API drives the whole
+    product. No cloud service in the control path.
+
+lan:
+  discovery:
+    protocol: none_documented   # static IP / DHCP reservation
+  control:
+    protocol: http
+    port: 80
+    auth: device web credentials (set locally; see manual)
+    note: zones, programs, schedules, rain delay, status — all REST
+
+protocol:
+  note: >
+    Vendor publishes the REST API on bluespray.net; community scripts use
+    plain curl. Endpoint transcription = spec work for this repo.
+  commands:
+    zone_control: vendor-documented REST
+    program_control: vendor-documented REST
+    status: vendor-documented REST
+
+status:
+  apk_acquired: false   # not needed — vendor API docs
+  apk_decompiled: false
+  uuids_recovered: false
+  protocol_recovered: true  # vendor-documented
+  hci_snoop_needed: false
+  cloud_dead: false
+  confidence: confirmed
+  references:
+    - bluespray.net
+    - bluespray.net/docs/BlueSpray User Manual.pdf

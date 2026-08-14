@@ -1,0 +1,58 @@
+# Recon Instruments Snow2 HUD — Research Note
+# APK source: apkeep (apk-pure); Play listing delisted (404 as of 2026-08-04)
+# APK SHA-256: 7919719782e3a16074a1f3db774a66f5fe7cffb0943faf1093ee097432637a8c
+
+device:
+  id: recon-snow2-hud
+  name: Recon Instruments Snow2 HUD (goggle heads-up display; also Oakley Airwave / Zeal Transcend)
+  manufacturer: Recon Instruments (Vancouver; acquired by Intel 2015, discontinued 2017)
+  category: sports_hud
+  safety_class: LOW  # display only; no actuation
+
+cloud_status: dead  # Intel killed Recon 2017; engage.reconinstruments.com gone; app delisted
+company:
+  fate: defunct (Intel acquisition 2015, product line discontinued 2017)
+  sources:
+    - https://linuxgizmos.com/intel-pulls-the-plug-on-its-joule-edison-and-galileo-boards/
+    - https://linuxgizmos.com/hud-enabled-ski-goggles-run-android/
+    - https://smartclothinglab.com/brands/what-happened-to-recon-instruments/
+
+transport:
+  type: bt_classic_spp  # phone link is RFCOMM x3, NOT BLE (no BluetoothGatt in companion app)
+  local_only: true  # plus: device is a full Android 4.1 computer — ADB/sideload is a second local path
+
+ble: {}  # BLE exists on HUD for accessories; not the phone-control transport
+
+bt_classic:
+  rfcomm_uuids:  # from BTTransportManager.java, three parallel channels
+    - "B29E4260-9D8A-11E2-9E96-0800200C9A66"
+    - "B29E4261-9D8A-11E2-9E96-0800200C9A66"
+    - "B29E4262-9D8A-11E2-9E96-0800200C9A66"
+  note: three BTConnectThread/BTConnectedThread pairs; channel roles TBD (likely control/bulk/aux)
+
+protocol:
+  note: >
+    Companion app (Recon Engage, com.reconinstruments.jetandroid) is built on a
+    modular MobileSDK: bttransport, hudconnectivity, hudsync, trips, messages,
+    mediaplayer, phonecontrol, remotekeyboard, timesync, agps. Message framing
+    not yet decoded. Device side runs ReconOS (Android 4.1.2), rootable with
+    ADB; community already sideloads XCSoar/XCTrack. Activity files (.rib)
+    decoded by community tool rib-to-gpx-file-converter.
+  community_re:
+    - https://github.com/stevenhgs/rib-to-gpx-file-converter
+    - https://xdaforums.com/t/recon-jet-basic-info.3086703/page-4
+    - https://www.paraglidingforum.com/viewtopic.php?p=p506464
+
+apk:
+  package_id: com.reconinstruments.jetandroid
+  app_name: Recon Engage
+  version: 4.4.4.203
+  sha256: 7919719782e3a16074a1f3db774a66f5fe7cffb0943faf1093ee097432637a8c
+  source: apk-pure via apkeep
+
+status:
+  apk_acquired: true
+  apk_decompiled: true   # jadx triage; workspace/static/recon-engage
+  uuids_recovered: true  # SPP channel UUIDs; message framing TBD
+  protocol_recovered: false
+  hci_snoop_needed: false  # ADB + static MobileSDK read is the cheaper path

@@ -1,0 +1,52 @@
+# LEGO MINDSTORMS EV3 — Research Note
+# No companion APK needed: vendor-published Communication Developer Kit + GPL firmware source
+
+device:
+  id: lego-mindstorms-ev3
+  name: LEGO MINDSTORMS EV3 (31313 / Education 45544)
+  manufacturer: LEGO Group (active; EV3 discontinued 2021-06-30, apps/IDE retired)
+  category: toy_robot
+  safety_class: NONE
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+
+bluetooth_classic:
+  profile: SPP  # PAN (TCP over BT tethering) also supported on stock firmware
+  spp_uuid: "00001101-0000-1000-8000-00805f9b34fb"
+  rfcomm_channel: 1
+  pairing: legacy PIN "1234" (default; shown/settable on brick)
+  unlock_handshake: >
+    After RFCOMM connect, host sends plain-text:
+    "GET /target?sn=<brick-serial> VM=<version> Proto=EV3"
+    Brick replies "Accept:EV340"; session then switches to binary packets.
+  alternate_transports: [usb, wifi_udp]   # identical packet protocol on all three (per vendor CDK)
+
+protocol:
+  note: >
+    Vendor-published "EV3 Communication Developer Kit" (legocdn PDF).
+    Binary packet: 2-byte LE length, 2-byte message counter, 1-byte type, payload.
+    Direct commands carry EV3 VM bytecode instructions (opOUTPUT_*, opINPUT_READ,
+    opUI_DRAW_*, opSOUND_*, ...) — the full opcode table is in the CDK and the
+    GPL-released EV3 firmware source.
+  message_types:
+    "0x00": direct command, with reply
+    "0x80": direct command, no reply
+    "0x01": system command, with reply
+    "0x81": system command, no reply
+    "0x02": command reply OK
+    "0x03": command reply error
+  references:
+    - le-www-live-s.legocdn.com .../lego mindstorms ev3 communication developer kit-...pdf  # vendor CDK
+    - ev3dev.org                    # Debian on-brick OS, active
+    - pybricks.com                  # MicroPython firmware built from released EV3 source
+    - c4ev3 / leJOS EV3 / MonoBrick # alternate open stacks
+
+status:
+  apk_acquired: false           # official apps delisted; superseded by vendor docs + firmware source
+  apk_decompiled: false
+  uuids_recovered: true         # standard SPP, vendor-documented
+  protocol_recovered: true      # vendor-published CDK + GPL firmware source
+  hci_snoop_needed: false
+  cloud_dependency: none

@@ -1,0 +1,1557 @@
+# Philips jointSPACE TV API — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# The local JSON API of Philips smart TVs from the 2k9 jointSPACE models to
+# current TP Vision Android/Saphi sets, on port 1925 (plain HTTP, no auth) or
+# 1926 (HTTPS + digest auth, 2016+ Android). Versioned by URL prefix: /1 on
+# the original jointSPACE models, /5 on 2014-2015 non-Android, /6 on Android
+# and Saphi. Everything below is "reported" — reconstructed from the
+# published jointSPACE v1 documentation, the haphilipsjs library behind the
+# Home Assistant Philips TV integration, pylips' MITM-based v6 reference and
+# suborb's original 2016 pairing writeup. This project owns no Philips TV;
+# nothing here is confirmed against live hardware.
+
+device:
+  name: "Philips jointSPACE TV API"
+  manufacturer: "Philips / TP Vision"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "wifi"
+  category: "tv"
+  transport: "http"
+  notes: >
+    Philips TVs expose a local REST-style JSON API whose URL prefix is the
+    API major version: /1 on 2009-2013 jointSPACE models (some require
+    one-time activation, see device.setup), /5 on 2014-2015 non-Android
+    models, /6 on Android TVs (2014+) and Saphi/Linux sets. Two access
+    regimes exist and the TV itself says which applies: GET /6/system returns
+    featuring.systemfeatures with secured_transport and pairing_type. When
+    secured_transport is true (2016+ Android) the API moves to HTTPS on port
+    1926 with a self-signed certificate and every request — GETs included —
+    needs HTTP digest auth with credentials obtained from the on-screen PIN
+    pairing flow (jointspace_common.auth). Otherwise the API is plain HTTP on
+    port 1925 with no authentication at all. On Android models a bare
+    GET /system (no version prefix) answers on both ports and is the probe
+    every client uses to learn api_version.Major before picking a prefix.
+    POSTs carry JSON bodies ({"key": "Home"}); there is no path-encoded
+    command form like Roku's. See jointspace_common.transport_gaps for what
+    that means for empty-body-only HTTP clients.
+  openness:
+    status: "documented_api"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://web.archive.org/web/2024/https://jointspace.sourceforge.net/"
+        title: "jointSPACE project page (Philips, via the Wayback Machine)"
+        covers: >
+          The jointSPACE programme itself: supported model years (2k9 9000
+          range onward, xxPFL5xx6-xxPFL9xx6 for the 2k11 JSON API), the
+          one-time activation digit sequence 5646877223, and the port-1925
+          entry point. Philips took the live site down; the archived copy is
+          the authoritative remnant.
+      - url: "https://web.archive.org/web/2024/https://jointspace.sourceforge.net/projectdata/documentation/jasonApi/1/doc/API.html"
+        title: "jointSPACE JSON API v1 reference (Philips, via the Wayback Machine)"
+        covers: >
+          The official v1 method catalogue: ambilight/*, audio/volume,
+          channellists, channels (+/current), input/key, sources (+/current)
+          and system/*. v1 only — Philips never published the v5/v6
+          documentation; the versioned extensions below are reconstructed
+          from client implementations.
+    notes: >
+      Philips published the v1 JSON API documentation and shipped the same
+      docs on the TV itself (http://<ip>:1925/1/doc/), which earns this a
+      documented_api status — but only for v1. API versions 5 and 6, the
+      pairing flow, and the digest-auth regime were never officially
+      published; they were recovered by suborb (2016, pairing), pylips (MITM
+      of the official Philips remote app, v6 endpoint reference) and the
+      haphilipsjs/Home Assistant authors. reverse_engineered is therefore
+      true: half of this file is citation, half reconstruction.
+
+  identification:
+    # The flat key a scanner matches on. Two mDNS service types exist:
+    # _philipstv_rpc._tcp.local. (plain HTTP API on port 1925) and
+    # _philipstv_s_rpc._tcp.local. (the secured variant on 1926). Both are in
+    # the discovery block below; the identification key carries the open one.
+    # These service types are what Home Assistant's philips_js integration
+    # discovers via zeroconf (its manifest lists exactly these two).
+    mdns_service_type: "_philipstv_rpc._tcp.local."
+    default_port: 1925
+    identity_keys:
+      # serialnumber/deviceid arrive AES-CBC-encrypted in /{v}/system
+      # (jointspace_common.response_format.encrypted_fields); decrypt with the
+      # published shared key before using them as identity.
+      primary: "serial"
+      secondary: "device_id"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_philipstv_rpc._tcp.local."
+          port: 1925
+          identity_mapping:
+            # mDNS gives an address and a display name only. Stable identity
+            # comes from GET /{api_version}/system on the discovered host:
+            # serialnumber_encrypted and deviceid_encrypted, decryptable with
+            # the shared key (jointspace_common). Probe order per the Home
+            # Assistant docs: GET http://<ip>:1925/system, then
+            # https://<ip>:1926/system; the api_version.Major field in the
+            # answer picks the URL prefix for everything else.
+            stable_keys:
+              - source: "hostname"
+            display:
+              source: "name"
+      - type: "mdns"
+        mdns:
+          service_type: "_philipstv_s_rpc._tcp.local."
+          port: 1926
+          identity_mapping:
+            # The '_s_' variant is the secured (HTTPS + digest auth) API on
+            # port 1926, advertised by 2016+ Android models. Same identity
+            # completion via /system as above.
+            stable_keys:
+              - source: "hostname"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["serial", "device_id"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      Network onboarding happens on the TV's own screen (first-time
+      installation wizard); there is no app-driven provisioning protocol to
+      reimplement. The API itself needs no enabling on 2014+ models. On the
+      original 2k9/2k10/2k11 jointSPACE models the JSON API is off until a
+      one-time activation: while watching TV, type 5646877223 on the remote
+      ("jointspace" in multitap digit entry), per the jointSPACE project
+      page. Separately from onboarding, 2016+ Android models require each
+      client to PAIR once (on-screen PIN, jointspace_common.auth) before any
+      request is accepted — that is credential issuance, not provisioning, so
+      it lives in credentials below and in jointspace_common, not in
+      methods.
+    methods:
+      - type: "device_ui"
+        verified: false
+        description: >
+          First-time installation on the TV itself: language, country,
+          network selection and passphrase entry with the on-screen keyboard,
+          channel scan. The wizard is driven with the bundled remote; no
+          client participates.
+        steps:
+          - action: "Power on the TV and complete the on-screen installation with the remote."
+            actor: "user"
+          - action: "Select the WiFi network (or connect Ethernet) and enter the passphrase on the TV itself."
+            actor: "user"
+            expect: "TV reports a network connection and shows its IP under network settings."
+          - action: "On 2k9-2k11 models only: type 5646877223 on the remote while watching TV to activate the jointSPACE JSON API (one-time)."
+            actor: "user"
+            notes: "Not needed on 2014+ models; the API is always on there."
+          - action: "Confirm the API is reachable and learn its version."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "GET /system on port 1925, then GET /system on https port 1926 if 1925 does not answer"
+            expect: "JSON with api_version.Major (1, 5 or 6) and, on v6, featuring.systemfeatures.secured_transport / pairing_type."
+    factory_reset:
+      confidence: "medium"
+      effect: "Clears channel lists, picture/sound and network settings, installed-app data and paired-client credentials; the TV returns to the first-time installation wizard."
+      procedures:
+        - name: "Menu factory reset / reinstall"
+          steps:
+            - action: "Settings > General settings > Factory settings (or 'Reinstall TV' on Android models), confirm on screen."
+              actor: "user"
+              notes: "Menu wording varies by model year; both paths are documented in Philips' own user manuals. Public-source procedure, not run by this project."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The network settings menu re-runs only the network step; a factory
+        reset is never needed just to change routers. Pairing credentials
+        survive a network change — they are issued per client, not per
+        network.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "WiFi credentials"
+        - "Per-client pairing credentials (auth_key per paired device id)"
+      issued_to_client:
+        - "Digest-auth username (the client-chosen device id) and password (the TV-issued auth_key), from the pairing flow in jointspace_common.auth"
+      notes: >
+        The WiFi passphrase is typed on the TV's own screen and never crosses
+        a provisioning link this spec documents. API access control is the
+        pairing flow, and it is all-or-nothing per model: pre-2016 models
+        (secured_transport absent or false) accept every LAN client with no
+        credentials at all — network reachability is the entire access
+        control model, same caveat as Roku ECP. 2016+ Android models answer
+        401 to everything, including /system over HTTPS, until the client
+        presents digest credentials from pairing; the TV shows the PIN and
+        the user transcribes it, so pairing cannot be fully automated.
+
+  variants:
+    - model: "2k9-2k11 (xxPFL8xx4H, xxPFL5xx6-xxPFL9xx6)"
+      name: "Original jointSPACE models"
+      characteristics:
+        - "API v1 on http port 1925, no auth; requires the 5646877223 activation sequence."
+        - "Endpoint set per the official v1 reference: system, sources, channels, channellists, audio, ambilight, input/key."
+    - model: "2014-2015 non-Android"
+      name: "API v5 models"
+      characteristics:
+        - "API v5 on http port 1925, no auth. Largely the v6 endpoint surface without activities/applications; pylips reports most v6 commands working on v5."
+    - model: "2014-2015 Android"
+      name: "Early Android models"
+      characteristics:
+        - "API v6. Reported (marcelrv gist, openHAB forums) to answer on http port 1925 without the digest-auth pairing of later Android sets; treat auth requirements as per-device, decided by featuring.systemfeatures."
+    - model: "2016+ Android (TP Vision)"
+      name: "Secured Android models"
+      characteristics:
+        - "API v6 on https port 1926, digest-auth pairing required (pairing_type: digest_auth_pairing, secured_transport: true). Port 1925 answers /system only, per community reports."
+        - "notifychange long-poll, channeldb channel lists, applications/activities, recordings and the settings-tree menuitems endpoints."
+    - model: "Saphi / Titan OS (Linux)"
+      name: "Non-Android v6 models"
+      characteristics:
+        - "API v6 reported by haphilipsjs with os_type 'Linux'; no Android intent activities, no applications listing, no source detect (Home Assistant feature matrix). Pairing behaviour follows systemfeatures as on Android."
+
+helpful_urls:
+  - title: "jointSPACE project page (Wayback Machine archive of the Philips site)"
+    url: "https://web.archive.org/web/2024/https://jointspace.sourceforge.net/"
+  - title: "Official jointSPACE JSON API v1 reference (Wayback Machine)"
+    url: "https://web.archive.org/web/2024/https://jointspace.sourceforge.net/projectdata/documentation/jasonApi/1/doc/API.html"
+  - title: "ha-philipsjs — the library behind Home Assistant's Philips TV integration (pairing, encrypted fields, quirks)"
+    url: "https://github.com/danielperna84/ha-philipsjs"
+  - title: "pylips — CLI plus an unofficial v6 API reference tested against 2016-2018 TVs"
+    url: "https://github.com/eslavnov/pylips"
+  - title: "suborb/philips_android_tv — the original 2016 digest-auth pairing writeup"
+    url: "https://github.com/suborb/philips_android_tv"
+  - title: "Home Assistant Philips TV integration docs (feature matrix per API version)"
+    url: "https://www.home-assistant.io/integrations/philips_js/"
+
+# Everything needed to build a request byte for byte, in the role
+# soap_common plays for Wemo and ecp_common for Roku. The two regimes and the
+# pairing flow are the whole game; the endpoints themselves are plain REST.
+jointspace_common:
+  transport: "HTTP/HTTPS"
+  addressing:
+    description: >
+      Base URL is <scheme>://<ip>:<port>/<api_version>/ where api_version is
+      the Major field from the system probe (1, 5 or 6) and scheme/port are
+      http/1925 or https/1926. Pre-Android models serve only http/1925. 2016+
+      Android models serve https/1926 and answer only the unversioned
+      /system probe on http/1925, per community reports; haphilipsjs simply
+      tries both protocols for "system" and follows whatever
+      secured_transport says. The HTTPS certificate is self-signed — clients
+      must skip verification or pin on first pairing; every published client
+      disables verification.
+  request_format:
+    description: >
+      GETs have no body. POSTs carry a JSON object as the entire body with
+      Content-Type application/json — {"key": "Home"} for a remote key,
+      {"current": 20, "muted": false} for volume. There is no form encoding
+      and no path-encoded command variant. In the `commands` block below, a
+      command's `arguments` map IS that JSON object: the renderer substitutes
+      parameters into it and serializes the result as the request body.
+    http:
+      url: "<scheme>://<ip>:<port>/{api_version}/<path>"
+      headers: >
+        Content-Type: application/json on POSTs. Accept: application/json is
+        what haphilipsjs sends. On secured models every request additionally
+        carries an HTTP Digest Authorization header (see auth); on open
+        models no headers beyond Content-Type are needed.
+      body: "The command's arguments, serialized as one JSON object. Empty only for GETs."
+  auth:
+    regimes:
+      open: >
+        Pre-2016 models (no pairing_type, or secured_transport false in
+        /{v}/system's featuring.systemfeatures): plain HTTP on 1925, no
+        credentials of any kind. Anything on the LAN can drive the TV.
+      digest_auth_pairing: >
+        2016+ Android models (pairing_type: "digest_auth_pairing",
+        secured_transport: "true"): HTTPS on 1926, and EVERY request —
+        including GET /6/system — is answered 401 without HTTP digest auth.
+        Username is the client-chosen device id from pairing; password is
+        the auth_key the TV issued. The TV forgets a client only on factory
+        reset or an explicit unpair in its menus.
+    pairing_flow:
+      description: >
+        One-time per client, reverse engineered by suborb (2016) and carried
+        verbatim by pylips and haphilipsjs. Note the wire paths are
+        /6/pair/request and /6/pair/grant — frequently written "pairing/..."
+        in secondary documentation, but every published client uses "pair/".
+      steps:
+        - step: 1
+          request: "POST /6/pair/request (NO auth, HTTPS 1926)"
+          body: >
+            {"device": {"device_name": ..., "device_os": ..., "type":
+            "native", "id": <client-chosen device id>, "app_id": ...,
+            "app_name": ...}, plus the requested scope. haphilipsjs wraps
+            the scope as "access": {"scope": ["read", "write", "control"],
+            "featuring": <echo of /system's featuring>}; suborb's original
+            sent a bare "scope": [...] sibling. Both are published working
+            forms; the access-wrapped form is the maintained one.
+          response: >
+            {"timestamp": <int>, "auth_key": "<string>", "timeout": ...} —
+            and the TV displays a 4-digit PIN on screen. The user must read
+            it and hand it to the client; this is the only human step.
+        - step: 2
+          request: "POST /6/pair/grant with digest auth (username = device id, password = auth_key)"
+          body: >
+            {"auth": {"auth_AppId": "1", "pin": "<the 4 digits>",
+            "auth_timestamp": <timestamp from step 1>, "auth_signature":
+            base64(HMAC-SHA1(shared_key, str(timestamp) + pin))}, "device":
+            <same device object as step 1>}. Signature caveat: suborb's 2016
+            original base64-encoded the HMAC's HEX digest; haphilipsjs
+            base64-encodes the raw 20-byte digest. haphilipsjs is the
+            maintained implementation Home Assistant pairs with today, so
+            its form is the reference; treat the other as historical.
+          response: >
+            {"error_id": "SUCCESS"}. From this point the client sends digest
+            auth (device id / auth_key) on every request. There is no token
+            expiry in the published clients; the credentials work until the
+            TV is reset or unpaired.
+      shared_key: >
+        The HMAC key is a constant shipped in every client (it gates only
+        the PIN signature, not transport security): base64
+        "ZmVay1EQVFOaZhwQ4Kv81ypLAZNczV9sG4KkseXWn1NEk6cXmPKO/MCa9sryslvLCFMnNe4Z4CPXzToowvhHvA=="
+        (decode before use). The same key's first 16 bytes decrypt the
+        *_encrypted system fields below.
+  response_format:
+    description: >
+      JSON, with real-world warts. Command POSTs answer 200 with an empty or
+      near-empty body (haphilipsjs treats "", "OkOk", "}" and the literal
+      "Context Service not started" as empty). Pairing answers carry
+      "error_id": "SUCCESS" as a string. Booleans are frequently the strings
+      "On"/"Off" or "true"/"false". 401 means the digest credentials are
+      missing or wrong (secured models); haphilipsjs treats 403/404 as
+      "this endpoint does not exist on this firmware" and caches it dead.
+      Some firmwares emit malformed JSON — doubled commas, a dangling
+      '"channelList": { "id": "version", "" }' fragment — which haphilipsjs
+      repairs with string surgery before parsing; a strict parser will choke
+      where a real TV is merely sloppy.
+    encrypted_fields: >
+      GET /{v}/system returns serialnumber, softwareversion, model and
+      deviceid as <name>_encrypted strings: base64 of AES-128-CBC ciphertext
+      with PKCS7 padding, where the key is bytes 0-15 of the base64-decoded
+      shared key above and the IV is the first 16 bytes of the decoded
+      payload. Decryption is how a client learns the serial for stable
+      identity without pairing first (the system probe needs no auth on open
+      models, and is the one GET some secured models answer on 1925).
+    notifychange: >
+      Models whose /6/system has notifyChange set (e.g. "http") support
+      POST /6/notifychange: a long-poll whose request body is the client's
+      last-known state map (activities/tv, audio/volume, powerstate, ...)
+      and whose response — which can take over a minute — carries only what
+      changed. TVs commonly close the idle connection; clients treat that as
+      a retry, not a failure.
+  transport_gaps:
+    summary: >
+      What the reference mobile app's HTTP transport does NOT implement
+      today, and which therefore stands between this spec and a working
+      control. Recorded, not worked around: the commands below are written
+      the way the TV expects them, and none of them is sendable by an
+      empty-body, no-auth HTTP client.
+    gaps:
+      - gap: "JSON request bodies"
+        detail: >
+          Every POST on this API — all remote keys, volume, power, channel
+          and source changes — takes a JSON object body. The app transport
+          sends GET/POST with an empty body only, so not one command in this
+          spec is executable by it yet. The `arguments` map on each command
+          is the body, ready for a renderer that can send one.
+      - gap: "HTTPS with a self-signed certificate"
+        detail: >
+          2016+ models serve only https on 1926 with a cert no client can
+          chain to a root. The client must skip verification (what every
+          published client does) or TOFU-pin during pairing.
+      - gap: "HTTP digest auth on every request"
+        detail: >
+          Secured models 401 everything without an Authorization header —
+          GETs included. Pairing (itself one unauthenticated POST, one
+          digest POST, plus a PIN the user reads off the TV screen) must run
+          once before any endpoint in this file answers.
+      - gap: "No XML option contracts"
+        detail: >
+          The `options_source`/`state_source` select contract parses XML
+          element/attribute shapes. This API's option lists (channeldb
+          channel lists, applications) are JSON arrays of objects, so a
+          channel/app picker cannot be declared with the schema's current
+          select machinery — documented here as endpoints instead.
+
+http_endpoints:
+  - method: "GET"
+    path: "/system"
+    name: "System Probe"
+    description: >
+      Unversioned identity/version probe. Home Assistant's documented check:
+      try http://<ip>:1925/system, then https://<ip>:1926/system; the answer
+      carries api_version.Major/Minor/Patch, the TV's display name, the
+      *_encrypted identity fields, and featuring.systemfeatures with
+      secured_transport and pairing_type — everything a client needs to pick
+      scheme, port, prefix and auth regime. On 2016+ Android models this is
+      reported to be the only endpoint port 1925 still answers.
+    response_body:
+      content_type: "application/json"
+      fields:
+        - name: "api_version"
+          type: "object"
+          description: "Major/Minor/Patch; Major selects the URL prefix (1, 5 or 6)."
+        - name: "name"
+          type: "string"
+          description: "User-facing TV name (display identity)."
+        - name: "serialnumber_encrypted"
+          type: "string"
+          description: "AES-CBC-encrypted serial; see jointspace_common.response_format.encrypted_fields."
+        - name: "featuring"
+          type: "object"
+          description: "systemfeatures.secured_transport / pairing_type decide the auth regime; jsonfeatures enumerates optional endpoint groups (ambilight, recordings, menuitems, applications, activities)."
+      example: |
+        {"menulanguage":"English","name":"55PUS7181/12","country":"Netherlands",
+         "serialnumber_encrypted":"F6905Z+vyquNhZoXegQ1DzZXCqMIcjJpkzy3LsiPac=\n",
+         "model_encrypted":"...","deviceid_encrypted":"...",
+         "nettvversion":"6.0.2","epgsource":"one",
+         "api_version":{"Major":6,"Minor":2,"Patch":0},
+         "featuring":{"jsonfeatures":{"recordings":["List","Schedule","Manage"],
+           "ambilight":["LoungeLight","Hue","Ambilight"],"menuitems":["Setup_Menu"],
+           "applications":["TV_Apps","TV_Games","TV_Settings"],
+           "activities":["intent"],"channels":["preset_string"]},
+          "systemfeatures":{"tvtype":"consumer","pairing_type":"digest_auth_pairing",
+           "secured_transport":"true"}}}
+  - method: "GET"
+    path: "/{api_version}/system"
+    name: "System Info"
+    description: >
+      The versioned spelling of the same document; individual fields are
+      also GETtable as /{api_version}/system/name, /system/country,
+      /system/model, /system/serialnumber, /system/softwareversion
+      (official v1 reference).
+    response_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/{api_version}/input/key"
+    name: "Send Key"
+    description: >
+      Press and release one remote key; the entire remote-control surface of
+      the API. The full vocabulary, union of the official v1 reference, the
+      pylips v6-tested list and the Home Assistant remote entity: Standby,
+      PowerOn, PowerOff, CursorUp, CursorDown, CursorLeft, CursorRight,
+      Confirm, Back, Exit, Home, Options, Adjust, Find, WatchTV, Source,
+      List, Viewmode, TvGuide, Info, Subtitle, Teletext, ClosedCaption,
+      RedColour, GreenColour, YellowColour, BlueColour, WhiteColour, Digit0
+      through Digit9, Dot, Next, Previous, ChannelStepUp, ChannelStepDown,
+      VolumeUp, VolumeDown, Mute, HeadphonesVolume, Play, Pause, PlayPause,
+      Stop, FastForward, Rewind, Record, Online, SmartTV, PhilipsMenu, Setup,
+      AmbilightOnOff, PictureStyle, SoundStyle, SurroundMode, 3dFormat,
+      3dDepth, 2PlayerGaming, Multiview. Availability varies by model and
+      year; PlayPause maps to Play and PowerOff to Standby on Android (Home
+      Assistant docs). haphilipsjs also sends {"unicode": "<char>"} here for
+      text entry. Long-press has no keydown/keyup split — unlike Roku, one
+      POST is one complete press.
+    request_body:
+      content_type: "application/json"
+      fields:
+        - name: "key"
+          type: "string"
+          required: false
+          description: "One key name from the vocabulary above."
+        - name: "unicode"
+          type: "string"
+          required: false
+          description: "A literal character for text-entry fields (alternative to key)."
+      example: |
+        {"key": "Home"}
+  - method: "GET"
+    path: "/{api_version}/audio/volume"
+    name: "Volume State"
+    description: "Current volume and mute state."
+    response_body:
+      content_type: "application/json"
+      example: |
+        {"min": 0, "max": 60, "current": 28, "muted": false}
+  - method: "POST"
+    path: "/{api_version}/audio/volume"
+    name: "Set Volume"
+    description: "Set absolute volume and/or mute. Values are device-scale integers between the min/max the GET returned, not percent."
+    request_body:
+      content_type: "application/json"
+      example: |
+        {"current": 30, "muted": false}
+  - method: "GET"
+    path: "/{api_version}/powerstate"
+    name: "Power State"
+    description: >
+      Current power state (v6; absent on some firmwares — haphilipsjs treats
+      a 403/404 here as endpoint-not-present). Note a TV in standby stops
+      answering the API entirely on many models (the jointSPACE docs already
+      warn the API dies in standby); power-ON over the network is Wake-on-LAN
+      or, on some Android sets, POST powerstate {"powerstate": "On"} — Home
+      Assistant marks power-on "Yes (if always on)".
+    response_body:
+      content_type: "application/json"
+      example: |
+        {"powerstate": "On"}
+  - method: "POST"
+    path: "/{api_version}/powerstate"
+    name: "Set Power State"
+    description: "Request On/Standby/StandbyKeep/Reboot by name; support varies by firmware (v6)."
+    request_body:
+      content_type: "application/json"
+      example: |
+        {"powerstate": "Standby"}
+  - method: "GET"
+    path: "/{api_version}/screenstate"
+    name: "Screen State"
+    description: "Panel on/off independently of power (v5+)."
+    response_body:
+      content_type: "application/json"
+      example: |
+        {"screenstate": "On"}
+  - method: "GET"
+    path: "/{api_version}/channeldb/tv"
+    name: "Channel Database"
+    description: >
+      The channel-list index (v5+): the always-present virtual list "all"
+      plus the favourite lists. Fetch a list's channels from
+      channeldb/tv/channelLists/{id}; favourites from
+      channeldb/tv/favoriteLists/{id}.
+    response_body:
+      content_type: "application/json"
+      example: |
+        {"channelLists":[{"id":"all","version":10,"listType":"MixedSources",
+          "medium":"mixed","active":true,"virtual":true,"modifiable":false}],
+         "favoriteLists":[{"id":"1","version":"0","listType":"MixedSources",
+          "medium":"mixed","name":"Favourites 1","parentId":"all",
+          "virtual":false,"modifiable":true}]}
+  - method: "GET"
+    path: "/{api_version}/channeldb/tv/channelLists/{list_id}"
+    name: "Channel List"
+    description: >
+      One channel list's channels (v5+); "all" enumerates everything tuned.
+      Each channel carries a numeric ccid — the value Set Channel takes —
+      plus name and preset. Some firmwares emit the malformed channelList
+      fragment noted in jointspace_common.response_format.
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/{api_version}/activities/tv"
+    name: "Current Channel"
+    description: "The tuned channel and its list, as the TV reports it (v5+; the v1 spelling is GET /1/channels/current with an id instead of a ccid)."
+    response_body:
+      content_type: "application/json"
+      example: |
+        {"channel": {"ccid": 644, "preset": "15", "name": "Comedy Central HD"},
+         "channelList": {"id": "all", "version": "19"}}
+  - method: "POST"
+    path: "/{api_version}/activities/tv"
+    name: "Set Channel"
+    description: "Tune to a channel by ccid from a channel list (v5+; v1 spells it POST /1/channels/current with {\"id\": ...})."
+    request_body:
+      content_type: "application/json"
+      example: |
+        {"channelList": {"id": "all"}, "channel": {"ccid": 644}}
+  - method: "GET"
+    path: "/{api_version}/applications"
+    name: "Installed Applications"
+    description: >
+      Launchable apps with their Android intents (v6, Android models;
+      jsonfeatures must list "applications"). Each entry's id is
+      "<className>-<packageName>" and its intent object is exactly what
+      Launch Application replays.
+    response_body:
+      content_type: "application/json"
+      example: |
+        {"version": 6, "applications": [
+          {"label": "YouTube", "order": 0,
+           "id": "com.google.android.apps.youtube.tv.activity.ShellActivity-com.google.android.youtube.tv",
+           "intent": {"component": {"packageName": "com.google.android.youtube.tv",
+             "className": "com.google.android.apps.youtube.tv.activity.ShellActivity"},
+            "action": "Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10000000 pkg=com.google.android.youtube.tv }"},
+           "type": "app"}]}
+  - method: "GET"
+    path: "/{api_version}/activities/current"
+    name: "Current Application"
+    description: "The foreground activity as an intent object (v6, Android). Watching broadcast TV reports the PlayTvActivity component rather than a channel-free null."
+    response_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/{api_version}/activities/launch"
+    name: "Launch Application"
+    description: >
+      Launch an app by replaying the intent object from Installed
+      Applications (v6, Android; jsonfeatures activities must include
+      "intent"). The same mechanism switches inputs: an intent with action
+      org.droidtv.playtv.SELECTURI and extras.uri of
+      content://android.media.tv/passthrough/<input service> selects an HDMI
+      input on sets whose firmware honours it — haphilipsjs hardcodes the
+      MediaTek HW5-HW8 service names for HDMI 1-4. The Source key is the
+      fallback where intents are refused.
+    request_body:
+      content_type: "application/json"
+      example: |
+        {"intent": {"component": {"packageName": "com.netflix.ninja",
+           "className": "com.netflix.ninja.MainActivity"},
+          "action": "Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10000000 pkg=com.netflix.ninja }"}}
+  - method: "GET"
+    path: "/{api_version}/sources"
+    name: "Source List"
+    description: "Available inputs with ids (v1 only; removed from the API on v5/v6, where input switching is the Source key or a SELECTURI intent)."
+    response_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/{api_version}/sources/current"
+    name: "Set Source"
+    description: "Switch input by id from Source List (v1 only, official v1 reference)."
+    request_body:
+      content_type: "application/json"
+      example: |
+        {"id": "hdmi1"}
+  - method: "POST"
+    path: "/{api_version}/pair/request"
+    name: "Pairing Request"
+    description: "Begin pairing; no auth. TV answers with timestamp + auth_key and shows the PIN. Full flow: jointspace_common.auth.pairing_flow. (v6 secured models.)"
+    request_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/{api_version}/pair/grant"
+    name: "Pairing Grant"
+    description: "Complete pairing with the on-screen PIN and the HMAC signature; digest auth (device id / auth_key) starts on this request. (v6 secured models.)"
+    request_body:
+      content_type: "application/json"
+  - method: "POST"
+    path: "/{api_version}/notifychange"
+    name: "Notify Change"
+    description: "Long-poll state push: POST the last-known state map, the TV holds the connection and answers with only the changed subtrees (v6 models whose system advertises notifyChange). See jointspace_common.response_format.notifychange."
+    request_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/{api_version}/ambilight/mode"
+    name: "Ambilight Mode"
+    description: "Ambilight control mode: internal (TV drives it), manual, expert, or lounge on models with LoungeLight (per the official v1 reference and haphilipsjs). POST the same path with {\"current\": \"<mode>\"} to change it; Android/Saphi firmwares have known mode-reporting quirks documented in haphilipsjs."
+    response_body:
+      content_type: "application/json"
+  - method: "GET"
+    path: "/{api_version}/ambilight/power"
+    name: "Ambilight Power"
+    description: "Ambilight on/off state as {\"power\": \"On\"|\"Off\"} (v5+); POST the same path with {\"power\": ...} to set. On v1 the equivalent is ambilight/mode manual + a zeroed ambilight/cached write, per haphilipsjs."
+    response_body:
+      content_type: "application/json"
+
+# One invocation per remote key, in the shape entities can bind — the
+# catalogue's one-command-per-option convention, applied to a remote. Every
+# command here is an instance of the Send Key endpoint; `arguments` is the
+# JSON body the TV expects (jointspace_common.request_format).
+#
+# NOTHING in this block is sendable by the reference app today: every command
+# needs a JSON request body, and on 2016+ models HTTPS plus digest auth on
+# top (jointspace_common.transport_gaps). The commands are written the way
+# the TV expects them anyway — an accurate spec with the gap recorded, per
+# the registry's rule against fake empty-body commands.
+#
+# Verification is "reported" throughout: the vocabulary is the official v1
+# reference's plus the pylips v6-tested list and Home Assistant's remote
+# entity, all exercised daily by those clients — but never replayed by this
+# project against its own hardware, which it does not have.
+commands:
+  # -- Power. Standby is the one key every model takes. PowerOff maps to
+  #    Standby on Android (Home Assistant docs); PowerOn only reaches a TV
+  #    still listening on the network — many models kill the API in standby,
+  #    where Wake-on-LAN is the documented fallback.
+  press_standby:
+    description: "Toggle standby (the power key)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Standby"}
+    parameters:
+      api_version:
+        type: "string"
+        default: "6"
+        description: "URL prefix matching the TV's api_version.Major from the System Probe — 1 on 2k9-2k13, 5 on 2014-2015 non-Android, 6 on Android/Saphi."
+    example_body: '{"key": "Standby"}'
+    verification: "reported"
+  press_power_on:
+    description: "Power on — only while the TV still answers the network (warm standby); otherwise Wake-on-LAN is the documented route."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "PowerOn"}
+    parameters:
+      api_version:
+        type: "string"
+        default: "6"
+        description: "As press_standby."
+    example_body: '{"key": "PowerOn"}'
+    verification: "reported"
+  press_power_off:
+    description: "Power off; maps to Standby on Android models (Home Assistant docs)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "PowerOff"}
+    parameters:
+      api_version:
+        type: "string"
+        default: "6"
+        description: "As press_standby."
+    example_body: '{"key": "PowerOff"}'
+    verification: "reported"
+
+  # -- Navigation.
+  press_cursor_up:
+    description: "D-pad up."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "CursorUp"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "CursorUp"}'
+    verification: "reported"
+  press_cursor_down:
+    description: "D-pad down."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "CursorDown"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "CursorDown"}'
+    verification: "reported"
+  press_cursor_left:
+    description: "D-pad left."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "CursorLeft"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "CursorLeft"}'
+    verification: "reported"
+  press_cursor_right:
+    description: "D-pad right."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "CursorRight"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "CursorRight"}'
+    verification: "reported"
+  press_confirm:
+    description: "OK — select the focused item."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Confirm"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Confirm"}'
+    verification: "reported"
+  press_back:
+    description: "Go back one screen."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Back"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Back"}'
+    verification: "reported"
+  press_exit:
+    description: "Exit the current menu or app overlay."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Exit"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Exit"}'
+    verification: "reported"
+  press_home:
+    description: "Open the home screen / smart-TV launcher."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Home"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Home"}'
+    verification: "reported"
+  press_options:
+    description: "Context options for the focused item."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Options"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Options"}'
+    verification: "reported"
+  press_adjust:
+    description: "Quick settings/picture-sound adjust panel."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Adjust"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Adjust"}'
+    verification: "reported"
+
+  # -- Playback transport. PlayPause maps to Play on Android (Home Assistant
+  #    docs); Next/Previous are the skip keys.
+  press_play:
+    description: "Play."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Play"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Play"}'
+    verification: "reported"
+  press_pause:
+    description: "Pause."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Pause"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Pause"}'
+    verification: "reported"
+  press_play_pause:
+    description: "Play/pause toggle; same as Play on Android models."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "PlayPause"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "PlayPause"}'
+    verification: "reported"
+  press_stop:
+    description: "Stop playback."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Stop"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Stop"}'
+    verification: "reported"
+  press_fast_forward:
+    description: "Fast-forward."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "FastForward"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "FastForward"}'
+    verification: "reported"
+  press_rewind:
+    description: "Rewind."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Rewind"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Rewind"}'
+    verification: "reported"
+  press_record:
+    description: "Record (models with recording support)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Record"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Record"}'
+    verification: "reported"
+  press_next:
+    description: "Skip to next track/chapter."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Next"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Next"}'
+    verification: "reported"
+  press_previous:
+    description: "Skip to previous track/chapter."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Previous"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Previous"}'
+    verification: "reported"
+
+  # -- Volume.
+  press_volume_up:
+    description: "Volume up one step."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "VolumeUp"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "VolumeUp"}'
+    verification: "reported"
+  press_volume_down:
+    description: "Volume down one step."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "VolumeDown"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "VolumeDown"}'
+    verification: "reported"
+  press_mute:
+    description: "Mute toggle."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Mute"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Mute"}'
+    verification: "reported"
+
+  # -- Live TV channel stepping.
+  press_channel_up:
+    description: "Next channel (ChannelStepUp on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "ChannelStepUp"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "ChannelStepUp"}'
+    verification: "reported"
+  press_channel_down:
+    description: "Previous channel (ChannelStepDown on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "ChannelStepDown"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "ChannelStepDown"}'
+    verification: "reported"
+
+  # -- Digits, for direct channel entry. Dot is the separator on models
+  #    with sub-channels.
+  press_digit_0:
+    description: "Digit 0."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit0"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit0"}'
+    verification: "reported"
+  press_digit_1:
+    description: "Digit 1."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit1"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit1"}'
+    verification: "reported"
+  press_digit_2:
+    description: "Digit 2."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit2"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit2"}'
+    verification: "reported"
+  press_digit_3:
+    description: "Digit 3."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit3"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit3"}'
+    verification: "reported"
+  press_digit_4:
+    description: "Digit 4."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit4"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit4"}'
+    verification: "reported"
+  press_digit_5:
+    description: "Digit 5."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit5"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit5"}'
+    verification: "reported"
+  press_digit_6:
+    description: "Digit 6."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit6"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit6"}'
+    verification: "reported"
+  press_digit_7:
+    description: "Digit 7."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit7"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit7"}'
+    verification: "reported"
+  press_digit_8:
+    description: "Digit 8."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit8"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit8"}'
+    verification: "reported"
+  press_digit_9:
+    description: "Digit 9."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Digit9"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Digit9"}'
+    verification: "reported"
+  press_dot:
+    description: "The dot/separator key (sub-channels)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Dot"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Dot"}'
+    verification: "reported"
+
+  # -- Colour fastext keys.
+  press_red:
+    description: "Red colour key (RedColour on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "RedColour"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "RedColour"}'
+    verification: "reported"
+  press_green:
+    description: "Green colour key (GreenColour on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "GreenColour"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "GreenColour"}'
+    verification: "reported"
+  press_yellow:
+    description: "Yellow colour key (YellowColour on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "YellowColour"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "YellowColour"}'
+    verification: "reported"
+  press_blue:
+    description: "Blue colour key (BlueColour on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "BlueColour"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "BlueColour"}'
+    verification: "reported"
+
+  # -- TV functions and sources. Source opens the input list (and on v1
+  #    models a sources/current POST switches directly); WatchTV returns to
+  #    the tuner. Input switching on v6 Android is the SELECTURI intent on
+  #    Launch Application where honoured, otherwise this Source key.
+  press_watch_tv:
+    description: "Switch to the broadcast tuner (WatchTV on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "WatchTV"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "WatchTV"}'
+    verification: "reported"
+  press_source:
+    description: "Open the input/source list."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Source"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Source"}'
+    verification: "reported"
+  press_tv_guide:
+    description: "Open the EPG (TvGuide on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "TvGuide"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "TvGuide"}'
+    verification: "reported"
+  press_info:
+    description: "Info banner for the current programme or item."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Info"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Info"}'
+    verification: "reported"
+  press_subtitle:
+    description: "Toggle subtitles."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Subtitle"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Subtitle"}'
+    verification: "reported"
+  press_teletext:
+    description: "Open teletext (models/regions that still ship it)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Teletext"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Teletext"}'
+    verification: "reported"
+  press_find:
+    description: "Search/find."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Find"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Find"}'
+    verification: "reported"
+  press_online:
+    description: "Open the online/smart-TV portal (older smart models)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Online"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Online"}'
+    verification: "reported"
+  press_list:
+    description: "Open the channel list overlay."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "List"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "List"}'
+    verification: "reported"
+  press_viewmode:
+    description: "Cycle picture format (wide zoom, 4:3, ...) — Viewmode on the wire."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "Viewmode"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "Viewmode"}'
+    verification: "reported"
+  press_ambilight_on_off:
+    description: "Toggle Ambilight (AmbilightOnOff on the wire)."
+    transport: "http"
+    method: "POST"
+    path: "/{api_version}/input/key"
+    action: "Send Key"
+    arguments: {key: "AmbilightOnOff"}
+    parameters:
+      api_version: {type: "string", default: "6", description: "As press_standby."}
+    example_body: '{"key": "AmbilightOnOff"}'
+    verification: "reported"
+
+# The remote, as controls. Declaration order is layout order — power, then
+# navigation and D-pad, transport, volume, channel stepping, digits, colour
+# keys, then TV functions — the order the keys sit in the official Philips
+# remote apps. Every button is an instance of Send Key; per the transport
+# gaps recorded in jointspace_common, none of these renders into a working
+# control in the reference app until its HTTP transport can send a JSON body
+# (and, on 2016+ models, digest auth over HTTPS).
+entities:
+  - platform: "button"
+    name: "Standby"
+    icon: "mdi:power-standby"
+    commands:
+      press: "press_standby"
+  - platform: "button"
+    name: "Power On"
+    icon: "mdi:power"
+    commands:
+      press: "press_power_on"
+    notes: "Only reaches a TV still listening on the network; see commands.press_power_on."
+  - platform: "button"
+    name: "Power Off"
+    icon: "mdi:power-off"
+    commands:
+      press: "press_power_off"
+    notes: "Maps to Standby on Android models."
+  - platform: "button"
+    name: "Back"
+    icon: "mdi:arrow-u-left-top"
+    commands:
+      press: "press_back"
+  - platform: "button"
+    name: "Exit"
+    icon: "mdi:exit-to-app"
+    commands:
+      press: "press_exit"
+  - platform: "button"
+    name: "Home"
+    icon: "mdi:home"
+    commands:
+      press: "press_home"
+  - platform: "button"
+    name: "Up"
+    icon: "mdi:chevron-up"
+    commands:
+      press: "press_cursor_up"
+  - platform: "button"
+    name: "Left"
+    icon: "mdi:chevron-left"
+    commands:
+      press: "press_cursor_left"
+  - platform: "button"
+    name: "OK"
+    commands:
+      press: "press_confirm"
+  - platform: "button"
+    name: "Right"
+    icon: "mdi:chevron-right"
+    commands:
+      press: "press_cursor_right"
+  - platform: "button"
+    name: "Down"
+    icon: "mdi:chevron-down"
+    commands:
+      press: "press_cursor_down"
+  - platform: "button"
+    name: "Options"
+    icon: "mdi:dots-horizontal-circle-outline"
+    commands:
+      press: "press_options"
+  - platform: "button"
+    name: "Adjust"
+    icon: "mdi:tune"
+    commands:
+      press: "press_adjust"
+    notes: "Quick settings panel."
+  - platform: "button"
+    name: "Rewind"
+    icon: "mdi:rewind"
+    commands:
+      press: "press_rewind"
+  - platform: "button"
+    name: "Play"
+    icon: "mdi:play"
+    commands:
+      press: "press_play"
+  - platform: "button"
+    name: "Pause"
+    icon: "mdi:pause"
+    commands:
+      press: "press_pause"
+  - platform: "button"
+    name: "Play/Pause"
+    icon: "mdi:play-pause"
+    commands:
+      press: "press_play_pause"
+    notes: "Same as Play on Android models."
+  - platform: "button"
+    name: "Stop"
+    icon: "mdi:stop"
+    commands:
+      press: "press_stop"
+  - platform: "button"
+    name: "Fast Forward"
+    icon: "mdi:fast-forward"
+    commands:
+      press: "press_fast_forward"
+  - platform: "button"
+    name: "Record"
+    icon: "mdi:record-rec"
+    commands:
+      press: "press_record"
+  - platform: "button"
+    name: "Previous"
+    icon: "mdi:skip-previous"
+    commands:
+      press: "press_previous"
+  - platform: "button"
+    name: "Next"
+    icon: "mdi:skip-next"
+    commands:
+      press: "press_next"
+  - platform: "button"
+    name: "Volume Down"
+    icon: "mdi:volume-minus"
+    commands:
+      press: "press_volume_down"
+  - platform: "button"
+    name: "Mute"
+    icon: "mdi:volume-mute"
+    commands:
+      press: "press_mute"
+  - platform: "button"
+    name: "Volume Up"
+    icon: "mdi:volume-plus"
+    commands:
+      press: "press_volume_up"
+  - platform: "button"
+    name: "Channel Up"
+    icon: "mdi:chevron-double-up"
+    commands:
+      press: "press_channel_up"
+  - platform: "button"
+    name: "Channel Down"
+    icon: "mdi:chevron-double-down"
+    commands:
+      press: "press_channel_down"
+  - platform: "button"
+    name: "1"
+    commands:
+      press: "press_digit_1"
+  - platform: "button"
+    name: "2"
+    commands:
+      press: "press_digit_2"
+  - platform: "button"
+    name: "3"
+    commands:
+      press: "press_digit_3"
+  - platform: "button"
+    name: "4"
+    commands:
+      press: "press_digit_4"
+  - platform: "button"
+    name: "5"
+    commands:
+      press: "press_digit_5"
+  - platform: "button"
+    name: "6"
+    commands:
+      press: "press_digit_6"
+  - platform: "button"
+    name: "7"
+    commands:
+      press: "press_digit_7"
+  - platform: "button"
+    name: "8"
+    commands:
+      press: "press_digit_8"
+  - platform: "button"
+    name: "9"
+    commands:
+      press: "press_digit_9"
+  - platform: "button"
+    name: "Dot"
+    commands:
+      press: "press_dot"
+  - platform: "button"
+    name: "0"
+    commands:
+      press: "press_digit_0"
+  - platform: "button"
+    name: "Red"
+    commands:
+      press: "press_red"
+  - platform: "button"
+    name: "Green"
+    commands:
+      press: "press_green"
+  - platform: "button"
+    name: "Yellow"
+    commands:
+      press: "press_yellow"
+  - platform: "button"
+    name: "Blue"
+    commands:
+      press: "press_blue"
+  - platform: "button"
+    name: "Watch TV"
+    icon: "mdi:television"
+    commands:
+      press: "press_watch_tv"
+  - platform: "button"
+    name: "Source"
+    icon: "mdi:video-input-hdmi"
+    commands:
+      press: "press_source"
+    notes: "Opens the input list; direct input switching is v1-only (sources/current) or a SELECTURI intent on v6 — see the Launch Application endpoint."
+  - platform: "button"
+    name: "Guide"
+    icon: "mdi:television-guide"
+    commands:
+      press: "press_tv_guide"
+  - platform: "button"
+    name: "Info"
+    icon: "mdi:information-outline"
+    commands:
+      press: "press_info"
+  - platform: "button"
+    name: "Subtitle"
+    icon: "mdi:subtitles-outline"
+    commands:
+      press: "press_subtitle"
+  - platform: "button"
+    name: "Teletext"
+    icon: "mdi:format-text"
+    commands:
+      press: "press_teletext"
+  - platform: "button"
+    name: "Find"
+    icon: "mdi:magnify"
+    commands:
+      press: "press_find"
+  - platform: "button"
+    name: "Online"
+    icon: "mdi:web"
+    commands:
+      press: "press_online"
+  - platform: "button"
+    name: "Channel List"
+    icon: "mdi:format-list-numbered"
+    commands:
+      press: "press_list"
+  - platform: "button"
+    name: "Picture Format"
+    icon: "mdi:aspect-ratio"
+    commands:
+      press: "press_viewmode"
+  - platform: "button"
+    name: "Ambilight"
+    icon: "mdi:television-ambient-light"
+    commands:
+      press: "press_ambilight_on_off"
+
+  # State surfaces. Plain GETs with no body, so these are the closest thing
+  # here to what the reference app could already read on an OPEN (pre-2016)
+  # model — on secured models they still need HTTPS + digest auth, and the
+  # payloads are JSON rather than the XML the app's state parsing expects.
+  # Recorded for consumers that can parse them.
+  - platform: "sensor"
+    name: "Power State"
+    state_topic: "/{api_version}/powerstate"
+    notes: "v6 only, and absent on some firmwares; JSON {\"powerstate\": \"On\"}."
+  - platform: "sensor"
+    name: "Volume"
+    state_topic: "/{api_version}/audio/volume"
+    notes: "JSON {min, max, current, muted}; device-scale integers, not percent."
+  - platform: "sensor"
+    name: "Current Channel"
+    state_topic: "/{api_version}/activities/tv"
+    notes: "v5+; channel.name plus ccid. On v1 the path is /1/channels/current."
+  - platform: "sensor"
+    name: "Current Application"
+    state_topic: "/{api_version}/activities/current"
+    notes: "v6 Android only; an intent object. Broadcast TV reports the PlayTvActivity component, not null."

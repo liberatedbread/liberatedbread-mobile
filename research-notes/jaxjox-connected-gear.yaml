@@ -1,0 +1,89 @@
+# JAXJOX Connected Strength Gear (KettlebellConnect, DumbbellConnect, FoamRollerConnect, smart scale) — research note
+# From static analysis of com.jaxjox.mobile v3.3.3 (jadx)
+# APK source: apkeep (apk-pure), fetched 2026-08-07; delisted from Google Play (404)
+# XAPK SHA-256: 39d8196131fb12a2b46c1d651ebef831e75459f8814f9f5a5d91ee72b7e1e498
+
+device:
+  id: jaxjox-connected-gear
+  name: JAXJOX KettlebellConnect / DumbbellConnect / FoamRollerConnect family
+  manufacturer: JAXJOX Inc (Redmond, WA) — out of business (BBB, complaint 2025-02-04)
+  category: smart_strength_equipment
+  safety_class: MEDIUM  # motorized weight-selection mechanism; BLE writes (if any) could move a weight stack
+
+transport:
+  type: ble
+  local_only: true
+  note: >
+    Core hardware function (motorized weight selection) works from base buttons
+    without any app or account. BLE is for rep/set tracking and metrics. Stock app
+    gates on a JAXJOX cloud login (backend presumed dead), so local use requires a
+    third-party RE'd client, not the stock app.
+
+ble:
+  advertising:
+    name_patterns: []  # TBD per device
+    service_uuids: []  # TBD
+
+  services:
+    - uuid: "0000fd00-0000-1000-8000-00805f9b34fb"
+      name: legacy_kettlebell_service
+      source: LegacyKettleBellManager.java
+      characteristics:
+        - uuid: "0000fd19-0000-1000-8000-00805f9b34fb"
+          name: legacy_kb_char1
+          description: role TBD (notify or write)
+        - uuid: "0000fd1a-0000-1000-8000-00805f9b34fb"
+          name: legacy_kb_char2
+          description: role TBD
+    - uuid: "0000fc00-0000-1000-8000-00805f9b34fb"
+      name: smart_scale_service
+      source: SmartScaleManager.java
+      characteristics:
+        - uuid: "0000fc22-0000-1000-8000-00805f9b34fb"
+          name: scale_char1
+        - uuid: "0000fc23-0000-1000-8000-00805f9b34fb"
+          name: scale_char2
+    - uuid: "6e40fe01-b5a3-f393-e0a9-e50e24dcca9e"
+      name: foamroller_uart_service
+      description: Nordic-UART-style service for FoamRollerConnect
+      source: FoamRollerManager.java
+      characteristics:
+        - uuid: "6e408e02-b5a3-f393-e0a9-e50e24dcca9e"
+          name: foamroller_char1
+        - uuid: "6e408e03-b5a3-f393-e0a9-e50e24dcca9e"
+          name: foamroller_char2
+
+  standard_services:
+    - uuid: "0000180d-0000-1000-8000-00805f9b34fb"
+      name: heart_rate
+      note: App pairs external HR monitors (2a37/2a38)
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+  dfu: Nordic DFU library present (no.nordicsemi.android.dfu)
+  unrelated_uuids:
+    note: "AAE28F00/01/02-71B5-42A1-8C3C-F9CF6AC969D0 = Fitbit tracker GATT (direct Fitbit pairing feature, not JAXJOX hardware)"
+
+protocol:
+  note: >
+    Per-device managers under com.android.jaxjox.fitness.device
+    (kettlebell, dumbbell, foamroller, smartscale, pushup, heartrate).
+    New KettleBellManager (KettlebellConnect 2.0) delegates to obfuscated helper
+    classes — its UUID set not yet pinned. Frame formats TBD; HCI snoop needed.
+  commands: TBD
+
+abandonment:
+  company_out_of_business: true   # BBB listing, complaint dated 2025-02-04
+  app_unsupported: true           # Hy-Pro Sports listing: "PHONE APP NO LONGER SUPPORTED" (2025-08-19)
+  app_delisted: true              # Play 404, verified 2026-08-07
+  domain_dead: true               # jaxjox.com unreachable, verified 2026-08-07
+  sources:
+    - https://www.bbb.org/us/wa/redmond/profile/fitness-center/jaxjox-inc-1296-1000137664/complaints
+    - https://www.hyprosports.com/products/adjustable-weight-kettlebell
+    - https://fcc.report/FCC-ID/2ALO8-KB42/4057357.pdf
+
+status:
+  apk_acquired: true
+  apk_decompiled: true
+  uuids_recovered: partial  # legacy kettlebell + scale + foamroller pinned; new-gen kettlebell/dumbbell TBD
+  protocol_recovered: false
+  hci_snoop_needed: true

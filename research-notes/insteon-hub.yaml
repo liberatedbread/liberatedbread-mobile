@@ -1,0 +1,63 @@
+# Insteon Hub v1 (2242-222) & v2 (2245-222) — Device Spec (research note)
+# SmartLabs died 2022-04; revived as Insteon Technologies 2022; site live 2026-08-07.
+# Local control never depended on cloud: v2 = HTTP 25105 (label basic-auth),
+# v1 = raw PLM over TCP 9761.
+
+device:
+  id: insteon-hub
+  name: Insteon Hub 2245-222 (v2) and 2242-222 (v1)
+  manufacturer: SmartLabs Inc. (defunct 2022-04) / Insteon Technologies (2022- )
+  category: smart_home_hub
+  safety_class: LOW
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Both hub generations expose the embedded PLM (powerline modem) on the LAN
+    with credentials printed on the device label. No cloud account required.
+    Survived the 2022-04 cloud shutdown without interruption.
+
+lan:
+  discovery: dhcp-scan
+  control_v2:
+    model: 2245-222
+    protocol: http
+    port: 25105
+    auth: basic              # username/password printed on hub label
+    endpoints:
+      - GET /3?<hex_plm_command>   # send raw PLM frame (e.g. 0262<addr><flags><cmd1><cmd2>)
+      - GET /buffstatus.xml        # read/clear PLM RX buffer
+      - GET /index.htm             # hub info (firmware, PLM address)
+      - GET /sx.xml                # extended status
+  control_v1:
+    model: 2242-222
+    protocol: tcp
+    port: 9761
+    note: raw PLM serial byte stream, identical to 2413U USB PLM
+
+protocol:
+  note: >
+    On-wire format is the documented Insteon PLM command set (02 62 standard
+    message send, 02 50 received message, etc.). Implemented by Home
+    Assistant insteon integration (local_push), python-insteon, insteon-mqtt,
+    openHAB. Device pairing = standard Insteon linking, no server needed.
+  commands:
+    send_standard_message: "0262<to_addr:3B><flags><cmd1><cmd2>"
+    light_on: "cmd1=0x11"
+    light_off: "cmd1=0x13"
+    status_request: "cmd1=0x19"
+
+status:
+  apk_acquired: false      # not needed — label creds + documented PLM
+  apk_decompiled: false
+  uuids_recovered: false   # n/a
+  protocol_recovered: true # shipping integrations (HA, openHAB, insteon-mqtt)
+  hci_snoop_needed: false
+  cloud_dead: false        # original cloud died 2022-04; new company live 2026-08-07
+  rating: confirmed
+  references:
+    - pcmag.com/news/smart-home-company-insteon-shuts-down-servers-without-warning (2022-04-22)
+    - community.home-assistant.io/t/insteon-hub-conversion-to-home-assistant/412598 (2022-04)
+    - community.smartthings.com/t/insteon-local-control/3346 (2014, port 25105)
+    - insteon.com (live, fetched 2026-08-07)
