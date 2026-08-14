@@ -28,6 +28,8 @@ device:
   name: "Subaru Impreza / WRX / STi"
   manufacturer: "Subaru Corporation"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "obd2"
   category: "vehicle"
   notes: >

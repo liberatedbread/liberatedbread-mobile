@@ -6,6 +6,8 @@ device:
   name: "ProGLOW Motorcycle LED Controller"
   manufacturer: "ProGLOW / TTCBLE"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "light"
   notes: >
@@ -16,10 +18,21 @@ device:
     notifications on 0x1002. No CRC/checksum was found in the normal command
     builder. FCC ID 2A55N-PG-BTBOX-1: STM32F103 MCU plus a Shengrun
     HY-40R201P BLE module (TI CC2541F256); Shengrun's public TTCBLEManager
-    iOS SDK documents the same 0x1000/0x1001 GATT skeleton. The APK bundles an
+    iOS SDK documents the same 0x1000/0x1001 GATT skeleton plus an optional
+    `encryption:` write flag (unused here). The APK bundles an
     optional libhy_api.so traffic-obfuscation layer but the app disables it,
     so command/state traffic is plaintext. Firmware revision is read via DIS
     0x2A26 (observed "V3.3"); no public firmware downloads exist.
+
+    Second protocol generation: proglow2/Data2.smali implements a parallel
+    0x3C-headed command set with motion()/motionColors() commands for newer
+    hardware; the advertised manufacturer-data byte 7 device type selects
+    which generation (and UI) the app drives. Latent OTA: the APK carries a
+    full TI CC2541 OAD implementation (com/ble/ble/oad/) but with no call
+    sites from app code and no firmware images — OTA is unused here.
+
+    Sibling product: the same app and protocol drive Custom Dynamics
+    "Magical Wizards" 12V systems (per the app's Google Play listing).
   identification:
     local_name_prefix: "Multi_LED"
     service_uuids:

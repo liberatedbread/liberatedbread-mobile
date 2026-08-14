@@ -6,6 +6,8 @@ device:
   name: "NIU Electric Scooter"
   manufacturer: "Niu Technologies"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "vehicle"
   notes: >
@@ -28,13 +30,29 @@ device:
     working -- which is another way of saying the cloud stack is untouched.
     Fitting one does not free the scooter; it frees the throttle map.
 
-    The scooter also has a BLE link the app uses in proximity. That is the
-    genuinely interesting local-first target and it is NOT publicly documented:
-    no service or characteristic UUIDs, no framing, no pairing flow. The
-    decisive open question is whether it is a full control channel or only a
-    proximity/unlock handshake with everything else deferred to the cloud --
-    that answer determines whether stock-hardware local control is possible at
-    all.
+    STOCK BLE LINK (app-confirmed 2026-08 from a com.niu.manager decompile;
+    NOT hardware-tested): the open question above is answered -- the
+    proximity BLE link is a full AES-encrypted local control channel, not a
+    mere unlock handshake. Frames are hex on the wire: 0x5AA5 header,
+    16-bit length, command, data, 8-bit sum checksum, 0x96 tail
+    (blesdk/ble/n0.java:271-279). Payloads are AES-128-ECB encrypted under
+    per-vehicle keys (blesdk/ble/c0.java:496, AES key and block both 16
+    bytes per blesdk/ble/n0.java:756-814), after a two-frame
+    password-verify handshake that exchanges random challenges
+    (blesdk/ble/t.java:142-214). GATT layout is in `services` below.
+    Per-vehicle flags gate whether the ACC switch, alarm sound and cushion
+    lock are controllable over BLE, over the cloud, or both
+    (cloud/provider/g.java:227-247, isSupport*SwitchByBt / *ByIot).
+
+    THE CATCH: those BLE keys are cloud-issued -- the app fetches them from
+    /v5/smart_key/ble_info (e2/a.java:503, fetched at
+    cloud/manager/n.java:2643 into BleKeyInfoBean). The local channel is
+    real and its framing is now documented, but key provisioning is
+    cloud-mediated, so `local_access.status` stays
+    `replacement_hardware` until a cloud-free way to obtain or provision a
+    key is found. The remaining open question has moved from "is BLE a
+    control channel" (yes) to "can keys be provisioned without the cloud"
+    (unknown).
 
     VERIFICATION: `reported` -- hosts and endpoint paths come from maintained
     third-party integrations and independent captures, but none has been
@@ -71,12 +89,15 @@ device:
         verified: false
         cloud:
           local_alternative: >
-            None known for telemetry. The scooter's own BLE link is
-            undocumented and may be only a proximity handshake, so whether ANY
-            local path exists is an open question -- see local_access. The one
-            shipped local route is replacing the motor controller with an
-            aftermarket Bluetooth unit, which reaches drive parameters only
-            and leaves telemetry, GPS and alarm on the cloud.
+            None known for telemetry. The scooter's own BLE link is now
+            documented as a full AES-encrypted control channel (see
+            device notes and `services`), but its per-vehicle keys are
+            issued by the cloud via /v5/smart_key/ble_info, so it is not
+            yet a cloud-free path -- app-confirmed, not hardware-tested.
+            The one shipped local route is replacing the motor controller
+            with an aftermarket Bluetooth unit, which reaches drive
+            parameters only and leaves telemetry, GPS and alarm on the
+            cloud.
         steps:
           - actor: "user"
             action: "Create or sign in to a NIU account in the vendor app."
@@ -164,6 +185,28 @@ cloud:
       name: "overall_tally"
       returns: "Lifetime totals (POST with sn in the form body; evcc niu.go, ioBroker.niu)"
       verification: "reported"
+      notes: >
+        The vendor app itself calls the same data at /v5/motor/overallTally
+        (POST with JSON body {sn}; e2/a.java:476, app call at
+        cloud/manager/n.java:1245). Both endpoints are live; neither has
+        been exercised by us, so this entry keeps its third-party path and
+        the v5 variant is listed separately below.
+    - path: "/v5/motor/overallTally"
+      method: "POST"
+      name: "overall_tally_v5"
+      returns: "Lifetime totals -- the vendor app's own path for overall_tally (POST with JSON body {sn}; app-confirmed from the decompile, not exercised by us)"
+      verification: "reported"
+    - path: "/v5/smart_key/ble_info"
+      method: "GET"
+      name: "ble_key_info"
+      returns: "Per-scooter BLE key provisioning data (BLE MACs and key software versions, parsed into BleKeyInfoBean) -- the credentials the stock BLE control channel requires"
+      verification: "reported"
+      notes: >
+        GET with sn as a query parameter (e2/a.java:503, app call at
+        cloud/manager/n.java:2643; the helper used there appends params to
+        the URL). This is the cloud-mediated key source that keeps the
+        stock BLE link out of cloud-free local control. Record the shape
+        only -- never a real key, MAC or serial.
     - path: "/v5/track/list/v2"
       method: "POST"
       name: "track_list"
@@ -173,16 +216,19 @@ cloud:
 local_access:
   status: "replacement_hardware"
   summary: >
-    No local path on stock hardware today. The scooter's own BLE link is
-    undocumented, and the only shipped route to local control is swapping the
-    motor controller for an aftermarket Bluetooth one -- which frees the drive
-    parameters and nothing else.
+    No cloud-free local path on stock hardware today. The scooter's own BLE
+    link is now documented (see `services`) as a full AES-encrypted control
+    channel, but its per-vehicle keys are issued by NIU's cloud
+    (/v5/smart_key/ble_info), so stock local control still depends on the
+    vendor service. The only shipped cloud-free route to local control is
+    swapping the motor controller for an aftermarket Bluetooth one -- which
+    frees the drive parameters and nothing else.
   covers:
     - "motor drive parameters via the replacement controller's own BLE app: maximum speed, acceleration, per-mode speed limits, current/amperage, battery configuration"
   not_covered:
     - "telemetry, position and ride history -- still read from NIU's cloud"
     - "GPS tracking and the alarm system -- the vendor advertises these as continuing to work unchanged, i.e. still cloud-tethered"
-    - "the stock scooter's own BLE link, which remains undocumented either way"
+    - "the stock scooter's own BLE control channel, whose framing is documented but whose keys remain cloud-issued, so it is not a cloud-free path (app-confirmed, not hardware-tested)"
   hardware:
     - name: "NIU Bluetooth Controller"
       vendor: "escootparts.com"
@@ -200,6 +246,99 @@ local_access:
         consequences. The stock controller can be refitted.
       verification: "reported"
   notes: >
-    If the stock BLE link turns out to be a full control channel, this device
-    moves to `bridge_hardware` or `native` and this whole section shrinks.
-    Establishing that is the single highest-value experiment for this target.
+    The stock BLE link has turned out to be a full control channel, but its
+    keys are cloud-issued, so `replacement_hardware` stands: this device
+    moves to `bridge_hardware` or `native` only once a cloud-free way to
+    obtain or provision BLE keys is established. That -- not the framing,
+    which is documented -- is now the single highest-value experiment for
+    this target. Factory reset likewise remains open: the app offers no
+    on-vehicle reset procedure (see `device.setup.factory_reset`).
+
+services:
+  - uuid: "8ec94e30-f315-4f60-9fb8-838830daea50"
+    name: "NIU BLE control (variant ea50, app bleVer 10)"
+    notes: >
+      Stock scooter control channel. The app probes three service variants
+      in order -- ...daea50, ...daea51, ...daea52 -- and labels them bleVer
+      10, 20 and 21 respectively (cloud/modules/carble/d.java:46-78,
+      probing logic at cloud/modules/carble/p.java:219-264); all three
+      share the same characteristic layout, so only the service UUID's last
+      byte changes between the entries below. Frames on the write
+      characteristic are hex: 0x5AA5 header, 16-bit length, command, data,
+      8-bit sum checksum, 0x96 tail (blesdk/ble/n0.java:271-279), with
+      AES-128-ECB encrypted payloads after a two-frame random-challenge
+      password-verify handshake (blesdk/ble/t.java:142-214). On bleVer >=
+      20 an optional HID service 00001812-0000-1000-8000-00805f9b34fb is
+      also used (carble/p.java:246). App-confirmed from a com.niu.manager
+      decompile, not hardware-tested; keys are cloud-issued via
+      /v5/smart_key/ble_info, see device notes.
+    characteristics:
+      - uuid: "8ec94e31-f315-4f60-9fb8-838830daea50"
+        name: "control_notify"
+        properties: ["notify"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "device-specific"
+        framing:
+          checksum: "sum"
+      - uuid: "8ec94e32-f315-4f60-9fb8-838830daea50"
+        name: "control_write"
+        properties: ["write"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "device-specific"
+        framing:
+          checksum: "sum"
+  - uuid: "8ec94e30-f315-4f60-9fb8-838830daea51"
+    name: "NIU BLE control (variant ea51, app bleVer 20)"
+    notes: >
+      Second probed variant -- same layout as the ea50 service above; only
+      the last UUID byte differs (cloud/modules/carble/p.java:226-231).
+    characteristics:
+      - uuid: "8ec94e31-f315-4f60-9fb8-838830daea51"
+        name: "control_notify"
+        properties: ["notify"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "device-specific"
+        framing:
+          checksum: "sum"
+      - uuid: "8ec94e32-f315-4f60-9fb8-838830daea51"
+        name: "control_write"
+        properties: ["write"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "device-specific"
+        framing:
+          checksum: "sum"
+  - uuid: "8ec94e30-f315-4f60-9fb8-838830daea52"
+    name: "NIU BLE control (variant ea52, app bleVer 21)"
+    notes: >
+      Third probed variant -- same layout as the ea50 service above; only
+      the last UUID byte differs (cloud/modules/carble/p.java:232-238).
+    characteristics:
+      - uuid: "8ec94e31-f315-4f60-9fb8-838830daea52"
+        name: "control_notify"
+        properties: ["notify"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "device-specific"
+        framing:
+          checksum: "sum"
+      - uuid: "8ec94e32-f315-4f60-9fb8-838830daea52"
+        name: "control_write"
+        properties: ["write"]
+        encryption:
+          algorithm: "aes-128-ecb"
+          key_derivation: "device-specific"
+        framing:
+          checksum: "sum"
+  - uuid: "00004e30-004b-4f39-4242-4d4e5826574a"
+    name: "NIU BLE control (legacy UUID set)"
+    notes: >
+      An older service/characteristic triplet also present in the app's
+      constants: 00004e30/00004e31/00004e32, all under
+      -004b-4f39-4242-4d4e5826574a (c0/b.java:95,104,113). No probed usage
+      of this set was found in the decompiled connection path, so the
+      notify/write roles are not assigned here -- which generation of
+      scooter exposes it is an open question.

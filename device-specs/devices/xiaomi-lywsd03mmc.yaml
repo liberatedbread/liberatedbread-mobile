@@ -6,6 +6,8 @@ device:
   name: "Xiaomi Mijia LYWSD03MMC Thermometer/Hygrometer"
   manufacturer: "Xiaomi"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -74,6 +76,29 @@ device:
     STOCK FIRMWARE DISCOVERY: name "LYWSD03MMC", service UUID 0xFE95
     (MiBeacon). Data is encrypted; decryption requires bindkey obtained
     from Xiaomi cloud or the Mi Home app.
+
+    MI HOME APP EVIDENCE (jadx decompile audit, 2026-08): the app contains
+    NO device-specific code for this model — Mi Home device plugins are
+    downloaded from Xiaomi's cloud at pairing time, and "LYWSD03MMC" is
+    entirely absent from the decompiled app (sources and bundled assets),
+    so the app can only corroborate generic Xiaomi mechanisms, nothing
+    model-specific. What it does confirm:
+      - MiBeacon service UUID 0xFE95 and the frame-control layout: bytes
+        0-1 are a little-endian frame-control field (bit 3 = payload
+        encrypted, plus capability/MAC/event/binding flag bits) and the
+        version sits in the high nibble of byte 1
+        (miui/bluetooth/ble/MiServiceData.java).
+      - During provisioning the app pushes the cloud-issued bindkey to
+        the device via a miio RPC with method "set_bind_key" (params
+        carry bind_key plus Wi-Fi credentials)
+        (smartconfig/step/BindKeyStep.java).
+      - The bundled device catalog (assets/device_config/plugin_config_us-en)
+        lists MiOT model "miaomiaoce.sensor_ht.t2" (pd_id 1371, "Mi
+        Temperature and Humidity Monitor 2" — this device's retail name),
+        its Mi Home/MiOT identity; no plugin or logic for it ships in the
+        app itself.
+    CONFIDENCE for the app-evidence block: MEDIUM — app-derived, not
+    verified on hardware.
 
     CONFIDENCE: HIGH for custom firmware advertisement formats,
     service UUIDs, and GATT services — sourced from

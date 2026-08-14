@@ -11,6 +11,8 @@ device:
   # SensorPush still sells these; the protocol is simply closed. Per the schema's
   # own guidance that is 'active', not a bespoke 'production'.
   manufacturer_status: active
+  testing:
+    status: untested
   identification:
     service_uuids:
       # V1 (HT1) and V2 (HTP.xw) primary services. Both are advertised for

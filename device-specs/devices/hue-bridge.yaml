@@ -6,6 +6,8 @@ device:
   name: "Philips Hue Bridge"
   manufacturer: "Signify / Philips Hue"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "hub"
   transport: "http"
@@ -25,6 +27,18 @@ device:
     /eventstream/clip/v2 (HTTPS-only). Signify has announced plain-HTTP
     retirement on the gen-2 bridge in a future firmware update — new clients
     should target HTTPS + CLIP v2.
+
+    TLS: the HTTPS certificate is a per-device leaf whose subject CN is the
+    16-hex-char bridgeid in lowercase, issued by Signify's private bridge
+    root CA (issuer CN "root-bridge") — deliberately not a public chain, so
+    stock certificate verification fails on every Hue bridge and a client
+    must verify the Hue way instead: check the leaf CN equals the bridgeid
+    it expects (learned from mDNS TXT or GET /api/config), then pin that
+    leaf keyed by bridgeid — trust on first use. A later pin mismatch is a
+    different device or an interception, never a rotation to accept
+    silently; do not fall back to plain HTTP on a pin failure. The Bridge
+    Pro (BSB003) is HTTPS-only, so this verification path is the only way
+    to reach it at all.
 
     N-UPNP DISCOVERY: https://discovery.meethue.com/ (no auth) returns
     internalipaddress, id, and port (443) of registered bridges — a third
@@ -156,7 +170,9 @@ device:
           that asks within roughly 30 seconds of the physical link button being
           pressed. This is a proximity proof, not an account: no cloud login is
           involved and the username keeps working after the vendor cloud goes
-          away.
+          away. commands.create_user is this flow as an executable command —
+          poll it every couple of seconds; error type 101 means keep waiting,
+          not failure.
         steps:
           - action: "POST /api with a devicetype string to confirm the bridge rejects unauthorized clients."
             actor: "client"
@@ -209,6 +225,7 @@ device:
         - "ZigBee network key for paired lights"
       issued_to_client:
         - "API username (bearer-equivalent; sent in the URL path on plain HTTP)"
+        - "Entertainment clientkey (16-byte DTLS PSK, hex) — only obtainable at create time, so create_user always asks for it"
       notes: >
         The username is transmitted in the URL on unencrypted HTTP and never
         expires on its own. Treat it as a long-lived LAN secret and delete
@@ -227,38 +244,327 @@ evidence:
     bridgeid: "001788FFFEAABBCC"
     protocol: "REST API on port 80"
 
+payload_formats:
+  V1Envelope:
+    description: >
+      The CLIP v1 outcome envelope. Every v1 write and the pairing call
+      answer HTTP 200 with a JSON ARRAY of outcome objects — one element per
+      attribute touched, each either a success or an error — never a bare
+      object. The HTTP status code says nothing; a client reads outcomes
+      from the envelope.
+    parse_rules:
+      - "Parse the body as JSON. An array is an outcome envelope, one element per attribute or request; a bare object is a successful GET reply."
+      - "An element {\"success\": {…}} acknowledges one attribute write (key = attribute path, value = accepted value); {\"error\": {…}} carries integer `type`, string `address`, string `description`."
+      - "error.type 101 (link button not pressed) is create_user's keep-polling signal, not a failure."
+      - "error.type 1 (unauthorized user) means the stored username no longer exists on the bridge — surface re-pairing; retrying cannot succeed."
+      - "error.type 201 (parameter not modifiable) is the answer to writing bri while the light is off — carry \"on\": true in the same write, as light_set_brightness does."
+      - "A mixed envelope is possible: a write touching two attributes can succeed on one and error on the other, so check every element."
+    example: '[{"error":{"type":101,"address":"","description":"link button not pressed"}}]'
+
+commands:
+  create_user:
+    description: >
+      Ask the bridge for a whitelist username while the physical link button
+      is pressed. This is the whole pairing flow — no account, no cloud, no
+      expiry. Poll it: the same request answers error type 101 until the
+      button is pressed and success afterwards, so a client sends it every
+      couple of seconds through the ~30 s window rather than trying to
+      detect the press any other way.
+    transport: "http"
+    method: "POST"
+    path: "/api"
+    arguments:
+      devicetype: "{devicetype}"
+      generateclientkey: true
+    parameters:
+      devicetype:
+        type: "string"
+        required: true
+        description: >
+          Client identifier the whitelist entry is filed under, spelled
+          "application#instance" (e.g. "opengreeniot#hub"). The bridge
+          stores it verbatim in its whitelist, so make it say who you are;
+          community documentation bounds the halves at roughly 20 and 19
+          characters.
+    returns:
+      - name: "username"
+        type: "string"
+        description: >
+          The credential every later request path embeds. Issued once; store
+          it keyed by bridgeid — the IP is a DHCP lease, the bridgeid is the
+          device — and it keeps working until its whitelist entry is deleted
+          or the bridge is factory reset.
+      - name: "clientkey"
+        type: "string"
+        description: >
+          16-byte hex PSK for the DTLS Entertainment streaming channel.
+          Only obtainable at creation time — which is why generateclientkey
+          is sent unconditionally — so store it beside the username even
+          though nothing in this spec drives Entertainment yet.
+    verification: "reported"
+    example_body: '{"devicetype":"opengreeniot#hub","generateclientkey":true}'
+    example_notes: >
+      Rendered with devicetype "opengreeniot#hub". Arguments render as
+      compact JSON in declared order; generateclientkey is a literal this
+      command has already decided, exactly as an on command's on:true is.
+    notes: >
+      Answers 200 OK either way — the v1 API wraps outcomes in a JSON array
+      envelope, error type 101 ("link button not pressed") until the button
+      is pressed and success with the credentials after. 101 is the
+      keep-waiting signal, not a failure. Both envelopes are verbatim on the
+      Create User endpoint entry below.
+
+  light_turn_on:
+    description: "Switch one light behind the bridge on."
+    transport: "http"
+    method: "PUT"
+    path: "/api/{username}/lights/{id}/state"
+    arguments:
+      "on": true
+    parameters:
+      username:
+        type: "string"
+        source: "credential:username"
+        description: >
+          The stored pairing credential; see create_user. No default,
+          deliberately: an unpaired client must fail this send visibly
+          rather than issue a request the bridge answers with error type 1
+          (unauthorized user).
+      id:
+        type: "string"
+        source: "instance:id"
+        description: >
+          Which light, from the enumeration the Hue Light entity's
+          state_command returns. The ids are the bridge's own ("1", "2", …),
+          stable across reboots but not across a factory reset.
+    verification: "reported"
+    example_body: '{"on":true}'
+    notes: >
+      The reply acknowledges the request rather than reporting resulting
+      state — read the Lights endpoint back after any write. The "on" key is
+      quoted because unquoted `on` is a boolean in YAML 1.1, and this file
+      is read by YAML 1.1 parsers; the wire spelling is the three bare
+      characters.
+
+  light_turn_off:
+    description: "Switch one light behind the bridge off."
+    transport: "http"
+    method: "PUT"
+    path: "/api/{username}/lights/{id}/state"
+    arguments:
+      "on": false
+    parameters:
+      username:
+        type: "string"
+        source: "credential:username"
+        description: "As light_turn_on."
+      id:
+        type: "string"
+        source: "instance:id"
+        description: "As light_turn_on."
+    verification: "reported"
+    example_body: '{"on":false}'
+
+  light_set_brightness:
+    description: >
+      Set one light's brightness, switching it on in the same write.
+    transport: "http"
+    method: "PUT"
+    path: "/api/{username}/lights/{id}/state"
+    arguments:
+      "on": true
+      bri: "{bri}"
+    parameters:
+      bri:
+        type: "integer"
+        required: true
+        min: 1
+        max: 254
+        description: >
+          Brightness the light holds while on, 1–254. NOT 0–255: 0 is not
+          "off" (off is the on flag), and 255 is out of range. A consumer
+          mapping a percentage slider should round into this range rather
+          than trust its ends.
+      username:
+        type: "string"
+        source: "credential:username"
+        description: "As light_turn_on."
+      id:
+        type: "string"
+        source: "instance:id"
+        description: "As light_turn_on."
+    verification: "reported"
+    example_body: '{"on":true,"bri":200}'
+    example_notes: >
+      Rendered with bri=200. bri is declared an integer, so it renders as a
+      JSON number, never a quoted string — a renderer substitutes by the
+      declared parameter type. on:true rides along deliberately: a bare bri
+      sent to a light that is off answers error type 201 ("parameter, bri,
+      is not modifiable. Device is set to off."), so the one write carries
+      both.
+
 http_endpoints:
   - method: "GET"
     path: "/api/config"
     name: "Bridge Config"
-    description: "Unauthenticated bridge info including name, bridgeid, MAC, modelid, software version, API version, and network settings."
+    description: >
+      Unauthenticated bridge identity: name, bridgeid, MAC, modelid, API and
+      software versions. This is the short form the bridge answers without a
+      username (the full config — whitelist, network settings — lives at
+      /api/{username}/config); it is how a client learns the bridgeid when
+      discovery could not say (SSDP finds the bridge, but only mDNS TXT
+      carries bridgeid), and the bridgeid is also what the HTTPS
+      certificate's CN must equal — see the TLS paragraph in device.notes.
     response_body:
       content_type: "application/json"
+      fields:
+        - name: "bridgeid"
+          type: "string"
+          description: >
+            16-hex-char bridge identity, uppercase: the MAC with FFFE
+            spliced into the middle (EUI-64). The stable key everything
+            else — credentials, TLS pins, scan identity — is filed under.
+        - name: "modelid"
+          type: "string"
+          description: "BSB001 (v1 round), BSB002 (v2 square), BSB003 (2025 Bridge Pro)."
+        - name: "apiversion"
+          type: "string"
+          description: "CLIP v1 API version, e.g. 1.78.0."
+        - name: "swversion"
+          type: "string"
+          description: "Firmware build, e.g. 1978074000."
+        - name: "mac"
+          type: "string"
+          description: "Ethernet MAC, lowercase colon-separated."
+        - name: "name"
+          type: "string"
+          description: "User-assigned bridge name; defaults to 'Philips hue'."
+      example: '{"name":"Philips hue","datastoreversion":"178","swversion":"1978074000","apiversion":"1.78.0","mac":"00:17:88:aa:bb:cc","bridgeid":"001788FFFEAABBCC","factorynew":false,"replacesbridgeid":null,"modelid":"BSB002","starterkitid":""}'
   - method: "POST"
     path: "/api"
     name: "Create User"
-    description: "Press-link pairing endpoint that creates a whitelist username when the bridge link button has been pressed."
+    description: >
+      Press-link pairing endpoint that creates a whitelist username when the
+      bridge link button has been pressed. HTTP status is 200 either way;
+      outcomes ride the v1 array envelope (payload_formats.V1Envelope, whose
+      example is this endpoint's pre-press reply verbatim). Error type 101
+      is the keep-polling signal, not a failure; after the button, the
+      success envelope in the example below. commands.create_user is the
+      executable form of this call.
     request_body:
       content_type: "application/json"
       fields:
         - name: "devicetype"
           type: "string"
           required: true
-          description: "Application identifier used for the created Hue whitelist username."
+          description: "Application identifier used for the created Hue whitelist username, spelled application#instance."
+        - name: "generateclientkey"
+          type: "boolean"
+          description: >
+            Ask for the Entertainment DTLS PSK alongside the username. Only
+            honoured at creation time — a username created without it can
+            never get one — so always send true.
+      example: '{"devicetype":"opengreeniot#hub","generateclientkey":true}'
     response_body:
       content_type: "application/json"
+      fields:
+        - name: "username"
+          type: "string"
+          description: "Whitelist credential, ~40 URL-safe characters; every authenticated v1 path embeds it."
+        - name: "clientkey"
+          type: "string"
+          description: "32 hex chars — the 16-byte Entertainment PSK. Present only when generateclientkey was sent."
+      example: '[{"success":{"username":"nUP9k2sQ4vG7xB3fA6hJ8dL1mZ5cR0eT9yW2uI4o","clientkey":"E39B1C9F76A2D48C0FA3B5E7D216C84A"}}]'
   - method: "GET"
     path: "/api/{username}/lights"
     name: "Lights"
-    description: "Enumerate Hue lights paired to the bridge."
+    description: >
+      Enumerate Hue lights paired to the bridge. The reply is a JSON object
+      keyed by light id — enumeration and every light's full state in one
+      request, which is exactly what the Hue Light entity's instances block
+      binds. Poll this, never the lights one at a time: community rate-limit
+      guidance is roughly ten light writes a second and far fewer
+      whole-bridge reads. Real replies carry more keys per light than the
+      example (capabilities, config, swupdate); the example is the
+      load-bearing subset, with one color light that is on and one dimmable
+      light that is off.
     response_body:
       content_type: "application/json"
+      example: |
+        {
+          "1": {
+            "state": {"on": true, "bri": 254, "hue": 8418, "sat": 140,
+                      "effect": "none", "xy": [0.4573, 0.4100], "ct": 366,
+                      "alert": "select", "colormode": "ct",
+                      "mode": "homeautomation", "reachable": true},
+            "type": "Extended color light",
+            "name": "Kitchen counter",
+            "modelid": "LCT016",
+            "manufacturername": "Signify Netherlands B.V.",
+            "productname": "Hue color lamp",
+            "uniqueid": "00:17:88:01:0a:1b:2c:3d-0b",
+            "swversion": "1.108.7"
+          },
+          "2": {
+            "state": {"on": false, "bri": 77, "alert": "select",
+                      "mode": "homeautomation", "reachable": true},
+            "type": "Dimmable light",
+            "name": "Hallway",
+            "modelid": "LWB010",
+            "manufacturername": "Signify Netherlands B.V.",
+            "productname": "Hue white lamp",
+            "uniqueid": "00:17:88:01:0a:4e:5f:60-0b",
+            "swversion": "1.108.7"
+          }
+        }
   - method: "PUT"
     path: "/api/{username}/lights/{id}/state"
     name: "Set Light State"
-    description: "Set on/off, brightness, color, color temperature, effects, or alert state for a light."
+    description: >
+      Set on/off, brightness, color, color temperature, effects, or alert
+      state for a light. The reply acknowledges each changed attribute (see
+      the example) rather than reporting resulting state, so a client reads
+      Lights back after writing. Sending bri (or any modifiable attribute)
+      to a light that is off answers error type 201 — carry "on": true in
+      the same write, as light_set_brightness does.
     request_body:
       content_type: "application/json"
+      fields:
+        - name: "on"
+          type: "boolean"
+          description: "Relay state. The only attribute writable while the light is off."
+        - name: "bri"
+          type: "integer"
+          min: 1
+          max: 254
+          description: "Brightness held while on; see commands.light_set_brightness."
+        - name: "hue"
+          type: "integer"
+          min: 0
+          max: 65535
+          description: "Hue angle scaled to 16 bits (65535 ≈ 360°). Color lights only."
+        - name: "sat"
+          type: "integer"
+          min: 0
+          max: 254
+          description: "Saturation, 0 white to 254 full color. Color lights only."
+        - name: "xy"
+          type: "array"
+          description: "CIE 1931 [x, y] point, each 0.0–1.0. The colormode color apps usually drive."
+        - name: "ct"
+          type: "integer"
+          min: 153
+          max: 500
+          unit: "mired"
+          description: "Color temperature in mireds: 153 ≈ 6500 K cold, 500 = 2000 K warm."
+        - name: "transitiontime"
+          type: "integer"
+          unit: "100ms"
+          description: "Fade duration in deciseconds; the bridge defaults to 4 (400 ms) when absent."
+      example: '{"on":true,"bri":200}'
+    response_body:
+      content_type: "application/json"
+      example: '[{"success":{"/lights/1/state/on":true}},{"success":{"/lights/1/state/bri":200}}]'
   - method: "GET"
     path: "/api/{username}/sensors"
     name: "Sensors"
@@ -293,13 +599,38 @@ http_endpoints:
 entities:
   - platform: "light"
     name: "Hue Light"
-    state_topic: "/api/{username}/lights/{id}"
+    instances:
+      keyed_by: "id"
+      label_path: "name"
+    state_command: "Lights"
+    state_mapping:
+      is_on: "state.on"
+      brightness: "state.bri"
     commands:
-      turn_on: "/api/{username}/lights/{id}/state"
-      turn_off: "/api/{username}/lights/{id}/state"
-      set_brightness: "/api/{username}/lights/{id}/state"
-      set_color: "/api/{username}/lights/{id}/state"
+      turn_on: "light_turn_on"
+      turn_off: "light_turn_off"
+      set_brightness: "light_set_brightness"
+    notes: >
+      One entity, stamped out per light. The Lights endpoint answers a JSON
+      object keyed by light id, so enumeration and every child's state ride
+      one GET — poll that, never the lights one at a time, and re-read it
+      after any write because a PUT's reply is an acknowledgement, not
+      state. Brightness is 1–254 (see light_set_brightness). state.reachable
+      is worth honouring when rendering: a bulb powered off at the wall
+      keeps its last state here with reachable false, and a toggle drawn
+      live for it is a lie. Color and color temperature are deliberately
+      not bound yet — a set_color role needs multi-value parameters
+      (xy or ct plus colormode) that no consumer resolves today; the state
+      fields are documented on Set Light State for when one does.
+
   - platform: "sensor"
     name: "Hue Sensor"
     state_topic: "/api/{username}/sensors/{id}"
+    notes: >
+      Declarative, unlike the light above. The Sensors endpoint enumerates
+      motion, temperature, light-level and switch sensors the same instanced
+      way Lights does, but the population is heterogeneous — each sensor
+      type carries a different state shape — so binding them properly is a
+      worked pass of its own (instances plus a per-type mapping), not a
+      guessed mapping here.
 
