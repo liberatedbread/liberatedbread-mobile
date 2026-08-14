@@ -60,6 +60,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   NetworkReadingDto dco_decode_box_autoadd_network_reading_dto(dynamic raw);
 
   @protected
+  PanelResolutionDto dco_decode_box_autoadd_panel_resolution_dto(dynamic raw);
+
+  @protected
   QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw);
 
   @protected
@@ -89,6 +92,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw);
+
+  @protected
+  EffectEntryDto dco_decode_effect_entry_dto(dynamic raw);
 
   @protected
   EntityActionDto dco_decode_entity_action_dto(dynamic raw);
@@ -157,6 +163,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<DeviceSpecDto> dco_decode_list_device_spec_dto(dynamic raw);
 
   @protected
+  List<EffectEntryDto> dco_decode_list_effect_entry_dto(dynamic raw);
+
+  @protected
   List<EntityActionDto> dco_decode_list_entity_action_dto(dynamic raw);
 
   @protected
@@ -213,6 +222,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint16List dco_decode_list_prim_u_16_strict(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_32_loose(dynamic raw);
+
+  @protected
+  Uint32List dco_decode_list_prim_u_32_strict(dynamic raw);
+
+  @protected
   List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
 
   @protected
@@ -230,6 +245,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<(String, String)> dco_decode_list_record_string_string(dynamic raw);
+
+  @protected
+  List<(int, Uint8List)> dco_decode_list_record_u_16_list_prim_u_8_strict(
+      dynamic raw);
 
   @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
@@ -308,6 +327,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  PanelResolutionDto? dco_decode_opt_box_autoadd_panel_resolution_dto(
+      dynamic raw);
+
+  @protected
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
 
   @protected
@@ -330,7 +353,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Int64List? dco_decode_opt_list_prim_i_64_strict(dynamic raw);
 
   @protected
+  PanelResolutionDto dco_decode_panel_resolution_dto(dynamic raw);
+
+  @protected
   ParameterDto dco_decode_parameter_dto(dynamic raw);
+
+  @protected
+  PlaylistWritesDto dco_decode_playlist_writes_dto(dynamic raw);
 
   @protected
   ProfileCharacteristicDto dco_decode_profile_characteristic_dto(dynamic raw);
@@ -346,6 +375,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   (String, String) dco_decode_record_string_string(dynamic raw);
+
+  @protected
+  (int, Uint8List) dco_decode_record_u_16_list_prim_u_8_strict(dynamic raw);
 
   @protected
   ScanMatch dco_decode_scan_match(dynamic raw);
@@ -439,6 +471,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  PanelResolutionDto sse_decode_box_autoadd_panel_resolution_dto(
+      SseDeserializer deserializer);
+
+  @protected
   QuerySourceDto sse_decode_box_autoadd_query_source_dto(
       SseDeserializer deserializer);
 
@@ -471,6 +507,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DeviceSpecDto sse_decode_device_spec_dto(SseDeserializer deserializer);
+
+  @protected
+  EffectEntryDto sse_decode_effect_entry_dto(SseDeserializer deserializer);
 
   @protected
   EntityActionDto sse_decode_entity_action_dto(SseDeserializer deserializer);
@@ -544,6 +583,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<EffectEntryDto> sse_decode_list_effect_entry_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<EntityActionDto> sse_decode_list_entity_action_dto(
       SseDeserializer deserializer);
 
@@ -612,6 +655,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint16List sse_decode_list_prim_u_16_strict(SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_32_loose(SseDeserializer deserializer);
+
+  @protected
+  Uint32List sse_decode_list_prim_u_32_strict(SseDeserializer deserializer);
+
+  @protected
   List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
 
   @protected
@@ -631,6 +680,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<(String, String)> sse_decode_list_record_string_string(
+      SseDeserializer deserializer);
+
+  @protected
+  List<(int, Uint8List)> sse_decode_list_record_u_16_list_prim_u_8_strict(
       SseDeserializer deserializer);
 
   @protected
@@ -721,6 +774,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  PanelResolutionDto? sse_decode_opt_box_autoadd_panel_resolution_dto(
+      SseDeserializer deserializer);
+
+  @protected
   QuerySourceDto? sse_decode_opt_box_autoadd_query_source_dto(
       SseDeserializer deserializer);
 
@@ -745,7 +802,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Int64List? sse_decode_opt_list_prim_i_64_strict(SseDeserializer deserializer);
 
   @protected
+  PanelResolutionDto sse_decode_panel_resolution_dto(
+      SseDeserializer deserializer);
+
+  @protected
   ParameterDto sse_decode_parameter_dto(SseDeserializer deserializer);
+
+  @protected
+  PlaylistWritesDto sse_decode_playlist_writes_dto(
+      SseDeserializer deserializer);
 
   @protected
   ProfileCharacteristicDto sse_decode_profile_characteristic_dto(
@@ -762,6 +827,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   (String, String) sse_decode_record_string_string(
+      SseDeserializer deserializer);
+
+  @protected
+  (int, Uint8List) sse_decode_record_u_16_list_prim_u_8_strict(
       SseDeserializer deserializer);
 
   @protected
@@ -861,6 +930,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkReadingDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_panel_resolution_dto(
+      PanelResolutionDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_query_source_dto(
       QuerySourceDto self, SseSerializer serializer);
 
@@ -895,6 +968,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_device_spec_dto(DeviceSpecDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_effect_entry_dto(
+      EffectEntryDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_entity_action_dto(
@@ -977,6 +1054,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<DeviceSpecDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_effect_entry_dto(
+      List<EffectEntryDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_entity_action_dto(
       List<EntityActionDto> self, SseSerializer serializer);
 
@@ -1049,6 +1130,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       Uint16List self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_prim_u_32_loose(
+      List<int> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_32_strict(
+      Uint32List self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
 
   @protected
@@ -1070,6 +1159,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_record_string_string(
       List<(String, String)> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_record_u_16_list_prim_u_8_strict(
+      List<(int, Uint8List)> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_scan_match(
@@ -1167,6 +1260,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       NetworkReadingDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_panel_resolution_dto(
+      PanelResolutionDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_query_source_dto(
       QuerySourceDto? self, SseSerializer serializer);
 
@@ -1192,7 +1289,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       Int64List? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_panel_resolution_dto(
+      PanelResolutionDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_parameter_dto(ParameterDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_playlist_writes_dto(
+      PlaylistWritesDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_profile_characteristic_dto(
@@ -1213,6 +1318,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_record_string_string(
       (String, String) self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_record_u_16_list_prim_u_8_strict(
+      (int, Uint8List) self, SseSerializer serializer);
 
   @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer);

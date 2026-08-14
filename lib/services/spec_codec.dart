@@ -23,6 +23,7 @@ export '../src/rust/api/device_api.dart'
         FormatFieldDto,
         DecodedValueDto,
         ImageUploadDto,
+        PanelResolutionDto,
         ImageWriteDto,
         ImageWritePlanDto,
         StoredUploadDto,
@@ -30,6 +31,8 @@ export '../src/rust/api/device_api.dart'
         StoredUploadEventDto,
         StoredUploadEventKind,
         StoredPlayDto,
+        PlaylistWritesDto,
+        EffectEntryDto,
         MatchResult,
         MatchConfidence,
         MacPrefixDto,
@@ -157,6 +160,27 @@ abstract class SpecCodec {
     required int maxPayloadPerWrite,
   });
 
+  /// The device's REAL panel resolution, read from its advertisement per the
+  /// spec's `image_upload.resolution_advertisement`. Lets a `device_reported`
+  /// panel's editor default the canvas to the true size before connecting.
+  /// [manufacturerData] is company id -> value bytes (as the scan captured it).
+  /// Null when the spec declares no advertised resolution, no record matches,
+  /// or the bytes are out of range.
+  Future<PanelResolutionDto?> advertisedResolution({
+    required String specYaml,
+    required Map<int, List<int>> manufacturerData,
+  });
+
+  /// The device's REAL panel resolution decoded from its M_DEVICE_INFO_NOTIFY
+  /// push (mt=2103) — the source used on a reconnect that carries no
+  /// advertisement. [notifications] are raw notify events collected off the DDP
+  /// notify characteristic in a short window; the core reassembles them (the
+  /// message spans several notifications at a low MTU) and reads its
+  /// width/height fields. Null when none carried a DeviceInfo.
+  Future<PanelResolutionDto?> deviceInfoResolution({
+    required List<List<int>> notifications,
+  });
+
   /// The controls a spec declares for one discovered network device — the
   /// SOAP counterpart of a BLE spec's entities.
   ///
@@ -281,6 +305,11 @@ abstract class SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+
+    /// Per-connection rolling counter driving the play write's fragment serial
+    /// and DNX `sn`, so repeated plays are distinct on the wire (see
+    /// [commandSequenceProvider]). One-shot callers may pass 0.
+    required int sequence,
   });
 
   /// Encode the BLE writes that persist a scrolling-text marquee on the device.
@@ -298,6 +327,7 @@ abstract class SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   });
 
   /// Encode the BLE writes that persist a multi-frame animation on the device.
@@ -315,6 +345,7 @@ abstract class SpecCodec {
     required String name,
     required int cid,
     required int frameMs,
+    required int sequence,
   });
 
   /// Decode one notification from the stored-upload response characteristic
@@ -330,6 +361,7 @@ abstract class SpecCodec {
   Future<StoredPlayDto> encodeStoredPlay({
     required String specYaml,
     required int cid,
+    required int sequence,
   });
 
   // ── LIFX (binary UDP) ─────────────────────────────────────────────────────
@@ -406,4 +438,79 @@ abstract class SpecCodec {
 
   /// Decode a `StateAccessPoint` scan-result reply.
   Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes});
+
+  /// Encode the writes that loop stored frames as an animation: the
+  /// set-playlist command then loop mode. [cids] are the stored frames in play
+  /// order; [slots] are their device slots (0 when unknown). [sequence] seeds
+  /// the two writes' rolling serials.
+  Future<PlaylistWritesDto> encodeSetPlaylist({
+    required String specYaml,
+    required List<int> cids,
+    required List<int> slots,
+    required int sequence,
+  });
+
+  /// Decode one M_EFFECT_LIST notification into `{cid, slot}` entries. The
+  /// device answers a list request with several notifications; merge them to
+  /// map a stored frame's cid to the device slot a playlist must address.
+  Future<List<EffectEntryDto>> decodeEffectList({
+    required String specYaml,
+    required List<int> bytes,
+  });
+
+  /// Encode the global play-speed command — how fast the device advances the
+  /// playlist. [speed] is the device's slider value (default 100).
+  Future<StoredPlayDto> encodePlaySpeed({
+    required String specYaml,
+    required int speed,
+    required int sequence,
+  });
+
+  /// Encode the play/loop-mode command (M_SET_AUTORUN_MODE). [mode] is
+  /// `0=fixed | 1=repeat | 2=random`. Sending fixed after playing a design
+  /// pins the device to it across disconnect (instead of randomly cycling all
+  /// stored effects).
+  Future<StoredPlayDto> encodeAutorunMode({
+    required String specYaml,
+    required int mode,
+    required int sequence,
+  });
+
+  /// Encode M_BOOKMARK_ENABLE — activate bookmark/playlist [listId] so the
+  /// device plays ONLY its items. Without it, playback stays over the whole
+  /// stored set (`play_next` cycles every effect). Sent as part of the loop
+  /// setup: clear → enable → set_playlist → play_next.
+  Future<StoredPlayDto> encodeBookmarkEnable({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  });
+
+  /// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist [listId] before a
+  /// re-save, so the loop replaces the old list instead of accumulating.
+  Future<StoredPlayDto> encodeBookmarkClear({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  });
+
+  /// Encode the delete-one-stored-design command by cid (M_REMOVE_APP).
+  Future<StoredPlayDto> encodeRemoveApp({
+    required String specYaml,
+    required int cid,
+    required int sequence,
+  });
+
+  /// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
+  Future<StoredPlayDto> encodeRemoveAllApps({
+    required String specYaml,
+    required int sequence,
+  });
+}
+
+/// Play/loop-mode values for [SpecCodec.encodeAutorunMode].
+class AutorunMode {
+  static const int fixed = 0;
+  static const int repeat = 1;
+  static const int random = 2;
 }

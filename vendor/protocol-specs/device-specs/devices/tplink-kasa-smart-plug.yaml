@@ -6,6 +6,8 @@ device:
   name: "TP-Link Kasa Smart Plug"
   manufacturer: "TP-Link"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "switch"
   transport: "tcp-json"

@@ -141,6 +141,7 @@ void main() {
           timeSecs: 10,
           scroll: 'none',
           speed: 5,
+          sequence: 1,
         );
         expect(stored.playWrite, isNotNull,
             reason: 'the spec declares play_command — a save must then show');
@@ -198,9 +199,10 @@ void main() {
         await Future<void>.delayed(const Duration(seconds: 3));
 
         // And the replay path the saved-designs list uses: address the item
-        // by cid again, no re-upload.
-        final replay =
-            await codec.encodeStoredPlay(specYaml: specYaml, cid: cid);
+        // by cid again, no re-upload. A DIFFERENT sequence than the store's
+        // play write so a de-duping firmware still restarts it.
+        final replay = await codec.encodeStoredPlay(
+            specYaml: specYaml, cid: cid, sequence: 2);
         await ble.writeCharacteristic(
           deviceId,
           replay.serviceUuid,

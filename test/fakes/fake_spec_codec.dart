@@ -149,6 +149,7 @@ class FakeSpecCodec implements SpecCodec {
         int timeSecs,
         String scroll,
         int speed,
+        int sequence,
       })> encodeStoredCalls = [];
 
   FakeSpecCodec({
@@ -295,6 +296,45 @@ class FakeSpecCodec implements SpecCodec {
           // One packet consumed, like a real single-packet frame.
           nextFrameIndex: frameIndex + 1,
         );
+  }
+
+  /// The resolution [advertisedResolution] returns — a test sets it to simulate
+  /// a device that advertises its panel size. Null (default) means "not
+  /// advertised", the common case.
+  PanelResolutionDto? advertisedResolutionResult;
+
+  /// The manufacturer data [advertisedResolution] was last called with.
+  Map<int, List<int>>? advertisedResolutionArg;
+
+  @override
+  Future<PanelResolutionDto?> advertisedResolution({
+    required String specYaml,
+    required Map<int, List<int>> manufacturerData,
+  }) async {
+    advertisedResolutionArg = manufacturerData;
+    return advertisedResolutionResult;
+  }
+
+  /// The resolution [deviceInfoResolution] returns — a test sets it to simulate
+  /// a device whose DeviceInfo push carried a size. Null (default) means the
+  /// query found none.
+  PanelResolutionDto? deviceInfoResolutionResult;
+
+  /// How many times [deviceInfoResolution] was called (i.e. a DeviceInfo query
+  /// actually ran — should stay 0 when the advertisement or cache answered).
+  int deviceInfoResolutionCalls = 0;
+
+  /// The notifications [deviceInfoResolution] was last given (so a test can
+  /// check the buffered connect-time push was folded in).
+  List<List<int>>? deviceInfoResolutionArg;
+
+  @override
+  Future<PanelResolutionDto?> deviceInfoResolution({
+    required List<List<int>> notifications,
+  }) async {
+    deviceInfoResolutionCalls++;
+    deviceInfoResolutionArg = notifications;
+    return deviceInfoResolutionResult;
   }
 
   @override
@@ -458,6 +498,7 @@ class FakeSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) async {
     encodeStoredCalls.add((
       specYaml: specYaml,
@@ -469,6 +510,7 @@ class FakeSpecCodec implements SpecCodec {
       timeSecs: timeSecs,
       scroll: scroll,
       speed: speed,
+      sequence: sequence,
     ));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlan ?? _defaultStoredPlan(cid, rgb);
@@ -481,7 +523,8 @@ class FakeSpecCodec implements SpecCodec {
         int cid,
         int textWidth,
         int textHeight,
-        String scroll
+        String scroll,
+        int sequence,
       })> encodeTextCalls = [];
 
   /// Every [encodeStoredAnimation] call, in order.
@@ -492,7 +535,8 @@ class FakeSpecCodec implements SpecCodec {
         int width,
         int height,
         int frameCount,
-        int frameMs
+        int frameMs,
+        int sequence,
       })> encodeAnimationCalls = [];
 
   @override
@@ -506,6 +550,7 @@ class FakeSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) async {
     encodeTextCalls.add((
       name: name,
@@ -513,6 +558,7 @@ class FakeSpecCodec implements SpecCodec {
       textWidth: textWidth,
       textHeight: textHeight,
       scroll: scroll,
+      sequence: sequence,
     ));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlan ?? _defaultStoredPlan(cid, bits);
@@ -527,6 +573,7 @@ class FakeSpecCodec implements SpecCodec {
     required String name,
     required int cid,
     required int frameMs,
+    required int sequence,
   }) async {
     encodeAnimationCalls.add((
       name: name,
@@ -535,6 +582,7 @@ class FakeSpecCodec implements SpecCodec {
       height: height,
       frameCount: frames.length,
       frameMs: frameMs,
+      sequence: sequence,
     ));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlan ?? _defaultStoredPlan(cid, const [7]);
@@ -569,15 +617,16 @@ class FakeSpecCodec implements SpecCodec {
   /// command channel, mirroring [_defaultStoredPlan]'s play write.
   final StoredPlayDto? storedPlay;
 
-  /// Every cid [encodeStoredPlay] was asked to replay, in call order.
-  final List<int> encodeStoredPlayCalls = [];
+  /// Every ([cid], [sequence]) [encodeStoredPlay] was asked to replay, in order.
+  final List<({int cid, int sequence})> encodeStoredPlayCalls = [];
 
   @override
   Future<StoredPlayDto> encodeStoredPlay({
     required String specYaml,
     required int cid,
+    required int sequence,
   }) async {
-    encodeStoredPlayCalls.add(cid);
+    encodeStoredPlayCalls.add((cid: cid, sequence: sequence));
     if (encodeStoredError != null) throw encodeStoredError!;
     return storedPlay ??
         StoredPlayDto(
@@ -719,6 +768,128 @@ class FakeSpecCodec implements SpecCodec {
         channel: 11,
       );
 
+  /// Every [encodeSetPlaylist] call's cids, in order.
+  final List<List<int>> encodeSetPlaylistCalls = [];
+
+  @override
+  Future<PlaylistWritesDto> encodeSetPlaylist({
+    required String specYaml,
+    required List<int> cids,
+    required List<int> slots,
+    required int sequence,
+  }) async {
+    encodeSetPlaylistCalls.add(List.of(cids));
+    if (encodeStoredError != null) throw encodeStoredError!;
+    return PlaylistWritesDto(
+      serviceUuid: 'srv',
+      writes: [
+        ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [4])),
+        ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [5])),
+      ],
+    );
+  }
+
+  /// Entries [decodeEffectList] returns, keyed by nothing — a test sets this.
+  List<EffectEntryDto> effectListEntries = const [];
+
+  @override
+  Future<List<EffectEntryDto>> decodeEffectList({
+    required String specYaml,
+    required List<int> bytes,
+  }) async =>
+      effectListEntries;
+
+  /// Every play-speed value [encodePlaySpeed] was asked to set, in order.
+  final List<int> encodePlaySpeedCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodePlaySpeed({
+    required String specYaml,
+    required int speed,
+    required int sequence,
+  }) async {
+    encodePlaySpeedCalls.add(speed);
+    return _framedStub();
+  }
+
+  /// Every autorun mode [encodeAutorunMode] was asked to set, in order.
+  final List<int> encodeAutorunModeCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeAutorunMode({
+    required String specYaml,
+    required int mode,
+    required int sequence,
+  }) async {
+    encodeAutorunModeCalls.add(mode);
+    return _framedStub();
+  }
+
+  /// Every cid [encodeRemoveApp] was asked to delete, in order.
+  final List<int> encodeRemoveAppCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeRemoveApp({
+    required String specYaml,
+    required int cid,
+    required int sequence,
+  }) async {
+    encodeRemoveAppCalls.add(cid);
+    return _framedStub();
+  }
+
+  /// Every [encodeBookmarkEnable] call's listId, in order.
+  final List<int> encodeBookmarkEnableCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeBookmarkEnable({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) async {
+    encodeBookmarkEnableCalls.add(listId);
+    return _framedStub();
+  }
+
+  /// Every [encodeBookmarkClear] call's listId, in order.
+  final List<int> encodeBookmarkClearCalls = [];
+
+  @override
+  Future<StoredPlayDto> encodeBookmarkClear({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) async {
+    encodeBookmarkClearCalls.add(listId);
+    return _framedStub();
+  }
+
+  /// How many times [encodeRemoveAllApps] was called.
+  int encodeRemoveAllAppsCalls = 0;
+
+  @override
+  Future<StoredPlayDto> encodeRemoveAllApps({
+    required String specYaml,
+    required int sequence,
+  }) async {
+    encodeRemoveAllAppsCalls++;
+    return _framedStub();
+  }
+
+  StoredPlayDto _framedStub() => StoredPlayDto(
+        serviceUuid: 'srv',
+        write: ImageWriteDto(
+            characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [9])),
+      );
+
+  /// When set, [_defaultStoredPlan] carries this as its response characteristic
+  /// so the widget can subscribe to the notify channel (needed to exercise the
+  /// DeviceInfo-query path). Null keeps the default no-notify behaviour so
+  /// existing tests are unaffected.
+  String? storedResponseChar;
+
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(
         serviceUuid: 'srv',
@@ -728,6 +899,7 @@ class FakeSpecCodec implements SpecCodec {
         ],
         playWrite: ImageWriteDto(
             characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [1])),
+        responseCharacteristicUuid: storedResponseChar,
         cid: cid,
       );
 }

@@ -26,6 +26,14 @@ device:
   name: "Belkin Wemo Smart Devices"
   manufacturer: "Belkin"
   manufacturer_status: "shutdown"
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >-
+      Key facts checked against first-party captures of real hardware
+      (research store: wemo-devices/captures/, ten models incl. Insight,
+      Maker, Dimmer, Crock-Pot setup). No flow has been driven end-to-end from
+      this spec by this project.
   protocol: "wifi"
   category: "switch"
   transport: "upnp"

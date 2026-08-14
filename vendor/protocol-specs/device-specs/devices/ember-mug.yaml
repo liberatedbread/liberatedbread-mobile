@@ -6,13 +6,18 @@ device:
   name: "Ember Mug"
   manufacturer: "Ember Technologies"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "appliance"
   notes: >
     Covers Ember Mug 2 (10/14 oz), Travel Mug 2/2+, Cup (6 oz), Tumbler (16 oz).
     Official Android app package is `com.embertech`; APKPure XAPK inspected:
-    Ember app 4.5.9 / versionCode 220. The decompiled Android manifest confirms
-    BLE permissions, package `com.embertech`, and Nordic DFU services; Flutter
+    Ember app 4.5.9 / versionCode 220 (XAPK `manifest.json:1`: version_name
+    4.5.9, version_code 220). The decompiled Android manifest confirms BLE
+    permissions, package `com.embertech`, and Nordic DFU services
+    (AndroidManifest.xml:256-287, eight `dev.steenbakker.nordicdfu.DfuService*`
+    foreground-service entries); Flutter
     AOT strings expose the Ember Bluetooth model names and characteristic helper
     names such as `characteristicForTargetTemperature`, `characteristicForLED`,
     `characteristicForPushEvent`, `characteristicForDSK`, and
@@ -131,16 +136,21 @@ device:
               the DSK/UDSK semantics as partially understood; keep the value
               you wrote, since it is the client's claim on the mug.
     factory_reset:
-      confidence: "low"
+      confidence: "medium"
       effect: "Clears the stored claim and returns the mug to pairing mode; temperature history and target are lost."
       procedures:
         - name: "Base button held"
-          hold_seconds: 10
-          indicator: "LED changes colour and the mug re-enters pairing mode."
+          hold_seconds: 12
+          indicator: "LED blinks red, then the mug re-enters pairing mode."
           steps:
-            - action: "Press and hold the button on the base of the mug until the LED changes."
+            - action: "Press and hold the power button on the base of the mug for about 12 seconds, until the LED blinks red."
               actor: "user"
-              notes: "Hold time varies by model; watch the LED rather than the clock."
+              notes: >
+                App-confirmed, not hardware-tested: Ember app 4.5.9
+                troubleshooting copy (libapp.so AOT strings, English plus a
+                matching Dutch translation) tells users to hold the base
+                power button about 12 seconds until the LED blinks red.
+                Watch the LED rather than the clock.
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
@@ -456,7 +466,12 @@ services:
         notes: >
           python-ember-mug calls this UDSK, used for auth in the app. It treats
           all-zero 20-byte reads as missing and attempts to write a base64-encoded
-          random string in `make_writable()` when normal writes fail.
+          random string in `make_writable()` when normal writes fail. The app's
+          Dart layer corroborates an active handshake: libapp.so AOT strings
+          reference `package:core/udsk_utils.dart` with `generateUdsk` and
+          `verifyUdsk` helpers and log a write-then-read-back verification when
+          the fetched value mismatches the generated UDSK (app-confirmed, not
+          hardware-tested).
         commands:
           set_udsk:
             description: "Write app auth/user DSK material; exact semantics uncertain"
@@ -539,7 +554,8 @@ services:
         properties: ["read", "write"]
         notes: >
           LED color characteristic. orlopau documents the byte order as
-          red, blue, green, alpha. python-ember-mug's Colour tuple and app log
+          red, blue, green, alpha (its mug-color.md byte table explicitly
+          names byte 3 "Alpha"). python-ember-mug's Colour tuple and app log
           strings label writes as R/G/B/brightness. Existing integrations appear
           to use [red, green, blue, brightness]; verify on hardware if precise
           blue/green ordering matters.

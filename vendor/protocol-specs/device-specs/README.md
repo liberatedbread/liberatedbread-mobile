@@ -92,9 +92,24 @@ entities:
 | `category` | Yes | Broad device class from a closed vocabulary — see [The `category` vocabulary](#the-category-vocabulary) |
 | `type` | No | Free-text device class, e.g. `smart-scale`. `reference-*` marks a published-protocol reference |
 | `notes` | No | Free-text notes about the device |
+| `testing` | Yes* | Spec-level hardware-testing status — see [`testing`](#testing) below. Required by the test suite on every non-reference device spec |
 | `identification` | No | How to auto-discover during scanning |
 | `discovery` | No | Machine-readable discovery methods and identity keys |
 | `setup` | No | One-time provisioning, factory reset and rebinding |
+
+### `testing`
+
+Whether **this project** has exercised the spec against real hardware, stated
+once for the spec as a whole. The finer-grained machinery (`verification` per
+fact, `setup.methods[].verified` per onboarding flow, `setup.confidence` per
+section) never rolls up to the verdict a consumer wants first: has anyone
+driven a device with this document?
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `status` | Yes | `untested` (nobody here has driven hardware from this spec) or `verified` (at least one documented flow was executed against real hardware by this project). Third-party success stories support per-fact `verification: reported`, not this flag |
+| `detail` | No | Refines `status`. With `untested`: `capture-verified` — key facts checked against over-the-air captures of real hardware traffic in the research store. With `verified`: `minimally-verified` (one or a few flows driven) or `mostly-verified` (the majority of the surface driven). A bare status is its weakest reading |
+| `notes` | No (required by tests for anything above bare `untested`) | The evidence: which captures, which hardware unit, which flows, dated |
 
 ### The `category` vocabulary
 

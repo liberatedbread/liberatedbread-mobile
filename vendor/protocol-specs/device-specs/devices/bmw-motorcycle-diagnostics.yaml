@@ -12,6 +12,8 @@ device:
   name: "BMW Motorcycle Diagnostics"
   manufacturer: "BMW Motorrad"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "obd2"
   category: "vehicle"
   notes: >
@@ -33,8 +35,7 @@ device:
     kilometres — no scaling, unlike the Triumph Tiger 900's divide-by-100.
 
     CONFIDENCE: derived from the shipped app (verification: reported). Nothing has been
-    executed against a bike. Module addresses and the semantics of the 31 FA routine
-    family are still unknown.
+    executed against a bike. Module addresses are still unknown.
 
     SCOPE: this exists for repair-café and owner maintenance. The service reset is a write
     and is meant to be used — stationary bike, engine off, owner's consent, values read
@@ -96,8 +97,10 @@ device:
       issued_to_client: []
       notes: >
         Access control is physical: whoever can reach the connector can talk to
-        the vehicle. Some functions are additionally gated by a security-access
-        seed/key exchange — see the request definitions.
+        the vehicle. ECU coding implies a UDS SecurityAccess (0x27) seed/key
+        exchange somewhere in the stack, but that is a HYPOTHESIS: no 0x27
+        request construction was located in the shipped app — the service
+        reset DIDs above need no diagnostic session and no security access.
 
 obd:
   role: "vehicle"
@@ -125,6 +128,14 @@ obd:
       ATCEA<aa>, ATCM7FF, ATCF6<aa>, ATST90, ATBI, then STCSEGT1 / STCFCPC on
       STN adapters.
 
+      D-CAN is only the 2017+ side. The app implements six KWP2000-over-K-line
+      protocol variants alongside it — "BMW Motorcycle KWP2000", "BMW KWP2000
+      FAST", "BMW Motorcycle KWP2000 FTE intialisation" [sic], "... FTE work",
+      "... OLD ABS ECU" and "... OLD MOT ECU" — which is what the pre-2017
+      10-pin K-line bikes (see obd.connector) are spoken to with. Their wire
+      format is not recovered here; this spec's request definitions are D-CAN
+      only.
+
   # BMW's own toolchain describes each module with an EDIABAS SGBD (.prg), selected by a
   # group file (.grp). Naming them lets a consumer resolve jobs, results and scaling from
   # the authoritative definition instead of the offsets we recovered by hand. The files
@@ -150,7 +161,9 @@ obd:
       ELM327_UNKNOWN, OBDLINK_LX, OBDLINK_MX, OBDLINK_MX_PLUS, OBDLINK_MX_WIFI,
       UCSI_2000
       (UI text "UCSI-2000/2100") — and distinguishes a clone from an original at
-      runtime.
+      runtime. A reworked third adapter generation, the UniCarScan UCSI-3000,
+      has been shipping since mid-2026 (dealer announcement); its behaviour is
+      expected to follow the UCSI-2100 but is not verified.
 
   ecus:
     - name: "KOMBI (instrument cluster)"
@@ -182,13 +195,33 @@ obd:
       verification: "reported"
     - name: "DWA (alarm system)"
       verification: "reported"
+    - name: "ESA (electronic suspension adjustment)"
+      verification: "reported"
+    - name: "EWS4 (immobiliser)"
+      verification: "reported"
+    - name: "TPM (tyre pressure, alongside RDC)"
+      verification: "reported"
+    - name: "OBC (on-board computer)"
+      verification: "reported"
   # NOTE: no ILAF (adaptive headlight) ECU is listed — the only ILAF string in
   # the app is a microcontroller status text ("Resets wegen illegalem
   # Adresszugriff (HW Bit ILAF)"), a CPU illegal-address-fetch bit misread as a
   # module in an earlier revision of this spec.
+  #
+  # The list above is the short version: the app carries ~65 cuX_* control-unit
+  # class strings — ten KOMBI variants (03/17/18/46/50/53/A/B2/HI/LO), ten BMS
+  # variants (MP1/X/O1/E2B/AE1/MS1/N/TVS/Z), four ABS variants (ABS, ABS1K,
+  # ABS9M, ABSVI), three DWA and three OBC variants, plus SAF, CCP, MESS, MRR,
+  # SRR, FSA, FSM, SME, EDME, SLZ, BSK and others. Coverage is far wider than
+  # the modules named here; the named ones are what this spec's requests have
+  # been verified against.
 
   requests:
     # ---- Service interval reset: UDS WriteDataByIdentifier on the 0xE1xx family ----
+    # The reset is implemented per cluster generation: the shared reset routine
+    # (abstract Cu.d0) is overridden in four concrete control-unit classes, so
+    # behaviour may differ between KOMBI generations. The frames below are the
+    # variant recovered from the KOMBI class (o7/g.smali).
     - name: "set_cluster_clock"
       description: >
         Write the cluster clock from the current date and time. Issued for the SI_DATE_CAR
@@ -220,7 +253,7 @@ obd:
       writes: true
       verification: "reported"
 
-    # ---- Reads. Payload begins at offset 3 in every reply. ----
+    # ---- Reads. Payload begins at offset 3 in every reply. Read-side timeout is 1000 ms. ----
     - name: "read_odometer"
       description: "Odometer. 7-byte reply, uint32 at offset 3."
       command_class: "advanced"
@@ -260,6 +293,53 @@ obd:
         Result name association is inferred from the embedded database, not confirmed —
         the reply may carry the oil-service distance rather than the valve-clearance one.
 
+    # ---- Actuator tests: UDS RoutineControl (0x31), routine family 0xFAxx, on the cluster ----
+    # Semantics recovered from the app's actuator-test table (p7/y.smali): each test is
+    # a named WGS_ACTOR_* entry with a start and a stop frame. App-derived, not run
+    # against a bike — do not guess further routines against a vehicle.
+    - name: "actuator_self_test"
+      description: "Cluster self-test. Start 31 FA 18 01, stop 31 FA 18."
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 18 01"
+      writes: true
+      verification: "reported"
+    - name: "actuator_lcd_segment_test"
+      description: "Cluster LCD segment test, positive and negative. 31 FA 17 01 / 31 FA 17 02; stop with 31 FA 17."
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 17 ??"
+      writes: true
+      verification: "reported"
+    - name: "actuator_indicator_led"
+      description: >
+        Switch one cluster indicator on/off: 31 FA 13 <sub> 01 (on) / 31 FA 13 <sub> 00 (off).
+        Sub-functions recovered: 01 warning yellow, 02 warning red, 03 neutral, 04 ABS,
+        05 turn-right telltale, 06 fuel reserve, 07 high beam, 08 turn-left telltale,
+        09 anti-theft, 0A ASC, 0B oil, 0C engine, 0D right turn lamp, 0F left turn lamp,
+        12 parking light, 13 low beam, 15 brake-fail/tail light.
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 13 ?? ??"
+      writes: true
+      verification: "reported"
+    - name: "actuator_gauge_sweep"
+      description: "Gauge needle sweep (RPM). 31 FA 0D 00 00."
+      command_class: "advanced"
+      requires: ["custom_headers"]
+      service: "31"
+      request: "31 FA 0D 00 00"
+      writes: true
+      verification: "reported"
+    # Body-electronics actuators (blinkers, brake light, heated grips, horn, parking /
+    # low / high beam, accessory socket) live on the ZFE and are NOT part of this 31 FA
+    # family: the app drives them with 30 02 07 <id> 01/00 and 30 04 07 <id> <pwm> <pwm>
+    # frames instead (p7/e0.smali). Their layout is not yet recorded as request
+    # definitions here.
+
   data_identifiers:
     - did: "0xE119"
       name: "Odometer"
@@ -283,3 +363,27 @@ obd:
       name: "Identity DID read on connect"
       type: "bytes"
       verification: "reported"
+    - did: "0xF186"
+      name: "Identity DID (app builds 22 F1 86 alongside 22 F1 50)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF18A"
+      name: "Identity DID (app builds 22 F1 8A alongside 22 F1 50)"
+      type: "bytes"
+      verification: "reported"
+    - did: "0xF18B"
+      name: "Identity DID (app builds 22 F1 8B alongside 22 F1 50)"
+      type: "bytes"
+      verification: "reported"
+
+references:
+  - "https://www.motoscan.de/"
+  - "https://play.google.com/store/apps/details?id=de.wgsoft.motoscan"
+  - "https://www.wgsoft.de/unicarscan-ucsi-2100"
+  - "https://www.wgsoft.de/download/all"
+  - "https://gallia.readthedocs.io/en/stable/uds/scan_modes.html"
+  - "https://www.bimmerforums.com/forum/showthread.php?2298830"
+  - "https://mechanics.stackexchange.com/questions/49744/bmw-can-bus-data-format"
+  - "https://www.hexgs911.com/"
+  - "https://www.bimmerguide.de/neuer-unicarscan-ucsi-2100-3000-diagnoseadapter/"
+  - "https://motoscan.en.aptoide.com/app"

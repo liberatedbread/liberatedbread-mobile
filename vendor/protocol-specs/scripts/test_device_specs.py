@@ -29,6 +29,7 @@ CONFIDENCE_VALUES = {"high", "medium", "low"}
 METHOD_TYPES = {
     "none",
     "softap_http",
+    "softap_mqtt",
     "softap_soap",
     "softap_udp",
     "ble_provisioning",
@@ -921,3 +922,95 @@ def test_declared_endianness_matches_the_default(specs):
     big = [s for s in stated if s[2] != "little"]
     print(f"BLE format fields stating endianness: {len(stated)}, big-endian: {big or 'none'}")
     assert all(s[2] in {"little", "big"} for s in stated)
+
+
+def test_index_json_parses_and_covers_every_spec():
+    """The committed index must be loadable and name exactly the specs on disk.
+
+    CI regenerates the index and diffs it, but that runs after the whole test
+    suite — a hand-edited index that no longer parses sails through every
+    other check here. Parsing it and comparing the path set catches the two
+    failure modes a hand edit actually produces (broken JSON, missing or
+    duplicated entries) without restating the generator byte for byte.
+    """
+    index = json.loads(
+        (REPO_ROOT / "device-specs" / "index.json").read_text(encoding="utf-8")
+    )
+    from validate_specs import discover_specs
+
+    indexed = [entry["path"] for entry in index]
+    on_disk = sorted(
+        p.relative_to(REPO_ROOT).as_posix() for p in discover_specs()
+    )
+    assert sorted(indexed) == on_disk
+    assert len(indexed) == len(set(indexed)), "duplicate index entries"
+
+
+# ---------------------------------------------------------------------------
+# Spec-level hardware-testing status (`device.testing`)
+# ---------------------------------------------------------------------------
+
+TESTING_STATUSES = {"untested", "verified"}
+TESTING_DETAILS_BY_STATUS = {
+    "untested": {"capture-verified"},
+    "verified": {"minimally-verified", "mostly-verified"},
+}
+
+
+def test_testing_block_is_coherent(specs):
+    """`detail` refines `status`; a mismatched pair claims two different things.
+
+    'capture-verified' only makes sense as a refinement of 'untested' (checked
+    against traffic, never driven), and 'minimally/mostly-verified' only as
+    refinements of 'verified'. A verified spec must also name its evidence in
+    `notes` — the whole point of the flag is that a reviewer can check it.
+    """
+    for device_id, spec in specs.items():
+        testing = spec["device"].get("testing")
+        if testing is None:
+            continue
+        assert not is_reference(spec), (
+            f"{device_id}: reference specs document standards, not hardware, "
+            "and must not carry device.testing"
+        )
+        status = testing.get("status")
+        assert status in TESTING_STATUSES, (
+            f"{device_id}: testing.status {status!r} not in {TESTING_STATUSES}"
+        )
+        detail = testing.get("detail")
+        if detail is not None:
+            allowed = TESTING_DETAILS_BY_STATUS[status]
+            assert detail in allowed, (
+                f"{device_id}: testing.detail {detail!r} does not refine "
+                f"status {status!r} (allowed: {sorted(allowed)})"
+            )
+        if status == "verified" or detail is not None:
+            assert testing.get("notes"), (
+                f"{device_id}: a testing claim above bare 'untested' must "
+                "name its evidence in testing.notes"
+            )
+
+
+def _has_hardware_verified_setup(spec: dict) -> bool:
+    setup = spec["device"].get("setup") or {}
+    return any(m.get("verified") for m in setup.get("methods") or [])
+
+
+def test_testing_status_is_stated(specs):
+    """Every device spec must say whether anyone has driven hardware from it.
+
+    Same convention as `setup.methods[].verified`: an absent block reads as an
+    oversight, not as 'untested'. Two exemptions: reference specs (they
+    document published standards, so hardware testing does not apply), and
+    specs that predate the block whose hardware verification is already on
+    record as a `verified: true` setup method — for those the absent block is
+    not ambiguous, just ungraded.
+    """
+    missing = sorted(
+        d
+        for d, spec in specs.items()
+        if not is_reference(spec)
+        and "testing" not in spec["device"]
+        and not _has_hardware_verified_setup(spec)
+    )
+    assert not missing, f"specs without a device.testing block: {missing}"

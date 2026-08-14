@@ -292,12 +292,18 @@ pub fn unsupported_write_kind(
     if characteristic.encryption.is_some() {
         return Some("characteristic encryption".to_string());
     }
-    if let Some(framing) = characteristic.framing.as_ref() {
-        let scheme = framing
-            .get("scheme")
-            .and_then(|v| v.as_str())
-            .unwrap_or("framing");
-        return Some(format!("characteristic framing ({scheme})"));
+    if characteristic.framing.is_some() {
+        // A framing scheme this build actually executes is not a blocker: the
+        // generic encoder wraps the template's bytes in it (see
+        // `protocol::image_upload::frame_command`). Anything else — a scheme
+        // this build does not implement, or a framing block that names no
+        // scheme at all (coolledx's length prefix) — makes a raw write wrong.
+        let scheme = framing_scheme_name(characteristic);
+        let implemented = scheme.as_deref().is_some_and(implemented_framing_scheme);
+        if !implemented {
+            let label = scheme.unwrap_or_else(|| "framing".to_string());
+            return Some(format!("characteristic framing ({label})"));
+        }
     }
     // Checked here rather than inside `unsupported_encoding_kind` so the
     // low-level encoder keeps reporting the precise
@@ -305,6 +311,34 @@ pub fn unsupported_write_kind(
     // is the capability question — may the UI offer a Send at all — and the
     // answer is no.
     unsupported_parameter_kind(command).or_else(|| unsupported_encoding_kind(command))
+}
+
+/// Canonical name of the one fragment-framing scheme this build executes
+/// (Daniao's `[serial][total][remaining][tag]` DDP header). Defined here, at
+/// the codec layer, so the encodability gates ([`unsupported_write_kind`],
+/// `spec::bindings::needs_unimplemented_transform`) and the protocol-layer
+/// fragment registry (`protocol::image_upload`) all name the same string
+/// without the codec depending on the protocol crate. `protocol::daniao`
+/// re-exports this as its `FRAGMENT_SCHEME`.
+pub const DANIAO_FRAGMENT_SCHEME: &str = "daniao_fragment";
+
+/// Whether `name` is a framing scheme this build wraps packets in, rather than
+/// merely parses. A characteristic whose `framing.scheme` is implemented is
+/// sendable through the generic encoder; an unknown one is not.
+pub fn implemented_framing_scheme(name: &str) -> bool {
+    matches!(name, DANIAO_FRAGMENT_SCHEME)
+}
+
+/// The `framing.scheme` a characteristic declares, if it declares a framing
+/// block naming one. The block is stored untyped (most devices have none), so
+/// this reads the one field the gates care about.
+pub fn framing_scheme_name(characteristic: &Characteristic) -> Option<String> {
+    characteristic
+        .framing
+        .as_ref()?
+        .get("scheme")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
 }
 
 /// A template parameter whose declared type the encoder cannot carry.
@@ -361,6 +395,20 @@ pub fn encode_command(
     command: &Command,
     params: &HashMap<String, f64>,
 ) -> Result<Vec<u8>, ProtocolError> {
+    encode_command_with_bytes(command, params, &HashMap::new())
+}
+
+/// Like [`encode_command`], but a Rust caller can also supply values for
+/// `bytes`-typed template parameters (a `{payload}` a protobuf/CRC builder
+/// produced). The header, message-type and framing still come from the spec
+/// template — only the opaque payload is filled here. The FFI's numeric-only
+/// param map cannot carry these, which is why they stay a Rust-side entry
+/// point (set_playlist, and any other command whose payload this crate builds).
+pub fn encode_command_with_bytes(
+    command: &Command,
+    params: &HashMap<String, f64>,
+    bytes_params: &HashMap<String, Vec<u8>>,
+) -> Result<Vec<u8>, ProtocolError> {
     if let Some(ref value) = command.value {
         return Ok(value.clone());
     }
@@ -406,6 +454,15 @@ pub fn encode_command(
                         })?;
                     length_fixups.push((bytes.len(), width, big_endian));
                     bytes.resize(bytes.len() + width, 0);
+                    continue;
+                }
+                // A `bytes` template param (an opaque payload a Rust builder
+                // produced) is appended verbatim — it has no numeric coercion.
+                if matches!(def.map(|d| &d.value_type), Some(ValueType::Bytes)) {
+                    let payload = bytes_params
+                        .get(name.as_str())
+                        .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
+                    bytes.extend_from_slice(payload);
                     continue;
                 }
                 // Resolution order: `auto: sequence` is the encoder's (a

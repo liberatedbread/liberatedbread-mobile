@@ -6,6 +6,8 @@ device:
   name: "Lutron Caseta Smart Bridge 2"
   manufacturer: "Lutron"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "hub"
   transport: "tls-json"

@@ -35,6 +35,14 @@ class IoTDevice {
   /// a useful name nor a service UUID.
   final List<int> companyIds;
 
+  /// Full manufacturer-specific data payloads, keyed by company id (the value
+  /// bytes AFTER the 2-byte company id). Kept alongside [companyIds] because a
+  /// few specs read a real signal out of these bytes pre-connect — e.g. a
+  /// pixel panel that advertises its true width/height, so the editor can size
+  /// the canvas to it instead of guessing. Empty when the platform did not
+  /// surface the payload or the device carries none.
+  final Map<int, List<int>> manufacturerData;
+
   const IoTDevice({
     required this.id,
     required this.name,
@@ -44,6 +52,7 @@ class IoTDevice {
     DateTime? lastSeen,
     this.serviceUuids = const [],
     this.companyIds = const [],
+    this.manufacturerData = const {},
   }) : lastSeen = lastSeen ?? discoveredAt;
 
   bool get isNearby => rssi > AppConstants.nearbyRssiThreshold;

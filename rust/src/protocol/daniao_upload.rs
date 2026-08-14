@@ -268,6 +268,208 @@ pub enum UploadEvent {
 const MT_UPLOAD_START_RESPONSE: u16 = 2931;
 const MT_UPLOAD_PROGRESS: u16 = 2933;
 const MT_UPLOAD_COMPLETE: u16 = 2934;
+const MT_EFFECT_LIST: u16 = 2904;
+
+/// One stored effect as the device lists it: its id (cid) and the device-
+/// assigned slot. A stored custom must be addressed by its slot in a playlist
+/// (play-by-cid alone accepts slot 0, but the playlist resolves items by slot —
+/// verified: our stored frames register at slots 45..48, and a slot-0 playlist
+/// did not cycle).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EffectEntry {
+    pub cid: u32,
+    pub slot: u32,
+    /// Effect kind the device filed this under (protobuf field 2). The captures
+    /// only ever show playable DIY microapps as `type = 3` (AMX); a `.eff`
+    /// upload we sent as `type = 0` shows up here (or is absent) so we can see
+    /// which family the firmware actually accepted.
+    pub type_: u32,
+    /// Whether the device considers this a user "DIY" effect (field 7) versus a
+    /// built-in. Distinguishes the designs we stored from the factory catalogue.
+    pub diy: u32,
+}
+
+/// Parse one M_EFFECT_LIST notification (mt 2904) into its effect entries.
+///
+/// The device answers a list request with several framed notifications, each
+/// carrying a batch of entries; a caller decodes each and merges them. Each
+/// entry is a protobuf sub-message `{1: slot, 2: type, 3: index, 4: cid,
+/// 6: name}`; only slot and cid are read here. A notification that is not an
+/// effect list, or is truncated, yields an empty list rather than an error.
+pub fn parse_effect_list(notification: &[u8]) -> Vec<EffectEntry> {
+    use super::daniao::FRAG_HEADER_LEN;
+    if notification.len() < FRAG_HEADER_LEN + 20 {
+        return Vec::new();
+    }
+    let dnx = &notification[FRAG_HEADER_LEN..];
+    if dnx[0] != 0xF1 || dnx[1] != 0x01 {
+        return Vec::new();
+    }
+    if u16::from_be_bytes([dnx[6], dnx[7]]) != MT_EFFECT_LIST {
+        return Vec::new();
+    }
+    // Entries follow the 12-byte extended header (dnx[8..20]).
+    let mut body = &dnx[20..];
+    let mut out = Vec::new();
+    // Each entry is field 1 of the outer message: tag 0x0a (field 1,
+    // length-delimited).
+    while let Some((&tag, rest)) = body.split_first() {
+        if tag != 0x0A {
+            break; // only concatenated entry sub-messages here
+        }
+        let Some((len, rest)) = parse_varint(rest) else {
+            break;
+        };
+        let len = len as usize;
+        if rest.len() < len {
+            break;
+        }
+        let (entry, tail) = rest.split_at(len);
+        if let Some(e) = parse_effect_entry(entry) {
+            out.push(e);
+        }
+        body = tail;
+    }
+    out
+}
+
+/// M_DEVICE_INFO_NOTIFY message type (2103) — the device pushes it on connect
+/// (and answers M_GET_RUNNING_STATUS with it), carrying the panel's real size.
+const MT_DEVICE_INFO: u16 = 2103;
+
+/// Reassemble DDP notification fragments into complete `F1 01 …` frames.
+///
+/// Each notification is `[serial][total][remaining][tag]` + a chunk of the
+/// frame; chunks sharing a serial concatenate — `remaining`-descending, so the
+/// start fragment (remaining = total-1) comes first — into one frame. A
+/// single-fragment message (total = 1) passes through as its lone chunk.
+/// Grouping by serial keeps unrelated messages in the same batch apart. Needed
+/// because at a 23-byte MTU a ~130-byte DeviceInfo spans ~9 notifications, and
+/// its width/height fields sit past the first fragment.
+pub fn reassemble_notifications(fragments: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    use super::daniao::FRAG_HEADER_LEN;
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<u8, Vec<&Vec<u8>>> = BTreeMap::new();
+    for f in fragments {
+        if f.len() > FRAG_HEADER_LEN {
+            groups.entry(f[0]).or_default().push(f);
+        }
+    }
+    groups
+        .into_values()
+        .map(|mut frags| {
+            frags.sort_by_key(|f| std::cmp::Reverse(f[2]));
+            let mut buf = Vec::new();
+            for f in frags {
+                buf.extend_from_slice(&f[FRAG_HEADER_LEN..]);
+            }
+            buf
+        })
+        .collect()
+}
+
+/// Read the panel `(width, height)` out of ONE reassembled
+/// M_DEVICE_INFO_NOTIFY frame (mt=2103). The frame starts at the `F1 01`
+/// marker; after the 12-byte extended header the payload is a protobuf whose
+/// field 8 is width and field 9 is height (both varint). Returns `None` for any
+/// other message or a frame missing either field.
+pub fn device_info_resolution(frame: &[u8]) -> Option<(u32, u32)> {
+    if frame.len() < 20 || frame[0] != 0xF1 || frame[1] != 0x01 {
+        return None;
+    }
+    if u16::from_be_bytes([frame[6], frame[7]]) != MT_DEVICE_INFO {
+        return None;
+    }
+    let mut body = &frame[20..];
+    let mut width = None;
+    let mut height = None;
+    while let Some((&tag, rest)) = body.split_first() {
+        let field = tag >> 3;
+        match tag & 0x07 {
+            0 => {
+                let (v, rest) = parse_varint(rest)?;
+                match field {
+                    8 => width = Some(v as u32),
+                    9 => height = Some(v as u32),
+                    _ => {}
+                }
+                body = rest;
+            }
+            2 => {
+                let (l, rest) = parse_varint(rest)?;
+                let l = l as usize;
+                if rest.len() < l {
+                    break;
+                }
+                body = &rest[l..];
+            }
+            5 => {
+                if rest.len() < 4 {
+                    break;
+                }
+                body = &rest[4..];
+            }
+            1 => {
+                if rest.len() < 8 {
+                    break;
+                }
+                body = &rest[8..];
+            }
+            _ => break,
+        }
+        // width/height are early fields — stop as soon as both are in hand.
+        if let (Some(w), Some(h)) = (width, height) {
+            return Some((w, h));
+        }
+    }
+    match (width, height) {
+        (Some(w), Some(h)) => Some((w, h)),
+        _ => None,
+    }
+}
+
+/// Read `slot` (field 1), `type` (field 2), `cid` (field 4) and `diy`
+/// (field 7) out of one effect-list entry, skipping the rest. Returns `None`
+/// when the entry carries no cid.
+fn parse_effect_entry(mut entry: &[u8]) -> Option<EffectEntry> {
+    let mut slot = 0u32;
+    let mut cid = 0u32;
+    let mut type_ = 0u32;
+    let mut diy = 0u32;
+    while let Some((&tag, rest)) = entry.split_first() {
+        let field = tag >> 3;
+        let wire = tag & 0x07;
+        match wire {
+            0 => {
+                let (v, rest) = parse_varint(rest)?;
+                match field {
+                    1 => slot = v as u32,
+                    2 => type_ = v as u32,
+                    4 => cid = v as u32,
+                    7 => diy = v as u32,
+                    _ => {}
+                }
+                entry = rest;
+            }
+            2 => {
+                // Length-delimited (the name): skip it.
+                let (l, rest) = parse_varint(rest)?;
+                let l = l as usize;
+                if rest.len() < l {
+                    return None;
+                }
+                entry = &rest[l..];
+            }
+            _ => return None, // an unexpected wire type: stop, keep what we have
+        }
+    }
+    (cid != 0).then_some(EffectEntry {
+        cid,
+        slot,
+        type_,
+        diy,
+    })
+}
 
 /// Decode ONE notification from the response characteristic into an
 /// [`UploadEvent`], or `None` when it is some other push (device info, play
@@ -390,6 +592,100 @@ services:
 
     fn spec() -> DeviceSpec {
         parse_device_spec(SPEC).unwrap()
+    }
+
+    #[test]
+    fn effect_list_entry_yields_cid_and_slot() {
+        // One M_EFFECT_LIST notification carrying the capture's E-33 entry:
+        // {slot: 33, type: 1, index: 33, cid: 79009 (a1 e9 04), name "E-33"}.
+        let hex = concat!(
+            "00010000",                 // frag [serial,total,remaining,tag]
+            "f101",                     // inbound DNX flag
+            "0001",                     // sn
+            "0000",                     // len (unused by the parser)
+            "0b58",                     // mt = M_EFFECT_LIST
+            "000000000000000000000000", // 12-byte extended header
+            "0a12082110011821",         // entry: len 18, slot 33, type 1, index 33
+            "20a1e904",                 // cid 79009
+            "3204452d3333",             // name "E-33"
+            "3801",                     // trailing field
+        );
+        let bytes: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect();
+        let entries = parse_effect_list(&bytes);
+        assert_eq!(
+            entries,
+            vec![EffectEntry {
+                cid: 79009,
+                slot: 33,
+                type_: 1,
+                diy: 1,
+            }]
+        );
+    }
+
+    #[test]
+    fn non_effect_list_notification_parses_empty() {
+        // Zeroed bytes (no F1 01, wrong mt) are not an effect list.
+        assert!(parse_effect_list(&[0u8; 32]).is_empty());
+    }
+
+    /// The real M_DEVICE_INFO_NOTIFY (mt=2103) DN0B88 pushes on connect, minus
+    /// the 4-byte fragment header — i.e. the reassembled `F1 01 …` frame. Its
+    /// protobuf field 8 is width=20, field 9 is height=20.
+    fn captured_device_info_frame() -> Vec<u8> {
+        let full = "dd010000f10100dd008908370000000000000d3c010000000a07302e302e302e\
+                    30100418e807220536303030312a0c444e583a533130342d4a593a30bcfd0238\
+                    0140144814a00142b001d3c88080f8ffffffff01b801df35d001c801e0011cea\
+                    0106444e30423838f201069888e0520b888002e05da0029003a80204b80214c0\
+                    0214c8029003d002c07ad8020f";
+        let bytes: Vec<u8> = (0..full.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&full[i..i + 2], 16).unwrap())
+            .collect();
+        bytes[4..].to_vec() // strip the [serial][total][remaining][tag] header
+    }
+
+    #[test]
+    fn device_info_resolution_reads_width_and_height() {
+        let (w, h) = device_info_resolution(&captured_device_info_frame())
+            .expect("captured DeviceInfo carries 20x20");
+        assert_eq!((w, h), (20, 20));
+    }
+
+    #[test]
+    fn device_info_resolution_ignores_other_messages() {
+        // Wrong mt (an effect-list frame) yields nothing.
+        let mut not_info = vec![0xF1, 0x01, 0x00, 0x01, 0x00, 0x00, 0x0B, 0x58];
+        not_info.extend_from_slice(&[0u8; 16]);
+        assert!(device_info_resolution(&not_info).is_none());
+        assert!(device_info_resolution(&[0u8; 24]).is_none());
+    }
+
+    #[test]
+    fn reassembly_rebuilds_a_fragmented_device_info() {
+        // Re-fragment the frame the way a 23-byte MTU splits it: 16 frame bytes
+        // per notification behind a [serial][total][remaining][tag] header. The
+        // width/height fields land past the first fragment, so a decoder that
+        // only read fragment 0 would miss them — reassembly must run first.
+        let frame = captured_device_info_frame();
+        let chunks: Vec<&[u8]> = frame.chunks(16).collect();
+        let total = chunks.len() as u8;
+        let mut fragments: Vec<Vec<u8>> = Vec::new();
+        for (i, chunk) in chunks.iter().enumerate() {
+            let remaining = total - 1 - i as u8;
+            let mut frag = vec![0x55, total, remaining, 0x00];
+            frag.extend_from_slice(chunk);
+            fragments.push(frag);
+        }
+        // Deliver them out of order to prove the sort by `remaining` holds.
+        fragments.reverse();
+        let rebuilt = reassemble_notifications(&fragments);
+        assert_eq!(rebuilt.len(), 1, "one serial -> one frame");
+        assert_eq!(rebuilt[0], frame, "chunks reassemble to the original frame");
+        assert_eq!(device_info_resolution(&rebuilt[0]), Some((20, 20)));
     }
 
     #[test]

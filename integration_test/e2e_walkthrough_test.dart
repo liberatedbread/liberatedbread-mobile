@@ -519,6 +519,9 @@ class _UnmatchedBleService implements BleService {
   @override
   Stream<List<int>> subscribeCharacteristic(String d, String s, String c) =>
       const Stream.empty();
+
+  @override
+  List<List<int>> recentNotifications(String d, String s, String c) => const [];
 }
 
 /// A BLE service whose scan and connect outcomes are set by the test, used to
@@ -589,4 +592,7 @@ class _ScriptedBleService implements BleService {
   @override
   Stream<List<int>> subscribeCharacteristic(String d, String s, String c) =>
       const Stream.empty();
+
+  @override
+  List<List<int>> recentNotifications(String d, String s, String c) => const [];
 }

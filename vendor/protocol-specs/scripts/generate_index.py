@@ -14,6 +14,8 @@ Enumerates every VALID device spec (validated against schema.json, reusing
       "manufacturer":        <device.manufacturer>,
       "manufacturer_status": <device.manufacturer_status>,
       "openness":            <device.openness.status, present only if set>,
+      "testing_status":      <device.testing.status, present only if set>,
+      "testing_detail":      <device.testing.detail, present only if set>,
       "helpful_urls":        <top-level helpful_urls, present only if set>,
       "helpful_videos":      <top-level helpful_videos, present only if set>,
       "protocol_handler":    <top-level protocol_handler, present only if set>,
@@ -84,6 +86,13 @@ def build_entry(path, doc: dict, version: str) -> dict:
     openness = device.get("openness")
     if openness is not None:
         entry["openness"] = openness.get("status")
+    # Spec-level hardware-testing verdict. Emitted as flat keys (not the whole
+    # block) so a consumer ranking scan results does not have to parse notes.
+    testing = device.get("testing")
+    if testing is not None:
+        entry["testing_status"] = testing.get("status")
+        if testing.get("detail") is not None:
+            entry["testing_detail"] = testing["detail"]
     helpful_urls = doc.get("helpful_urls")
     if helpful_urls is not None:
         entry["helpful_urls"] = helpful_urls

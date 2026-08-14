@@ -18,6 +18,8 @@ device:
   name: "Triumph Tiger 900"
   manufacturer: "Triumph Motorcycles Ltd."
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "obd2"
   category: "vehicle"
   notes: >
@@ -69,8 +71,9 @@ device:
         Treat as a separate target. Gen 2 swaps the connector for a red 6-pin
         Euro 5 (ISO 19689) diagnostic connector. TigerTool does not connect to
         MY2024 bikes and HealTech's Maintenance Mate MM-T03 fails on them as
-        well (an MM-T04 successor was promised); TuneECU is reported to work —
-        so the 2020–2023 findings must not be assumed to carry over.
+        well (an MM-T04 successor was promised); TuneECU is reported to work,
+        and DealerTool is reported to work on MY2024+ Gen 2 (forum report,
+        May 2025) — so the 2020–2023 findings must not be assumed to carry over.
 
   setup:
     required: false
@@ -203,6 +206,14 @@ obd:
       notes: >
         29-bit addressing, target 0xD5, source (tester) 0xF1. Functional broadcast is
         0x18DB33F1. A second ECU answers on 0x18DAF1D6 (address 0xD6) during tune checks.
+
+        TuneECU's full init for this stack (MainActivity.java), which an implementer
+        needs verbatim to receive multiframe UDS responses: ATE0, ATL0, ATS0, ATCAF0,
+        ATPB0101, ATSPB, ATSH18DAD5F1, then the flow-control setup ATFCSH18DAD5F1,
+        ATFCSD300008 (BS=0, STmin=8), ATFCSM1, then the receive filter ATCM1FFFFF00,
+        ATCF18DAF1D5, ATH1. Without the ATFCSH/ATFCSD/ATFCSM client flow control the
+        adapter never answers the ECU's first frame and multiframe replies are lost.
+        The 29-bit stacks additionally set ATCP18 (CAN priority byte 0x18).
     - name: "Engine + ABS ECU — K-line (KWP2000)"
       owns:
         - "ECU ping / keepalive"
@@ -238,6 +249,10 @@ obd:
         - "TPMS sensor IDs"
         - "live TPMS data (broadcast on 0x600)"
       verification: "reported"
+      notes: >
+        TuneECU's ELM init for this stack: ATE0, ATL0, ATS0, ATH1, ATAT0 (adaptive
+        timing off), ATSTFF (maximum timeout), ATTP6, ATCAF0, ATCFC0, ATCRA602,
+        ATSH604 — raw frames, ISO-TP off, same style as the cluster stack.
 
   requests:
     # ---- The service interval reset ----
@@ -257,6 +272,10 @@ obd:
         bit 7 set); a reply beginning 00 is the no-data/error case. No diagnostic session and
         no security access precede it. TuneECU builds the identical string:
         (units == km ? "33" : "34") + %02x(distance / 100).
+        Reset reliability is model-dependent: a June 2024 field report has TigerTool V3.51
+        reading ECU/ABS/DTCs but failing the service-interval reset on a Tiger/660-series
+        bike (author acknowledged, fix planned); the Tiger 900 remains the core supported
+        target.
     - name: "reset_service_interval_miles"
       description: "Reset the service interval, distance in miles. Value byte is miles/100 (6000 mi = 60 = 0x3C)."
       command_class: "advanced"
@@ -490,6 +509,12 @@ obd:
       expected_response: "0B ??"
       writes: false
       verification: "reported"
+      notes: >
+        DISPUTED between the two tools: this entry records the request as 00 with a
+        0B ?? reply, but TuneECU's immobiliser init sequence ends by transmitting
+        0B00 on CAN 0x604 (MainActivity.java) — i.e. TuneECU sends the two-byte
+        0B00 rather than a bare 00. One of the two readings misattributes request
+        and reply; neither has been run against a bike.
     - name: "immobiliser_access"
       description: "Immobiliser access request issued before DTC and TPMS operations."
       command_class: "advanced"
@@ -608,3 +633,11 @@ obd:
       name: "Throttle balance MAP sensor (bank 1)"
       type: "bytes"
       verification: "reported"
+
+references:
+  - "https://tuneecu.fr/"
+  - "https://www.dealertool.com/"
+  - "https://www.triumphrat.net/threads/tiger-900-2024-obd-reset-maintenance-by-healtech.1010313/"
+  - "https://www.triumphrat.net/threads/tigertool-by-bmdiag.1020203/"
+  - "https://www.healtech-electronics.com/products/mm/"
+  - "https://hexezcan.com/ezcan-tagus-for-triumph-tiger-900-installation-guide/"

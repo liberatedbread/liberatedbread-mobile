@@ -73,6 +73,9 @@ class _FailingBleService implements BleService {
   @override
   Stream<List<int>> subscribeCharacteristic(String d, String s, String c) =>
       const Stream.empty();
+
+  @override
+  List<List<int>> recentNotifications(String d, String s, String c) => const [];
 }
 
 class _ConnectFailure implements UserFacingException {
