@@ -197,10 +197,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // LOCATION, so the SOAP port check below does not apply.
         await _refreshState();
       } else {
-        final port = widget.device.port;
+        final port = widget.device.controlPort;
         if (port == null) {
-          // Discovery hands us the SSDP LOCATION port for every UPnP device, so
-          // this is a mDNS-only sighting — not a device this screen can drive.
+          // Nothing advertised a port at all — not a device this screen can
+          // drive.
           throw const SoapTransportException(
               'the device did not advertise a control port');
         }
@@ -306,8 +306,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// buttons beside it still work, and the screen must not become an error
   /// page over a channel list.
   Future<void> _refreshQuerySources() async {
-    final port = widget.device.port;
-    if (port == null) return;
+    if (widget.device.controlPort == null) return;
 
     for (final entity in _entities) {
       final options = entity.optionsSource;
@@ -434,7 +433,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// device, and every other failure, keeps the plain answer.
   Future<String> _sendNetworkHttp(HttpRequestDto request) async {
     final host = widget.device.host;
-    final port = widget.device.port!;
+    final port = widget.device.controlPort!;
     try {
       return await ref
           .read(httpControlClientProvider)
@@ -463,7 +462,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     return _ecp2Opening ??= ref
         .read(ecp2ControlServiceProvider)
-        .connect(widget.device.host, widget.device.port!)
+        .connect(widget.device.host, widget.device.controlPort!)
         .then<Ecp2Session?>((opened) => _ecp2 = opened)
         .catchError((Object e) {
       _ecp2Unavailable = true;
@@ -1384,7 +1383,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final rows = <(String, String)>[
-      ('Address', '${widget.device.host}:${widget.device.port ?? '?'}'),
+      // The control address, not the advertised one: this screen's whole
+      // subject is what it sends and where, and a row naming a port nothing
+      // here talks to is what makes a wrong-port bug invisible.
+      ('Address', '${widget.device.host}:${widget.device.controlPort ?? '?'}'),
       if (description?.serialNumber != null)
         ('Serial', description!.serialNumber!),
       if (description?.firmwareVersion != null)
