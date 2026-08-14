@@ -387,6 +387,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`com.winho.measure_up`, APK hash in the research note); marked untested
   with the open questions (advertised name/UUIDs, the byte-0 prefix,
   error-frame formats) listed for the first hardware session.
+- **`schlage-smart-locks` gains its first live-hardware evidence.** A
+  read-only BLE + LAN session against a real installed fleet (2026-08-14)
+  caught one commissioned lock advertising once — name `SCHLAGE` + serial
+  suffix, Allegion's Bluetooth company ID 315 (checked against the repo's
+  own registry), MAC embedded in the manufacturer payload — and then
+  silence: idle locks advertise rarely enough that a 75-minute scan saw one
+  packet, so GATT enumeration stays app-derived. On the LAN the locks make
+  no mDNS/SSDP announcements of any kind and no HomeKit `_hap` presence —
+  consistent with, not proof of, the no-local-WiFi-API claim. Recorded as
+  an `evidence: live_hardware:` block with per-claim verdicts (confirmed /
+  not-observed / consistent / untested), names and MACs truncated; the
+  DataTransfer UUID's absence from the idle advertisement is logged as
+  "not observed", pending a capture from a woken lock.
 
 ### Fixed
 

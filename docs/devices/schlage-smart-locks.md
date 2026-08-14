@@ -208,6 +208,37 @@ clean-room rules.) There is **no local WiFi runtime API**: no open port, no
 SSDP, and the only mDNS observed is the Encode Plus's HomeKit `_hap._udp`
 record — Apple's protocol, mutually exclusive with Schlage-mode pairing.
 
+## Live verification (2026-08)
+
+Read-only check against three commissioned household locks (front / kitchen /
+laundry doors), 2026-08-14, BlueZ + bleak on the home LAN. No pairing was
+attempted (SPAKE2 needs the printed programming code) and nothing was written
+to any lock.
+
+- **BLE presence confirmed**: one lock was captured advertising once — complete
+  local name `SCHLAGE` + 8 uppercase hex digits (serial-looking suffix), public
+  address with OUI `B7:AC:C2` (partially recorded), RSSI −74 dBm, manufacturer
+  data under Bluetooth company ID **315 = Allegion** embedding the device's own
+  MAC. Which door it belongs to is not yet mapped.
+- **Advertised-UUID claim not observed**: that single advertisement carried
+  **no service UUIDs** — not the DataTransfer UUID
+  `1F6B43AA-…` this page says Schlage-mode locks advertise. One sample from a
+  commissioned lock (commissioned locks are known *reportedly* to change their
+  advertising), so treat as "not observed", not refuted.
+- **Idle locks barely advertise**: ~75 minutes of further scanning caught zero
+  more advertisements from any of the three locks, so no GATT connection —
+  and hence no GATT-table verification — was possible. The service tables
+  above remain app/Go-library-derived. To verify on hardware, wake a lock
+  (keypad touch) while scanning.
+- **No HomeKit-mode unit**: no lock advertised `SENSE  ` (HAP-over-BLE) and no
+  `_hap._udp` mDNS record exists on the LAN — no Encode Plus in HomeKit mode
+  here.
+- **LAN silence consistent with "no local WiFi API"**: full mDNS enumeration
+  and an SSDP M-SEARCH turned up nothing Schlage; no Schlage/Allegion OUI
+  exists in the IEEE registry, so lock IPs couldn't be identified for port
+  scanning. The locks make no LAN discovery announcements at all, matching the
+  cloud-relay-only claim (absence-of-evidence caveat applies).
+
 ## Building a local client
 
 - **Fastest:** [schlage-uweave](https://github.com/huguesb/schlage-uweave)
