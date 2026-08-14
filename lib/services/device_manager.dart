@@ -72,6 +72,7 @@ class DeviceManager {
             lastSeen: device.lastSeen,
             serviceUuids: device.serviceUuids,
             companyIds: device.companyIds,
+            manufacturerData: device.manufacturerData,
           );
   }
 
