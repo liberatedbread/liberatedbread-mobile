@@ -1188,18 +1188,23 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// device slot each frame landed in, save the set as a bookmark
   /// ([SpecCodec.encodeSetPlaylist]), then start the loop with `play_next`. The
   /// per-frame cids are recorded so a later replay re-sets the same loop.
-  Future<void> _saveAnimationLoop({
-    required _StoredSaveOptions options,
+  /// Clear the device's OTHER diy effects, upload [frames] as stills, resolve
+  /// their slots, and start the loop. Shared by the initial save and by
+  /// replay/pin, which RE-UPLOAD a saved design's pixels — a later save wipes a
+  /// design's frames off the device, so addressing the old cids would show
+  /// nothing. Returns the frame cids, their device slots, and the count the
+  /// device confirmed committed.
+  Future<({List<int> frameCids, List<int> slots, int confirmed})>
+      _uploadFramesAndLoop({
     required List<List<int>> frames,
     required int width,
     required int height,
-    required String contentHash,
     required int baseCid,
+    required String name,
     required String specYaml,
   }) async {
     final codec = ref.read(specCodecProvider);
     final ble = ref.read(bleServiceProvider);
-    final store = ref.read(savedDesignsStoreProvider);
 
     // A distinct cid per frame, contiguous from the design's base id, so a
     // byte-identical re-save re-uses the very same device slots.
@@ -1215,7 +1220,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         width: width,
         height: height,
         rgb: frames[i],
-        name: '${options.name} ${i + 1}/${frames.length}',
+        name: '$name ${i + 1}/${frames.length}',
         cid: frameCids[i],
         timeSecs: 10,
         scroll: 'none',
@@ -1304,8 +1309,29 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // Set up + start the loop on the device: set_playlist(save) → play_next
     // (the vendor's actual on-wire sequence; see _startLoop).
     await _startLoop(frameCids, slots);
+    return (frameCids: frameCids, slots: slots, confirmed: confirmedCount);
+  }
 
-    await store.save(
+  /// Save the current animation as a device loop and record it — WITH its
+  /// pixels — in the replay list, so it can be re-uploaded later.
+  Future<void> _saveAnimationLoop({
+    required _StoredSaveOptions options,
+    required List<List<int>> frames,
+    required int width,
+    required int height,
+    required String contentHash,
+    required int baseCid,
+    required String specYaml,
+  }) async {
+    final result = await _uploadFramesAndLoop(
+      frames: frames,
+      width: width,
+      height: height,
+      baseCid: baseCid,
+      name: options.name,
+      specYaml: specYaml,
+    );
+    await ref.read(savedDesignsStoreProvider).save(
       widget.deviceId,
       SavedDesign(
         name: options.name,
@@ -1313,19 +1339,25 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         kind: options.kind.name,
         contentHash: contentHash,
         savedAt: DateTime.now(),
-        frameCids: frameCids,
-        frameSlots: slots,
+        frameCids: result.frameCids,
+        frameSlots: result.slots,
+        // Keep the pixels so replay can RE-UPLOAD: a later save clears this
+        // design's frames off the device, so cid-only replay would show nothing.
+        frames: [for (final f in frames) Uint8List.fromList(f)],
+        width: width,
+        height: height,
+        frameMs: _intervalMs,
       ),
     );
 
     if (mounted) {
       setState(() {}); // the replay list gains/refreshes an entry
-      final allCommitted = confirmedCount == frames.length;
+      final allCommitted = result.confirmed == frames.length;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(allCommitted
             ? 'Saved "${options.name}" — cycling ${frames.length} frames '
                 'on the device.'
-            : 'Saved "${options.name}" ($confirmedCount/${frames.length} '
+            : 'Saved "${options.name}" (${result.confirmed}/${frames.length} '
                 'frames confirmed) — try Replay if it is not cycling.'),
       ));
     }
@@ -1465,17 +1497,35 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     }
   }
 
-  /// Restart a stored animation's cycle: the frame stills are already on the
-  /// device, so just re-save the bookmark set and kick it with `play_next`. No
-  /// autorun-fixed here — that would freeze the loop on one frame.
+  /// Restart a stored animation's cycle. Re-uploads the frames (a later save
+  /// may have cleared this design off the device), then kicks the loop.
   Future<void> _replayLoop(SavedDesign design) async {
-    await _startLoop(design.frameCids, design.frameSlots);
+    await _relaunchLoop(design);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: Text('Playing "${design.name}" — cycling '
                 '${design.frameCids.length} frames.')),
       );
+    }
+  }
+
+  /// Put [design]'s loop back on the device: RE-UPLOAD its pixels when we kept
+  /// them (a later save may have wiped its frames off the device), otherwise
+  /// fall back to addressing the stored cids (designs saved before pixels were
+  /// kept — those still rely on the frames surviving on the device).
+  Future<void> _relaunchLoop(SavedDesign design) async {
+    if (design.frames.isNotEmpty && design.width > 0 && design.height > 0) {
+      await _uploadFramesAndLoop(
+        frames: [for (final f in design.frames) f.toList()],
+        width: design.width,
+        height: design.height,
+        baseCid: design.cid,
+        name: design.name,
+        specYaml: widget.specYaml,
+      );
+    } else {
+      await _startLoop(design.frameCids, design.frameSlots);
     }
   }
 
@@ -1568,7 +1618,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     try {
       final bool looping = design.frameCids.isNotEmpty;
       if (looping) {
-        await _startLoop(design.frameCids, design.frameSlots);
+        await _relaunchLoop(design);
         await _setAutorunMode(widget.specYaml, AutorunMode.repeat);
       } else {
         final play = await ref.read(specCodecProvider).encodeStoredPlay(
