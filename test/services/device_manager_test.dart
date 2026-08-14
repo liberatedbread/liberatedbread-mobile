@@ -46,6 +46,35 @@ void main() {
       expect(manager.devices.first.rssi, equals(-40));
     });
 
+    test('addOrUpdate keeps the advertised manufacturer data', () {
+      // A rebuild that drops this is invisible until something reads it: a
+      // pixel panel advertises its true width/height in these bytes, and a
+      // device is re-advertised every heartbeat — so keeping it only on the
+      // FIRST sighting means the editor never sees it in practice and sizes
+      // the canvas from a guess instead.
+      const payload = {
+        0x61EA: [3, 232, 0, 100, 20, 20]
+      };
+      manager.addOrUpdate(IoTDevice(
+        id: 'AA:BB:CC:DD:EE:FF',
+        name: 'Test',
+        rssi: -60,
+        isConnectable: true,
+        discoveredAt: now,
+        manufacturerData: payload,
+      ));
+      manager.addOrUpdate(IoTDevice(
+        id: 'AA:BB:CC:DD:EE:FF',
+        name: 'Test',
+        rssi: -40,
+        isConnectable: true,
+        discoveredAt: now,
+        manufacturerData: payload,
+      ));
+
+      expect(manager.getById('AA:BB:CC:DD:EE:FF')!.manufacturerData, payload);
+    });
+
     test('devices sorted by signal strength', () {
       manager.addOrUpdate(makeDevice(id: '1', rssi: -80));
       manager.addOrUpdate(makeDevice(id: '2', rssi: -40));
