@@ -125,7 +125,7 @@ pub fn render_command(
 /// resolution order, same fail-visibly rule); anything else is a literal the
 /// command already chose, carried with its YAML type intact
 /// (`generateclientkey: true` is a JSON `true`).
-fn render_body(
+pub(crate) fn render_body(
     command: &SpecCommand,
     command_name: &str,
     values: &BTreeMap<String, String>,

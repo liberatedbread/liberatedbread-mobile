@@ -476,6 +476,17 @@ pub struct Entity {
     /// spec's own `http_endpoints`/command vocabulary.
     #[serde(default)]
     pub state_command: Option<String>,
+    /// MQTT topic this entity's state arrives on, for a device that PUSHES its
+    /// readings rather than answering a poll — a Roomba's `delta`, a Dyson's
+    /// status topic.
+    ///
+    /// The sibling of [`Self::state_command`], not a spelling of it: there is
+    /// no request whose reply is the value, so a resolver that only knows
+    /// `state_command` cannot express this entity at all. `state_mapping.value`
+    /// is then a dotted path into the topic's payload rather than into a
+    /// response body.
+    #[serde(default)]
+    pub state_topic: Option<String>,
     /// Where the reading sits inside what `state_command` returns, when the
     /// returned value is a structure rather than the value itself.
     #[serde(default)]

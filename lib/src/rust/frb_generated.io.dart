@@ -66,6 +66,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   QuerySourceDto dco_decode_box_autoadd_query_source_dto(dynamic raw);
 
   @protected
+  RoombaAnnouncementDto dco_decode_box_autoadd_roomba_announcement_dto(
+      dynamic raw);
+
+  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
 
   @protected
@@ -251,6 +255,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  List<RoombaIncomingDto> dco_decode_list_roomba_incoming_dto(dynamic raw);
+
+  @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw);
 
   @protected
@@ -343,6 +350,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
 
   @protected
+  RoombaAnnouncementDto? dco_decode_opt_box_autoadd_roomba_announcement_dto(
+      dynamic raw);
+
+  @protected
   StoredUploadDto? dco_decode_opt_box_autoadd_stored_upload_dto(dynamic raw);
 
   @protected
@@ -390,6 +401,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   (int, Uint8List) dco_decode_record_u_16_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  RoombaAnnouncementDto dco_decode_roomba_announcement_dto(dynamic raw);
+
+  @protected
+  RoombaIncomingDto dco_decode_roomba_incoming_dto(dynamic raw);
+
+  @protected
+  RoombaParsedDto dco_decode_roomba_parsed_dto(dynamic raw);
+
+  @protected
+  RoombaRequestDto dco_decode_roomba_request_dto(dynamic raw);
 
   @protected
   ScanMatch dco_decode_scan_match(dynamic raw);
@@ -497,6 +520,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   QuerySourceDto sse_decode_box_autoadd_query_source_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  RoombaAnnouncementDto sse_decode_box_autoadd_roomba_announcement_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -708,6 +735,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<RoombaIncomingDto> sse_decode_list_roomba_incoming_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer);
 
   @protected
@@ -815,6 +846,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  RoombaAnnouncementDto? sse_decode_opt_box_autoadd_roomba_announcement_dto(
+      SseDeserializer deserializer);
+
+  @protected
   StoredUploadDto? sse_decode_opt_box_autoadd_stored_upload_dto(
       SseDeserializer deserializer);
 
@@ -869,6 +904,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   (int, Uint8List) sse_decode_record_u_16_list_prim_u_8_strict(
       SseDeserializer deserializer);
+
+  @protected
+  RoombaAnnouncementDto sse_decode_roomba_announcement_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  RoombaIncomingDto sse_decode_roomba_incoming_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  RoombaParsedDto sse_decode_roomba_parsed_dto(SseDeserializer deserializer);
+
+  @protected
+  RoombaRequestDto sse_decode_roomba_request_dto(SseDeserializer deserializer);
 
   @protected
   ScanMatch sse_decode_scan_match(SseDeserializer deserializer);
@@ -983,6 +1032,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_query_source_dto(
       QuerySourceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_roomba_announcement_dto(
+      RoombaAnnouncementDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_scanned_device_dto(
@@ -1212,6 +1265,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<(int, Uint8List)> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_roomba_incoming_dto(
+      List<RoombaIncomingDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_scan_match(
       List<ScanMatch> self, SseSerializer serializer);
 
@@ -1327,6 +1384,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       QuerySourceDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_roomba_announcement_dto(
+      RoombaAnnouncementDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_stored_upload_dto(
       StoredUploadDto? self, SseSerializer serializer);
 
@@ -1385,6 +1446,22 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_record_u_16_list_prim_u_8_strict(
       (int, Uint8List) self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_roomba_announcement_dto(
+      RoombaAnnouncementDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_roomba_incoming_dto(
+      RoombaIncomingDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_roomba_parsed_dto(
+      RoombaParsedDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_roomba_request_dto(
+      RoombaRequestDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer);
