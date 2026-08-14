@@ -1173,6 +1173,10 @@ class RealBleService implements BleService {
       claimed.interest--;
       if (claimed.interest > 0) return;
       if (identical(_notifyShares[key], claimed)) _notifyShares.remove(key);
+      // The share is finished either way below (dead shares return early), so
+      // drop its recorder here rather than in each exit. A successor share
+      // attaches its own with its own enable.
+      await claimed.detachRecorder();
       // A share expired by connect/disconnect must never write into the NEXT
       // connection's CCCD state — that link's subscriptions own it now.
       if (claimed.dead) return;
@@ -1231,6 +1235,15 @@ class RealBleService implements BleService {
             // deliberately NOT logged — that is the tight loop this logging
             // must stay out of.
             Log.ble.debug('notifications enabled for $charUuid on $deviceId');
+            // Fill the recent-notification ring from HERE — once per share,
+            // not once per subscriber. Every subscriber listens to the same
+            // broadcast onValueReceived, so recording in each of them would
+            // enter one physical notification N times and evict the buffer N
+            // times faster: with six sensor tiles on a characteristic, the
+            // 16-deep ring would hold under three real pushes. Torn down
+            // with the share in releaseInterest/_expireNotifyShares.
+            claimed.recorder ??= char.onValueReceived
+                .listen((value) => _recordRecent(deviceId, charUuid, value));
             return char;
           }();
           final char = await claimed.enable!;
@@ -1240,10 +1253,7 @@ class RealBleService implements BleService {
           // stale reading as if it were a fresh notification. onValueReceived
           // only emits genuinely fresh reads/notifications.
           sub = char.onValueReceived.listen(
-            (value) {
-              _recordRecent(deviceId, charUuid, value);
-              controller.add(value);
-            },
+            (value) => controller.add(value),
             onError: (Object error) => controller.addError(error),
             onDone: () async {
               if (!controller.isClosed) await controller.close();
@@ -1294,6 +1304,10 @@ class RealBleService implements BleService {
     _notifyShares.removeWhere((key, share) {
       if (!key.startsWith(prefix)) return false;
       share.dead = true;
+      // The stream this recorder is on belongs to the old link. Detaching is
+      // fire-and-forget: the callers of this are sync, and a cancel that
+      // hangs on a vanished device must not stall connect/disconnect.
+      unawaited(share.detachRecorder());
       return true;
     });
   }
@@ -1383,4 +1397,27 @@ class _NotifyShare {
   /// Set when the link this share belongs to turned over. A dead share never
   /// writes the CCCD again: the next connection's subscriptions own it.
   bool dead = false;
+
+  /// The one listener feeding this characteristic's recent-notification ring,
+  /// attached with the shared enable — see [RealBleService.recentNotifications].
+  ///
+  /// Cancelled by [detachRecorder], which every path that drops this share
+  /// funnels through; the lint only knows how to see a cancel in the function
+  /// that opened the subscription.
+  // ignore: cancel_subscriptions
+  StreamSubscription<List<int>>? recorder;
+
+  /// Stop recording for this share. Idempotent, and tolerant of a cancel that
+  /// throws: a recorder left attached would keep filling the ring for a link
+  /// nobody is subscribed to any more.
+  Future<void> detachRecorder() async {
+    final attached = recorder;
+    recorder = null;
+    if (attached == null) return;
+    try {
+      await attached.cancel();
+    } catch (_) {
+      // Best-effort: the device may already be gone.
+    }
+  }
 }
