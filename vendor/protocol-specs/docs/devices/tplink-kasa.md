@@ -74,8 +74,23 @@ a unicast datagram carrying its full `get_sysinfo` — `alias`, `model`,
 | `{"system":{"get_sysinfo":null}}` | Device info + current `relay_state` (0/1). The state poll and the discovery probe. |
 | `{"system":{"set_relay_state":{"state":1}}}` | Turn the outlet **on**. |
 | `{"system":{"set_relay_state":{"state":0}}}` | Turn the outlet **off**. |
-| `{"emeter":{"get_realtime":null}}` | HS110 only — instantaneous voltage/current/power/total. Not modelled as an entity yet. |
+| `{"emeter":{"get_realtime":null}}` | HS110 only — instantaneous voltage/current/power/total. The state poll for the energy sensors below. |
 | `netif.set_stainfo` | Provisioning: join the plug to a Wi-Fi network. |
+
+## Energy monitoring (HS110)
+
+The HS110's meter is modelled as four sensor entities in the machine-readable
+spec — **Voltage** (V), **Current** (A), **Power** (W) and **Total
+Consumption** (kWh) — all polled with `emeter.get_realtime`. The reply nests
+under `{"emeter":{"get_realtime":{...}}}`.
+
+One hardware quirk matters: the field **names** vary. Current firmware reports
+`voltage`/`current`/`power`/`total` as floats already in V/A/W/kWh; HS110
+hardware v1 reports `voltage_mv`/`current_ma`/`power_mw`/`total_wh` in
+milli-units instead. Normalize to SI units (divide by 1000) before displaying —
+this is what python-kasa's `EmeterStatus` does, and both code paths exist in
+the vendor app (see the spec's `evidence` block). The HS100 has no metering
+hardware and answers the command with an error.
 
 ## Setup (adopting a reset plug)
 

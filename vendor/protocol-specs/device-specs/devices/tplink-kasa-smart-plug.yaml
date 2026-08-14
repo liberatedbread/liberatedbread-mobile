@@ -219,7 +219,7 @@ tplink_smarthome_protocol:
   command_tree:
     system.get_sysinfo: "Device info + current relay_state. The state poll and the discovery probe."
     system.set_relay_state: "Set the outlet relay: {state: 1} on, {state: 0} off."
-    emeter.get_realtime: "HS110 only — instantaneous voltage/current/power/total. Not modelled as an entity in this spec yet."
+    emeter.get_realtime: "HS110 only — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below."
     netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
   multi_outlet_note: >
     Power strips (HS300 / KP303 / EP40) report a `children` array in
@@ -231,6 +231,17 @@ tplink_smarthome_protocol:
 # rule is satisfied; control is the tcp-json protocol above, not REST. The
 # LIFX, Lutron and SmartThings specs carry the same placeholder for the same
 # reason — the schema has no native raw-socket endpoint type.
+evidence:
+  app_static_analysis:
+    date: "2026-08-14"
+    source: "TP-Link Kasa Android app 3.4.602 (com.tplink.kasa_android, APKPure xapk), jadx decompile (clean-room audit; derived facts only)"
+    confirms:
+      - "The app builds an emeter request as an emeter module carrying an empty get_realtime method object — the request shape the get_emeter command's body documents."
+      - "The get_realtime reply is modelled with BOTH field families: voltage/current/power/total as floats and voltage_mv/current_ma/power_mw/total_wh as integers — the two hardware behaviours python-kasa's EmeterStatus normalizes between."
+      - "The app's milli-unit code path divides voltage_mv/current_ma/power_mw/total_wh by 1000 to reach V/A/W/kWh, while the legacy path reads the plain float fields directly — so the plain fields already carry SI units, as the entity units below claim."
+    confidence: "medium"
+    confidence_notes: "Derived from app code, not replayed against plug hardware; python-kasa's hardware-tested EmeterStatus agrees with both code paths."
+
 http_endpoints:
   - method: "GET"
     path: "/"
@@ -279,6 +290,43 @@ commands:
         type: "string"
         description: "Wi-Fi MAC address."
     verification: "reported"
+  get_emeter:
+    description: >
+      Read the energy meter's instantaneous readings. HS110 only — the HS100
+      has no metering hardware and answers with an error. This is the state
+      poll for the four emeter sensor entities below.
+    transport: "tcp-json"
+    body: '{"emeter":{"get_realtime":null}}'
+    example_body: '{"emeter":{"get_realtime":null}}'
+    returns:
+      - name: "voltage"
+        type: "number"
+        description: >
+          Mains voltage in V. The field NAME varies by hardware/firmware:
+          current firmware reports `voltage` (float, volts) while HS110
+          hardware v1 reports `voltage_mv` in millivolts instead — consumers
+          must normalize to V (divide by 1000), exactly as python-kasa's
+          EmeterStatus does. Both code paths exist in the vendor app (see
+          evidence).
+      - name: "current"
+        type: "number"
+        description: >
+          Load current in A — `current` (float, amperes) on current firmware,
+          `current_ma` (milliamperes) on HS110 hw v1; normalize to A.
+      - name: "power"
+        type: "number"
+        description: >
+          Instantaneous load power in W — `power` (float, watts) on current
+          firmware, `power_mw` (milliwatts) on HS110 hw v1; normalize to W.
+      - name: "total"
+        type: "number"
+        description: >
+          Accumulated consumption in kWh — `total` (float, kWh) on current
+          firmware, `total_wh` (watt-hours) on HS110 hw v1; normalize to kWh.
+      - name: "err_code"
+        type: "integer"
+        description: "0 = no error, present on every method reply in this protocol."
+    verification: "reported"
 
 # One control: the outlet, as an on/off switch. state_command polls
 # get_sysinfo; the reply's relay_state is the value, nonzero meaning on. This
@@ -296,6 +344,58 @@ entities:
     commands:
       turn_on: "relay_on"
       turn_off: "relay_off"
+
+  # The HS110's energy meter, as four sensors polled by get_emeter. The
+  # state_mapping values are dotted JSON paths from the reply ROOT
+  # ({"emeter":{"get_realtime":{...}}}) — not flattened keys, because the
+  # reference app's flattener (kasaSysinfoFields in
+  # liberatedbread-mobile/lib/services/kasa_control_service.dart) currently
+  # lifts only system.get_sysinfo replies and returns an empty map for an
+  # emeter reply; it must be extended to flatten nested replies before these
+  # sensors resolve there. All four are HS110-only: the HS100 has no metering
+  # hardware. Field names follow CURRENT firmware; HS110 hardware v1 reports
+  # voltage_mv/current_ma/power_mw/total_wh in milli-units instead — see the
+  # get_emeter command's returns for the normalization rule.
+  - platform: "sensor"
+    name: "Voltage"
+    device_class: "voltage"
+    unit: "V"
+    state_command: "get_emeter"
+    state_mapping:
+      value: "emeter.get_realtime.voltage"
+    notes: >
+      HS110 only. `voltage` on current firmware; HS110 hw v1 reports
+      `voltage_mv` (millivolts) — normalize to V before applying this path.
+  - platform: "sensor"
+    name: "Current"
+    device_class: "current"
+    unit: "A"
+    state_command: "get_emeter"
+    state_mapping:
+      value: "emeter.get_realtime.current"
+    notes: >
+      HS110 only. `current` on current firmware; HS110 hw v1 reports
+      `current_ma` (milliamperes) — normalize to A before applying this path.
+  - platform: "sensor"
+    name: "Power"
+    device_class: "power"
+    unit: "W"
+    state_command: "get_emeter"
+    state_mapping:
+      value: "emeter.get_realtime.power"
+    notes: >
+      HS110 only. `power` on current firmware; HS110 hw v1 reports
+      `power_mw` (milliwatts) — normalize to W before applying this path.
+  - platform: "sensor"
+    name: "Total Consumption"
+    device_class: "energy"
+    unit: "kWh"
+    state_command: "get_emeter"
+    state_mapping:
+      value: "emeter.get_realtime.total"
+    notes: >
+      HS110 only. `total` on current firmware; HS110 hw v1 reports
+      `total_wh` (watt-hours) — normalize to kWh before applying this path.
 
 helpful_urls:
   - title: "softScheck — Reverse Engineering the TP-Link HS110 (2016)"
