@@ -6,6 +6,7 @@
     "category": "light",
     "manufacturer": "AdMore Lighting Inc.",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -18,6 +19,63 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Android TV / Google TV (Android TV Remote Protocol v2)",
+    "path": "device-specs/devices/android-tv-remote.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Google (platform); Nvidia, Sony, TCL, Hisense, onn and others (devices)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "androidtvremote2 — Python Android TV Remote protocol v2 client (Home Assistant's backend)",
+        "url": "https://github.com/tronikos/androidtvremote2"
+      },
+      {
+        "title": "remotemessage.proto — the session message vocabulary, as recovered",
+        "url": "https://raw.githubusercontent.com/tronikos/androidtvremote2/main/src/androidtvremote2/remotemessage.proto"
+      },
+      {
+        "title": "polo.proto — the pairing message vocabulary (from AOSP)",
+        "url": "https://raw.githubusercontent.com/tronikos/androidtvremote2/main/src/androidtvremote2/polo.proto"
+      },
+      {
+        "title": "Google TV (aka Android TV) Remote Control (v2) — byte-level community protocol description",
+        "url": "https://github.com/Aymkdn/assistant-freebox-cloud/wiki/Google-TV-(aka-Android-TV)-Remote-Control-(v2)"
+      },
+      {
+        "title": "androidtv-remote — Node.js v2 implementation (first public reconstruction)",
+        "url": "https://github.com/louis49/androidtv-remote"
+      },
+      {
+        "title": "Home Assistant Android TV Remote integration",
+        "url": "https://www.home-assistant.io/integrations/androidtv_remote/"
+      },
+      {
+        "title": "Home Assistant Android Debug Bridge integration (Android / Fire TV over ADB)",
+        "url": "https://www.home-assistant.io/integrations/androidtv/"
+      },
+      {
+        "title": "androidtv — Python ADB client for Android TV / Fire TV (state detection, app control)",
+        "url": "https://github.com/JeffLIrion/python-androidtv"
+      },
+      {
+        "title": "adb_shell — pure-Python ADB wire-protocol implementation",
+        "url": "https://github.com/JeffLIrion/adb_shell"
+      },
+      {
+        "title": "Amazon — Connect to Fire TV through ADB",
+        "url": "https://developer.amazon.com/docs/fire-tv/connecting-adb-to-device.html"
+      },
+      {
+        "title": "Android Developers — KeyEvent keycode reference",
+        "url": "https://developer.android.com/reference/android/view/KeyEvent"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "AUTOBABA LED Backpack",
     "path": "device-specs/devices/autobaba-led-backpack.yaml",
     "protocol": "ble",
@@ -25,6 +83,7 @@
     "manufacturer": "LOY SPACE / popled.cn",
     "manufacturer_status": "active",
     "protocol_handler": "popled_json",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -34,6 +93,7 @@
     "category": "motor",
     "manufacturer": "Suzhou Bafang Electric Motor Science-Technology",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "OpenBafangTool UART protocol docs",
@@ -49,12 +109,13 @@
     "schema_version": "2020-12"
   },
   {
-    "name": "BLE Fingertip Pulse Oximeter (SP001 / BerryMed)",
+    "name": "BLE Fingertip Pulse Oximeter (SP001 / \"F7\")",
     "path": "device-specs/devices/ble-pulse-oximeter.yaml",
     "protocol": "ble",
     "category": "health",
     "manufacturer": "Manridy (likely ODM)",
     "manufacturer_status": "abandoned",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -65,6 +126,7 @@
     "manufacturer": "Generic (multiple OEMs)",
     "manufacturer_status": "active",
     "protocol_handler": "ledbadge_bitmap",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -74,6 +136,7 @@
     "category": "vehicle",
     "manufacturer": "BMW Motorrad",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -83,6 +146,8 @@
     "category": "motor",
     "manufacturer": "Bosch eBike Systems",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
     "schema_version": "2020-12"
   },
   {
@@ -92,6 +157,7 @@
     "category": "printer",
     "manufacturer": "Unbranded / Yu Tian (YT01) / various OEMs",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -101,6 +167,34 @@
     "category": "sensor",
     "manufacturer": "Chefman / Chef iQ",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Invader444/chefiq-ble (PyPI: chefiq_ble)",
+        "url": "https://github.com/Invader444/chefiq-ble",
+        "description": "Working open implementation of the connectionless advertisement path; its parser documents the V3 temperature/status byte layouts and was verified against a live CQ60 (protocol 5.0.0).\n"
+      },
+      {
+        "title": "custom-components/ble_monitor",
+        "url": "https://github.com/custom-components/ble_monitor",
+        "description": "Passive BLE monitor that added Chef iQ CQ60 advertisement decoding in 12.8.0 (Jan 2024); independent second source for the manufacturer-data format.\n"
+      },
+      {
+        "title": "formula97/homeassistant-chefiq",
+        "url": "https://github.com/formula97/homeassistant-chefiq",
+        "description": "Fourth independent open-source consumer of the Chef iQ advertisement protocol; evidence of an active RE community around the CQ60.\n"
+      },
+      {
+        "title": "ITSpecialist111 ChefIQ Probe Home Assistant Integration",
+        "url": "https://github.com/ITSpecialist111/ChefIQ_Probe_HomeAssistant_Integration",
+        "description": "Native local-push HA integration for the probes; third advertisement source, though its 0-255 battery scaling disagrees with chefiq_ble.\n"
+      },
+      {
+        "title": "FCC ID 2A2YP-CQ60QPROBE filings (fcc.report)",
+        "url": "https://fcc.report/FCC-ID/2A2YP-CQ60QPROBE",
+        "description": "Probe grant (CHEF PROBE-V2, granted 2023-07-28) with user manual, internal photos and BLE test report; includes the 2024-12-18 C2PC adding probe models CQ60-PRC-01/02/03/04 (ISED IC 27740-CQ60QPROBE).\n"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -110,6 +204,7 @@
     "category": "display",
     "manufacturer": "Juntong Technology",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -119,6 +214,7 @@
     "category": "hub",
     "manufacturer": "devolo AG",
     "manufacturer_status": "shutdown",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "devolo press release: Abschaltung der Home Control-Server (2025-08-21)",
@@ -170,6 +266,7 @@
     "category": "display",
     "manufacturer": "Divoom",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -179,6 +276,7 @@
     "category": "climate",
     "manufacturer": "Dyson",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -188,6 +286,7 @@
     "category": "light",
     "manufacturer": "Unbranded / various OEMs (Zhiling/DuoCo etc.)",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -197,6 +296,7 @@
     "category": "appliance",
     "manufacturer": "Ember Technologies",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -206,6 +306,7 @@
     "category": "energy",
     "manufacturer": "Enphase Energy",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -215,6 +316,7 @@
     "category": "scale",
     "manufacturer": "ETEKCITY (VeSync platform)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -224,6 +326,7 @@
     "category": "motor",
     "manufacturer": "Nanjing Fardriver Controller Co.",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -233,6 +336,7 @@
     "category": "printer",
     "manufacturer": "Xiamen Print Future Technology Co., Ltd",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -242,6 +346,7 @@
     "category": "climate",
     "manufacturer": "Frigidaire (Electrolux)",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -251,6 +356,7 @@
     "category": "climate",
     "manufacturer": "Frigidaire (Electrolux)",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -260,6 +366,7 @@
     "category": "wearable",
     "manufacturer": "GYDE (Gerbing Heated Clothing)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -269,6 +376,8 @@
     "category": "sensor",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech Co., Ltd.)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
     "schema_version": "2020-12"
   },
   {
@@ -278,6 +387,7 @@
     "category": "switch",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -287,6 +397,60 @@
     "category": "light",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech / iHoment)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Hisense VIDAA TV (remoteapp MQTT)",
+    "path": "device-specs/devices/hisense-vidaa.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Hisense",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "warrenrees/pyvidaa — the maintained library, and the deepest protocol analysis",
+        "url": "https://github.com/warrenrees/pyvidaa",
+        "description": "Python library (plus Home Assistant component and MQTT bridge) reverse-engineered from the VIDAA app; discovery code, credential generation and live field notes."
+      },
+      {
+        "title": "pyvidaa — VIDAA_PROTOCOL_ANALYSIS.md",
+        "url": "https://github.com/warrenrees/pyvidaa/blob/master/VIDAA_PROTOCOL_ANALYSIS.md",
+        "description": "The primary source for the TLS details, the P12 password, the dynamic credential algorithm (with worked example), the pairing flow, and 2026-08-04 live-wire findings."
+      },
+      {
+        "title": "Krazy998/mqtt-hisensetv — the original 2019 topic documentation",
+        "url": "https://github.com/Krazy998/mqtt-hisensetv",
+        "description": "First public write-up of the broker: static credentials, sendkey/sourcelist/changesource/launchapp/changevolume vocabulary, authenticationcode pairing."
+      },
+      {
+        "title": "Krazy998/mqtt-hisensetv issue #14 — cracking the VIDAA-era dynamic auth",
+        "url": "https://github.com/Krazy998/mqtt-hisensetv/issues/14",
+        "description": "The thread where the timestamp-based username/password scheme was captured and eventually reproduced, including token obtain/refresh scripts."
+      },
+      {
+        "title": "newAM/hisensetv — Python API and CLI (static-login era)",
+        "url": "https://github.com/newAM/hisensetv",
+        "description": "Reference implementation of the {MAC}$normal client id, the gettvstate pairing trigger, and the --no-ssl fallback for uncertified models."
+      },
+      {
+        "title": "sehaas/ha_hisense_tv — Home Assistant integration (client-cert era)",
+        "url": "https://github.com/sehaas/ha_hisense_tv",
+        "description": "Documents the mosquitto bridge configuration with client certificates and the PIN pairing flow inside Home Assistant."
+      },
+      {
+        "title": "d3nd3/Hisense-mqtt-keyfiles — RemoteNow-era client certificate pair",
+        "url": "https://github.com/d3nd3/Hisense-mqtt-keyfiles",
+        "description": "rcm_certchain_pem.cer / rcm_pem_privkey.pkcs8 extracted from the RemoteNow app; the cert some pre-VIDAA models demand."
+      },
+      {
+        "title": "Home Assistant community — Hisense TV Control thread",
+        "url": "https://community.home-assistant.io/t/hisense-tv-control/97638",
+        "description": "Six years of model-by-model reports: which sets need TLS, which need certs, channel_param changechannel payloads, bridge configs."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -296,6 +460,7 @@
     "category": "wearable",
     "manufacturer": "Comoto Holdings, Inc. (HOTWIRED brand)",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -305,6 +470,7 @@
     "category": "hub",
     "manufacturer": "Signify / Philips Hue",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -314,6 +480,7 @@
     "category": "sensor",
     "manufacturer": "Inkbird / Tenergy Solis / various OEMs",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -324,6 +491,7 @@
     "manufacturer": "iDotMatrix / Tech",
     "manufacturer_status": "unsupported",
     "protocol_handler": "idotmatrix_image",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -333,6 +501,7 @@
     "category": "display",
     "manufacturer": "Shenzhen I-ledshow Technology Co., Ltd.",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -342,6 +511,39 @@
     "category": "sensor",
     "manufacturer": "Inkbird",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "8none1/pybq — Python client for the ff00 iBBQ/BBQ thermometer family",
+        "url": "https://github.com/8none1/pybq"
+      },
+      {
+        "title": "Home Assistant core issue #115773 — sibling IBBQ-4T pairs via the Tuya integration (confirms the Tuya WiFi split)",
+        "url": "https://github.com/home-assistant/core/issues/115773"
+      },
+      {
+        "title": "paul43210/inkbird-bw-ble — INT-12-BW binary framing variant plus timestamp+CRC auth with captured test vectors",
+        "url": "https://github.com/paul43210/inkbird-bw-ble"
+      },
+      {
+        "title": "Bluetooth-Devices/inkbird-ble — passive advertisement parser behind Home Assistant's Inkbird support",
+        "url": "https://github.com/Bluetooth-Devices/inkbird-ble"
+      },
+      {
+        "title": "Home Assistant Inkbird integration docs",
+        "url": "https://www.home-assistant.io/integrations/inkbird"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Inkbird IBS-TH1 / IBS-TH2 Thermometer-Hygrometer",
+    "path": "device-specs/devices/inkbird-ibs-th.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Inkbird",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -360,6 +562,7 @@
     "category": "tracker",
     "manufacturer": "Unbranded / various OEMs",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -370,6 +573,7 @@
     "manufacturer": "KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)",
     "manufacturer_status": "active",
     "openness": "undocumented",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "url": "https://github.com/ph4r05/ph4-walkingpad",
@@ -406,6 +610,18 @@
     "category": "lock",
     "manufacturer": "Kwikset / ASSA ABLOY (UniKey Technologies platform)",
     "manufacturer_status": "shutdown",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "LED space Wi-Fi LED Screen (YSP-001 family)",
+    "path": "device-specs/devices/led-space.yaml",
+    "protocol": "wifi",
+    "category": "display",
+    "manufacturer": "LOY SPACE / popled.cn",
+    "manufacturer_status": "active",
+    "protocol_handler": "popled_json",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -415,6 +631,44 @@
     "category": "light",
     "manufacturer": "Shenzhen Sperll Optoelectronic (SPLED)",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "LG webOS TV Second Screen Protocol",
+    "path": "device-specs/devices/lg-webos.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "LG Electronics",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "aiowebostv — the WebSocket client Home Assistant ships (connect, pair, input socket)",
+        "url": "https://github.com/home-assistant-libs/aiowebostv"
+      },
+      {
+        "title": "bscpylgtv — feature-complete CLI/library, including which firmware dropped which URI",
+        "url": "https://github.com/chros73/bscpylgtv"
+      },
+      {
+        "title": "Connect SDK — LG's own open-source second-screen client (archived)",
+        "url": "https://github.com/ConnectSDK/Connect-SDK-Android"
+      },
+      {
+        "title": "Home Assistant LG webOS TV integration",
+        "url": "https://www.home-assistant.io/integrations/webostv/"
+      },
+      {
+        "title": "openHAB LG webOS binding — button vocabulary and TLS/WoL notes",
+        "url": "https://www.openhab.org/addons/bindings/lgwebos/"
+      },
+      {
+        "title": "pylgtv — the original Python client (archived 2019); where the open implementations converge",
+        "url": "https://github.com/TheRealLink/pylgtv"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -425,6 +679,7 @@
     "manufacturer": "LIFX",
     "manufacturer_status": "active",
     "protocol_handler": "lifx_lan_udp",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -434,6 +689,7 @@
     "category": "hub",
     "manufacturer": "Lutron",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -443,6 +699,7 @@
     "category": "fitness",
     "manufacturer": "Unknown (AliExpress generic / Mi Band clone)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -453,6 +710,7 @@
     "manufacturer": "tirohk / AiTURE",
     "manufacturer_status": "abandoned",
     "protocol_handler": "cdbwsoft_ecb",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -462,6 +720,7 @@
     "category": "sensor",
     "manufacturer": "Slacker LLC (formerly MoTool)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -471,6 +730,7 @@
     "category": "printer",
     "manufacturer": "NIIMBOT (Wuhan Jingchen Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -480,6 +740,7 @@
     "category": "vehicle",
     "manufacturer": "Niu Technologies",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -489,6 +750,39 @@
     "category": "lock",
     "manufacturer": "Nuki Home Solutions GmbH",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "Nuki Smart Lock API V2.3.0 (PDF, 2025-01-08)",
+        "url": "https://developer.nuki.io/uploads/short-url/1qEVXUUpo4xkPvTchbyKbdJLuOV.pdf",
+        "description": "The official BLE API document this spec's GATT roles, command IDs and error tables were cross-checked against."
+      },
+      {
+        "title": "ronengr/pyNukiBT",
+        "url": "https://github.com/ronengr/pyNukiBT",
+        "description": "Python BLE client; const.py corroborates the CRC-16 parameters and command constants."
+      },
+      {
+        "title": "I-Connect/NukiBleEsp32",
+        "url": "https://github.com/I-Connect/NukiBleEsp32",
+        "description": "ESP32 BLE client; NukiLockConstants.h is an independent enumeration of commands, states and error codes."
+      },
+      {
+        "title": "technyon/nuki_hub",
+        "url": "https://github.com/technyon/nuki_hub",
+        "description": "ESP32 bridge exposing the lock over MQTT — working implementation built on NukiBleEsp32."
+      },
+      {
+        "title": "uriyacovy/ESPHome_nuki_lock",
+        "url": "https://github.com/uriyacovy/ESPHome_nuki_lock",
+        "description": "ESPHome component driving the lock over BLE — working open implementation."
+      },
+      {
+        "title": "NCC Group advisory: multiple vulnerabilities in Nuki smart locks (July 2022)",
+        "url": "https://www.nccgroup.com/us/research-blog/technical-advisory-multiple-vulnerabilities-in-nuki-smart-locks-cve-2022-32509-cve-2022-32504-cve-2022-32502-cve-2022-32507-cve-2022-32503-cve-2022-32510-cve-2022-32506-cve-2022-32508-cve-2022-32505/",
+        "description": "Source for the 11 CVEs cited in device.notes, including the BLE protocol access-control and DoS findings."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -499,6 +793,7 @@
     "manufacturer": "NYAN GEAR / LOY SPACE / popled.cn",
     "manufacturer_status": "active",
     "protocol_handler": "popled_json",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -508,6 +803,7 @@
     "category": "vehicle",
     "manufacturer": "Generic (ELM327 clones), ScanTool.net, Vgate, LELink",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -526,6 +822,7 @@
     "category": "vehicle",
     "manufacturer": "OBD Solutions LLC (ScanTool.net)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "OBDLink MX+ product page (ScanTool.net)",
@@ -561,12 +858,68 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Omron BLE Blood Pressure Monitors (OMRON connect family)",
+    "path": "device-specs/devices/omron-connect.yaml",
+    "protocol": "ble",
+    "category": "health",
+    "manufacturer": "Omron Healthcare",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Oral-B iO Smart Brush",
     "path": "device-specs/devices/oral-b-io-smartbrush.yaml",
     "protocol": "ble",
     "category": "health",
     "manufacturer": "Procter & Gamble",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Panasonic Viera Network Remote Control",
+    "path": "device-specs/devices/panasonic-viera.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Panasonic",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "panasonic-viera — Python library (protocol reference implementation)",
+        "url": "https://github.com/florianholzapfel/panasonic-viera"
+      },
+      {
+        "title": "panasonic-viera keys.py — the full NRC_* key vocabulary",
+        "url": "https://github.com/florianholzapfel/panasonic-viera/blob/master/panasonic_viera/keys.py"
+      },
+      {
+        "title": "panasonic-viera apps.py — known app product IDs",
+        "url": "https://github.com/florianholzapfel/panasonic-viera/blob/master/panasonic_viera/apps.py"
+      },
+      {
+        "title": "Home Assistant Panasonic Viera integration (supported models, settings, PIN pairing UX)",
+        "url": "https://www.home-assistant.io/integrations/panasonic_viera/"
+      },
+      {
+        "title": "Home Assistant panasonic_viera config_flow.py (UDN as unique id, pairing step)",
+        "url": "https://raw.githubusercontent.com/home-assistant/core/dev/homeassistant/components/panasonic_viera/config_flow.py"
+      },
+      {
+        "title": "Turgon37/panasonic-viera fork — SSDP discover with the p00RemoteController:1 search target",
+        "url": "https://github.com/Turgon37/panasonic-viera/blob/master/panasonic_viera/remote_control.py"
+      },
+      {
+        "title": "LogicMachine forum thread — independent Lua implementation, live power-toggle confirmation, encrypted flow port",
+        "url": "https://forum.logicmachine.net/showthread.php?tid=232"
+      },
+      {
+        "title": "uc-intg-panasonicviera — Unfolded Circle integration (second open consumer of this protocol)",
+        "url": "https://github.com/mase1981/uc-intg-panasonicviera"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -577,6 +930,7 @@
     "manufacturer": "PAX Labs",
     "manufacturer_status": "unsupported",
     "protocol_handler": "pax_ofb",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "Reverse Engineering Bluetooth Vapes -- Part 1",
@@ -597,12 +951,50 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Philips jointSPACE TV API",
+    "path": "device-specs/devices/philips-jointspace.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Philips / TP Vision",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "jointSPACE project page (Wayback Machine archive of the Philips site)",
+        "url": "https://web.archive.org/web/2024/https://jointspace.sourceforge.net/"
+      },
+      {
+        "title": "Official jointSPACE JSON API v1 reference (Wayback Machine)",
+        "url": "https://web.archive.org/web/2024/https://jointspace.sourceforge.net/projectdata/documentation/jasonApi/1/doc/API.html"
+      },
+      {
+        "title": "ha-philipsjs — the library behind Home Assistant's Philips TV integration (pairing, encrypted fields, quirks)",
+        "url": "https://github.com/danielperna84/ha-philipsjs"
+      },
+      {
+        "title": "pylips — CLI plus an unofficial v6 API reference tested against 2016-2018 TVs",
+        "url": "https://github.com/eslavnov/pylips"
+      },
+      {
+        "title": "suborb/philips_android_tv — the original 2016 digest-auth pairing writeup",
+        "url": "https://github.com/suborb/philips_android_tv"
+      },
+      {
+        "title": "Home Assistant Philips TV integration docs (feature matrix per API version)",
+        "url": "https://www.home-assistant.io/integrations/philips_js/"
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "ProGLOW Motorcycle LED Controller",
     "path": "device-specs/devices/proglow-motorcycle-led.yaml",
     "protocol": "ble",
     "category": "light",
     "manufacturer": "ProGLOW / TTCBLE",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -614,6 +1006,7 @@
     "manufacturer_status": "active",
     "protocol_handler": "rabbit_air_lan",
     "openness": "documented_api",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "url": "https://github.com/rabbit-air/python-rabbitair",
@@ -640,6 +1033,7 @@
     "category": "irrigation",
     "manufacturer": "Rachio",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -650,6 +1044,7 @@
     "manufacturer": "Roku / TCL",
     "manufacturer_status": "active",
     "openness": "documented_api",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "Roku External Control Protocol — official developer documentation",
@@ -671,6 +1066,49 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Samsung Tizen Smart TV (2016+)",
+    "path": "device-specs/devices/samsung-tizen-tv.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Samsung Electronics",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "samsungtvws (xchwarze/samsung-tv-ws-api) — reference Python client for the Tizen WebSocket + REST API",
+        "url": "https://github.com/xchwarze/samsung-tv-ws-api",
+        "description": "The implementation this spec's wire format is reconstructed from: connection.py has the exact WS URL and token handling, remote.py the ms.remote.control / ms.channel.emit payloads, rest.py the /api/v2/ endpoints. Home Assistant's samsungtv integration wraps this library."
+      },
+      {
+        "title": "samsungtvws COMMANDS.md — remote key vocabulary and CLI semantics",
+        "url": "https://github.com/xchwarze/samsung-tv-ws-api/blob/master/COMMANDS.md",
+        "description": "The KEY_* list the commands block below is drawn from, including Click/Press/Release semantics and the key_press_delay throttling clients apply."
+      },
+      {
+        "title": "homebridge-samsung-tizen — command reference the samsungtvws list is adapted from",
+        "url": "https://tavicu.github.io/homebridge-samsung-tizen/extra/commands.html",
+        "description": "Independent second source for the key vocabulary; itself labelled 'not an official list from Samsung'."
+      },
+      {
+        "title": "Home Assistant — Samsung Smart TV integration",
+        "url": "https://www.home-assistant.io/integrations/samsungtv/",
+        "description": "The production deployment of this protocol: SSDP/zeroconf discovery matchers, the key table, the subnet/VLAN restriction, and the Device Connection Manager 'First Time Only' fix for repeated prompts."
+      },
+      {
+        "title": "samsungctl — legacy (TCP 55000) and WebSocket Samsung TV client",
+        "url": "https://github.com/Ape/samsungctl",
+        "description": "The reference for the pre-2016 Orsay protocol (remote_legacy.py): controller-string handshake, base64 key payloads, and the Allow/Deny response bytes."
+      },
+      {
+        "title": "Samsung — TV model groups",
+        "url": "https://developer.samsung.com/smarttv/develop/specifications/tv-model-groups.html",
+        "description": "Official model-year ↔ Tizen version table; settles whether a given Samsung TV is Tizen (2016+, this spec) or Orsay (samsung_legacy_common)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Schlage Smart Locks (Sense / Encode family)",
     "path": "device-specs/devices/schlage-smart-locks.yaml",
     "protocol": "ble",
@@ -678,6 +1116,7 @@
     "manufacturer": "Schlage (Allegion)",
     "manufacturer_status": "active",
     "openness": "undocumented",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -687,6 +1126,7 @@
     "category": "light",
     "manufacturer": "Seeblue / LEDGlow",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -696,6 +1136,7 @@
     "category": "sensor",
     "manufacturer": "SensorPush",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -706,6 +1147,7 @@
     "manufacturer": "Shenzhen Shining Bright Technology",
     "manufacturer_status": "active",
     "protocol_handler": "cdbwsoft_ecb",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -716,6 +1158,7 @@
     "manufacturer": "Shenzhen Shining Bright Technology",
     "manufacturer_status": "unsupported",
     "protocol_handler": "shiningmask_ecb",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "Bishop Fox: Invasion of the Face Changers",
@@ -774,6 +1217,40 @@
     "category": "hub",
     "manufacturer": "Samsung SmartThings",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Sony Bravia IRCC-IP / REST API",
+    "path": "device-specs/devices/sony-bravia.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Sony",
+    "manufacturer_status": "active",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "pybravia — the async Python client behind Home Assistant's Sony Bravia TV integration",
+        "url": "https://github.com/Drafteed/pybravia"
+      },
+      {
+        "title": "Home Assistant Sony Bravia TV integration (auth flows, settings paths, WebApiCore caveats)",
+        "url": "https://www.home-assistant.io/integrations/braviatv/"
+      },
+      {
+        "title": "kalleth's Sony Bravia HTTP API notes (service list, JSON-RPC shapes, IRCC envelope)",
+        "url": "https://gist.github.com/kalleth/e10e8f3b8b7cb1bac21463b0073a65fb"
+      },
+      {
+        "title": "DIAL 2nd Screen protocol specification (dial-multiscreen.org)",
+        "url": "https://www.dial-multiscreen.org/dial/protocol-specification"
+      },
+      {
+        "title": "Community IRCC code table incl. consumer-only keys (PowerOff, Exit, Rewind, Forward)",
+        "url": "https://github.com/cmos486/Bravia-REST-API/blob/main/COMMANDS.md"
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -783,6 +1260,7 @@
     "category": "light",
     "manufacturer": "Spider Farmer",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -792,6 +1270,7 @@
     "category": "display",
     "manufacturer": "Host No.4 Technology (Chengdu) Co., Ltd.",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -801,6 +1280,7 @@
     "category": "vehicle",
     "manufacturer": "Subaru Corporation",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -810,6 +1290,7 @@
     "category": "switch",
     "manufacturer": "Wonderlabs, Inc. (SwitchBot)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -819,6 +1300,46 @@
     "category": "sensor",
     "manufacturer": "ThermoPro (Adsmart)",
     "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "ThermoPro TP357/TP358/TP359/TP393 Thermometer-Hygrometer",
+    "path": "device-specs/devices/thermopro-tp357.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "ThermoPro (Adsmart)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "TP-Link Kasa Smart Plug",
+    "path": "device-specs/devices/tplink-kasa-smart-plug.yaml",
+    "protocol": "wifi",
+    "category": "switch",
+    "manufacturer": "TP-Link",
+    "manufacturer_status": "active",
+    "protocol_handler": "tplink_smarthome",
+    "openness": "documented_api",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "softScheck — Reverse Engineering the TP-Link HS110 (2016)",
+        "url": "https://www.softscheck.com/en/blog/tp-link-reverse-engineering/",
+        "description": "The original protocol write-up: cipher, framing and command tree."
+      },
+      {
+        "title": "python-kasa — reference implementation (backs Home Assistant tplink)",
+        "url": "https://github.com/python-kasa/python-kasa",
+        "description": "Authoritative, hardware-tested client for this and later Kasa protocols."
+      },
+      {
+        "title": "softScheck/tplink-smartplug — original client + Wireshark dissector",
+        "url": "https://github.com/softScheck/tplink-smartplug",
+        "description": "The tplink-smarthome-commands.txt reference and a pcap dissector."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -828,6 +1349,7 @@
     "category": "vehicle",
     "manufacturer": "Triumph Motorcycles Ltd.",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -837,6 +1359,7 @@
     "category": "motor",
     "manufacturer": "Tongsheng",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "hurzhurz/tsdz2 serial communication documentation",
@@ -861,12 +1384,36 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "UREVO walking pad family (URTM*/SYWP* under-desk treadmills)",
+    "path": "device-specs/devices/urevo-walking-pad.yaml",
+    "protocol": "ble",
+    "category": "treadmill",
+    "manufacturer": "UREVO (urevosports.com)",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "url": "https://www.urevosports.com/",
+        "title": "UREVO official site",
+        "description": "Manufacturer status (active, 2026 retail listings)."
+      },
+      {
+        "url": "https://play.google.com/store/apps/details?id=com.urevo.app",
+        "title": "UREVO app (Google Play)",
+        "description": "Official companion app; the protocol source for this spec (v3.6.22, 26042201)."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Vector Robot",
     "path": "device-specs/devices/vector-robot.yaml",
     "protocol": "wifi",
     "category": "robot",
     "manufacturer": "Anki / Digital Dream Labs",
     "manufacturer_status": "shutdown",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "WireOS",
@@ -912,12 +1459,52 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Vizio SmartCast TV",
+    "path": "device-specs/devices/vizio-smartcast.yaml",
+    "protocol": "wifi",
+    "category": "tv",
+    "manufacturer": "Vizio",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "title": "exiva — Vizio SmartCast API (2016+ Models)",
+        "url": "https://github.com/exiva/Vizio_SmartCast_API",
+        "description": "The reverse-engineered API reference this spec follows; cURL examples for every endpoint."
+      },
+      {
+        "title": "pyvizio — Python client and CLI (Home Assistant's backend, maintenance mode)",
+        "url": "https://github.com/raman325/pyvizio",
+        "description": "Reference implementation: endpoint paths, key codes, SSDP DIAL discovery and _viziocast mDNS discovery in code."
+      },
+      {
+        "title": "Home Assistant VIZIO SmartCast integration",
+        "url": "https://www.home-assistant.io/integrations/vizio/",
+        "description": "User-facing pairing walkthrough and the remote command vocabulary."
+      },
+      {
+        "title": "openHAB Vizio binding",
+        "url": "https://www.openhab.org/addons/bindings/vizio/",
+        "description": "Second independent implementation; confirms port split, pairing, and app NAME_SPACE quirks."
+      },
+      {
+        "title": "Lifewire — Vizio TV restart troubleshooting (factory reset and Power Mode menu paths)",
+        "url": "https://www.lifewire.com/fix-vizio-tv-that-keeps-turning-on-and-off-5198526",
+        "description": "Secondary confirmation of the factory-reset path (default passcode 0000) and the Eco/Quickstart Power Mode setting location."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Belkin Wemo Smart Devices",
     "path": "device-specs/devices/wemo-devices.yaml",
     "protocol": "wifi",
     "category": "switch",
     "manufacturer": "Belkin",
     "manufacturer_status": "shutdown",
+    "testing_status": "untested",
+    "testing_detail": "capture-verified",
     "helpful_urls": [
       {
         "title": "open-wemo",
@@ -940,6 +1527,7 @@
     "manufacturer": "WLED project (Aircoookie and contributors)",
     "manufacturer_status": "active",
     "openness": "open_by_design",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -949,6 +1537,7 @@
     "category": "sensor",
     "manufacturer": "Xiaomi",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -958,6 +1547,7 @@
     "category": "scale",
     "manufacturer": "Xiaomi / Huami",
     "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "openScale",
@@ -974,6 +1564,7 @@
     "category": "sensor",
     "manufacturer": "Xiaomi / HHCC Plant Technology Co., Ltd.",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -983,6 +1574,7 @@
     "category": "light",
     "manufacturer": "XKGlow",
     "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -992,6 +1584,7 @@
     "category": "light",
     "manufacturer": "Acme Corp",
     "manufacturer_status": "abandoned",
+    "testing_status": "untested",
     "helpful_urls": [
       {
         "title": "Example teardown notes",

@@ -6,6 +6,8 @@ device:
   name: "NIIMBOT D110 / B21 Thermal Label Printer"
   manufacturer: "NIIMBOT (Wuhan Jingchen Intelligent Identification Technology Co., Ltd., FCC ID 2ARXB)"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "printer"
   notes: >

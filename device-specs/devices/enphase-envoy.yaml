@@ -6,6 +6,8 @@ device:
   name: "Enphase Envoy"
   manufacturer: "Enphase Energy"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "energy"
   transport: "http"
@@ -64,7 +66,13 @@ device:
         description: >
           For wireless installs the gateway hosts a temporary access point and
           serves its own configuration UI, where the installer selects the home
-          network. The AP name is derived from the gateway serial.
+          network. The AP name is derived from the gateway serial. A decompile
+          audit of the Android app (2026-08) confirms the gateway address
+          172.30.1.1 and shows the app reaching it over HTTPS
+          (https://172.30.1.1/) with an Authorization: Bearer JWT when a token
+          is available, falling back to plain HTTP with digest auth (user
+          'envoy') when it is not — app-derived, not yet exercised on hardware
+          (medium confidence).
         softap:
           ssid_prefix: "Envoy_"
           open_network: true
@@ -79,9 +87,40 @@ device:
             notes: "The AP has no Wi-Fi passphrase; the gateway IP is vendor-documented. Authentication happens at the web UI on 172.30.1.1, not when joining the network."
           - action: "Select the home network and apply."
             actor: "user"
+      - type: "ble_provisioning"
+        verified: false
+        description: >
+          The Android app can also commission the gateway over BLE GATT using
+          Enphase protobuf messages (commissioning.proto Connectivity): it
+          writes the entrez JWT as an EntrezToken message (chunked with a
+          CRC32 framing layer), reads EntrezTokenValidationStatus (TOKEN_RCVD,
+          then TOKEN_VALID), scans for networks with WiFiAPsScanList /
+          WiFiAPInfo, joins with SetWiFiConnection (SSID, passphrase, auth
+          mode), and watches WiFiConnectionStatus; a BirthCertificate message
+          carries the gateway certificate chain. This exchange rides a vendor
+          GATT service based on ed453f0f-8dd9-461c-ae07-723f55d83442. A
+          second vendor GATT service based on
+          6d1b33f8-0000-11eb-a8b3-0242ac130003 (alongside the standard Device
+          Information service 0x180A with serial number 0x2A25) carries
+          live-data values. The app bundles the Espressif provisioning stack
+          with Sec0/Sec2 session-security support, but the decompile does not
+          establish that the Envoy commissioning path uses it, so the session
+          security scheme stays an open question. All app-derived; not yet
+          exercised against hardware (medium confidence).
+        ble:
+          protocol: "Enphase Connectivity protobuf (commissioning.proto)"
+          service_uuid: "ed453f0f-8dd9-461c-ae07-723f55d83442"
+        steps:
+          - action: "Connect to the gateway's BLE GATT service and write the entrez JWT as a chunked EntrezToken protobuf message."
+            actor: "client"
+            notes: "Token comes from Enphase's cloud entrez service, so this path is not cloud-free either."
+          - action: "Read EntrezTokenValidationStatus until TOKEN_VALID, then request the Wi-Fi scan list and send SetWiFiConnection."
+            actor: "client"
+            expect: "WiFiConnectionStatus reports the gateway joined the home network."
+            timeout_seconds: 120
     factory_reset:
       confidence: "low"
-      effect: "Not documented in this project. Re-provisioning is normally done in place from the gateway's own UI rather than by resetting it."
+      effect: "Not documented in this project. Re-provisioning is normally done in place from the gateway's own UI rather than by resetting it. A 2026-08 decompile audit of the Android app likewise found no factory-reset flow in the app, so this stays unresolved."
       procedures:
         - name: "Not verified"
           steps:
@@ -121,6 +160,17 @@ evidence:
     protovers: "v8.3.5427"
     mdns_service_type: "_enphase-envoy._tcp"
     protocol: "REST API on port 80"
+  app_static_analysis:
+    date: "2026-08-13"
+    source: "Enphase Android app, jadx decompile (clean-room audit; derived facts only)"
+    confirms:
+      - "Discovery: the app browses mDNS service type _enphase-envoy._tcp. and parses the serialnum and protovers TXT keys as gateway identity and firmware version."
+      - "AP mode: the app reaches the setup gateway at https://172.30.1.1/ with an Authorization: Bearer JWT, falling back to plain HTTP digest auth (user 'envoy') when no token is available."
+      - "Auth: token validity is probed with GET /auth/check_jwt; local requests carry the JWT as a Bearer header."
+      - "Local endpoints exercised by the app include /admin/lib/wireless_display.json (GET form, form POST to test and join), /ivp/bluetooth/wireless_scan (GET, plus a form POST carrying the same join fields) and GET /ivp/livedata/status."
+      - "A BLE GATT commissioning channel exists alongside AP mode (protobuf Connectivity messages; see setup.methods)."
+    confidence: "medium"
+    confidence_notes: "Derived from app code, not yet exercised against gateway hardware; live-probe values in this spec remain the hardware-confirmed baseline."
 
 http_endpoints:
   - method: "GET"
@@ -147,6 +197,26 @@ http_endpoints:
     description: "Unauthenticated gateway information (firmware, serial, part number). Returns XML with an envoy_info root element, not JSON; historically also reachable as /info.xml. pyenphase parses it with an XML parser."
     response_body:
       content_type: "application/xml"
+  - method: "GET"
+    path: "/auth/check_jwt"
+    name: "JWT Check"
+    status: "unverified"
+    description: "Firmware-7+ token validation probe: the Android app GETs this path with the entrez JWT as an Authorization: Bearer header to learn whether the gateway accepts the token locally before making further requests. App-derived (decompile audit 2026-08), not yet probed on hardware."
+  - method: "GET"
+    path: "/admin/lib/wireless_display.json"
+    name: "Wireless Config"
+    status: "unverified"
+    description: "Installer wireless-configuration page used during AP-mode setup at 172.30.1.1. A form POST to the same path applies and tests the join with fields essid, bssid, channel, security_mode, wificrypto, password, wps_pbc, fname and a submit field; optional enc_essid/enc_password carry encrypted variants. App-derived (decompile audit 2026-08), not yet probed on hardware."
+  - method: "GET"
+    path: "/ivp/bluetooth/wireless_scan"
+    name: "Wireless Scan"
+    status: "unverified"
+    description: "Wi-Fi network scan results used by the app's commissioning flow; the app also POSTs a form to this path with the same join fields as /admin/lib/wireless_display.json (essid, password, security_mode, and friends). App-derived (decompile audit 2026-08), not yet probed on hardware."
+  - method: "GET"
+    path: "/ivp/livedata/status"
+    name: "Live Data Status"
+    status: "unverified"
+    description: "Live-data status polled by the Android app through its dynamic-URL helper. App-derived (decompile audit 2026-08), not yet probed on hardware."
 
 entities:
   - platform: "sensor"

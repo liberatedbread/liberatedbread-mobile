@@ -6,6 +6,8 @@ device:
   name: "Dyson Air Purifier"
   manufacturer: "Dyson"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "climate"
   transport: "mqtt"
@@ -15,7 +17,10 @@ device:
     device serial and WiFi password during/after pairing. Known topics are
     scoped by product type and serial — {productType}/{serial}/status/current
     and {productType}/{serial}/command — and local control does not require
-    internet access after pairing.
+    internet access after pairing. The vendor app bundles 39 purifier
+    product-type configs (including letter-suffixed roots such as 438e and
+    438k) that all subscribe to the same status topics at QoS 1, so a
+    {productType} root may carry a letter suffix.
 
     Note (2026-07): the original shenxn/libdyson and ha-dyson projects are
     stale; the maintained continuation is libdyson-wg/libdyson-neon (PyPI
@@ -57,25 +62,65 @@ device:
       sticker (and the spare label in the box) is the only copy of the secret.
       Photograph it before mounting the machine somewhere awkward.
     methods:
-      - type: "softap_http"
+      - type: "softap_mqtt"
         verified: false
         description: >
           The machine hosts its own WPA-protected access point whose SSID and
           passphrase are printed on the device sticker. The app joins that AP
-          and hands over the home network credentials.
+          and provisions over MQTT, not HTTP: while on the setup AP it connects
+          to the machine's OWN local MQTT broker on port 1883 and hands over the
+          home network credentials as MQTT messages on the machine's
+          initial-connection topic. This is a broker ON the setup AP, not a
+          cloud round-trip — while joined to the credential-less DYSON- AP the
+          client has no path off-device. For air purifiers (Dyson's "EC" /
+          environmental-control machine category) the app addresses that broker
+          by the hostname devices.dyson.net, which the machine — the AP's
+          gateway and captive DNS server — resolves to itself locally; the app
+          builds it as a "BrokerDetailsLocal" and its connection-journey logs
+          call it the "machine AP broker" / "local machine broker" (evidence:
+          connectivity code j00/t0.java, the MachineCategory.EC branch). Other
+          Dyson categories (e.g. robots) instead point at the literal AP gateway
+          192.168.60.1:1883; the exact address the purifier's captive DNS
+          returns for devices.dyson.net was not captured, so gateway_ip is left
+          unset rather than guessed. No HTTP provisioning path exists in the
+          current vendor app's connection-journey code.
         softap:
           ssid_prefix: "DYSON-"
           ssid_examples: ["DYSON-XX-XXXXXXXX-475"]
           open_network: false
           passphrase_source: "Printed on the device sticker and on the spare label supplied in the box."
+          port: 1883
         steps:
           - action: "Read the product SSID and WiFi password from the sticker on the machine."
             actor: "user"
+            notes: "The setup SSID has the form DYSON-<serial segments>-<productType>; the app parses both the serial and the product type out of the SSID itself."
           - action: "Join the machine's access point."
             actor: "user"
-          - action: "Send the home network credentials to the machine."
+          - action: "Connect to the machine's local MQTT broker on the setup AP at port 1883 (EC/purifier machines address it as devices.dyson.net, resolved locally by the machine's own captive DNS; other Dyson categories use the AP gateway 192.168.60.1) and subscribe to {productType}/initialconnection/status at QoS 1."
             actor: "client"
-            notes: "Exact request layout not captured in this project; the vendor app performs this step today."
+            request:
+              protocol: "mqtt"
+              action: "subscribe {productType}/initialconnection/status"
+          - action: "Publish a JOIN-NETWORK message carrying the home network credentials to {productType}/initialconnection/command."
+            actor: "client"
+            request:
+              protocol: "mqtt"
+              action: "JOIN-NETWORK"
+              arguments:
+                - name: "ssid"
+                  required: true
+                  description: "Home network SSID."
+                - name: "password"
+                  required: true
+                  description: "Home network passphrase."
+                - name: "requestId"
+                  description: "Client-generated request identifier."
+          - action: "Publish CLOSE-ACCESS-POINT, then AUTHORISE-USER-REQUEST, to {productType}/initialconnection/command."
+            actor: "client"
+            request:
+              protocol: "mqtt"
+              action: "CLOSE-ACCESS-POINT / AUTHORISE-USER-REQUEST"
+            notes: "AUTHORISE-USER-REQUEST carries the app user id. Message order and topic are app-derived; not yet replayed against hardware."
           - action: "Rejoin the home network and confirm the machine advertises _dyson_mqtt._tcp.local."
             actor: "client"
             timeout_seconds: 120
@@ -105,12 +150,17 @@ device:
       issued_to_client:
         - "Local MQTT username — the device serial number"
         - "Local MQTT password — base64 of the SHA-512 digest of the sticker WiFi password"
+      confidence: "medium"
+      confidence_notes: >
+        App-derived, not exercised on hardware: the hash function was read
+        from the current vendor app (SHA-512 over the UTF-8 sticker password,
+        base64 of the raw digest, whitespace stripped) and matches the
+        long-published libdyson behaviour, but this project has not replayed
+        the login against a machine.
       notes: >
-        The MQTT password derivation is the published libdyson/ha-dyson
-        behaviour: hash the sticker password with SHA-512 and base64-encode the
-        raw digest. Because it is derived from a printed static secret, anyone
-        who photographs the sticker keeps local control forever — including
-        after a resale.
+        Because the local password is derived from a printed static secret,
+        anyone who photographs the sticker keeps local control forever —
+        including after a resale.
 
   variants:
     - model: "F3H"
@@ -147,21 +197,55 @@ mqtt_topics:
     name: "Current Status"
     direction: "subscribe"
     description: "State reports including fan mode, oscillation, air quality, filter state, temperature, humidity, and device mode. Example: 438/F3H-US-PFA5664A/status/current."
-    qos: 0
+    qos: 1
+    confidence: "medium"
+    confidence_notes: >
+      The topic itself is long-established and matches this project's
+      live-probed machines; the QoS 1 subscription is app-derived (the
+      vendor app's bundled per-product-type configs), not observed on the
+      wire.
     payload_format:
       encoding: "json"
-  - topic: "{serial}/status/connection"
+  - topic: "{productType}/{serial}/status/connection"
     name: "Connection Status"
     direction: "subscribe"
-    description: "UNVERIFIED: this topic appears in no known implementation (libdyson, libdyson-neon, libpurecool, Hubitat drivers, matterbridge-dyson-robot). Availability is normally inferred from the broker connection, not a device topic. Retained for provenance; do not rely on it."
-    qos: 0
+    description: "Connection announcements: the machine publishes a HELLO message (protocol version, serial number, firmware and hardware versions, reset source) here when it connects. The app subscribes at QoS 1 in all 39 bundled purifier product-type configs."
+    qos: 1
+    confidence: "medium"
+    confidence_notes: >
+      App-derived (vendor app subscription lists and its HELLO message
+      model), not yet captured from hardware. Older revisions of this spec
+      carried this topic without the {productType}/ prefix and marked it
+      unverified; the prefixed form is what the app subscribes to.
+    payload_format:
+      encoding: "json"
+  - topic: "{productType}/{serial}/status/software"
+    name: "Software Update Status"
+    direction: "subscribe"
+    description: "Firmware update progress: the machine publishes an UPGRADING-SOFTWARE message (state, code) here during an update. Subscribed at QoS 1 in the app's bundled purifier configs."
+    qos: 1
+    confidence: "medium"
+    confidence_notes: "App-derived (bundled configs and the vendor app's message model), not captured from hardware."
+    payload_format:
+      encoding: "json"
+  - topic: "{productType}/{serial}/status/faults"
+    name: "Faults"
+    direction: "subscribe"
+    description: "Machine fault reports. Subscribed at QoS 1 in the app's bundled purifier configs, which also ship per-product-type fault catalogues."
+    qos: 1
+    confidence: "medium"
+    confidence_notes: "App-derived (bundled configs), not captured from hardware."
     payload_format:
       encoding: "json"
   - topic: "{productType}/{serial}/command"
     name: "Command"
     direction: "publish"
-    description: "Command topic for mode, power, fan speed, oscillation, auto mode, and humidifier controls."
+    description: "Command topic for mode, power, fan speed, oscillation, auto mode, and humidifier controls. Messages are a JSON envelope {msg, time, mode-reason, ...}: state changes use msg STATE-SET with a data map of state keys to new values; REQUEST-CURRENT-STATE asks the machine to republish its status."
     qos: 0
+    confidence: "medium"
+    confidence_notes: >
+      The STATE-SET envelope is app-derived (vendor app message models),
+      not captured from hardware; the publish QoS is unconfirmed.
     payload_format:
       encoding: "json"
 

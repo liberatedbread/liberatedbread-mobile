@@ -20,17 +20,26 @@
 #     APK SHA-256 d3eeb80cb6591e485e3cc3b209b4a0a7f7dc75b1685a2a6b9e06ed48ed15abb9):
 #     Flutter app; libapp.so (Dart AOT) strings independently confirm the local
 #     API field names (particulate_sensor, filter_life, timer_mode,
-#     all_light_off, lsens_ctl, moodlight), the thingName/user_key credential
-#     pair, RawDatagramSocket (UDP) use, mDNS-based setup resolution against
-#     rabbitair-setup.local, BLE-assisted provisioning (flutter_reactive_ble),
-#     and the cloud side: AWS IoT Core endpoint
-#     au32ip2ri54us-ats.iot.us-east-1.amazonaws.com with device-shadow topics
-#     $aws/things/<thing>/shadow/{get,update}(/accepted), plus ota.rabbitair.com.
+#     all_light_off, lsens_ctl, moodlight, filter_ctl, filter_timer,
+#     filter_cleaning, filter_replacement, filter_type, light_sensor,
+#     pm_sensor, ionizer, buzzer, quality, schedule), the thingName/user_key
+#     credential pair, a generateUserKey operation, RawDatagramSocket (UDP)
+#     use, mDNS-based setup resolution against rabbitair-setup.local,
+#     BLE-assisted provisioning (flutter_reactive_ble) with two candidate
+#     GATT UUIDs, the LAN crypto stack (package:encrypt AES plus
+#     pointycastle CBC mode and PKCS7 padding bundled), and the cloud side:
+#     AWS IoT Core endpoint au32ip2ri54us-ats.iot.us-east-1.amazonaws.com
+#     with device-shadow topics $aws/things/<thing>/shadow/{get,update}
+#     (/accepted), ota.rabbitair.com, and a GraphQL account API under path
+#     /graphql.json exposing users/* operations (serialByMac, login_by_pass,
+#     etc. — see the cloud block).
 
 device:
   name: "Rabbit Air MinusA2 (SPA-700A/SPA-780A) / A3 (SPA-1000N) / BioGS 2.0 (SPA-550A/SPA-625A)"
   manufacturer: "Rabbit Air"
   manufacturer_status: "active"
+  testing:
+    status: untested
   openness:
     status: "documented_api"
     reverse_engineered: true
@@ -138,7 +147,12 @@ device:
           BLE (flutter_reactive_ble) to hand over Wi-Fi credentials and bind
           it to the account. GATT service/characteristic layout for this
           exchange has not been captured — HCI snoop required before a
-          replacement provisioner can be written.
+          replacement provisioner can be written. Two 128-bit UUIDs in the
+          app binary are the candidate GATT identifiers for that capture to
+          confirm: 53ef7d7d-c244-42bd-9064-a1569a521ca9 and
+          366048ae-9f36-43cf-8004-010c0c9fa52e (low confidence; present as
+          strings in libapp.so, roles — service vs characteristic, write vs
+          notify — UNCONFIRMED without a packet capture).
         steps:
           - action: "Power the purifier; it advertises over BLE while unprovisioned."
             actor: "user"
@@ -201,8 +215,12 @@ device:
         Thing ID and User key (HA docs flow; older app versions: Edit screen,
         tap "Serial Number" several times). If the unit was set up before
         user keys existed, the app offers "Tap for setup user key" to
-        generate one on-device. Never record a real key in this repo — the
-        spec documents the shape only.
+        generate one on-device; the app binary carries a matching
+        `generateUserKey` operation string (alongside "Error! userKey is
+        null" / "User key write not supported"), corroborating that key
+        generation is pushed to the device rather than minted in the cloud
+        (app-derived, not hardware-verified — confidence: medium). Never
+        record a real key in this repo — the spec documents the shape only.
 
 cloud:
   required: false
@@ -210,7 +228,28 @@ cloud:
   hosts:
     - "au32ip2ri54us-ats.iot.us-east-1.amazonaws.com (AWS IoT Core, MQTTS 8883, device shadow)"
     - "ota.rabbitair.com (firmware OTA)"
-    - "GraphQL account API (host string not isolated in the app binary; package:graphql present)"
+    - "GraphQL account API at path /graphql.json (package:graphql present; production host string not isolated in the app binary — 'rabbitair.skilap.org' appears once as a candidate host, role unconfirmed, low confidence)"
+  endpoints:
+    - path: "/graphql.json"
+      name: "GraphQL account API"
+      verification: "reported"
+      notes: >
+        Operation names are read as users/* strings from the Rabbit Air 2
+        app binary (confidence: medium — app-derived, no live capture).
+        Account/auth: login_by_pass, register_user_send_code,
+        register_user_by_otp, activate_account, check_pin_code,
+        send_email_pin, reset_password_or_activate, deleteAccount,
+        restoreAccount, update_aws_token, setUserFirebaseToken,
+        removeUserFirebaseToken. Device management: serialByMac (serial →
+        cloud lookup during provisioning), unit_create, unit_delete,
+        unit_set_primary, editUnitNameAndLocation, reserve_thing_name_v2,
+        getThingShadow, getUserFullInfo, updateRegion, location_list,
+        updateScheduleSettings, updateScheduleName. Shop/account extras
+        (Shopify-backed): test_shop, getAllFilters, getAllSkins, setUnitSkin,
+        updateUserShopifyInfo, shopify_addresses_delete. A bare
+        `generateUserKey` operation (no users/ prefix) also appears; it is
+        the user-key generation flow, see device.setup.credentials.
+        Recorded for completeness — consumers should use the LAN protocol.
   failure_mode: >
     None for local control: the LAN protocol on UDP 9009 is independent of
     the cloud. Losing the cloud removes remote (out-of-home) control,
@@ -241,10 +280,16 @@ rabbit_air_protocol:
   verification_notes: >
     `reported`, leaning on an unusually strong source: the reference is the
     vendor's own published library plus its Home Assistant integration,
-    cross-checked against the Rabbit Air 2 app binary (field-name strings in
-    libapp.so match: particulate_sensor, filter_life, timer_mode,
-    all_light_off, lsens_ctl, moodlight, user_key, thingName). Not replayed
-    against hardware in this project — no Rabbit Air unit was available.
+    cross-checked against the Rabbit Air 2 app binary. Field-name strings in
+    libapp.so match the state model: particulate_sensor, filter_life,
+    filter_timer, filter_ctl, filter_cleaning, filter_replacement,
+    filter_type, timer_mode, all_light_off, lsens_ctl, moodlight,
+    light_sensor, pm_sensor, ionizer, buzzer, quality, schedule, plus the
+    user_key / thingName credential pair. The encryption block is likewise
+    corroborated: the app bundles package:encrypt (AES) and pointycastle
+    with CBC mode and PKCS7 padding — the same AES-CBC/PKCS7 construction
+    the vendor library implements. Not replayed against hardware in this
+    project — no Rabbit Air unit was available.
   transport:
     udp:
       port: 9009

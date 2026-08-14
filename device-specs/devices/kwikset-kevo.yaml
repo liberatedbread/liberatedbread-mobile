@@ -16,6 +16,7 @@
 #   com/unikey/sdk/support/bluetooth/gatt/MakeServicesKt.java  (char properties)
 #   com/unikey/sdk/residential/hardware/BluetoothDefaultAdvertiseDataBuilder.java
 #   com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceChallengeResponseProtocolMachineDelegateImpl.java (HMAC)
+#   com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl.java (DBU client challenge)
 #   com/unikey/sdk/support/crypto/Secret.java                  (shared-secret derivation)
 #   com/unikey/kevo/application/KevoLockToggleCommand.java     (opcode 0x10)
 #   com/unikey/kevo/bluetooth/LocalCommandWorker.java          (opcodes 0x12/0x13/0x14)
@@ -29,6 +30,8 @@ device:
   name: "Kwikset Kevo"
   manufacturer: "Kwikset / ASSA ABLOY (UniKey Technologies platform)"
   manufacturer_status: "shutdown"
+  testing:
+    status: untested
   category: "lock"
   type: "electronic_door_lock"
   protocol: "ble"
@@ -73,7 +76,8 @@ device:
     Research status: phone-side protocol fully mapped from the decompiled
     APK (service/characteristic UUIDs, properties, opcodes, advertisement
     format, HMAC construction, secret derivation, enrollment state machines,
-    absence of LAN code all re-verified in v3.1.1.33967p). Lock-side
+    DBU client challenge-response, absence of LAN code all re-verified in
+    v3.1.1.33967p). Lock-side
     firmware behaviour, TLV certificate field names, LIC/time-sync layout
     and the trailing bytes of the lock advertisement need one over-the-air
     capture (no link-layer encryption, so any LE sniffer works).
@@ -211,8 +215,10 @@ identification:
         0x015E. Format 1 legacy (17 bytes): [16-byte UUID][u8] under company
         0x5E01 — the same ID byte-swapped on the wire, a firmware quirk the
         app filters for explicitly. A wildcard filter on company 0x015E
-        finds any lock (the app's admin/enroll scan). The trailing u32/u8
-        semantics are unknown (status/counter?) — capture item.
+        finds any lock (the app's admin/enroll scan). The app names the
+        trailing u32/u8 `sequenceNumber` (BluetoothAdvertisementParser),
+        but its on-wire semantics are unconfirmed (status/counter?) —
+        capture item.
 
 ble:
   connection:
@@ -267,7 +273,8 @@ services:
           machines: 0x01 challenge-UUID begin/complete, 0x02 nonce challenge
           start (byte[2] carries lock state), 0x03 HMAC request, 0x04
           verdict (byte[0] result: 0x01 accepted / 0xF0 denied-and-wipe;
-          byte[1] battery), 0x9A firmware version ([patch,minor,major]),
+          byte[1] battery), 0x06 DBU client-challenge HMAC complete
+          (byte[0]=0x01), 0x9A firmware version ([patch,minor,major]),
           0x9B firmware-upgrade marker, 0x12 bolt-position family, 0x15
           enroll begin result, 0x30 key-present begin. Enroll/key-present
           acks: 0x21/0x22/0x24/0x31/0x38/0x40/0x42/0x43/0x60.
@@ -365,7 +372,8 @@ protocol:
           cached secret, forcing the key-present flow next time.
     idle_pending_commands: [0x10, 0x19]
     battery_reporting: "Byte[1] of the 0x04 verdict STATUS; no separate battery opcode."
-    verification: "confirmed (from decompiled state machines; not yet replayed against hardware)"
+    verification: "reported"
+    verification_note: "State machine read from the decompiled APK; not replayed against a lock."
 
   commands:
     toggle:
@@ -445,14 +453,38 @@ protocol:
       ack 0x60 = enroll success). The phone's own cert is generated once
       (random UUID + 32-byte seed -> X25519 + Ed25519 keypairs) as a UniKey
       TLV cert.
-    verification: "confirmed (state machine read from the APK; not executed against a lock)"
+    verification: "reported"
+    verification_note: "State machine read from the APK; not executed against a lock."
+
+  dbu_client_challenge:
+    description: >
+      Reverse-direction challenge
+      (DeviceDbuClientChallengeResponseProtocolMachineImpl +
+      DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl): after
+      bolt-position STATUS writes (byte[3]=0x12 with byte[0] 1/2/9/10) the
+      main challenge-response delegate calls challengeDbu() and the PHONE
+      challenges the LOCK to prove the lock also holds the shared secret.
+      Flow, all still driven by the lock as GATT client:
+      1. Lock reads DATA_STREAM <- phone's fresh 32-byte nonce
+         (CryptoDelegate.generateRandomBytes(32)).
+      2. Phone computes the expected response: HMAC-SHA256(key = sharedSecret,
+         msg = nonce XOR latestClientStatus) — latestClientStatus is the
+         lock's most recent STATUS write, cached by the main delegate, XORed
+         into nonce bytes 0..len(latestClientStatus)-1.
+      3. Lock writes DATA_STREAM -> its 32-byte HMAC (fragment-tolerant
+         accumulation).
+      4. Lock writes STATUS with byte[3]=0x06 AND byte[0]=0x01 — HMAC
+         complete; the phone then compares the lock's HMAC against its own
+         and authorizes / unauthorizes the connection accordingly
+         (ClientChallengeResponseStartState -> ValidateHmacState).
+    verification: "reported"
+    verification_note: "Read from decompiled state machines; not replayed against hardware."
 
   remaining_unknowns:
     - "Lock-side firmware behaviour: exact nonce lengths, fragmentation, session-cert construction (needs one OTA capture)"
     - "TLV certificate field names (compile-time-stripped; numeric tags recovered from use sites)"
     - "LIC / timing-cert layout for time sync"
-    - "Trailing u32/u8 semantics in the lock advertisement"
-    - "DBU client challenge sub-flow bytes after bolt-position queries"
+    - "Trailing u32/u8 semantics in the lock advertisement (the app names it `sequenceNumber`; on-wire meaning unconfirmed)"
     - "Firmware image format/signing"
     - "Whether the lock prunes self-enrolled devices that never appear in the cloud (the 0xF0 wipe verdict exists)"
     - "What listens on the gateway's TCP 499/11000 (and 8100/8301/13252) 'Local Debug' ports"
@@ -472,6 +504,7 @@ sources:
       - "com/unikey/sdk/residential/hardware/BluetoothDefaultAdvertiseDataBuilder.java"
       - "com/unikey/sdk/support/bluetooth/scanner/BluetoothUuidScanFilterBuilder.java"
       - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceChallengeResponseProtocolMachineDelegateImpl.java"
+      - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceDbuClientChallengeResponseProtocolMachineDelegateImpl.java"
       - "com/unikey/sdk/support/protocol/machinedelegateimpl/DeviceConnectionProtocolMachineDelegateImpl.java"
       - "com/unikey/sdk/support/crypto/Secret.java"
       - "com/unikey/sdk/support/protocol/delegate/CryptoDelegate.java"

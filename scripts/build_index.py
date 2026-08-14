@@ -197,6 +197,16 @@ def build_manifest(
             # openness is reported as "undocumented" rather than as empty —
             # that is the honest reading of a registry built on teardowns.
             "openness": device.get("openness", {}).get("status", "undocumented"),
+            # Spec-level hardware-testing verdict. The default mirrors the
+            # schema's: a spec that does not say has not been tested. Named
+            # testing_status because the key `status` is already taken above
+            # by manufacturer_status.
+            "testing_status": device.get("testing", {}).get("status", "untested"),
+            **(
+                {"testing_detail": device["testing"]["detail"]}
+                if device.get("testing", {}).get("detail") is not None
+                else {}
+            ),
             **(
                 {"helpful_urls": raw["helpful_urls"]}
                 if "helpful_urls" in raw

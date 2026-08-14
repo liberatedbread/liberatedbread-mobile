@@ -608,6 +608,60 @@ paper over a failed read-back with the constant — on the Crock-Pot, a cleared
 timer or a cooker stopped mid-run, with nothing on screen saying so. The first
 published Wemo spec made exactly this mistake and review caught it.
 
+The same division carries to a REST-shaped device unchanged; only the address
+changes spelling. A `transport: "http"` command pairs `method` with `path` the
+way SOAP pairs `service` with `action` — and needs both halves, because REST
+APIs answer GET and PUT on one path with different operations. Its `path` may
+carry `{name}` placeholders that substitute from `parameters` exactly as
+`arguments` values do:
+
+```yaml
+commands:
+  light_set_brightness:
+    transport: "http"
+    method: "PUT"
+    path: "/api/{username}/lights/{id}/state"
+    arguments: { on: true, bri: "{bri}" }
+    parameters:
+      bri:      { type: "integer", required: true, min: 1, max: 254 }
+      username: { type: "string", source: "credential:username" }
+      id:       { type: "string", source: "instance:id" }
+```
+
+That example uses the other two `source` schemes, siblings of `state:`.
+`credential:<name>` is a per-device secret the client stored when it paired —
+the Hue bridge's link-button flow issues a `username` that every later path
+embeds — and `instance:<key>` is the identifier of the child currently being
+addressed. Both keep `source`'s contract: no default, and a renderer holding
+no value must fail the send visibly. An unpaired client that errors at
+`credential:username` is behaving correctly; one that quietly sends without it
+is the bug.
+
+`instance:` exists because of hubs. A hub is one network presence fronting a
+population the spec cannot enumerate — which lights sit behind a bridge is the
+owner's business, not the spec's — so the entity describes the *shape* of one
+child and declares `instances:`:
+
+```yaml
+entities:
+  - platform: "light"
+    name: "Hue Light"
+    instances: { keyed_by: "id", label_path: "name" }
+    state_command: "Lights"
+    state_mapping: { is_on: "state.on", brightness: "state.bri" }
+    commands:
+      turn_on: "light_turn_on"
+      turn_off: "light_turn_off"
+      set_brightness: "light_set_brightness"
+```
+
+The `state_command` reply is a JSON object keyed by child id — enumeration and
+every child's state in one request, which matters on bridges that throttle
+chatty clients. A client walks the keys; for each child the `state_mapping`
+paths resolve *inside that child's object*, `label_path` names it for the
+human, and the id fills the `instance:` placeholder of every command the
+entity binds. `device-specs/devices/hue-bridge.yaml` is the worked example.
+
 `example_body`, and the `example` on an `http_endpoints` request or response,
 do for control what test vectors do for crypto: they turn "the device rejects
 this and I cannot tell which half is wrong" into a diff.
