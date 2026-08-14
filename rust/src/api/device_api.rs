@@ -2903,6 +2903,9 @@ pub fn encode_stored_text(
 ///
 /// `frames` are the screens in play order, each row-major RGB888
 /// `width * height * 3` bytes.
+// The flat argument list is the FFI surface flutter_rust_bridge exposes to
+// Dart; grouping into a struct would churn the generated bindings.
+#[allow(clippy::too_many_arguments)]
 pub fn encode_stored_animation(
     spec_yaml: String,
     width: u32,

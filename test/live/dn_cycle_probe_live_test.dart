@@ -130,8 +130,8 @@ void main() {
         // Resolve each frame's device slot.
         final slotByCid = <int, int>{};
         final elSub = notify.listen((bytes) async {
-          for (final e
-              in await codec.decodeEffectList(specYaml: specYaml, bytes: bytes)) {
+          for (final e in await codec.decodeEffectList(
+              specYaml: specYaml, bytes: bytes)) {
             slotByCid[e.cid] = e.slot;
           }
         });
@@ -145,10 +145,13 @@ void main() {
         await elSub.cancel();
         final slots = [for (final c in cids) slotByCid[c] ?? 0];
         // ignore: avoid_print
-        print('SLOTS ${[for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'].join(', ')}');
+        print('SLOTS ${[
+          for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'
+        ].join(', ')}');
 
         // ignore: avoid_print
-        print('CYCLING play_effect over ${cids.length} frames every ${frameMs}ms '
+        print(
+            'CYCLING play_effect over ${cids.length} frames every ${frameMs}ms '
             'for ${holdSecs}s WHILE CONNECTED — watch the panel.');
         final until = DateTime.now().add(Duration(seconds: holdSecs));
         var i = 0;

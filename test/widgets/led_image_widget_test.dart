@@ -53,6 +53,22 @@ Widget _wrap(
       ),
     );
 
+/// The canvas Width/Height field showing [value].
+///
+/// The fields carry no keys — each owns its own text so it can snap back from
+/// unparseable input — so anchor on the label the field is labelled with and
+/// assert on the text inside that one field. Anchoring matters: with a square
+/// canvas both fields show the same number, and a bare text match cannot tell
+/// which dimension actually took the size.
+Finder _canvasSizeShowing(String label, int value, {int max = 255}) =>
+    find.descendant(
+      of: find.ancestor(
+        of: find.text('$label (1-$max)'),
+        matching: find.byType(TextFormField),
+      ),
+      matching: find.text('$value'),
+    );
+
 /// Scroll [finder] into view, then tap it — the editor column is taller than
 /// the test viewport.
 Future<void> _scrollAndTap(WidgetTester tester, Finder finder) async {
@@ -373,7 +389,8 @@ void main() {
       // pinning the device to this design across disconnect.
       expect(ble.writes.map((w) => w.charUuid).toList(),
           ['uploader', 'uploader', 'ddp', 'ddp', 'ddp']);
-      expect(ble.writes[3].value, [9], reason: 'the play write follows the list');
+      expect(ble.writes[3].value, [9],
+          reason: 'the play write follows the list');
       expect(codec.encodeCalls.map((c) => c.commandName), ['effect_list']);
       expect(codec.encodeAutorunModeCalls, [0],
           reason: 'fixed mode pins the device to this design after play');
@@ -461,7 +478,8 @@ void main() {
       expect(codec.encodeSetPlaylistCalls, hasLength(1));
       expect(codec.encodeSetPlaylistCalls.single, hasLength(2),
           reason: 'both frame cids are in the loop');
-      expect(codec.encodeCalls.map((c) => c.commandName), contains('play_next'));
+      expect(
+          codec.encodeCalls.map((c) => c.commandName), contains('play_next'));
       // A loop must NOT be pinned to one frame with fixed autorun.
       expect(codec.encodeAutorunModeCalls, isEmpty);
       expect(ble.writes, isNotEmpty);
@@ -493,7 +511,8 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pump();
       await tester.pump(const Duration(seconds: 3)); // drain save + let it tick
-      expect(codec.encodeCalls.map((c) => c.commandName), contains('play_effect'),
+      expect(
+          codec.encodeCalls.map((c) => c.commandName), contains('play_effect'),
           reason: 'the in-app cycle steps frames with play_effect');
       // Dispose the widget so the periodic timer is cancelled before teardown.
       await tester.pumpWidget(const SizedBox.shrink());
@@ -636,9 +655,12 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
 
-      expect(ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp', 'ddp'],
-          reason: 'confirmation releases effect-list, play, then autorun-fixed');
-      expect(ble.writes[2].value, [9], reason: 'the play write follows the list');
+      expect(
+          ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp', 'ddp'],
+          reason:
+              'confirmation releases effect-list, play, then autorun-fixed');
+      expect(ble.writes[2].value, [9],
+          reason: 'the play write follows the list');
       expect(find.textContaining('now playing'), findsOneWidget);
 
       // Drain the background effect-list diagnostic timer so it does not leak
@@ -739,8 +761,8 @@ void main() {
 
       await tester.pump(const Duration(seconds: 10)); // the verdict timeout
       await tester.pump();
-      expect(ble.writes.map((w) => w.charUuid),
-          ['uploader', 'ddp', 'ddp', 'ddp'],
+      expect(
+          ble.writes.map((w) => w.charUuid), ['uploader', 'ddp', 'ddp', 'ddp'],
           reason: 'effect-list, play, then autorun-fixed still go out');
       expect(ble.writes[2].value, [9]);
 
@@ -880,7 +902,8 @@ void main() {
           reason: 'replay addresses the stored item by its cid');
       // The play write, then the autorun-fixed pin.
       expect(ble.writes.length, writesBefore + 2);
-      expect(ble.writes.map((w) => w.charUuid).skip(writesBefore), ['ddp', 'ddp']);
+      expect(
+          ble.writes.map((w) => w.charUuid).skip(writesBefore), ['ddp', 'ddp']);
       expect(codec.encodeAutorunModeCalls, contains(0),
           reason: 'replay also pins the device to the design');
       expect(find.text('Playing "Sunrise".'), findsOneWidget);
@@ -983,13 +1006,15 @@ void main() {
       // appears.
       await _scrollAndTap(tester, find.text('Save to device'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byKey(const Key('stored-name-field')), 'Gone');
+      await tester.enterText(
+          find.byKey(const Key('stored-name-field')), 'Gone');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
       final cid = codec.encodeStoredCalls.single.cid;
       expect(find.byType(ActionChip), findsOneWidget);
 
-      await _scrollAndTap(tester, find.byKey(const Key('clear-device-designs')));
+      await _scrollAndTap(
+          tester, find.byKey(const Key('clear-device-designs')));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Clear'));
       await tester.pumpAndSettle();
@@ -1256,10 +1281,10 @@ void main() {
 
     // Starts at the 16×16 guess, then snaps to the advertised 20×20 once the
     // async lookup returns.
-    expect(find.byKey(const ValueKey('led-canvas-width-16')), findsOneWidget);
+    expect(_canvasSizeShowing('Width', 16), findsOneWidget);
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
-    expect(find.byKey(const ValueKey('led-canvas-height-20')), findsOneWidget);
+    expect(_canvasSizeShowing('Width', 20), findsOneWidget);
+    expect(_canvasSizeShowing('Height', 20), findsOneWidget);
     // The advertised payload reached the codec.
     expect(codec.advertisedResolutionArg, {
       0x61EA: [3, 232, 0, 100, 20, 20]
@@ -1288,7 +1313,7 @@ void main() {
       codec: codec,
     ));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
+    expect(_canvasSizeShowing('Width', 20), findsOneWidget);
     // The cache answered, so no BLE DeviceInfo query was needed.
     expect(codec.deviceInfoResolutionCalls, 0);
   });
@@ -1333,8 +1358,9 @@ void main() {
 
     expect(codec.deviceInfoResolutionCalls, 1);
     // The buffered connect-time push was folded into the decode.
-    expect(codec.deviceInfoResolutionArg, contains(const [0xf1, 0x01, 0x00, 0x01]));
-    expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
+    expect(codec.deviceInfoResolutionArg,
+        contains(const [0xf1, 0x01, 0x00, 0x01]));
+    expect(_canvasSizeShowing('Width', 20), findsOneWidget);
     // And it was cached for next time.
     expect(_prefs.getString('panel_res_AA:BB'), '20x20');
   });
@@ -1360,7 +1386,7 @@ void main() {
       codec: codec,
     ));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('led-canvas-width-16')), findsOneWidget);
+    expect(_canvasSizeShowing('Width', 16), findsOneWidget);
     expect(codec.advertisedResolutionArg, isNull);
     expect(codec.deviceInfoResolutionCalls, 0);
   });
