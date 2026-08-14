@@ -1,0 +1,8 @@
+mkdocs~=1.6.0
+mkdocs-material~=9.5.0
+pymdown-extensions~=10.0
+
+# Device-spec validation + JSON API/index tooling
+# (scripts/validate_specs.py, scripts/generate_index.py, scripts/build_index.py, scripts/mkdocs_hooks.py)
+jsonschema~=4.26
+pyyaml~=6.0

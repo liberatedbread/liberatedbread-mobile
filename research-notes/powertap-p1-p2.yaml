@@ -1,0 +1,62 @@
+# PowerTap P1/P2 Power Meter Pedals — Research Note (structured)
+# Also covers C1 chainring and G3 hub (BLE-capable generations).
+
+device:
+  id: powertap-p1-p2
+  name: PowerTap P1/P1S/P2 power meter pedals (also C1 chainring, G3 hub)
+  manufacturer: PowerTap / Saris -> SRAM/Quarq (brand discontinued 2021-02; Saris bankrupt 2022-07)
+  category: bike_power_meter
+  safety_class: LOW  # fitness telemetry
+
+transport:
+  type: ble  # plus ANT+
+  local_only: true
+  cloud_dependency: none  # pure broadcast sensors; config/firmware via SRAM AXS app (alive)
+
+ble:
+  advertising:
+    name_patterns: []  # TBD — e.g. "PowerTap P1"; verify with nRF Connect
+    service_uuids:
+      - "00001818-0000-1000-8000-00805f9b34fb"  # Cycling Power Service
+
+  services:
+    - uuid: "00001818-0000-1000-8000-00805f9b34fb"
+      name: cycling_power
+      description: Standard Bluetooth SIG Cycling Power profile
+      characteristics:
+        - uuid: "00002a63-0000-1000-8000-00805f9b34fb"
+          name: cycling_power_measurement
+          properties: [notify]
+        - uuid: "00002a66-0000-1000-8000-00805f9b34fb"
+          name: cycling_power_control_point
+          description: zero-offset calibration (standard opcodes)
+          properties: [write, indicate]
+        - uuid: "00002a65-0000-1000-8000-00805f9b34fb"
+          name: cycling_power_feature
+          properties: [read]
+    - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+      name: battery_service
+      note: expected; verify on hardware
+    - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+      name: device_information
+      note: expected; verify on hardware
+
+protocol:
+  note: >
+    Fully standard Cycling Power Service for telemetry and calibration — works with
+    any BLE host, no vendor app or cloud. Firmware updates and advanced diagnostics
+    are proprietary and currently delivered by the SRAM AXS app (actively
+    maintained); capture one update session (HCI snoop) to future-proof.
+  firmware_update: proprietary, via SRAM AXS app (com.sram.axs, alive)
+
+status:
+  confidence: confirmed  # discontinuation documented (DC Rainmaker / Velo, 2021-02)
+  apk_acquired: false  # no abandoned load-bearing app; com.sram.axs available if wanted
+  apk_decompiled: false
+  uuids_recovered: true  # standard SIG profile; proprietary chars unverified
+  protocol_recovered: true  # for telemetry/calibration (standard profile)
+  hci_snoop_needed: false  # only needed for firmware-update future-proofing
+  references:
+    - https://www.dcrainmaker.com/2021/02/tidbits-powertap-discontinued.html
+    - https://velo.outsideonline.com/road/road-racing/heres-what-the-disappearance-of-powertap-might-mean/
+    - https://www.trainerroad.com/forum/t/powertap-p1-s-psa-use-the-sram-axs-app/31304

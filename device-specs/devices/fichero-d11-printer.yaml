@@ -1,0 +1,268 @@
+# Fichero / AiYin D11 Thermal Label Printer
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Fichero / AiYin D11 Thermal Label Printer"
+  manufacturer: "Xiamen Print Future Technology Co., Ltd"
+  manufacturer_status: "unsupported"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "printer"
+  notes: >
+    Compact thermal label printer sold as Fichero D11s / AiYin D11.
+    Price $15-20. 96px printhead at 203 DPI. Li-Ion battery with USB-C
+    charging. Also supports Classic Bluetooth SPP, but BLE is the
+    preferred transport.
+
+    PROTOCOL: exposes 4 BLE UART services that are functionally
+    interchangeable for printing. The vendor app (com.lj.fichero v1.1.17)
+    uses only service 0xFF00: it connects, picks the service whose UUID
+    starts with 0000ff00, takes the writable characteristic (0xFF02) and
+    two notify characteristics (0xFF01 responses, 0xFF03 credit/MTU
+    flow control); no 0x18F0 reference exists anywhere in the app
+    (jadx l3/C0401a.java:55-73). The 0x18F0 service (write 0x2AF1,
+    notify 0x2AF0) is the one third-party client 0xMH/fichero-printer
+    treats as primary, and it also works. Info and config commands use
+    the AiYin command format (10 FF prefix). Raster printing uses
+    standard ESC/POS GS v 0 (1D 76 30) header with 1-bit BMP data,
+    MSB first, 12 bytes/row.
+
+    DEVICE CLASS: this is AiYin class — enable/stop commands are
+    10 FF FE 01 / 10 FF FE 45. The SDK also supports Lujiang-class devices
+    that use 10 FF F1 03 / 10 FF F1 45. Using the wrong class = silent
+    failure (printer accepts data but never prints).
+
+    PRINT SEQUENCE: set_density → set_paper_type → wake_up (12 null bytes)
+    → enable_printer → raster_header + pixel_data → form_feed → stop_print.
+    Stop print waits for 0xAA or "OK" response (60s timeout).
+
+    STATUS BITMASK (response to 10 FF 40): Bit0=printing, Bit1=cover open,
+    Bit2=no paper, Bit3=low battery, Bit4=overheated(alt), Bit5=charging,
+    Bit6=overheated. 0x00 = ready.
+
+    COMMANDS (10 FF family; newly evidenced in v1.1.17 app, app-confirmed
+    not hardware-tested): paper type 10 FF 84 nn
+    (aiyin/AiYinNormalDevice.java:74 setLabelPaper); density
+    10 FF 10 00 nn (normal/base/BaseNormalDevice.java:646 setDensityLuck);
+    battery query 10 FF 50 F1 (BaseNormalDevice.java:395 getBatteryLuck);
+    model 10 FF 20 F0 / version 10 FF 20 F1 / serial number 10 FF 20 F2
+    (BaseNormalDevice.java:595 printerModelLuck, :620 printerVersionLuck,
+    :605 printerSNLuck).
+
+    SUPPORTED: Any of the 4 UART services works. The vendor app uses
+    0xFF00; 0x18F0 is the functional alternate used by third-party
+    clients and is recommended for cross-model compatibility.
+
+    CONFIDENCE: HIGH for all info/config commands (verified against D11s
+    hardware with firmware 2.4.6), the print sequence, raster format, and
+    status bitmask. Sourced from 0xMH/fichero-printer — reverse-engineered
+    from the Fichero APK v1.1.5 via jadx decompilation — and re-verified
+    against the newer v1.1.17 APK for the 0xFF00 service selection, 0xFF03
+    credit/MTU flow control, the added 10 FF opcodes, and the OTA flow
+    (all app-confirmed, not hardware-tested).
+
+    ECOSYSTEM: the Fichero Printer app (com.lj.fichero) is a Karsten
+    International white label of the LuckPrinter SDK app; sibling rebrands
+    include Pocket Printer (com.printer.lidloffice, Lidl) and "Luck Jingle".
+    The L13 sibling (sold by Lidl as Silvercrest, same OEM) was independently
+    reverse-engineered by atctwo and confirms the command family on real
+    hardware: YiChip YC3121-D MCU, FCC ID 2A6FW-L13, and a USB-C port that
+    doubles as a USB printer device. An AiYin OTA firmware-update protocol
+    (10 FF E0 AA AA to enter update mode, then 1B 10-framed 256-byte
+    chunks) is documented in 0xMH's PROTOCOL.md; that writeup is an
+    accurate transcription of the vendor app's update flow (app-confirmed
+    in v1.1.17: UpdatePrinterESC.java:58,64 and :141-156;
+    DataAnalyzeESC.java:9-43), still not hardware-tested. No public
+    firmware images exist.
+
+  identification:
+    local_name_prefix: "FICHERO"
+    service_uuids:
+      - "000018f0-0000-1000-8000-00805f9b34fb"
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "FICHERO"
+          service_uuids:
+            - "000018f0-0000-1000-8000-00805f9b34fb"
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "high"
+    notes: >
+      No provisioning. Device advertises when powered on. No pairing or
+      bonding required. The vendor app connects to the 0xFF00 BLE UART
+      service (app-confirmed in v1.1.17); third-party clients such as
+      0xMH's use 0x18F0, which also works.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan for "FICHERO" or "D11s_" BLE advertisement, connect, and
+          follow the documented print sequence.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power the printer and scan for its advertisement."
+            actor: "client"
+            request:
+              protocol: "ble_gatt"
+          - action: "Connect to service 0xFF00 (as the vendor app does) or 0x18F0 (as third-party clients do); any of the 4 UART services works."
+            actor: "client"
+          - action: "Subscribe to notifications on 0x2AF0."
+            actor: "client"
+    factory_reset:
+      confidence: "high"
+      effect: >
+        Send factory reset command 10 FF 04. Returns "OK". Power-cycling
+        also resets the connection.
+      procedures:
+        - name: "Command reset"
+          steps:
+            - action: "Send 10 FF 04 to write characteristic 0x2AF1."
+              actor: "client"
+              expect: "Device responds with OK."
+        - name: "Power cycle"
+          steps:
+            - action: "Turn printer off and on."
+              actor: "user"
+              expect: "Printer powers on and advertises."
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "No persistent bonding. Any central can connect."
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE-only. No auth."
+
+  variants:
+    - model: "D11s (Fichero)"
+      identification:
+        local_name_prefix: "FICHERO"
+    - model: "D11s (generic)"
+      identification:
+        local_name_prefix: "D11s_"
+
+  features:
+    - type: "image_upload"
+      max_width: 96
+      max_height: 65535
+      format: "1bit-bitmap"
+
+  protocol_handler: "fichero_d11"
+
+services:
+  - uuid: "0000ff00-0000-1000-8000-00805f9b34fb"
+    name: "Fichero UART Service (Vendor Primary)"
+    notes: >
+      Service used by the vendor app (com.lj.fichero v1.1.17; the app
+      selects the service whose UUID starts with 0000ff00,
+      l3/C0401a.java:55-56). All commands are written to 0xFF02;
+      responses arrive as notifications on 0xFF01; 0xFF03 is a
+      credit/MTU flow-control notify channel. Use the AiYin-class
+      enable/stop commands: 10 FF FE 01 / 10 FF FE 45.
+    characteristics:
+      - uuid: "0000ff02-0000-1000-8000-00805f9b34fb"
+        name: "Write"
+        properties: ["write"]
+        notes: >
+          Write channel (the app picks the characteristic with the write
+          property in this service, l3/C0401a.java:60-62). The vendor app
+          writes in packets of onePackSize bytes (default 20, raised after
+          MTU negotiation, l3/C0406f.java:56,260-283), paced by credits
+          received on 0xFF03.
+      - uuid: "0000ff01-0000-1000-8000-00805f9b34fb"
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          Notification channel for responses (l3/C0401a.java:64-65).
+          Subscribe before sending commands. Responses are ASCII strings
+          or binary status bytes.
+      - uuid: "0000ff03-0000-1000-8000-00805f9b34fb"
+        name: "Notify (Credit/MTU)"
+        properties: ["notify"]
+        notes: >
+          Credit/MTU flow-control channel (app-confirmed in v1.1.17, not
+          hardware-tested). Named notifyCreditCharacteristic in the app
+          (l3/C0401a.java:66-67,83-84). A 2-byte message starting with
+          0x01 adds that many send credits (l3/C0404d.java:47-51); a
+          3-byte message starting with 0x02 carries the device's
+          requested MTU, which the app negotiates upward
+          (l3/C0404d.java:63-75). The write loop blocks until credit > 0
+          and spends one credit per packet (l3/C0406f.java:241-284).
+          Also enumerated on the L13 sibling.
+
+  - uuid: "000018f0-0000-1000-8000-00805f9b34fb"
+    name: "Fichero UART Service (Third-Party Primary)"
+    notes: >
+      Functional alternate BLE UART service. Never referenced by the
+      vendor app (no 18f0 occurrence in its decompiled sources); it is
+      the service the third-party client 0xMH/fichero-printer treats as
+      primary, and it works on real hardware. All commands are written
+      to 0x2AF1; responses arrive as notifications on 0x2AF0. Use the
+      AiYin-class enable/stop commands: 10 FF FE 01 / 10 FF FE 45.
+    characteristics:
+      - uuid: "00002af1-0000-1000-8000-00805f9b34fb"
+        name: "Write"
+        properties: ["write", "write_without_response"]
+        notes: >
+          Write channel for info/config commands and raster print data.
+          Third-party client 0xMH sends raster data in 200-byte chunks
+          with 20ms delay between chunks; the vendor app instead writes
+          20-byte packets (default, growing with the negotiated MTU)
+          paced by 0xFF03 credits on service 0xFF00
+          (l3/C0406f.java:56,241-284).
+
+      - uuid: "00002af0-0000-1000-8000-00805f9b34fb"
+        name: "Notify"
+        properties: ["notify"]
+        notes: >
+          Notification channel for responses. Subscribe before sending
+          commands. Responses are ASCII strings or binary status bytes.
+
+  - uuid: "e7810a71-73ae-499d-8c15-faa9aef0c3f2"
+    name: "Fichero UART Service (Alternate 1)"
+    characteristics:
+      - uuid: "bef8d6c9-9c21-4c9e-b632-bd58c1009f9f"
+        name: "Write/Notify"
+        properties: ["write", "notify"]
+
+  - uuid: "49535343-fe7d-4ae5-8fa9-9fafd205e455"
+    name: "Fichero UART Service (Alternate 2)"
+    notes: >
+      Microchip Transparent UART style service. The notify characteristic is
+      49535343-1e4d-4bd9-ba61-23c647249616 per both 0xMH's PROTOCOL.md and
+      atctwo's independent L13 hardware enumeration (an earlier revision of
+      this spec listed a ...4c8a-...-3b7e characteristic that neither source
+      has).
+    characteristics:
+      - uuid: "49535343-8841-43f4-a8d4-ecbe34729bb3"
+        name: "Write"
+        properties: ["write"]
+      - uuid: "49535343-1e4d-4bd9-ba61-23c647249616"
+        name: "Notify"
+        properties: ["notify"]
+      - uuid: "49535343-aca3-481c-91ec-d85e28a60318"
+        name: "Unknown"
+        properties: ["write", "notify"]
+        notes: "Present in both sources' enumerations; function unknown."
+
+entities:
+  - platform: "cover"
+    name: "Print Feed"
+    state_characteristic: "00002af0-0000-1000-8000-00805f9b34fb"
+  - platform: "sensor"
+    name: "Battery Level"
+    state_characteristic: "00002af0-0000-1000-8000-00805f9b34fb"

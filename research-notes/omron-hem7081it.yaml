@@ -1,0 +1,55 @@
+# Omron Continua BT Classic Models — Device Spec (research note)
+# Sources: Omron press release 2010-02-17, Theseus thesis device table
+# (SPP+HDP for 708-BT/BF206-BT), dabl index, SO#15591637
+
+device:
+  id: omron-hem7081it
+  name: Omron HEM-7081-IT (708-BT) BP monitor + HBF-206IT body composition monitor
+  manufacturer: Omron Healthcare (company active; products discontinued)
+  category: medical_sensor
+  safety_class: MEDIUM  # BP readings inform medication decisions
+  models:
+    - hem-7081-it   # BP monitor, export: 708-BT / HEM-7081-ITE
+    - hbf-206it     # body composition monitor, export: BF206-BT
+
+transport:
+  type: bluetooth_classic
+  profiles: [spp, hdp]
+  local_only: true
+  hdp:
+    note: >
+      Continua-certified Bluetooth HDP carrying IEEE 11073-20601 APDUs.
+      Agent-initiated: device connects out to a discoverable manager and
+      pushes readings after each measurement.
+    specializations:
+      blood_pressure: IEEE 11073-10407
+      body_composition: IEEE 11073-10416
+  spp:
+    uuid: "00001101-0000-1000-8000-00805f9b34fb"
+    note: >
+      SPP support listed for 708-BT/BF206-BT (Theseus thesis table).
+      Byte-level framing unconfirmed — may be raw 11073 APDUs or Omron
+      framing; needs SPP capture.
+
+protocol:
+  note: >
+    Standards-based 11073 data model on the HDP path. Community Omron
+    tooling (omblepy, hass-omron) covers BLE models only and does NOT
+    apply here.
+  expected_measurements:
+    - systolic_mmhg
+    - diastolic_mmhg
+    - pulse_rate_bpm
+    - body_weight_kg
+    - body_fat_percent
+
+cloud_status:
+  cloud_required: false  # predates OMRON connect cloud; local data path only
+
+status:
+  apk_acquired: false     # era companion apps delisted; package id unverified
+  apk_decompiled: false
+  uuids_recovered: false  # read SDP from device; SPP UUID standard
+  protocol_recovered: partial  # HDP/11073 path public; SPP framing TBD
+  hci_snoop_needed: true   # for SPP framing question
+  rating: hypothesis      # transport confirmed; SPP framing unverified
