@@ -883,7 +883,6 @@ class RealBleService implements BleService {
     _connectionGeneration[deviceId] = _generationOf(deviceId) + 1;
     _mtuUnknown.remove(deviceId);
     _expireNotifyShares(deviceId);
-    _recentNotifications.removeWhere((key, _) => key.startsWith('$deviceId|'));
     final device = BluetoothDevice.fromId(deviceId);
     try {
       await device.disconnect();
@@ -1292,15 +1291,24 @@ class RealBleService implements BleService {
           String deviceId, String serviceUuid, String charUuid) =>
       '$deviceId|${normalizeUuid(serviceUuid)}|${normalizeUuid(charUuid)}';
 
-  /// Detach every notify share for [deviceId], marking them dead.
+  /// Detach every notify share for [deviceId], marking them dead, and drop
+  /// what those shares buffered.
   ///
   /// Called when the device's link turns over (connect and disconnect both):
   /// CCCD state does not survive a connection, so surviving shares would let
   /// a subscriber from the previous link skip the enable on the new one — or
   /// a late cancel from the old link disable notifications under the new
   /// link's subscribers.
+  ///
+  /// The recent-notification rings are cleared HERE, with the shares that
+  /// filled them, because they have the same lifetime: [recentNotifications]
+  /// promises what was seen on THIS connection. Clearing only in disconnect()
+  /// missed the case that matters most — a dropped link, where nothing calls
+  /// disconnect() and the reconnect would hand the next link the previous
+  /// one's pushes.
   void _expireNotifyShares(String deviceId) {
     final prefix = '$deviceId|';
+    _recentNotifications.removeWhere((key, _) => key.startsWith(prefix));
     _notifyShares.removeWhere((key, share) {
       if (!key.startsWith(prefix)) return false;
       share.dead = true;

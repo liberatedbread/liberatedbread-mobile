@@ -1307,6 +1307,36 @@ void main() {
         isEmpty,
       );
     });
+
+    test('a dropped link does not carry its pushes into the reconnect',
+        () async {
+      // The buffer is per-connection, and a link the peripheral drops never
+      // reaches disconnect() — so the clear has to ride the same link-turnover
+      // path the notify shares do, or a reconnect starts holding the previous
+      // link's pushes as if the device had just sent them.
+      final bulb = ble.add(EmulatedPeripheral.bulb(id: _bulbId));
+      await service.connect(_bulbId);
+
+      final sub = service
+          .subscribeCharacteristic(
+              _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel)
+          .listen((_) {});
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      bulb.pushNotification(EmulatedUuids.batteryLevel, [84]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      bulb.dropLink();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await sub.cancel();
+
+      await service.connect(_bulbId);
+
+      expect(
+        service.recentNotifications(
+            _bulbId, EmulatedUuids.batteryService, EmulatedUuids.batteryLevel),
+        isEmpty,
+      );
+    });
   });
 
   group('link loss', () {
