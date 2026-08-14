@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -50,6 +51,19 @@ class SavedDesign {
   /// list. Empty/absent for a picture or text.
   final List<int> frameSlots;
 
+  /// For an `animation`: the RGB888 pixels of each frame (row-major,
+  /// `width*height*3` bytes), so replay can RE-UPLOAD the design. The device is
+  /// wiped of a design's frames whenever a later save scopes a new loop, so
+  /// addressing old cids alone would replay nothing — keeping the pixels lets
+  /// replay store them afresh. Empty/absent for designs saved before this field
+  /// existed (they fall back to cid-only replay).
+  final List<Uint8List> frames;
+
+  /// Canvas geometry + cadence for [frames], needed to re-encode them on replay.
+  final int width;
+  final int height;
+  final int frameMs;
+
   const SavedDesign({
     required this.name,
     required this.cid,
@@ -58,6 +72,10 @@ class SavedDesign {
     required this.savedAt,
     this.frameCids = const [],
     this.frameSlots = const [],
+    this.frames = const [],
+    this.width = 0,
+    this.height = 0,
+    this.frameMs = 0,
   });
 
   Map<String, dynamic> toJson() => {
@@ -68,6 +86,12 @@ class SavedDesign {
         'savedAt': savedAt.toIso8601String(),
         if (frameCids.isNotEmpty) 'frameCids': frameCids,
         if (frameSlots.isNotEmpty) 'frameSlots': frameSlots,
+        if (frames.isNotEmpty) ...{
+          'frames': [for (final f in frames) base64Encode(f)],
+          'width': width,
+          'height': height,
+          'frameMs': frameMs,
+        },
       };
 
   /// Returns null for records that can't be read, so one corrupt entry can't
@@ -90,6 +114,21 @@ class SavedDesign {
     final frameSlots = rawSlots is List
         ? rawSlots.whereType<int>().toList(growable: false)
         : const <int>[];
+    final rawPixels = json['frames'];
+    final frames = <Uint8List>[];
+    if (rawPixels is List) {
+      for (final f in rawPixels) {
+        if (f is String) {
+          try {
+            frames.add(base64Decode(f));
+          } on FormatException {
+            // A corrupt frame drops re-upload for this design; cid-replay stays.
+            frames.clear();
+            break;
+          }
+        }
+      }
+    }
     return SavedDesign(
       name: name,
       cid: cid,
@@ -98,6 +137,10 @@ class SavedDesign {
       savedAt: parsed ?? DateTime.fromMillisecondsSinceEpoch(0),
       frameCids: frameCids,
       frameSlots: frameSlots,
+      frames: frames,
+      width: json['width'] is int ? json['width'] as int : 0,
+      height: json['height'] is int ? json['height'] as int : 0,
+      frameMs: json['frameMs'] is int ? json['frameMs'] as int : 0,
     );
   }
 }
