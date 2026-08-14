@@ -252,6 +252,22 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   Timer? _previewTimer;
   bool _streaming = false;
 
+  /// While connected the curtain HOLDS one frame — it only autoruns the cycle
+  /// after disconnect. This timer drives the cycle in-app by stepping through
+  /// the loop's frames with `play_effect`, so the panel animates without the
+  /// user disconnecting. The device's own autorun (set up by [_startLoop]) is
+  /// what takes over once disconnected.
+  Timer? _deviceCycleTimer;
+  List<({int cid, int slot})> _deviceCycleFrames = const [];
+  int _deviceCycleIndex = 0;
+  bool _deviceCycleSending = false;
+  String _deviceCycleService = '';
+  String _deviceCycleChar = '';
+
+  /// Fastest the on-device cycle steps, regardless of the animation's rate — a
+  /// BLE round-trip at the curtain's 23-byte MTU cannot keep up much faster.
+  static const int _minDeviceCycleMs = 150;
+
   /// Incremented on every stream start/stop. The streaming loop captures its
   /// epoch and exits when it no longer matches, so a stop followed by a quick
   /// restart cannot revive the old loop off the shared boolean and leave two
@@ -477,9 +493,68 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   @override
   void dispose() {
     _previewTimer?.cancel();
+    _deviceCycleTimer?.cancel();
     _streaming = false;
     _streamEpoch++;
     super.dispose();
+  }
+
+  /// Drive the on-device cycle in-app: step [cids]/[slots] with `play_effect`
+  /// every [frameMs] (floored to [_minDeviceCycleMs]) so the panel animates
+  /// while connected. Fewer than two frames just stops any running cycle.
+  void _startDeviceCycle({
+    required List<int> cids,
+    required List<int> slots,
+    required int frameMs,
+    required String serviceUuid,
+    required String ddpChar,
+  }) {
+    _stopDeviceCycle();
+    if (cids.length < 2) return;
+    _deviceCycleFrames = [
+      for (var i = 0; i < cids.length; i++)
+        (cid: cids[i], slot: i < slots.length ? slots[i] : 0),
+    ];
+    _deviceCycleIndex = 0;
+    _deviceCycleService = serviceUuid;
+    _deviceCycleChar = ddpChar;
+    final ms = frameMs < _minDeviceCycleMs ? _minDeviceCycleMs : frameMs;
+    _deviceCycleTimer =
+        Timer.periodic(Duration(milliseconds: ms), (_) => _tickDeviceCycle());
+  }
+
+  void _stopDeviceCycle() {
+    _deviceCycleTimer?.cancel();
+    _deviceCycleTimer = null;
+    _deviceCycleFrames = const [];
+  }
+
+  /// Show the next loop frame with `play_effect`. Guarded so a slow BLE write
+  /// never lets two ticks overlap; a dropped frame is harmless.
+  Future<void> _tickDeviceCycle() async {
+    if (_deviceCycleSending || _deviceCycleFrames.isEmpty || !mounted) return;
+    _deviceCycleSending = true;
+    try {
+      final frame =
+          _deviceCycleFrames[_deviceCycleIndex % _deviceCycleFrames.length];
+      _deviceCycleIndex++;
+      final cmd = await ref.read(specCodecProvider).encodeCommand(
+        specYaml: widget.specYaml,
+        charUuid: _deviceCycleChar,
+        commandName: 'play_effect',
+        params: {
+          'effect_id': frame.cid.toDouble(),
+          'slot': frame.slot.toDouble(),
+          'sn': _nextSequence().toDouble(),
+        },
+      );
+      await ref.read(bleServiceProvider).writeCharacteristic(
+          widget.deviceId, _deviceCycleService, _deviceCycleChar, cmd);
+    } catch (_) {
+      // A dropped frame is harmless; the next tick tries again.
+    } finally {
+      _deviceCycleSending = false;
+    }
   }
 
   void _paintCell(Offset local, double cellSize) {
@@ -776,6 +851,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     // bumps it, so an old loop parked in an await exits at its next check
     // instead of being revived by the shared boolean and doubling the send
     // rate with interleaved fragments.
+    // A live stream takes over the panel — stop any in-app loop cycle first.
+    _stopDeviceCycle();
     final epoch = ++_streamEpoch;
     setState(() {
       _streaming = true;
@@ -1201,6 +1278,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
     required int height,
     required int baseCid,
     required String name,
+    required int frameMs,
     required String specYaml,
   }) async {
     final codec = ref.read(specCodecProvider);
@@ -1308,7 +1386,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 
     // Set up + start the loop on the device: set_playlist(save) → play_next
     // (the vendor's actual on-wire sequence; see _startLoop).
-    await _startLoop(frameCids, slots);
+    await _startLoop(frameCids, slots, frameMs);
     return (frameCids: frameCids, slots: slots, confirmed: confirmedCount);
   }
 
@@ -1329,6 +1407,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       height: height,
       baseCid: baseCid,
       name: options.name,
+      frameMs: _intervalMs,
       specYaml: specYaml,
     );
     await ref.read(savedDesignsStoreProvider).save(
@@ -1462,6 +1541,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         await _replayLoop(design);
         return;
       }
+      // A single design replaces any running loop cycle.
+      _stopDeviceCycle();
       final play = await ref.read(specCodecProvider).encodeStoredPlay(
             specYaml: widget.specYaml,
             cid: design.cid,
@@ -1515,6 +1596,7 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// fall back to addressing the stored cids (designs saved before pixels were
   /// kept — those still rely on the frames surviving on the device).
   Future<void> _relaunchLoop(SavedDesign design) async {
+    final frameMs = design.frameMs > 0 ? design.frameMs : _intervalMs;
     if (design.frames.isNotEmpty && design.width > 0 && design.height > 0) {
       await _uploadFramesAndLoop(
         frames: [for (final f in design.frames) f.toList()],
@@ -1522,10 +1604,11 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         height: design.height,
         baseCid: design.cid,
         name: design.name,
+        frameMs: frameMs,
         specYaml: widget.specYaml,
       );
     } else {
-      await _startLoop(design.frameCids, design.frameSlots);
+      await _startLoop(design.frameCids, design.frameSlots, frameMs);
     }
   }
 
@@ -1573,7 +1656,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   /// not part of the write path. The frame stills must already be on the
   /// device, and `slots` must be their device-assigned slots from
   /// M_EFFECT_LIST. Every command is logged with its bytes.
-  Future<void> _startLoop(List<int> frameCids, List<int> frameSlots) async {
+  Future<void> _startLoop(
+      List<int> frameCids, List<int> frameSlots, int frameMs) async {
     final codec = ref.read(specCodecProvider);
     // Old saves may lack per-frame slots; fall back to 0 (the device accepts
     // the set, though a wrong slot can stop it cycling).
@@ -1600,6 +1684,16 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
 
     await _sendFramedCommand(
         widget.specYaml, playlist.serviceUuid, ddpChar, 'play_next');
+
+    // set_playlist above is the DISCONNECT behaviour; drive the cycle in-app
+    // while connected so the panel animates without the user disconnecting.
+    _startDeviceCycle(
+      cids: frameCids,
+      slots: slots,
+      frameMs: frameMs,
+      serviceUuid: playlist.serviceUuid,
+      ddpChar: ddpChar,
+    );
   }
 
   /// Set the device's disconnect behaviour to THIS design: what it plays once
@@ -1621,6 +1715,8 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
         await _relaunchLoop(design);
         await _setAutorunMode(widget.specYaml, AutorunMode.repeat);
       } else {
+        // A single design replaces any running loop cycle.
+        _stopDeviceCycle();
         final play = await ref.read(specCodecProvider).encodeStoredPlay(
               specYaml: widget.specYaml,
               cid: design.cid,

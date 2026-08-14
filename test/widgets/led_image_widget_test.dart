@@ -467,6 +467,38 @@ void main() {
       expect(ble.writes, isNotEmpty);
     });
 
+    testWidgets('an animation cycles in-app with play_effect while connected',
+        (tester) async {
+      // The curtain holds one frame while connected, so the app steps the loop
+      // itself with play_effect — no disconnect needed to see it animate.
+      final codec = FakeSpecCodec();
+      final ble = FakeBleService();
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: _encodableSpec,
+          storedUpload: encodableStored,
+          specYaml: 'yaml',
+        ),
+        ble: ble,
+        codec: codec,
+      ));
+
+      await _scrollAndTap(tester, find.text('Animation'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.byTooltip('Add frame'));
+      await tester.pump();
+      await _scrollAndTap(tester, find.text('Save to device'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3)); // drain save + let it tick
+      expect(codec.encodeCalls.map((c) => c.commandName), contains('play_effect'),
+          reason: 'the in-app cycle steps frames with play_effect');
+      // Dispose the widget so the periodic timer is cancelled before teardown.
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+
     test('diyEffectCidsToClear keeps only diy==1 cids (scopes the loop)', () {
       // The device autoruns EVERY stored diy effect, so a scoped loop needs the
       // others removed first (hardware-verified 2026-08-12: clear diy → store →
