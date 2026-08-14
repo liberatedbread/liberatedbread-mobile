@@ -90,6 +90,16 @@ device:
   identification:
     mdns_service_type: "_rabbitair._udp.local."
     default_port: 9009
+    service_uuids:
+      # BLE provisioning candidates — verification: hypothesis. Both are
+      # strings found in the Rabbit Air 2 app binary (libapp.so); whether
+      # either is a GATT service or a characteristic, and whether the
+      # purifier advertises it while unprovisioned, is UNCONFIRMED without
+      # an HCI capture (see setup.methods[ble_provisioning]). A scanner must
+      # treat a match as "worth a closer look", never as identification on
+      # its own.
+      - "53ef7d7d-c244-42bd-9064-a1569a521ca9"
+      - "366048ae-9f36-43cf-8004-010c0c9fa52e"
     identity_keys:
       primary: "thing_id"
       secondary: "mac"
@@ -311,6 +321,24 @@ rabbit_air_protocol:
       id: "Echoes request id."
       data: "Result object (cmd 4 / cmd 9 / cmd 255)."
       error: "Present and truthy on failure — vendor client raises ProtocolError."
+  client_rendering:
+    # How a consumer turns one top-level `commands:` entry into a datagram.
+    description: >
+      A command's `body` carries only the STATIC envelope fields — `cmd`,
+      plus `data` when the command writes state. The renderer (dispatched on
+      protocol_handler "rabbit_air_lan") supplies the two runtime fields
+      itself: `id` (a fresh client nonce) and `ts` (the device-clock
+      timestamp, learned via the time_sync command and extrapolated from the
+      local clock — see handshake). It then serializes the envelope
+      {id, cmd, ts, data} as minified JSON in that field order (data last,
+      omitted when the body carries none), encrypts with AES-128-CBC under
+      the 16-byte user key using PKCS7 padding and a random 16-byte IV
+      APPENDED as the last 16 bytes (ciphertext || IV), and sends the result
+      as ONE datagram to UDP port 9009 on the device's IP. Responses arrive
+      as one datagram, decrypt the same way (IV = last 16 bytes), and are
+      matched to the request by `id`. `id` and `ts` must never appear in a
+      command body — they are per-send values, and a body that froze them
+      would replay one nonce and one stale timestamp forever.
   encryption:
     algorithm: "AES-128-CBC, PKCS7 padding"
     key: "The 16-byte user key (access token), hex-decoded from the 32-character string shown in the app."
@@ -418,53 +446,276 @@ rabbit_air_protocol:
     state_set_power_on_plaintext: '{"id":1234569,"cmd":4,"ts":1700000124,"data":{"power":true}}'
     wire_note: "On the wire each of these is AES-128-CBC(user_key) with PKCS7 padding and a random 16-byte IV appended after the ciphertext."
 
+# The invocations entities bind. Each is one Rabbit Air LAN message whose
+# `body` carries only the STATIC envelope fields (cmd, and `data` when the
+# command writes state) — the renderer wraps the body into the full
+# {id, cmd, ts, data} envelope, encrypts, and sends one datagram to UDP 9009
+# exactly as rabbit_air_protocol.client_rendering describes; that block stays
+# the byte-level reference. Bodies spell fields in envelope order (cmd first)
+# so an example_exchange plaintext is body + runtime id/ts, nothing else.
+commands:
+  get_state:
+    description: >
+      Poll the full purifier state: cmd 4 with no `data`. This is THE state
+      poll — every entity below reads its value out of this reply's `data`
+      object, and every state_mapping path is relative to that object's root
+      (`power` means reply data.power). Reply fields are all optional in
+      practice; the complete field table is rabbit_air_protocol.state_fields.
+    transport: "udp"
+    body: '{"cmd":4}'
+    example_body: '{"cmd":4}'
+    returns:
+      - name: "power"
+        type: "boolean"
+        description: "Purifier on/off. The Power switch reads this."
+      - name: "mode"
+        type: "integer"
+        description: "0 Auto / 1 Pollen / 2 Manual. The Mode select reads this."
+      - name: "speed"
+        type: "integer"
+        description: "0 SuperSilent (auto modes only, read-only) / 1 Silent / 2 Low / 3 Medium / 4 High / 5 Turbo. The Fan Speed number reads this."
+      - name: "quality"
+        type: "integer"
+        description: "Air quality 0-4 (Lowest/Low/Medium/High/Highest); BioGS (model 2) reports 1-5 — subtract 1. The Air Quality sensor reads this."
+      - name: "ionizer"
+        type: "boolean"
+        description: "Negative ion generator on/off. The Ionizer switch reads this."
+      - name: "lock"
+        type: "boolean"
+        description: "Child lock on/off. The Child Lock switch reads this."
+      - name: "filter_life"
+        type: "integer"
+        unit: "min"
+        description: "Remaining filter lifetime in minutes. The Filter Life sensor reads this."
+      - name: "filter_replacement"
+        type: "boolean"
+        description: "Filter replacement required flag."
+      - name: "rssi"
+        type: "integer"
+        unit: "dBm"
+        description: "Wi-Fi RSSI averaged over an hour. The Wi-Fi RSSI sensor reads this."
+      - name: "model"
+        type: "integer"
+        description: "1 MinusA2 / 2 BioGS / 3 A3 — needed to apply the BioGS quality offset."
+    verification: "reported"
+  time_sync:
+    description: >
+      Read the device clock: cmd 9, reply data.ts in seconds. Must precede
+      the first authenticated command — the renderer computes the clock
+      offset from this reply and stamps every later request's `ts` with the
+      extrapolated device time (see rabbit_air_protocol.handshake).
+    transport: "udp"
+    body: '{"cmd":9}'
+    example_body: '{"cmd":9}'
+    returns:
+      - name: "ts"
+        type: "integer"
+        unit: "s"
+        description: "Device clock, seconds."
+    verification: "reported"
+  get_info:
+    description: >
+      Device info: cmd 255. Reply data carries name (Thing ID), mac, mcu
+      (Wi-Fi firmware version), build (firmware build date), time, uptime
+      counters (uptime / mup / wup / iup / cup), fv (main-board firmware) and
+      rssi as a {cur,min,max,avg} object — note that is a different shape
+      from the hourly-averaged integer `rssi` in get_state.
+    transport: "udp"
+    body: '{"cmd":255}'
+    example_body: '{"cmd":255}'
+    returns:
+      - name: "name"
+        type: "string"
+        description: "Thing ID (the device's mDNS hostname)."
+      - name: "mac"
+        type: "string"
+        description: "Wi-Fi MAC address."
+      - name: "mcu"
+        type: "string"
+        description: "Wi-Fi board firmware version."
+      - name: "rssi"
+        type: "object"
+        description: "{cur,min,max,avg} Wi-Fi RSSI snapshot, dBm."
+    verification: "reported"
+  turn_on:
+    description: "Power the purifier on: cmd 4 with data {\"power\": true}."
+    transport: "udp"
+    body: '{"cmd":4,"data":{"power":true}}'
+    example_body: '{"cmd":4,"data":{"power":true}}'
+    verification: "reported"
+  turn_off:
+    description: "Power the purifier off: cmd 4 with data {\"power\": false}."
+    transport: "udp"
+    body: '{"cmd":4,"data":{"power":false}}'
+    example_body: '{"cmd":4,"data":{"power":false}}'
+    verification: "reported"
+  set_mode:
+    description: >
+      Set the operating mode: cmd 4 with data {"mode": N}. One caller
+      parameter — the mode the user picked.
+    transport: "udp"
+    body: '{"cmd":4,"data":{"mode":{mode}}}'
+    parameters:
+      mode:
+        type: "integer"
+        required: true
+        enum: [0, 1, 2]
+        values:
+          0: "auto"
+          1: "pollen"
+          2: "manual"
+        description: "0 Auto / 1 Pollen / 2 Manual (see rabbit_air_protocol.writable_state_fields.mode)."
+    example_body: '{"cmd":4,"data":{"mode":2}}'
+    example_notes: "Manual mode, built from mode=2 substituted into the body."
+    verification: "reported"
+  set_speed:
+    description: >
+      Set the manual fan speed: cmd 4 with data {"mode": 2, "speed": N}. The
+      body pins mode=2 deliberately — the vendor client treats a speed change
+      under Auto/Pollen as an implicit switch to Manual, and stating it makes
+      the write deterministic and leaves this command with the ONE caller
+      parameter a number control can fill.
+    transport: "udp"
+    body: '{"cmd":4,"data":{"mode":2,"speed":{speed}}}'
+    parameters:
+      speed:
+        type: "integer"
+        required: true
+        min: 1
+        max: 5
+        description: "1 Silent / 2 Low / 3 Medium / 4 High / 5 Turbo. 0 (SuperSilent) is read-only, reported by auto modes — not settable here."
+    example_body: '{"cmd":4,"data":{"mode":2,"speed":3}}'
+    example_notes: "Medium speed, built from speed=3 substituted into the body."
+    verification: "reported"
+  ionizer_on:
+    description: "Enable the negative ion generator: cmd 4 with data {\"ionizer\": true}."
+    transport: "udp"
+    body: '{"cmd":4,"data":{"ionizer":true}}'
+    example_body: '{"cmd":4,"data":{"ionizer":true}}'
+    verification: "reported"
+  ionizer_off:
+    description: "Disable the negative ion generator: cmd 4 with data {\"ionizer\": false}."
+    transport: "udp"
+    body: '{"cmd":4,"data":{"ionizer":false}}'
+    example_body: '{"cmd":4,"data":{"ionizer":false}}'
+    verification: "reported"
+  child_lock_on:
+    description: "Engage the child lock: cmd 4 with data {\"lock\": true}."
+    transport: "udp"
+    body: '{"cmd":4,"data":{"lock":true}}'
+    example_body: '{"cmd":4,"data":{"lock":true}}'
+    verification: "reported"
+  child_lock_off:
+    description: "Release the child lock: cmd 4 with data {\"lock\": false}."
+    transport: "udp"
+    body: '{"cmd":4,"data":{"lock":false}}'
+    example_body: '{"cmd":4,"data":{"lock":false}}'
+    verification: "reported"
+
+# The purifier's control surface, decomposed for the app. Every entity
+# polls get_state and reads its value out of the cmd-4 reply's `data`
+# object — state_mapping paths are RELATIVE TO THAT OBJECT'S ROOT, so
+# `value: "power"` means reply data.power (the reply's `id` envelope field
+# is matched to the request, not read as state). Boolean fields carry JSON
+# true/false, so they take no on_when/on_value — the value IS the on/off,
+# the same rule the Hue bridge's `state.on` follows.
+#
+# This is exactly the surface the vendor's Home Assistant core integration
+# draws — its one `fan` (preset modes + speed) is the Power switch plus the
+# Mode select plus the Fan Speed number here, and its sensors/switches map
+# one for one. The MinusA2 mood light (moodlight 0-4 with the 9-element
+# `color` palette — see rabbit_air_protocol.writable_state_fields) is
+# documented but deliberately NOT bound: setting the palette is a
+# multi-value write no consumer resolves today (the same reason the Hue
+# spec leaves set_color unbound), and an on/off-only light would hide the
+# palette's existence.
 entities:
-  - platform: "fan"
-    name: "Air Purifier"
-    features: ["preset_mode", "speed"]
-    state_topic: "udp://{host}:9009"
+  - platform: "switch"
+    name: "Power"
+    icon: "mdi:air-purifier"
+    state_command: "get_state"
+    state_mapping:
+      value: "power"
     commands:
-      turn_on: "state_set power=true"
-      turn_off: "state_set power=false"
-      set_preset_mode: "state_set mode (0 Auto / 1 Pollen / 2 Manual)"
-      set_speed: "state_set mode=2 + speed 1-5"
-    notes: "Exactly how the Home Assistant core integration maps it."
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+  - platform: "select"
+    name: "Mode"
+    state_command: "get_state"
+    state_mapping:
+      value: "mode"
+      options:
+        0: "Auto"
+        1: "Pollen"
+        2: "Manual"
+    commands:
+      select_option: "set_mode"
+  - platform: "number"
+    name: "Fan Speed"
+    icon: "mdi:fan"
+    min: 1
+    max: 5
+    step: 1
+    state_command: "get_state"
+    state_mapping:
+      value: "speed"
+    commands:
+      set_value: "set_speed"
+    notes: >
+      Manual-mode speeds 1-5 (Silent/Low/Medium/High/Turbo). A state of 0 —
+      SuperSilent, reported by the Auto/Pollen modes — is read-only and sits
+      below this control's minimum; display it as-is rather than clamping.
+      Setting a speed also sends mode=2 (see the set_speed command).
   - platform: "sensor"
     name: "Air Quality"
-    state_topic: "udp://{host}:9009"
-    state_field: "state.quality"
-    notes: "Enum lowest/low/medium/high/highest; BioGS offset quirk applies."
+    state_command: "get_state"
+    state_mapping:
+      value: "quality"
+      options:
+        0: "Lowest"
+        1: "Low"
+        2: "Medium"
+        3: "High"
+        4: "Highest"
+    notes: >
+      0-4. BioGS 2.0 units (model 2) report 1-5 and the vendor library
+      subtracts 1 — apply the same offset, keyed on the reply's `model`
+      field.
   - platform: "sensor"
     name: "Filter Life"
     device_class: "duration"
-    state_topic: "udp://{host}:9009"
-    state_field: "state.filter_life"
-    notes: "Minutes remaining; pair with filter_replacement flag."
+    unit: "min"
+    state_command: "get_state"
+    state_mapping:
+      value: "filter_life"
+    notes: >
+      Minutes remaining; pair with the filter_replacement flag in the same
+      reply, which is the actionable alert when life runs out.
   - platform: "sensor"
     name: "Wi-Fi RSSI"
     device_class: "signal_strength"
-    state_topic: "udp://{host}:9009"
-    state_field: "state.rssi"
+    unit: "dBm"
+    state_command: "get_state"
+    state_mapping:
+      value: "rssi"
+    notes: "Hourly average per the vendor state model; the get_info command returns a {cur,min,max,avg} snapshot instead."
   - platform: "switch"
     name: "Ionizer"
-    state_topic: "udp://{host}:9009"
+    state_command: "get_state"
+    state_mapping:
+      value: "ionizer"
     commands:
-      turn_on: "state_set ionizer=true"
-      turn_off: "state_set ionizer=false"
+      turn_on: "ionizer_on"
+      turn_off: "ionizer_off"
+    notes: "Negative ion generator."
   - platform: "switch"
     name: "Child Lock"
-    state_topic: "udp://{host}:9009"
+    state_command: "get_state"
+    state_mapping:
+      value: "lock"
     commands:
-      turn_on: "state_set lock=true"
-      turn_off: "state_set lock=false"
-  - platform: "light"
-    name: "Mood Light"
-    features: ["color"]
-    state_topic: "udp://{host}:9009"
-    commands:
-      turn_on: "state_set moodlight=1"
-      turn_off: "state_set moodlight=0"
-    notes: "MinusA2 only; palette via the 9-element color array."
+      turn_on: "child_lock_on"
+      turn_off: "child_lock_off"
 
 helpful_urls:
   - url: "https://github.com/rabbit-air/python-rabbitair"

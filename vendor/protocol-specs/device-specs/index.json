@@ -566,6 +566,16 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Johnson JLX LDM330 / LDM130 Laser Distance Meter (Winho OEM platform)",
+    "path": "device-specs/devices/jlx-laser-distance-meter.yaml",
+    "protocol": "ble",
+    "category": "sensor",
+    "manufacturer": "Johnson Level & Tool (Winho OEM)",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
     "name": "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)",
     "path": "device-specs/devices/kingsmith-walkingpad.yaml",
     "protocol": "ble",
