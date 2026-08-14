@@ -1225,7 +1225,7 @@ void main() {
     // Starts at the 16×16 guess, then snaps to the advertised 20×20 once the
     // async lookup returns.
     expect(find.byKey(const ValueKey('led-canvas-width-16')), findsOneWidget);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
     expect(find.byKey(const ValueKey('led-canvas-height-20')), findsOneWidget);
     // The advertised payload reached the codec.
@@ -1234,8 +1234,36 @@ void main() {
     });
   });
 
-  testWidgets('an empty advertisement leaves the canvas at the default',
+  testWidgets('a reconnect with no advertisement uses the cached resolution',
       (tester) async {
+    // Second source: nothing advertised, but a prior session cached the size.
+    await _prefs.setString('panel_res_AA:BB', '20x20');
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec();
+    await tester.pumpWidget(_wrap(
+      const LedImageWidget(
+        deviceId: 'AA:BB',
+        imageUpload: deviceReported,
+        specYaml: 'yaml',
+      ),
+      ble: FakeBleService(),
+      codec: codec,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
+    // The cache answered, so no BLE DeviceInfo query was needed.
+    expect(codec.deviceInfoResolutionCalls, 0);
+  });
+
+  testWidgets('with no advertisement or cache, DeviceInfo sizes the canvas',
+      (tester) async {
+    // Third source: query the device (mt=2103) and cache the answer.
     const deviceReported = ImageUploadDto(
       encodable: true,
       resolutionDeviceReported: true,
@@ -1244,21 +1272,58 @@ void main() {
       maxHeight: 255,
     );
     final codec = FakeSpecCodec()
-      ..advertisedResolutionResult =
+      ..storedResponseChar = 'notify'
+      ..deviceInfoResolutionResult =
           const PanelResolutionDto(width: 20, height: 20);
+    // The query waits a real ~2.5s to collect the device's push, so drive it
+    // under runAsync (real timers) rather than the fake test clock.
+    await tester.runAsync(() async {
+      await tester.pumpWidget(_wrap(
+        const LedImageWidget(
+          deviceId: 'AA:BB',
+          imageUpload: deviceReported,
+          storedUpload:
+              StoredUploadDto(containerFormat: 'daniao_amx', encodable: true),
+          specYaml: 'yaml',
+        ),
+        ble: FakeBleService(),
+        codec: codec,
+      ));
+      // Let the post-frame lookup fire and its collection window elapse.
+      await Future<void>.delayed(const Duration(seconds: 3));
+    });
+    await tester.pump(); // rebuild after the resize
+
+    expect(codec.deviceInfoResolutionCalls, 1);
+    expect(find.byKey(const ValueKey('led-canvas-width-20')), findsOneWidget);
+    // And it was cached for next time.
+    expect(_prefs.getString('panel_res_AA:BB'), '20x20');
+  });
+
+  testWidgets('an empty advertisement with no storage leaves the default',
+      (tester) async {
+    const deviceReported = ImageUploadDto(
+      encodable: true,
+      resolutionDeviceReported: true,
+      animation: true,
+      maxWidth: 255,
+      maxHeight: 255,
+    );
+    final codec = FakeSpecCodec();
     await tester.pumpWidget(_wrap(
       const LedImageWidget(
         deviceId: 'AA:BB',
         imageUpload: deviceReported,
         specYaml: 'yaml',
-        // No advertisement captured (e.g. reconnect): no lookup, stays default.
+        // No advertisement, no storedUpload -> no source; stays at the default.
       ),
       ble: FakeBleService(),
       codec: codec,
     ));
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('led-canvas-width-16')), findsOneWidget);
     expect(codec.advertisedResolutionArg, isNull);
+    expect(codec.deviceInfoResolutionCalls, 0);
   });
 
   testWidgets('switching to Static stops a running preview', (tester) async {

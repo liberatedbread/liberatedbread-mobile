@@ -29,6 +29,20 @@ Future<PanelResolutionDto?> advertisedResolution(
     RustLib.instance.api.crateApiDeviceApiAdvertisedResolution(
         specYaml: specYaml, manufacturerData: manufacturerData);
 
+/// Resolve a panel's REAL width/height from its M_DEVICE_INFO_NOTIFY push
+/// (mt=2103) — the second source, used when the advertisement is not on hand
+/// (a reconnect with no fresh scan). `notifications` is the raw notify events
+/// collected in a short window off the DDP notify characteristic; they are
+/// reassembled (a ~130-byte DeviceInfo spans ~9 notifications at a 23-byte MTU)
+/// and searched for the DeviceInfo frame, whose protobuf field 8 is width and
+/// field 9 is height. Also tries each notification whole, in case a higher MTU
+/// delivered it unfragmented. `None` when no DeviceInfo is present or a value is
+/// out of the 1..=255 u8 range.
+Future<PanelResolutionDto?> deviceInfoResolution(
+        {required List<Uint8List> notifications}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiDeviceInfoResolution(notifications: notifications);
+
 /// Parse a device spec from a YAML string and return a DTO.
 Future<DeviceSpecDto> loadDeviceSpec({required String yaml}) =>
     RustLib.instance.api.crateApiDeviceApiLoadDeviceSpec(yaml: yaml);

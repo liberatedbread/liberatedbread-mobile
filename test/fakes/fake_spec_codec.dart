@@ -315,6 +315,23 @@ class FakeSpecCodec implements SpecCodec {
     return advertisedResolutionResult;
   }
 
+  /// The resolution [deviceInfoResolution] returns — a test sets it to simulate
+  /// a device whose DeviceInfo push carried a size. Null (default) means the
+  /// query found none.
+  PanelResolutionDto? deviceInfoResolutionResult;
+
+  /// How many times [deviceInfoResolution] was called (i.e. a DeviceInfo query
+  /// actually ran — should stay 0 when the advertisement or cache answered).
+  int deviceInfoResolutionCalls = 0;
+
+  @override
+  Future<PanelResolutionDto?> deviceInfoResolution({
+    required List<List<int>> notifications,
+  }) async {
+    deviceInfoResolutionCalls++;
+    return deviceInfoResolutionResult;
+  }
+
   @override
   Future<List<NetworkEntityDto>> networkEntitiesForDevice({
     required String specYaml,
@@ -862,6 +879,12 @@ class FakeSpecCodec implements SpecCodec {
             characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [9])),
       );
 
+  /// When set, [_defaultStoredPlan] carries this as its response characteristic
+  /// so the widget can subscribe to the notify channel (needed to exercise the
+  /// DeviceInfo-query path). Null keeps the default no-notify behaviour so
+  /// existing tests are unaffected.
+  String? storedResponseChar;
+
   StoredUploadPlanDto _defaultStoredPlan(int cid, List<int> body) =>
       StoredUploadPlanDto(
         serviceUuid: 'srv',
@@ -871,6 +894,7 @@ class FakeSpecCodec implements SpecCodec {
         ],
         playWrite: ImageWriteDto(
             characteristicUuid: 'ddp', bytes: Uint8List.fromList(const [1])),
+        responseCharacteristicUuid: storedResponseChar,
         cid: cid,
       );
 }

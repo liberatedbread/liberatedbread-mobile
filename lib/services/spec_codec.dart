@@ -171,6 +171,16 @@ abstract class SpecCodec {
     required Map<int, List<int>> manufacturerData,
   });
 
+  /// The device's REAL panel resolution decoded from its M_DEVICE_INFO_NOTIFY
+  /// push (mt=2103) — the source used on a reconnect that carries no
+  /// advertisement. [notifications] are raw notify events collected off the DDP
+  /// notify characteristic in a short window; the core reassembles them (the
+  /// message spans several notifications at a low MTU) and reads its
+  /// width/height fields. Null when none carried a DeviceInfo.
+  Future<PanelResolutionDto?> deviceInfoResolution({
+    required List<List<int>> notifications,
+  });
+
   /// The controls a spec declares for one discovered network device — the
   /// SOAP counterpart of a BLE spec's entities.
   ///
