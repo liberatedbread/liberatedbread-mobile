@@ -111,7 +111,8 @@ void main() {
           .asBroadcastStream();
       final notifySub = notify.listen((_) {});
 
-      Future<void> write(String label, String svc, String chr, List<int> b) async {
+      Future<void> write(
+          String label, String svc, String chr, List<int> b) async {
         // ignore: avoid_print
         print('>> $label -> ${_hex(b)}');
         await ble.writeCharacteristic(deviceId, svc, chr, b);
@@ -123,8 +124,8 @@ void main() {
         // autoruns EVERY stored diy effect).
         final inv = <int, int>{}; // cid -> diy
         final invSub = notify.listen((bytes) async {
-          for (final e
-              in await codec.decodeEffectList(specYaml: specYaml, bytes: bytes)) {
+          for (final e in await codec.decodeEffectList(
+              specYaml: specYaml, bytes: bytes)) {
             inv[e.cid] = e.diy;
           }
         });
@@ -205,7 +206,9 @@ void main() {
         await elDone.cancel();
         final slots = [for (final c in cids) slotByCid[c] ?? 0];
         // ignore: avoid_print
-        print('SLOTS ${[for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'].join(', ')}');
+        print('SLOTS ${[
+          for (var i = 0; i < cids.length; i++) '${cids[i]}->${slots[i]}'
+        ].join(', ')}');
 
         // === The vendor's ACTUAL playlist setup: save → play_next ===
         final pl = await codec.encodeSetPlaylist(

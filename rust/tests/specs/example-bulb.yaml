@@ -7,6 +7,11 @@ device:
   name: "Example Smart Bulb"
   manufacturer: "Acme Corp"
   manufacturer_status: "abandoned"  # abandoned | shutdown | unsupported
+  testing:
+    status: untested  # untested | verified; has THIS PROJECT driven hardware from this spec?
+    # Optional detail: capture-verified (with untested); minimally-verified |
+    # mostly-verified (with verified). Anything above bare untested needs
+    # `notes` naming the evidence.
   protocol: "ble"
   category: "light"
   notes: "This is an example spec for documentation purposes."

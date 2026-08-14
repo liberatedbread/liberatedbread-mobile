@@ -172,7 +172,8 @@ void main() {
             params: {'sn': nextSeq().toDouble()});
         await ble.writeCharacteristic(deviceId, _ddpService, _ddpWrite, pn);
         // ignore: avoid_print
-        print('PLAYLIST_SET+PLAY_NEXT at ${DateTime.now().millisecondsSinceEpoch} '
+        print(
+            'PLAYLIST_SET+PLAY_NEXT at ${DateTime.now().millisecondsSinceEpoch} '
             '— WATCH THE PANEL NOW for red/green/blue');
 
         // Hold ~15s connected so it can be watched cycling before disconnect.

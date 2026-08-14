@@ -144,14 +144,15 @@ void main() {
             .timeout(const Duration(seconds: 25));
 
         for (final write in plan.uploadWrites) {
-          await ble.writeCharacteristic(
-              deviceId, plan.serviceUuid, write.characteristicUuid, write.bytes);
+          await ble.writeCharacteristic(deviceId, plan.serviceUuid,
+              write.characteristicUuid, write.bytes);
         }
         final verdict = await verdictF;
         // ignore: avoid_print
         print('ANIMATION verdict: ${verdict.kind} (code ${verdict.code})');
         expect(verdict.kind, StoredUploadEventKind.complete,
-            reason: 'the curtain must commit the animation (code ${verdict.code})');
+            reason:
+                'the curtain must commit the animation (code ${verdict.code})');
 
         // Vendor's refresh-then-show, then play.
         await sendCommand('effect_list');
@@ -168,7 +169,8 @@ void main() {
           final replay = await codec.encodeStoredPlay(
               specYaml: specYaml, cid: cid, sequence: nextSeq());
           // ignore: avoid_print
-          print('REPLAY $i -> ${replay.write.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
+          print(
+              'REPLAY $i -> ${replay.write.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}');
           await ble.writeCharacteristic(deviceId, replay.serviceUuid,
               replay.write.characteristicUuid, replay.write.bytes);
           await Future<void>.delayed(const Duration(seconds: 3));

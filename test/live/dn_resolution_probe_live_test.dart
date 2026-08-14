@@ -54,7 +54,8 @@ void main() {
           .timeout(const Duration(seconds: 120));
       await ble.stopScan();
       // ignore: avoid_print
-      print('scanned mfd: ${device.manufacturerData.map((k, v) => MapEntry('0x${k.toRadixString(16)}', _hex(v)))}');
+      print(
+          'scanned mfd: ${device.manufacturerData.map((k, v) => MapEntry('0x${k.toRadixString(16)}', _hex(v)))}');
       final adv = await codec.advertisedResolution(
           specYaml: specYaml, manufacturerData: device.manufacturerData);
       // ignore: avoid_print
@@ -86,8 +87,7 @@ void main() {
         // ignore: avoid_print
         print('  len=${n.length} ${_hex(n)}');
       }
-      final info =
-          await codec.deviceInfoResolution(notifications: collected);
+      final info = await codec.deviceInfoResolution(notifications: collected);
       // ignore: avoid_print
       print(info == null
           ? '!! DEVICE INFO did NOT resolve'
