@@ -12,6 +12,7 @@ import '../core/error_text.dart';
 import '../core/log.dart';
 import '../providers/ble_provider.dart';
 import '../providers/command_sequence_provider.dart';
+import '../providers/panel_resolution_cache_provider.dart';
 import '../providers/saved_designs_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/saved_designs_store.dart';
@@ -301,33 +302,120 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
   void initState() {
     super.initState();
     _applySpecDefaults();
-    unawaited(_applyReportedResolution());
+    // After the first frame, not during it: the lookup reads/writes providers
+    // and calls setState, none of which is allowed mid-build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _applyReportedResolution();
+    });
   }
 
-  /// Snap the canvas to the device's ADVERTISED resolution, when it reports one.
+  /// Snap the canvas to the device's REAL resolution, when we can learn it.
   ///
   /// A `device_reported` panel starts at a guessed default (see
-  /// [_applySpecDefaults]); if its advertisement carried the real width/height
-  /// (per the spec's `resolution_advertisement`), resize to that so a drawing
-  /// covers EVERY strand — a 16×16 canvas on a 20×20 curtain leaves the outer
-  /// strands unwritten. Runs async off the codec and only resizes while the
-  /// canvas is still the untouched default, so it never discards user edits.
+  /// [_applySpecDefaults]); a 16×16 canvas on a 20×20 curtain leaves the outer
+  /// strands unwritten. Three sources, in order of how cheap/fresh they are:
+  ///   1. the ADVERTISEMENT (present on the scan→connect path);
+  ///   2. the persistent per-device CACHE (a reconnect with no advertisement);
+  ///   3. a DeviceInfo QUERY over BLE (never scanned on this install).
+  /// A live answer (1 or 3) is written to the cache for next time. Runs async
+  /// and only resizes while the canvas is still the untouched default, so it
+  /// never discards user edits.
   Future<void> _applyReportedResolution() async {
-    if (!_spec.resolutionDeviceReported || widget.manufacturerData.isEmpty) {
-      return;
-    }
+    if (!_spec.resolutionDeviceReported || !mounted) return;
     final defaultW = initialCanvasSize(_spec.maxWidth);
     final defaultH = initialCanvasSize(_spec.maxHeight);
-    final res = await ref.read(specCodecProvider).advertisedResolution(
-          specYaml: widget.specYaml,
-          manufacturerData: widget.manufacturerData,
-        );
+    final codec = ref.read(specCodecProvider);
+    final cache = ref.read(panelResolutionCacheProvider);
+
+    ({int width, int height})? res;
+    var fromLiveSource = false;
+
+    // 1. Advertisement.
+    if (widget.manufacturerData.isNotEmpty) {
+      final adv = await codec.advertisedResolution(
+        specYaml: widget.specYaml,
+        manufacturerData: widget.manufacturerData,
+      );
+      if (adv != null) {
+        res = (width: adv.width, height: adv.height);
+        fromLiveSource = true;
+      }
+    }
+    // 2. Persistent cache.
+    res ??= cache.get(widget.deviceId);
+    // 3. DeviceInfo query over BLE.
+    if (res == null) {
+      final info = await _queryDeviceInfoResolution();
+      if (info != null) {
+        res = info;
+        fromLiveSource = true;
+      }
+    }
     if (res == null || !mounted) return;
+
+    if (fromLiveSource) {
+      await cache.set(widget.deviceId, res.width, res.height);
+    }
     final untouched = _width == defaultW &&
         _height == defaultH &&
         _frames.length == 1 &&
         _frames.first.every((b) => b == 0);
-    if (untouched) _resizeCanvas(width: res.width, height: res.height);
+    if (mounted && untouched) {
+      _resizeCanvas(width: res.width, height: res.height);
+    }
+  }
+
+  /// Ask the device for its resolution via M_DEVICE_INFO_NOTIFY: subscribe to
+  /// the DDP notify channel, poke it with `get_running_status` (the device also
+  /// pushes DeviceInfo on connect, but that may already have passed), collect
+  /// the notifications for a moment, and let the core reassemble + decode them.
+  /// Needs the device-side STORAGE capability (that is where the DDP command +
+  /// notify characteristics are named); returns null for panels without it, or
+  /// when nothing decodable arrived.
+  Future<({int width, int height})?> _queryDeviceInfoResolution() async {
+    if (widget.storedUpload == null) return null;
+    final codec = ref.read(specCodecProvider);
+    final ble = ref.read(bleServiceProvider);
+    // A no-BLE encode of the blank default canvas, purely to learn the DDP
+    // service + notify + write characteristics from the spec.
+    final probe = await codec.encodeStoredImage(
+      specYaml: widget.specYaml,
+      width: _width,
+      height: _height,
+      rgb: Uint8List(_width * _height * 3),
+      name: 'probe',
+      cid: 1,
+      timeSecs: 1,
+      scroll: 'none',
+      speed: 5,
+      sequence: _nextSequence(),
+    );
+    final notifyChar = probe.responseCharacteristicUuid;
+    final writeChar = probe.playWrite?.characteristicUuid;
+    if (notifyChar == null || writeChar == null) return null;
+
+    final collected = <List<int>>[];
+    final sub = ble
+        .subscribeCharacteristic(widget.deviceId, probe.serviceUuid, notifyChar)
+        .listen(collected.add);
+    try {
+      final cmd = await codec.encodeCommand(
+        specYaml: widget.specYaml,
+        charUuid: writeChar,
+        commandName: 'get_running_status',
+        params: {'sn': _nextSequence().toDouble()},
+      );
+      await ble.writeCharacteristic(
+          widget.deviceId, probe.serviceUuid, writeChar, cmd);
+      await Future<void>.delayed(const Duration(milliseconds: 2500));
+    } catch (_) {
+      // A device that does not answer just leaves the canvas at its default.
+    } finally {
+      await sub.cancel();
+    }
+    final info =
+        await codec.deviceInfoResolution(notifications: collected);
+    return info == null ? null : (width: info.width, height: info.height);
   }
 
   /// Derive the canvas from the spec, discarding whatever was on it.
@@ -381,7 +469,9 @@ class _LedImageWidgetState extends ConsumerState<LedImageWidget>
       _error = null;
       _applySpecDefaults();
     });
-    unawaited(_applyReportedResolution());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _applyReportedResolution();
+    });
   }
 
   @override
