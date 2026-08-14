@@ -459,9 +459,9 @@ pub fn encode_command_with_bytes(
                 // A `bytes` template param (an opaque payload a Rust builder
                 // produced) is appended verbatim — it has no numeric coercion.
                 if matches!(def.map(|d| &d.value_type), Some(ValueType::Bytes)) {
-                    let payload = bytes_params.get(name.as_str()).ok_or_else(|| {
-                        ProtocolError::ParameterMissing(name.clone())
-                    })?;
+                    let payload = bytes_params
+                        .get(name.as_str())
+                        .ok_or_else(|| ProtocolError::ParameterMissing(name.clone()))?;
                     bytes.extend_from_slice(payload);
                     continue;
                 }

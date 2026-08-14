@@ -599,16 +599,16 @@ services:
         // One M_EFFECT_LIST notification carrying the capture's E-33 entry:
         // {slot: 33, type: 1, index: 33, cid: 79009 (a1 e9 04), name "E-33"}.
         let hex = concat!(
-            "00010000", // frag [serial,total,remaining,tag]
-            "f101",     // inbound DNX flag
-            "0001",     // sn
-            "0000",     // len (unused by the parser)
-            "0b58",     // mt = M_EFFECT_LIST
+            "00010000",                 // frag [serial,total,remaining,tag]
+            "f101",                     // inbound DNX flag
+            "0001",                     // sn
+            "0000",                     // len (unused by the parser)
+            "0b58",                     // mt = M_EFFECT_LIST
             "000000000000000000000000", // 12-byte extended header
-            "0a12082110011821", // entry: len 18, slot 33, type 1, index 33
-            "20a1e904",         // cid 79009
-            "3204452d3333",     // name "E-33"
-            "3801",             // trailing field
+            "0a12082110011821",         // entry: len 18, slot 33, type 1, index 33
+            "20a1e904",                 // cid 79009
+            "3204452d3333",             // name "E-33"
+            "3801",                     // trailing field
         );
         let bytes: Vec<u8> = (0..hex.len())
             .step_by(2)

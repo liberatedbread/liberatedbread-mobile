@@ -127,7 +127,15 @@ pub fn encode_stored_image(
     let feature = require_stored_feature(spec)?;
     let container = daniao_store::build_image_container(program)?;
     let file_type = feature.file_type.unwrap_or(3);
-    assemble_plan(spec, feature, &container, program.cid, file_type, None, sequence)
+    assemble_plan(
+        spec,
+        feature,
+        &container,
+        program.cid,
+        file_type,
+        None,
+        sequence,
+    )
 }
 
 /// Store a scrolling-text marquee ("DN" AMX text layer, same `file_type` as an
@@ -140,7 +148,15 @@ pub fn encode_stored_text(
     let feature = require_stored_feature(spec)?;
     let container = daniao_store::build_text_container(program)?;
     let file_type = feature.file_type.unwrap_or(3);
-    assemble_plan(spec, feature, &container, program.cid, file_type, None, sequence)
+    assemble_plan(
+        spec,
+        feature,
+        &container,
+        program.cid,
+        file_type,
+        None,
+        sequence,
+    )
 }
 
 /// Store a multi-frame animation (raw "DNMX" `.eff`).
@@ -157,7 +173,15 @@ pub fn encode_stored_animation(
     let feature = require_stored_feature(spec)?;
     let container = daniao_store::build_animation_container(anim)?;
     let path = format!("{}.eff", anim.cid);
-    assemble_plan(spec, feature, &container, anim.cid, 0, Some(&path), sequence)
+    assemble_plan(
+        spec,
+        feature,
+        &container,
+        anim.cid,
+        0,
+        Some(&path),
+        sequence,
+    )
 }
 
 /// Validate that `spec` declares a `stored_upload` feature whose
@@ -322,11 +346,12 @@ pub fn encode_set_playlist(
         HashMap::from([("payload".to_string(), payload)]),
         sequence,
     )?;
-    let service = service_for_characteristic(spec, &set_pl.characteristic_uuid).ok_or_else(|| {
-        ProtocolError::ImageUploadUnsupported {
-            reason: "the set_playlist characteristic belongs to no service".to_string(),
-        }
-    })?;
+    let service =
+        service_for_characteristic(spec, &set_pl.characteristic_uuid).ok_or_else(|| {
+            ProtocolError::ImageUploadUnsupported {
+                reason: "the set_playlist characteristic belongs to no service".to_string(),
+            }
+        })?;
     Ok((service, vec![set_pl]))
 }
 
@@ -743,10 +768,22 @@ services:
         // The 4-effect playlist from smartdawn_longer2.pcapng: cids 14221..14218
         // at slots 8..5. Byte-for-byte the payload the app sent.
         let items = [
-            PlaylistItem { cid: 14221, slot: 8 },
-            PlaylistItem { cid: 14220, slot: 7 },
-            PlaylistItem { cid: 14219, slot: 6 },
-            PlaylistItem { cid: 14218, slot: 5 },
+            PlaylistItem {
+                cid: 14221,
+                slot: 8,
+            },
+            PlaylistItem {
+                cid: 14220,
+                slot: 7,
+            },
+            PlaylistItem {
+                cid: 14219,
+                slot: 6,
+            },
+            PlaylistItem {
+                cid: 14218,
+                slot: 5,
+            },
         ];
         let payload = build_playlist_payload(&items);
         let hex: String = payload.iter().map(|b| format!("{b:02x}")).collect();
@@ -761,8 +798,14 @@ services:
         let (service, writes) = encode_set_playlist(
             &spec(),
             &[
-                PlaylistItem { cid: 900001, slot: 0 },
-                PlaylistItem { cid: 900002, slot: 0 },
+                PlaylistItem {
+                    cid: 900001,
+                    slot: 0,
+                },
+                PlaylistItem {
+                    cid: 900002,
+                    slot: 0,
+                },
             ],
             5,
         )
@@ -773,7 +816,10 @@ services:
         assert_eq!(writes.len(), 1, "just M_BOOKMARK_SAVE");
         let w = &writes[0];
         assert_eq!(w.bytes[0], 5, "fragment serial carries the sequence");
-        assert_eq!(w.characteristic_uuid, "01020074-1972-1925-3022-077119514e44");
+        assert_eq!(
+            w.characteristic_uuid,
+            "01020074-1972-1925-3022-077119514e44"
+        );
         assert_eq!(w.bytes[4], 0xF0, "DNX flag after the 4-byte frag header");
         // set_playlist mt = 0A 42 (M_BOOKMARK_SAVE) at whole-packet offset 10.
         assert_eq!(&w.bytes[10..12], &[0x0A, 0x42]);
@@ -786,11 +832,19 @@ services:
         assert_eq!(service, "00000074-1972-1925-3022-077119514e44");
         assert_eq!(en.bytes[0], 7, "fragment serial carries the sequence");
         assert_eq!(&en.bytes[10..12], &[0x0A, 0x3F], "mt = M_BOOKMARK_ENABLE");
-        assert_eq!(&en.bytes[en.bytes.len() - 2..], &[0x08, 0x00], "i1=0 payload");
+        assert_eq!(
+            &en.bytes[en.bytes.len() - 2..],
+            &[0x08, 0x00],
+            "i1=0 payload"
+        );
         // bookmark_clear {i1: listId} -> mt 0A 41
         let (_s, cl) = encode_bookmark_clear(&spec(), 0, 8).unwrap();
         assert_eq!(&cl.bytes[10..12], &[0x0A, 0x41], "mt = M_BOOKMARK_CLEAR");
-        assert_eq!(&cl.bytes[cl.bytes.len() - 2..], &[0x08, 0x00], "i1=0 payload");
+        assert_eq!(
+            &cl.bytes[cl.bytes.len() - 2..],
+            &[0x08, 0x00],
+            "i1=0 payload"
+        );
     }
 
     #[test]

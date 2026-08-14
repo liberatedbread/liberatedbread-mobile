@@ -24,7 +24,11 @@ fn spec_yaml() -> String {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join("")
+    bytes
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 /// Extract varint protobuf field 3 (the UploadRequest `size` field) from a
@@ -93,9 +97,17 @@ fn dump_stored_picture_and_animation() {
         "container size (UploadRequest.size, field 3): {:?}",
         upload_request_size(&pic.upload_writes[0].bytes)
     );
-    println!("START  (write 0) len={} hex={}", pic.upload_writes[0].bytes.len(), hex(&pic.upload_writes[0].bytes));
+    println!(
+        "START  (write 0) len={} hex={}",
+        pic.upload_writes[0].bytes.len(),
+        hex(&pic.upload_writes[0].bytes)
+    );
     if pic.upload_writes.len() > 1 {
-        println!("DATA#1 (write 1) len={} hex={}", pic.upload_writes[1].bytes.len(), hex(&pic.upload_writes[1].bytes));
+        println!(
+            "DATA#1 (write 1) len={} hex={}",
+            pic.upload_writes[1].bytes.len(),
+            hex(&pic.upload_writes[1].bytes)
+        );
     }
 
     // ── Stored ANIMATION: 2x2 three frames red/green/blue, cid 905001, 500ms ──
@@ -122,9 +134,17 @@ fn dump_stored_picture_and_animation() {
         "container size (UploadRequest.size, field 3): {:?}",
         upload_request_size(&anim.upload_writes[0].bytes)
     );
-    println!("START  (write 0) len={} hex={}", anim.upload_writes[0].bytes.len(), hex(&anim.upload_writes[0].bytes));
+    println!(
+        "START  (write 0) len={} hex={}",
+        anim.upload_writes[0].bytes.len(),
+        hex(&anim.upload_writes[0].bytes)
+    );
     if anim.upload_writes.len() > 1 {
-        println!("DATA#1 (write 1) len={} hex={}", anim.upload_writes[1].bytes.len(), hex(&anim.upload_writes[1].bytes));
+        println!(
+            "DATA#1 (write 1) len={} hex={}",
+            anim.upload_writes[1].bytes.len(),
+            hex(&anim.upload_writes[1].bytes)
+        );
     }
 
     // Reassemble the animation container from the DATA payloads (each DATA
@@ -135,10 +155,19 @@ fn dump_stored_picture_and_animation() {
         container.extend_from_slice(&w.bytes[8..]);
     }
     println!("reassembled animation container len: {}", container.len());
-    println!("container[0..64] hex: {}", hex(&container[0..64.min(container.len())]));
-    println!("DNMX magic bytes[0..4]: {:?}", std::str::from_utf8(&container[0..4]));
+    println!(
+        "container[0..64] hex: {}",
+        hex(&container[0..64.min(container.len())])
+    );
+    println!(
+        "DNMX magic bytes[0..4]: {:?}",
+        std::str::from_utf8(&container[0..4])
+    );
     if container.len() >= 4096 + 4 {
-        println!("block1 magic bytes[4096..4100]: {:?}", std::str::from_utf8(&container[4096..4100]));
+        println!(
+            "block1 magic bytes[4096..4100]: {:?}",
+            std::str::from_utf8(&container[4096..4100])
+        );
     }
 }
 
@@ -146,8 +175,14 @@ fn dump_stored_picture_and_animation() {
 /// the returned bytes: [frag:4][F0 04][sn:2][len:2][mt:2][ddp-header:12][pb...].
 /// Returns (len_field, mt, ddp_header, payload_hex).
 fn dissect(bytes: &[u8]) -> (u16, [u8; 2], Vec<u8>, String) {
-    assert_eq!(bytes[4], 0xF0, "F0 04 marker after the 4-byte fragment header");
-    assert_eq!(bytes[5], 0x04, "F0 04 marker after the 4-byte fragment header");
+    assert_eq!(
+        bytes[4], 0xF0,
+        "F0 04 marker after the 4-byte fragment header"
+    );
+    assert_eq!(
+        bytes[5], 0x04,
+        "F0 04 marker after the 4-byte fragment header"
+    );
     let len = ((bytes[8] as u16) << 8) | bytes[9] as u16;
     let mt = [bytes[10], bytes[11]];
     let header = bytes[12..24].to_vec();
@@ -176,10 +211,12 @@ fn real_spec_matches_the_captures_byte_for_byte() {
     let (len, mt, header, payload) = dissect(&pl.writes[0].bytes);
     assert_eq!(mt, [0x0A, 0x42], "mt = M_BOOKMARK_SAVE");
     assert_eq!(len, 0, "vendor sends len=0 (was packet_length)");
-    assert_eq!(header, [0u8; 12], "vendor sends a 12-byte all-zero DDP header");
     assert_eq!(
-        payload,
-        "0800100422070800108d6f180822070800108c6f180722070800108b6f180622070800108a6f1805",
+        header, [0u8; 12],
+        "vendor sends a 12-byte all-zero DDP header"
+    );
+    assert_eq!(
+        payload, "0800100422070800108d6f180822070800108c6f180722070800108b6f180622070800108a6f1805",
         "playlist payload byte-matches longer2 frame 5977"
     );
 
@@ -231,8 +268,16 @@ fn solid_stills_are_byte_uniform_across_colours() {
     };
     let container = |rgb: Vec<u8>| {
         let p = encode_stored_image(
-            yaml.clone(), 20, 20, rgb, "solid".to_string(), 900100, 5,
-            "none".to_string(), 0, 0,
+            yaml.clone(),
+            20,
+            20,
+            rgb,
+            "solid".to_string(),
+            900100,
+            5,
+            "none".to_string(),
+            0,
+            0,
         )
         .expect("encode");
         // reassemble container from uploader DATA payloads (skip the START)
@@ -245,7 +290,12 @@ fn solid_stills_are_byte_uniform_across_colours() {
     let red = container(solid(255, 0, 0));
     let green = container(solid(0, 255, 0));
     let blue = container(solid(0, 0, 255));
-    println!("container len: red={} green={} blue={}", red.len(), green.len(), blue.len());
+    println!(
+        "container len: red={} green={} blue={}",
+        red.len(),
+        green.len(),
+        blue.len()
+    );
     assert_eq!(red.len(), green.len());
     assert_eq!(green.len(), blue.len());
     // Which byte offsets differ between the three solids? A uniform solid image
@@ -253,12 +303,21 @@ fn solid_stills_are_byte_uniform_across_colours() {
     // bytes differ — a small, contiguous set — never the index region.
     let diffs_rg: Vec<usize> = (0..red.len()).filter(|&i| red[i] != green[i]).collect();
     let diffs_gb: Vec<usize> = (0..green.len()).filter(|&i| green[i] != blue[i]).collect();
-    println!("bytes differing red vs green: {} at {:?}", diffs_rg.len(),
-        &diffs_rg[..diffs_rg.len().min(12)]);
-    println!("bytes differing green vs blue: {} at {:?}", diffs_gb.len(),
-        &diffs_gb[..diffs_gb.len().min(12)]);
+    println!(
+        "bytes differing red vs green: {} at {:?}",
+        diffs_rg.len(),
+        &diffs_rg[..diffs_rg.len().min(12)]
+    );
+    println!(
+        "bytes differing green vs blue: {} at {:?}",
+        diffs_gb.len(),
+        &diffs_gb[..diffs_gb.len().min(12)]
+    );
     // Dump the differing bytes' values for green vs blue to see the palette.
     for &i in diffs_gb.iter().take(12) {
-        println!("  offset {i}: green={:#04x} blue={:#04x}", green[i], blue[i]);
+        println!(
+            "  offset {i}: green={:#04x} blue={:#04x}",
+            green[i], blue[i]
+        );
     }
 }

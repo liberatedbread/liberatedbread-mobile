@@ -91,7 +91,11 @@ impl DeviceProtocol for GenericProtocol {
         // same counter the template's `auto: sequence` places in the packet;
         // one-shot commands leave it 0 (accepted on hardware).
         let serial = params.get("sn").copied().unwrap_or(0.0) as u8;
-        Ok(super::image_upload::frame_command(characteristic, bytes, serial))
+        Ok(super::image_upload::frame_command(
+            characteristic,
+            bytes,
+            serial,
+        ))
     }
 
     fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
@@ -513,7 +517,10 @@ services:
             &HashMap::new(),
         ) {
             Err(ProtocolError::UnsupportedCommandEncoding(kind)) => {
-                assert!(kind.contains("coolledx_lenprefix"), "names the scheme: {kind}");
+                assert!(
+                    kind.contains("coolledx_lenprefix"),
+                    "names the scheme: {kind}"
+                );
             }
             other => panic!("expected UnsupportedCommandEncoding, got {other:?}"),
         }

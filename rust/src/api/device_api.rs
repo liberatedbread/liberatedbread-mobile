@@ -721,9 +721,7 @@ pub fn advertised_resolution(
 /// field 9 is height. Also tries each notification whole, in case a higher MTU
 /// delivered it unfragmented. `None` when no DeviceInfo is present or a value is
 /// out of the 1..=255 u8 range.
-pub fn device_info_resolution(
-    notifications: Vec<Vec<u8>>,
-) -> Option<PanelResolutionDto> {
+pub fn device_info_resolution(notifications: Vec<Vec<u8>>) -> Option<PanelResolutionDto> {
     use crate::protocol::daniao_upload::{
         device_info_resolution as decode, reassemble_notifications,
     };
@@ -3110,10 +3108,7 @@ pub fn encode_remove_app(
 }
 
 /// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
-pub fn encode_remove_all_apps(
-    spec_yaml: String,
-    sequence: u32,
-) -> anyhow::Result<StoredPlayDto> {
+pub fn encode_remove_all_apps(spec_yaml: String, sequence: u32) -> anyhow::Result<StoredPlayDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let (service_uuid, write) =
         crate::protocol::stored_upload::encode_remove_all_apps(&spec, sequence as u16)?;
@@ -3132,7 +3127,10 @@ pub fn encode_remove_all_apps(
 /// caller decodes each and merges them to map a stored frame's cid to the slot
 /// a playlist must use. A notification that is not an effect list yields an
 /// empty list.
-pub fn decode_effect_list(spec_yaml: String, bytes: Vec<u8>) -> anyhow::Result<Vec<EffectEntryDto>> {
+pub fn decode_effect_list(
+    spec_yaml: String,
+    bytes: Vec<u8>,
+) -> anyhow::Result<Vec<EffectEntryDto>> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     // Taken for symmetry with the other decoders and to fail loudly on a spec
     // that could never produce this notification.
@@ -3705,7 +3703,9 @@ services:
         // byte 4, height at byte 5 -> 0x14, 0x14 = 20x20.
         let mfd = vec![(
             0x61EAu16,
-            vec![0x03, 0xe8, 0x00, 0x64, 0x14, 0x14, 0x00, 0x00, 0x72, 0x74, 0x00, 0x00],
+            vec![
+                0x03, 0xe8, 0x00, 0x64, 0x14, 0x14, 0x00, 0x00, 0x72, 0x74, 0x00, 0x00,
+            ],
         )];
         let r = advertised_resolution(IMAGE_SPEC_YAML.into(), mfd)
             .unwrap()
@@ -3750,9 +3750,11 @@ services:
     fn advertised_resolution_is_none_when_signal_is_missing_or_bad() {
         let yaml = IMAGE_SPEC_YAML.to_string();
         // Wrong company id -> no match.
-        assert!(advertised_resolution(yaml.clone(), vec![(0x1234, vec![0; 8])])
-            .unwrap()
-            .is_none());
+        assert!(
+            advertised_resolution(yaml.clone(), vec![(0x1234, vec![0; 8])])
+                .unwrap()
+                .is_none()
+        );
         // Right company, but a zero byte at the width offset is not a real size.
         assert!(advertised_resolution(
             yaml.clone(),
@@ -3761,14 +3763,18 @@ services:
         .unwrap()
         .is_none());
         // Offset past the end of the record.
-        assert!(advertised_resolution(yaml.clone(), vec![(0x61EA, vec![0, 0, 0])])
-            .unwrap()
-            .is_none());
+        assert!(
+            advertised_resolution(yaml.clone(), vec![(0x61EA, vec![0, 0, 0])])
+                .unwrap()
+                .is_none()
+        );
         // A spec with no resolution_advertisement never resolves one.
         let plain = yaml.replace("resolution_advertisement:", "unused_key:");
-        assert!(advertised_resolution(plain, vec![(0x61EA, vec![0, 0, 0, 0, 20, 20])])
-            .unwrap()
-            .is_none());
+        assert!(
+            advertised_resolution(plain, vec![(0x61EA, vec![0, 0, 0, 0, 20, 20])])
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
