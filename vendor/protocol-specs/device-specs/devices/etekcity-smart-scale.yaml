@@ -7,6 +7,8 @@ device:
   name: "ETEKCITY ESN00 Smart Nutrition Scale"
   manufacturer: "ETEKCITY (VeSync platform)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "scale"
   notes: >
@@ -32,8 +34,12 @@ device:
     x10 — kcal, kcal-from-fat, fat, sat-fat, trans-fat, cholesterol, sodium,
     potassium, carbs, fiber, sugars, protein), 0xC3 query region, 0xC4 set
     backlight/auto-off timeout (1 byte seconds; app offers 30/45/60/120,
-    default 120). Reports (scale to client): 0xD0 weight (payload: sign u8,
-    weight u16BE in 0.1 g, unit u8, stable u8 — streamed continuously),
+    default 120), 0xE5 set weight mode (APK constant in ESN00Command; no
+    frame builder found — app-defined, unexercised). Reports (scale to
+    client): 0xD0 weight (payload: sign u8 — 1 = negative, weight u16BE
+    scaled x10: 0.1 g in gram mode, scaling for other display units
+    unverified per hertzg's capture notes, unit u8, stable u8 — streamed
+    continuously),
     0xD1 unit state, 0xD2 battery (value / 10 V; app flags low at 2.4 V or
     less), 0xD3 tare state, 0xD4 region (1 = US; gates fl'oz unit
     availability), 0xD5 auto-off state, 0xE0 overflow ("Err", max 5000 g per
@@ -71,7 +77,10 @@ device:
       - type: ble_direct
         description: >
           Connect over GATT and read weight notifications directly, bypassing
-          the VeSync app and account entirely.
+          the VeSync app and account entirely. Corroborated by
+          hertzg/metekcity's Web Bluetooth demo, which connects by advertised
+          name and streams weight with no account and no bonding — a
+          third-party hardware run, not one this project has reproduced.
         verified: false
         ble:
           pairing_required: false
@@ -82,7 +91,7 @@ device:
             actor: client
           - action: "Subscribe to report characteristic 0x2C12 on service 0x1910."
             actor: client
-            expect: "Weight reports (type 0xD0: sign u8, weight u16BE in 0.1 g, unit u8, stable u8) stream as the load changes."
+            expect: "Weight reports (type 0xD0: sign u8 — 1 = negative, weight u16BE scaled x10, unit u8, stable u8) stream as the load changes."
     factory_reset:
       applicable: "unknown"
       confidence: low
@@ -123,9 +132,16 @@ services:
         properties: ["read"]
       - uuid: "00002c11-0000-1000-8000-00805f9b34fb"
         name: "Command Write"
-        notes: "Command writes: 0xC0 set unit, 0xC1 tare, 0xC2 sync nutrition (36 B), 0xC3 query region, 0xC4 backlight/auto-off timeout."
+        notes: "Command writes: 0xC0 set unit, 0xC1 tare, 0xC2 sync nutrition (36 B), 0xC3 query region, 0xC4 backlight/auto-off timeout, 0xE5 set weight mode (APK constant, no builder found)."
         properties: ["write", "write_without_response"]
       - uuid: "00002c12-0000-1000-8000-00805f9b34fb"
         name: "Scale Report"
         notes: "Reports arrive as notifications/indications: 0xD0 weight, 0xD1 unit, 0xD2 battery (/10 V), 0xD3 tare, 0xD4 region, 0xD5 auto-off, 0xE0 overflow, 0xE2 low voltage, 0xE4 item-on-scale."
         properties: ["notify", "indicate"]
+
+references:
+  - "https://github.com/hertzg/metekcity"
+  - "https://dev.to/hertzg/hacking-ble-kitchen-scale-55io"
+  - "https://www.npmjs.com/package/@metekcity/esn00-packet"
+  - "https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble"
+  - "https://fccid.io/2AB22-ESN00"

@@ -110,6 +110,13 @@ pub struct ImageUploadDto {
     pub default_frame_interval_ms: Option<u32>,
 }
 
+/// A panel's real pixel resolution, resolved from the device's advertisement.
+#[derive(Debug, Clone)]
+pub struct PanelResolutionDto {
+    pub width: u32,
+    pub height: u32,
+}
+
 /// A spec's declared device-side STORAGE capability: whether this device can
 /// persist content that plays standalone after disconnect, and whether this
 /// build can encode the container it wants.
@@ -192,6 +199,29 @@ pub struct StoredPlayDto {
     pub service_uuid: String,
     /// The framed play command, ready to write.
     pub write: ImageWriteDto,
+}
+
+/// The framed writes that set a looping playlist of stored effects — the
+/// set-playlist command then loop mode. Written in order to the command
+/// characteristic; this is how a multi-frame animation plays (each frame a
+/// stored microapp, looped).
+#[derive(Debug, Clone)]
+pub struct PlaylistWritesDto {
+    pub service_uuid: String,
+    pub writes: Vec<ImageWriteDto>,
+}
+
+/// One entry of the device's stored-effect list: a stored item's id, its
+/// device-assigned slot, the `type` the firmware filed it under, and whether it
+/// is a user "DIY" effect. `type`/`diy` are diagnostic: they reveal which
+/// family the device accepted an upload as (e.g. a `.eff` we sent as `type = 0`
+/// versus the `type = 3` AMX microapps the captures show playing).
+#[derive(Debug, Clone)]
+pub struct EffectEntryDto {
+    pub cid: u32,
+    pub slot: u32,
+    pub type_: u32,
+    pub diy: u32,
 }
 
 /// The BLE writes that push one image frame to a device, in send order.
@@ -634,6 +664,84 @@ fn image_upload_dto(spec: &DeviceSpec) -> Option<ImageUploadDto> {
         min_frame_interval_ms: feature.min_frame_interval_ms,
         default_frame_interval_ms: feature.default_frame_interval_ms,
     })
+}
+
+/// Resolve a `device_reported` panel's REAL width/height from its BLE
+/// advertisement, per the spec's `image_upload.resolution_advertisement`.
+///
+/// `manufacturer_data` is the advertisement's manufacturer-specific records as
+/// `(company_id, value_bytes)` — the value being the bytes after the 2-byte
+/// company id, the way most BLE stacks report it. Returns `None` (canvas falls
+/// back to a default the user can adjust) when: the spec declares no
+/// advertisement layout, no record matches the declared company id, an offset
+/// is out of range, or a byte is 0 / above the platform bound. This is what
+/// lets the editor default the canvas to the true panel size before connecting
+/// — a 16×16 default on a 20×20 curtain leaves the outer strands unwritten.
+pub fn advertised_resolution(
+    spec_yaml: String,
+    manufacturer_data: Vec<(u16, Vec<u8>)>,
+) -> anyhow::Result<Option<PanelResolutionDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let Some(adv) = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")
+        .and_then(|f| f.resolution_advertisement.as_ref())
+    else {
+        return Ok(None);
+    };
+    let max = spec
+        .features
+        .iter()
+        .find(|f| f.feature_type == "image_upload")
+        .and_then(|f| f.max_width.max(f.max_height))
+        .unwrap_or(255);
+    let Some((_, bytes)) = manufacturer_data
+        .iter()
+        .find(|(cid, _)| *cid == adv.company_id)
+    else {
+        return Ok(None);
+    };
+    let read = |off: usize| -> Option<u32> {
+        let v = *bytes.get(off)? as u32;
+        (v >= 1 && v <= max).then_some(v)
+    };
+    match (read(adv.width_offset), read(adv.height_offset)) {
+        (Some(width), Some(height)) => Ok(Some(PanelResolutionDto { width, height })),
+        _ => Ok(None),
+    }
+}
+
+/// Resolve a panel's REAL width/height from its M_DEVICE_INFO_NOTIFY push
+/// (mt=2103) — the second source, used when the advertisement is not on hand
+/// (a reconnect with no fresh scan). `notifications` is the raw notify events
+/// collected in a short window off the DDP notify characteristic; they are
+/// reassembled (a ~130-byte DeviceInfo spans ~9 notifications at a 23-byte MTU)
+/// and searched for the DeviceInfo frame, whose protobuf field 8 is width and
+/// field 9 is height. Also tries each notification whole, in case a higher MTU
+/// delivered it unfragmented. `None` when no DeviceInfo is present or a value is
+/// out of the 1..=255 u8 range.
+pub fn device_info_resolution(notifications: Vec<Vec<u8>>) -> Option<PanelResolutionDto> {
+    use crate::protocol::daniao_upload::{
+        device_info_resolution as decode, reassemble_notifications,
+    };
+    let mut frames = reassemble_notifications(&notifications);
+    for n in &notifications {
+        if n.len() > 4 {
+            frames.push(n[4..].to_vec());
+        }
+    }
+    for frame in frames {
+        if let Some((w, h)) = decode(&frame) {
+            if (1..=255).contains(&w) && (1..=255).contains(&h) {
+                return Some(PanelResolutionDto {
+                    width: w,
+                    height: h,
+                });
+            }
+        }
+    }
+    None
 }
 
 /// Build the stored-upload DTO from a spec's `stored_upload` feature.
@@ -1084,6 +1192,11 @@ pub fn encode_entity_value(
             crate::codec::types::encode_scalar(raw, &value_type, &entity_name, big_endian)?
         }
     };
+
+    // Wrap in the characteristic's framing when it declares an implemented
+    // scheme, matching the generic command path. A one-shot setpoint uses
+    // fragment serial 0.
+    let bytes = crate::protocol::image_upload::frame_command(action.characteristic, bytes, 0);
 
     Ok(EntityWriteDto {
         service_uuid: action.service.uuid.clone(),
@@ -2715,6 +2828,7 @@ pub fn encode_stored_image(
     time_secs: u32,
     scroll: String,
     speed: u32,
+    sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
     use crate::protocol::daniao_store::{ImageLayer, StoredProgram};
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
@@ -2732,7 +2846,8 @@ pub fn encode_stored_image(
             rgb: &rgb,
         },
     };
-    let plan = crate::protocol::stored_upload::encode_stored_image(&spec, &program)?;
+    let plan =
+        crate::protocol::stored_upload::encode_stored_image(&spec, &program, sequence as u16)?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -2753,6 +2868,7 @@ pub fn encode_stored_text(
     time_secs: u32,
     scroll: String,
     speed: u32,
+    sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
     use crate::protocol::daniao_store::{StoredText, TextContent};
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
@@ -2768,15 +2884,26 @@ pub fn encode_stored_text(
             bits: &bits,
         },
     };
-    let plan = crate::protocol::stored_upload::encode_stored_text(&spec, &program)?;
+    let plan =
+        crate::protocol::stored_upload::encode_stored_text(&spec, &program, sequence as u16)?;
     Ok(stored_plan_to_dto(plan))
 }
 
-/// Encode the BLE writes that PERSIST a multi-frame animation on the device.
+/// Encode the BLE writes that PERSIST a multi-frame animation as a single
+/// `.eff` container.
+///
+/// UNTESTED / DORMANT on the JY25CUT curtain: hardware confirms a `.eff`
+/// commits but never registers as a playable effect there (see
+/// `daniao_store::build_animation_container`). Kept for the vendor's matrix
+/// panels and a future dedicated capture; the curtain's animation path is the
+/// cycling-stills loop (`encode_stored_image` per frame + `encode_set_playlist`
+/// + `play_next`), NOT this.
 ///
 /// `frames` are the screens in play order, each row-major RGB888
-/// `width * height * 3` bytes. Stored as the vendor's raw `.eff` animation
-/// (a different container from the still/scrolling microapp), played by cid.
+/// `width * height * 3` bytes.
+// The flat argument list is the FFI surface flutter_rust_bridge exposes to
+// Dart; grouping into a struct would churn the generated bindings.
+#[allow(clippy::too_many_arguments)]
 pub fn encode_stored_animation(
     spec_yaml: String,
     width: u32,
@@ -2785,26 +2912,33 @@ pub fn encode_stored_animation(
     name: String,
     cid: u32,
     frame_ms: u32,
+    sequence: u32,
 ) -> anyhow::Result<StoredUploadPlanDto> {
     use crate::protocol::daniao_store::StoredAnimation;
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
     let frame_refs: Vec<&[u8]> = frames.iter().map(Vec::as_slice).collect();
-    // The container stores a frame RATE; the editor thinks in the interval
-    // its preview slider sets. Round to the nearest fps and clamp into the
-    // header byte's range so a slow slider cannot wrap to a fast animation.
-    let fps = (1000 + frame_ms / 2)
-        .checked_div(frame_ms)
-        // An unset (0) interval falls back to the vendor's own rate.
-        .map_or(20, |per_sec| per_sec.clamp(1, 255)) as u8;
+    // The container carries a fixed cadence constant (see `build_animation_container`),
+    // so `frame_ms` no longer feeds the header. It is retained on the FFI so the
+    // caller can drive a separate `set_play_speed` command without a signature
+    // churn once that path is wired.
+    let _ = frame_ms;
+    // The DNMX header stamps wall-clock seconds; the device appears to key on a
+    // non-zero value. Fall back to 0 only if the clock is somehow before the
+    // epoch (it never is), which the builder tolerates.
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or(0);
     let anim = StoredAnimation {
         name: &name,
         cid,
         width,
         height,
         frames: &frame_refs,
-        fps,
+        timestamp,
     };
-    let plan = crate::protocol::stored_upload::encode_stored_animation(&spec, &anim)?;
+    let plan =
+        crate::protocol::stored_upload::encode_stored_animation(&spec, &anim, sequence as u16)?;
     Ok(stored_plan_to_dto(plan))
 }
 
@@ -2858,16 +2992,193 @@ pub fn decode_stored_upload_event(
 }
 
 /// Encode the play-by-cid command for RE-triggering a previously stored item
-/// — the replay path, no upload involved.
-pub fn encode_stored_play(spec_yaml: String, cid: u32) -> anyhow::Result<StoredPlayDto> {
+/// — the replay path, no upload involved. `sequence` is a per-connection
+/// rolling counter (Dart owns it); a distinct value each press keeps two
+/// replays of the same cid from colliding on the wire and being de-duped.
+pub fn encode_stored_play(
+    spec_yaml: String,
+    cid: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
     let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
-    let (service_uuid, write) = crate::protocol::stored_upload::encode_stored_play(&spec, cid)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_stored_play(&spec, cid, sequence as u16)?;
     Ok(StoredPlayDto {
         service_uuid,
         write: ImageWriteDto {
             characteristic_uuid: write.characteristic_uuid,
             bytes: write.bytes,
         },
+    })
+}
+
+/// Encode the global play-speed command (M_SET_PLAY_SPEED, `{i1: speed}`) —
+/// how fast the device advances the playlist. `speed` is the vendor's slider
+/// value (default 100). Returns the framed write to send.
+pub fn encode_play_speed(
+    spec_yaml: String,
+    speed: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_play_speed(&spec, speed, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode the play/loop-mode command (M_SET_AUTORUN_MODE). `mode` is
+/// `fixed(0) | repeat(1) | random(2)`. Sending fixed after playing a design
+/// pins the device to it across disconnect.
+pub fn encode_autorun_mode(
+    spec_yaml: String,
+    mode: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_autorun_mode(&spec, mode, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode M_BOOKMARK_ENABLE — activate bookmark/playlist `list_id` so the device
+/// plays only its items (without this, playback stays over the whole stored set).
+pub fn encode_bookmark_enable(
+    spec_yaml: String,
+    list_id: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_bookmark_enable(&spec, list_id, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode M_BOOKMARK_CLEAR — empty bookmark/playlist `list_id` before a re-save.
+pub fn encode_bookmark_clear(
+    spec_yaml: String,
+    list_id: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_bookmark_clear(&spec, list_id, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode the delete-one-stored-design command (M_REMOVE_APP) by cid.
+pub fn encode_remove_app(
+    spec_yaml: String,
+    cid: u32,
+    sequence: u32,
+) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_remove_app(&spec, cid, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Encode the clear-all-stored-designs command (M_REMOVE_ALL_APPS).
+pub fn encode_remove_all_apps(spec_yaml: String, sequence: u32) -> anyhow::Result<StoredPlayDto> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let (service_uuid, write) =
+        crate::protocol::stored_upload::encode_remove_all_apps(&spec, sequence as u16)?;
+    Ok(StoredPlayDto {
+        service_uuid,
+        write: ImageWriteDto {
+            characteristic_uuid: write.characteristic_uuid,
+            bytes: write.bytes,
+        },
+    })
+}
+
+/// Decode one M_EFFECT_LIST notification into its `{cid, slot}` entries.
+///
+/// The device answers a list request with several framed notifications; the
+/// caller decodes each and merges them to map a stored frame's cid to the slot
+/// a playlist must use. A notification that is not an effect list yields an
+/// empty list.
+pub fn decode_effect_list(
+    spec_yaml: String,
+    bytes: Vec<u8>,
+) -> anyhow::Result<Vec<EffectEntryDto>> {
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    // Taken for symmetry with the other decoders and to fail loudly on a spec
+    // that could never produce this notification.
+    if crate::protocol::stored_upload::stored_feature(&spec).is_none() {
+        anyhow::bail!("spec declares no stored_upload feature");
+    }
+    Ok(crate::protocol::daniao_upload::parse_effect_list(&bytes)
+        .into_iter()
+        .map(|e| EffectEntryDto {
+            cid: e.cid,
+            slot: e.slot,
+            type_: e.type_,
+            diy: e.diy,
+        })
+        .collect())
+}
+
+/// Encode the writes that loop a set of stored frames as an animation: the
+/// set-playlist command then loop mode. `cids` and `slots` are the stored
+/// frames in play order (paired by index); `slots` are the device-assigned
+/// slots (pass 0 when unknown — play addresses customs by cid). `sequence` is
+/// the rolling counter's next value.
+pub fn encode_set_playlist(
+    spec_yaml: String,
+    cids: Vec<u32>,
+    slots: Vec<u32>,
+    sequence: u32,
+) -> anyhow::Result<PlaylistWritesDto> {
+    use crate::protocol::stored_upload::{encode_set_playlist, PlaylistItem};
+    let spec = crate::protocol::dispatch::parse_or_cached(&spec_yaml)?;
+    let items: Vec<PlaylistItem> = cids
+        .iter()
+        .enumerate()
+        .map(|(i, &cid)| PlaylistItem {
+            cid,
+            slot: slots.get(i).copied().unwrap_or(0),
+        })
+        .collect();
+    let (service_uuid, writes) = encode_set_playlist(&spec, &items, sequence as u16)?;
+    Ok(PlaylistWritesDto {
+        service_uuid,
+        writes: writes
+            .into_iter()
+            .map(|w| ImageWriteDto {
+                characteristic_uuid: w.characteristic_uuid,
+                bytes: w.bytes,
+            })
+            .collect(),
     })
 }
 
@@ -3384,6 +3695,86 @@ services:
     fn spec_without_image_feature_has_no_image_upload() {
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
         assert!(dto.image_upload.is_none());
+    }
+
+    #[test]
+    fn advertised_resolution_reads_the_declared_offsets() {
+        // The JY25CUT curtain's real advertisement: company 0x61EA, width at
+        // byte 4, height at byte 5 -> 0x14, 0x14 = 20x20.
+        let mfd = vec![(
+            0x61EAu16,
+            vec![
+                0x03, 0xe8, 0x00, 0x64, 0x14, 0x14, 0x00, 0x00, 0x72, 0x74, 0x00, 0x00,
+            ],
+        )];
+        let r = advertised_resolution(IMAGE_SPEC_YAML.into(), mfd)
+            .unwrap()
+            .expect("resolution resolves from the advertised bytes");
+        assert_eq!((r.width, r.height), (20, 20));
+    }
+
+    #[test]
+    fn device_info_resolution_ffi_reads_the_captured_push() {
+        // The real DeviceInfo notification DN0B88 pushes (with its 4-byte
+        // fragment header), split into 20-byte notifications the way a 23-byte
+        // MTU delivers it. The FFI reassembles and reads 20x20.
+        let full = "dd010000f10100dd008908370000000000000d3c010000000a07302e302e302e\
+                    30100418e807220536303030312a0c444e583a533130342d4a593a30bcfd0238\
+                    0140144814a00142b001d3c88080f8ffffffff01b801df35d001c801e0011cea\
+                    0106444e30423838f201069888e0520b888002e05da0029003a80204b80214c0\
+                    0214c8029003d002c07ad8020f";
+        let frame: Vec<u8> = (0..full.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&full[i..i + 2], 16).unwrap())
+            .collect();
+        // Re-fragment: serial 0x55, 16 frame bytes/notification behind a header.
+        let payload = &frame[4..];
+        let chunks: Vec<&[u8]> = payload.chunks(16).collect();
+        let total = chunks.len() as u8;
+        let notifications: Vec<Vec<u8>> = chunks
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let mut f = vec![0x55, total, total - 1 - i as u8, 0x00];
+                f.extend_from_slice(c);
+                f
+            })
+            .collect();
+        let r = device_info_resolution(notifications).expect("resolves 20x20");
+        assert_eq!((r.width, r.height), (20, 20));
+        // Nothing decodable -> None.
+        assert!(device_info_resolution(vec![vec![0u8; 20]]).is_none());
+    }
+
+    #[test]
+    fn advertised_resolution_is_none_when_signal_is_missing_or_bad() {
+        let yaml = IMAGE_SPEC_YAML.to_string();
+        // Wrong company id -> no match.
+        assert!(
+            advertised_resolution(yaml.clone(), vec![(0x1234, vec![0; 8])])
+                .unwrap()
+                .is_none()
+        );
+        // Right company, but a zero byte at the width offset is not a real size.
+        assert!(advertised_resolution(
+            yaml.clone(),
+            vec![(0x61EA, vec![0, 0, 0, 0, 0x00, 0x14, 0, 0])]
+        )
+        .unwrap()
+        .is_none());
+        // Offset past the end of the record.
+        assert!(
+            advertised_resolution(yaml.clone(), vec![(0x61EA, vec![0, 0, 0])])
+                .unwrap()
+                .is_none()
+        );
+        // A spec with no resolution_advertisement never resolves one.
+        let plain = yaml.replace("resolution_advertisement:", "unused_key:");
+        assert!(
+            advertised_resolution(plain, vec![(0x61EA, vec![0, 0, 0, 0, 20, 20])])
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

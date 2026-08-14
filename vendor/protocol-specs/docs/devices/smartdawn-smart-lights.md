@@ -153,13 +153,25 @@ them. Treat DISPLAY-packet streaming as a legacy/dormant capability until
 an on-air capture shows it in use; likewise the "PUSH flag latches the
 frame" convention is inference from the header semantics, not confirmed.
 
-**Stored animations:** multi-frame sequences install over the BIN channel
-via `M_START_INSTALL_ANIMATION` / `M_INSTALL_ANIMATION_PACKET` /
-`M_END_INSTALL_ANIMATION` (mt 2918–2920), from `p2p.proto`.
+**Stored designs (pictures, text, animations):** persist over the
+**Uploader characteristic** as "DN" AMX microapp containers
+(`UploadRequest.type=3`, no `path`), confirmed by on-air captures
+(`smartdawn_longer2.pcapng` frames 6214–6252 is a complete animation
+save: type=3, size=4096, packetnum=9). The device answers on DDP Notify
+(`M_UPLOAD_START_RESPONSE` mt=2931, `M_UPLOAD_COMPLETE` mt=2934); wait
+for the completion before `M_PLAY_EFFECT` (2606) — playing an
+uncommitted cid is a silent no-op. The vendor app refreshes
+`M_EFFECT_LIST` (2904) between completion and play. The
+`M_START_INSTALL_ANIMATION` / `M_INSTALL_ANIMATION_PACKET` /
+`M_END_INSTALL_ANIMATION` (mt 2918–2920) messages from `p2p.proto` were
+never observed on the wire and are presumed a legacy/alternate flow;
+`.eff` (`type=0` + path) uploads serve CDN catalog effects only.
 
 Machine-readable capability: the YAML spec declares
-`features: [image_upload]` (rgb888, device-reported resolution, animation
-via the BIN install flow) and `protocol_handler: "daniao_ddp"` for clients
+`features: [image_upload]` (rgb888, device-reported resolution) plus
+`stored_upload` (`container_format: daniao_amx`, `file_type: 3`,
+`play_command: play_effect`, `response_characteristic`) and
+`protocol_handler: "daniao_ddp"` for clients
 that implement the fragment framing + packet encoders. Per-model
 resolution (width × height) comes from the manufacturer-data record and
 `M_DEVICE_INFO_NOTIFY` (mt=2103).
@@ -180,7 +192,9 @@ SmartDawn SKUs ship Wi-Fi.
 - [x] H5 bundle analysis (assets/HTML — independent JS reimplementation)
 - [x] Bundled protobuf schema `assets/HTML/p2p.proto` — authoritative
   message-type numbers and payload shapes
-- [ ] Live BLE capture (not yet — see `research-notes/smartdawn-curtain-capture-plan.md`)
+- [x] Live BLE capture (2026-08-08..10, JY25CUT "DN0B88": `smartdawn_capture`,
+  `smartdawn_longer`/`longer2`, `smartdawn_capture_a_lot_of_custom_animations`
+  — findings in `research-notes/smartdawn-curtain-capture-plan.md` §7)
 
 ## References
 
@@ -190,9 +204,9 @@ SmartDawn SKUs ship Wi-Fi.
 - [FCC-hosted curtain-lights manual (JY25CUT models)](https://fccid.io/m/03e7be1bfdf844811e2d2cef87f6127da9424fa5c4ea7d89950479b3f244e0c4.pdf)
 - Research store: `~/research/smartdawn-smart-lights/RESEARCH.md` (artifacts + hashes)
 
-Open gaps: no on-air capture yet; BLE SoC unidentified; per-command payload
-field semantics beyond SimpleMessage {i1} need capture or .proto extraction;
-OTA firmware image not yet retrieved.
+Open gaps: BLE SoC unidentified; OTA firmware image not yet retrieved.
+(Formerly-open capture gaps resolved 2026-08-08..11: playback/power/upload
+command payloads verified on-air — see the capture-plan note §7.)
 
 ## Contributors
 

@@ -110,6 +110,29 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
+  Future<PanelResolutionDto?> advertisedResolution({
+    required String specYaml,
+    required Map<int, List<int>> manufacturerData,
+  }) =>
+      rust.advertisedResolution(
+        specYaml: specYaml,
+        manufacturerData: [
+          for (final e in manufacturerData.entries)
+            (e.key, Uint8List.fromList(e.value)),
+        ],
+      );
+
+  @override
+  Future<PanelResolutionDto?> deviceInfoResolution({
+    required List<List<int>> notifications,
+  }) =>
+      rust.deviceInfoResolution(
+        notifications: [
+          for (final n in notifications) Uint8List.fromList(n),
+        ],
+      );
+
+  @override
   Future<List<NetworkEntityDto>> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,
@@ -246,6 +269,7 @@ class RealSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) =>
       rust.encodeStoredImage(
         specYaml: specYaml,
@@ -257,6 +281,7 @@ class RealSpecCodec implements SpecCodec {
         timeSecs: timeSecs,
         scroll: scroll,
         speed: speed,
+        sequence: sequence,
       );
 
   @override
@@ -270,6 +295,7 @@ class RealSpecCodec implements SpecCodec {
     required int timeSecs,
     required String scroll,
     required int speed,
+    required int sequence,
   }) =>
       rust.encodeStoredText(
         specYaml: specYaml,
@@ -281,6 +307,7 @@ class RealSpecCodec implements SpecCodec {
         timeSecs: timeSecs,
         scroll: scroll,
         speed: speed,
+        sequence: sequence,
       );
 
   @override
@@ -292,6 +319,7 @@ class RealSpecCodec implements SpecCodec {
     required String name,
     required int cid,
     required int frameMs,
+    required int sequence,
   }) =>
       rust.encodeStoredAnimation(
         specYaml: specYaml,
@@ -301,6 +329,7 @@ class RealSpecCodec implements SpecCodec {
         name: name,
         cid: cid,
         frameMs: frameMs,
+        sequence: sequence,
       );
 
   @override
@@ -317,8 +346,9 @@ class RealSpecCodec implements SpecCodec {
   Future<StoredPlayDto> encodeStoredPlay({
     required String specYaml,
     required int cid,
+    required int sequence,
   }) =>
-      rust.encodeStoredPlay(specYaml: specYaml, cid: cid);
+      rust.encodeStoredPlay(specYaml: specYaml, cid: cid, sequence: sequence);
 
   @override
   Future<int> lifxPort() => rust.lifxPort();
@@ -399,4 +429,79 @@ class RealSpecCodec implements SpecCodec {
   Future<LifxAccessPointDto> decodeLifxAccessPoint(
           {required List<int> bytes}) =>
       rust.decodeLifxAccessPoint(bytes: bytes);
+
+  @override
+  Future<PlaylistWritesDto> encodeSetPlaylist({
+    required String specYaml,
+    required List<int> cids,
+    required List<int> slots,
+    required int sequence,
+  }) =>
+      rust.encodeSetPlaylist(
+        specYaml: specYaml,
+        cids: cids,
+        slots: slots,
+        sequence: sequence,
+      );
+
+  @override
+  Future<List<EffectEntryDto>> decodeEffectList({
+    required String specYaml,
+    required List<int> bytes,
+  }) =>
+      rust.decodeEffectList(
+        specYaml: specYaml,
+        bytes: Uint8List.fromList(bytes),
+      );
+
+  @override
+  Future<StoredPlayDto> encodePlaySpeed({
+    required String specYaml,
+    required int speed,
+    required int sequence,
+  }) =>
+      rust.encodePlaySpeed(
+          specYaml: specYaml, speed: speed, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeAutorunMode({
+    required String specYaml,
+    required int mode,
+    required int sequence,
+  }) =>
+      rust.encodeAutorunMode(
+          specYaml: specYaml, mode: mode, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeBookmarkEnable({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) =>
+      rust.encodeBookmarkEnable(
+          specYaml: specYaml, listId: listId, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeBookmarkClear({
+    required String specYaml,
+    required int listId,
+    required int sequence,
+  }) =>
+      rust.encodeBookmarkClear(
+          specYaml: specYaml, listId: listId, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeRemoveApp({
+    required String specYaml,
+    required int cid,
+    required int sequence,
+  }) =>
+      rust.encodeRemoveApp(specYaml: specYaml, cid: cid, sequence: sequence);
+
+  @override
+  Future<StoredPlayDto> encodeRemoveAllApps({
+    required String specYaml,
+    required int sequence,
+  }) =>
+      rust.encodeRemoveAllApps(specYaml: specYaml, sequence: sequence);
 }

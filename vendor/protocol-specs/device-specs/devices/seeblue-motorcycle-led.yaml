@@ -6,6 +6,8 @@ device:
   name: "Seeblue Motorcycle LED Controller"
   manufacturer: "Seeblue / LEDGlow"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "light"
   notes: >
@@ -124,11 +126,19 @@ services:
             Full protocol_id map (ledglowlib/Constants.smali): 0x00 INTERNAL
             (post-connect auth handshake), 0x01 LIGHTING, 0x02 RESPONSE (the
             device answers requests on this protocol), 0x03 BOOTLOADER
-            (latent OTA: flashes an Intel HEX file over BLE; no firmware HEX
-            is public), 0x04 GENERIC. Protocol 0x10 carries the full LEDGlow
-            snapshot and, in the v2 app, the UI-change commands below — those
-            use packet [0x05, ui_id, values...] where 0x05 is a message-type
-            byte, NOT the protocol_id.
+            (latent OTA: SEEBlueLEBootloaderActivity flashes an Intel HEX
+            file over BLE with opcodes VERSION_REQUEST, START_UPDATE 0x01,
+            START_BLOCK 0x02, BLOCK_DATA 0x03 and ~2 s block pacing; no
+            firmware HEX is public), 0x04 GENERIC. Protocol 0x10 carries the
+            full LEDGlow snapshot and, in the v2 app, the UI-change commands
+            below — those use packet [0x05, ui_id, values...] where 0x05 is a
+            message-type byte, NOT the protocol_id.
+
+            Protocol 0x10 also carries typed settings-snapshot blocks in the
+            v2 app (BluetoothHelper constants): type 0x06 underbody (UB),
+            0x07 white-wire (WW), 0x08 interior (IN), 0x09 ABC, 0x0A general
+            (TAB). A LEDGLOW_GET_FEATURES = 0x80 constant exists with no
+            observed call site.
         commands:
           direct_brake_feature:
             description: "Direct protocol 0x01 command 0: brake feature; values 1=brake off, 2=brake light on, 8=brake pulse on (bit flags)"

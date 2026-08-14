@@ -504,4 +504,9 @@ class MockBleService implements BleService {
     _notifyControllers.add(controller);
     return controller.stream;
   }
+
+  @override
+  List<List<int>> recentNotifications(
+          String deviceId, String serviceUuid, String charUuid) =>
+      const [];
 }

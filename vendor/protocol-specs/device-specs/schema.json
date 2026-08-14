@@ -220,7 +220,7 @@
         "required": ["characteristic"],
         "properties": {
           "characteristic": {
-            "type": "string",
+            "$ref": "#/$defs/uuid",
             "description": "Target characteristic UUID for this step."
           },
           "write": {
@@ -454,6 +454,28 @@
               "description": "SPDX identifier of the firmware or reference implementation, where it is public. Worth recording separately from the rest: it decides whether a consumer may fork the device's own software rather than merely speak to it, which is a different and much larger freedom than an open protocol."
             },
             "notes": { "type": "string" }
+          }
+        },
+        "testing": {
+          "type": "object",
+          "description": "Whether THIS PROJECT has exercised the spec against real hardware, stated for the spec as a whole. The existing machinery answers narrower questions -- per-fact `verification` grades one claim, `setup.methods[].verified` certifies one onboarding flow, `setup.confidence` grades one section -- and none of them rolls up to the verdict a consumer actually wants first: has anyone driven a device with this document? Absent means nobody has said, which a reader must treat as 'untested'. Reference specs (device.type 'reference-*') document published standards and never carry this block.",
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["untested", "verified"],
+              "description": "'untested': no one on this project has driven hardware end-to-end from this spec -- everything here comes from static analysis, published sources, or captures nobody replayed. 'verified': at least one documented flow has been executed against real hardware by this project and behaved as written. The bar for 'verified' is deliberately ours-only: a third-party implementer's success story supports per-fact `verification: reported`, not this flag.",
+              "default": "untested"
+            },
+            "detail": {
+              "type": "string",
+              "enum": ["capture-verified", "minimally-verified", "mostly-verified"],
+              "description": "Optional refinement of `status`. With status 'untested': 'capture-verified' means key facts were checked against over-the-air captures of real hardware traffic held in our research store -- stronger than static analysis, weaker than driving the device, because a capture shows the vendor app's happy path and nothing else. With status 'verified': 'minimally-verified' means one or a few flows were exercised and the rest of the surface is untouched; 'mostly-verified' means the majority of the documented surface has been driven. A bare status with no detail is the weakest reading of that status."
+            },
+            "notes": {
+              "type": "string",
+              "description": "What the claim rests on: which capture files, which hardware unit, which flows were driven, dated. A status without its evidence named is a label a reviewer cannot check."
+            }
           }
         },
         "protocol": {
@@ -920,6 +942,7 @@
                       "softap_http",
                       "softap_soap",
                       "softap_udp",
+                      "softap_mqtt",
                       "ble_provisioning",
                       "ble_direct",
                       "wps",
@@ -930,7 +953,7 @@
                       "button_pairing",
                       "cloud_account"
                     ],
-                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP or a UDP datagram protocol; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
+                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
                   },
                   "description": { "type": "string" },
                   "softap": {
@@ -942,7 +965,7 @@
                       "open_network": { "type": "boolean", "description": "True when the setup AP has no passphrase." },
                       "passphrase_source": { "type": "string", "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')." },
                       "gateway_ip": { "type": "string", "description": "IP the device answers on while hosting the setup AP." },
-                      "port": { "type": "integer", "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap, UDP for softap_udp." },
+                      "port": { "type": "integer", "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap/softap_mqtt, UDP for softap_udp." },
                       "credential_encryption": {
                         "type": "object",
                         "description": "How the WiFi passphrase is protected on the wire during provisioning.",
@@ -1206,6 +1229,10 @@
             "type": "string",
             "description": "Command (named from a characteristic's `commands`) that plays a stored item by its id right after a `stored_upload` — the vendor's store-then-show. Absent means store without auto-playing."
           },
+          "response_characteristic": {
+            "$ref": "#/$defs/uuid",
+            "description": "Characteristic UUID the device answers a `stored_upload` on (Daniao: the DDP Notify characteristic carrying M_UPLOAD_START_RESPONSE mt=2931 and M_UPLOAD_COMPLETE mt=2934). A client should wait for the completion message before sending `play_command` — the vendor app does, and playing a cid the device has not committed yet is a silent no-op."
+          },
           "max_width": {
             "type": "integer",
             "minimum": 1,
@@ -1218,13 +1245,37 @@
           },
           "format": {
             "type": "string",
-            "enum": ["1bit-bitmap", "gif", "rgb565", "rgb888", "png"],
-            "description": "Binary format the device expects for uploaded assets."
+            "enum": ["1bit-bitmap", "gif", "rgb565", "rgb888", "png", "zlib-bmp"],
+            "description": "Binary format the device expects for uploaded assets. `zlib-bmp` is a zlib/DEFLATE-compressed 24-bit Windows BMP, built app-side and carried as the compressed blob (e.g. the LOY SPACE `zip_bmp` field, Base64-inside-JSON) — distinct from a raw `gif`, which the device decodes itself."
           },
           "resolution_source": {
             "type": "string",
             "enum": ["fixed", "device_reported"],
             "description": "Whether max_width/max_height are the panel's actual size ('fixed') or platform upper bounds with the real per-model resolution reported by the device at runtime ('device_reported'). Clients should let the user set the canvas size for device_reported panels they have not yet queried."
+          },
+          "resolution_advertisement": {
+            "type": "object",
+            "description": "For 'device_reported' panels: where the real width/height sit in the BLE advertisement's manufacturer-specific data, so a client can default the canvas to the true panel size before connecting. Offsets index the manufacturer-data VALUE (bytes after the 2-byte company id).",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535,
+                "description": "Bluetooth SIG company id of the manufacturer-data record carrying the resolution."
+              },
+              "width_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Byte offset of width within the manufacturer-data value."
+              },
+              "height_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Byte offset of height within the manufacturer-data value."
+              }
+            },
+            "required": ["company_id", "width_offset", "height_offset"],
+            "additionalProperties": false
           },
           "animation": {
             "type": "boolean",

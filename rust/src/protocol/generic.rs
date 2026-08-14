@@ -78,13 +78,24 @@ impl DeviceProtocol for GenericProtocol {
 
         // The same gate the DTO's `is_encodable` uses, so the control and the
         // encoder cannot disagree about what is sendable. A characteristic
-        // whose payloads must pass through framing or encryption this crate
-        // does not execute would otherwise take a template's bytes straight to
-        // the wire.
+        // whose payloads must pass through encryption, or a framing scheme
+        // this crate does not execute, would otherwise take a template's bytes
+        // straight to the wire.
         if let Some(kind) = types::unsupported_write_kind(characteristic, command) {
             return Err(ProtocolError::UnsupportedCommandEncoding(kind));
         }
-        types::encode_command(command, params)
+        let bytes = types::encode_command(command, params)?;
+        // Wrap in the characteristic's framing when it declares an implemented
+        // scheme (Daniao's DDP fragment header) — the controller ignores an
+        // unframed command write. The fragment serial rides in as `sn`, the
+        // same counter the template's `auto: sequence` places in the packet;
+        // one-shot commands leave it 0 (accepted on hardware).
+        let serial = params.get("sn").copied().unwrap_or(0.0) as u8;
+        Ok(super::image_upload::frame_command(
+            characteristic,
+            bytes,
+            serial,
+        ))
     }
 
     fn decode_value(&self, char_uuid: &str, bytes: &[u8]) -> Result<DecodedValues, ProtocolError> {
@@ -418,6 +429,130 @@ services:
             Err(ProtocolError::NoFormat { uuid }) => assert_eq!(uuid, COMMAND_UUID),
             other => panic!("expected NoFormat, got {other:?}"),
         }
+    }
+
+    /// A spec whose command characteristic declares the implemented
+    /// `daniao_fragment` scheme: encoding must WRAP the template bytes in the
+    /// 4-byte fragment header, not reject them.
+    fn framed_spec() -> DeviceSpec {
+        parse_device_spec(
+            r#"
+device:
+  name: "DN Light"
+  manufacturer: "Daniao"
+  manufacturer_status: "active"
+  protocol: "ble"
+  identification:
+    local_name_prefix: "DN"
+    service_uuids:
+      - "00000074-1972-1925-3022-077119514e44"
+services:
+  - uuid: "00000074-1972-1925-3022-077119514e44"
+    name: "DDP"
+    characteristics:
+      - uuid: "01020074-1972-1925-3022-077119514e44"
+        name: "DDP Write"
+        properties: ["write", "write_without_response"]
+        framing:
+          scheme: "daniao_fragment"
+          channel_tag: 0
+        commands:
+          power_on:
+            description: "Turn on"
+            template: [0xF0, 0x04, "{sn}", "{len}", 0x09, 0xD2, "{cid}", "{osn}", 0x00, "{ts}", 0x00, 0x00, 0x00, 0x00]
+            parameters:
+              sn: { type: "uint16", endianness: "big", auto: "sequence" }
+              len: { type: "uint16", endianness: "big", auto: "packet_length" }
+              cid: { type: "uint32", endianness: "big", default: 0 }
+              osn: { type: "uint16", endianness: "big", default: 1 }
+              ts: { type: "uint8", default: 0 }
+"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn framed_command_is_wrapped_in_the_fragment_header() {
+        let proto = GenericProtocol::new(Arc::new(framed_spec()));
+        let bytes = proto
+            .encode_command(
+                "01020074-1972-1925-3022-077119514e44",
+                "power_on",
+                &HashMap::new(),
+            )
+            .expect("an implemented framing scheme is sendable, not refused");
+        // [serial=0, total=1, remaining=0, tag=0] then the 20-byte DNX packet.
+        // DNX layout: F0 04 | sn(2) | len(2) | mt(2) | ... so mt is at DNX
+        // offset 6 -> whole-packet offset 10.
+        assert_eq!(&bytes[0..4], &[0, 1, 0, 0]);
+        assert_eq!(bytes[4], 0xF0, "DNX flag follows the fragment header");
+        assert_eq!(&bytes[10..12], &[0x09, 0xD2], "mt = M_SET_POWERON");
+        assert_eq!(bytes.len(), 4 + 20);
+    }
+
+    #[test]
+    fn framed_command_serial_follows_the_sn_param() {
+        let proto = GenericProtocol::new(Arc::new(framed_spec()));
+        let bytes = proto
+            .encode_command(
+                "01020074-1972-1925-3022-077119514e44",
+                "power_on",
+                &HashMap::from([("sn".to_string(), 7.0)]),
+            )
+            .unwrap();
+        assert_eq!(bytes[0], 7, "fragment serial carries sn");
+        // sn also lands in the DNX header (bytes 6..8, big-endian).
+        assert_eq!(&bytes[6..8], &[0x00, 0x07]);
+    }
+
+    #[test]
+    fn unimplemented_framing_scheme_is_still_refused() {
+        // Same shape, but a scheme this build does not execute: encoding must
+        // refuse rather than send unframed bytes the device ignores.
+        let spec_yaml = framed_spec_yaml_with_scheme("coolledx_lenprefix");
+        let proto = GenericProtocol::new(Arc::new(parse_device_spec(&spec_yaml).unwrap()));
+        match proto.encode_command(
+            "01020074-1972-1925-3022-077119514e44",
+            "power_on",
+            &HashMap::new(),
+        ) {
+            Err(ProtocolError::UnsupportedCommandEncoding(kind)) => {
+                assert!(
+                    kind.contains("coolledx_lenprefix"),
+                    "names the scheme: {kind}"
+                );
+            }
+            other => panic!("expected UnsupportedCommandEncoding, got {other:?}"),
+        }
+    }
+
+    fn framed_spec_yaml_with_scheme(scheme: &str) -> String {
+        format!(
+            r#"
+device:
+  name: "DN Light"
+  manufacturer: "Daniao"
+  manufacturer_status: "active"
+  protocol: "ble"
+  identification:
+    local_name_prefix: "DN"
+    service_uuids:
+      - "00000074-1972-1925-3022-077119514e44"
+services:
+  - uuid: "00000074-1972-1925-3022-077119514e44"
+    name: "DDP"
+    characteristics:
+      - uuid: "01020074-1972-1925-3022-077119514e44"
+        name: "DDP Write"
+        properties: ["write"]
+        framing:
+          scheme: "{scheme}"
+        commands:
+          power_on:
+            description: "Turn on"
+            value: [0x09, 0xD2]
+"#
+        )
     }
 
     #[test]

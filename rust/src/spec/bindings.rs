@@ -26,15 +26,31 @@ use crate::protocol::{http, kasa, soap};
 /// this crate does not implement, making any raw write to it wrong on the
 /// wire.
 ///
-/// `encryption` (shining-mask's AES-128-ECB, pax's OFB) and `framing`
-/// (coolledx's length prefix, escaping and delimiters) are parsed and
-/// preserved but never executed — see [`Characteristic`]. Encoding a template
-/// for such a characteristic produces plaintext or unwrapped bytes the device
-/// rejects, so the honest answer is that the control does not resolve yet.
-/// Without this check the encoding gate only asks whether the *command* is
-/// encodable, and a spec whose transform lives one level up slips through.
+/// `encryption` (shining-mask's AES-128-ECB, pax's OFB) and an UNIMPLEMENTED
+/// `framing` scheme (coolledx's length prefix, escaping and delimiters) are
+/// parsed and preserved but never executed — see [`Characteristic`]. Encoding
+/// a template for such a characteristic produces plaintext or unwrapped bytes
+/// the device rejects, so the honest answer is that the control does not
+/// resolve yet. Without this check the encoding gate only asks whether the
+/// *command* is encodable, and a spec whose transform lives one level up slips
+/// through.
+///
+/// A framing scheme this build DOES execute (Daniao's DDP fragment header) is
+/// not a blocker — the encode path wraps the bytes in it
+/// (`protocol::image_upload::frame_command`), so SmartDawn's `light` entity
+/// resolves its power and brightness roles instead of being dropped.
 fn needs_unimplemented_transform(characteristic: &Characteristic) -> bool {
-    characteristic.encryption.is_some() || characteristic.framing.is_some()
+    if characteristic.encryption.is_some() {
+        return true;
+    }
+    if characteristic.framing.is_none() {
+        return false;
+    }
+    // A framing block blocks unless its scheme is one this build executes; a
+    // block naming no scheme (coolledx's length prefix) is never implemented.
+    !crate::codec::types::framing_scheme_name(characteristic)
+        .as_deref()
+        .is_some_and(crate::codec::types::implemented_framing_scheme)
 }
 
 /// Whether the characteristic accepts writes in either GATT mode.

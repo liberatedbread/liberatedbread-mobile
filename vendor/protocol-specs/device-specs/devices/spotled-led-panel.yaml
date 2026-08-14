@@ -6,6 +6,8 @@ device:
   name: "SPOTLED LED Panel"
   manufacturer: "Host No.4 Technology (Chengdu) Co., Ltd."
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >
