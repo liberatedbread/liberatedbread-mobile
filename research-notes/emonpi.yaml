@@ -1,0 +1,55 @@
+# OpenEnergyMonitor emonPi / emonBase / emonTx — Device Spec (research note)
+# Fully open hardware/software; manufacturer ACTIVE (Megni Ltd, UK)
+# Local path: emonCMS HTTP REST + local Mosquitto MQTT on the base station; cloud strictly optional
+
+device:
+  id: emonpi
+  name: OpenEnergyMonitor emonPi / emonBase + emonTx nodes
+  manufacturer: OpenEnergyMonitor (Megni Ltd, UK) — active, open source
+  category: energy_monitor
+  safety_class: MEDIUM  # CT install in/near panel; measurement-only
+
+transport:
+  type: wifi-lan        # base station on LAN; emonTx->base hop is 433 MHz RFM69 radio (or serial)
+  local_only: true
+  note: >
+    Whole emonSD stack (emonHub, emonCMS, Mosquitto) runs on the LAN base
+    station. emoncms.org is an optional hosted twin; nothing requires it.
+
+lan:
+  discovery:
+    method: mdns
+    hostname: emonpi.local
+  control:
+    http_api:
+      base: http://emonpi.local/emoncms
+      auth: per-account read/write API keys (or per-device keys)
+    mqtt:
+      port: 1883
+      default_creds: emonpi / emonpimqtt2016   # PUBLIC DEFAULTS — change immediately
+      topics: emon/<nodename>/<key>  (e.g. emon/emontx4/power1)
+
+protocol:
+  note: >
+    Open documented stack. emonHub decodes radio/serial frames and republishes
+    to MQTT; emonCMS stores feeds and exposes REST. EmonESP WiFi nodes add
+    their own local HTTP API (/status).
+  endpoints:
+    input_post: "input/post.json?node=<name>&json={...}&apikey=..."
+    feed_list: "feed/list.json"
+    feed_data: "feed/data.json?id=<n>&start=&end=&interval="
+    mqtt_stream: "subscribe emon/#"
+
+status:
+  apk_acquired: false    # n/a — web UI, no app needed
+  apk_decompiled: false
+  uuids_recovered: false # n/a — no BLE
+  protocol_recovered: true   # open source + documented
+  rating: confirmed
+  cloud_dead: false      # optional cloud; manufacturer active
+  references:
+    - guide.openenergymonitor.org/setup/local (emonHub/emonCMS local setup)
+    - guide.openenergymonitor.org/technical/mqtt (topics + default creds)
+    - docs.openenergymonitor.org/emoncms/intro-rpi.html
+    - github.com/openenergymonitor/EmonESP (ESP WiFi node local HTTP API)
+    - community.home-assistant.io/t/open-energy-monitor/48212 (local emoncms in HA)

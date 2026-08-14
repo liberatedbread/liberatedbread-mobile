@@ -1,0 +1,76 @@
+# Trace (AlpineReplay) Action-Sports Tracker — Research Note
+# APK source: apkeep (apk-pure); Play listing delisted (404 as of 2026-08-04)
+# APK SHA-256: 7a25b85781b26883ddf241c5e58b07466a12afae1aa018f7ca2509f4690f29a8
+
+device:
+  id: trace-snow-tracker
+  name: Trace action-sports tracker (Trace Snow / Surf / Skate puck)
+  manufacturer: AlpineReplay, Inc. (rebranded "Trace"; company pivoted to soccer AI cameras ~2018-2020, still alive as traceup.com)
+  category: sports_sensor
+  safety_class: LOW  # sports metrics only
+
+cloud_status: dead  # product line abandoned; app delisted; snow.traceup.com backend gone; company alive but unrelated
+company:
+  fate: product line abandoned (company pivoted 2018-2020; app last updated 2017-01-07)
+  sources:
+    - https://yespress.io/trace
+    - https://nyskiblog.com/forum/threads/ski-tracking-apps-and-stats.791/page-3
+    - https://getslopes.com/import/trace
+
+transport:
+  type: ble  # + Bluetooth Classic SPP (00001101) legacy fallback in app
+  local_only: true  # puck stores ~50 sessions onboard; BLE sync; cloud was social/leaderboards only
+
+ble:
+  advertising:
+    name_patterns: ["Trace"]  # exact match in BluetoothPairingManager.java
+    service_uuids: []
+  services:
+    - uuid: "0000A100-8501-11e3-ba12-0002a5d5c51b"
+      name: trace_service
+      description: Trace puck primary service (all UUIDs named in TRCSDK.java)
+      characteristics:
+        - {uuid: "0000a101-8501-11e3-ba12-0002a5d5c51b", name: recording, description: start/stop recording control}
+        - {uuid: "0000a102-8501-11e3-ba12-0002a5d5c51b", name: status}
+        - {uuid: "0000a103-8501-11e3-ba12-0002a5d5c51b", name: battery}
+        - {uuid: "0000a104-8501-11e3-ba12-0002a5d5c51b", name: files, description: session file list}
+        - {uuid: "0000a105-8501-11e3-ba12-0002a5d5c51b", name: clear_files}
+        - {uuid: "0000a106-8501-11e3-ba12-0002a5d5c51b", name: disk_space}
+        - {uuid: "0000a107-8501-11e3-ba12-0002a5d5c51b", name: bt21_status}
+        - {uuid: "0000a108-8501-11e3-ba12-0002a5d5c51b", name: bt21_control}
+        - {uuid: "0000a109-8501-11e3-ba12-0002a5d5c51b", name: firmware}
+        - {uuid: "0000a110-8501-11e3-ba12-0002a5d5c51b", name: reboot}
+        - {uuid: "0000a111-8501-11e3-ba12-0002a5d5c51b", name: led_control}
+        - {uuid: "0000a112-8501-11e3-ba12-0002a5d5c51b", name: hardware}
+        - {uuid: "0000a113-8501-11e3-ba12-0002a5d5c51b", name: session_length}
+        - {uuid: "0000a114-8501-11e3-ba12-0002a5d5c51b", name: max_velocity}
+        - {uuid: "0000a117-8501-11e3-ba12-0002a5d5c51b", name: reset_max_velocity}
+        - {uuid: "0000a118-8501-11e3-ba12-0002a5d5c51b", name: altitude}
+        - {uuid: "0000a119-8501-11e3-ba12-0002a5d5c51b", name: gps_satellite_status}
+        - {uuid: "0000a120-8501-11e3-ba12-0002a5d5c51b", name: gps_satellite_list}
+        - {uuid: "0000a121-8501-11e3-ba12-0002a5d5c51b", name: gps_request_info}
+        - {uuid: "0000a122-8501-11e3-ba12-0002a5d5c51b", name: gps_request_info_response}
+
+protocol:
+  note: >
+    Fully named GATT table in com.traceup.core.sync.sdk.TRCSDK — no crypto
+    visible at triage depth. Session files use the ".arz" container format,
+    partially reverse-engineered by community (github.com/wfraser/arz).
+    File-streaming characteristic/framing not yet identified.
+  session_format: ".arz (partially RE'd: github.com/wfraser/arz)"
+  community_re:
+    - https://github.com/wfraser/arz
+
+apk:
+  package_id: com.alpinereplay.android
+  app_name: Trace Snow Ski Snowboard Track
+  version: 5.6.3  # 2017-01-07, final release
+  sha256: 7a25b85781b26883ddf241c5e58b07466a12afae1aa018f7ca2509f4690f29a8
+  source: apk-pure via apkeep
+
+status:
+  apk_acquired: true
+  apk_decompiled: true   # jadx triage; workspace/static/trace-snow
+  uuids_recovered: true  # complete named table
+  protocol_recovered: false  # command bytes/file transfer framing TBD
+  hci_snoop_needed: true

@@ -1,0 +1,72 @@
+# Wonder Workshop Dash / Dot / Cue — Research Note
+# Companion app APK source: apkeep (APKPure)
+# APK SHA-256: 34e29b50cbf216aeb09b36aff000f6cafe80deaed4a350c1e75f20c97062a207
+
+device:
+  id: wonder-workshop-dash
+  name: Wonder Workshop Dash / Dot / Cue
+  manufacturer: Wonder Workshop (acquired by Makeblock 2018; robots discontinued; now "Make Wonder" subscription business)
+  category: toy_robot_educational
+  safety_class: NONE
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns: ["Dash", "Dot", "Cue"]
+    service_uuids: []
+
+  # Recovered from com.makewonder.blockly DEX
+  services:
+    - uuid: "af230000-879d-6186-1f49-deca0e85d9c1"
+      name: ww_robot_service
+      description: Wonder Workshop robot service (base UUID; chars af230001-af230006 seen in DEX)
+      characteristics:
+        - uuid: "af230001-879d-6186-1f49-deca0e85d9c1"
+          name: char_01
+          description: Command/notify role TBD (see bleak-dash for live mapping)
+        - uuid: "af230002-879d-6186-1f49-deca0e85d9c1"
+          name: char_02
+          description: TBD
+        - uuid: "af230003-879d-6186-1f49-deca0e85d9c1"
+          name: char_03
+          description: TBD
+        - uuid: "af230004-879d-6186-1f49-deca0e85d9c1"
+          name: char_04
+          description: TBD
+        - uuid: "af230005-879d-6186-1f49-deca0e85d9c1"
+          name: char_05
+          description: TBD
+        - uuid: "af230006-879d-6186-1f49-deca0e85d9c1"
+          name: char_06
+          description: TBD
+  ota_family:
+    uuids:
+      - "af237777-879d-6186-1f49-deca0e85d9c1"
+      - "af237778-879d-6186-1f49-deca0e85d9c1"
+      - "af237779-879d-6186-1f49-deca0e85d9c1"
+    note: Firmware manifests DashUpdate.json / DotUpdate.json / CueUpdate.json ship inside the Blockly APK.
+
+protocol:
+  note: >
+    Opcode-based control over the af2300xx characteristics (drive, head pan/tilt,
+    RGB LEDs, sounds, sensor streaming, pose events). Roles of individual
+    characteristics mapped in mewmix/bleak-dash; deeper firmware-level RE in the
+    Robopenguins Ghidra writeup (2026-02).
+  references:
+    - github.com/mewmix/bleak-dash              # 2024, cross-platform bleak Python
+    - robopenguins.com/reverse-dash             # 2026-02, Ghidra RE writeup
+    - hackaday.com/2026/02/14/reverse-engineering-a-dash-robot-with-ghidra/
+    - Wonder Workshop official Python API (py2/macOS only, historical)
+
+status:
+  apk_acquired: true          # com.makewonder.blockly via apkeep apk-pure (bare APK)
+  apk_decompiled: false       # DEX string sweep only
+  uuids_recovered: true
+  protocol_recovered: partial # prior art covers core control; full opcode map not consolidated
+  hci_snoop_needed: false     # prior art sufficient for core spec
+  cloud_dependency: none_for_control  # Class Connect subscription is curriculum-only
+  abandonment_status: at_risk # hardware discontinued; app still maintained (APKPure shows up to 4.2.5)
+  fetch_failures: [com.makewonder.go]  # not fetchable via apk-pure; try other mirrors/adb

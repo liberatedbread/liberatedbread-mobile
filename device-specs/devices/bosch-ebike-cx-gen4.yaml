@@ -1,0 +1,311 @@
+# Bosch Performance Line CX (Gen4) eBike system device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Kiox (BUI350) BLE link added by static analysis of the official Android
+# app `com.bosch.ebike` ("eBike Connect"), decompiled with jadx (clean-room,
+# artifacts gitignored). Evidence source files (jadx-out/sources/...):
+#   t9/f.java     BLE service/characteristic UUIDs (MCSP, BSS, DIS)
+#   t9/b.java     Meta read, MTU selection, indication/notification setup
+#   u8/a.java     SimpleTransportMessage (fragmentation layer)
+#   u8/b.java     SimpleTransportMessageHeader (2-byte fragment header)
+#   t8/f.java     SimpleMessageHeader (4-byte message header)
+#   t8/d.java     SimpleMessage reassembly + CRC-16 trailer check
+#   a/a.java      CRC-16/CCITT-FALSE implementation (init 0xFFFF, poly 0x1021)
+#   t8/a.java     SimpleMessage domain enum (KEY_ESTABLISHMENT)
+#   q8/t.java     key establishment step 2 (chacha_encrypted/chacha_mac/ble_key)
+#   s8/a.java     ChaCha20-Poly1305 AEAD construction
+#   am/b0.java    message protection with rolling send/receive counters
+#   ga/c.java     CoAP endpoint map (v1/battery, v1/activity, ...)
+#   ga/d.java     v1/disabler_service (drive-unit lock) CoAP requests
+#   k9/b.java     BUI350 device record incl. encryptedPreSharedKey
+# Everything BLE-side below is app-confirmed, not hardware-tested.
+
+device:
+  name: "Bosch Performance Line CX (Gen4)"
+  manufacturer: "Bosch eBike Systems"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    detail: capture-verified
+    notes: >-
+      CAN-layer facts checked against a first-party candump of a real ride
+      (research store: bosch-ebike-cx-gen4/captures/candump-tour-001.log). The
+      BLE surface is static-analysis only; nothing has been driven end-to-end
+      from this spec by this project.
+  protocol: "can"
+  category: "motor"
+  notes: >
+    The most closed mainstream e-bike system, and the one that most often stops
+    an independent repair. Fault detail, component pairing and firmware updates
+    are gated behind Bosch dealer tooling and the eBike Connect app, so a
+    workshop without dealer access can see THAT a bike has faulted without
+    being able to say why, and cannot re-pair a replaced motor, battery or
+    display. (The eBike Flow app is for the smart system / BES3 only; Gen4/BES2
+    pairs through eBike Connect.)
+
+    THIS SPEC IS A STARTING KIT, NOT A PROTOCOL. What is documented below is how
+    to get onto the bus -- bitrate, breakout pinout, tooling. The public message
+    catalogue is a SINGLE frame. There is no decoded field mapping for speed,
+    assist level, battery state or error codes yet; building one is the work.
+
+    NO RADIO ON THE BUS, NO SOCKET: unlike every other vehicle target here,
+    there is nothing to scan for at the system level. Reaching the bus needs
+    a CAN interface and physical access to the harness. Budget for hardware,
+    not an afternoon with a phone. One caveat on the wording: a Kiox (BUI350)
+    display DOES advertise BLE -- it pairs with the eBike Connect app and
+    with BLE heart-rate straps -- but that link belongs to the display and
+    is not a path onto the bus. That display link is now documented below
+    (see `services:`) from decompilation of the eBike Connect app: two
+    proprietary GATT services (MCSP for CoAP data, BSS for security), a
+    fragmented message transport with CRC-16, certificate-based DH key
+    establishment and ChaCha20-Poly1305 message protection. It is the
+    richest documented surface on this system -- but it terminates at the
+    display, and pairing is gated by a per-device key issued by the Bosch
+    backend, so it changes nothing about reaching the bus itself.
+
+    NO CAN IN THE APP: the eBike Connect app contains zero CAN code -- no
+    SocketCAN, no CAN-frame handling anywhere in the decompiled sources; it
+    talks BLE (and backend REST) only. The CAN open questions in this spec
+    are therefore NOT resolved by app analysis and stay open.
+
+    VERIFICATION: link parameters and wiring are `reported` and reproducible.
+    The single frame below is `hypothesis` -- reported by one source and not
+    reproduced by us. Nothing here has been observed on our own bus.
+    Everything under `services:` is app-confirmed, not hardware-tested: it
+    comes from static decompilation of com.bosch.ebike, and no frame of the
+    Kiox BLE link has been captured or replayed by us.
+
+    METHOD: passive capture first, always. This is a bus with a motor on it.
+    Capture a full session (power-on, each assist level, walk mode, an induced
+    fault on a stand), diff single-variable changes to isolate candidate IDs,
+    and identify which node emits which ID by capturing with components
+    disconnected one at a time. Only then consider transmitting.
+
+    SINCE THIS SPEC WAS WRITTEN (2026-05): Bosch published an official, free
+    "Live Data Interface" BLE GATT specification (V1.0, 2026-05-01) -- 13
+    read-only live data points (speed, SoC, rider power, cadence, odometer,
+    lock/light/charger state) with permissive terms. It covers the smart
+    system (BES3) only and does not unlock Gen4/BES2, but it is Bosch's
+    first open protocol and a policy U-turn worth recording.
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      Nothing to provision. Nothing a third party can provision. Component pairing exists but is gated behind Bosch dealer tooling, which is precisely the dependency this target documents.
+    methods:
+      - type: "wired"
+        description: >
+          Physical access to the CAN harness via a D-Sub 9 breakout and a SocketCAN-compatible interface at 500 kbit/s. There is no onboarding handshake for a third-party client -- the bus is simply there.
+        verified: false
+    factory_reset:
+      applicable: false
+      effect: >
+        No user- or workshop-accessible factory reset. Component pairing and any reset-like operation run through Bosch dealer tooling. Recording that gap honestly is the point of this entry; a procedure invented for safety-relevant hardware would be worse than none.
+    rejoin:
+      requires_factory_reset: false
+      notes: >
+        No network binding exists, so there is nothing to rejoin. Moving the
+        vehicle between owners or workshops changes nothing about how the bus
+        is reached.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      notes: >
+        No WiFi, no account and no passphrase for the bus: physical access to
+        the harness is the only credential. The Kiox BLE link is the opposite:
+        pairing requires a per-device encryptedPreSharedKey provisioned from
+        the Bosch backend and stored on the device record (app-confirmed:
+        k9/b.java:98, field on the shared Device model x9/b.java:42; the app
+        refuses to connect without it, v9/b.java:288; key material is parsed
+        as a "backend pre-shared key", kb/q.java). No backend-issued key, no
+        link -- third-party pairing is backend-gated, not hardware-tested.
+
+services:
+  # Kiox (BUI350) display BLE link, from jadx decompilation of the eBike
+  # Connect app (com.bosch.ebike). Everything in this section is
+  # app-confirmed, not hardware-tested; no GATT exchange has been captured
+  # or replayed by us. This link terminates at the display -- it is not a
+  # path onto the CAN bus.
+  - uuid: "0000180A-0000-1000-8000-00805F9B34FB"
+    name: "Device Information Service"
+    notes: >
+      Standard Bluetooth SIG DIS, referenced by the app's BLE manager
+      (t9/f.java:39). App-confirmed, not hardware-tested.
+  - uuid: "DC435FBE-837D-42C5-A987-A9DE0087E491"
+    name: "Bosch proprietary service (purpose not established)"
+    notes: >
+      128-bit vendor UUID declared alongside the MCSP/BSS UUIDs in the app's
+      BLE manager (t9/f.java:42). The inspected code paths do not reveal its
+      role; listed so nobody has to guess. App-confirmed UUID, purpose
+      unknown, not hardware-tested.
+  - uuid: "424F5343-4820-4D43-5350-76012E002E00"
+    name: "BOSCH MCSP v1"
+    notes: >
+      Data channel of the Kiox BLE link; the UUID's first ten bytes spell
+      "BOSCH MCSP" in ASCII, followed by 'v' and the binary version bytes
+      01 00 00 (v1.0.0) — not the literal text "v1" (t9/f.java:45). Carries
+      CoAP requests/responses with protobuf
+      bodies inside an encrypted, fragmented transport (app-confirmed, not
+      hardware-tested):
+
+      FRAMING (bottom up). BLE writes/notifications carry SimpleTransport-
+      Message fragments: a 2-byte header -- byte 0 = version (2 bits, only
+      0 accepted) | firstPart (bit 5) | lastPart (bit 4) | counter (low
+      nibble, 0..15), byte 1 = payload length 0..255 (u8/b.java; reassembly
+      checks first/last flags and counter order mod 16, t8/d.java:24-44).
+      Reassembled bytes form a SimpleMessage: 4-byte header -- byte 0 =
+      version (2 bits) | domain (6 bits), byte 1 = message type, bytes 2-3 =
+      payload length big-endian (t8/f.java:27-77) -- then payload, then a
+      2-byte big-endian CRC-16/CCITT-FALSE trailer (init 0xFFFF, poly
+      0x1021, MSB-first, no reflection, no final XOR) over header+payload
+      (t8/d.java:45-58; CRC implementation a/a.java).
+
+      SECURITY. Before data flows, key establishment runs over the BSS
+      service below (SimpleMessage domain KEY_ESTABLISHMENT, t8/a.java):
+      certificate-based Diffie-Hellman -- KeyExchangeStep1Request carries
+      entity / device_certificate / dh_public_b / signature, the step-2
+      response carries chacha_encrypted / chacha_mac / ble_key (protobuf
+      descriptors under com/bosch/ebike/app/bss/keyestablishment/protobuf/,
+      q8/t.java:22-29), with session keys expanded via HKDF (kb/q.java).
+      Afterwards every message is ChaCha20-Poly1305 AEAD (s8/a.java:
+      20-round ChaCha, 12-byte nonce, 16-byte Poly1305 tag, AAD = 8-byte
+      little-endian message counter || length) with per-direction rolling
+      counters and replay rejection on counter mismatch (am/b0.java:126-150).
+
+      ENDPOINTS. CoAP paths observed in the app: v1/battery, v1/activity,
+      v1/firmware, v1/available_firmware, v1/echo, v1/version, v1/user,
+      v1/timezone, v1/timestamp, v1/system_description, v1/location,
+      v1/location_subscribe, v1/notification, v1/backend_token,
+      v1/saved_route_list, v1/saved_route_details, v1/saved_destinations,
+      v1/udams, v1/licenses, v1/a_gnss_offline, v1/a_gnss_online,
+      v1/weather, v1/instant_route, v1/disabler_service (ga/c.java:47-264,
+      z8/c.java:17, k9/h.java:176,301). DRIVE-UNIT LOCK/UNLOCK: the "Lock"
+      feature talks to v1/disabler_service with a DisablerServiceBuiRequest
+      protobuf (SEND_KEY etc., ga/d.java:17-36), backed by backend REST
+      calls (postLockService/postUnlockService, w8/g.java:402-410).
+    characteristics:
+      - uuid: "424F5343-4820-4D43-5350-20204D657461"
+        name: "Meta"
+        properties: ["read"]
+        notes: >
+          UUID spells "BOSCH MCSP  Meta" (t9/f.java:48). 3-byte value:
+          protocol version byte + 16-bit big-endian max payload; the app
+          requests ATT MTU 253 when the meta version is > 1, else keeps 23
+          (t9/b.java:50-68). App-confirmed, not hardware-tested.
+      - uuid: "424F5343-4820-4D43-5350-20204D49534F"
+        name: "MISO"
+        properties: ["notify"]
+        notes: >
+          UUID spells "BOSCH MCSP  MISO" (t9/f.java:51). Display-to-app
+          data; the app enables notifications on it (t9/b.java:93-98).
+          Carries SimpleTransportMessage fragments. App-confirmed, not
+          hardware-tested.
+      - uuid: "424F5343-4820-4D43-5350-20204D4F5349"
+        name: "MOSI"
+        properties: ["write"]
+        notes: >
+          UUID spells "BOSCH MCSP  MOSI" (t9/f.java:54). App-to-display
+          direction inferred from the MOSI naming and the CoAP request flow;
+          the exact write call site was not pinned down in the decompiled
+          code. App-confirmed, not hardware-tested.
+  - uuid: "424F5343-4820-4253-5376-76012E002E00"
+    name: "BOSCH BSS v1"
+    notes: >
+      Security channel of the Kiox BLE link; the UUID's first ten bytes spell
+      "BOSCH BSSv" in ASCII, followed by 'v' and the binary version bytes
+      01 00 00 (v1.0.0) — not the literal text "v1" (t9/f.java:57). Carries
+      the key-establishment
+      handshake described under the MCSP service (SimpleMessage domain
+      KEY_ESTABLISHMENT, t8/a.java), in the same fragmented/CRC'd transport.
+      Pairing is backend-gated: it needs the per-device
+      encryptedPreSharedKey provisioned from the Bosch backend
+      (k9/b.java:98, x9/b.java:42, v9/b.java:288). App-confirmed, not
+      hardware-tested.
+    characteristics:
+      - uuid: "424F5343-4820-4253-5320-20204D49534F"
+        name: "MISO"
+        properties: ["indicate", "notify"]
+        notes: >
+          UUID spells "BOSCH BSS  MISO" (t9/f.java:58). Display-to-app; the
+          app enables indications, falling back to notifications if the
+          indicate property is absent (t9/b.java:73-90). App-confirmed, not
+          hardware-tested.
+      - uuid: "424F5343-4820-4253-5320-20204D4F5349"
+        name: "MOSI"
+        properties: ["write"]
+        notes: >
+          UUID spells "BOSCH BSS  MOSI" (t9/f.java:59). App-to-display
+          direction inferred from the MOSI naming and the handshake flow;
+          the exact write call site was not pinned down in the decompiled
+          code. App-confirmed, not hardware-tested.
+
+bus:
+  link:
+    type: "can"
+    bitrate: 500000
+    verification: "reported"
+    wiring:
+      - signal: "CAN-L"
+        pin: 2
+        wire_colour: "yellow"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "CAN-H"
+        pin: 7
+        wire_colour: "green"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "ground"
+        pin: 3
+        wire_colour: "black"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "RTL"
+        pin: 1
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "RTH"
+        pin: 8
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+      - signal: "+12V supply, max 1A"
+        wire_colour: "red"
+        connector: "D-Sub 9 (CiA DS-102)"
+        verification: "reported"
+  style: "broadcast"
+  checksum:
+    algorithm: "none"
+    scope: >
+      No application-layer checksum is documented; CAN's own CRC covers the
+      frame. Whether state-changing frames carry a counter or authentication is
+      an open question -- Bosch's tamper detection implies integrity checking
+      somewhere.
+    verification: "hypothesis"
+  notes: >
+    Bring the interface up with: ip link set can0 type can bitrate 500000.
+    Tooling: can-utils (candump/cansend), python-can for live viewing,
+    cannelloni for UDP-over-CAN to a workstation, or SuperCAN firmware on an
+    Adafruit Feather M4 CAN Express. Kiox display internals, for anyone working
+    on the display itself: STM32F469IIH6 CPU, W25M512JV 512 Mbit SPI flash,
+    W9864G6KH 64 Mbit SDRAM.
+  messages:
+    - name: "start_stop"
+      description: >
+        Reported start/stop command -- the entire published message catalogue
+        for this system. Sent as: cansend can0 061#00
+      direction: "to_device"
+      can_id: "0x061"
+      writes: true
+      advanced: true
+      advanced_reason: >
+        Transmits onto a live bus that has a motor on it, and is unconfirmed --
+        one source, not reproduced. Bosch detects and records tampering, and a
+        flagged unit can be refused service and lose warranty, a consequence
+        that outlives the change that caused it. Reproduce passively first,
+        wheel off the ground, and know your recovery path before sending
+        anything.
+      notes: >
+        Reproducing or refuting this frame is the natural first milestone after
+        a clean passive capture.
+      verification: "hypothesis"

@@ -1,0 +1,221 @@
+# M6 Smart Fitness Band — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Hardware RE: rbaron.net teardown (Telink TLSR8232 SoC, ST7735 TFT LCD)
+#   + stock firmware dump (rbaron/m6-reveng dumped/flash.bin, SHA-256
+#   674a8b78e6f27fdc61caf5f986d001f7958c211bc955614570b25f811bb1c300)
+# Protocol RE: xor.co.za full reverse engineering of the identical LT716
+#   platform (FitPro app, NUS transport, 0xCD-framed commands, Telink OTA)
+#
+# RE-TARGETED 2026-07-31: this spec previously documented the Veryfit 2.0
+# (com.veryfit.multi) 0AF0 protocol as the M6's protocol. The M6's own stock
+# firmware disproves that attribution: no 0AF0 UUID exists anywhere in the
+# 512 kB flash; the on-device GATT table is Nordic UART Service + Telink OTA
+# with an LT716_OTA identity. The Veryfit analysis is preserved at the
+# bottom as a clearly-labeled mis-attribution note.
+
+device:
+  name: "M6 Smart Fitness Band"
+  manufacturer: "Unknown (AliExpress generic / Mi Band clone)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "fitness"
+  notes: >
+    The M6 Smart Fitness Band is a ~$6 Mi Band clone sold on AliExpress.
+    Hardware (rbaron.net teardown): Telink TLSR8232 SoC (16 kB SRAM, 512 kB
+    flash, SWS debug), ST7735-driven 0.96" 160x80 color TFT LCD (the ST7735
+    is a TFT LCD controller, NOT OLED), vibration motor, ~100 mAh LiPo with
+    USB charging, and a (most likely) fake PPG heart-rate sensor.
+
+    The M6 is an LT716-platform device speaking the FitPro protocol — stock
+    firmware strings: "LT716(G)" (model string), firmware version V0.0.4.
+    The advertised BLE Complete Local Name is "M6" (AD structure 03 09 4d
+    36 in the stock firmware; "M6" is also the GAP device-name value);
+    "LT716" survives as a model/string artifact and "LT716_OTA" appears
+    only in OTA mode. Vendor listings pair the M6 with the FitPro app
+    (package xfkj.fitpro). Transport is the Nordic UART
+    Service (NUS): write commands to 6e400002, notify on 6e400003. Commands
+    are 0xCD-prefixed, length-framed packets (e.g. find-me =
+    CD000612010B000101), max 20 bytes per write, per the xor.co.za RE of the
+    identical platform.
+
+    OTA is the Telink OTA service 00010203-0405-0607-0809-0a0b0c0d1912
+    (OTA-mode identity "LT716_OTA"): prepare 0x00FF, start 0x01FF, end
+    0x02FF + index/~index + CRC16, 16-byte blocks. CAUTION: issuing
+    OTA-start on the wrong handle can soft-brick the band, recoverable only
+    via SWS flashing.
+
+    "M6" is a multi-variant marketing name: at least one Alibaba listing
+    shows a Phy6222-based "M6", and other M6 clones may differ again. This
+    spec covers the TLSR8232/LT716 unit that rbaron tore down and that the
+    firmware evidence above comes from.
+
+    Research status: stock firmware GATT table mapped from the flash dump;
+    wire protocol taken from xor.co.za's LT716/FitPro RE. Command coverage
+    beyond the documented example frames still needs on-wire confirmation.
+  identification:
+    local_name_prefix: "M6"
+    service_uuids:
+      - "6e400001-b5a3-f393-e0a9-e50e24dcca9d"
+
+  setup:
+    required: false
+    confidence: low
+    notes: >
+      The band needs no provisioning. It advertises the Nordic UART Service
+      (BLE name "M6") and accepts commands from any client that connects;
+      the FitPro protocol involves no pairing or bonding — none of the
+      scanning or commanding requires that anything actually pair (xor.co.za).
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT, enable notifications on the NUS RX
+          characteristic (6e400003), then write 0xCD-framed command packets
+          to the NUS TX characteristic (6e400002).
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Wake the band by pressing its touch button so it advertises."
+            actor: user
+          - action: "Scan for the Nordic UART Service 6e400001 (BLE name M6) and connect over GATT."
+            actor: client
+          - action: "Enable notifications on 6e400003-b5a3-f393-e0a9-e50e24dcca9d via the standard CCCD."
+            actor: client
+          - action: >
+              Write 0xCD-prefixed length-framed command packets (max 20 bytes
+              per write) to 6e400002-b5a3-f393-e0a9-e50e24dcca9d.
+            actor: client
+            expect: "Responses arrive as notifications on 6e400003."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not established. No factory-reset command is documented for the
+        LT716/FitPro platform. CAUTION: the Telink OTA path is the dangerous
+        corner — issuing OTA-start (0x01FF) on the wrong handle can
+        soft-brick the band, recoverable only via SWS flashing. Not stated
+        rather than guessed.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The band joins no network. Any client may connect once the previous one
+        disconnects.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only; no WiFi passphrase crosses the link. No authentication of any
+        kind, so health data is readable by anyone in range.
+
+services:
+  - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9d"
+    name: "Nordic UART Service (FitPro transport)"
+    notes: >
+      Nordic UART Service — the transport of the FitPro/LT716 protocol,
+      confirmed in the stock M6 firmware GATT table (UUIDs found at flash
+      offsets 0x1b160 / 0x1ab34 / 0x1ab54). Commands are 0xCD-prefixed,
+      length-framed packets, max 20 bytes per write. Full protocol writeup
+      for the identical platform: xor.co.za, "Hacking a smartwatch" (2022).
+    characteristics:
+      - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9d"
+        name: "NUS TX (command write)"
+        properties: ["write", "write_without_response"]
+        notes: "Command channel: 0xCD-prefixed length-framed packets."
+        commands:
+          find_me:
+            description: "Make the band alert (find-my-band). Documented example frame from the LT716 platform RE."
+            locate: "both"
+            verification: "reported"
+            value: [0xCD, 0x00, 0x06, 0x12, 0x01, 0x0B, 0x00, 0x01, 0x01]
+      - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9d"
+        name: "NUS RX (notify)"
+        properties: ["notify"]
+        notes: "Responses and notifications from the band."
+
+  - uuid: "0000180f-0000-1000-8000-00805f9b34fb"
+    name: "Battery Service"
+    notes: "Standard BLE battery service, present in the stock firmware GATT table."
+    characteristics:
+      - uuid: "00002a19-0000-1000-8000-00805f9b34fb"
+        name: "Battery Level"
+        properties: ["read", "notify"]
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    notes: >
+      Standard device information, present in the stock firmware GATT table
+      (the DIS region at flash offset ~0x1b174 holds 0x2A28 and 0x2A26 next
+      to the "V0.0.4" string; no 0x2A24 Model Number characteristic exists
+      in the GATT table).
+    characteristics:
+      - uuid: "00002a28-0000-1000-8000-00805f9b34fb"
+        name: "Software Revision String"
+        properties: ["read"]
+        notes: "Stock firmware value: \"V0.0.4\"."
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+
+  - uuid: "00001812-0000-1000-8000-00805f9b34fb"
+    name: "Human Interface Device Service"
+    notes: >
+      Standard HID service (0x1812), present in the stock firmware GATT
+      table. Purpose on this band is undocumented — likely used by the
+      FitPro ecosystem for remote-control features; unverified.
+
+  - uuid: "00010203-0405-0607-0809-0a0b0c0d1912"
+    name: "Telink OTA Service"
+    notes: >
+      Telink OTA service (found at flash offsets 0x1ab78, 0x29218); the band
+      reboots into OTA mode under the identity "LT716_OTA". Flow per the
+      sibling LT716 platform: prepare 0x00FF, start 0x01FF, end 0x02FF +
+      index/~index + CRC16, 16-byte blocks. CAUTION: OTA-start on the wrong
+      handle can soft-brick the band; recovery requires SWS flashing
+      (rbaron's tlsr82-debugger-client works for this).
+    characteristics:
+      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b12"
+        name: "Telink OTA Data"
+        properties: ["write", "write_without_response"]
+        notes: >
+          OTA data characteristic (found at flash offset 0x1ab1c, stored
+          byte-reversed like the rest of the Telink GATT table). Carries
+          the 16-byte OTA blocks.
+
+references:
+  - "https://rbaron.net/blog/2021/07/06/Reverse-engineering-the-M6-smart-fitness-band.html"
+  - "https://github.com/rbaron/m6-reveng"
+  - "https://xor.co.za/post/2022-11-30-hacking-smartwatch/"
+  - "https://github.com/DynamicDevices/lcd-badge-ble"
+  - "https://play.google.com/store/apps/details?id=xfkj.fitpro"
+  - "https://gadgetbridge.org/gadgets/wearables/fitpro/"
+  - "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/2955"
+# Vendor OTA cloud for the FitPro/M6 ecosystem: tomato.gulaike.com and
+# tomato.jusonsmart.com — endpoints verified alive 2026-07-31 but publish NO
+# M6/LT716 firmware (API returns data: null for M6/m6/M6S/LT716). Negative
+# result: no vendor firmware images exist for this device family.
+
+# --- Mis-attribution note (kept for reference; does NOT describe the M6) ---
+misattribution_note:
+  veryfit_0af0_analysis: >
+    Earlier revisions of this spec documented the Veryfit 2.0
+    (com.veryfit.multi, APK SHA-256
+    98fab69b465f77f84b44d7ea859678a115474999691e72b2c814716a8aa6d530)
+    protocol — primary service 00000af0 with write/notify chars
+    00000af6/00000af7 and health channel 00000af1/00000af2, 20-byte fixed
+    frames (command ID at byte 0, key at byte 1), and Nordic legacy DFU
+    (00001530-...) for OTA — as the M6's protocol. That analysis is a
+    byte-accurate spec of the Veryfit 2.0 app (every UUID and command ID
+    verified against its decompiled smali) and remains valid for the
+    ID107/ID111-class bands Veryfit 2.0 actually targets (Nordic nRF51822
+    hardware generation), but it is MIS-ATTRIBUTED to the M6: the stock M6
+    firmware dump contains no occurrence of the 0AF0 UUID anywhere in its
+    512 kB flash, its GATT table is NUS + Telink OTA, and vendor listings
+    pair the M6 with the FitPro app. Nordic DFU belongs to the nRF51822-based
+    ID107 bands, not the Telink M6. References: rbaron/m6-reveng firmware
+    dump; xor.co.za LT716 platform RE.
