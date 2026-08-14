@@ -10,6 +10,8 @@ device:
   name: "HOTWIRED 12V Bluetooth Heated Gear"
   manufacturer: "Comoto Holdings, Inc. (HOTWIRED brand)"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "wearable"
   notes: >
@@ -18,7 +20,12 @@ device:
     Two hardware variants detected: BT-912/BT-712 (both use ffb0-UUID family,
     with fallback support for fee0-UUID family on older modules).
     Protocol uses AA/55 framed 8-byte commands with echo-based acknowledgment.
-    No keep-alive heartbeat — write-with-retry pattern instead.
+    Frames carry NO checksum — BleOrder.xor() exists in the app but is dead
+    code (zero callers anywhere in the BLE path); bytes 3-6 are fixed-zero
+    padding. No keep-alive heartbeat — write-with-retry pattern instead.
+    Multi-device: the app manages up to 5 garment slots simultaneously
+    (MyApplication.pairList) — each garment is an independent BLE peripheral
+    with its own connection; nothing relays commands between garments.
     MAX HEAT LEVEL: 10 (0x0A). DO NOT EXCEED.
     WARNING: No BLE security — any nearby device can control the heat.
     WARNING: Burn/fire/electrical risk — see target.md safety section.
@@ -150,6 +157,9 @@ services:
           Type 2 (CC prefix): Status report with battery/temperature.
           CC format: CC <STATUS> <TEMPS> <BATTERY> <TEMP> <CONTROL>.
           Enable notifications via CCCD 00002902-0000-1000-8000-00805f9b34fb.
+          Connection order in the stock app: it issues readCharacteristic on
+          ffb2 during service discovery BEFORE enabling notifications
+          (BluetoothService.java:114-115).
           Also check fallback: 0000fee1-0000-1000-8000-00805f9b34fb.
 
   # Fallback service for older hardware variant
@@ -266,7 +276,10 @@ product_types:
     description: "Heating pad — single zone control"
   - id: "gloves"
     resource: "R.string.left / R.string.right"
-    description: "Gloves — paired zone, always synced together"
+    description: >
+      Gloves — paired zone, always synced together. If the two modules drift
+      to different levels, the app syncs the LOWER one UP to match the higher
+      one (safety-relevant: re-sync never lowers heat without the user).
 
 safety:
   max_level: 10
@@ -320,3 +333,10 @@ entities:
     value_template: "{{ value[4:5] | int(base=16) }}"
     unit: "°C"
     notes: "Scale and offset unconfirmed — requires bench testing"
+
+references:
+  - "https://play.google.com/store/apps/details?id=com.anji.mec"
+  - "https://apps.apple.com/app/id1634504597"
+  - "https://www.ventureheat.com/pages/bluetooth"
+  - "https://www.ventureheat.com/pages/motorcycle-guide"
+  - "https://www.addheat.com/"

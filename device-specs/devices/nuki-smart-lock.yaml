@@ -10,6 +10,8 @@ device:
   name: "Nuki Smart Lock"
   manufacturer: "Nuki Home Solutions GmbH"
   manufacturer_status: "active"
+  testing:
+    status: untested
   category: "lock"
   type: "electronic_door_lock"
   protocol: "ble"
@@ -150,7 +152,10 @@ ble:
     transport: "le"
     phy_preference: "le_1m"
     mtu_negotiation: true
-    preferred_mtu: 185
+    # No verifiable preferred MTU: the app accepts any MTU 23-517
+    # (C7538iv.java:1846, "mtu must be between 23 and 517"); the official BLE
+    # API only notes MTU exchange is supported since FW 1.9.3/2.7.20. An
+    # earlier revision stated 185 — unverifiable, dropped.
     # No BLE bonding: security is application-layer NaCl (Curve25519 DH +
     # XSalsa20-Poly1305); neither pyNukiBT nor NukiBleEsp32 bonds.
     bonding_required: false
@@ -163,6 +168,10 @@ services:
   # Service, A92EE200 is the Keyturner (command) Service with A92EE201 =
   # General Data IO (unencrypted) and A92EE202 = User-Specific Data IO
   # (encrypted). The nested list below keeps the repo's flat layout.
+  # Unmapped: the app's BleConstants also carry A92DE000 (with A92DE001-DE003)
+  # and A92FE000 (with A92FE001/FE002), plus the Smart Lock Ultra pairing
+  # service A92EE300 — three further service prefixes with no device role
+  # established here (app-derived, not hardware-verified).
   - uuid: "A92EE000-5501-11E4-916C-0800200C9A66"
     name: "Keyturner Initialization Service"
     description: "Advertises the uninitialized state; has no characteristics of its own (official BLE API V2.3.0). The entries below are the separate keyturner services/characteristics, kept here for reference."
@@ -393,6 +402,80 @@ protocol:
       direction: "client_to_device"
       description: "Send authorization authenticator after challenge"
 
+    # --- Authorization management (official BLE API V2.3.0; documented but not
+    #     yet exercised by this repo — payload detail only where the doc gives it) ---
+    authorization_data:
+      id: 6
+      name: "AuthorizationDataRequest (0x0006)"
+      direction: "client_to_device"
+      description: "Create an authorization entry (official BLE API V2.3.0)"
+
+    authorization_id:
+      id: 7
+      name: "AuthorizationIdResponse (0x0007)"
+      direction: "device_to_client"
+      description: "Returns the authorization ID. NOTE: 0x0007 is Authorization-ID, NOT Error Report (0x0012)."
+
+    remove_authorization_entry:
+      id: 8
+      name: "RemoveAuthorizationEntryRequest (0x0008)"
+      direction: "client_to_device"
+      description: "Remove an authorization entry (official BLE API V2.3.0)"
+
+    request_authorization_entries:
+      id: 9
+      name: "RequestAuthorizationEntriesRequest (0x0009)"
+      direction: "client_to_device"
+      description: "List authorization entries (official BLE API V2.3.0)"
+
+    authorization_entry:
+      id: 10
+      name: "AuthorizationEntryResponse (0x000A)"
+      direction: "device_to_client"
+      description: "A single authorization entry (official BLE API V2.3.0)"
+
+    authorization_data_invite:
+      id: 11
+      name: "AuthorizationDataInviteRequest (0x000B)"
+      direction: "client_to_device"
+      description: "Create an authorization entry via invite flow (official BLE API V2.3.0)"
+
+    most_recent_command:
+      id: 15
+      name: "MostRecentCommandResponse (0x000F)"
+      direction: "device_to_client"
+      description: "The most recent command executed by the lock (official BLE API V2.3.0)"
+
+    openings_closings_summary:
+      id: 16
+      name: "OpeningsClosingsSummaryResponse (0x0010)"
+      direction: "device_to_client"
+      description: "Summary of door openings/closings (official BLE API V2.3.0)"
+
+    battery_report:
+      id: 17
+      name: "BatteryReportResponse (0x0011)"
+      direction: "device_to_client"
+      description: "Battery report (official BLE API V2.3.0)"
+
+    config:
+      id: 21
+      name: "ConfigResponse (0x0015)"
+      direction: "device_to_client"
+      description: "Device configuration response (official BLE API V2.3.0)"
+
+    request_reboot:
+      id: 29
+      name: "RequestRebootRequest (0x001D)"
+      direction: "client_to_device"
+      description: "Reboot the lock (official BLE API V2.3.0)"
+
+    authorization_id_confirmation:
+      id: 30
+      name: "AuthorizationIdConfirmationRequest (0x001E)"
+      direction: "client_to_device"
+      description: "Confirm the authorization ID after pairing (official BLE API V2.3.0)"
+
     keyturner_states:
       id: 12
       name: "KeyturnerStatesResponse"
@@ -413,9 +496,27 @@ protocol:
         - name: "currentTime"
           type: "datetime"
           description: "Device current time (year, month, day, hour, min, sec)"
+        - name: "timezoneOffset"
+          type: "sint16"
+          description: "Timezone offset (UTC) in minutes (official BLE API V2.3.0)"
         - name: "battery"
           type: "uint8"
           description: "Battery flags byte: bit0 = critical, bit1 = charging, bits 2-7 = charge level in steps of 2%"
+        - name: "configUpdateCount"
+          type: "uint8"
+          description: "Current count of modifications to the internal config (official BLE API V2.3.0)"
+        - name: "lockNGoTimer"
+          type: "uint8"
+          description: "Status of the lock'n'go timer, or 0 if no lock'n'go is active (official BLE API V2.3.0)"
+        - name: "lastLockAction"
+          type: "uint8"
+          description: "Most recent lock action performed (official BLE API V2.3.0)"
+        - name: "lastLockActionTrigger"
+          type: "uint8"
+          description: "Trigger that caused the most recent lock action (official BLE API V2.3.0)"
+        - name: "lastLockActionCompletionStatus"
+          type: "uint8"
+          description: "Completion status of the most recent lock action (official BLE API V2.3.0)"
         - name: "doorSensorState"
           type: "uint8"
           description: "Door state (0=unavailable, 1=deactivated, 2=closed, 3=opened, 4=unknown, 5=calibrating, 0x10=uncalibrated, 0xF0=tampered)"
@@ -502,11 +603,110 @@ protocol:
       direction: "client_to_device"
       description: "Synchronize device clock (timezone-aware)"
 
+    update_authorization_entry:
+      id: 37
+      name: "UpdateAuthorizationEntryRequest (0x0025)"
+      direction: "client_to_device"
+      description: "Update an existing authorization entry (official BLE API V2.3.0)"
+
     authorization_entry_count:
       id: 39
       name: "AuthorizationEntryCountResponse"
       direction: "device_to_client"
       description: "Number of authorized users/devices"
+
+    # --- Activity log (official BLE API V2.3.0) ---
+    request_log_entries:
+      id: 49
+      name: "RequestLogEntriesRequest (0x0031)"
+      direction: "client_to_device"
+      description: "Request activity log entries (official BLE API V2.3.0)"
+
+    log_entry:
+      id: 50
+      name: "LogEntryResponse (0x0032)"
+      direction: "device_to_client"
+      description: "A single activity log entry (official BLE API V2.3.0)"
+
+    log_entry_count:
+      id: 51
+      name: "LogEntryCountResponse (0x0033)"
+      direction: "device_to_client"
+      description: "Count of activity log entries (official BLE API V2.3.0)"
+
+    enable_logging:
+      id: 52
+      name: "EnableLoggingRequest (0x0034)"
+      direction: "client_to_device"
+      description: "Enable or disable activity logging (official BLE API V2.3.0)"
+
+    # --- Advanced config (official BLE API V2.3.0) ---
+    set_advanced_config:
+      id: 53
+      name: "SetAdvancedConfigRequest (0x0035)"
+      direction: "client_to_device"
+      description: "Write advanced configuration (official BLE API V2.3.0)"
+
+    request_advanced_config:
+      id: 54
+      name: "RequestAdvancedConfigRequest (0x0036)"
+      direction: "client_to_device"
+      description: "Read advanced configuration (official BLE API V2.3.0)"
+
+    advanced_config:
+      id: 55
+      name: "AdvancedConfigResponse (0x0037)"
+      direction: "device_to_client"
+      description: "Advanced configuration response (official BLE API V2.3.0)"
+
+    # --- Time-control entries: time-based access windows (official BLE API V2.3.0) ---
+    add_time_control_entry:
+      id: 57
+      name: "AddTimeControlEntryRequest (0x0039)"
+      direction: "client_to_device"
+      description: "Add a time-control entry (official BLE API V2.3.0)"
+
+    time_control_entry_id:
+      id: 58
+      name: "TimeControlEntryIdResponse (0x003A)"
+      direction: "device_to_client"
+      description: "ID of a created time-control entry (official BLE API V2.3.0)"
+
+    remove_time_control_entry:
+      id: 59
+      name: "RemoveTimeControlEntryRequest (0x003B)"
+      direction: "client_to_device"
+      description: "Remove a time-control entry (official BLE API V2.3.0)"
+
+    request_time_control_entries:
+      id: 60
+      name: "RequestTimeControlEntriesRequest (0x003C)"
+      direction: "client_to_device"
+      description: "List time-control entries (official BLE API V2.3.0)"
+
+    time_control_entry_count:
+      id: 61
+      name: "TimeControlEntryCountResponse (0x003D)"
+      direction: "device_to_client"
+      description: "Count of time-control entries (official BLE API V2.3.0)"
+
+    time_control_entry:
+      id: 62
+      name: "TimeControlEntryResponse (0x003E)"
+      direction: "device_to_client"
+      description: "A single time-control entry (official BLE API V2.3.0)"
+
+    update_time_control_entry:
+      id: 63
+      name: "UpdateTimeControlEntryRequest (0x003F)"
+      direction: "client_to_device"
+      description: "Update a time-control entry (official BLE API V2.3.0)"
+
+    add_keypad_code:
+      id: 65
+      name: "AddKeypadCodeRequest (0x0041)"
+      direction: "client_to_device"
+      description: "Add a keypad access code (official BLE API V2.3.0)"
 
     keypad_code_id:
       id: 66
@@ -526,11 +726,35 @@ protocol:
       direction: "device_to_client"
       description: "Count of configured keypad codes"
 
+    keypad_code:
+      id: 69
+      name: "KeypadCodeResponse (0x0045)"
+      direction: "device_to_client"
+      description: "A single keypad access code entry (official BLE API V2.3.0)"
+
+    update_keypad_code:
+      id: 70
+      name: "UpdateKeypadCodeRequest (0x0046)"
+      direction: "client_to_device"
+      description: "Update a keypad access code (official BLE API V2.3.0)"
+
     remove_keypad_code:
       id: 71
       name: "RemoveKeypadCodeRequest"
       direction: "client_to_device"
       description: "Delete a keypad access code"
+
+    authorization_info:
+      id: 76
+      name: "AuthorizationInfoResponse (0x004C)"
+      direction: "device_to_client"
+      description: "Information about the client's own authorization (official BLE API V2.3.0)"
+
+    simple_lock_action:
+      id: 256
+      name: "SimpleLockActionRequest (0x0100)"
+      direction: "client_to_device"
+      description: "Simplified lock action without full authorization data (official BLE API V2.3.0)"
 
     # --- Error reporting ---
     error_report:
@@ -540,10 +764,20 @@ protocol:
       description: "Error response with code and optional message (0x0012 per official BLE API V2.3.0 — 0x0007 is Authorization-ID, not Error Report)"
 
   error_codes:
+    # Codes 1-5, 130/131 and 224/225 are app-derived (ErrorReportResponse,
+    # decompiled C12525xP0.java) — the official BLE API V2.3.0 error tables
+    # list only 0xFD-0xFF general, 0x10-0x13 pairing and the 0x20+ keyturner
+    # codes. 4 and 225 are NOT duplicates: the app names them distinctly —
+    # generic 4 ERROR_ALREADY_CONFIGURED vs keyturner 225 (0xE1)
+    # KEYTURNER_ERROR_ALREADY_CONFIGURED.
     generic:
       1: "ERROR_BAD_PARAMETER"
       2: "ERROR_NOT_AUTHORIZED"
       3: "ERROR_BAD_PIN"
+      4: "ERROR_ALREADY_CONFIGURED"
+      5: "ERROR_BAD_AUTHENTICATOR"
+      224: "KEYTURNER_ERROR_NOT_IN_MAINTENANCE_MODE (0xE0, app-derived)"
+      225: "KEYTURNER_ERROR_ALREADY_CONFIGURED (0xE1, app-derived — distinct from generic code 4)"
       253: "ERROR_BAD_CRC"
       254: "ERROR_BAD_LENGTH"
       255: "ERROR_UNKNOWN"
@@ -560,10 +794,16 @@ protocol:
       36: "KEYTURNER_ERROR_INVALID_AUTH_ID"
       37: "KEYTURNER_ERROR_DISABLED"
       38: "KEYTURNER_ERROR_REMOTE_NOT_ALLOWED"
-      39: "KEYTURNER_TIME_NOT_ALLOWED"
+      39: "KEYTURNER_ERROR_TIME_NOT_ALLOWED"
       40: "KEYTURNER_ERROR_TOO_MANY_PIN_ATTEMPTS"
       41: "KEYTURNER_ERROR_TOO_MANY_ENTRIES"
       42: "KEYTURNER_ERROR_CODE_ALREADY_EXISTS"
+      43: "KEYTURNER_ERROR_CODE_INVALID (0x2B)"
+      44: "KEYTURNER_ERROR_CODE_INVALID_TIMEOUT_1 (0x2C)"
+      45: "KEYTURNER_ERROR_CODE_INVALID_TIMEOUT_2 (0x2D)"
+      46: "KEYTURNER_ERROR_CODE_INVALID_TIMEOUT_3 (0x2E)"
+      47: "KEYTURNER_ERROR_FIRMWARE_BINARY_MISMATCH"
+      48: "KEYTURNER_ERROR_NOT_PAID"
       64: "KEYTURNER_ERROR_AUTO_UNLOCK_TOO_RECENT"
       65: "KEYTURNER_ERROR_POSITION_UNKNOWN"
       66: "KEYTURNER_ERROR_MOTOR_BLOCKED"
@@ -583,6 +823,9 @@ protocol:
       96: "KEYTURNER_ERROR_DS_CALIBRATION_FAILED"
       97: "KEYTURNER_ERROR_DS_TIMEOUT"
       98: "KEYTURNER_ERROR_DS_BROKEN"
+    wifi_module:
+      130: "KEYTURNER_ERROR_NO_WIFI_MODULE_AVAILABLE (0x82, app-derived)"
+      131: "KEYTURNER_ERROR_WIFI_SCAN_FAILED (0x83, app-derived)"
 
   lock_states:
     0: "UNCALIBRATED — Lock not yet calibrated, cannot operate"
@@ -691,3 +934,23 @@ sources:
   - type: "public_documentation"
     url: "https://developer.nuki.io/"
     description: "Nuki BLE API (publicly documented)"
+
+helpful_urls:
+  - title: "Nuki Smart Lock API V2.3.0 (PDF, 2025-01-08)"
+    url: "https://developer.nuki.io/uploads/short-url/1qEVXUUpo4xkPvTchbyKbdJLuOV.pdf"
+    description: "The official BLE API document this spec's GATT roles, command IDs and error tables were cross-checked against."
+  - title: "ronengr/pyNukiBT"
+    url: "https://github.com/ronengr/pyNukiBT"
+    description: "Python BLE client; const.py corroborates the CRC-16 parameters and command constants."
+  - title: "I-Connect/NukiBleEsp32"
+    url: "https://github.com/I-Connect/NukiBleEsp32"
+    description: "ESP32 BLE client; NukiLockConstants.h is an independent enumeration of commands, states and error codes."
+  - title: "technyon/nuki_hub"
+    url: "https://github.com/technyon/nuki_hub"
+    description: "ESP32 bridge exposing the lock over MQTT — working implementation built on NukiBleEsp32."
+  - title: "uriyacovy/ESPHome_nuki_lock"
+    url: "https://github.com/uriyacovy/ESPHome_nuki_lock"
+    description: "ESPHome component driving the lock over BLE — working open implementation."
+  - title: "NCC Group advisory: multiple vulnerabilities in Nuki smart locks (July 2022)"
+    url: "https://www.nccgroup.com/us/research-blog/technical-advisory-multiple-vulnerabilities-in-nuki-smart-locks-cve-2022-32509-cve-2022-32504-cve-2022-32502-cve-2022-32507-cve-2022-32503-cve-2022-32510-cve-2022-32506-cve-2022-32508-cve-2022-32505/"
+    description: "Source for the 11 CVEs cited in device.notes, including the BLE protocol access-control and DoS findings."

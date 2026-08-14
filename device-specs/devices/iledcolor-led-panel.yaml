@@ -7,6 +7,8 @@ device:
   name: "iLEDColor LED Matrix Panel (DreamPanel v3)"
   manufacturer: "Shenzhen I-ledshow Technology Co., Ltd."
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >
@@ -58,10 +60,43 @@ device:
     app.iledshow.cn:8098/ota/getNewestOta?width&height&currVersion&customerId&colorType
     — responds 200 but is customerId-gated: it needs the exact
     (width, height, customerId, colorType) tuple a real device advertises.
+    Telemetry note: the app reports device MAC/name/advertisement bytes to
+    iledcolor.api.iledshow.cn/api/reporting/add on OTA events (privacy-relevant).
+
+    Security context: the panel's JieLi AC63-family SoC lineage was implicated
+    in the BrakTooth disclosures (Bluetooth Classic DoS/deadlock, e.g.
+    CVE-2021-34150; see Jieli-Tech/fw-AC63_BT_SDK issue #78). That applies to
+    the chip vendor's classic-BT stack; direct impact on this BLE-only panel
+    is unknown.
 
     Research status: protocol recovered from the vendor's own published
     sources plus an independent reimplementation. An HCI snoop is now a
     nice-to-have validation, not a blocker.
+
+  identification:
+    manufacturer_data:
+      description: >
+        Advertisement match is a sliding-window substring search over the raw
+        scan record (vendor ParseBleDataUtil.getMatchData), so no fixed
+        company-ID offset is asserted. Match patterns: [01 54 59 00 01]
+        ("TY", hat/mini-show) and [01 54 42 44 xx] ("TBD", devil-eye / color
+        panels; xx 0x01..0x10 in the vendor support list). Payload layout from
+        the match offset: bytes[1..4] screen-type id, [5..6] height, [7..8]
+        width, [9] color type, then version code and customer id, bytes[15..16]
+        funCode bitmask (bit0 time, bit1 partition, bit2 GIF, bit3 media,
+        bit4 rotate/eye, bit5 border, bit6 password, bit7 remote). Geometry is
+        advertised — no query needed.
+  discovery:
+    methods:
+      - type: "ble_scan"
+        notes: >
+          Match raw scan-record bytes containing [01 54 59 00 01] or
+          [01 54 42 44 xx] (see device.identification.manufacturer_data for
+          the layout and funCode bits).
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
 
   setup:
     required: false
@@ -158,3 +193,11 @@ services:
         name: "JL OTA Notify"
         notes: "JL OTA notification characteristic."
         properties: ["notify"]
+
+references:
+  - "https://pub.dev/packages/led_bt_jl_ota"
+  - "https://github.com/akkaisinabin/iledcolor-rs"
+  - "https://github.com/Jieli-Tech/Android-JL_OTA"
+  - "https://github.com/Jieli-Tech/fw-AC63_BT_SDK/issues/78"
+  - "https://github.com/iwalton3/python-spotled"
+  - "https://play.google.com/store/apps/details?id=com.led.iledcolor"

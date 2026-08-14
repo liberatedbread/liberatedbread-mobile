@@ -220,7 +220,7 @@
         "required": ["characteristic"],
         "properties": {
           "characteristic": {
-            "type": "string",
+            "$ref": "#/$defs/uuid",
             "description": "Target characteristic UUID for this step."
           },
           "write": {
@@ -456,6 +456,28 @@
             "notes": { "type": "string" }
           }
         },
+        "testing": {
+          "type": "object",
+          "description": "Whether THIS PROJECT has exercised the spec against real hardware, stated for the spec as a whole. The existing machinery answers narrower questions -- per-fact `verification` grades one claim, `setup.methods[].verified` certifies one onboarding flow, `setup.confidence` grades one section -- and none of them rolls up to the verdict a consumer actually wants first: has anyone driven a device with this document? Absent means nobody has said, which a reader must treat as 'untested'. Reference specs (device.type 'reference-*') document published standards and never carry this block.",
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["untested", "verified"],
+              "description": "'untested': no one on this project has driven hardware end-to-end from this spec -- everything here comes from static analysis, published sources, or captures nobody replayed. 'verified': at least one documented flow has been executed against real hardware by this project and behaved as written. The bar for 'verified' is deliberately ours-only: a third-party implementer's success story supports per-fact `verification: reported`, not this flag.",
+              "default": "untested"
+            },
+            "detail": {
+              "type": "string",
+              "enum": ["capture-verified", "minimally-verified", "mostly-verified"],
+              "description": "Optional refinement of `status`. With status 'untested': 'capture-verified' means key facts were checked against over-the-air captures of real hardware traffic held in our research store -- stronger than static analysis, weaker than driving the device, because a capture shows the vendor app's happy path and nothing else. With status 'verified': 'minimally-verified' means one or a few flows were exercised and the rest of the surface is untouched; 'mostly-verified' means the majority of the documented surface has been driven. A bare status with no detail is the weakest reading of that status."
+            },
+            "notes": {
+              "type": "string",
+              "description": "What the claim rests on: which capture files, which hardware unit, which flows were driven, dated. A status without its evidence named is a label a reviewer cannot check."
+            }
+          }
+        },
         "protocol": {
           "type": "string",
           "enum": ["ble", "wifi", "zigbee", "zwave", "obd2", "uart", "can"],
@@ -584,6 +606,12 @@
             "mdns_service_type": {
               "type": "string",
               "description": "mDNS/Bonjour service type for WiFi discovery (e.g. _http._tcp)."
+            },
+            "lan_protocols": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "description": "Vendor LAN protocols this device identifies itself by *answering*, for hardware that neither advertises mDNS/Bonjour nor responds to SSDP -- the TP-Link Kasa smart-home protocol (`tplink-smarthome`), where a device is found by a UDP broadcast it answers with its full sysinfo. Unlike the passive `mdns_service_type`/`ssdp_search_targets` (which a device volunteers) and unlike `default_port` (which says nothing about who is listening), a positive answer to a vendor protocol probe is a strong identification: only a device that speaks the protocol replies at all. Name the protocol, not the port; a consumer that has completed the handshake tags the device with the same token, and the two are matched. Vendor-specific values only, for the same reason `ssdp_search_targets` must be."
             },
             "ssid_prefix": {
               "type": "string",
@@ -914,6 +942,7 @@
                       "softap_http",
                       "softap_soap",
                       "softap_udp",
+                      "softap_mqtt",
                       "ble_provisioning",
                       "ble_direct",
                       "wps",
@@ -924,7 +953,7 @@
                       "button_pairing",
                       "cloud_account"
                     ],
-                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP or a UDP datagram protocol; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
+                    "description": "Onboarding model. 'none' = nothing to provision; 'softap_*' = device hosts a temporary AP and takes credentials over HTTP, SOAP, a UDP datagram protocol or MQTT; 'ble_provisioning' = credentials are pushed over a GATT/BLE protocol; 'ble_direct' = BLE device is usable by scanning and connecting, with no credential exchange; 'wps'/'smartconfig' = WiFi-layer provisioning; 'wired' = Ethernet/USB first-run; 'device_ui' = configured on the device's own screen/controls; 'hub_pairing' = joined to a bridge/hub rather than to WiFi; 'button_pairing' = physical link button authorizes a client; 'cloud_account' = onboarding only exists inside the vendor cloud/app."
                   },
                   "description": { "type": "string" },
                   "softap": {
@@ -936,7 +965,7 @@
                       "open_network": { "type": "boolean", "description": "True when the setup AP has no passphrase." },
                       "passphrase_source": { "type": "string", "description": "Where the setup AP passphrase comes from when the AP is not open (e.g. 'printed on device sticker')." },
                       "gateway_ip": { "type": "string", "description": "IP the device answers on while hosting the setup AP." },
-                      "port": { "type": "integer", "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap, UDP for softap_udp." },
+                      "port": { "type": "integer", "description": "Port of the setup API on the setup AP. The transport follows the method type: TCP for softap_http/softap_soap/softap_mqtt, UDP for softap_udp." },
                       "credential_encryption": {
                         "type": "object",
                         "description": "How the WiFi passphrase is protected on the wire during provisioning.",
@@ -1201,7 +1230,7 @@
             "description": "Command (named from a characteristic's `commands`) that plays a stored item by its id right after a `stored_upload` — the vendor's store-then-show. Absent means store without auto-playing."
           },
           "response_characteristic": {
-            "type": "string",
+            "$ref": "#/$defs/uuid",
             "description": "Characteristic UUID the device answers a `stored_upload` on (Daniao: the DDP Notify characteristic carrying M_UPLOAD_START_RESPONSE mt=2931 and M_UPLOAD_COMPLETE mt=2934). A client should wait for the completion message before sending `play_command` — the vendor app does, and playing a cid the device has not committed yet is a silent no-op."
           },
           "max_width": {
@@ -1216,13 +1245,37 @@
           },
           "format": {
             "type": "string",
-            "enum": ["1bit-bitmap", "gif", "rgb565", "rgb888", "png"],
-            "description": "Binary format the device expects for uploaded assets."
+            "enum": ["1bit-bitmap", "gif", "rgb565", "rgb888", "png", "zlib-bmp"],
+            "description": "Binary format the device expects for uploaded assets. `zlib-bmp` is a zlib/DEFLATE-compressed 24-bit Windows BMP, built app-side and carried as the compressed blob (e.g. the LOY SPACE `zip_bmp` field, Base64-inside-JSON) — distinct from a raw `gif`, which the device decodes itself."
           },
           "resolution_source": {
             "type": "string",
             "enum": ["fixed", "device_reported"],
             "description": "Whether max_width/max_height are the panel's actual size ('fixed') or platform upper bounds with the real per-model resolution reported by the device at runtime ('device_reported'). Clients should let the user set the canvas size for device_reported panels they have not yet queried."
+          },
+          "resolution_advertisement": {
+            "type": "object",
+            "description": "For 'device_reported' panels: where the real width/height sit in the BLE advertisement's manufacturer-specific data, so a client can default the canvas to the true panel size before connecting. Offsets index the manufacturer-data VALUE (bytes after the 2-byte company id).",
+            "properties": {
+              "company_id": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535,
+                "description": "Bluetooth SIG company id of the manufacturer-data record carrying the resolution."
+              },
+              "width_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Byte offset of width within the manufacturer-data value."
+              },
+              "height_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Byte offset of height within the manufacturer-data value."
+              }
+            },
+            "required": ["company_id", "width_offset", "height_offset"],
+            "additionalProperties": false
           },
           "animation": {
             "type": "boolean",
@@ -2380,8 +2433,8 @@
           "description": { "type": "string" },
           "transport": {
             "type": "string",
-            "enum": ["soap", "http", "mqtt", "ble", "udp", "coap"],
-            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport."
+            "enum": ["soap", "http", "mqtt", "ble", "udp", "coap", "tcp-json"],
+            "description": "How this command reaches the device. Says which of the spec's transport blocks supplies the request template and the address; absent means the spec's single declared transport. 'tcp-json' is a JSON document sent over a raw TCP socket -- the TP-Link Kasa smart-home protocol on port 9999 -- where the whole invocation is the JSON in `body`, obfuscated by the transport's cipher; there is no service, path or method to state."
           },
           "service": {
             "type": "string",
@@ -2393,17 +2446,21 @@
           },
           "path": {
             "type": "string",
-            "description": "Request path, for transports that address by path rather than by service. Prefer resolving it from the device where the protocol offers a way to; state it here when the path is fixed. May contain '{name}' placeholders substituted from `parameters`, exactly as `arguments` values are -- Roku's whole control surface is the path (`/keypress/PowerOn`), so the path is where an invocation's chosen value lives."
+            "description": "Request path, for transports that address by path rather than by service. Prefer resolving it from the device where the protocol offers a way to; state it here when the path is fixed. A `{name}` segment is a placeholder substituted from the like-named entry in `parameters`, exactly as `arguments` values are -- Roku's whole control surface is the path (`/keypress/PowerOn`), and REST-shaped APIs put per-client and per-child values there too ('/api/{username}/lights/{id}/state'); a renderer must refuse to send a path whose placeholders it cannot all fill."
           },
           "method": {
             "type": "string",
             "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
-            "description": "HTTP method for a `transport: http` command, spelled as the wire wants it. Stated on the command -- not resolved from `http_endpoints` -- because the command is the executable half: a consumer must be able to send it without joining two blocks by name. Should agree with the `method` of the endpoint entry that documents the action; omit for transports that have no method."
+            "description": "HTTP method for a `transport: http` command, spelled as the wire wants it. Stated on the command -- not resolved from `http_endpoints` -- because the command is the executable half: a consumer must be able to send it without joining two blocks by name. Should agree with the `method` of the endpoint entry that documents the action; omit for transports that have no method. REST-shaped APIs reuse one path with different methods for different operations -- the Hue bridge reads a light with GET and sets it with PUT on the same resource -- so a `transport: http` command lacking `method` or `path` is declarative documentation rather than something a consumer may execute."
           },
           "arguments": {
             "type": "object",
             "description": "Argument name -> value, as the wire spells both. A value of '{name}' is substituted from the like-named entry in `parameters`; anything else is a literal this command has already decided (BinaryState '1' for an on command). Argument names are the device's, not ours: Wemo spells one BinaryState and the next one mode.",
             "additionalProperties": { "type": ["string", "number", "boolean"] }
+          },
+          "body": {
+            "type": "string",
+            "description": "The literal request body this command sends, for transports whose invocation IS a document rather than a service/action or a path -- a `tcp-json` command's JSON (`{\"system\":{\"set_relay_state\":{\"state\":1}}}`). May contain '{name}' placeholders substituted from `parameters`, exactly as `arguments` values and `path` segments are. What `arguments` is for SOAP and `path` is for HTTP, `body` is for a JSON-over-socket protocol: the one place an invocation's chosen value has to live."
           },
           "parameters": {
             "type": "object",
@@ -2430,7 +2487,7 @@
                 },
                 "source": {
                   "type": "string",
-                  "description": "Where a client obtains this value when it is not the one the user is setting, as 'state:<command>.<field>' -- e.g. 'state:GetCrockpotState.time'. The case this exists for is an action that carries several settings at once: changing one means reading the others back and sending them along, and a spec that leaves that implicit produces a client which silently clears the settings it did not mean to touch. A `source` parameter deliberately has no `default`: the read-back is PART OF THE SEND, and a renderer reaching it with no value must fail the write visibly rather than substitute anything. Consumers therefore treat `source` -- like `default` -- as satisfying the 'every blank fillable' rule when deciding whether a control is offered at all, and enforce the value's presence at send time instead."
+                  "description": "Where a client obtains this value when it is not the one the user is setting. Three schemes, distinguished by prefix. 'state:<command>.<field>' (e.g. 'state:GetCrockpotState.time'): read back from the device. The case this exists for is an action that carries several settings at once: changing one means reading the others back and sending them along, and a spec that leaves that implicit produces a client which silently clears the settings it did not mean to touch. 'credential:<name>' (e.g. 'credential:username'): a per-device secret the client stored when it paired -- the Hue bridge's link-button flow issues a username that every subsequent path carries, and this scheme is how a spec says 'that stored value goes here' without pretending to know it. 'instance:<key>' (e.g. 'instance:id'): the identifier of the child currently being addressed, for commands bound by an entity with `instances:` -- the enumeration the entity's `state_command` returns supplies the ids, and this scheme names which placeholder each id fills. All three share one contract, and it is the point of the field: a `source` parameter deliberately has no `default` -- obtaining the value is PART OF THE SEND, and a renderer reaching it with no value must fail the write visibly rather than substitute anything. An unpaired client failing loudly at 'no credential:username' is correct behaviour; quietly sending without it would be a bug wearing a fallback's clothes. Consumers therefore treat `source` -- like `default` -- as satisfying the 'every blank fillable' rule when deciding whether a control is offered at all, and enforce the value's presence at send time instead."
                 }
               }
             }
@@ -2498,8 +2555,8 @@
         "properties": {
           "platform": {
             "type": "string",
-            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select", "button"],
-            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar, 'button' for momentary actions with no state to read back -- a Roku remote key is pressed, not turned on. A `button` entity binds exactly one role, `press`, whose command must have no caller-supplied blanks, and it is the one platform excused from naming a state source: statelessness is the honest description of a keypress."
+            "enum": ["light", "switch", "sensor", "binary_sensor", "fan", "cover", "climate", "number", "select", "button", "text"],
+            "description": "Home Assistant entity platform. Enum kept aligned with the mobile app; 'number' and 'select' added for devices such as the AdMore Light Bar, 'button' for momentary actions with no state to read back -- a Roku remote key is pressed, not turned on. A `button` entity binds exactly one role, `press`, whose command must have no caller-supplied blanks, and it is the one platform excused from naming a state source: statelessness is the honest description of a keypress. A `text` entity is text entry into whatever field the device has focused (a TV's search box): it binds a valued `submit` role whose command takes the one character being typed -- one send per keystroke, because the wire protocols these exist for (Roku's Lit_ key form) carry no string type -- plus an optional fixed `press` role for the deletion key. Like a button it is excused from naming a state source: the device never reports what is in its focused field."
           },
           "name": {
             "type": "string"
@@ -2604,9 +2661,24 @@
             "type": "string",
             "description": "Where the reading sits inside the JSON `state_command` returns, in dotted path notation with numeric indices in brackets: 'DeviceList[0].DevicePrivateIP'. Omit when the response *is* the value."
           },
+          "instances": {
+            "type": "object",
+            "required": ["keyed_by"],
+            "description": "Declares this entity as a TEMPLATE stamped out once per child device behind a hub, rather than a single reading. A hub is one network presence fronting a population the spec cannot enumerate -- which lights exist on a Hue bridge is the owner's business, not the spec's -- so the entity describes the SHAPE of a child and this block says how a client discovers the actual children: the reply to `state_command` is a JSON object keyed by instance id ('1', '2', ...), each value one child's complete state. A client enumerates the keys, and for each one reads roles via `state_mapping` (whose dotted paths resolve INSIDE that child's object, not from the response root) and sends commands by substituting the id into the like-named `instance:` parameter of the bound commands. Enumeration and state deliberately ride one request: a hub answers for all its children at once, and per-child polling of a bridge that rate-limits is how third-party clients get themselves throttled. An entity without this block binds to exactly one reading, as ever -- consumers that predate the key see an entity whose state_mapping paths do not resolve from the root and render nothing, which is the correct degraded behaviour for a hub they do not understand.",
+            "properties": {
+              "keyed_by": {
+                "type": "string",
+                "description": "Name of the identifier the response object is keyed by, which is also the `instance:` parameter name the bound commands substitute it into -- `keyed_by: id` pairs with 'source: instance:id'. The name is the coupling, so a spec must spell it identically in both places."
+              },
+              "label_path": {
+                "type": "string",
+                "description": "Dotted path, inside one child's object, to its human-facing name ('name' for a Hue light, whose owner called it 'Kitchen counter'). Optional: a client falls back to the bare instance id, which is honest but reads like a database. Same dotted-path notation as `state_mapping` values."
+              }
+            }
+          },
           "state_mapping": {
             "type": "object",
-            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
+            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. On an HTTP entity the role values are dotted JSON paths into what `state_command` returns ('state.on', 'state.bri') -- resolved from the response root, or, when the entity declares `instances:`, from inside the current child's object. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
           },
           "options_source": {
             "type": "object",

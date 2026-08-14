@@ -39,23 +39,37 @@ spec's `device.setup` block; the patterns are explained in
 | [Chef iQ Sense](chef-iq-sense.md) | BLE + Wi-Fi | Complete | BLE provisioning (medium) | Chefman / Chef iQ |
 | [AUTOBABA LED Backpack](autobaba-led-backpack.md) | BLE + Wi-Fi | Complete | None needed | LOY SPACE / popled.cn |
 | [Nyan BT Image Controller](nyan-bt-image-controller.md) | BLE | Complete | None needed | NYAN GEAR / LOY SPACE |
+| [LED space Wi-Fi LED Screen](led-space.md) | Wi-Fi (device AP) + BLE variant | Complete | None needed (device hosts its AP) | LOY SPACE / popled.cn |
 | [MoTool Slacker](motool-slacker.md) | BLE | In Progress | None needed | MoTool |
 | [AdMore Light Bar Pro](admore-light-bar.md) | BLE | Complete | None needed | AdMore Lighting Inc. |
 | [ProGlow Motorcycle LED](proglow-motorcycle-led.md) | BLE | Spec Available | None needed | ProGlow |
 | [SeeBlue Motorcycle LED](seeblue-motorcycle-led.md) | BLE | Spec Available | None needed | SeeBlue |
 | [SmartDawn Smart Lights](smartdawn-smart-lights.md) | BLE (Wi-Fi variants) | In Progress | None needed | Hangzhou Daniao / SmartDawn |
 | [KingSmith WalkingPad](kingsmith-walkingpad.md) | BLE | Complete | None needed | KingSmith Fitness (Xiaomi ecosystem) |
+| [UREVO Walking Pad](urevo-walking-pad.md) | BLE | In Progress | None needed | UREVO |
 | [Kwikset Kevo](kwikset-kevo.md) | BLE (lock is central) | In Progress | BLE tap-to-enroll (medium) | Kwikset / ASSA ABLOY (UniKey) |
 | [Schlage Smart Locks](schlage-smart-locks.md) | BLE (uWeave; WiFi is cloud-relay only) | Complete | BLE SPAKE2 pairing, printed programming code (medium) | Schlage / Allegion |
+| [Inkbird IBS-TH1/TH2 Hygrometer](inkbird-ibs-th.md) | BLE | Complete | None needed | Inkbird |
+| [ThermoPro TP357-family Hygrometers](thermopro-tp357.md) | BLE | Complete | None needed | ThermoPro (Adsmart) |
+| [Omron BLE Blood Pressure Monitors](omron-connect.md) | BLE | Complete | BLE button pairing + client key (high) | Omron Healthcare |
 | [Belkin Wemo Smart Devices](wemo-devices.md) | WiFi | In Progress | [SoftAP + SOAP](wemo-setup.md) (medium) | Belkin |
 | [Anki Vector Robot](vector-robot.md) | WiFi + BLE | Research | BLE provisioning (high) | Anki / Digital Dream Labs |
 | [Frigidaire Connected ACs](frigidaire-ac.md) | WiFi | Research | Cloud account only (low) | Frigidaire (Electrolux) |
 | [Roku External Control Protocol](roku-ecp.md) | WiFi | Complete | On-device UI (high) | Roku / TCL |
+| [Android TV / Google TV Remote](android-tv-remote.md) | WiFi | Spec Available | On-TV pairing code (medium) | Google / various |
+| [Hisense VIDAA TVs](hisense-vidaa.md) | WiFi | Spec Available | On-TV PIN + mTLS cert (low) | Hisense |
+| [LG webOS TVs](lg-webos.md) | WiFi | Spec Available | On-TV accept prompt (high) | LG |
+| [Panasonic Viera TVs](panasonic-viera.md) | WiFi | Spec Available | None (pre-2019) / on-TV PIN (medium) | Panasonic |
+| [Philips JointSPACE TVs](philips-jointspace.md) | WiFi | Spec Available | None (pre-2016) / on-TV PIN (medium) | TP Vision / Philips |
+| [Samsung Tizen TVs](samsung-tizen-tv.md) | WiFi | Spec Available | On-TV allow prompt (high) | Samsung |
+| [Sony Bravia TVs](sony-bravia.md) | WiFi | Spec Available | PSK or on-TV PIN (medium) | Sony |
+| [Vizio SmartCast TVs](vizio-smartcast.md) | WiFi | Spec Available | On-TV PIN pairing (medium) | Vizio |
 | [Philips Hue Bridge](hue-bridge.md) | WiFi | Complete | Wired + link button (high) | Signify / Philips Hue |
 | [Enphase Envoy](enphase-envoy.md) | WiFi | Complete | Wired / SoftAP (low) | Enphase Energy |
 | [Dyson Air Purifier](dyson-air-purifier.md) | WiFi | Complete | SoftAP, sticker creds (medium) | Dyson |
 | [LIFX Z](lifx-z.md) | WiFi | Complete | SoftAP, uncaptured (low) | LIFX |
 | [Lutron Caseta Smart Bridge 2](lutron-caseta-smart-bridge.md) | WiFi | In Progress | Wired + cert pairing (medium) | Lutron |
+| [TP-Link Kasa Smart Plug](tplink-kasa.md) | WiFi (JSON over TCP 9999) | Complete | SoftAP, uncaptured (low) | TP-Link |
 | [Rachio Controller](rachio-controller.md) | WiFi | Research | Uncaptured (low) | Rachio |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |
 | [devolo Home Control](devolo-home-control.md) | Z-Wave | Spec Available | Exclude/re-include to any Z-Wave controller (medium) | devolo AG |

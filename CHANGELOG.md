@@ -8,6 +8,94 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Eight smart-TV local-control specs: `android-tv-remote` (Remote Protocol
+  v2 protobuf-over-TLS, plus Fire TV ADB variant), `hisense-vidaa` (MQTT
+  over TLS), `lg-webos` (WebSocket SSAP), `panasonic-viera` (plain SOAP,
+  fits the reference app's transport today), `philips-jointspace` (HTTP
+  JSON on 1925/1926), `samsung-tizen-tv` (WebSocket `ms.remote.control`,
+  plus the pre-2016 TCP 55000 legacy protocol), `sony-bravia` (IRCC SOAP +
+  JSON REST), and `vizio-smartcast` (HTTPS with PIN-paired AUTH token).
+  Each records its transport gap against the reference app's
+  GET/POST-empty-body HTTP and header-less SOAP transports rather than
+  inventing commands that could not work on a real TV.
+
+- A `text` entity platform (schema enum + `roku-ecp` `Keyboard` entity):
+  text entry into whatever field the device has focused, binding a valued
+  `submit` role that takes the one character being typed (Roku's
+  `Lit_{char}` key form — the wire carries no string type) plus a fixed
+  `press` role for the backspace key. Like a button it names no state
+  source: the device never reports what its focused field holds.
+
+- Hub children and paired credentials (P12), building on the `method` that
+  Roku's remote just added to `commands`: two new parameter `source` schemes
+  and one entity key. `credential:<name>` names a per-device secret the
+  client stored at pairing; `instance:<key>` names the id of the child a hub
+  command currently addresses; both inherit the `source` contract that a
+  renderer holding no value must fail the send visibly, because an unpaired
+  client quietly issuing requests is the bug the contract exists to prevent.
+  `entities[].instances` declares an entity a template stamped out per child:
+  the `state_command` reply is a JSON object keyed by child id, enumeration
+  and every child's state in one request, and `state_mapping` paths resolve
+  inside each child's object. The `method`/`path` pair the Roku work
+  introduced now also carries the Hue GET-and-PUT-on-one-resource case in its
+  note. A `headers:` vocabulary (CLIP v2 moves the credential into a header)
+  is deliberately deferred and flagged in the proposal
+- The Hue Bridge spec now walks as well as talks: a `commands:` block
+  (`create_user` pairing plus `light_turn_on` / `light_turn_off` /
+  `light_set_brightness`, each with its rendered `example_body`), an
+  instanced `Hue Light` entity bound to the one `GET …/lights` call that
+  enumerates and reads every child at once, `payload_formats.V1Envelope`
+  capturing the v1 array envelope and the three error types a client must
+  know (101 keep-polling, 1 re-pair, 201 carry-`on:true`), example request
+  and response bodies on the Bridge Config / Create User / Lights / Set
+  Light State endpoints, and the TLS facts a client cannot proceed without —
+  per-device leaf whose CN is the lowercase bridgeid, signed by Signify's
+  private `root-bridge` CA, so the correct verification is CN-check plus
+  trust-on-first-use pinning keyed by bridgeid, never a public-chain check
+  and never an HTTP fallback on pin failure. `scripts/test_hue_spec.py`
+  transcribes pairing, rendering, typed substitution (`bri` renders as a
+  JSON number), child enumeration and the bridgeid-is-the-MAC-in-EUI-64
+  rule from the YAML alone, stdlib only, and diffs them against the spec's
+  own examples — the same keep-it-honest bar `test_wemo_spec.py` set for
+  SOAP. Brightness is 1–254 with `"on": true` riding along, write replies
+  are per-attribute acknowledgements so read-back is mandatory, and the
+  YAML spells the `"on"` key quoted because unquoted `on` is a boolean in
+  YAML 1.1
+- `lifx-z` now documents its LAN control surface byte-for-byte, so the LIFX
+  binary UDP protocol is implementable from the spec alone. A top-level
+  `payload_formats` block gives the 36-byte header (with the `0x1400`/`0x3400`
+  protocol constants and the `source` id spelled out), the HSBK colour, and the
+  `SetColor`/`SetPower`/`GetService`/`SetColorZones`/`State`/`StateMultiZone`
+  messages as field tables plus full example datagrams; `scripts/test_lifx_spec.py`
+  transcribes each message from those field tables and the
+  `lifx_lan_protocol.message_types` numbers and checks it reproduces the example,
+  the same bar `test_wemo_spec.py` holds the Wemo surface to. `identification`
+  gains an `ssdp_search_targets: ["lifx:udp"]` token — the synthetic target a
+  client emits after a UDP `GetService` broadcast confirms a LIFX device, so a
+  positive LAN probe is a vendor-specific (non-shared) match rather than the
+  "possible" a shared `_hap._tcp` sighting earns, which is the discovery path the
+  Matter caveat needs. Adds the missing `targets/lifx-z.md`. The control messages
+  and the legacy SoftAP onboarding remain `verified: false` — they are documented
+  and transcription-checked, but not yet replayed against hardware.
+- `tplink-kasa-smart-plug` documents the Kasa-era TP-Link local protocol
+  (HS100/HS110 and the same-protocol HS103/HS105, KP105/KP115): JSON over a raw
+  TCP socket on port 9999, obfuscated by a trivial XOR-autokey cipher (initial
+  key `0xAB`) with 4-byte big-endian length framing and no authentication,
+  discovered by a UDP broadcast of the encoded `get_sysinfo` to
+  `255.255.255.255:9999`. The outlet is a `switch`/`outlet` entity whose
+  `turn_on`/`turn_off` bind `set_relay_state` commands and whose state polls
+  `get_sysinfo`'s `relay_state` — the same control shape as the Wemo plug over
+  a new transport. This needed a new command `transport` value, `tcp-json`
+  (added to `schema.json`), and a `body` field for the JSON an invocation IS —
+  what `arguments` is to SOAP and `path` is to HTTP. The cipher and the
+  discovery/command byte vectors are reproduced from the YAML alone by
+  `scripts/test_kasa_spec.py` (the sibling of `test_wemo_spec.py` and
+  `test_roku_spec.py`); the get_sysinfo vector matches the canonical
+  softScheck / python-kasa datagram. `manufacturer_status: active` because
+  TP-Link is alive — what is endangered is this local protocol, which newer
+  firmware (HS100 hw v4 fw 1.1.0+) and the KLAP/Tapo line have retired. Power
+  strips (HS300/KP303/EP40, which address per-outlet `children`) are noted as a
+  separate future spec
 - `airthings-wave-family` binds temperature and humidity to each model's
   combined packet (Wave Gen 2 `b42e4dcc`, Wave Plus `b42e2a68`, Wave Mini
   `b42e3b98`). The SIG characteristics (2A6E/2A6F) are app-derived and
@@ -244,6 +332,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   user their cooker is off while it is heating
 
 ### Fixed
+
+- `roku-ecp` corrects the "Control by mobile apps" gating from a live
+  2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position
+  refuses more than the OS 14.1 notice implies — `/query/apps` answers
+  "ECP command not allowed in Limited mode." as 400 on one TV and 403 on
+  two others (the same TV switching spellings within minutes), and
+  `/query/media-player` answers 403, while `/query/device-info` and
+  `/query/active-app` stay open. Also documents **ECP2**, the authenticated
+  WebSocket session the official app uses, from a jadx teardown of The Roku
+  App (Official) 14.0.0.9462138 plus a live re-implementation: client-id
+  auth needs no Roku account (the secret ships in the APK), and over it
+  `query-apps` and `key-press` answer 200 even in Limited mode.
 
 - `schema.json` no longer defines the parameter `auto` key twice. The
   checksum extension added a second `"auto"` member to the same `properties`

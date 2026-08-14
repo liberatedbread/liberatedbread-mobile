@@ -14,6 +14,8 @@ device:
   name: "XKGlow XKChrome Motorcycle LED Controller"
   manufacturer: "XKGlow"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "light"
   notes: >
@@ -62,6 +64,14 @@ device:
 
     SCAN FILTER: Advertised service UUID 458A7133-0000-4E37-A4A4-5D8492586977.
     Device name from BLE advertisement.
+
+    PRODUCT LINE: XKchrome is the vendor's 3rd-gen controller line (XKalpha
+    4th gen retired; XKmax 5th gen is RGBW/addressable and firmware-updatable).
+    A single-color SKU (XK-CHROME-SC-KIT) and a single-zone XKchrome Mini
+    exist — consistent with controller_type != 1 (mono) and 1-zone configs.
+    OEM integrations: Polaris Slingshot LE models (2022-2024) ship factory
+    XKchrome interior lighting, and the controller appears in other
+    non-XKGlow-branded install manuals.
 
     CONFIDENCE: HIGH for all UUIDs and primary command formats. Animation
     protocol header byte confirmed; per-LED animation data format is not
@@ -218,6 +228,13 @@ services:
         notes: >
           Command write characteristic. All writes use WRITE_TYPE_NO_RESPONSE
           (setWriteType(1)). Receives color, mono, animation, and stop commands.
+          The same 0009 transport also carries the app's music-sync streaming
+          (SendMusicMultiColor/SendMusicSingleColor payload managers),
+          smart-sensor pattern writes (SetSmartSensorPattern, gated on
+          CONTROLLER_CONFIG byte 2 in {0x10, 0x11, 0x18}), default-marker
+          pushes (SetDefaultMarkers) and find-my-vehicle flashes
+          (FindMyVehicle); their payload builders are proprietary and not
+          further decoded here.
         commands:
           set_rgb_color:
             description: "Set solid RGB color for a zone."

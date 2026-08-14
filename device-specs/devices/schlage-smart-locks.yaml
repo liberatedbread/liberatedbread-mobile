@@ -1,7 +1,10 @@
 # Schlage Smart Locks (Sense / Encode family) — Device Spec (BLE "uWeave")
 # Reverse-engineered from the Schlage Home Android app (com.allegion.leopard),
-# versions 3.6.0 (unobfuscated protocol code) and 6.1.0 (resources; Java is
-# packed by a commercial protector in this version).
+# versions 3.6.0 (unobfuscated protocol code) and 6.1.0 (resources; the
+# app-specific Java is packed by a commercial protector in this version, but
+# the bundled Google Weave/GCD security classes ship unobfuscated — so the
+# SPAKE2/P-224 pairing constants are confirmed in BOTH versions; the packed
+# session-layer claims below remain 3.6.0-only).
 #
 # APKs analyzed (workspace only, never committed — see docs/CLEANROOM_RULES.md):
 #   com.allegion.leopard 3.6.0  sha256 73ad73952f585fb6fcc4d5f31a503c65903a1714077afc62781c6e6b1248219c
@@ -20,7 +23,7 @@
 # the Go library authors report hardware testing. `reported` marks facts taken
 # from the RE report / app strings that we did not independently re-derive.
 #
-# Key 3.6.0 source references (obfuscated names, jadx):
+# Key source references (jadx; 3.6.0 class names obfuscated):
 #   defpackage/ou2.java — uWeave session base: fragmentation (19-byte chunks,
 #     flags 0x8/0x4/0x0/0xC, 1024-byte blocks), EAX encrypt with nonce
 #     nonceBase(16) || senderID(1) || counter(3 BE), HKDF at line ~647 with the
@@ -38,11 +41,17 @@
 #     legacy (3.x) WiFi commissioning encryption: SHA-256(secret + "|" + id[6:]),
 #     AES/CBC/NoPadding, zero IV, be64(counter) || JSON({ssid,password}),
 #     zero-padded to 16.
+# 6.1.0 (unobfuscated): com/google/android/apps/weave/gcd/security/
+#   SpakeP224.java:51-56,143-145,185-187,326 — every SPAKE2/P-224 constant
+#   (KM, KN, p, a, b, generator G), the SHA256[0:28] password hash and the
+#   56-byte commitment format match 3.6.0 r33.java exactly.
 
 device:
   name: "Schlage Smart Locks (Sense / Encode family)"
   manufacturer: "Schlage (Allegion)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   openness:
     status: "undocumented"
     reverse_engineered: true
@@ -509,11 +518,6 @@ services:
         name: "LeopardControlPoint"
         properties: ["write"]
         verification: "reported"
-      - uuid: "1dc15719-0882-4bad-ab0f-9aeab0600c90"
-        name: "RxACKNAK"
-        properties: ["read", "notify"]
-        verification: "reported"
-        notes: "Characteristic properties not stated in the profile JSON; reported from the RE notes."
 
   - uuid: "1f6b43aa-94de-4ba9-981c-da38823117bd"
     name: "Firmware Update (DataTransfer)"
@@ -537,6 +541,14 @@ services:
         properties: ["read", "write"]
         verification: "reported"
         notes: "UUID confirmed in profile JSON; properties reported, not re-derived."
+      - uuid: "1dc15719-0882-4bad-ab0f-9aeab0600c90"
+        name: "RxACKNAK"
+        properties: ["read", "notify"]
+        verification: "reported"
+        notes: >
+          UUID confirmed in profile JSON (firmware_gatt_profile.json:43-48
+          places RxACKNAK under this DataTransfer service, alongside
+          RxLength/RxData/RxCRC); properties reported, not re-derived.
 
 cloud:
   required: false
@@ -646,7 +658,11 @@ protocol:
       NIST secp224r1 (p = FFFFFFFF...FF000000000000000000000001, generator
       B70E0CBD.../BD376388...). On success the lock issues CAT + SAT
       macaroons (CBOR bstr(array of caveat bstrs + 16-byte truncated
-      HMAC-SHA256 tag)).
+      HMAC-SHA256 tag)). Constants confirmed in BOTH app versions: the
+      unobfuscated 6.1.0
+      com/google/android/apps/weave/gcd/security/SpakeP224.java
+      (:51-56,143-145,185-187,326) matches the obfuscated 3.6.0 r33.java on
+      every constant above (app-confirmed ×2, not hardware-tested).
   message_format:
     description: >
       CBOR "Privet" RPC. Request {1:apiId, 2:requestTypeId, 16:{trait,
@@ -671,6 +687,8 @@ sources:
       - "3.6.0: defpackage/ej.java (pairing phases), defpackage/r33.java (SPAKE2/P-224)"
       - "3.6.0: defpackage/x2.java, defpackage/bk.java (access-code CBOR)"
       - "3.6.0: com/allegion/leopard/api/bridge/commission/model/WifiPayload.java (legacy WiFi commissioning crypto)"
+      - "6.1.0: com/google/android/apps/weave/gcd/security/SpakeP224.java (SPAKE2/P-224 constants, unobfuscated; every pairing constant matches 3.6.0)"
+      - "6.1.0: res/xml/network_security_config.xml (TLS pinning: yonomi.cloud, Amazon Root CA 1-4)"
   - type: "public_implementation"
     url: "https://github.com/huguesb/schlage-uweave"
     description: "Independent Go reimplementation of the full BLE stack; agrees with the APK extraction on every constant checked."

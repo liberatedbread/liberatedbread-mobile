@@ -6,6 +6,8 @@ device:
   name: "LIFX Z"
   manufacturer: "LIFX"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "light"
   transport: "udp"
@@ -23,7 +25,10 @@ device:
     v2.x) is excluded — and updating to Matter DECOMMISSIONS the HomeKit/HAP
     integration. Units that take the Matter update stop advertising
     _hap._tcp.local., which kills the mDNS discovery signal this spec relies
-    on; discover those units by UDP broadcast GetService instead.
+    on; discover those units by UDP broadcast GetService instead. The current
+    vendor app bundles a Matter commissioning stack (the
+    com.lifx.app.features.onboarding.matter package in the decompiled APK),
+    which is the onboarding path it offers for Matter-firmware units.
   identification:
     # No mdns_service_type. HomeKit accessories all advertise `_hap._tcp` — hundreds of unrelated
     # products. It says the device speaks HomeKit, not that it is this one.
@@ -35,6 +40,13 @@ device:
     ssid_prefix: "LIFX"
     ssid_examples: ["LIFX Z 04A3C1", "LIFX Bulb"]
     default_port: 56700
+    # Synthetic search target for the LIFX LAN protocol. A device does not
+    # answer this over SSDP; a client emits it after a UDP GetService broadcast
+    # confirms a LIFX device, so a positive LAN probe is a vendor-specific
+    # (non-shared) match rather than the "possible" that a shared _hap._tcp
+    # sighting earns. This is the strong signal the Matter caveat needs, since
+    # Matter-firmware units drop _hap._tcp entirely.
+    ssdp_search_targets: ["lifx:udp"]
     identity_keys:
       primary: "mac"
       display: "name"
@@ -58,21 +70,30 @@ device:
 
   setup:
     required: true
-    confidence: "low"
+    confidence: "medium"
     notes: >
       LIFX strips must be joined to WiFi before the LAN protocol is usable.
-      Unprovisioned (or factory-reset) devices host a temporary AP and accept
-      credentials over the same UDP port 56700 used for control, via the
-      access-point message family (0x12D-0x132) that the original published
-      LAN protocol documented and the current official protocol.yml no longer
-      carries. The layouts below are transcribed from that legacy public
-      reverse-engineering documentation (magicmonkey/lifxjs Protocol.md — the
-      same class of source pywemo is for Wemo). They match original-generation
-      firmware and are the only published credential exchange for these
-      devices; they have NOT been replayed against hardware by this project,
-      and LCM3/Matter-era firmware onboards over BLE through the vendor app
-      instead, so expect newer units to ignore them. Once provisioned, control
-      is unauthenticated UDP and needs no further setup.
+      Unprovisioned (or factory-reset) devices host a temporary AP, and the
+      decompiled vendor app (jadx; com.lifx.core.protocol.Wifi and the
+      onboarding processor) shows TWO onboarding exchanges on it, both
+      speaking the LIFX binary protocol to the device at 172.16.0.1 port
+      56700 via the access-point message family (304-309) that the original
+      published LAN protocol documented and the current official
+      protocol.yml no longer carries. The modern flow opens a TLS-secured
+      TCP connection to that port; the legacy flow sends the same messages
+      as UDP datagrams. The legacy layouts were first transcribed from the
+      legacy public reverse-engineering documentation (magicmonkey/lifxjs
+      Protocol.md — the same class of source pywemo is for Wemo) and are
+      now confirmed byte-exact against the decompiled app; neither flow has
+      been replayed against hardware by this project, hence confidence
+      medium (app-derived, not hardware-verified). During onboarding the
+      app also claims the device to the vendor cloud when the device
+      reports claim-over-softAP support: Wan.SetHost (type 209) hands it
+      the cloud broker hostname, Wan.SetAuthKey (205) a 32-byte account
+      token, and Wan.Set (202) enables the WAN uplink. Matter-firmware
+      units are instead commissioned through the Matter stack the app
+      bundles (see the device notes). Once provisioned, control is
+      unauthenticated UDP and needs no further setup.
     methods:
       - type: "softap_udp"
         verified: false
@@ -85,6 +106,9 @@ device:
           AP and joins the home network. Send requests to the subnet broadcast
           address (255.255.255.255 works too) with unicast to gateway_ip as
           the fallback — original firmware answers discovery sent broadcast.
+          On post-original hardware the vendor app uses the TLS TCP flow in
+          the next method instead; whether these UDP messages still answer on
+          newer firmware is untested.
         softap:
           ssid_prefix: "LIFX"
           ssid_examples: ["LIFX Z 04A3C1", "LIFX Bulb"]
@@ -92,12 +116,14 @@ device:
           gateway_ip: "172.16.0.1"
           port: 56700
           ssid_notes: >
-            Later products (LIFX Z among them) advertise an OPEN AP named
-            after the product and serial fragment. The original 2013 bulbs
-            hosted a secured AP named exactly "LIFX Bulb" with the published
-            passphrase "lifx1234" — open_network above describes the strips
-            this spec covers, and that constant is the fallback for the one
-            older AP name.
+            Post-original devices (LIFX Z among them) advertise an OPEN AP
+            named after the product and a serial fragment. The decompiled
+            app confirms it: the app supplies a passphrase only when the
+            setup SSID is exactly "LIFX Bulb" — the original 2013 bulbs,
+            whose published passphrase is "lifx1234" — and joins every other
+            LIFX-prefixed setup AP with none. open_network above therefore
+            describes the strips this spec covers, and that constant is the
+            fallback for the one older AP name.
           port_notes: >
             The same port as normal control: in setup mode the device is at
             gateway_ip on its own 172.16.0.0/24 subnet.
@@ -153,11 +179,14 @@ device:
                 bytes: 2
                 description: "Always 0."
           get_access_points:
-            description: "Type 0x130 (304). No payload. The device answers with one StateAccessPoint (0x132) message per network it can see."
+            description: "Type 0x130 (304). No payload. The device answers with one StateAccessPoint (0x132) message per network it can see. The full access-point family in the decompiled app runs 304-309; 307-309 are documented after 306 below."
           set_access_point:
             description: >
               Type 0x131 (305). Hands the device its home network. 98-byte
               payload; strings are UTF-8, null-padded to their fixed width.
+              Layout confirmed byte-exact against the decompiled app
+              (interface at 0, ssid at 1, password at 33,
+              security_protocol at 97).
             fields:
               - name: "interface"
                 offset: 0
@@ -177,7 +206,8 @@ device:
                 description: "See security_protocols below. WEP networks are documented as not supported."
           state_access_point:
             description: >
-              Type 0x132 (306). One scan result. 38-byte payload.
+              Type 0x132 (306). One scan result. 38-byte payload. Layout
+              confirmed byte-exact against the decompiled app.
             fields:
               - name: "interface"
                 offset: 0
@@ -197,6 +227,26 @@ device:
                 offset: 36
                 bytes: 2
                 description: "Little-endian."
+          get_access_point:
+            description: >
+              Type 0x133 (307). Asks the device for the AP configuration
+              currently set on one interface. 1-byte payload: interface
+              (same encoding as SetAccessPoint). Present in the decompiled
+              app; not in the legacy public docs.
+          state_access_point_config:
+            description: >
+              Type 0x134 (308). The device's currently configured AP, NOT a
+              scan result (that is 306 above). 66-byte payload: interface
+              (1 byte at 0), ssid (32-byte UTF-8 string at 1), passphrase
+              (32 raw bytes at 33), security_protocol (1 byte at 65).
+              Present in the decompiled app; not replayed against hardware.
+          set_access_point_broadcast:
+            description: >
+              Type 0x135 (309). SetAccessPoint plus a trailing 16-byte key,
+              114-byte payload: interface (1 byte at 0), ssid (32 bytes at
+              1), password (64 bytes at 33), security_protocol (1 byte at
+              97), key (16 bytes at 98). Present in the decompiled app; the
+              key's purpose is not established.
           security_protocols:
             description: "The SECURITY_PROTOCOL byte shared by SetAccessPoint and StateAccessPoint."
             values:
@@ -228,7 +278,7 @@ device:
             causes:
               - "The client fell back to cellular or another interface. Pin traffic to the 172.16.0.0/24 interface."
               - "Broadcast datagrams are being dropped. Retry unicast to 172.16.0.1."
-              - "LCM3/Matter-era firmware: onboarding is BLE-only and these messages no longer exist. Terminal for this method."
+              - "Post-original firmware: the vendor app onboards over TLS TCP to 172.16.0.1:56700 (next method), and Matter units via its bundled Matter stack. Whether these UDP messages still answer on newer firmware is untested."
           - symptom: "GetAccessPoints returns nothing but discovery answers."
             causes:
               - "Some firmware scans lazily. Ask again after a few seconds, or skip the scan and send SetAccessPoint with a manually-entered SSID and WPA2_AES_PSK."
@@ -264,6 +314,63 @@ device:
               protocol: "udp"
               message: "SetAccessPoint (type 0x131), interface=STATION(2), ssid, password, security_protocol from the matching scan entry"
             expect: "No reply is guaranteed. The setup AP drops within join_wait_seconds as the device joins the home network."
+          - action: "Rejoin the home network and rediscover the device."
+            actor: "user"
+            expect: "The device answers mDNS/UDP discovery on the home LAN; see the discovery block."
+            timeout_seconds: 90
+      - type: "softap_udp"
+        verified: false
+        description: >
+          Modern flow, derived from the decompiled vendor app (app-derived,
+          not hardware-verified — medium confidence). After joining the
+          setup AP, the app opens a TLS-secured TCP connection to
+          172.16.0.1:56700 and drives the SAME LIFX binary access-point
+          messages (304-309, layouts above) over the stream. The TLS
+          handshake is mutual — the client presents key material bundled in
+          the app — so a third-party client cannot complete it without that
+          key material. Hardware hosting the original "LIFX Bulb" setup
+          SSID is detected by name and gets a plaintext TCP connection to
+          the same port instead. The schema has no softAP-binary-over-TCP
+          method type, so this entry rides under softap_udp, but the
+          transport here is TLS over TCP, not UDP.
+        softap:
+          ssid_prefix: "LIFX"
+          ssid_examples: ["LIFX Z 04A3C1", "LIFX Bulb"]
+          open_network: true
+          gateway_ip: "172.16.0.1"
+          port: 56700
+          port_notes: >
+            TCP on this flow, unlike the legacy method: the same 56700 port
+            number, TLS-wrapped on post-original hardware.
+        timing:
+          resend_interval_seconds: 1
+          resend_interval_notes: >
+            The app re-sends the SetAccessPoint request once a second until
+            the device drops the connection (it tears its AP down to join
+            the home network); a disconnect after at least one send is
+            treated as success. The optional cloud-claim Wan.Set is sent up
+            to five times at the same interval until acknowledged.
+        steps:
+          - action: "Factory reset the strip (or power a new one) and wait for its setup AP."
+            actor: "user"
+            timeout_seconds: 60
+            expect: "An open AP named with the LIFX prefix appears; the device sits at 172.16.0.1 on it."
+          - action: "Join the setup AP from the provisioning client."
+            actor: "user"
+            expect: "Client receives a 172.16.0.x address."
+          - action: "Open a TLS TCP connection to 172.16.0.1:56700 (mutual TLS; client key material is bundled in the vendor app)."
+            actor: "client"
+            expect: "TLS session established with the device."
+          - action: "Claim the device to the vendor cloud (only when it reports claim-over-softAP support)."
+            actor: "client"
+            request:
+              action: "Wan.SetHost (type 209: 32-byte broker hostname, then a 1-byte insecure-skip-verify flag), Wan.SetAuthKey (205: 32-byte account token), Wan.Set (202: enable the uplink) — all broadcast-targeted, over the TLS TCP stream"
+            expect: "The device acknowledges; the app repeats Wan.Set once a second (up to five sends) until acked."
+          - action: "Hand over the home network credentials."
+            actor: "client"
+            request:
+              action: "SetAccessPoint (type 305), interface=STATION(2), ssid, password, security_protocol — the same 98-byte layout as the legacy UDP method, sent over the TLS TCP stream"
+            expect: "No reply is guaranteed; the app re-sends once a second until the device drops the AP to join the home network."
           - action: "Rejoin the home network and rediscover the device."
             actor: "user"
             expect: "The device answers mDNS/UDP discovery on the home LAN; see the discovery block."
@@ -324,11 +431,16 @@ lifx_lan_protocol:
     control needs the multizone family below. Full machine-readable message
     definitions (pkt_type, sizes, fields) are published officially in the
     LIFX/public-protocol repo (protocol.yml) — the codegen source for a
-    lifx_lan_udp handler.
+    lifx_lan_udp handler. Every type number here, the multizone family
+    below, and the UDP 56700 transport are confirmed byte-exact against the
+    decompiled vendor app (Protocol.MessageType; UdpTransport sends to port
+    56700).
   multizone_messages:
     set_color_zones: 501
     get_color_zones: 502
     state_zone: 503
+    get_zone_count: 504
+    state_zone_count: 505
     state_multi_zone: 506
     multizone_get_effect: 507
     multizone_set_effect: 508
@@ -336,6 +448,109 @@ lifx_lan_protocol:
     extended_set_color_zones: 510
     extended_get_color_zones: 511
     extended_state_multi_zone: 512
+
+# Control-plane wire formats, byte-exact. The lifx_lan_protocol block above
+# lists the message-type NUMBERS; this documents the LAYOUT of the 36-byte
+# header and the payloads that ride in it, so the LAN control surface is
+# implementable from this file alone (the same bar test_wemo_spec.py holds the
+# Wemo surface to). Every field is little-endian and its offset is within the
+# structure that carries it. Each message's `example` is a full datagram as
+# hex; scripts/test_lifx_spec.py transcribes each one from the field tables and
+# constants here and checks it reproduces the example, so a layout that drifts
+# from the wire fails there rather than on a strip.
+payload_formats:
+  lan_header:
+    description: >
+      The 36-byte header every LIFX LAN message begins with, all little-endian.
+      `protocol` is a bitfield: the low 12 bits are the constant 1024, bit 12
+      (addressable) is always set, and bit 13 (tagged) is set for a
+      broadcast/discovery message and clear when addressing one device — giving
+      the two constants 0x1400 (addressed) and 0x3400 (tagged/broadcast).
+      `source` is a client-chosen id echoed in replies (this project uses
+      0x4C425247, "LBRG"). In `response`, bit 0 (res_required) asks the device to
+      answer with its matching State message and bit 1 is ack_required;
+      `sequence` is echoed so a client can correlate that answer.
+    fields:
+      - {name: size, offset: 0, bytes: 2, description: "Total datagram length, header + payload."}
+      - {name: protocol, offset: 2, bytes: 2, description: "0x1400 addressed, 0x3400 tagged/broadcast."}
+      - {name: source, offset: 4, bytes: 4, description: "Client id, echoed in replies."}
+      - {name: target, offset: 8, bytes: 8, description: "Device MAC in the first 6 bytes (0 for broadcast); last 2 bytes 0."}
+      - {name: reserved_site, offset: 16, bytes: 6, description: "Zero."}
+      - {name: response, offset: 22, bytes: 1, description: "bit0 res_required, bit1 ack_required."}
+      - {name: sequence, offset: 23, bytes: 1, description: "Echoed in the reply."}
+      - {name: reserved_timestamp, offset: 24, bytes: 8, description: "Zero."}
+      - {name: type, offset: 32, bytes: 2, description: "Message type; see lifx_lan_protocol.message_types."}
+      - {name: reserved_tail, offset: 34, bytes: 2, description: "Zero."}
+  hsbk:
+    description: >
+      The 8-byte colour SetColor/State and the multizone messages carry. Each of
+      hue, saturation and brightness spans the full u16 range (hue as a fraction
+      of 360°); kelvin is 1500..9000 — the white point, meaningful when
+      saturation is 0. Offsets are within the payload that embeds it. Full red is
+      hue 0, saturation and brightness 65535, kelvin 3500.
+    fields:
+      - {name: hue, offset: 0, bytes: 2}
+      - {name: saturation, offset: 2, bytes: 2}
+      - {name: brightness, offset: 4, bytes: 2}
+      - {name: kelvin, offset: 6, bytes: 2}
+  get_service:
+    description: >
+      Type 2, no payload, sent tagged/broadcast to port 56700; every device
+      answers with a StateService. The example is the exact discovery probe:
+      sequence 0, res_required set.
+    example: "240000344752424c00000000000000000000000000000100000000000000000002000000"
+  set_power:
+    description: >
+      LightSetPower, type 117. Payload: `level` (u16, 0 off / 65535 on) then
+      `duration` (u32, milliseconds). The example turns a strip on (target
+      d0:73:d5:aa:bb:cc, sequence 3, duration 0).
+    fields:
+      - {name: level, offset: 0, bytes: 2, description: "0 off, 65535 on."}
+      - {name: duration, offset: 2, bytes: 4, description: "Transition time, ms."}
+    example: "2a0000144752424cd073d50004a300000000000000000003000000000000000075000000ffff00000000"
+  set_color:
+    description: >
+      LightSetColor, type 102. Payload: one reserved byte, an HSBK colour (see
+      the hsbk format), then `duration` (u32, ms). The example sets the strip to
+      full red, sequence 7, duration 0.
+    fields:
+      - {name: reserved, offset: 0, bytes: 1}
+      - {name: color, offset: 1, bytes: 8, description: "HSBK; see the hsbk format."}
+      - {name: duration, offset: 9, bytes: 4}
+    example: "310000144752424cd073d50004a300000000000000000007000000000000000066000000000000ffffffffac0d00000000"
+  set_color_zones:
+    description: >
+      SetColorZones, type 501 (multizone). Payload: start and end zone indices,
+      an HSBK colour, `duration` (u32), and `apply` (1 = apply now, 0 = buffer).
+      The example sets zone 3 to green (hue 21845) and applies it, sequence 4.
+    fields:
+      - {name: start_index, offset: 0, bytes: 1}
+      - {name: end_index, offset: 1, bytes: 1}
+      - {name: color, offset: 2, bytes: 8, description: "HSBK."}
+      - {name: duration, offset: 10, bytes: 4}
+      - {name: apply, offset: 14, bytes: 1, description: "0 buffer, 1 apply now."}
+    example: "330000144752424cd073d50004a3000000000000000000040000000000000000f501000003035555ffffffffac0d0000000001"
+  state:
+    description: >
+      LightState, type 107 — the reply to LightGet (101). Payload: an HSBK
+      colour, two reserved bytes, `power` (u16, 0/65535), a 32-byte UTF-8 label
+      (null-padded), then eight reserved bytes.
+    fields:
+      - {name: color, offset: 0, bytes: 8, description: "HSBK."}
+      - {name: reserved, offset: 8, bytes: 2}
+      - {name: power, offset: 10, bytes: 2, description: "0 off, 65535 on."}
+      - {name: label, offset: 12, bytes: 32, description: "UTF-8, null-padded."}
+      - {name: reserved_tail, offset: 44, bytes: 8}
+  state_multi_zone:
+    description: >
+      StateMultiZone, type 506 — a reply to GetColorZones (502). Payload: the
+      strip's total zone count, the index this batch starts at, then up to eight
+      HSBK colours (64 bytes). A strip longer than eight zones sends several,
+      keyed by zone index.
+    fields:
+      - {name: zones_count, offset: 0, bytes: 1}
+      - {name: zone_index, offset: 1, bytes: 1}
+      - {name: colors, offset: 2, bytes: 64, description: "Up to eight HSBK colours."}
 
 evidence:
   live_lan_probe:

@@ -14,6 +14,8 @@ device:
   name: "devolo Home Control"
   manufacturer: "devolo AG"
   manufacturer_status: "shutdown"
+  testing:
+    status: untested
   protocol: "zwave"
   category: "hub"
   notes: >
@@ -23,8 +25,11 @@ device:
     survives on the stock installation is local autopilot only: schedules
     and if/then rules already programmed into the MT2600 gateway keep
     executing, but there is no reconfiguration, no remote access, no app
-    and no web portal — even local control always routed through the
-    cloud. Every device in the estate is a standard Z-Wave Plus (EU,
+    and no web portal. The app was not purely cloud-routed, though: on
+    the LAN it reached the gateway directly (mDNS discovery plus a local
+    HTTP API, see the cloud block) — but it authenticated that local path
+    with cloud-issued credentials, so it dies with the account backend
+    all the same. Every device in the estate is a standard Z-Wave Plus (EU,
     868.4 MHz) slave under manufacturer ID 0x0175, rebadged from
     Danfoss / Philio / Z-Wave.me-POPP / Qubino OEM hardware, so the
     entire estate except the hub can be migrated to any third-party
@@ -260,16 +265,25 @@ cloud:
   required: true
   vendor_service: "devolo Home Control cloud (mydevolo)"
   hosts:
-    - "https://homecontrol.mydevolo.com"
-    - "dcloud / hc / mprm hosts under devolo.net (hardcoded in the Android app, e.g. dcloud-dev.devolo.net/v1/)"
+    - "https://homecontrol.mydevolo.com (mprm REST/WebSocket; hardcoded default in the app, C.DEFAULT_MPRM_URL)"
+    - "https://www.mydevolo.com/v1/ (dcloud account backend; hardcoded in the app, BuildConfig.DCLOUD_URL)"
+    - "test/dev hosts under devolo.net also hardcoded in the app (dcloud-dev / dcloud-test / dc-beta / hc-test-v8 / mprm-test), not production"
   auth:
     type: "session_cookie"
     notes: >
-      mydevolo account login; the account backend issues the credentials
-      the gateway's local API (mprm REST/WebSocket on the LAN) requires.
-      Shape only — no real tokens recorded. The local API itself is
-      documented by the devolo_home_control_api Python library that powers
-      the Home Assistant integration.
+      mydevolo account login; both the dcloud and mprm clients ride a
+      persistent OkHttp CookieJar, and the mprm event channel is an
+      RxWebSocket against /remote/events/. The account backend also
+      issues the credentials the gateway's local API requires: on the
+      LAN the app discovers the gateway via mDNS _http._tcp. (service
+      name prefix "Home Control") and GETs
+      http://<gateway>/dhlp/portal/full with HTTP Basic auth — username
+      the mydevolo account UUID, password the per-gateway localPasskey
+      from the gateway's cloud record. Shape only — no real tokens
+      recorded. The local API itself is documented by the
+      devolo_home_control_api Python library that powers the Home
+      Assistant integration. App facts read from the decompiled v1.9.7
+      APK, not replayed against hardware.
     verification: "reported"
   failure_mode: >
     Shutdown executed 2025-12-31. The app and web portal are gone; no
@@ -345,12 +359,18 @@ helpful_urls:
   - title: "HA community: Danfoss LC13 (aka POPP/devolo) temperature offset"
     url: "https://community.home-assistant.io/t/danfoss-lc13-aka-popp-devolo-temperature-calibration-set-permanent-offset/971303"
 
-# APK status (cloud-only companion app; no local control surface in it):
+# APK status (companion app; NOT purely cloud-routed, see cloud block):
 #   package_id: com.devolo.homecontrol
 #   sha256 (Play build fetched 2026-08-04): d6115cd03e19ae69...
 #   Delisted from the store fronts with the shutdown, but still fetchable
 #   via the Play API by package id as of 2026-08-04 (apkeep). Static
-#   inspection: de.devolo.mprm Retrofit REST + RxWebSocket client against
-#   homecontrol.mydevolo.com / dcloud.devolo.net — cloud-only, no local
-#   API of its own; deep RE not warranted. APK retained in workspace/apks/
-#   (gitignored), not committed per clean-room rules.
+#   inspection (jadx, v1.9.7): de.devolo.mprm Retrofit REST + RxWebSocket
+#   client against homecontrol.mydevolo.com / www.mydevolo.com/v1/ with
+#   session-cookie auth (persistent CookieJar), event channel
+#   /remote/events/. On the LAN the app bypasses the cloud: mDNS
+#   _http._tcp. discovery (service name prefix "Home Control"), then GET
+#   http://<gateway>/dhlp/portal/full with HTTP Basic auth — mydevolo
+#   account UUID + per-gateway localPasskey from the gateway's cloud
+#   record. The OEM device identities (MT02755 etc.) do not appear
+#   anywhere in the app; they stay unverified. APK retained in
+#   workspace/apks/ (gitignored), not committed per clean-room rules.
