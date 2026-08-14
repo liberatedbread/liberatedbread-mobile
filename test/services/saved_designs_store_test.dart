@@ -1,5 +1,6 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -64,5 +65,38 @@ void main() {
     expect(loaded.frames, isEmpty);
     expect(loaded.width, 0);
     expect(loaded.frameCids, const [5, 6]);
+  });
+
+  test('a damaged frame drops re-upload rather than replaying a short loop',
+      () async {
+    // Half a frame list is worse than none: replay would put a SHORTER
+    // animation on the panel and look like the device lost frames. Fall all
+    // the way back to cid-replay instead.
+    for (final bad in <Object?>[null, 42, 'not base64!!']) {
+      await prefs.setString(
+          'saved_designs_v1:AA:BB',
+          jsonEncode([
+            {
+              'name': 'anim',
+              'cid': 100,
+              'kind': 'animation',
+              'contentHash': 'h',
+              'savedAt': DateTime(2026).toIso8601String(),
+              'frameCids': [100, 101],
+              'frames': [
+                base64Encode(const [1, 2, 3]),
+                bad
+              ],
+              'width': 1,
+              'height': 1,
+              'frameMs': 200,
+            }
+          ]));
+
+      final loaded = SavedDesignsStore(prefs).load('AA:BB').single;
+      expect(loaded.frames, isEmpty, reason: 'bad entry: $bad');
+      expect(loaded.frameCids, const [100, 101],
+          reason: 'cid-replay must survive: $bad');
+    }
   });
 }

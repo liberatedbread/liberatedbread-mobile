@@ -118,14 +118,19 @@ class SavedDesign {
     final frames = <Uint8List>[];
     if (rawPixels is List) {
       for (final f in rawPixels) {
-        if (f is String) {
-          try {
-            frames.add(base64Decode(f));
-          } on FormatException {
-            // A corrupt frame drops re-upload for this design; cid-replay stays.
-            frames.clear();
-            break;
-          }
+        // Any unreadable entry drops re-upload for this design and leaves
+        // cid-replay. Skipping just the bad one would silently replay a
+        // SHORTER animation than the user saved, which reads as the device
+        // losing frames rather than as the record being damaged.
+        if (f is! String) {
+          frames.clear();
+          break;
+        }
+        try {
+          frames.add(base64Decode(f));
+        } on FormatException {
+          frames.clear();
+          break;
         }
       }
     }
