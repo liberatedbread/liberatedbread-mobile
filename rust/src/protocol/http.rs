@@ -299,21 +299,30 @@ pub fn endpoint_request(spec: &DeviceSpec, name: &str) -> Option<(String, String
 /// instanced entity, the one GET that enumerates every child and carries all
 /// their state.
 ///
-/// Addressed by what the `http_endpoints` catalogue says about the named
-/// action, its path placeholders filled from `values` (the Hue bridge's
-/// credential lives in `/api/{username}/lights`). A placeholder with no
-/// value fails the render, the same fail-visibly rule a command's `source`
-/// gets — an unpaired client must not issue a credential-less read.
+/// Two vocabularies can name the poll, tried in order. A hub's state command
+/// names an `http_endpoints` catalogue entry (the Hue bridge's `Lights`), its
+/// path placeholders filled from `values` — a placeholder with no value fails
+/// the render, the same fail-visibly rule a command's `source` gets, because
+/// an unpaired client must not issue a credential-less read. A plain device's
+/// state command names a `commands` entry instead (the Envoy's
+/// `get_production_v1`), which renders exactly as it would for a send —
+/// including the transport check, so a SOAP command handed here is still
+/// declined.
 pub fn render_state_request(
     spec: &DeviceSpec,
     state_command: &str,
     values: &BTreeMap<String, String>,
 ) -> Result<HttpRequest, ProtocolError> {
-    let (method, path) =
-        endpoint_request(spec, state_command).ok_or_else(|| ProtocolError::CommandNotFound {
-            uuid: "http_endpoints".to_string(),
-            command: state_command.to_string(),
-        })?;
+    let Some((method, path)) = endpoint_request(spec, state_command) else {
+        let command =
+            spec.commands
+                .get(state_command)
+                .ok_or_else(|| ProtocolError::CommandNotFound {
+                    uuid: "http_endpoints".to_string(),
+                    command: state_command.to_string(),
+                })?;
+        return render_command(state_command, command, values);
+    };
     let mut out = String::with_capacity(path.len());
     let mut rest = path.as_str();
     while let Some(start) = rest.find('{') {
@@ -567,6 +576,11 @@ commands:
     description: "No transport stated; must not be guessed into HTTP."
     method: "POST"
     path: "/keypress/Home"
+  read_summary:
+    description: "A state poll declared as a plain command, not an endpoint."
+    transport: "http"
+    method: "GET"
+    path: "/api/v1/summary"
 "#;
 
     fn spec() -> DeviceSpec {
@@ -766,6 +780,32 @@ entities:
 
         let err = render_state_request(&hub(), "Things", &values(&[])).unwrap_err();
         assert!(matches!(&err, ProtocolError::ParameterMissing(name) if name == "Things.token"));
+    }
+
+    #[test]
+    fn a_state_command_naming_a_command_renders_like_a_send() {
+        // The non-hub shape: the poll is a `commands` entry (the Envoy's
+        // get_production_v1), not an `http_endpoints` name.
+        let request = render_state_request(&spec(), "read_summary", &values(&[])).unwrap();
+        assert_eq!(
+            (request.method.as_str(), request.path.as_str()),
+            ("GET", "/api/v1/summary")
+        );
+        assert!(request.body.is_empty());
+    }
+
+    #[test]
+    fn a_state_command_for_another_transport_is_still_declined() {
+        // The commands-block fallback goes through render_command, so the
+        // transport check a direct send gets applies here too.
+        let err = render_state_request(&spec(), "over_soap", &values(&[])).unwrap_err();
+        assert!(
+            matches!(&err, ProtocolError::UnsupportedCommandEncoding(t) if t == "soap"),
+            "unexpected error: {err}"
+        );
+
+        let err = render_state_request(&spec(), "no_such_command", &values(&[])).unwrap_err();
+        assert!(err.to_string().contains("no_such_command"));
     }
 
     #[test]
