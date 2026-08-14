@@ -123,6 +123,16 @@ class RealSpecCodec implements SpecCodec {
       );
 
   @override
+  Future<PanelResolutionDto?> deviceInfoResolution({
+    required List<List<int>> notifications,
+  }) =>
+      rust.deviceInfoResolution(
+        notifications: [
+          for (final n in notifications) Uint8List.fromList(n),
+        ],
+      );
+
+  @override
   Future<List<NetworkEntityDto>> networkEntitiesForDevice({
     required String specYaml,
     required List<String> ssdpTargets,

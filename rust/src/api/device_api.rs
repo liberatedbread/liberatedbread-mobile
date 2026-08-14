@@ -712,6 +712,40 @@ pub fn advertised_resolution(
     }
 }
 
+/// Resolve a panel's REAL width/height from its M_DEVICE_INFO_NOTIFY push
+/// (mt=2103) — the second source, used when the advertisement is not on hand
+/// (a reconnect with no fresh scan). `notifications` is the raw notify events
+/// collected in a short window off the DDP notify characteristic; they are
+/// reassembled (a ~130-byte DeviceInfo spans ~9 notifications at a 23-byte MTU)
+/// and searched for the DeviceInfo frame, whose protobuf field 8 is width and
+/// field 9 is height. Also tries each notification whole, in case a higher MTU
+/// delivered it unfragmented. `None` when no DeviceInfo is present or a value is
+/// out of the 1..=255 u8 range.
+pub fn device_info_resolution(
+    notifications: Vec<Vec<u8>>,
+) -> Option<PanelResolutionDto> {
+    use crate::protocol::daniao_upload::{
+        device_info_resolution as decode, reassemble_notifications,
+    };
+    let mut frames = reassemble_notifications(&notifications);
+    for n in &notifications {
+        if n.len() > 4 {
+            frames.push(n[4..].to_vec());
+        }
+    }
+    for frame in frames {
+        if let Some((w, h)) = decode(&frame) {
+            if (1..=255).contains(&w) && (1..=255).contains(&h) {
+                return Some(PanelResolutionDto {
+                    width: w,
+                    height: h,
+                });
+            }
+        }
+    }
+    None
+}
+
 /// Build the stored-upload DTO from a spec's `stored_upload` feature.
 ///
 /// `encodable` is the same registry check `encode_stored_image` dispatches on,
@@ -3674,6 +3708,39 @@ services:
             .unwrap()
             .expect("resolution resolves from the advertised bytes");
         assert_eq!((r.width, r.height), (20, 20));
+    }
+
+    #[test]
+    fn device_info_resolution_ffi_reads_the_captured_push() {
+        // The real DeviceInfo notification DN0B88 pushes (with its 4-byte
+        // fragment header), split into 20-byte notifications the way a 23-byte
+        // MTU delivers it. The FFI reassembles and reads 20x20.
+        let full = "dd010000f10100dd008908370000000000000d3c010000000a07302e302e302e\
+                    30100418e807220536303030312a0c444e583a533130342d4a593a30bcfd0238\
+                    0140144814a00142b001d3c88080f8ffffffff01b801df35d001c801e0011cea\
+                    0106444e30423838f201069888e0520b888002e05da0029003a80204b80214c0\
+                    0214c8029003d002c07ad8020f";
+        let frame: Vec<u8> = (0..full.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&full[i..i + 2], 16).unwrap())
+            .collect();
+        // Re-fragment: serial 0x55, 16 frame bytes/notification behind a header.
+        let payload = &frame[4..];
+        let chunks: Vec<&[u8]> = payload.chunks(16).collect();
+        let total = chunks.len() as u8;
+        let notifications: Vec<Vec<u8>> = chunks
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let mut f = vec![0x55, total, total - 1 - i as u8, 0x00];
+                f.extend_from_slice(c);
+                f
+            })
+            .collect();
+        let r = device_info_resolution(notifications).expect("resolves 20x20");
+        assert_eq!((r.width, r.height), (20, 20));
+        // Nothing decodable -> None.
+        assert!(device_info_resolution(vec![vec![0u8; 20]]).is_none());
     }
 
     #[test]
