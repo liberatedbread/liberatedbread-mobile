@@ -7,6 +7,7 @@
 // device first, so changing the mode does not clear the timer.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -16,16 +17,20 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
+import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
 import 'package:liberated_bread_mobile/services/ecp2_control_service.dart';
 import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_ecp2_socket.dart';
 import '../fakes/fake_spec_codec.dart';
+import '../fakes/in_memory_settings_store.dart';
 
 /// The ECP2 override for tests that assert the PLAIN path: a service that
 /// never opens a session, so a refusal stays a refusal — without opening a
@@ -582,6 +587,47 @@ void main() {
       expect(downPos.dx, closeTo(okPos.dx, 1));
       expect(upPos.dy, lessThan(okPos.dy));
       expect(okPos.dy, lessThan(downPos.dy));
+    });
+
+    testWidgets('renders the channel picker below the button pad',
+        (tester) async {
+      // A spec-optioned picker (no device fetch needed) next to one remote
+      // button: the pad must sit above the picker, so the remote keeps its
+      // place whether or not the channel list has loaded yet.
+      const picker = NetworkEntityDto(
+        isInstanced: false,
+        name: 'Channel',
+        platform: 'select',
+        stateCommand: '',
+        options: [
+          NetworkOptionDto(raw: '12', label: 'Netflix'),
+          NetworkOptionDto(raw: '837', label: 'YouTube'),
+        ],
+        actions: [
+          NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'select_option',
+            commandName: 'launch_app',
+            transport: 'http',
+            userParams: ['app_id'],
+            readBack: [],
+          ),
+        ],
+      );
+      await pumpRemote(tester,
+          received: [], entities: [button('Home', 'mdi:home'), picker]);
+
+      expect(find.widgetWithText(FilledButton, 'Home'), findsOneWidget);
+      expect(find.widgetWithText(ChoiceChip, 'Netflix'), findsOneWidget);
+
+      final padPos =
+          tester.getCenter(find.widgetWithText(FilledButton, 'Home'));
+      final pickerPos =
+          tester.getCenter(find.widgetWithText(ChoiceChip, 'Netflix'));
+      expect(pickerPos.dy, greaterThan(padPos.dy),
+          reason: 'the channel picker is the foot of the remote, '
+              'below the button pad');
     });
   });
 
@@ -1149,24 +1195,74 @@ void main() {
     late int relayState;
     late FakeSpecCodec kasaCodec;
 
+    // The HS110's energy meter: four pure readings polled by get_emeter,
+    // their value fields the dotted paths into the reply root.
+    const emeterEntities = [
+      NetworkEntityDto(
+        name: 'Voltage',
+        platform: 'sensor',
+        deviceClass: 'voltage',
+        unit: 'V',
+        stateCommand: 'get_emeter',
+        valueField: 'emeter.get_realtime.voltage',
+        transport: 'tcp-json',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+      NetworkEntityDto(
+        name: 'Power',
+        platform: 'sensor',
+        deviceClass: 'power',
+        unit: 'W',
+        stateCommand: 'get_emeter',
+        valueField: 'emeter.get_realtime.power',
+        transport: 'tcp-json',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+    ];
+
     // A stand-in plug: it holds a relay state, answers get_sysinfo with it, and
     // flips it on set_relay_state — so the screen's poll-after-send loop runs
-    // for real over the (faithful-cipher) fake codec.
-    Future<void> pumpPlug(WidgetTester tester, {int initial = 0}) async {
+    // for real over the (faithful-cipher) fake codec. With [emeter] it also
+    // answers get_realtime, the way an HS110 does.
+    Future<void> pumpPlug(
+      WidgetTester tester, {
+      int initial = 0,
+      bool emeter = false,
+    }) async {
       relayState = initial;
+      final entities = [...kasaEntities, if (emeter) ...emeterEntities];
       kasaCodec = FakeSpecCodec(
-        networkEntities: (_) => kasaEntities,
+        networkEntities: (_) => entities,
         networkKasaRequest: (name, _) => KasaRequestDto(
           json: switch (name) {
             'relay_on' => '{"system":{"set_relay_state":{"state":1}}}',
             'relay_off' => '{"system":{"set_relay_state":{"state":0}}}',
+            'get_emeter' => '{"emeter":{"get_realtime":null}}',
             _ => '{"system":{"get_sysinfo":null}}',
           },
         ),
-        networkReading: (_, returned) {
-          final on = (int.tryParse(returned['relay_state'] ?? '0') ?? 0) != 0;
+        networkReading: (entity, returned) {
+          if (entity == 'Outlet') {
+            final on = (int.tryParse(returned['relay_state'] ?? '0') ?? 0) != 0;
+            return NetworkReadingDto(
+                kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+          }
+          // The sensors: the dotted path the flattener keys the reply by.
+          final field = switch (entity) {
+            'Voltage' => 'emeter.get_realtime.voltage',
+            'Power' => 'emeter.get_realtime.power',
+            _ => entity,
+          };
+          final raw = returned[field];
+          if (raw == null) return null;
           return NetworkReadingDto(
-              kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+              kind: NetworkReadingKind.number,
+              number: double.parse(raw),
+              raw: raw);
         },
       );
 
@@ -1177,6 +1273,9 @@ void main() {
         if (json.contains('set_relay_state')) {
           relayState = json.contains('"state":1') ? 1 : 0;
           reply = '{"system":{"set_relay_state":{"err_code":0}}}';
+        } else if (json.contains('get_realtime')) {
+          reply = '{"emeter":{"get_realtime":{"voltage":120.4,"current":0.5,'
+              '"power":60.2,"total":12.34,"err_code":0}}}';
         } else {
           reply = '{"system":{"get_sysinfo":{"relay_state":$relayState,'
               '"alias":"Desk Lamp"}}}';
@@ -1201,8 +1300,7 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
               device: kasaDevice,
-              controls: const NetworkControls(
-                  specYaml: 'yaml', entities: kasaEntities)),
+              controls: NetworkControls(specYaml: 'yaml', entities: entities)),
         ),
       ));
       await tester.pumpAndSettle();
@@ -1212,6 +1310,19 @@ void main() {
         (tester) async {
       await pumpPlug(tester, initial: 1);
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(find.textContaining('Could not reach'), findsNothing);
+    });
+
+    testWidgets('the emeter sensors poll get_emeter alongside the switch',
+        (tester) async {
+      await pumpPlug(tester, initial: 1, emeter: true);
+
+      // The switch still reads the sysinfo poll; the sensors read the emeter
+      // one — two state commands over the same socket, decoded from the two
+      // reply shapes.
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(find.text('120.4 V'), findsOneWidget);
+      expect(find.text('60.2 W'), findsOneWidget);
       expect(find.textContaining('Could not reach'), findsNothing);
     });
 
@@ -1230,6 +1341,495 @@ void main() {
         contains('relay_on'),
       );
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+  });
+
+  // ── HTTP state polling: read-only telemetry (Enphase Envoy) ──────────────
+  //
+  // The Envoy's whole surface is three sensors whose state command is a
+  // plain-HTTP GET declared in the spec's `commands` block. No setup.xml, no
+  // actions — and on firmware 7+ a JWT gate that refuses the poll with
+  // 401/403, which must read as the device's gate, not as a broken screen.
+  group('HTTP telemetry (Enphase Envoy)', () {
+    final envoyDevice = NetworkDevice(
+      host: '10.0.0.11',
+      name: 'Envoy',
+      port: 80,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    NetworkEntityDto sensor(String name, String field, String unit) =>
+        NetworkEntityDto(
+          name: name,
+          platform: 'sensor',
+          unit: unit,
+          stateCommand: 'get_production_v1',
+          valueField: field,
+          // What the codec fills from the state command's own declaration —
+          // the signal the screen routes the poll on.
+          transport: 'http',
+          options: const [],
+          isInstanced: false,
+          actions: const [],
+        );
+
+    final envoyEntities = [
+      sensor('Solar Production', 'wattsNow', 'W'),
+      sensor("Today's Energy", 'wattHoursToday', 'Wh'),
+      sensor('Lifetime Energy', 'wattHoursLifetime', 'Wh'),
+    ];
+
+    const productionJson = '{"wattsNow":2532,"wattHoursToday":18320,'
+        '"wattHoursSevenDays":120440,"wattHoursLifetime":10324050}';
+
+    /// A stand-in gateway: answers the production GET with [body]/[status]
+    /// and records what it was asked. No setup.xml exists to fetch.
+    Future<List<http.Request>> pumpEnvoy(
+      WidgetTester tester, {
+      int status = 200,
+      String body = productionJson,
+    }) async {
+      final received = <http.Request>[];
+      codec = FakeSpecCodec(
+        networkEntities: (_) => envoyEntities,
+        networkHttpRequest: (name, _) => const HttpRequestDto(
+            method: 'GET', path: '/api/v1/production', body: ''),
+        networkReading: (entity, returned) {
+          final field = switch (entity) {
+            'Solar Production' => 'wattsNow',
+            "Today's Energy" => 'wattHoursToday',
+            _ => 'wattHoursLifetime',
+          };
+          final raw = returned[field];
+          if (raw == null) return null;
+          return NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: double.parse(raw),
+              raw: raw);
+        },
+      );
+      final envoy = MockClient((request) async {
+        received.add(request);
+        return http.Response(body, status);
+      });
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          // The gateway serves no UPnP description — asking is a bug.
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('fetched a description for an Envoy: ${r.url}')))),
+          httpControlClientProvider
+              .overrideWithValue(HttpControlClient(httpClient: envoy)),
+          ecp2ControlServiceProvider.overrideWithValue(noEcp2()),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: envoyDevice,
+              controls:
+                  NetworkControls(specYaml: 'yaml', entities: envoyEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return received;
+    }
+
+    testWidgets('polls production over HTTP and renders the sensors',
+        (tester) async {
+      final received = await pumpEnvoy(tester);
+
+      // Exactly one GET, the one the spec declares — and no description.
+      // (Dart's Uri drops the default port when it stringifies, so no :80.)
+      expect(received, hasLength(1));
+      expect(received.single.method, 'GET');
+      expect(
+          received.single.url.toString(), 'http://10.0.0.11/api/v1/production');
+
+      expect(find.text('2532 W'), findsOneWidget);
+      expect(find.text('18320 Wh'), findsOneWidget);
+      expect(find.text('10324050 Wh'), findsOneWidget);
+      expect(find.textContaining('Could not reach'), findsNothing);
+    });
+
+    testWidgets('a 403 (JWT-gated firmware) shows the gate note, not an error',
+        (tester) async {
+      await pumpEnvoy(tester, status: 403);
+
+      // The refusal is a device-side policy: the standing note names it, the
+      // readings stay honestly unknown, and the screen is not an error page.
+      expect(find.text('The device is refusing commands'), findsOneWidget);
+      expect(find.textContaining('answered discovery'), findsOneWidget);
+      expect(find.text('Unknown'), findsNWidgets(3));
+      expect(find.textContaining('Could not reach'), findsNothing);
+    });
+  });
+
+  // ── The fourth transport: a Rabbit Air purifier over encrypted UDP ──────
+  //
+  // Switch/select/number/sensor-shaped like the others, but every exchange is
+  // an AES-128-CBC datagram under the per-device user key: the screen asks for
+  // the key when none is stored, syncs the device clock once per session, and
+  // polls get_state for everything.
+  group('Rabbit Air purifier', () {
+    const rabbitKey = '0123456789abcdeffedcba9876543210';
+
+    final rabbitDevice = NetworkDevice(
+      host: '10.0.0.12',
+      name: 'Bedroom Purifier',
+      // The mDNS hostname IS the Thing ID — the identity the key is stored
+      // under.
+      hostname: 'abcdef1234_000000000000000000.local',
+      port: 9009,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    NetworkActionDto udpAction(String role, String command,
+            [List<String> params = const []]) =>
+        NetworkActionDto(
+            role: role,
+            commandName: command,
+            transport: 'udp',
+            userParams: params,
+            readBack: const [],
+            credentials: const [],
+            instanceParams: const []);
+
+    // The spec's control surface, mirrored: power/mode/speed as controls,
+    // quality/filter-life/rssi as readings, ionizer/lock as switches.
+    late final rabbitEntities = [
+      NetworkEntityDto(
+        name: 'Power',
+        platform: 'switch',
+        stateCommand: 'get_state',
+        valueField: 'power',
+        options: const [],
+        isInstanced: false,
+        actions: [
+          udpAction('turn_on', 'turn_on'),
+          udpAction('turn_off', 'turn_off')
+        ],
+      ),
+      NetworkEntityDto(
+        name: 'Mode',
+        platform: 'select',
+        stateCommand: 'get_state',
+        valueField: 'mode',
+        options: const [
+          NetworkOptionDto(raw: '0', label: 'Auto'),
+          NetworkOptionDto(raw: '1', label: 'Pollen'),
+          NetworkOptionDto(raw: '2', label: 'Manual'),
+        ],
+        isInstanced: false,
+        actions: [
+          udpAction('select_option', 'set_mode', ['mode'])
+        ],
+      ),
+      NetworkEntityDto(
+        name: 'Fan Speed',
+        platform: 'number',
+        stateCommand: 'get_state',
+        valueField: 'speed',
+        setpointMin: 1,
+        setpointMax: 5,
+        setpointStep: 1,
+        options: const [],
+        isInstanced: false,
+        actions: [
+          udpAction('set_value', 'set_speed', ['speed'])
+        ],
+      ),
+      const NetworkEntityDto(
+        name: 'Air Quality',
+        platform: 'sensor',
+        stateCommand: 'get_state',
+        valueField: 'quality',
+        transport: 'udp',
+        options: [
+          NetworkOptionDto(raw: '0', label: 'Lowest'),
+          NetworkOptionDto(raw: '1', label: 'Low'),
+          NetworkOptionDto(raw: '2', label: 'Medium'),
+          NetworkOptionDto(raw: '3', label: 'High'),
+          NetworkOptionDto(raw: '4', label: 'Highest'),
+        ],
+        isInstanced: false,
+        actions: [],
+      ),
+      const NetworkEntityDto(
+        name: 'Filter Life',
+        platform: 'sensor',
+        unit: 'min',
+        stateCommand: 'get_state',
+        valueField: 'filter_life',
+        transport: 'udp',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+      const NetworkEntityDto(
+        name: 'Wi-Fi RSSI',
+        platform: 'sensor',
+        unit: 'dBm',
+        stateCommand: 'get_state',
+        valueField: 'rssi',
+        transport: 'udp',
+        options: [],
+        isInstanced: false,
+        actions: [],
+      ),
+      NetworkEntityDto(
+        name: 'Ionizer',
+        platform: 'switch',
+        stateCommand: 'get_state',
+        valueField: 'ionizer',
+        options: const [],
+        isInstanced: false,
+        actions: [
+          udpAction('turn_on', 'ionizer_on'),
+          udpAction('turn_off', 'ionizer_off'),
+        ],
+      ),
+      NetworkEntityDto(
+        name: 'Child Lock',
+        platform: 'switch',
+        stateCommand: 'get_state',
+        valueField: 'lock',
+        options: const [],
+        isInstanced: false,
+        actions: [
+          udpAction('turn_on', 'child_lock_on'),
+          udpAction('turn_off', 'child_lock_off'),
+        ],
+      ),
+    ];
+
+    late Map<String, Object?> purifierState;
+    late int timeSyncs;
+    late FakeSpecCodec rabbitCodec;
+
+    /// A stand-in purifier: holds state, answers the time sync with its
+    /// clock, answers get_state with the lot, applies cmd-4 writes — all
+    /// encrypted under [rabbitKey], over the fake codec's faithful cipher.
+    Future<void> pumpPurifier(WidgetTester tester,
+        {bool withKey = true}) async {
+      purifierState = {
+        'power': false,
+        'mode': 2,
+        'speed': 3,
+        'quality': 2,
+        'ionizer': false,
+        'lock': false,
+        'filter_life': 4320,
+        'rssi': -55,
+        'model': 1,
+      };
+      timeSyncs = 0;
+      rabbitCodec = FakeSpecCodec(
+        networkEntities: (_) => rabbitEntities,
+        // Render the way the real renderer does: body fields + runtime id/ts,
+        // data last.
+        networkRabbitAirRequest: (name, values, requestId, deviceTs) {
+          final data = switch (name) {
+            'turn_on' => ',"data":{"power":true}',
+            'turn_off' => ',"data":{"power":false}',
+            'set_mode' => ',"data":{"mode":${values['mode']}}',
+            'set_speed' => ',"data":{"mode":2,"speed":${values['speed']}}',
+            'ionizer_on' => ',"data":{"ionizer":true}',
+            'ionizer_off' => ',"data":{"ionizer":false}',
+            'child_lock_on' => ',"data":{"lock":true}',
+            'child_lock_off' => ',"data":{"lock":false}',
+            _ => '',
+          };
+          return RabbitAirRequestDto(
+              json:
+                  '{"id":$requestId,"cmd":${name == 'time_sync' ? 9 : 4},"ts":$deviceTs$data}',
+              requestId: requestId);
+        },
+        networkReading: (entity, returned) {
+          const boolFields = {
+            'Power': 'power',
+            'Ionizer': 'ionizer',
+            'Child Lock': 'lock',
+          };
+          const optionFields = {'Mode': 'mode', 'Air Quality': 'quality'};
+          final entity_ = rabbitEntities.firstWhere((e) => e.name == entity);
+          final boolField = boolFields[entity];
+          if (boolField != null) {
+            final raw = returned[boolField];
+            if (raw == null) return null;
+            final on = raw == 'true';
+            return NetworkReadingDto(
+                kind: NetworkReadingKind.onOff, isOn: on, raw: on ? '1' : '0');
+          }
+          final optionField = optionFields[entity];
+          if (optionField != null) {
+            final raw = returned[optionField];
+            if (raw == null) return null;
+            String? label;
+            for (final option in entity_.options) {
+              if (option.raw == raw) label = option.label;
+            }
+            if (label == null) {
+              return NetworkReadingDto(
+                  kind: NetworkReadingKind.unknownOption, raw: raw);
+            }
+            return NetworkReadingDto(
+                kind: NetworkReadingKind.option, label: label, raw: raw);
+          }
+          final field = switch (entity) {
+            'Fan Speed' => 'speed',
+            'Filter Life' => 'filter_life',
+            'Wi-Fi RSSI' => 'rssi',
+            _ => entity,
+          };
+          final raw = returned[field];
+          if (raw == null) return null;
+          return NetworkReadingDto(
+              kind: NetworkReadingKind.number,
+              number: double.parse(raw),
+              raw: raw);
+        },
+      );
+
+      Future<List<Uint8List>> exchange(
+          String host, int port, Uint8List datagram, Duration timeout) async {
+        final plaintext = await rabbitCodec.rabbitAirDecryptDatagram(
+            userKey: rabbitKey, datagram: datagram);
+        final decoded = jsonDecode(plaintext) as Map<String, Object?>;
+        final id = decoded['id'];
+        if (decoded['cmd'] == 9) {
+          timeSyncs++;
+          final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+          return [
+            Uint8List.fromList(await rabbitCodec.rabbitAirEncryptDatagram(
+                userKey: rabbitKey, plaintext: '{"id":$id,"data":{"ts":$ts}}'))
+          ];
+        }
+        final data = decoded['data'];
+        if (data is Map) purifierState.addAll(data.cast());
+        final reply = jsonEncode({'id': id, 'data': purifierState});
+        return [
+          Uint8List.fromList(await rabbitCodec.rabbitAirEncryptDatagram(
+              userKey: rabbitKey, plaintext: reply))
+        ];
+      }
+
+      final store = InMemorySettingsStore();
+      if (withKey) {
+        await RabbitAirKeyStore(store)
+            .saveUserKey(rabbitDevice.hostname!, rabbitKey);
+      }
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(rabbitCodec),
+          settingsStoreProvider.overrideWithValue(store),
+          // A purifier serves no setup.xml — reaching for one is a bug.
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('fetched a description for a purifier: ${r.url}')))),
+          rabbitAirControlClientProvider.overrideWithValue(
+              RabbitAirControlClient(rabbitCodec, exchange: exchange)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: rabbitDevice,
+              controls:
+                  NetworkControls(specYaml: 'yaml', entities: rabbitEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'asks for the user key when none is stored, then drives the '
+        'device once it is', (tester) async {
+      await pumpPurifier(tester, withKey: false);
+
+      // No key: the entry card is the surface, and nothing was sent.
+      expect(find.text('This purifier needs its user key'), findsOneWidget);
+      expect(timeSyncs, 0);
+      expect(find.byType(Switch), findsNothing);
+
+      await tester.tap(find.text('Enter user key'));
+      await tester.pumpAndSettle();
+      expect(find.text('Rabbit Air user key'), findsOneWidget);
+
+      // A malformed key is refused in the dialog, not stored.
+      await tester.enterText(find.byType(TextField), 'not-a-key');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('32 hex characters'), findsWidgets);
+
+      await tester.enterText(find.byType(TextField), rabbitKey);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      // The key landed, the clock synced, and the first poll rendered.
+      expect(find.text('This purifier needs its user key'), findsNothing);
+      expect(timeSyncs, 1);
+      expect(find.text('4320 min'), findsOneWidget);
+      expect(find.text('-55 dBm'), findsOneWidget);
+    });
+
+    testWidgets('with a stored key, syncs once, polls get_state and renders',
+        (tester) async {
+      await pumpPurifier(tester);
+
+      expect(timeSyncs, 1);
+      expect(find.textContaining('Could not reach'), findsNothing);
+      // The switch reflects the reported power, the select its option, the
+      // number its speed, and the sensors their readings.
+      expect(tester.widget<Switch>(find.byType(Switch).first).value, isFalse);
+      expect(find.text('Medium'), findsOneWidget); // Air Quality, labelled
+      expect(find.text('4320 min'), findsOneWidget);
+      expect(find.text('-55 dBm'), findsOneWidget);
+      expect(find.text('3'), findsWidgets); // Fan Speed
+      final manualChip =
+          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Manual'));
+      expect(manualChip.selected, isTrue);
+    });
+
+    testWidgets('toggling power sends the encrypted write and re-polls',
+        (tester) async {
+      await pumpPurifier(tester);
+
+      await tester.tap(find.byType(Switch).first);
+      await tester.pumpAndSettle();
+
+      expect(
+        rabbitCodec.renderNetworkRabbitAirCommandCalls
+            .map((c) => c.commandName),
+        contains('turn_on'),
+      );
+      expect(purifierState['power'], isTrue);
+      expect(tester.widget<Switch>(find.byType(Switch).first).value, isTrue);
+    });
+
+    testWidgets('the mode select sends set_mode with the picked option',
+        (tester) async {
+      await pumpPurifier(tester);
+
+      // The select card sits below the switches and sensors — scroll it into
+      // view before tapping, or the tap misses the fold.
+      final autoChip = find.widgetWithText(ChoiceChip, 'Auto');
+      await tester.ensureVisible(autoChip);
+      await tester.pumpAndSettle();
+      await tester.tap(autoChip);
+      await tester.pumpAndSettle();
+
+      final call = rabbitCodec.renderNetworkRabbitAirCommandCalls
+          .firstWhere((c) => c.commandName == 'set_mode');
+      expect(call.values, {'mode': '0'});
+      expect(purifierState['mode'], 0);
     });
   });
 }

@@ -13,8 +13,11 @@ import '../providers/network_control_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
+import '../services/json_fields.dart';
 import '../services/kasa_control_service.dart';
 import '../services/query_source_reader.dart';
+import '../services/rabbit_air_control_service.dart';
+import '../services/rabbit_air_key_store.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import '../widgets/network_light_card.dart';
@@ -36,8 +39,11 @@ import '../widgets/network_light_card.dart';
 ///
 /// A plain-HTTP action (a Roku remote key) skips all of that: there is no
 /// description to fetch and no state to poll — the rendered method and path
-/// are the whole exchange, sent through [HttpControlClient]. Which path a
-/// send takes is the action's own `transport`, so one spec may mix both.
+/// are the whole exchange, sent through [HttpControlClient]. Plain HTTP can
+/// also BE the state poll (the Envoy's `GET /api/v1/production`): the
+/// command's declared transport decides, and the JSON reply is flattened to
+/// dotted name→value pairs for the same decoder. Which path a send takes is
+/// the action's own `transport`, so one spec may mix both.
 class NetworkDeviceScreen extends ConsumerStatefulWidget {
   final NetworkDevice device;
   final NetworkControls controls;
@@ -165,19 +171,64 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// The address a Kasa send/poll uses.
   int get _kasaHostPort => widget.device.port ?? _kasaPort;
 
+  /// The Rabbit Air transport constant — the encrypted-JSON-over-UDP LAN
+  /// protocol. Unlike Kasa, a Rabbit Air surface can be ALL readings (the
+  /// sensors carry no actions), so the entity transport — which the codec
+  /// fills from the state command's own declaration — counts too.
+  static const _rabbitAirTransport = 'udp';
+
+  /// Whether this device is driven over the Rabbit Air UDP transport. It has
+  /// no `setup.xml`, and every exchange wants the stored user key, so the
+  /// load, refresh and send paths all fork on this.
+  bool get _isRabbitAir => _entities.any((e) =>
+      e.transport == _rabbitAirTransport ||
+      e.actions.any((a) => a.transport == _rabbitAirTransport));
+
+  /// The address a Rabbit Air send/poll uses. Real discovery reports the
+  /// mDNS SRV port (9009); the constant is the fallback.
+  int get _rabbitAirHostPort =>
+      widget.device.port ?? RabbitAirControlClient.defaultPort;
+
+  /// The identity the user key is stored under: the Thing ID, which IS the
+  /// device's mDNS hostname, falling back to the host when discovery carried
+  /// no hostname (a manual entry — DHCP moving then means a re-prompt, not a
+  /// key offered to the wrong device).
+  String get _rabbitAirKeyScope => widget.device.hostname ?? widget.device.host;
+
+  /// The user key this session is driving the device under, or null when none
+  /// is stored — which is what brings up the key-entry card instead of the
+  /// controls.
+  String? _rabbitAirKey;
+
+  /// The transport a state command rides, taken from any entity bound to it.
+  /// The codec sets an entity's transport from the command's own declaration
+  /// (`http` for the Envoy's production poll, `tcp-json` for a Kasa read); a
+  /// SOAP command declares none, so null here means the SOAP path.
+  String? _stateTransport(String command) {
+    for (final entity in _entities) {
+      final transport = entity.transport;
+      if (entity.stateCommand == command && transport != null) {
+        return transport;
+      }
+    }
+    return null;
+  }
+
   /// Whether anything on this screen needs the UPnP description document.
   ///
   /// SOAP is what it exists for, and the only transport that needs it: state
   /// reads and SOAP sends resolve their control URL from it. A device whose
-  /// surface is entirely plain HTTP (a Roku remote), binary UDP (a LIFX strip)
-  /// or Kasa (a raw socket) has no `setup.xml` to fetch — asking for one turns
-  /// a working device into a permanent error screen. So this keys on `soap`
-  /// specifically, and excludes Kasa outright: a Kasa entity carries a
-  /// `state_command` (get_sysinfo) but polls it over the socket, not from a
-  /// description.
+  /// surface is entirely plain HTTP (a Roku remote's buttons, an Envoy's
+  /// state poll), binary UDP (a LIFX strip) or Kasa (a raw socket) has no
+  /// `setup.xml` to fetch — asking for one turns a working device into a
+  /// permanent error screen. So this keys on `soap` specifically and on state
+  /// commands whose transport is not `http`, and excludes Kasa and Rabbit Air
+  /// outright: their entities carry a `state_command` (get_sysinfo /
+  /// get_state) but poll it over their own sockets, not from a description.
   bool get _needsDescription =>
       !_isKasa &&
-      (_stateCommands.isNotEmpty ||
+      !_isRabbitAir &&
+      (_stateCommands.any((command) => _stateTransport(command) != 'http') ||
           _entities.any(
               (e) => e.actions.any((action) => action.transport == 'soap')));
 
@@ -196,6 +247,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // relay state straight over the socket. The port is 9999, not a UPnP
         // LOCATION, so the SOAP port check below does not apply.
         await _refreshState();
+      } else if (_isRabbitAir) {
+        // No description either — but every exchange is encrypted under the
+        // per-device user key, so load it first; without it there is nothing
+        // to poll, and the key-entry card shows instead of the controls.
+        _rabbitAirKey = await ref
+            .read(rabbitAirKeyStoreProvider)
+            .userKey(_rabbitAirKeyScope);
+        if (_rabbitAirKey != null) await _refreshState();
       } else {
         final port = widget.device.port;
         if (port == null) {
@@ -214,8 +273,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             // names /nrc/ddd.xml).
             path: widget.device.ssdpDescriptionPath ?? '/setup.xml',
           );
-          await _refreshState();
         }
+        // Outside the description branch: a device that needs no description
+        // can still have state to poll (the Envoy's plain-HTTP telemetry). A
+        // remote of stateless buttons has none, and the poll is a no-op.
+        await _refreshState();
       }
       await _refreshQuerySources();
       if (mounted) setState(() => _loading = false);
@@ -239,11 +301,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       await _refreshStateKasa();
       return;
     }
+    if (_isRabbitAir) {
+      await _refreshStateRabbitAir();
+      return;
+    }
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
-    final description = _description!;
 
     for (final command in _stateCommands) {
+      if (_stateTransport(command) == 'http') {
+        await _refreshStateHttp(command);
+        continue;
+      }
+      final description = _description!;
       final request = await codec.renderNetworkStateRequest(
         specYaml: widget.controls.specYaml,
         stateCommand: command,
@@ -256,12 +326,40 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await _decodeEntities();
   }
 
+  /// The plain-HTTP state poll (the Envoy's production summary): render the
+  /// GET, send it, and flatten the JSON reply into the name→value pairs the
+  /// entity decoder reads. The Kasa poll's structural twin over HTTP — fill
+  /// `_stateByCommand`, then the shared decode — but through
+  /// [HttpControlClient], with the reply flattened here.
+  ///
+  /// A refusal (403, or 401 from the Envoy's JWT-gated firmware) is the same
+  /// device-side policy a refused write is, so it raises the standing note
+  /// and leaves the readings unknown rather than erroring the screen of a
+  /// device that is otherwise answering.
+  Future<void> _refreshStateHttp(String command) async {
+    final codec = ref.read(specCodecProvider);
+    final request = await codec.renderNetworkHttpStateRequest(
+      specYaml: widget.controls.specYaml,
+      stateCommand: command,
+      values: const {},
+    );
+    try {
+      final body = await _sendNetworkHttp(request);
+      _stateByCommand[command] = jsonStateFields(body);
+    } on ControlRefusedException {
+      _controlRefused = true;
+    }
+  }
+
   /// The Kasa state poll: render `get_sysinfo`, send it over the socket, and
   /// flatten the reply into the name→value pairs the entity decoder reads.
   ///
   /// The SOAP path's structural twin — fill `_stateByCommand`, then decode —
   /// but over a raw socket with no control URL to resolve, and the reply is
   /// JSON flattened here rather than XML parsed by the transport client.
+  /// [kasaStateFields] dispatches per reply shape: sysinfo lifts flat (the
+  /// switch's `relay_state`), an emeter reply flattens to the dotted paths
+  /// the HS110's sensors name.
   Future<void> _refreshStateKasa() async {
     final codec = ref.read(specCodecProvider);
     final client = ref.read(kasaControlClientProvider);
@@ -273,7 +371,37 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       );
       final reply =
           await client.send(widget.device.host, _kasaHostPort, request);
-      _stateByCommand[command] = kasaSysinfoFields(reply);
+      _stateByCommand[command] = kasaStateFields(reply);
+    }
+    await _decodeEntities();
+  }
+
+  /// The Rabbit Air state poll: sync the device clock (once per session, via
+  /// the spec's `time_sync` command), then render `get_state`, encrypt it
+  /// under the user key, and send it as one UDP datagram — the Kasa poll's
+  /// structural twin, one transport over. The decrypted reply's `data` object
+  /// is flattened into the name→value pairs the entity decoder reads (the
+  /// spec's state_mapping paths are rooted at that object), then the shared
+  /// decode runs.
+  Future<void> _refreshStateRabbitAir() async {
+    final key = _rabbitAirKey;
+    if (key == null) return; // No key, nothing to poll — the card is up.
+    final codec = ref.read(specCodecProvider);
+    final client = ref.read(rabbitAirControlClientProvider);
+    final host = widget.device.host;
+    final port = _rabbitAirHostPort;
+
+    await client.syncClock(host, port,
+        specYaml: widget.controls.specYaml, userKey: key);
+    for (final command in _stateCommands) {
+      final request = await codec.renderNetworkRabbitAirStateRequest(
+        specYaml: widget.controls.specYaml,
+        stateCommand: command,
+        requestId: client.nextRequestId(),
+        deviceTs: client.deviceTs(host),
+      );
+      final reply = await client.send(host, port, request, userKey: key);
+      _stateByCommand[command] = rabbitAirStateFields(reply);
     }
     await _decodeEntities();
   }
@@ -347,10 +475,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     NetworkActionDto action, {
     String? value,
   }) async {
-    // HTTP and Kasa sends are independent — no read-back coupling — so they do
-    // not serialize behind the single-SOAP-write gate the Crock-Pot needs.
-    final independent =
-        action.transport == 'http' || action.transport == _kasaTransport;
+    // HTTP, Kasa and Rabbit Air sends are independent — no read-back
+    // coupling — so they do not serialize behind the single-SOAP-write gate
+    // the Crock-Pot needs.
+    final independent = action.transport == 'http' ||
+        action.transport == _kasaTransport ||
+        action.transport == _rabbitAirTransport;
     // The disabled controls are the visible gate; this is the real one — a
     // tap can race the rebuild that greys the SOAP controls out.
     if (!independent && _soapSending != null) return;
@@ -369,6 +499,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           await _sendHttp(action, values);
         case _kasaTransport:
           await _sendKasa(action, values);
+        case _rabbitAirTransport:
+          await _sendRabbitAir(action, values);
         default:
           await _sendSoap(action, values);
       }
@@ -404,11 +536,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   /// Whether [action]'s control must sit out the current SOAP write. HTTP
-  /// presses and Kasa sends never lock out — see [_soapSending].
+  /// presses, Kasa sends and Rabbit Air sends never lock out — see
+  /// [_soapSending].
   bool _lockedFor(NetworkActionDto? action) =>
       action != null &&
       action.transport != 'http' &&
       action.transport != _kasaTransport &&
+      action.transport != _rabbitAirTransport &&
       _soapSending != null;
 
   /// The plain-HTTP send: render, POST to the discovered port, done. The
@@ -487,6 +621,32 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await ref
         .read(kasaControlClientProvider)
         .send(widget.device.host, _kasaHostPort, request);
+  }
+
+  /// The Rabbit Air send: sync the clock, render the envelope, encrypt it
+  /// under the user key, and send it as one UDP datagram. Like the Kasa send
+  /// there is no read-back; the caller re-polls `get_state` afterwards, so a
+  /// control snaps to the purifier's true state whether or not the write took.
+  Future<void> _sendRabbitAir(
+      NetworkActionDto action, Map<String, String> values) async {
+    final key = _rabbitAirKey;
+    if (key == null) {
+      throw const RabbitAirControlException(
+          'no user key is stored for this purifier');
+    }
+    final codec = ref.read(specCodecProvider);
+    final client = ref.read(rabbitAirControlClientProvider);
+    final host = widget.device.host;
+    await client.syncClock(host, _rabbitAirHostPort,
+        specYaml: widget.controls.specYaml, userKey: key);
+    final request = await codec.renderNetworkRabbitAirCommand(
+      specYaml: widget.controls.specYaml,
+      commandName: action.commandName,
+      values: values,
+      requestId: client.nextRequestId(),
+      deviceTs: client.deviceTs(host),
+    );
+    await client.send(host, _rabbitAirHostPort, request, userKey: key);
   }
 
   /// The SOAP send: read back the settings this action carries but is not
@@ -595,6 +755,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   ),
                 ),
               ),
+            ] else if (_isRabbitAir && _rabbitAirKey == null) ...[
+              // Every exchange with this purifier is encrypted under its user
+              // key, and none is stored — so the entry card IS the control
+              // surface until the owner supplies one.
+              _rabbitAirKeyCard(),
+              const SizedBox(height: 16),
+              _deviceInfo(description),
             ] else ...[
               // The device answered our questions but refused a command. That
               // is a setting on the device, and saying so beats leaving the
@@ -611,13 +778,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _signedSessionNote(),
                 const SizedBox(height: 12),
               ],
-              // The channel picker comes first: launching Plex or Prime is
-              // the tap a TV screen exists for, and the remote below it is
-              // for everything else. Only devices that declare buttons at
-              // all (a Roku) ever see this order change — a buttonless
-              // device's cards read exactly as before.
-              for (final entity in _entities
-                  .where((entity) => entity.platform != 'button')) ...[
+              // Readings and plain controls first, in the order the spec
+              // declares them — but not a select: the channel picker goes
+              // below the pad, so a Roku's remote keeps a stable position
+              // whether the app list is still loading or just came back.
+              for (final entity in _entities.where((entity) =>
+                  entity.platform != 'button' &&
+                  entity.platform != 'select')) ...[
                 _entityCard(entity),
                 const SizedBox(height: 12),
               ],
@@ -626,6 +793,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // one control surface, not a list of readings.
               if (_buttons.isNotEmpty) ...[
                 _remoteCard(_buttons),
+                const SizedBox(height: 12),
+              ],
+              // The channel picker is the foot of the remote: launching Plex
+              // or Prime matters, but it is the tap you reach for once —
+              // not the D-pad you steer with — so it waits under the pad
+              // rather than pushing the pad down when its options arrive.
+              for (final entity in _entities
+                  .where((entity) => entity.platform == 'select')) ...[
+                _entityCard(entity),
                 const SizedBox(height: 12),
               ],
               const SizedBox(height: 16),
@@ -639,6 +815,118 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   List<NetworkEntityDto> get _buttons =>
       _entities.where((entity) => entity.platform == 'button').toList();
+
+  /// The card shown for a Rabbit Air purifier with no stored user key:
+  /// what the key is, where the owner finds it, and the way in. The key is a
+  /// long-lived LAN secret the device generated itself — entered once here,
+  /// stored in the platform keychain, and never sent anywhere but to the
+  /// purifier it belongs to.
+  Widget _rabbitAirKeyCard() {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.key_outlined, color: scheme.onSecondaryContainer),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'This purifier needs its user key',
+                    style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSecondaryContainer),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Rabbit Air encrypts local control with a per-device key. Find '
+              'it in the Rabbit Air app: open the device page, tap the '
+              'three-dot menu, choose Rename, then tap the device name — the '
+              'screen reveals the Thing ID and the 32-character User key.',
+              style:
+                  text.bodySmall?.copyWith(color: scheme.onSecondaryContainer),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: () => unawaited(_promptRabbitAirKey()),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Enter user key'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The key-entry dialog: 32 hex characters, validated before anything is
+  /// stored — a typo here is a purifier that never answers, so the dialog
+  /// says so immediately instead. On save the screen reloads, and the first
+  /// poll proves the key against the device.
+  Future<void> _promptRabbitAirKey() async {
+    final controller = TextEditingController();
+    String? validation;
+    final entered = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Rabbit Air user key'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            autocorrect: false,
+            maxLength: 32,
+            decoration: InputDecoration(
+              isDense: true,
+              border: const OutlineInputBorder(),
+              hintText: '32 hex characters, from the Rabbit Air app',
+              helperText: 'Device page → Rename → tap the device name',
+              errorText: validation,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final key = controller.text.trim();
+                if (!RabbitAirKeyStore.isValidUserKey(key)) {
+                  setDialogState(() => validation =
+                      'The user key is exactly 32 hex characters (0-9, a-f).');
+                  return;
+                }
+                Navigator.of(context).pop(key);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    // The controller is deliberately NOT disposed here: the dialog's pop
+    // animation still builds the TextField for a few frames after showDialog
+    // returns, and a focused field schedules a caret frame that would touch
+    // a disposed controller. It is dialog-scoped and collected with the tree.
+    if (entered == null || !mounted) return;
+    await ref
+        .read(rabbitAirKeyStoreProvider)
+        .saveUserKey(_rabbitAirKeyScope, entered);
+    setState(() => _rabbitAirKey = entered);
+    await _load();
+  }
 
   /// The note shown once a device has refused a command.
   ///

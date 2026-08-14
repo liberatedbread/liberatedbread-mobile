@@ -247,6 +247,61 @@ class RealSpecCodec implements SpecCodec {
       rust.kasaDecodeDatagram(datagram: datagram);
 
   @override
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+    required int requestId,
+    required int deviceTs,
+  }) =>
+      rust.renderNetworkRabbitAirCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        values: values,
+        requestId: requestId,
+        deviceTs: deviceTs,
+      );
+
+  @override
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required int requestId,
+    required int deviceTs,
+  }) =>
+      rust.renderNetworkRabbitAirStateRequest(
+        specYaml: specYaml,
+        stateCommand: stateCommand,
+        requestId: requestId,
+        deviceTs: deviceTs,
+      );
+
+  @override
+  Future<int> rabbitAirPort() => rust.rabbitAirPort();
+
+  @override
+  Future<List<int>> rabbitAirEncryptDatagram({
+    required String userKey,
+    required String plaintext,
+  }) =>
+      rust.rabbitAirEncryptDatagram(userKey: userKey, plaintext: plaintext);
+
+  @override
+  Future<String> rabbitAirDecryptDatagram({
+    required String userKey,
+    required List<int> datagram,
+  }) =>
+      rust.rabbitAirDecryptDatagram(userKey: userKey, datagram: datagram);
+
+  @override
+  Future<int> rabbitAirTimeSyncOffset({
+    required String replyJson,
+    required int localNowSecs,
+  }) =>
+      rust.rabbitAirTimeSyncOffset(
+          replyJson: replyJson, localNowSecs: localNowSecs);
+
+  @override
   Future<NetworkReadingDto?> readNetworkEntity({
     required String specYaml,
     required String entityName,

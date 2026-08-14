@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -288919458;
+  int get rustContentHash => -1498372497;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -258,6 +258,17 @@ abstract class RustLibApi extends BaseApi {
   Future<LifxServiceDto> crateApiDeviceApiParseLifxStateService(
       {required List<int> bytes});
 
+  Future<String> crateApiDeviceApiRabbitAirDecryptDatagram(
+      {required String userKey, required List<int> datagram});
+
+  Future<Uint8List> crateApiDeviceApiRabbitAirEncryptDatagram(
+      {required String userKey, required String plaintext});
+
+  Future<int> crateApiDeviceApiRabbitAirPort();
+
+  Future<PlatformInt64> crateApiDeviceApiRabbitAirTimeSyncOffset(
+      {required String replyJson, required int localNowSecs});
+
   Future<NetworkReadingDto?> crateApiDeviceApiReadNetworkEntity(
       {required String specYaml,
       required String entityName,
@@ -303,6 +314,20 @@ abstract class RustLibApi extends BaseApi {
 
   Future<KasaRequestDto> crateApiDeviceApiRenderNetworkKasaStateRequest(
       {required String specYaml, required String stateCommand});
+
+  Future<RabbitAirRequestDto> crateApiDeviceApiRenderNetworkRabbitAirCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values,
+      required int requestId,
+      required int deviceTs});
+
+  Future<RabbitAirRequestDto>
+      crateApiDeviceApiRenderNetworkRabbitAirStateRequest(
+          {required String specYaml,
+          required String stateCommand,
+          required int requestId,
+          required int deviceTs});
 
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand});
@@ -1630,6 +1655,111 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<String> crateApiDeviceApiRabbitAirDecryptDatagram(
+      {required String userKey, required List<int> datagram}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(userKey, serializer);
+        sse_encode_list_prim_u_8_loose(datagram, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 44, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRabbitAirDecryptDatagramConstMeta,
+      argValues: [userKey, datagram],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRabbitAirDecryptDatagramConstMeta =>
+      const TaskConstMeta(
+        debugName: 'rabbit_air_decrypt_datagram',
+        argNames: ['userKey', 'datagram'],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiRabbitAirEncryptDatagram(
+      {required String userKey, required String plaintext}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(userKey, serializer);
+        sse_encode_String(plaintext, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 45, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRabbitAirEncryptDatagramConstMeta,
+      argValues: [userKey, plaintext],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRabbitAirEncryptDatagramConstMeta =>
+      const TaskConstMeta(
+        debugName: 'rabbit_air_encrypt_datagram',
+        argNames: ['userKey', 'plaintext'],
+      );
+
+  @override
+  Future<int> crateApiDeviceApiRabbitAirPort() {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 46, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_u_16,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRabbitAirPortConstMeta,
+      argValues: [],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRabbitAirPortConstMeta =>
+      const TaskConstMeta(
+        debugName: 'rabbit_air_port',
+        argNames: [],
+      );
+
+  @override
+  Future<PlatformInt64> crateApiDeviceApiRabbitAirTimeSyncOffset(
+      {required String replyJson, required int localNowSecs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(replyJson, serializer);
+        sse_encode_u_32(localNowSecs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 47, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_i_64,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRabbitAirTimeSyncOffsetConstMeta,
+      argValues: [replyJson, localNowSecs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRabbitAirTimeSyncOffsetConstMeta =>
+      const TaskConstMeta(
+        debugName: 'rabbit_air_time_sync_offset',
+        argNames: ['replyJson', 'localNowSecs'],
+      );
+
+  @override
   Future<NetworkReadingDto?> crateApiDeviceApiReadNetworkEntity(
       {required String specYaml,
       required String entityName,
@@ -1641,7 +1771,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(entityName, serializer);
         sse_encode_Map_String_String_None(returned, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 44, port: port_);
+            funcId: 48, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_network_reading_dto,
@@ -1673,7 +1803,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(stateReply, serializer);
         sse_encode_String(instanceId, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 45, port: port_);
+            funcId: 49, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_network_role_reading_dto,
@@ -1705,7 +1835,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(targetMac, serializer);
         sse_encode_u_8(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 46, port: port_);
+            funcId: 50, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -1737,7 +1867,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_8(security, serializer);
         sse_encode_u_8(sequence, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 47, port: port_);
+            funcId: 51, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -1767,7 +1897,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(commandName, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 48, port: port_);
+            funcId: 52, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_soap_request_dto,
@@ -1797,7 +1927,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(commandName, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 49, port: port_);
+            funcId: 53, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_http_request_dto,
@@ -1827,7 +1957,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(stateCommand, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 50, port: port_);
+            funcId: 54, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_http_request_dto,
@@ -1857,7 +1987,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(commandName, serializer);
         sse_encode_Map_String_String_None(values, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 51, port: port_);
+            funcId: 55, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_kasa_request_dto,
@@ -1884,7 +2014,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(specYaml, serializer);
         sse_encode_String(stateCommand, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 52, port: port_);
+            funcId: 56, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_kasa_request_dto,
@@ -1903,6 +2033,80 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<RabbitAirRequestDto> crateApiDeviceApiRenderNetworkRabbitAirCommand(
+      {required String specYaml,
+      required String commandName,
+      required Map<String, String> values,
+      required int requestId,
+      required int deviceTs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(commandName, serializer);
+        sse_encode_Map_String_String_None(values, serializer);
+        sse_encode_u_32(requestId, serializer);
+        sse_encode_u_32(deviceTs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 57, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_rabbit_air_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkRabbitAirCommandConstMeta,
+      argValues: [specYaml, commandName, values, requestId, deviceTs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkRabbitAirCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_rabbit_air_command',
+        argNames: [
+          'specYaml',
+          'commandName',
+          'values',
+          'requestId',
+          'deviceTs'
+        ],
+      );
+
+  @override
+  Future<RabbitAirRequestDto>
+      crateApiDeviceApiRenderNetworkRabbitAirStateRequest(
+          {required String specYaml,
+          required String stateCommand,
+          required int requestId,
+          required int deviceTs}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(stateCommand, serializer);
+        sse_encode_u_32(requestId, serializer);
+        sse_encode_u_32(deviceTs, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 58, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_rabbit_air_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkRabbitAirStateRequestConstMeta,
+      argValues: [specYaml, stateCommand, requestId, deviceTs],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta
+      get kCrateApiDeviceApiRenderNetworkRabbitAirStateRequestConstMeta =>
+          const TaskConstMeta(
+            debugName: 'render_network_rabbit_air_state_request',
+            argNames: ['specYaml', 'stateCommand', 'requestId', 'deviceTs'],
+          );
+
+  @override
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand}) {
     return handler.executeNormal(NormalTask(
@@ -1911,7 +2115,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(specYaml, serializer);
         sse_encode_String(stateCommand, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 53, port: port_);
+            funcId: 59, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_soap_request_dto,
@@ -2987,6 +3191,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       path: dco_decode_String(arr[1]),
       item: dco_decode_String(arr[2]),
       valueAttribute: dco_decode_String(arr[3]),
+    );
+  }
+
+  @protected
+  RabbitAirRequestDto dco_decode_rabbit_air_request_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return RabbitAirRequestDto(
+      json: dco_decode_String(arr[0]),
+      requestId: dco_decode_u_32(arr[1]),
     );
   }
 
@@ -4617,6 +4833,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RabbitAirRequestDto sse_decode_rabbit_air_request_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_json = sse_decode_String(deserializer);
+    var var_requestId = sse_decode_u_32(deserializer);
+    return RabbitAirRequestDto(json: var_json, requestId: var_requestId);
+  }
+
+  @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_field0 = sse_decode_String(deserializer);
@@ -5936,6 +6161,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.path, serializer);
     sse_encode_String(self.item, serializer);
     sse_encode_String(self.valueAttribute, serializer);
+  }
+
+  @protected
+  void sse_encode_rabbit_air_request_dto(
+      RabbitAirRequestDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.json, serializer);
+    sse_encode_u_32(self.requestId, serializer);
   }
 
   @protected

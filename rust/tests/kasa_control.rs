@@ -126,6 +126,112 @@ fn the_discovery_datagram_is_the_canonical_encrypted_get_sysinfo() {
 }
 
 #[test]
+fn the_emeter_sensors_resolve_as_tcp_json_readings() {
+    let entities = network_entities_for_device(spec_yaml(), vec![]).expect("spec resolves");
+
+    for (name, field, unit) in [
+        ("Voltage", "emeter.get_realtime.voltage", "V"),
+        ("Current", "emeter.get_realtime.current", "A"),
+        ("Power", "emeter.get_realtime.power", "W"),
+        ("Total Consumption", "emeter.get_realtime.total", "kWh"),
+    ] {
+        let sensor = entities
+            .iter()
+            .find(|e| e.name == name)
+            .unwrap_or_else(|| panic!("the spec declares a {name} sensor"));
+        assert_eq!(sensor.platform.as_deref(), Some("sensor"), "{name}");
+        assert_eq!(sensor.state_command, "get_emeter", "{name}");
+        // The dotted path from the reply ROOT — the key the app's flattener
+        // (kasaStateFields) produces for the nested emeter reply.
+        assert_eq!(sensor.value_field.as_deref(), Some(field), "{name}");
+        assert_eq!(sensor.unit.as_deref(), Some(unit), "{name}");
+        assert!(sensor.actions.is_empty(), "{name}: a pure reading");
+        // No action to answer for the transport, so it comes from the state
+        // command's own declaration.
+        assert_eq!(sensor.transport.as_deref(), Some("tcp-json"), "{name}");
+    }
+}
+
+#[test]
+fn the_emeter_poll_renders_get_realtime() {
+    let poll = render_network_kasa_state_request(spec_yaml(), "get_emeter".to_string())
+        .expect("the emeter poll renders");
+    assert_eq!(poll.json, r#"{"emeter":{"get_realtime":null}}"#);
+
+    // And it frames onto the wire and back like any other Kasa command.
+    let frame = kasa_encode_frame(poll.json.clone());
+    assert_eq!(kasa_decode_frame(frame).unwrap(), poll.json);
+}
+
+#[test]
+fn an_emeter_reply_decodes_to_the_sensor_readings() {
+    use liberated_bread_core::api::device_api::read_network_entity;
+
+    let yaml = spec_yaml();
+    // A realistic current-firmware reply, framed and encrypted exactly as the
+    // device sends it, then decoded back through the codec.
+    let reply_json = r#"{"emeter":{"get_realtime":{"voltage":120.4,"current":0.5,"power":60.2,"total":12.34,"err_code":0}}}"#;
+    let frame = kasa_encode_frame(reply_json.to_string());
+    assert_eq!(kasa_decode_frame(frame).unwrap(), reply_json);
+
+    // The Dart-side flatten (kasaStateFields), transcribed: dotted paths from
+    // the reply root.
+    let returned: HashMap<String, String> = [
+        ("emeter.get_realtime.voltage", "120.4"),
+        ("emeter.get_realtime.current", "0.5"),
+        ("emeter.get_realtime.power", "60.2"),
+        ("emeter.get_realtime.total", "12.34"),
+        ("emeter.get_realtime.err_code", "0"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+
+    for (entity, number, raw) in [
+        ("Voltage", 120.4, "120.4"),
+        ("Current", 0.5, "0.5"),
+        ("Power", 60.2, "60.2"),
+        ("Total Consumption", 12.34, "12.34"),
+    ] {
+        let reading = read_network_entity(yaml.clone(), entity.to_string(), returned.clone())
+            .expect("decode succeeds")
+            .unwrap_or_else(|| panic!("the reply carries {entity}'s value"));
+        assert_eq!(reading.number, Some(number), "{entity}");
+        assert_eq!(reading.raw, raw, "{entity}");
+    }
+}
+
+#[test]
+fn a_milli_unit_reply_is_not_guessed_into_si() {
+    use liberated_bread_core::api::device_api::read_network_entity;
+
+    // HS110 hardware v1 reports voltage_mv/current_ma/power_mw/total_wh in
+    // milli-units. The spec's state_mapping names the SI fields only, and the
+    // decoder has no alternate-field vocabulary — so such a reply reads as
+    // unknown, never as millivolts mislabeled "V". Normalizing (rename +
+    // divide by 1000, as python-kasa does) would be a spec-schema feature
+    // (e.g. state_mapping.scale over a renamed field), not a client guess.
+    let returned: HashMap<String, String> = [
+        ("emeter.get_realtime.voltage_mv", "120352"),
+        ("emeter.get_realtime.current_ma", "501"),
+        ("emeter.get_realtime.power_mw", "60220"),
+        ("emeter.get_realtime.total_wh", "12340"),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+
+    for entity in ["Voltage", "Current", "Power", "Total Consumption"] {
+        assert!(
+            read_network_entity(spec_yaml(), entity.to_string(), returned.clone())
+                .expect("decode succeeds")
+                .is_none(),
+            "{entity}: a milli-unit field must not read as the SI value"
+        );
+    }
+}
+
+#[test]
 fn a_sysinfo_reply_decodes_to_the_switch_state() {
     // The app flattens get_sysinfo's JSON in Dart and hands the pairs to
     // read_network_entity; this pins the Rust half of that — that a reply,
