@@ -1,0 +1,47 @@
+# CITYSPORTS Walking Pads (FitShow platform) — Device Spec (research)
+# APK: com.fitshow v5.5.2 (364), APKPure XAPK via apkeep, 2026-08-04
+# XAPK SHA-256: 46ea7cddf3bf3d642b9cc9e1d85d81176713978c50a4708adea9368fc2b01be9
+
+device:
+  id: citysports-fitshow
+  name: CITYSPORTS Walking Pads (WP6/WP8/CS-WP9/ZX2/ZX3; FitShow-platform units)
+  manufacturer: "CITYSPORTS (control platform: FitShow (Xiamen) Information Technology)"
+  type: treadmill  # walking pad / under-desk treadmill
+  category: treadmill
+  safety_class: MEDIUM  # motorised moving belt; QZ driver includes incline control on some units
+
+transport:
+  type: ble
+  local_only: true
+
+ble:
+  advertising:
+    name_patterns:
+      - "CITYSPORTS"  # from CS-WP9 manual pairing instructions (reported)
+    service_uuids: []  # TBD — use QZ fitshowtreadmill driver's scan filter
+  services: []  # TBD — port from qdomyos-zwift src/devices/fitshowtreadmill
+
+protocol:
+  note: >
+    CITYSPORTS pads are "compatible with most Bluetooth Smart mobile devices"
+    (manual), the hallmark of the FitShow white-label platform. The protocol
+    is already documented in open code: qdomyos-zwift's fitshowtreadmill
+    driver implements speed AND incline control for FitShow treadmills
+    (QZ Equipment Compatibility wiki). No new RE needed for FitShow-based
+    units; confirm per-SKU platform first (some CITYSPORTS models may use
+    other controller boards). The FitShow app APK (v5.5.2) is acquired but
+    obfuscated; QZ source is the authoritative reference.
+  commands: TBD  # available in QZ fitshowtreadmill driver
+
+cloud:
+  app_requires_account: unknown
+  vendor: FitShow (Xiamen) white-label platform
+  risk: platform/app disappearance strands programs+stats; remote keeps basic control
+
+status:
+  apk_acquired: true   # com.fitshow v5.5.2
+  apk_decompiled: true # triage jadx pass; obfuscated, UUIDs not extracted (unnecessary)
+  uuids_recovered: false
+  protocol_recovered: true  # via QZ fitshowtreadmill (open source), speed+incline confirmed on wiki
+  hci_snoop_needed: false   # only for per-SKU platform confirmation
+  reference: github.com/cagnulein/qdomyos-zwift src/devices/fitshowtreadmill + Equipment Compatibility wiki

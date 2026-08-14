@@ -1,0 +1,68 @@
+# PowerA MOGA controllers (Pocket / Pro / Pro Power / Hero Power / Rebel) — Device Spec
+# Generated from static analysis of com.bda.pivot.mogapgp (MOGA Pivot 1.25)
+# APK source: apkeep (apk-pure)
+# APK SHA-256: 5bd90a3be0b8d813711499a1c63fefd4abe7af61d6242e719ce573e5bead3ca0
+
+device:
+  id: moga-controllers
+  name: PowerA MOGA Bluetooth controllers (Pocket, Pro, Pro Power, Hero Power, Rebel)
+  manufacturer: PowerA / Bensussen Deutsch & Associates (brand discontinued ~2015-2016)
+  category: game_controller
+  safety_class: LOW
+
+transport:
+  type: bluetooth_classic
+  local_only: true
+  profiles:
+    - hid      # Mode B: standard BT HID gamepad, no software needed
+    - spp      # Mode A: proprietary serial protocol (documented below)
+
+bluetooth_classic:
+  pairing:
+    mode_switch: Physical A/B slider (Pocket/Pro); LED orange = Mode B (HID)
+    pin: none (Just Works / SSP on modern hosts)
+  spp:
+    service_uuid: "00001101-0000-1000-8000-00805f9b34fb"  # standard SPP
+    role: host polls, controller responds
+    controller_id_range: [1, 8]
+
+protocol:
+  note: >
+    Mode A serial protocol recovered from Pivot APK (com.bda.controller.service.Device).
+    All frames carry a trailing XOR checksum of all preceding bytes.
+    Buttons and d-pad bits are ACTIVE-LOW. Stick axes are int8, Y axes host-negated.
+    Poll ~83ms active / 500ms idle; RX silence >2s disconnects.
+  command_frame:  # host -> controller, 5 bytes
+    byte0: 0x5A (header)
+    byte1: length (5)
+    byte2: op  # 0x43 'C' keepalive, 0x41 'A' info request, 0x44 'D' poll Gen1, 0x45 'E' poll Gen2
+    byte3: controller_id
+    byte4: xor_checksum
+  response_frame:  # controller -> host
+    byte0: 0x7A (header)
+    byte1: length
+    byte2: op  # 0x61 'a' handshake (len 12), 0x64 'd' Gen1 state (len 12), 0x65/0x66 Gen2 state (len 14)
+    byte3: controller_id
+    last_byte: xor_checksum
+  gen1_state_layout:  # op 0x64, len 12
+    byte4: buttons (bit0=Y bit1=B bit2=A bit3=X bit4=START bit5=SELECT bit6=L1 bit7=R1, active-low)
+    byte5: dpad (bit0=UP bit1=DOWN bit2=LEFT bit3=RIGHT, active-low)
+    bytes6_9: sticks [LX, LY, RX, RY] int8, Y negated
+    byte10: power (bit0 = low battery)
+  gen2_state_layout:  # op 0x65/0x66, len 14
+    adds: dpad byte high nibble (bit4=L2 bit5=R2 bit6=THUMBL bit7=THUMBR)
+    bytes10_11: analog triggers L2, R2 (uint8)
+    byte12: power
+  handshake:  # op 0x61
+    byte10_high_nibble: supported protocol version (0/2 => Gen1, 1 => Gen2)
+
+status:
+  apk_acquired: true   # com.bda.pivot.mogapgp 1.25 via apkeep/apk-pure
+  apk_decompiled: true # jadx triage pass, workspace/static/moga-controllers/
+  protocol_recovered: true  # Mode A serial frames fully mapped
+  hid_mode_confirmed: true  # Mode B = plain BT HID (multiple user reports)
+  hci_snoop_needed: false
+  cloud_dependency: none    # Pivot app operates fully offline
+  references:
+    - github.com/Zel-os/MogaSerial        # independent Mode A implementation (Windows)
+    - xdaforums.com MOGA Universal Driver # thread 1953647

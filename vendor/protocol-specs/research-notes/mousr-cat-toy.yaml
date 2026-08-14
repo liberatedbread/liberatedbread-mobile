@@ -1,0 +1,70 @@
+# Petronics Mousr — Device Spec (research note)
+# Static triage of com.petronics.mousr (APKPure via apkeep)
+# APK SHA-256: ed89a8f181a33eccfec7e52db68614658ff9572855ef05e28521f8a8eef8e38d
+
+device:
+  id: mousr-cat-toy
+  name: Petronics Mousr robotic cat toy
+  manufacturer: Petronics Inc. (defunct — production stopped ~2020, domain dead as of 2026-08)
+  category: pet_toy
+  safety_class: LOW  # Toy; supervise pets, small parts (tails)
+
+transport:
+  type: ble
+  local_only: true  # No Wi-Fi on device; no account in app; cloud used only for FW update check
+
+ble:
+  advertising:
+    name_patterns: ["Mousr"]  # User-settable in app; factory default unverified
+    service_uuids: []  # TBD — scan filter not extracted from Unity metadata
+
+  # Nordic UART Service (expected primary control channel)
+  services:
+    - uuid: "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+      name: nordic_uart_service
+      description: Standard Nordic UART async serial bridge
+      characteristics:
+        - uuid: "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_rx
+          description: Write commands to Mousr (drive, mode, sound)
+          properties: [write, write_no_response]
+        - uuid: "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+          name: uart_tx
+          description: Notifications from Mousr (state, sensors)
+          properties: [notify]
+
+  alternate_services:
+    - uuid: "8ec90001-f315-4f60-9fb8-838830daea50"
+      name: laird_bl600_vsp
+      description: Laird BL600 Virtual Serial Port (legacy/alternate link; hw hypothesis BL600 module)
+      characteristics:
+        - uuid: "8ec90002-f315-4f60-9fb8-838830daea50"
+          name: laird_vsp_char
+    - uuid: "ee799f41-cfa5-550b-bf2c-344747c1c668"
+      name: unknown_custom
+      description: Unidentified UUID in metadata; may be a hash artifact — verify against live device
+
+  dfu:
+    - uuid: "0000fe59-0000-1000-8000-00805f9b34fb"
+      name: nordic_secure_dfu_buttonless
+      note: App bundles fw_v0.0/fw_v0.1/fw_v1.1 zips + sd_bl12.zip (SoftDevice) in assets/
+
+protocol:
+  note: >
+    Unity app (il2cpp/mono metadata in global-metadata.dat). BLE handled by a
+    Unity BLE plugin; Nordic DFU library present. UART payload format for drive /
+    play-mode / sound commands is TBD — needs HCI snoop or il2cpp decompile.
+  commands:
+    drive: TBD
+    set_play_mode: TBD  # open wander / wall hugger / stationary
+    sound_volume: TBD
+    firmware_update: Nordic Secure DFU (buttonless, 0xFE59)
+
+status:
+  apk_acquired: true
+  apk_decompiled: false  # strings/metadata triage only (Unity il2cpp — heavier to decompile)
+  uuids_recovered: true  # Nordic UART + Laird VSP + DFU UUIDs from Unity metadata
+  protocol_recovered: false
+  hci_snoop_needed: true
+  prior_art: none found (2026-08-03)
+  app_version: "1.0.6(6ce8c10)"  # from assets/ver.txt; APKPure lists up to 1.0.7

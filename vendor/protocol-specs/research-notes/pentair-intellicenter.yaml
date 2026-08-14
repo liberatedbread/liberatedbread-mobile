@@ -1,0 +1,56 @@
+# Pentair IntelliCenter — Device Spec (research note)
+# Manufacturer ACTIVE (2026-08). Local JSON WebSocket API, no cloud needed.
+
+device:
+  id: pentair-intellicenter
+  name: Pentair IntelliCenter OCP (pool/spa control panel)
+  manufacturer: Pentair — active
+  category: pool_controller
+  safety_class: MEDIUM  # pumps, heaters, chlorinators
+
+transport:
+  type: wifi  # Ethernet on OCP; same LAN semantics
+  local_only: true
+  note: >
+    Firmware v3.004+ exposes unauthenticated JSON WebSocket API on the panel.
+    Older v1/v2 firmware uses a different WS dialect on port 6681.
+
+lan:
+  discovery:
+    protocol: mdns
+    service: _http._tcp.local
+    instance_pattern: "Pentair -i -n<alias>"
+  control:
+    protocol: websocket
+    port: 6680        # v3.004+; older firmware: 6681 (different dialect)
+    auth: none        # TRUSTED-LAN ONLY — full read/write incl. PINs in plaintext
+    messages:
+      GetParamList: enumerate config (objnam "ALL" = full dump)
+      SetParamList: writes — circuits, setpoints, schedules, light commands
+      RequestParamList: subscribe for live NotifyList push updates
+
+protocol:
+  note: >
+    Fully documented by implementation in tagyoureit/nodejs-poolController
+    (ocpws transport, v10.0+) and HA integrations jlvaillant/intellicenter,
+    joyfulhouse/intellicenter (pyintellicenter).
+  commands:
+    circuit_toggle: SetParamList
+    body_heat_setpoint: SetParamList
+    schedule_change: SetParamList
+    live_state: NotifyList push after RequestParamList
+
+status:
+  apk_acquired: false   # not needed — protocol documented by 3 implementations
+  apk_decompiled: false
+  uuids_recovered: false  # n/a — no BLE
+  protocol_recovered: true
+  hci_snoop_needed: false
+  cloud_dead: false       # manufacturer active; cloud optional
+  confidence: confirmed
+  security_note: port 6680 unauthenticated; never expose beyond trusted LAN
+  references:
+    - github.com/tagyoureit/nodejs-poolController
+    - github.com/jlvaillant/intellicenter
+    - github.com/joyfulhouse/pyintellicenter
+    - community.home-assistant.io/t/integration-pentair-intellicenter-local-push-pool-control/956184

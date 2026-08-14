@@ -1,0 +1,561 @@
+# KingSmith WalkingPad family — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Protocol sources (all public prior art, cross-checked against the official
+# apps' own binaries — clean-room, no vendor assets copied):
+#   - ph4r05/ph4-walkingpad (Python, MIT): legacy WiLink protocol RE'd from
+#     Android logs of the official app; controls A1, reported working on R1 Pro.
+#   - DorianRudolph/QWalkingPad (C++/Qt, GPL): independent RE of the same
+#     WiLink protocol incl. params query, calibration and workout records.
+#   - mcdax/walkingpad-controller (Python) + docs/ks-fit-reverse-engineering.md:
+#     blutter (Dart AOT) decompilation of KS Fit v5.9.10/v6.0.7; FTMS routing,
+#     ODM pre-amble, supplement service; HCI-snoop-confirmed FTMS encodings.
+#   - KS Fit app com.kingsmith.xiaojin v6.5.6 (APKPure, XAPK SHA-256
+#     a889584a6159b6dc801bc99d62ff7e5b7fcce05b8599a10a3fb6ef6465060914):
+#     libapp.so strings confirm 0xFE00/FE01/FE02, full FTMS 0x1826/0x2ADx set,
+#     ODM char d18d2c10-…, supplement service 24e2521c-… and model name prefixes.
+#   - WalkingPad app com.walkingpad.app v2.5.5 (APKPure, APK SHA-256
+#     cf3309e38a8c9a432f04dcf259c21c21c2d6178dec1057f952a18659d3a3053a):
+#     libapp.so strings independently confirm 0xFE00/FE01/FE02. This app has NO
+#     FTMS strings at all (no 0x1826/0x2ADx) — it is WiLink-generation only.
+#   Hashes re-verified against the local APK copies 2026-08-08 (sha256sum,
+#     exact match for both).
+
+device:
+  name: "KingSmith WalkingPad (A1 / R1 / R2 / C2 / X21 / MC21 / Z1 family)"
+  manufacturer: "KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  openness:
+    status: "undocumented"
+  protocol: "ble"
+  category: "treadmill"
+  type: "treadmill"
+  notes: >
+    KingSmith's foldable walking pads / under-desk treadmills (WalkingPad A1,
+    A1 Pro, R1, R1 Pro, R2, C2, X21, MC21, Z1 and OEM variants) are controlled
+    over BLE. The manufacturer is alive and shipping new models (kingsmith.com,
+    walkingpad.com, 2026 retail listings), so this is not an abandonment rescue
+    but a cloud-independence spec: the official apps (WalkingPad /
+    com.walkingpad.app, KS Fit / com.kingsmith.xiaojin) tie statistics history,
+    firmware updates and account sync to KingSmith's cloud (JWT login), while
+    every control function is plain local BLE GATT with no pairing, no
+    authentication and no cloud round-trip. Third-party controllers
+    (ph4-walkingpad, QWalkingPad, walkingpad-controller + the hass-walkingpad
+    Home Assistant integration) drive the pads fully offline.
+
+    Two protocol generations exist, auto-detected by BLE name and advertised
+    services:
+
+    1. Legacy "WiLink" protocol — private service 0xFE00, write 0xFE02,
+       notify 0xFE01. Covers A1, A1 Pro, R1 Pro, R2 and early C2 (names like
+       "WalkingPad", "KS-R1*"). Frames are 0xF7-prefixed commands and
+       0xF8-prefixed responses with a 0xFD terminator; the penultimate byte is
+       an additive checksum: cmd[-2] = sum(cmd[1:-2]) & 0xFF. The belt silently
+       ignores bad checksums. Speed unit is 0.1 km/h; large counters (time in
+       seconds, distance in 10 m units, steps) are 3-byte big-endian integers.
+       Confirmed against hardware by ph4-walkingpad (A1) and QWalkingPad
+       (A1 Pro).
+
+    2. Standard FTMS (Fitness Machine Service 0x1826) — newer models:
+       KS-MC21-*, KS-SMC21C-*, ZP-ZEALR1-* (MC-21 family), KS-HD-* (e.g.
+       KS-HD-Z1D), X21 generation. Control via the standard Treadmill Control
+       Point 0x2AD9 (e.g. SET_TARGET_SPEED = 0x02 + uint16-LE km/h*100, HCI
+       snoop-confirmed on MC-21), status via Treadmill Data 0x2ACD. KingSmith
+       adds a step counter as bit 13 of the 0x2ACD flags (vendor extension),
+       and MC-21-class devices expose a vendor "ODM" characteristic
+       d18d2c10-c44c-11e8-a355-529269fb1459 (parent service UUID not captured —
+       the official app discovers it by enumeration) that must receive a fixed
+       8-byte property-list request (01 00 0d 00 06 0b 0f 0d) before each
+       Control Point command; without it the device answers
+       CONTROL_NOT_PERMITTED. KS Fit itself tolerates REQUEST_CONTROL being
+       rejected and proceeds; implementations should do the same.
+
+    Only one BLE central may be connected at a time — if the official app (or
+    the pad's own remote linkage) holds the connection, other clients cannot
+    connect.
+
+    SAFETY: this is motorised exercise equipment. Speed/mode/calibration
+    commands move a real belt under a real person; the FTMS and WiLink
+    protocols carry no authentication, so anyone in radio range can start the
+    belt. The child-lock preference exists on WiLink models; treat
+    calibration and max-speed writes as advanced operations.
+
+    Cloud dependency: none for control. The apps use KingSmith cloud only for
+    account, workout-history sync and OTA notification. If the cloud dies,
+    local BLE control is unaffected.
+  identification:
+    service_uuids:
+      - "0000fe00-0000-1000-8000-00805f9b34fb"   # legacy WiLink models
+      - "00001826-0000-1000-8000-00805f9b34fb"   # FTMS models (MC21/X21/KS-HD-*)
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      No provisioning, pairing or bonding on either protocol generation: scan
+      for the advertised name ("WalkingPad*" / "KS-*" / "ZP-ZEALR1*") or the
+      service UUIDs 0xFE00 / 0x1826, connect over GATT and send commands.
+      Confidence high: multiple independent open implementations
+      (ph4-walkingpad, QWalkingPad, walkingpad-controller) do exactly this
+      against production hardware. Single-connection limit: only one central
+      at a time.
+    methods:
+      - type: ble_direct
+        description: >
+          Connect over GATT. WiLink models: enable notifications on 0xFE01 and
+          write 0xF7-framed commands to 0xFE02. FTMS models: subscribe to
+          0x2ACD/0x2ADA, write the ODM property-list pre-amble to d18d2c10-…
+          when that characteristic exists, then issue Control Point (0x2AD9)
+          commands.
+        verified: false
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Power on the pad with its physical remote or side switch so it advertises."
+            actor: user
+          - action: "Scan for service UUID 0xFE00 (legacy) or 0x1826 (FTMS); match name prefixes WalkingPad / KS- / ZP-ZEALR1 / KINGSMITH / DYNAMAX."
+            actor: client
+          - action: "Connect over GATT and discover services; pick WiLink or FTMS flow by what the device exposes."
+            actor: client
+          - action: "WiLink: enable notify on 0000fe01, write commands to 0000fe02. FTMS: enable notify/indicate on 0x2ACD/0x2AD9, write the 8-byte ODM pre-amble to d18d2c10-… if present, then write Control Point opcodes to 0x2AD9."
+            actor: client
+            expect: "Status notifications arrive (0xF8 0xA2 frames on 0xFE01, or Treadmill Data on 0x2ACD); speed commands change belt speed."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No factory-reset procedure is documented for any WalkingPad model in
+        the public RE literature or recoverable app strings. The pads hold no
+        network credentials and no bonds, so there is nothing to clear for
+        local control; the preferences block (max speed, child lock, units)
+        is writable over the same unauthenticated BLE channel. Not stated
+        rather than guessed.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The pad joins no network. Any client may connect once the previous
+        central disconnects (single-connection peripheral).
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        BLE-only control plane; no credentials cross the link and there is no
+        authentication of any kind. Consequence: belt control is open to
+        anyone in range — relevant because the hardware is a moving treadmill.
+
+services:
+  # ---------------------------------------------------------------- WiLink
+  - uuid: "0000fe00-0000-1000-8000-00805f9b34fb"
+    name: "WiLink treadmill service (legacy models)"
+    notes: >
+      Private KingSmith "WiLink" service on A1/A1 Pro/R1/R2/early-C2 pads.
+      Confirmed in KS Fit v6.5.6 and WalkingPad v2.5.5 app binaries and in the
+      ph4-walkingpad scanner. Frame grammar (both directions): byte 0 = 0xF7
+      (command, phone->pad) or 0xF8 (response, pad->phone); byte 1 = message
+      class (0xA2 control/status, 0xA5 params, 0xA6 preference write, 0xA7
+      workout record); final byte = 0xFD; penultimate byte = additive checksum
+      cmd[-2] = sum(cmd[1:-2]) & 0xFF (pad silently ignores bad checksums).
+      3-byte big-endian integers for time (s), distance (10 m units) and
+      steps. The app polls status roughly every 750 ms; commands should be
+      spaced >= ~700 ms apart (ph4-walkingpad enforces a 0.69 s minimum).
+      Static evidence in com.walkingpad.app v2.5.5 (2026-08-08): the 0xFE00/
+      FE01/FE02 UUID strings plus dedicated WiLink builder methods (_setSpeed,
+      _setSpeedR1 — an R1-specific speed-command variant — and a _checkSum
+      helper) are present in libapp.so; frames are constructed in code so no
+      constant frames are embedded in the binary. The checksum ALGORITHM is
+      therefore not visible at string level — it rests on the two independent
+      hardware-confirmed implementations (ph4-walkingpad, QWalkingPad), and
+      the R1-specific builder suggests R1 pads may deviate from the A1 frame
+      details (worth one snoop on R1 hardware).
+    characteristics:
+      - uuid: "0000fe01-0000-1000-8000-00805f9b34fb"
+        name: "Status / record notifications"
+        properties: ["notify"]
+        notes: >
+          Two response shapes. Current status (header F8 A2, 19 bytes):
+          documented in `format` below; example frame
+          f8 a2 01 0f 01 00 0f d1 00 00 ab 00 12 ae 3c 00 00 00 3a fd =
+          state 1, speed 1.5 km/h, manual mode, time 4049 s, distance 1.71 km,
+          4782 steps, app-set speed 6.0 km/h (ph4-walkingpad README, decoded
+          against real hardware). Last-workout record (header F8 A7): time at
+          bytes 8..10, distance at 11..13, steps at 14..16 (same 3-byte BE
+          encoding); a second query pops the next stored record. The belt
+          keeps the last record only briefly and loses it on power cut, so
+          final statistics must be fetched promptly after the belt stops.
+        format:
+          - offset: 0
+            length: 2
+            name: "header"
+            type: "uint16"
+          - offset: 2
+            length: 1
+            name: "belt_state"
+            type: "uint8"
+          - offset: 3
+            length: 1
+            name: "speed_dkmh"
+            type: "uint8"
+          - offset: 4
+            length: 1
+            name: "mode"
+            type: "uint8"
+          - offset: 5
+            length: 3
+            name: "time_s"
+            type: "bytes"
+          - offset: 8
+            length: 3
+            name: "distance_10m"
+            type: "bytes"
+          - offset: 11
+            length: 3
+            name: "steps"
+            type: "bytes"
+          - offset: 14
+            length: 1
+            name: "app_speed_raw"
+            type: "uint8"
+          - offset: 15
+            length: 1
+            name: "unknown_15"
+            type: "uint8"
+          - offset: 16
+            length: 1
+            name: "last_button"
+            type: "uint8"
+          - offset: 17
+            length: 1
+            name: "checksum"
+            type: "uint8"
+          - offset: 18
+            length: 1
+            name: "terminator"
+            type: "uint8"
+
+      - uuid: "0000fe02-0000-1000-8000-00805f9b34fb"
+        name: "Command write"
+        properties: ["write", "write_without_response"]
+        notes: >
+          All commands are F7-framed with the additive checksum described on
+          the service. Speed unit is 0.1 km/h (30 = 3.0 km/h); usable range on
+          the A1 is 5-60 (0.5-6.0 km/h) and arbitrary 0.1 steps work even
+          where the stock UI only offers 0.5 steps.
+        commands:
+          query_status:
+            description: "Request current status; pad answers with an F8 A2 frame on 0xFE01."
+            verification: "confirmed"
+            value: [0xF7, 0xA2, 0x00, 0x00, 0xA2, 0xFD]
+          set_speed:
+            description: "Set belt speed in km/h (wire encoding 0.1 km/h per count, via the parameter's scale); speed 0 stops the belt. 0.5-6.0 km/h usable on A1-class hardware."
+            verification: "confirmed"
+            template: [0xF7, 0xA2, 0x01, "{speed}", "{checksum}", 0xFD]
+            parameters:
+              speed:
+                type: "uint8"
+                scale: 0.1
+                unit: "km/h"
+                min: 0
+                max: 60
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+          switch_mode:
+            description: "Switch belt mode: 0 = automatic (foot-sensing), 1 = manual, 2 = standby."
+            verification: "confirmed"
+            template: [0xF7, 0xA2, 0x02, "{mode}", "{checksum}", 0xFD]
+            parameters:
+              mode:
+                type: "uint8"
+                min: 0
+                max: 2
+                allowed: [0, 1, 2]
+                labels: ["automatic", "manual", "standby"]
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+          start_belt:
+            description: "Start the belt (enters run at start speed)."
+            verification: "confirmed"
+            value: [0xF7, 0xA2, 0x04, 0x01, 0xA7, 0xFD]
+          calibration_mode:
+            description: "Calibration mode toggle (opcode 0xA2/0x03; QWalkingPad setCali: 1 enables, 0 disables but keeps pad running)."
+            verification: "reported"
+            advanced: true
+            advanced_reason: "Belt-speed calibration changes how command values map to real belt speed; a miscalibrated pad can run faster than displayed. Recover by re-running calibration on an unloaded belt."
+            template: [0xF7, 0xA2, 0x03, "{enable}", "{checksum}", 0xFD]
+            parameters:
+              enable:
+                type: "uint8"
+                min: 0
+                max: 7
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+          query_params:
+            description: "Request the preference block (goal, max/start speed, auto-start, sensitivity, display mask, child lock, units). First of several 10-byte F7 A5 query frames recovered by ph4-walkingpad."
+            verification: "reported"
+            value: [0xF7, 0xA5, 0x60, 0x4A, 0x4D, 0x93, 0x71, 0x29, 0xC9, 0xFD]
+          query_last_record:
+            description: "Fetch the most recently stored workout record (F8 A7 response); the 0x00 variant pops the next record after the latest has been read."
+            verification: "confirmed"
+            value: [0xF7, 0xA7, 0xAA, 0xFF, 0x50, 0xFD]
+          query_next_record:
+            description: "Pop the next stored workout record after query_last_record."
+            verification: "confirmed"
+            value: [0xF7, 0xA7, 0xAA, 0x00, 0x51, 0xFD]
+          set_preference:
+            description: >
+              Write a preference: F7 A6 <key> <subtype> <v2> <v1> <v0> crc FD
+              (value is 3-byte big-endian; subtype 0 except goal type for
+              key 1). Keys: 1 = goal (subtype 0 none / 1 distance / 2 calories
+              / 3 time), 3 = max speed, 4 = start speed, 5 = auto-start on
+              step-on, 6 = sensitivity (1 high / 2 medium / 3 low), 7 =
+              display mask (bit0 time, bit1 speed, bit2 distance, bit3
+              calories, bit4 steps), 8 = units (0 metric / 1 imperial),
+              9 = child lock.
+            verification: "confirmed"
+            template: [0xF7, 0xA6, "{key}", "{subtype}", "{value_hi}", "{value_mid}", "{value_lo}", "{checksum}", 0xFD]
+            parameters:
+              key:
+                type: "uint8"
+                min: 1
+                max: 9
+              subtype:
+                type: "uint8"
+              value_hi:
+                type: "uint8"
+              value_mid:
+                type: "uint8"
+              value_lo:
+                type: "uint8"
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+          set_max_speed:
+            description: "Convenience form of set_preference with key 3 (0.1 km/h units)."
+            verification: "confirmed"
+            advanced: true
+            advanced_reason: "Raises the belt's top speed above the factory walking limit; on foldable pads without handrails a higher ceiling increases fall risk. Recover by writing the factory max back (e.g. 60 = 6.0 km/h on A1)."
+            template: [0xF7, 0xA6, 0x03, 0x00, 0x00, 0x00, "{speed}", "{checksum}", 0xFD]
+            parameters:
+              speed:
+                type: "uint8"
+                min: 5
+                max: 255
+              checksum:
+                type: "uint8"
+                auto: "checksum"
+
+  # ------------------------------------------------------------------ FTMS
+  - uuid: "00001826-0000-1000-8000-00805f9b34fb"
+    name: "Fitness Machine Service (newer models)"
+    notes: >
+      Standard Bluetooth FTMS on MC-21 / X21 / KS-HD-* generation pads
+      (names KS-MC21-*, KS-SMC21C-*, ZP-ZEALR1-*, KS-HD-*). Characteristic set
+      confirmed in the KS Fit v6.5.6 binary (0x2AD0-0x2ADA strings plus
+      per-opcode log strings); on-wire encodings HCI-snoop-confirmed by
+      mcdax/walkingpad-controller on an MC-21. KingSmith vendor extensions:
+      step counter in Treadmill Data via flag bit 13, and the ODM pre-amble
+      below. KS Fit tolerates REQUEST_CONTROL being rejected and proceeds —
+      replicate that.
+    initialization:
+      - characteristic: "d18d2c10-c44c-11e8-a355-529269fb1459"
+        write: [0x01, 0x00, 0x0D, 0x00, 0x06, 0x0B, 0x0F, 0x0D]
+        notes: >
+          ODM property-list pre-amble. Applies only when the device exposes
+          the vendor characteristic d18d2c10-… (MC-21 class). The parent
+          service UUID is verified ABSENT from both app binaries (full
+          128-bit-UUID string-table enumeration of KS Fit v6.5.6 and
+          WalkingPad v2.5.5, 2026-08-08: d18d2c10-c44c-11e8-a355-529269fb1459
+          is the only *-c44c-11e8-* UUID in either app) — the official app
+          binds it purely by GATT enumeration; the parent service UUID must
+          be captured from hardware (see capture plan). KS Fit
+          sends this fixed 8-byte frame before EACH Control Point command,
+          not just once per connection; without it the device returns
+          CONTROL_NOT_PERMITTED to FTMS writes. The response carries the
+          device property table (capabilities, model); walkingpad-controller
+          treats indication-timeout here as success, matching KS Fit.
+    characteristics:
+      - uuid: "00002ad9-0000-1000-8000-00805f9b34fb"
+        name: "Treadmill Control Point"
+        properties: ["write", "indicate"]
+        commands:
+          request_control:
+            description: "Standard FTMS Request Control. Frequently rejected by KingSmith firmware; ignore the failure and proceed, as KS Fit does."
+            verification: "confirmed"
+            value: [0x00]
+          reset:
+            description: "Standard FTMS Reset."
+            verification: "reported"
+            value: [0x01]
+          set_target_speed:
+            description: >
+              Standard FTMS Set Target Speed: opcode 0x02 + a single little-endian uint16 speed parameter in 0.01 km/h (raw = km/h * 100; the parser's default endianness is little-endian, matching FTMS). Example: speed 4.0 km/h encodes raw 400 = 0x0190, emitted LE as frame 02 90 01 (HCI-snoop-confirmed on MC-21). Opcode-discrepancy note (resolved 2026-08-08): the "0x03 for speed" claim circulating in walking-pad writeups traces to Ivan Morgillo's Mobvoi Home Walking Pad article — a different vendor/device (TicSports app), not KingSmith. In FTMS 1.0, 0x02 = Set Target Speed and 0x03 = Set Target Inclination; KS Fit v6.5.6 has separate setSpeed and setInclination code paths (string table: WilinkDeviceActionExt|setSpeed / |setInclination, supportInclination), so on incline models (X21) it emits 0x03 for INCLINATION, never for speed. The WalkingPad app v2.5.5 emits no FTMS opcodes at all (WiLink-only binary). KingSmith speed opcode is 0x02 under all known model/firmware conditions.
+            verification: "confirmed"
+            template: [0x02, "{speed}"]
+            parameters:
+              speed:
+                type: "uint16"
+                scale: 0.01
+                unit: "km/h"
+                min: 0
+                max: 2500
+                description: "Target belt speed in km/h. min/max bound the RAW wire value (0.01 km/h counts), so 0-2500 = 0-25.0 km/h — well above any walking pad's ceiling; tighten per model from the Supported Speed Range characteristic 0x2AD4 where available."
+          start_or_resume:
+            description: "Standard FTMS Start or Resume."
+            verification: "confirmed"
+            value: [0x07]
+          stop_or_pause:
+            description: "Standard FTMS Stop or Pause: parameter 0x01 = stop, 0x02 = pause."
+            verification: "confirmed"
+            template: [0x08, "{action}"]
+            parameters:
+              action:
+                type: "uint8"
+                min: 1
+                max: 2
+      - uuid: "00002acd-0000-1000-8000-00805f9b34fb"
+        name: "Treadmill Data"
+        properties: ["notify"]
+        notes: >
+          Standard FTMS Treadmill Data (flags-gated fields: speed, distance,
+          duration, calories, etc.). KingSmith vendor extension: flag bit 13
+          adds a step count, per walkingpad-controller.
+      - uuid: "00002ad4-0000-1000-8000-00805f9b34fb"
+        name: "Supported Speed Range"
+        properties: ["read"]
+        notes: "Standard FTMS; read at connect to learn min/max/step speed."
+      - uuid: "00002ad5-0000-1000-8000-00805f9b34fb"
+        name: "Supported Inclination Range"
+        properties: ["read"]
+        notes: "Present in the app's characteristic table; relevant on incline-capable models (X21)."
+      - uuid: "00002acc-0000-1000-8000-00805f9b34fb"
+        name: "Fitness Machine Feature"
+        properties: ["read"]
+        notes: "Standard FTMS feature bitmap."
+      - uuid: "00002ada-0000-1000-8000-00805f9b34fb"
+        name: "Fitness Machine Status"
+        properties: ["notify"]
+        notes: >
+          Standard FTMS status events. KS Fit v6.5.6 log strings show a
+          KingSmith-specific 'safe_off' decode of 0x2ADA data
+          ("--> t2ADA: status ", "Received t2ADA data: ",
+          "2ada: device status change: ", "2ADA safe_off list = ",
+          "2ADA safe_off list return"). Interpretation (string-level
+          hypothesis, needs HCI snoop): the app collects the 0x2ADA status
+          events that mean "belt is safely stopped" — per FTMS 1.0 those are
+          opcode 0x03 (Stopped or Paused by the User, param 0x01/0x02) and
+          0x04 (Stopped by Safety Key), vs 0x02 (Started or Resumed by the
+          User) which clears the state. Exact opcode set and any
+          KingSmith-specific opcodes are not recoverable from the binary's
+          string table — capture on hardware (see capture plan).
+
+  # ------------------------------------------------- KingSmith extensions
+  - uuid: "24e2521c-f63b-48ed-85be-c5330b00fdf7"
+    name: "KingSmith supplement service (KS-HD-* models)"
+    notes: >
+      Vendor supplement channel found in KS Fit on KS-HD-* devices (absent on
+      MC-21). KS Fit's FTMSSupplement layer exposes property list, user
+      profile, unit setting, offline workout records, presets/courses and OTA
+      through it; frames use the same body + 1-byte additive checksum wrapping
+      as the ODM channel. Exactly four characteristics exist in the v6.5.6
+      string table, sharing the 24e2521c-f63b-48ed-85be-c5330XX0fdf7 base:
+      0b, 0d, 0e, 0f. Static evidence of use (2026-08-08): 0b and 0d also
+      appear in byte-reversed form (f7fd000b-… / f7fd000d-… constants used
+      for UUID comparison in active code paths), while 0e and 0f appear only
+      in the canonical UUID table — so 0b/0d are the live command channels
+      and 0e/0f are discovered table entries (roles TBD). Functional surface
+      from WilinkDeviceSupplementExt symbols in libapp.so:
+      readPropertyList/_parseProperties, _writeSupplementCmd/wrapSupplementCmd
+      (command writes), callBackPropertyStatus/_parseEvent/_parseSupplementCmd
+      (async events + command responses), _parseSystemInfo ("supplement
+      system info: protocolVersion = "), runIdDiffers (offline-record
+      matching) and a full OTA path (startOta/_parseOTA/startModuleOta/
+      startMcuOta/startMotorOta/installOtaFile/otaSuccess). Exact
+      per-characteristic roles and properties still need an HCI snoop on a
+      KS-HD-* device.
+    characteristics:
+      - uuid: "24e2521c-f63b-48ed-85be-c5330b00fdf7"
+        name: "Supplement channel 0b"
+        properties: ["write", "notify"]
+        notes: "Static-APK-confirmed present and referenced by active code (byte-reversed comparison constant in v6.5.6). Role hypothesis: command/response channel paired with 0d. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
+      - uuid: "24e2521c-f63b-48ed-85be-c5330d00fdf7"
+        name: "Supplement channel 0d"
+        properties: ["write", "notify"]
+        notes: "Static-APK-confirmed present and referenced by active code (byte-reversed comparison constant in v6.5.6). Role hypothesis: command/response channel paired with 0b. Properties hypothesized — needs HCI snoop on a KS-HD-* device."
+      - uuid: "24e2521c-f63b-48ed-85be-c5330e00fdf7"
+        name: "Supplement channel 0e"
+        properties: []
+        notes: "Present in the v6.5.6 UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
+      - uuid: "24e2521c-f63b-48ed-85be-c5330f00fdf7"
+        name: "Supplement channel 0f"
+        properties: []
+        notes: "Present in the v6.5.6 UUID table only (no active-code reference found). Role unknown — possibly OTA data or long-property channel. Needs HCI snoop."
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information Service"
+    notes: "Standard DIS, in the ph4-walkingpad scan UUID list (model/serial/firmware strings 0x2A24/0x2A25/0x2A26/0x2A28/0x2A29)."
+    characteristics:
+      - uuid: "00002a24-0000-1000-8000-00805f9b34fb"
+        name: "Model Number String"
+        properties: ["read"]
+      - uuid: "00002a26-0000-1000-8000-00805f9b34fb"
+        name: "Firmware Revision String"
+        properties: ["read"]
+
+  - uuid: "00010203-0405-0607-0809-0a0b0c0d1912"
+    name: "Telink OTA Service"
+    notes: >
+      Telink OTA service in the ph4-walkingpad scan UUID list (a 0x…2b12
+      variant also appears) — the pads' BLE SoC is Telink-based and the app
+      delivers firmware updates over it. Flow not documented here; treat
+      OTA writes as bricking risks until captured from a real update.
+
+entities:
+  - platform: "sensor"
+    name: "Belt Speed"
+    device_class: "speed"
+    state_characteristic: "0000fe01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "speed_dkmh"
+    notes: "WiLink models: raw value is 0.1 km/h. FTMS models expose speed in Treadmill Data 0x2ACD instead."
+  - platform: "sensor"
+    name: "Distance"
+    device_class: "distance"
+    state_characteristic: "0000fe01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "distance_10m"
+    notes: "Raw value is 10 m units (171 = 1.71 km)."
+  - platform: "sensor"
+    name: "Steps"
+    state_characteristic: "0000fe01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "steps"
+  - platform: "sensor"
+    name: "Elapsed Time"
+    device_class: "duration"
+    state_characteristic: "0000fe01-0000-1000-8000-00805f9b34fb"
+    state_mapping:
+      value: "time_s"
+
+helpful_urls:
+  - url: "https://github.com/ph4r05/ph4-walkingpad"
+    title: "ph4r05/ph4-walkingpad"
+    description: "Original WiLink protocol reverse engineering and working Python controller (A1; R1 Pro reported working). Source of the frame grammar and command bytes."
+  - url: "https://github.com/DorianRudolph/QWalkingPad"
+    title: "DorianRudolph/QWalkingPad"
+    description: "Independent GPL C++/Qt implementation of the WiLink protocol incl. params query, calibration toggle and workout records."
+  - url: "https://github.com/mcdax/walkingpad-controller"
+    title: "mcdax/walkingpad-controller"
+    description: "Active (2026) Python library unifying FTMS and WiLink; HCI-snoop-verified FTMS encodings and the ODM pre-amble behaviour."
+  - url: "https://github.com/mcdax/walkingpad-controller/blob/main/docs/ks-fit-reverse-engineering.md"
+    title: "KS Fit reverse-engineering log (mcdax)"
+    description: "blutter (Dart AOT) decompilation log of KS Fit v5.9.10/v6.0.7: model detection prefixes, ODM/supplement channels, FTMS routing."
+  - url: "https://github.com/darnfish/walkingpad"
+    title: "darnfish/walkingpad"
+    description: "JavaScript/Node BLE client for the WiLink protocol."

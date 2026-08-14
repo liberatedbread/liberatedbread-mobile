@@ -1,0 +1,54 @@
+# IoTaWatt — Device Spec (research note)
+# Open-hardware WiFi energy monitor; manufacturer ACTIVE (shop.iotawatt.com, 2026-08)
+# Local path: vendor-documented HTTP API served by the device itself; no cloud at all
+
+device:
+  id: iotawatt
+  name: IoTaWatt WiFi Home Energy Monitor (14 CT channels)
+  manufacturer: IoTaWatt, Inc. (open hardware) — active
+  category: energy_monitor
+  safety_class: MEDIUM  # installed inside breaker panel (CT clamps + voltage ref); measurement-only, no switching
+
+transport:
+  type: wifi
+  local_only: true
+  note: >
+    Device hosts its own web server for config, real-time status and history
+    (Graph+). No account or cloud step anywhere; WAN can be blocked entirely.
+    Optional uploaders (Emoncms/InfluxDB/PVoutput) are user-configured extras.
+
+lan:
+  discovery:
+    method: mdns
+    hostname: iotawatt.local   # configurable in device setup
+  control:
+    protocol: http
+    port: 80
+    auth: none by default; optional admin password in device config
+
+protocol:
+  note: >
+    Vendor-documented JSON REST API (docs.iotawatt.com). Real-time snapshot via
+    /status; historical datalog access via the Query API (JSON or CSV).
+  endpoints:
+    realtime_status: "GET /status?inputs=yes&outputs=yes&stats=yes"
+    list_series: "GET /query?show=series"
+    history_query: "GET /query?select=[time.unix,<series>]&begin=<t>&end=<t>&group=<g> (JSON/CSV)"
+    config_ui: "GET / (full setup + Graph+ web app)"
+  fields:
+    inputs: Vrms, Watts, PF, Hz, Amps (per channel)
+    outputs: user-defined calculated channels
+
+status:
+  apk_acquired: false    # n/a — interface is the on-device web UI
+  apk_decompiled: false
+  uuids_recovered: false # n/a — no BLE
+  protocol_recovered: true   # vendor-documented
+  rating: confirmed
+  cloud_dead: false      # never needed a cloud; manufacturer active
+  references:
+    - docs.iotawatt.com/en/master/query.html (Query API)
+    - iotawatt.com ("Open system, private data")
+    - github.com/boblemaire/IoTaWatt (open firmware + docs)
+    - community.iotawatt.com/t/interfacing-with-home-assistant/1353 (2019-10-30)
+    - home-assistant.io/integrations/iotawatt (local_polling)
