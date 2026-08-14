@@ -6,6 +6,8 @@ device:
   name: "Vector Robot"
   manufacturer: "Anki / Digital Dream Labs"
   manufacturer_status: "shutdown"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "robot"
   notes: >

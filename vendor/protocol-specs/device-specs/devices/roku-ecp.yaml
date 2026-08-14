@@ -6,6 +6,8 @@ device:
   name: "Roku External Control Protocol"
   manufacturer: "Roku / TCL"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "tv"
   transport: "http"
@@ -251,6 +253,14 @@ evidence:
       accepts client-id auth whose secret ships in the APK — no Roku account
       needed — and that query-apps and key-press both answer 200 over it on
       a Limited-mode TV. The full protocol is the top-level `ecp2` block.
+      A line-by-line re-audit of the decompiled sources on 2026-08-13
+      confirmed every ECP2 mechanism that block records: the client-id
+      secret's encoded UUID, its nibble transform and the SHA-1 + Base64
+      response construction (ClientIdChallengeResponseStrategy), port 8060,
+      the roku:ecp SSDP search target, the ecp-2 WebSocket subprotocol with
+      the Android origin header on /ecp-session, the
+      v1/ecp/token?assert=true JWT endpoint and its ecp2_jwt.enabled
+      remote-config gate, and the app's 55-entry request-type table.
 
 # Everything needed to build an ECP request byte for byte, in the role
 # soap_common plays for Wemo. ECP is deliberately plain: the whole request is
@@ -356,16 +366,18 @@ ecp2:
     the ECP paths dashed: query-apps, query-active-app, query-device-info,
     key-press/key-down/key-up (param-key), launch, input,
     query-tv-channels-ex, query-icon, set-textedit-text (whole-string text
-    entry — no per-character Lit_ loop needed), and roughly fifty more
-    (the app's full table runs from av-sync queries to picture settings).
+    entry — no per-character Lit_ loop needed), and more: the app's
+    request-type table holds 55 entries in all, running from av-sync
+    queries to picture settings.
   auth:
     description: >
       On connect the device sends {"notify": "authenticate",
       "param-challenge": "<base64>", "param-methods": [...]}. Two methods
       were offered by every fleet TV: "jwt" — a token from
       https://auth.prod.mobile.roku.com/v1/ecp/token?assert=true tied to
-      the signed-in Roku account, gated in the app by a remote-config flag
-      — and "client-id", which needs NO account: answer {"request":
+      the signed-in Roku account, gated in the app by the remote-config
+      flag ecp2_jwt.enabled, which defaults off — and "client-id", which
+      needs NO account: answer {"request":
       "authenticate", "request-id": "1", "param-response":
       base64(SHA-1(challenge + secret))}. The secret is the app's own
       client id, shipped in the APK (ClientIdChallengeResponseStrategy):
@@ -373,7 +385,23 @@ ecp2:
       n replaced by (24 - n) & 15, i.e.
       F3A278B8-1C6F-44A9-9D89-F1979CA4C6F1. A successful answer gets
       {"response": "authenticate", "status": "200"} and the session then
-      accepts the full vocabulary — in Limited mode included.
+      accepts the full vocabulary — in Limited mode included. Client-id is
+      also the app's own fallback: when a jwt answer fails, the app
+      retries the same challenge with client-id automatically.
+    jwt_response_format:
+      description: >
+        The jwt method's on-wire param-response: the literal prefix
+        "JWT:" followed by base64 of the token bytes XORed byte-wise with
+        the decoded challenge and the device ESN — token and ESN taken as
+        US-ASCII, the challenge base64-decoded, and challenge and ESN
+        repeated cyclically over the token length.
+      confidence: "medium"
+      confidence_notes: >
+        Read from the decompiled app source (JwtChallengeResponseStrategy)
+        but never exercised against hardware: the fleet session
+        authenticated with client-id, and the ecp2_jwt.enabled flag gates
+        the jwt path off by default, so this construction is app-derived
+        only.
     verification: "confirmed"
   notes: >
     Whether using a competitor-shaped client id is acceptable is a policy

@@ -3,6 +3,10 @@
 #         vendor Android app (OBDLink 7.4.0) and vendor/community documentation;
 #         nothing has been confirmed against hardware yet. See
 #         research-notes/obdlink-mx-plus-capture-plan.md for the hardware checklist.
+#         2026-08-13: managed DLLs re-extracted from libassembly-store.so (XALZ/LZ4
+#         payloads) and the app-side claims below re-verified against the recovered
+#         OCTech.OBD2.dll / OCTech.OBDLink.dll / OBDLink.dll string and metadata
+#         heaps — app-confirmed, not hardware-tested.
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 
@@ -10,6 +14,8 @@ device:
   name: "OBDLink MX+"
   manufacturer: "OBD Solutions LLC (ScanTool.net)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "vehicle"
   notes: >
@@ -35,7 +41,12 @@ device:
     app — AOT assemblies recovered from the libassembly-store.so blob and
     decompiled). All app-derived facts are marked verification: reported
     until replayed against hardware. Nothing here has been captured from a
-    live adapter.
+    live adapter. 2026-08-13 confirmation pass: the managed-assembly claims
+    relied on below (FFF0/FFF1/FFF2 GATT UUIDs, the api.obdlink.com firmware
+    endpoints with Stable/Beta branches, the bootloader upload/recovery
+    classes, the dual-mode and pairing-mode strings, and the ST command
+    literals) were all re-verified present in the recovered OCTech.OBD2.dll,
+    OCTech.OBDLink.dll and OBDLink.dll — app-confirmed, not hardware-tested.
 
     SAFETY: as with any dongle, OBD pin 16 is usually unswitched. The MX+
     has BatterySaver sleep (< 2 mA claimed) and overvoltage protection, so
@@ -75,15 +86,17 @@ device:
       physical access to enable Bluetooth pairing" with "secure 128-bit data
       encryption". The app ships a setup wizard with a dedicated
       press-the-pair-button step (OBDFusion.Pages.Setup.OBDLink.
-      SetupWizardPressPairButtonPage, _press_pair_button.gif animation) and
+      SetupWizardPressPairButtonPage, _press_pair_button.gif animation —
+      both confirmed in the recovered OBDLink.dll app assembly) and
       exposes an adapter-side pairing mode setting, Auto or Manual
       (OCTech.OBD2.Communications.OBDLinkMXPPairingMode, with user-facing
       OBDLinkAutoPairingModeDescriptionText /
-      OBDLinkManualPairingModeDescriptionText strings). One app error string
-      shows the Classic-first reality on Android: "A compatible OBDLink MX+
-      device was not found in the list of connected Bluetooth devices. You
-      must pair your OBDLink MX+ in Bluetooth Settings before connecting to
-      the adapter."
+      OBDLinkManualPairingModeDescriptionText strings — confirmed in the
+      recovered managed DLLs). One app error string shows the Classic-first
+      reality on Android (confirmed in OCTech.OBD2.dll): "A compatible
+      OBDLink MX+ device was not found in the list of connected Bluetooth
+      devices. You must pair your OBDLink MX+ in Bluetooth Settings before
+      connecting to the adapter."
     methods:
       - type: "button_pairing"
         verified: false
@@ -147,16 +160,20 @@ device:
     # service in the app. Firmware files ("v5" container format, class
     # OBDLinkFirmwareFilev5 with ValidateFile/ReadHeader) are downloaded from
     # https://api.obdlink.com/devices and /devices/{0}/{1} (manifest per
-    # device code, Stable/Beta branch, optional private code), then uploaded
+    # device code, Stable/Beta branch — enum OBDLinkFirmwareBranch —,
+    # optional private code via /private/{0}), then uploaded
     # to the adapter bootloader (OCTech.OBD2.OBDLink.Firmware.*:
     # BootloaderCommunicator, StartUploadCommand/SendChunkCommand in chunks,
     # FirmwareImageDescriptor with a dedicated Validation image type used to
     # verify the flash). InvalidFirmwareImageException and DeviceID gating
     # (enum DeviceID lists OBDLinkMX_1150/1151, OBDLinkLX, OBDLinkCX, ...)
     # show image validation happens client-side before upload. A recovery
-    # path exists (OBDLinkFirmwareRecoveryUtility, "Power cycle device,
-    # select from list and retry firmware load" strings). Latest MX+ firmware
-    # reported in the wild: 5.12.x.
+    # path exists (OBDLinkFirmwareRecoveryUtility; recovery strings tell the
+    # user to power cycle the device and retry the firmware load). Latest
+    # MX+ firmware reported in the wild: 5.12.x.
+    # 2026-08-13: every class, endpoint and enum named above re-verified in
+    # the recovered OCTech.OBDLink.dll / OCTech.OBD2.dll — app-confirmed,
+    # not hardware-tested.
 
 services:
   - uuid: "0000fff0-0000-1000-8000-00805f9b34fb"
@@ -166,10 +183,16 @@ services:
       OBDLink CX exposes. All three UUIDs appear as string literals in the
       vendor app (OCTech.OBD2.dll #US heap) beside
       ServiceAndCharacteristicPairs.DefaultServiceUUID /
-      DefaultCharacteristicRxUUID / DefaultCharacteristicTxUUID, and the app
-      enables notifications via the standard CCCD (0x2902) with a Notify /
-      Indicate fallback. Not yet observed on-air from an MX+ — the capture
-      plan covers a GATT discovery dump to confirm the MX+ BLE side matches.
+      DefaultCharacteristicRxUUID / DefaultCharacteristicTxUUID (the SPP
+      UUID 00001101 sits in the same heap), and the app enables
+      notifications via the standard CCCD (0x2902 —
+      GetClientCharacteristicConfigurationDescriptor / GattDescriptorUuids
+      in OCTech.OBD2.dll) with a Notify / Indicate fallback (log literal
+      "RXCharacteristic has Indicate property"). UUIDs, CCCD
+      handling and fallback all re-verified in the recovered managed DLLs
+      2026-08-13 — app-confirmed, not hardware-tested. Not yet observed
+      on-air from an MX+ — the capture plan covers a GATT discovery dump to
+      confirm the MX+ BLE side matches.
     characteristics:
       - uuid: "0000fff1-0000-1000-8000-00805f9b34fb"
         name: "Adapter to Host (notify)"
@@ -198,8 +221,10 @@ services:
             description: >
               STI — STN identification: chip ID and firmware version. The
               discriminator between genuine STN silicon and ELM327 clones.
-              Literal "STI" present in the vendor app alongside "Must be an
-              STN device to get the STN ID" error strings.
+              STN-ID query path confirmed in the vendor app via the "Must be
+              an STN device to get the STN ID" / "...to get the STN Version"
+              error strings (OCTech.OBD2.dll; app-confirmed, not
+              hardware-tested).
             encoding: "bytes"
             value: [0x53, 0x54, 0x49, 0x0D]
 
@@ -274,7 +299,10 @@ obd:
       ST command set confirmed in use by the vendor app beyond the ELM327
       baseline: STI (STN ID/version), STIM, STMFR, STPBR, STSLCS and the
       STSL* sleep/wake trigger family (STSLVL/STSLVG/STSLU/STSLX and
-      variants), plus STNFWv in the firmware-update path. Full STN command
+      variants), plus STNFWv in the firmware-update path — literals
+      re-verified in OCTech.OBD2.dll 2026-08-13 (STIM, STMFR, STPBR, STSLCS,
+      STSLVL*, STSLVG*, STSLU*, STSLX*, STNFWv present;
+      app-confirmed, not hardware-tested). Full STN command
       reference: OBDLink FRPM rev F (scantool.net).
 
   requests:

@@ -6,6 +6,8 @@ device:
   name: "Inkbird BBQ Thermometer (BLE)"
   manufacturer: "Inkbird"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -35,10 +37,13 @@ device:
 
     Connection requires a handshake: BG-BT1X uses fixed code fea1b2c3e40000
     (an alternate fixed frame fea1b2c3e4f5f5 is written by the config
-    activity — BBQ1xBleConfigActivity.java:67); BBQ-4BW uses challenge-response
-    whose verify-code algorithm is fully recovered: deterministic sqrt/mod/pow
-    math on the 6-byte challenge (no timestamp, no CRC) producing the 12-hex
-    response after fc — device/bbq4bw/utils/BBQ4tBwHelper.java:109-132.
+    activity — BBQ1xBleConfigActivity.java:67); BBQ-4BW, IBT-4XS, IBT-26S and
+    the 2-probe IBT-2XB use challenge-response (fb000000000000 to ff02,
+    challenge on ff03 with fb prefix, fc+12-hex response back to ff02 —
+    Ibt2xbItem.java:123 for the 2XB path). The BBQ-4BW verify-code algorithm
+    is fully recovered and given in full under the verify_response command
+    below: deterministic sqrt/mod/pow math on the 6-byte challenge (no
+    timestamp, no CRC) — device/bbq4bw/utils/BBQ4tBwHelper.java:109-132.
 
     CAVEAT — two incompatible BLE protocol families ship under the same model
     names: IBT-2X / IBT-4XS also exist on the older 0xfff0 "iBBQ/EasyBBQ"
@@ -52,6 +57,39 @@ device:
     on ff02 with temps in 0.1 °C and a different auth (01 fb challenge →
     response = LE16 ms + LE32 unix time + two-stage CRC-8) — recovered by
     paul43210/inkbird-bw-ble (17 captured test vectors in auth/python/auth.py).
+
+    DIALECT WARNING — IBT-4WB: this 4-probe model matches this spec's
+    discovery keys (IBT- name prefix, ff00 service) but speaks a different
+    dialect of the protocol; a client written strictly to this spec would
+    connect and then misparse it (decompiled: device/ibt4wb/,
+    home/item/deviceitem/Ibt4wbItem.java, home/model/device/Ibt4wbItemModel.java):
+    - Auth is timestamp+CRC based: the fb challenge arrives on ff02 (not
+      ff03), and the response mixes the challenge with the client's current
+      unix-ms clock — LE16 of the ms-within-second, LE32 of the seconds,
+      then CRC-8/DVB-S2 over those 6 bytes; CRC-8/CDMA2000 over the
+      challenge is computed but not sent (Ibt4wbHelper.getBleGetVerifyCode).
+    - The verify frame breaks the universal 14-char rule: the app writes
+      "fc" + 14 hex chars (8 bytes, 16 chars total) to ff02.
+    - Device status is parsed from ff03 (not ff04) with its own bitfield:
+      charging at bit 32, WiFi status at bits 33-37.
+    - ff01 temps are 8 hex chars (s32 LE) per probe, not 4; the fault
+      sentinels are 32-bit (7ffffffe, 7fffffff, 80000001), and byte 16
+      (chars 32-33) carries the device ambient temp in °C.
+    IBT-4RT also exists in the app's model list (BleDeviceUtils TYPE_IBT_4RT,
+    4 probes); it is treated as protocol-compatible with this spec but has
+    no documented model-specific code path — listed as
+    compatible-but-undocumented.
+
+    Timing and scan behavior (BBQ-4BW, from the app's handler delays):
+    ~500 ms settle after connect before the handshake write, ~120 ms
+    delays between chained init commands, and an auto-connect RSSI
+    threshold of > -85 dBm (Bbq4bwItem.java:268,377,513;
+    BBQ4tBwPresenter.java handler chain).
+
+    Encoding nuance: the uniform s16le rule below is what the multi-probe
+    models use (shortValue()); the 1-probe BG-BT1X instead parses ff01 as
+    UNSIGNED u16 (Integer.valueOf(...,16).intValue(), BBQ1xModel.java:79)
+    and treats only 7fff/8000 as fault on that path.
 
     No BLE pairing/bonding required; all commands work over unencrypted
     BLE GATT.
@@ -241,7 +279,35 @@ services:
               description: "Request challenge for BBQ-4BW verify."
             - name: "verify_response"
               hex_pattern: "fcXXXXXXXXXXXX"
-              description: "Calculated verify response (12 hex chars after fc). Algorithm recovered: deterministic sqrt/mod/pow math on the 6-byte challenge, no timestamp/CRC (BBQ4tBwHelper.java:109-132)."
+              description: >
+                Calculated verify response (12 hex chars after fc). Fully
+                recovered algorithm (device/bbq4bw/utils/BBQ4tBwHelper.java:109-132,
+                getBleGetVerifyCode) — deterministic math on the 12-char
+                challenge C, no timestamp, no CRC:
+
+                  v1 = int(C[2:4]  + C[0:2],  16)   # LE u16 of challenge bytes 0-1
+                  v2 = int(C[6:8]  + C[4:6],  16)   # LE u16 of bytes 2-3
+                  v3 = int(C[10:12]+ C[8:10], 16)   # LE u16 of bytes 4-5
+                  s  = int(sqrt(v1) - 1) if v1 odd else int(sqrt(v1) - 3)
+                  r  = (v2 % s) if (v2 != 0 and s != 0) else 0
+                  q  = int(sqrt(v2))
+                  t  = ((v3 % 255) + r + q + int(C[10:12], 16)) // 4   # integer division
+                  response = hex2(s) + hex2(r) + hex2((r % 16) + (s % 238))
+                           + hex2(q) + hex2((v1 % 15) ** 2) + hex2(t)
+
+                where hex2(x) is StringUtils.intToHex2(x, 2): lowercase hex
+                digits left-padded with zeros to 2 chars (pad-only, no
+                truncation or masking). A value above 0xff would emit more
+                than 2 chars, but none can occur — every term is provably
+                <= 0xff: s <= 254 (int(sqrt) of a u16 is <= 255), r < s so
+                r <= 253, (r % 16) + (s % 238) <= 15 + 237 = 252, q <= 255,
+                (v1 % 15)**2 <= 196, and t <= (254+253+255+255)//4 = 254.
+                The response is therefore always exactly 12 hex chars and
+                the frame "fc" + response always 14 chars. (Degenerate edge:
+                an even v1 of 0, 2 or 4 makes s negative, which would crash
+                the app's hex2 digit loop with a negative array index —
+                real challenges do not hit it.) If C is not 12 chars the
+                app returns it unchanged.
             - name: "get_target_temp"
               hex_pattern: "02XX0000000000"
               description: "Query target/alarm temps. XX = 2^(probeNum-1) as hex (01 for probe 1, 02 for probe 2, 04 for probe 3, 08 for probe 4)."
@@ -296,9 +362,9 @@ services:
             - prefix: "fc"
               description: "Device status acknowledgment. Client should re-read ff04 after receiving this."
             - prefix: "01"
-              description: "Target temp response (probe-specific). Payload: 2-char bitmask, 2-char mode, 4-char high temp LE, 4-char low temp LE."
+              description: "Target temp response (probe-specific). Payload: 2-char bitmask, 2-char mode, 4-char high temp LE, 4-char low temp LE. Mode byte: 01 = low threshold only, 10 = high threshold only, 11 = both (BBQ4tBwModel.java:245-251)."
             - prefix: "02"
-              description: "Target temp response (alternate probe mask). Same payload format as 01."
+              description: "Target temp response (alternate probe mask). Same payload format as 01, mode bytes identical."
             - prefix: "03"
               description: "Temp unit response. Payload byte 0: 0x46 = °F, else °C."
             - prefix: "04"
@@ -325,19 +391,25 @@ services:
               description: "WiFi switch response. 0x01=on, 0x00=off."
             - prefix: "13"
               description: "WiFi switch response (alternate). Same as 12."
-            - prefix: "14"
-              description: "Light switch response. 0x01=on, 0x00=off."
-            - prefix: "15"
-              description: "Probe color response. 8 hex chars, 2 per probe."
             - prefix: "16"
-              description: "Probe color response (alternate). Same as 15."
+              # Corrected 2026-08 (previously documented as 14/15/16): the
+              # dispatch reads startsWith("16") -> bleParseLightSwitch and
+              # startsWith("17") -> bleParseProbeColor
+              # (device/bbq4bw/presenter/BBQ4tBwPresenter.java:440,448). The
+              # app reuses Tencent SDK string constants for these two
+              # prefixes (com/tencent/connect/common/Constants.java:170-171),
+              # which is why they were misread earlier. Prefixes 14/15 are
+              # not dispatched anywhere in the BBQ-4BW handler.
+              description: "Light switch response. 0x01=on, 0x00=off."
+            - prefix: "17"
+              description: "Probe color response. 8 hex chars, 2 per probe."
             - prefix: "fffe"
               description: "Device power-off notification."
 
       - uuid: "0000ff04-0000-1000-8000-00805f9b34fb"
         name: "device_status"
         properties: ["read", "notify"]
-        description: "Device status bitfield. Multi-byte value; bytes must be reversed before interpreting as a bitfield."
+        description: "Device status bitfield (4-probe layout). Multi-byte value; bytes must be reversed before interpreting as a bitfield."
         data_format:
           type: "binary"
           byte_order: "little_endian"  # bytes reversed vs wire order
@@ -345,6 +417,22 @@ services:
           notes: >
             The raw hex string must be byte-reversed before bit interpretation.
             Example: raw "a1b2c3" → reversed bytes "c3b2a1" → interpret bits of resulting integer.
+
+            SCOPE: this layout is 4-probe-specific — it is exactly what
+            Bbq4bwItemModel.bleParseDeviceStatus parses, so it applies to the
+            IBBQ-4BW / BBQ-4BW / IBT-4XS / IBT-24S family only. The IBT-26S
+            uses a different, wider layout (parsed as a long,
+            Ibt26sItemModel.java:67-96): probe alert bits 0-5 (probeNum-1),
+            a SINGLE combined fault bit per probe at bits 6-11 (probeNum+5)
+            instead of the 4-probe high/low/sensor triple at bits 4-15, and
+            WiFi status at bits 36-41. Do not apply the bitfield below to a
+            6-probe unit.
+
+            CAVEAT: bits 16-19 below (ambient alarms, charging, backlight)
+            were stated in earlier revisions of this spec but are
+            UNEVIDENCED — the 2.1.9 app parses only bits 0-15 and the WiFi
+            bits 20-25; no parser for bits 16-19 exists in the decompiled
+            source. Treat them as unverified guesses, not protocol fact.
           bitfield:
             - bit: 0
               name: "probe_1_alarm"
@@ -384,19 +472,19 @@ services:
               name: "probe_4_sensor_fault"
             - bit: 16
               name: "device_temp_alarm_high"
-              description: "Device ambient temperature high alarm."
+              description: "UNVERIFIED: Device ambient temperature high alarm. No parser in app 2.1.9."
             - bit: 17
               name: "device_temp_alarm_low"
-              description: "Device ambient temperature low alarm."
+              description: "UNVERIFIED: Device ambient temperature low alarm. No parser in app 2.1.9."
             - bit: 18
               name: "charging"
-              description: "Device is charging."
+              description: "UNVERIFIED: Device is charging. No parser in app 2.1.9."
             - bit: 19
               name: "backlight"
-              description: "LCD backlight is on."
+              description: "UNVERIFIED: LCD backlight is on. No parser in app 2.1.9."
             - bits: [20, 21, 22, 23, 24, 25]
               name: "wifi_status"
-              description: "WiFi connection status for dual-mode devices."
+              description: "WiFi connection status for dual-mode devices (4-probe layout; IBT-26S uses bits 36-41 instead)."
 
       - uuid: "0000ff05-0000-1000-8000-00805f9b34fb"
         name: "response_channel_b"
@@ -430,11 +518,18 @@ ble:
 
       BBQ-4BW (4-probe): Connect → discover services → enable notify on ff01, ff03, ff04, ff05, ff06 →
       write fb000000000000 to ff02 → receive 12-char challenge on ff03 →
-      calculate verify response (recovered algorithm: BBQ4tBwHelper.java:109-132) →
+      calculate verify response (full algorithm under the verify_response
+      command; source: BBQ4tBwHelper.java:109-132) →
       write fcXXXXXXXXXXXX to ff02 →
       read ff04 (status) → read ff01 (temps) → read 2a19 (battery) →
       query all settings (target temp per probe, unit, display time, compensation,
       sound, firmware, alarm, wifi, light, probe color).
+
+      Timing: the app waits ~500 ms after connect before the first write,
+      and chains subsequent init commands with ~120 ms handler delays;
+      auto-connect triggers only when RSSI > -85 dBm. IBT-4WB differs: its
+      fb challenge arrives on ff02 and the verify frame is 16 chars — see
+      the DIALECT WARNING in device.notes.
 
 advertising:
   format: "ble_legacy"
@@ -463,7 +558,7 @@ data_format:
   battery:
     encoding: "uint8"
     unit: "percent"
-    characteristic: "00002a19"
+    characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
 
 model_variants:
   - model: "IBT-2X / BG-BT1X"
@@ -471,13 +566,14 @@ model_variants:
     wifi: false
     handshake: "fixed (fea1b2c3e40000)"
     ff01_bytes: 2
-    notes: "Basic BLE-only single-probe thermometer."
+    notes: "Basic BLE-only single-probe thermometer. Parses ff01 as UNSIGNED u16 (not the s16le of the multi-probe models); fault sentinels on this path are 7fff/8000 only (BBQ1xModel.java:79)."
 
   - model: "IBT-2X (2-probe mode)"
     probes: 2
     wifi: false
+    handshake: "challenge-response (fb/fc, Ibt2xbItem.java:123)"
     ff01_bytes: 6
-    notes: "Two-probe variant under IBT-2XB name."
+    notes: "Two-probe variant under IBT-2XB name. Uses the same fb000000000000 challenge-response handshake as the 4-probe models."
 
   - model: "IBT-4XS"
     probes: 4
@@ -504,11 +600,36 @@ model_variants:
     wifi: false
     handshake: "challenge-response"
     ff01_bytes: 14
-    notes: "6-probe thermometer. Presumed same protocol with extended ff01 data."
+    notes: "6-probe thermometer. ff01 extends as documented, but the ff04 status bitfield differs from the 4-probe layout: single combined fault bit per probe at bits 6-11, WiFi status at bits 36-41 (Ibt26sItemModel.java:67-96) — see the ff04 notes."
 
   - model: "IBT-6X"
     probes: 6
     wifi: false
     handshake: "challenge-response"
     ff01_bytes: 14
-    notes: "6-probe thermometer. Same protocol family."
+    notes: "6-probe thermometer. Same protocol family presumed; no model-specific code path in the app (protocol unverified)."
+
+  - model: "IBT-4WB"
+    probes: 4
+    wifi: true
+    handshake: "challenge-response, timestamp+CRC variant (fb on ff02, 16-char fc verify frame)"
+    ff01_bytes: 18
+    notes: "DIFFERENT DIALECT — matches this spec's discovery keys but is not wire-compatible: timestamp+CRC8 auth on ff02, status on ff03 with its own bitfield, 8-hex-char (s32 LE) per-probe ff01 temps with 32-bit sentinels. See the DIALECT WARNING in device.notes."
+
+  - model: "IBT-4RT"
+    probes: 4
+    wifi: false
+    ff01_bytes: 10
+    notes: "Listed in the app's model constants (TYPE_IBT_4RT); presumed compatible with this spec but undocumented — no model-specific parser was found."
+
+helpful_urls:
+  - title: "8none1/pybq — Python client for the ff00 iBBQ/BBQ thermometer family"
+    url: "https://github.com/8none1/pybq"
+  - title: "Home Assistant core issue #115773 — sibling IBBQ-4T pairs via the Tuya integration (confirms the Tuya WiFi split)"
+    url: "https://github.com/home-assistant/core/issues/115773"
+  - title: "paul43210/inkbird-bw-ble — INT-12-BW binary framing variant plus timestamp+CRC auth with captured test vectors"
+    url: "https://github.com/paul43210/inkbird-bw-ble"
+  - title: "Bluetooth-Devices/inkbird-ble — passive advertisement parser behind Home Assistant's Inkbird support"
+    url: "https://github.com/Bluetooth-Devices/inkbird-ble"
+  - title: "Home Assistant Inkbird integration docs"
+    url: "https://www.home-assistant.io/integrations/inkbird"

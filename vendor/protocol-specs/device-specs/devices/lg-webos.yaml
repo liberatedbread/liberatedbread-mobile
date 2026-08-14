@@ -26,6 +26,8 @@ device:
   name: "LG webOS TV Second Screen Protocol"
   manufacturer: "LG Electronics"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "wifi"
   category: "tv"
   transport: "websocket"

@@ -6,6 +6,8 @@ device:
   name: "iBBQ / Inkbird BLE Meat Thermometer"
   manufacturer: "Inkbird / Tenergy Solis / various OEMs"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "sensor"
   notes: >

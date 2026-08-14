@@ -6,11 +6,15 @@ device:
   name: "Bluetooth LED Name Badge"
   manufacturer: "Generic (multiple OEMs)"
   manufacturer_status: "active"
+  testing:
+    status: untested
   protocol: "ble"
   category: "display"
   notes: >
     Monochrome LED dot-matrix name badge. Sold under many brands on AliExpress.
     Matrix height 11, 12, or 16 rows; width is variable per text/image content.
+    All three heights are fully supported app-side (LedDataUtil.java:577 handles
+    16 rows; the app bundles 16-row font assets ASC16/HZK16/JPK16/KRK16/TWK16).
     Protocol is write-only in practice (no useful reads). Data is written in
     16-byte chunks: a 64-byte header (4 chunks) followed by stripe-major bitmap
     data — the message is split into 8-column-wide stripes of `height` bytes
@@ -22,18 +26,27 @@ device:
     level (raw 16-byte chunks). Device stores messages in flash and persists across
     power cycles. No pairing required. The badge only advertises after the user
     enters BLE transfer mode (press the lower button twice; a Bluetooth icon
-    shows on the display). Advertised name is filtered by contains("LS").
-    Vendor app ecosystem active: com.yannis.ledcard v3.5.1 updated 2025-11-02.
+    shows on the display). Advertised name is filtered by contains("LS")
+    (app-confirmed: BLEScanner.java:154, MainPresenter.java:289).
+    Vendor app ecosystem active: com.yannis.ledcard v3.6.4 (versionCode 64);
+    this spec is verified against a full jadx decompile of v3.6.4.
     NOTE: AliExpress sellers ship mixed generations under the same listings — a
     newer badge generation uses a different, AES-encrypted protocol
     (github.com/timhodson/ble-led-badge), not this "wang"/LSLED one. An open
     replacement firmware for CH582M-based badges exists
     (fossasia/badgemagic-firmware).
-    CONFIDENCE: HIGH (full jadx decompile of com.yannis.ledcard; cross-checked
-    against Elektor Jan/Feb 2023 sniff, Nilhcem, FOSSASIA and Doridian).
-    Evidence: BleDevice.java:18-20 (name "LS", service 0000fee0, char 0000fee1);
-    LedDataUtil.java get64()/bitmapToByteArray() (header + 1-bit conversion);
-    MainMode.java (16-byte chunking); BLEService.java writValue (acknowledged write).
+    CONFIDENCE: HIGH (full jadx decompile of com.yannis.ledcard v3.6.4;
+    cross-checked against Elektor Jan/Feb 2023 sniff, Nilhcem, FOSSASIA and
+    Doridian).
+    Evidence (v3.6.4 jadx): BleDevice.java:11-20 (name "LS", service 0000fee0,
+    char 0000fee1); LedDataUtil.java:153-177 (get64() header byte-for-byte),
+    352-355 (per-slot length stored big-endian via byte swap); MainMode.java:59-109
+    (64-byte header as 4 chunks, bitmap zero-padded into 16-byte chunks);
+    MainPresenter.java:114,122,391 (300 ms before the first data chunk, 25 ms
+    between chunks, 3 s per-write ack timeout); BLEService.java:239-242
+    (writeCharacteristic with no setWriteType = default acknowledged write).
+    No CRC/checksum code anywhere in the app sources; service 0xFEE7 and
+    characteristics 0xFEC7-FEC9 are never referenced by the app.
   identification:
     local_name_prefix: "LS"
     service_uuids:
@@ -59,7 +72,9 @@ device:
     notes: >
       No provisioning. These badges are widely reported as finicky to connect:
       they accept one central at a time and often need a power cycle between
-      clients.
+      clients. This is user-reported, device-side behavior; the decompiled
+      v3.6.4 app contains no connection-management code that bears on it,
+      so there is no app-side evidence either way.
     methods:
       - type: "ble_direct"
         verified: false

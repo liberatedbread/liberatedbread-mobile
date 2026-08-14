@@ -22,6 +22,8 @@ device:
   name: "PAX Vaporizer"
   manufacturer: "PAX Labs"
   manufacturer_status: "unsupported"
+  testing:
+    status: untested
   protocol: "ble"
   category: "appliance"
   notes: >
@@ -38,9 +40,17 @@ device:
     AES-128-ECB encrypt with master key -> per-device key.
     Encrypt: AES-128-OFB with per-device key and random 16-byte IV.
     Wire format: [ciphertext] + [IV (16 bytes)]. On read, the LAST 16 bytes = IV.
-    The IV deadbeefdeadbeefdeadbeefdeadbeef belongs to the AES-CTR
+    The IV deadbeefdeadbeefdeadbeefdeadbeef is the fixed IV for the AES-CTR
     pairing/enrollment path, not OFB (reclassified — see annotations below).
-    Also has AES-128-CTR mode for initial pairing/enrollment (service ...0210, char ...0212).
+    Confirmed: com/pax/peace/encryption/i.java:23-27 builds the 16-byte array
+    from bytes 222,173,190,239 (0xDE,0xAD,0xBE,0xEF) repeated 4x and returns it
+    as the provider-wide IV (i.java:122-124); DeviceManager.java:692 passes it
+    as the initVector to AESCTREncryption, whose constructor names the params
+    "key"/"initVector" (encryption/a.java:14-19).
+    Also has AES-128-CTR mode for initial pairing/enrollment: enrollment service
+    8e320210 (g/p/g.java:133), internal write characteristic 8e320212
+    (com/pax/peace/d.java:9, labelled INTERNAL_WRITE_CHARACTERISTIC at
+    g/q/k.java:30-32). App-confirmed, not hardware-tested.
     Temperature encoding: uint16 LE, value / 10 = degrees C.
     Nordic Semiconductor chipset. FCC ID: 2AJWD-PAX3.
     PAX is explicitly allowed by project policy.
@@ -53,11 +63,18 @@ device:
     little-endian bitfield, but exact semantics remain partly unresolved. Device
     Information Service serial-number characteristic 00002a25 is read to obtain
     the 8-character serial for key derivation. AESEncryption.kt confirms the
-    master key byte array and AES/OFB128/NoPadding data-plane cipher. The enrich
-    branch found app code returning ciphertext plus trailing IV on encrypt and
-    reading the IV from the last 16 bytes on decrypt; it also reclassified
+    master key byte array (b.java:60), the AES/ECB/NoPadding key-derivation
+    cipher (b.java:53, encrypting the serial duplicated to 16 bytes at
+    b.java:61-67) and the AES/OFB128/NoPadding data-plane cipher (b.java:58).
+    The [ciphertext || IV] wire format is confirmed on the decrypt side:
+    g/q/l.java:37-41 takes the IV from the LAST 16 bytes of the read value and
+    decrypts the remainder. The enrich branch reclassified
     deadbeefdeadbeefdeadbeefdeadbeef as the fixed AES-CTR pairing/enrollment IV,
-    not an OFB fallback. Attribute IDs are multiplexed by byte 0 and map to
+    not an OFB fallback (i.java:23-27). Headline UUIDs are all app-confirmed in
+    PaxServiceType.kt / companion tables: main service 8e320200
+    (g/p/g.java:182), read char 8e320201 and notify char 8e320203
+    (g/p/f.java:31-34), write char 8e320202 (com/pax/peace/d.java:8).
+    Attribute IDs are multiplexed by byte 0 and map to
     PAXAttribute.kt; STATUS_UPDATE and many per-attribute payloads remain
     documented in prose because the schema cannot express all variants.
 
@@ -68,7 +85,9 @@ device:
     web-app bundle and is the best public source for the Era Pro enrollment
     UUIDs. The TristWiki protocol notes (live site down; Wayback captures)
     archive a 33-entry attribute table including ENCRYPTION_EXCHANGE=49 and
-    ENCRYPTION_PACKET=50 (Era Pro session-key negotiation).
+    ENCRYPTION_PACKET=50 (Era Pro session-key negotiation). The app confirms
+    attribute IDs 49 and 50 under the names KEY_EXCHANGE and ENCRYPTED_PACKET
+    (models/u.java:51-52) — app-confirmed, not hardware-tested.
   identification:
     local_name_prefix: "PAX"
     service_uuids:
@@ -213,7 +232,9 @@ services:
           appended on the wire (ciphertext || IV). A secondary AES-128-CTR path
           (enrollment/pairing, key stored in the app DB) also exists. Confidence HIGH.
           Evidence: com/pax/peace/encryption/b.java:53,58,60,65,70,74;
-          a.java:26 (AES/CTR); com/pax/peace/d.java:8-9 (service/write UUIDs).
+          a.java:26 (AES/CTR); g/p/g.java:182 (service UUID);
+          com/pax/peace/d.java:8 (this write char 8e320202; d.java:9 is the
+          enrollment service's internal write char 8e320212, not a service UUID).
         commands:
           get_actual_temp:
             description: "Current temperature attribute (type 0x01). No public client polls with a bare attribute byte — the documented mechanism is request_status_update with the attribute's bit set, then a read; TristWiki marks ACTUAL_TEMP write unsupported."
@@ -291,6 +312,41 @@ services:
           is NOT an OFB-encrypted payload.
           Confidence HIGH. Evidence: com/pax/peace/g/p/f.java:31 (this char UUID);
           single-byte semantics per blraaz.me and tristanseifert PaxDevice.swift.
+
+  - uuid: "8e320210-64d2-11e6-bdf4-0800200c9a66"
+    name: "PAX Enrollment Service"
+    notes: >
+      Era Pro pairing/enrollment service. Payloads use AES-128-CTR with the
+      fixed enrollment IV deadbeefdeadbeefdeadbeefdeadbeef (see device notes);
+      the session key is established during the enrollment handshake.
+      App-confirmed, not hardware-tested.
+      Evidence: g/p/g.java:133 (service UUID in PaxServiceType.kt).
+    characteristics:
+      - uuid: "8e320212-64d2-11e6-bdf4-0800200c9a66"
+        name: "Internal Write"
+        properties: ["write"]
+        encryption:
+          algorithm: "aes-128-ctr"
+          key_derivation: "handshake"
+        notes: >
+          Enrollment write characteristic; the app frames writes as
+          [attribute ID byte] + payload (g/q/k.java:33-38 prepends
+          paxAttribute.valueToByte()). Attribute IDs include KEY_EXCHANGE=49
+          and ENCRYPTED_PACKET=50 (models/u.java:51-52). CTR decrypt on this
+          path uses the fixed deadbeef... initVector (DeviceManager.java:692,
+          i.java:23-27,122-124; a.java:14-19 names the ctor params
+          "key"/"initVector"). App-confirmed, not hardware-tested.
+          Evidence: com/pax/peace/d.java:9 (UUID), g/q/k.java:30-32
+          (INTERNAL_WRITE_CHARACTERISTIC).
+      - uuid: "8e320213-64d2-11e6-bdf4-0800200c9a66"
+        name: "Internal Read/Notify"
+        properties: ["read", "notify"]
+        notes: >
+          Second enrollment characteristic: the app's notification routing
+          table registers 8e320213 as BOTH the data-ready (notify) and the
+          read characteristic of the enrollment service
+          (g/p/f.java:44-49, INTERNAL_SERVICE_NOTIFICATION). App-confirmed,
+          not hardware-tested.
 
 entities:
   - platform: "sensor"
