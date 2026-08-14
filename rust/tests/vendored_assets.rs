@@ -664,13 +664,20 @@ fn smartdawn_light_exposes_framed_power_and_brightness() {
         Some(yaml),
         Some(turn_on.service_uuid.clone()),
         turn_on.characteristic_uuid.clone(),
-        turn_on.command_name.clone().expect("power_on names a command"),
+        turn_on
+            .command_name
+            .clone()
+            .expect("power_on names a command"),
         std::collections::HashMap::new(),
     )
     .expect("power_on encodes now that the framing scheme is implemented");
     // 4-byte fragment header [serial, total, remaining, tag] then F0 04 …; the
     // power-on mt (09 D2) sits at DNX offset 6 -> whole-packet offset 10.
-    assert_eq!(&bytes[0..4], &[0, 1, 0, 0], "fragment header wraps the command");
+    assert_eq!(
+        &bytes[0..4],
+        &[0, 1, 0, 0],
+        "fragment header wraps the command"
+    );
     assert_eq!(bytes[4], 0xF0, "DNX flag follows the fragment header");
     assert_eq!(&bytes[10..12], &[0x09, 0xD2], "M_SET_POWERON");
 }
