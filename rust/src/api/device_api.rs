@@ -3423,6 +3423,189 @@ pub fn identify_standard_profiles(service_uuids: Vec<String>) -> Vec<ProfileInfo
         .collect()
 }
 
+// ── Device adoption (WiFi SoftAP setup) ──────────────────────────────────────
+//
+// The algorithmic half of putting a reset device onto a network from its own
+// setup AP. The conversations are I/O and belong to Dart; what crosses here is
+// the same kind of thing the rest of the API moves — bytes and strings computed
+// from the spec's rules, testable without a device. The LIFX SoftAP primitives
+// live above (`build_lifx_get_access_points` and friends); these add the Wemo
+// side (SOAP), and the softap-profile extraction both families share for the
+// "a setup network is nearby" hint.
+
+/// One spec's softap setup method — the catalogue's answer to "what setup
+/// networks exist and where does the device answer on them".
+#[derive(Debug, Clone)]
+pub struct SoftApProfileDto {
+    /// `device.name` — what the adopt UI calls the family.
+    pub spec_name: String,
+    /// `device.category`, for the icon.
+    pub category: Option<String>,
+    /// `softap_soap`, `softap_udp`, `softap_http` — what the flow dispatches on.
+    pub method_type: String,
+    /// Case-insensitive SSID prefix of the setup AP.
+    pub ssid_prefix: String,
+    pub ssid_examples: Vec<String>,
+    /// True when the setup AP takes no passphrase; absent when the spec does
+    /// not say.
+    pub open_network: Option<bool>,
+    /// Where the device answers on its own AP, when documented.
+    pub gateway_ip: Option<String>,
+    /// Documented port first, then the probe list, deduplicated in order.
+    pub ports: Vec<u16>,
+}
+
+/// Every softap setup method the given specs declare, catalogue order. Specs
+/// that fail to parse are skipped — the watcher must not lose Wemo because a
+/// different spec broke.
+pub fn soft_ap_profiles(spec_yamls: Vec<String>) -> Vec<SoftApProfileDto> {
+    let specs: Vec<DeviceSpec> = spec_yamls
+        .iter()
+        .filter_map(|yaml| parse_device_spec(yaml).ok())
+        .collect();
+    crate::spec::setup::soft_ap_profiles(specs.iter())
+        .into_iter()
+        .map(|p| SoftApProfileDto {
+            spec_name: p.spec_name,
+            category: p.category,
+            method_type: p.method_type,
+            ssid_prefix: p.ssid_prefix,
+            ssid_examples: p.ssid_examples,
+            open_network: p.open_network,
+            gateway_ip: p.gateway_ip,
+            ports: p.ports,
+        })
+        .collect()
+}
+
+/// Whether `ssid` looks like any profile's setup AP; the index of the first
+/// profile it matches, else null. The prefix rule is the spec's:
+/// case-insensitive, anchored at the start.
+pub fn match_soft_ap_ssid(profiles: Vec<SoftApProfileDto>, ssid: String) -> Option<u32> {
+    profiles
+        .iter()
+        .position(|p| crate::spec::setup::ssid_matches_prefix(&p.ssid_prefix, &ssid))
+        .map(|i| i as u32)
+}
+
+/// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
+/// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
+///
+/// This is where the Wemo credential-send is assembled in full: the passphrase
+/// is encrypted (every variant of the spec's sweep, in order) and each attempt
+/// is rendered into a SOAP request through the same `setup_connect_home_network`
+/// command the catalogue publishes. The caller POSTs each in turn until one
+/// joins — it owns only the socket and the poll, never the crypto or the XML,
+/// exactly as control's `render_network_command` leaves it.
+///
+/// An open network (`encrypt` NONE / `auth` OPEN) yields a single request with
+/// an empty password and no encryption; `meta_info` is then unused. For a
+/// secured network `meta_info` is the raw `GetMetaInfo` reply. Fails when the
+/// passphrase is outside the device's documented bounds (under 8 characters is
+/// terminal), before any network I/O.
+pub fn render_wemo_connect_requests(
+    spec_yaml: String,
+    meta_info: String,
+    ssid: String,
+    auth: String,
+    encrypt: String,
+    channel: String,
+    passphrase: String,
+) -> anyhow::Result<Vec<SoapRequestDto>> {
+    use std::collections::BTreeMap;
+    let spec = parse_device_spec(&spec_yaml)?;
+    let is_open = encrypt.eq_ignore_ascii_case("NONE") || auth.eq_ignore_ascii_case("OPEN");
+
+    let render = |password: &str, auth: &str, encrypt: &str| -> anyhow::Result<SoapRequestDto> {
+        let values: BTreeMap<String, String> = [
+            ("ssid", ssid.as_str()),
+            ("auth", auth),
+            ("password", password),
+            ("encrypt", encrypt),
+            ("channel", channel.as_str()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        Ok(SoapRequestDto::from(crate::protocol::soap::render_request(
+            &spec,
+            "setup_connect_home_network",
+            &values,
+        )?))
+    };
+
+    if is_open {
+        // The spec's open-network rule: auth OPEN, encrypt NONE, empty password.
+        return Ok(vec![render("", "OPEN", "NONE")?]);
+    }
+    crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, None, None)?
+        .into_iter()
+        .map(|c| render(&c.password, &auth, &encrypt))
+        .collect()
+}
+
+/// The join state a Wemo `GetNetworkStatus` code names — the protocol's own
+/// vocabulary, kept in Rust with the rest of the Wemo semantics rather than
+/// re-spelled at each caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WemoJoinStatus {
+    /// 0 — still trying. Keep polling.
+    Connecting,
+    /// 1 — connected. Terminal success.
+    Connected,
+    /// 2 — rejected because the passphrase is under 8 characters. Terminal.
+    Rejected,
+    /// 3 — handshaking. Usually becomes Connected within a few seconds.
+    Handshaking,
+    /// Anything else the device might answer.
+    Unknown,
+}
+
+/// Interpret a `GetNetworkStatus` reply's `NetworkStatus` value.
+pub fn wemo_network_status(code: String) -> WemoJoinStatus {
+    match code.trim() {
+        "0" => WemoJoinStatus::Connecting,
+        "1" => WemoJoinStatus::Connected,
+        "2" => WemoJoinStatus::Rejected,
+        "3" => WemoJoinStatus::Handshaking,
+        _ => WemoJoinStatus::Unknown,
+    }
+}
+
+/// One network out of a Wemo `GetApList` reply.
+#[derive(Debug, Clone)]
+pub struct WemoAccessPointDto {
+    pub ssid: String,
+    /// Verbatim — it goes back verbatim as the `channel` argument.
+    pub channel: String,
+    /// `WPA2PSK`, `OPEN`, … or `Unknown`: the device saying it cannot express
+    /// that network's security (WPA3 appears this way).
+    pub auth: String,
+    /// `AES`, `NONE`, `TKIPAES`; absent when the auth was `Unknown`.
+    pub encrypt: Option<String>,
+    /// False for the `Unknown` marker — the remedy is a WPA2 SSID, not a retry.
+    pub joinable: bool,
+    /// Open networks take `auth=OPEN, encrypt=NONE` and an empty password,
+    /// skipping the encryption entirely.
+    pub is_open: bool,
+}
+
+/// Parse a Wemo `GetApList` reply by the spec's rules: skip the header line,
+/// split on `|`, the LAST column is `AUTHMODE/CIPHER`.
+pub fn parse_wemo_ap_list(ap_list: String) -> Vec<WemoAccessPointDto> {
+    crate::protocol::wemo_setup::parse_ap_list(&ap_list)
+        .into_iter()
+        .map(|ap| WemoAccessPointDto {
+            is_open: ap.is_open(),
+            ssid: ap.ssid,
+            channel: ap.channel,
+            auth: ap.auth,
+            encrypt: ap.encrypt,
+            joinable: ap.joinable,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
