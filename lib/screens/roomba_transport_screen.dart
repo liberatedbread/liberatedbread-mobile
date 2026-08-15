@@ -101,9 +101,13 @@ class _RoombaTransportScreenState extends ConsumerState<RoombaTransportScreen> {
   Future<void> _chooseHa(HaEntityState entity) async {
     final credentials = widget.credentials;
     if (credentials != null) {
-      await ref
-          .read(roombaCredentialStoreProvider)
-          .setHaEntityId(credentials.blid, entity.entityId);
+      final store = ref.read(roombaCredentialStoreProvider);
+      await store.setHaEntityId(credentials.blid, entity.entityId);
+      // Clear the other transport, like its two siblings do. Leaving a stale
+      // rest980 address behind means two are configured at once — harmless
+      // only because the factory happens to prefer HA, which is a coincidence
+      // this screen should not depend on.
+      await store.setRest980BaseUrl(credentials.blid, null);
     }
     widget.onHaEntityChosen?.call(entity);
     if (mounted) Navigator.of(context).pop(entity);

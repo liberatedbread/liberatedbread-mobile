@@ -544,6 +544,20 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
       setState(() => _error = 'Both the BLID and the password are needed.');
       return;
     }
+    // The same trap the account route had: this screen was opened for ONE
+    // robot, and the scan flow that follows looks its password up by THAT
+    // blid. Saving under a different one reports success and then fails later
+    // as "No password saved for this robot yet" — with the credential sitting
+    // right there under the wrong key. The field is prefilled, so a mismatch
+    // means it was edited.
+    if (blid.toUpperCase() != widget.blid.toUpperCase()) {
+      setState(
+          () => _error = 'That BLID is not this robot. This screen is adopting '
+              '${widget.blid}; saving ${blid.toUpperCase()} here would store the '
+              'password where nothing will look for it. Re-check the BLID, or go '
+              'back and pick the other robot.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
