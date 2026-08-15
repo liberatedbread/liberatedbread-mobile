@@ -381,6 +381,8 @@ instead, so building is the whole requirement.
 │   ├── run-remote-mac.sh       # Linux → iPhone via a remote Mac over SSH
 │   ├── e2e-walkthrough.sh      # Scripted screenshot walkthrough (macOS)
 │   ├── e2e_shot_server.py      # Host-side screenshot server for the above
+│   ├── install-linux-desktop-entry.sh
+│   │                           # Desktop entry + icons, so Wayland can find the app
 │   ├── verify_linux_bundle.sh  # Assert the Linux bundle really contains the Rust .so
 │   └── test.sh                 # Local CI mirror (format, analyze, test, clippy)
 └── docs/
