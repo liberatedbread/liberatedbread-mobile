@@ -35,6 +35,30 @@ class RabbitAirKeyStore {
   Future<void> saveUserKey(String deviceId, String key) =>
       _store.write(_key(deviceId), key.trim().toLowerCase());
 
+  /// Every stored user key, for a caller that meets a purifier before it can
+  /// learn which scope the key was filed under — the BLE control path, which
+  /// sees only a BLE identity until a successful handshake reveals the Thing
+  /// ID. The candidate for [preferredScope] (the BLE-device scope) comes
+  /// first; the rest follow in no particular order, deduplicated by value so
+  /// a key filed under two scopes is tried once. Probing a handful of wrong
+  /// keys is safe: a wrong key simply does not decrypt.
+  Future<List<String>> candidateKeys({String? preferredScope}) async {
+    final all = await _store.readAll();
+    final keys = <String>[];
+    void add(String? key) {
+      if (key != null && !keys.contains(key)) keys.add(key);
+    }
+
+    if (preferredScope != null) add(all[_key(preferredScope)]);
+    for (final entry in all.entries) {
+      if (entry.key.startsWith('rabbitair.') &&
+          entry.key.endsWith('.userkey')) {
+        add(entry.value);
+      }
+    }
+    return keys;
+  }
+
   /// Forget the key — e.g. after the device was factory-reset and
   /// reprovisioned, which mints a fresh one.
   Future<void> forget(String deviceId) => _store.delete(_key(deviceId));

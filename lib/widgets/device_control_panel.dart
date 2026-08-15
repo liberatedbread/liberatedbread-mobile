@@ -11,6 +11,7 @@ import '../core/log.dart';
 import '../models/ble_discovered_service.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_spec_match_provider.dart';
+import '../providers/network_control_provider.dart';
 import '../providers/spec_choice_provider.dart';
 import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
@@ -18,6 +19,7 @@ import 'binary_sensor_card.dart';
 import 'entity_sensor_card.dart';
 import 'led_image_widget.dart';
 import 'light_control_card.dart';
+import 'rabbit_air_controls_panel.dart';
 import 'raw_characteristic_widget.dart';
 import 'setpoint_control_card.dart';
 import 'switch_control_card.dart';
@@ -77,6 +79,23 @@ class DeviceControlPanel extends ConsumerWidget {
         ))
         .valueOrNull;
     final match = outcome?.chosen;
+
+    // A Rabbit Air purifier matched over BLE: its spec's entities ride the
+    // encrypted envelope protocol, not the typed GATT command model — the
+    // same check NetworkDeviceScreen makes, from this side's spec match. The
+    // whole panel is the shared Rabbit Air surface over the BLE transport.
+    final rabbitAirEntities = match == null
+        ? null
+        : ref.watch(rabbitAirBleControlsProvider(match.yaml)).valueOrNull;
+    if (match != null && rabbitAirEntities != null) {
+      return RabbitAirBleControlsPanel(
+        key: const ValueKey('rabbit-air-ble-controls'),
+        deviceId: deviceId,
+        specYaml: match.yaml,
+        entities: rabbitAirEntities,
+        services: services,
+      );
+    }
 
     // Entities the spec declares, paired with the discovered service that
     // actually carries them. An entity whose characteristics were not

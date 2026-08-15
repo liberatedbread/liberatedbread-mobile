@@ -348,6 +348,50 @@ abstract class SpecCodec {
     required int localNowSecs,
   });
 
+  // ── Rabbit Air BLE provisioning transport ─────────────────────────────────
+  // The same payload a UDP datagram would carry, framed for the GATT command
+  // characteristic: a 2-byte little-endian payload-length prefix, then
+  // consecutive chunks. Dart owns the connection, MTU negotiation,
+  // notification accumulation, and the response timeout.
+
+  /// Frame [payload] for the BLE command characteristic: the length prefix,
+  /// then chunks of [chunkSize] bytes, in write order. Throws when
+  /// [chunkSize] cannot carry the prefix plus one payload byte.
+  Future<List<List<int>>> rabbitAirBleFrame({
+    required List<int> payload,
+    required int chunkSize,
+  });
+
+  /// The total payload length the first notification of a BLE reply
+  /// announces, or null when the chunk is shorter than the 2-byte prefix and
+  /// must be ignored.
+  Future<int?> rabbitAirBleExpectedPayloadLen({required List<int> firstChunk});
+
+  /// Render a setup-phase envelope: minified cleartext `{"id":id,"cmd":cmd}`
+  /// with `,"data":<object>` when [dataJson] is supplied — no `ts`, no
+  /// encryption. [id] is the caller's per-client counter starting at 0.
+  /// Throws when [dataJson] is not a JSON object.
+  Future<String> renderRabbitAirSetupEnvelope({
+    required int id,
+    required int cmd,
+    String? dataJson,
+  });
+
+  /// Generate a user key the way the vendor app does: 32 random uppercase
+  /// hex characters, pushed during setup (cmd 5, type 4).
+  Future<String> rabbitAirGenerateUserKey();
+
+  /// The GATT service UUID the Rabbit Air BLE protocol lives on.
+  Future<String> rabbitAirBleServiceUuid();
+
+  /// The command characteristic UUID: write-with-response for requests,
+  /// notifications for responses.
+  Future<String> rabbitAirBleCommandCharacteristicUuid();
+
+  /// The ATT MTU the client requests (515); the negotiated chunk size is
+  /// MTU - 5, and the pre-negotiation default is 512.
+  Future<int> rabbitAirBleMtu();
+
   /// Decode one entity's state from the name→value pairs a state call
   /// returned. Null when the reply did not carry the entity's value — which
   /// renders as unknown, never as a fabricated zero.

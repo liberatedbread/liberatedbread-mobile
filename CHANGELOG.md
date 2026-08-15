@@ -407,6 +407,60 @@ heading.
 
 ### Added
 
+- **Setup-mode Rabbit Air purifiers get a real device view.** A purifier
+  advertising as "RabbitAirSetup" answers the cleartext command envelope —
+  no key, no `ts` — so the BLE device screen now shows it instead of the raw
+  GATT browser: `RabbitAirSetupInfoPanel` reads cmd 255 (Thing ID, MAC,
+  Wi-Fi firmware) into an info card and polls cmd 4 every 5 s for the live
+  state, decoded through the same `rabbitAirStateFields` flattening and
+  entity decoding the control surface uses, rendered with a shared read-only
+  `RabbitAirReadingCard` extracted from the controls panel (no toggles, no
+  key prompt — there is no key yet). The advertised-name decision lives in
+  exactly one place now (`DeviceScreen`): "RabbitAirSetup*" gets this view,
+  anything else the spec-matched control panel, which still forks to the
+  keyed BLE controls for provisioned units. The "Set up Wi-Fi" card moved
+  into the new view — a user looking at a setup-mode unit is precisely the
+  onboarding candidate. Read failures degrade to a retry card with the last
+  good readings left on screen.
+- **Rabbit Air purifiers: BLE provisioning and BLE control.** The purifier
+  can now be put on the home Wi-Fi without the vendor cloud at all: a new
+  setup flow (`RabbitAirSetupScreen`, reachable from the BLE device screen of
+  a "RabbitAirSetup" advertiser and from the Wi-Fi adoption screen's family
+  list) drives the BLE setup conversation — connect, info read (cmd 255,
+  which also yields the Thing ID and Wi-Fi firmware version), the cmd 0
+  network-list poll (re-polled up to 15×), join (cmd 1, echoing the chosen
+  network's `security`), a freshly generated user key pushed with cmd 5
+  (gated on Wi-Fi firmware v24, with a message that says so on older units),
+  and leave-setup-mode (cmd 2). The key is filed under the Thing ID, so the
+  LAN control path finds it by the device's mDNS hostname, and a best-effort
+  watch for the unit on the LAN confirms the join (a timeout is "done,
+  unconfirmed", not a failure). The transport (`RabbitAirBleClient`) frames
+  each payload with the 2-byte little-endian length prefix and MTU-5 chunking
+  the codec provides, writes with response, and reassembles notifications
+  against the announced length under the vendor's 7 s window. A provisioned
+  purifier matched over BLE gets the full control surface too: the network
+  screen's Rabbit Air section was extracted into a shared
+  `RabbitAirControlsPanel` parameterized by a small transport abstraction
+  (`RabbitAirControlTransport` — userKey / saveUserKey / syncClock /
+  nextRequestId / deviceTs / send), with the LAN implementation wrapping the
+  existing UDP client and `RabbitAirBleControl` driving the same encrypted
+  envelopes over GATT. Because BLE meets the purifier before its Thing ID is
+  known, the BLE transport quietly probes every stored Rabbit Air key
+  (`SettingsStore` grew a `readAll` for exactly this), and re-files the
+  working key under the Thing ID once a cmd 255 read reveals it.
+- **Rabbit Air BLE transport primitives in the Rust core.** The building
+  blocks for the purifier's BLE provisioning path (the sibling of the LAN
+  transport above): payload framing for the GATT command characteristic
+  (2-byte little-endian payload-length prefix, then chunks of MTU - 5 bytes —
+  510 at the vendor app's negotiated MTU 515, 512 before negotiation), reply
+  length announcement for notification reassembly, the cleartext setup-phase
+  envelope renderer (`{"id", "cmd"[, "data"]}`, no `ts`, no encryption), and
+  client-side user-key generation (32 random uppercase hex characters).
+  Exposed over FRB and through the `SpecCodec` abstraction
+  (`rabbitAirBleFrame`, `rabbitAirBleExpectedPayloadLen`,
+  `renderRabbitAirSetupEnvelope`, `rabbitAirGenerateUserKey`, plus the service
+  / characteristic UUID and MTU getters); Dart owns the GATT connection, the
+  accumulation loop and the 7 s response timeout.
 - **The Linux desktop build has an app icon.** It was the one platform without
   one: iOS, macOS, Android and web all carried the mascot, and the GTK build
   shipped whatever generic placeholder the desktop supplies — so a running

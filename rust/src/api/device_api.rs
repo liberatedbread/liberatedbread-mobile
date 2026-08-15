@@ -1966,6 +1966,68 @@ pub fn rabbit_air_time_sync_offset(reply_json: String, local_now_secs: u32) -> a
     )?)
 }
 
+/// Frame a Rabbit Air payload for the BLE command characteristic: the 2-byte
+/// little-endian payload-length prefix, then chunks of `chunk_size` bytes,
+/// in write order. Dart writes each chunk with response and reads the reply
+/// back through [`rabbit_air_ble_expected_payload_len`]; the payload itself —
+/// cleartext setup JSON or an AES datagram's bytes — is unchanged from what a
+/// UDP datagram would carry.
+pub fn rabbit_air_ble_frame(payload: Vec<u8>, chunk_size: u32) -> anyhow::Result<Vec<Vec<u8>>> {
+    Ok(crate::protocol::rabbit_air_ble::frame_payload(
+        &payload,
+        chunk_size as usize,
+    )?)
+}
+
+/// The total payload length the first notification of a BLE reply announces
+/// (the 2-byte little-endian prefix), or `None` when the chunk is shorter
+/// than the prefix and must be ignored. Dart accumulates notification bodies
+/// — skipping only the first chunk's prefix — until this many payload bytes
+/// have arrived.
+pub fn rabbit_air_ble_expected_payload_len(first_chunk: Vec<u8>) -> Option<u32> {
+    crate::protocol::rabbit_air_ble::expected_payload_len(&first_chunk).map(|len| len as u32)
+}
+
+/// Render a setup-phase envelope: minified cleartext `{"id":id,"cmd":cmd}`
+/// with `,"data":<object>` appended when `data_json` is supplied — no `ts`,
+/// no encryption, `id` the caller's per-client counter starting at 0. Errors
+/// when `data_json` is not a JSON object.
+pub fn render_rabbit_air_setup_envelope(
+    id: u32,
+    cmd: u32,
+    data_json: Option<String>,
+) -> anyhow::Result<String> {
+    Ok(crate::protocol::rabbit_air_ble::render_setup_envelope(
+        id,
+        cmd,
+        data_json.as_deref(),
+    )?)
+}
+
+/// Generate a user key the way the vendor app does: 32 random uppercase hex
+/// characters. The client pushes it during setup (cmd 5, type 4) and keeps it
+/// as the AES key for every later exchange.
+pub fn rabbit_air_generate_user_key() -> String {
+    crate::protocol::rabbit_air_ble::generate_user_key()
+}
+
+/// The GATT service UUID the Rabbit Air BLE protocol lives on.
+pub fn rabbit_air_ble_service_uuid() -> String {
+    crate::protocol::rabbit_air_ble::SERVICE_UUID.to_string()
+}
+
+/// The command characteristic UUID: write-with-response for requests,
+/// notifications for responses.
+pub fn rabbit_air_ble_command_characteristic_uuid() -> String {
+    crate::protocol::rabbit_air_ble::COMMAND_CHARACTERISTIC_UUID.to_string()
+}
+
+/// The ATT MTU the client requests (515); the negotiated chunk size is
+/// MTU - 5, and the pre-negotiation default is 512.
+pub fn rabbit_air_ble_mtu() -> u32 {
+    u32::from(crate::protocol::rabbit_air_ble::NEGOTIATED_MTU)
+}
+
 /// Render the argument-less request that reads a state command's values —
 /// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
 pub fn render_network_state_request(
