@@ -210,6 +210,194 @@ http_endpoints:
     request_body:
       content_type: "application/json"
 
+commands:
+  # OCP control is attribute writes, and an attribute write with its value
+  # already chosen is exactly what a command is — so each one gets a name a
+  # role map can point at, instead of the role map carrying the attribute and
+  # a convention for reading it. Every entry is one PUT to the Appliance
+  # Command endpoint with a single-property JSON body; see that endpoint for
+  # the encoding and its confidence.
+  #
+  # Confidence is uniformly `reported`: the attribute names and value
+  # vocabularies come from the app's bundled capability profiles and its
+  # attribute-name enum, not from a traffic capture.
+  set_temperature:
+    description: "Set the target temperature in Celsius."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      targetTemperatureC: "{temperature}"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+        description: "The appliance's OCP id, taken from the Appliance List response. Account-scoped rather than secret, but per-device and not guessable — a client without it must fail the send."
+      temperature:
+        type: "uint8"
+        min: 16
+        max: 30
+        unit: "C"
+        description: "16-30 C in steps of 1, per the bundled capability profile."
+    verification: "reported"
+  set_fan_mode:
+    description: "Set fan speed."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      fanSpeedSetting: "{fan_mode}"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+      fan_mode:
+        type: "string"
+        enum: ["AUTO", "HIGH", "MIDDLE", "LOW", "TURBO"]
+        description: "The profile spells the middle step MIDDLE, not Medium. TURBO drops out of the allowed set while energySavingMode is ON."
+    verification: "reported"
+  set_hvac_mode:
+    description: "Set the operating mode."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      mode: "{hvac_mode}"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+      hvac_mode:
+        type: "string"
+        enum: ["AUTO", "COOL", "FANONLY", "HEAT"]
+        description: "Eco is NOT a mode value — it is the separate energySavingMode attribute."
+    verification: "reported"
+  turn_on:
+    description: "Power the unit on."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      executeCommand: "ON"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    notes: "executeCommand is write-only; power state reads back from `mode`, not from this attribute."
+    verification: "reported"
+  turn_off:
+    description: "Power the unit off."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      executeCommand: "OFF"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    verification: "reported"
+  sleep_mode_on:
+    description: "Enable sleep mode."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      sleepMode: "ON"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    notes: "The daiane window-AC profile omits sleepMode, so availability on window units is unverified."
+    verification: "reported"
+  sleep_mode_off:
+    description: "Disable sleep mode."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      sleepMode: "OFF"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    verification: "reported"
+  display_on:
+    description: "Turn the panel display to full brightness."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      displayLight: "DISPLAY_LIGHT_100"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    notes: "displayLight is an enum, not a boolean."
+    verification: "reported"
+  display_off:
+    description: "Turn the panel display off."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      displayLight: "DISPLAY_LIGHT_0"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    verification: "reported"
+  energy_saving_on:
+    description: "Enable energy-saving (eco) mode."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      energySavingMode: "ON"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    notes: "Turning this on removes TURBO from the allowed fanSpeedSetting values, per the profile's triggers."
+    verification: "reported"
+  energy_saving_off:
+    description: "Disable energy-saving (eco) mode."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      energySavingMode: "OFF"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    verification: "reported"
+  clean_air_on:
+    description: "Enable the ionizer."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      cleanAirMode: "ON"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    notes: "The daiane profile marks cleanAirMode access 'read', so write support is unverified — lower confidence than the rest of this block."
+    verification: "hypothesis"
+  clean_air_off:
+    description: "Disable the ionizer."
+    transport: "http"
+    method: "PUT"
+    path: "/appliance/api/v2/appliances/{applianceId}/command"
+    arguments:
+      cleanAirMode: "OFF"
+    parameters:
+      applianceId:
+        type: "string"
+        source: "credential:appliance_id"
+    verification: "hypothesis"
+
 entities:
   - platform: "climate"
     name: "Air Conditioner"
@@ -229,11 +417,10 @@ entities:
       AUTO/HIGH/MIDDLE/LOW/TURBO (the profile's spelling is "MIDDLE", not
       Medium). Power is the write-only executeCommand attribute with
       values ON/OFF.
-      Every `commands` value in this and the other entities below is an OCP
-      attribute write sent to the "Appliance Command" endpoint (PUT
-      .../appliances/{applianceId}/command); see that endpoint's description for
-      the encoding — a bare attribute name writes the control's value to that
-      attribute, and "attribute=VALUE" writes the literal VALUE.
+      Every `commands` value in this and the other entities below names an
+      entry in the top-level `commands:` block, each of which is one OCP
+      attribute write to the "Appliance Command" endpoint (PUT
+      .../appliances/{applianceId}/command).
     state_topic: "appliance/{device_id}/state"
     state_mapping:
       current_temperature: "ambientTemperatureC"
@@ -241,11 +428,11 @@ entities:
       fan_mode: "fanSpeedSetting"
       hvac_mode: "mode"
     commands:
-      set_temperature: "targetTemperatureC"
-      set_fan_mode: "fanSpeedSetting"
-      set_hvac_mode: "mode"
-      turn_on: "executeCommand=ON"
-      turn_off: "executeCommand=OFF"
+      set_temperature: "set_temperature"
+      set_fan_mode: "set_fan_mode"
+      set_hvac_mode: "set_hvac_mode"
+      turn_on: "turn_on"
+      turn_off: "turn_off"
 
   - platform: "sensor"
     name: "Room Temperature"
@@ -271,8 +458,8 @@ entities:
     state_mapping:
       value: "sleepMode"
     commands:
-      turn_on: "sleepMode=ON"
-      turn_off: "sleepMode=OFF"
+      turn_on: "sleep_mode_on"
+      turn_off: "sleep_mode_off"
 
   - platform: "switch"
     name: "Display"
@@ -281,8 +468,8 @@ entities:
     state_mapping:
       value: "displayLight"
     commands:
-      turn_on: "displayLight=DISPLAY_LIGHT_100"
-      turn_off: "displayLight=DISPLAY_LIGHT_0"
+      turn_on: "display_on"
+      turn_off: "display_off"
 
   - platform: "switch"
     name: "Energy Saving (Eco)"
@@ -291,8 +478,8 @@ entities:
     state_mapping:
       value: "energySavingMode"
     commands:
-      turn_on: "energySavingMode=ON"
-      turn_off: "energySavingMode=OFF"
+      turn_on: "energy_saving_on"
+      turn_off: "energy_saving_off"
 
   - platform: "switch"
     name: "Clean Air (Ionizer)"
@@ -301,5 +488,5 @@ entities:
     state_mapping:
       value: "cleanAirMode"
     commands:
-      turn_on: "cleanAirMode=ON"
-      turn_off: "cleanAirMode=OFF"
+      turn_on: "clean_air_on"
+      turn_off: "clean_air_off"

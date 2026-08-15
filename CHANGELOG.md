@@ -8,6 +8,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `commands:` blocks for seven specs whose entity role maps named no command
+  — `ratgdo`, `wled-controller`, `lifx-z`, `divoom-pixoo`,
+  `frigidaire-window-ac`, `frigidaire-portable-ac` and (by removal)
+  `rachio-controller`. A role map "carries a name, not a payload", as the
+  `commands` key has always said, but these carried request prose
+  (`'POST /cover/door/open'`), a protocol message type (`'SetPower'`), an
+  attribute name (`'targetTemperatureC'`) or an MQTT topic — none of which any
+  consumer can resolve, and none of which the schema rejects. 46 bindings now
+  name real commands. Two specs are deliberately left: see #41.
+
+- `auto: crc16_modbus`, for MODBUS-RTU framing (reflected polynomial 0xA001,
+  init 0xFFFF, no final xor). Two bytes wide, so the parameter declares
+  `type: uint16` and MODBUS's low-byte-first convention comes from this
+  schema's default `endianness` rather than from the role. `bluetti-power-
+  station` declared the CRC on all three of its commands as an ordinary
+  parameter, which asked a caller for a value it has no way to produce;
+  they now carry the role with `checksum_start: 0`, the address byte being
+  covered.
+
+- `auto: xor_checksum`, a fourth encoder-filled parameter role. `auto:
+  checksum` is an additive sum8 salted by `checksum_xor`; the Govee 20-byte
+  frames end in an XOR fold over bytes 0-18 instead (`checksum_start: 0`) —
+  the same shape, a different reduction, and no way to say so. Without a term
+  for it a spec has to declare the byte as an ordinary parameter, which makes
+  a generic UI render a checksum control and makes the command unsendable
+  without a value the caller cannot know. Deliberately a distinct `auto`
+  VALUE rather than a modifier key beside `checksum`: consumers ignore
+  unknown keys by design, so a `checksum_op: xor` would be read as plain
+  additive and emit a byte the device silently drops, from a spec that
+  validates. An unrecognised `auto` value cannot be misread as a mode the
+  reader knows. `checksum_xor` stays additive-only for the same reason.
+
 - Eight smart-TV local-control specs: `android-tv-remote` (Remote Protocol
   v2 protobuf-over-TLS, plus Fire TV ADB variant), `hisense-vidaa` (MQTT
   over TLS), `lg-webos` (WebSocket SSAP), `panasonic-viera` (plain SOAP,
@@ -420,6 +452,90 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `tplink-kasa-smart-plug` stops offering the energy meter on plugs that do not
+  have one. The four emeter sensors were unscoped, so a consumer drew Voltage /
+  Current / Power / Total Consumption on an HS100, HS103, HS105 or KP105 —
+  models with no metering hardware, which answer `emeter.get_realtime` with an
+  error — leaving four tiles permanently unavailable. The spec now carries a
+  `device.variants` table of the six covered models, each identified by a new
+  `identification.model_prefix` (matched as a prefix against `get_sysinfo`'s
+  `model`, because the reply is `"HS110(US)"`, region suffix and all), and the
+  sensors carry `variants: ["HS110", "KP115"]`. `get_sysinfo`'s `feature` field
+  is documented alongside as the better runtime test — `"ENE"` in that
+  colon-separated list means this unit has the meter, which is what
+  python-kasa's `has_emeter` checks and what stays correct when a new model
+  ships.
+
+- `tplink-kasa-smart-plug` makes the HS110 hardware-v1 emeter reply actually
+  resolvable. Hardware v1 does not merely scale its readings, it *renames*
+  them: `voltage_mv` / `current_ma` / `power_mw` / `total_wh`, in milli-units,
+  with the modern keys absent from the reply entirely. The sensors' dotted
+  paths therefore found nothing on that hardware and prose telling a consumer
+  to divide by 1000 could not help — there was no key to divide. Each sensor
+  now declares `state_mapping.value_fallback` (`path` plus `scale: 0.001`), the
+  legacy field family is declared in `get_emeter`'s `returns` rather than
+  described only in prose, and `scripts/test_kasa_spec.py` decodes both reply
+  shapes through one reader. The fallback is deliberately not a variant split:
+  a consumer ignoring `value_fallback` keeps working on current firmware,
+  whereas two entities per reading would make a consumer ignoring `variants`
+  draw every meter tile twice.
+
+- `schlage-smart-locks` stops using the BLE address as lock identity.
+  `discovery.identity.stable_keys` was `["address"]`, contradicting the
+  2026-08-14 live-hardware finding recorded in the same file: both observed
+  lock addresses have the locally-administered bit set, so these are
+  random-static addresses the lock may rotate — a client keying on one either
+  loses a lock it already knows or enrols the same lock twice. Identity is now
+  the full `SCHLAGE<8 hex>` local name, whose suffix is serial-derived and
+  survives a rotation, with the address demoted in `identity.notes` (a new,
+  documented key) to an ephemeral connection locator to be re-resolved by
+  scanning. Discovery gains the two match rules the evidence supports —
+  Allegion manufacturer-data company ID 315, and the `SCHLAGE` name prefix —
+  ahead of the DataTransfer service UUID the one captured advertisement did not
+  carry. The sighting record's "public Bluetooth address with OUI `B7:AC:C2`"
+  is corrected: that prefix is not a vendor OUI, and whether the MAC embedded
+  in the Allegion payload is the stable public address or a copy of the
+  rotating one is called out as unresolved, for the planned HCI-snoop session.
+
+- Nineteen specs kept their reference links under a top-level `references:`
+  key that nothing reads. `helpful_urls` is the field the index generator and
+  the JSON API pick up, so 126 links — teardowns, protocol write-ups, FCC
+  filings and the working implementations the specs were derived from — sat
+  in the YAML and never reached a generated artifact. They are now
+  `helpful_urls` entries with a `title` and a `description` saying what each
+  link is good for, as the schema wants: `ble-pulse-oximeter`,
+  `bmw-motorcycle-diagnostics`, `cat-printer`, `divoom-pixoo`, `ember-mug`,
+  `etekcity-smart-scale`, `gerbing-thermogauge`, `govee-h5075-thermo`,
+  `govee-h5080-plug`, `govee-h6001-bulb`, `hotwired-heated-gear`,
+  `iledcolor-led-panel`, `inkbird-ibs-th`, `jlx-laser-distance-meter`,
+  `m6-fitness-band`, `omron-connect`, `oral-b-io-smartbrush`,
+  `thermopro-tp357` and `triumph-tiger-900`.
+
+- `govee-h5080-plug` and `govee-h6001-bulb` filed their command byte
+  sequences under `payload.bytes`, which the schema does not define. Only the
+  mobile Rust crate could still read them, and only because it carries a
+  bespoke shim for this exact misfiling; to the JSON API, the index and
+  anything else working from the schema, every command in both specs was a
+  command with no bytes. The plug's frames were already complete 20-byte
+  frames and move to `value` unchanged. The bulb's were 3-to-7-byte prefixes
+  of a 20-byte frame, so the shim emitted short writes the hardware rejects —
+  they are now written out in full: fixed frames (`power_on`, `power_off`,
+  `keep_alive`) as `value` with the byte-19 XOR computed, and the
+  parameterized ones (`set_brightness`, `set_color`, `set_color_white`) as
+  `template` plus `parameters`, which is what a brightness slider needs in
+  order to be more than one hardcoded level. Three packet descriptions
+  counted a zero byte too many and now agree with the frames beside them.
+
+- `schema.json` closes the two doors those mistakes walked through, against
+  the permissive habit of the rest of the file. A top-level `references:` is
+  now rejected outright, and a command's `payload` takes only `key` and
+  `value_type`. Both are cases where an unknown key is not bespoke metadata
+  travelling alongside the standard fields — the design the permissiveness
+  exists for — but a standard field spelled wrong, which nothing downstream
+  can distinguish from a key it was meant to ignore. A `references:` nested
+  inside a bespoke block (devolo's `zwave:`) is prose citation and stays
+  legal.
+
 - `roku-ecp` corrects the "Control by mobile apps" gating from a live
   2026-08-11 probe of the OS 15.2.4 fleet: the middle **Limited** position
   refuses more than the OS 14.1 notice implies — `/query/apps` answers
@@ -552,6 +668,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `device-specs/index.json` is now built and committed by CI (the
+  `publish-index` job) on every push to main instead of by hand in each spec
+  PR. It is a generated file that every spec branch touched, so any two open
+  spec PRs conflicted on it — 60 kB of machine-written JSON whose only honest
+  resolution is to regenerate. Branches no longer carry it at all: a PR that
+  modifies it fails `validate-specs`, which still *builds* the index (and so
+  still catches a spec the generator chokes on) but no longer diffs it against
+  the committed copy. The file stays checked in because it is a shipped asset —
+  the mobile app vendors this repo as a subtree and bundles it — so consumers
+  see no change beyond it landing one commit after the spec rather than in the
+  same one. `scripts/generate_index.py` gained `--check` (report staleness,
+  write nothing) and a `collect_entries()` entry point the tests use to verify
+  coverage without touching the working tree
 - Every key used in the blocks a client *executes* — `entities`,
   characteristic `format:` fields, commands and their `parameters` — must now
   be one `schema.json` declares, enforced by `scripts/test_device_specs.py`

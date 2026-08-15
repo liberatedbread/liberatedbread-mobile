@@ -1,0 +1,25 @@
+# Chamberlain MyQ Wi-Fi hub — DUD note (rejected lead)
+# Cloud-locked: outbound TLS/MQTT to Chamberlain only, no local API.
+
+device:
+  id: myq-cloud-hub
+  name: Chamberlain/LiftMaster MyQ Wi-Fi Hub
+  manufacturer: The Chamberlain Group
+  category: other
+  safety_class: MEDIUM   # actuates a garage door
+
+transport:
+  type: wifi
+  local_only: false
+  note: >
+    REJECTED LEAD. The MyQ hub/radio makes only outbound MQTT-over-TLS to
+    Chamberlain cloud (port 8883); no local HTTP/mDNS/open port. Verified
+    2026-08-14: 80/443/8080 closed on a real hub. Chamberlain blocked
+    third-party access in 2023 and has not reopened it. The OPENER is
+    locally controllable via a wired ratgdo/Konnected bridge speaking
+    Security+ 1.0/2.0 -- see chamberlain-garage-opener-secplus.yaml.
+
+status:
+  apk_acquired: false
+  verdict: rejected
+  local_control_path: "wired hardware bridge (ratgdo/Konnected), not the hub"

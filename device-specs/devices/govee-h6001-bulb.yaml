@@ -128,47 +128,73 @@ services:
         properties: ["write", "write_without_response"]
         notes: >
           Primary write characteristic for all control commands.
-          Commands are 20-byte fixed-length packets with XOR checksum.
+          Commands are 20-byte fixed-length packets, byte 19 = XOR of
+          bytes 0-18. Every command below spells its frame out in full:
+          a short write is not a shorter command, it is a rejected one.
           App sends keep-alive AA 01 00..00 AB every ~2 s while connected.
           Additional color-mode sub-commands (H6127.md, explicitly
           deferred to by H6001.md): music 0x01, scene 0x04, DIY 0x0a;
           mic mode 0x06 in govee_btled's LedMode.
         commands:
           power_on:
-            description: "Turn bulb on. Packet: [0x33, 0x01, 0x01, 0x00...0x00, <xor>]"
+            description: "Turn bulb on. Packet: [0x33, 0x01, 0x01, 0x00*16, <xor>]"
             encoding: "bytes"
-            payload:
-              bytes: [0x33, 0x01, 0x01]
+            value: [0x33, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33]
           power_off:
-            description: "Turn bulb off. Packet: [0x33, 0x01, 0x00, 0x00...0x00, <xor>]"
+            description: "Turn bulb off. Packet: [0x33, 0x01, 0x00, 0x00*16, <xor>]"
             encoding: "bytes"
-            payload:
-              bytes: [0x33, 0x01, 0x00]
+            value: [0x33, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32]
           set_brightness:
-            description: "Set brightness 0-255 (app maps 1%-100% to ~0x14-0xFE). Packet: [0x33, 0x04, <val>, 0x00*17, <xor>]"
+            description: "Set brightness 0-255 (app maps 1%-100% to ~0x14-0xFE). Packet: [0x33, 0x04, <val>, 0x00*16, <xor>]"
             encoding: "bytes"
-            payload:
-              bytes: [0x33, 0x04, 0x80]
+            template: [0x33, 0x04, "{brightness}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              brightness:
+                type: "uint8"
+                min: 0
+                max: 255
+                notes: "Raw wire value. The vendor app maps its 1%-100% slider onto roughly 0x14-0xFE."
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
           set_color:
-            description: "Set RGB color (mode byte 0x02 = manual). Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*14, <xor>]"
+            description: "Set RGB color (mode byte 0x02 = manual). Packet: [0x33, 0x05, 0x02, <R>, <G>, <B>, 0x00*13, <xor>]"
             encoding: "bytes"
-            payload:
-              bytes: [0x33, 0x05, 0x02, 0xFF, 0xFF, 0xFF]
+            template: [0x33, 0x05, 0x02, "{red}", "{green}", "{blue}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              red: { type: "uint8", min: 0, max: 255 }
+              green: { type: "uint8", min: 0, max: 255 }
+              blue: { type: "uint8", min: 0, max: 255 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
           set_color_white:
             description: >
               White / color-temperature control via fixed warm/cold shades
               (not arbitrary Kelvin). Packet: [0x33, 0x05, 0x02, 0xFF, 0xFF,
-              0xFF, 0x01, <shade R>, <shade G>, <shade B>, 0x00*10, <xor>] —
-              the 0x01 flag selects the warm/cold-white LED set
-              (govee_btled set_color_white).
+              0xFF, 0x01, <shade R>, <shade G>, <shade B>, 0x00*9, <xor>] —
+              the 0x01 flag selects the warm/cold-white LED set. The shade
+              triple is picked from the vendor's fixed table rather than
+              computed from a Kelvin value (govee_btled set_color_white).
             encoding: "bytes"
-            payload:
-              bytes: [0x33, 0x05, 0x02, 0xFF, 0xFF, 0xFF, 0x01]
+            template: [0x33, 0x05, 0x02, 0xFF, 0xFF, 0xFF, 0x01, "{shade_red}", "{shade_green}", "{shade_blue}", 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, "{checksum}"]
+            parameters:
+              shade_red: { type: "uint8", min: 0, max: 255 }
+              shade_green: { type: "uint8", min: 0, max: 255 }
+              shade_blue: { type: "uint8", min: 0, max: 255 }
+              checksum:
+                type: "uint8"
+                auto: "xor_checksum"
+                checksum_start: 0
+                description: "XOR of the preceding 19 frame bytes; encoder-filled, never a control."
           keep_alive:
             description: "Connection keep-alive, sent every ~2 s (H6127.md). Packet: [0xAA, 0x01, 0x00*17, 0xAB]"
             encoding: "bytes"
-            payload:
-              bytes: [0xAA, 0x01]
+            value: [0xAA, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAB]
 
       - uuid: "00010203-0405-0607-0809-0a0b0c0d2b10"
         name: "Control Notify"
@@ -207,13 +233,31 @@ entities:
       set_brightness: "set_brightness"
       set_color: "set_color"
 
-references:
-  - "https://github.com/chvolkmann/govee_btled"
-  - "https://github.com/egold555/Govee-Reverse-Engineering"
-  - "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"
-  - "https://github.com/jonahclarsen/bluetooth_lights_controller"
-  - "https://github.com/Rolandjg/Govee-bulb-control"
-  - "https://github.com/axelson/govee_phx"
-  # Rolandjg/Govee-bulb-control is tested on H6001 hardware.
+helpful_urls:
+  - title: "chvolkmann/govee_btled"
+    url: "https://github.com/chvolkmann/govee_btled"
+    description: >-
+      Python client for the legacy Govee BLE bulbs; bluetooth_led.py is the cross-reference for this
+      spec's command set, including set_color_white.
+  - title: "egold555/Govee-Reverse-Engineering"
+    url: "https://github.com/egold555/Govee-Reverse-Engineering"
+    description: >-
+      Community protocol notes for Govee devices. H6127.md supplies the UUID table and the
+      colour-mode sub-commands this spec defers to.
+  - title: "Reverse-engineering Govee smart lights"
+    url: "https://blog.coding.kiwi/reverse-engineering-govee-smart-lights/"
+    description: >-
+      Write-up including the GATT dump this spec's service layout was cross-checked against.
+  - title: "jonahclarsen/bluetooth_lights_controller"
+    url: "https://github.com/jonahclarsen/bluetooth_lights_controller"
+    description: "Third-party controller for these bulbs."
+  - title: "Rolandjg/Govee-bulb-control"
+    url: "https://github.com/Rolandjg/Govee-bulb-control"
+    description: >-
+      Controller tested on H6001 hardware, which makes it the closest thing to a hardware
+      confirmation for this model.
+  - title: "axelson/govee_phx"
+    url: "https://github.com/axelson/govee_phx"
+    description: "Elixir controller for Govee BLE bulbs."
   # timniklas/hass-govee-ble-lights was deleted upstream (404 as of
   # 2026-08); forks survive.

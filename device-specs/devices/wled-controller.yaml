@@ -775,6 +775,69 @@ firmware_variants:
     ESP8266 is end-of-life — the getting-started guide advises against
     building new setups on it.
 
+commands:
+  # The JSON API takes a PARTIAL state object, so each command sends only the
+  # keys it changes — a replayed full state also replays `ps` and can undo a
+  # preset the user just picked, which is why these are not one generic
+  # set_state with everything in it.
+  turn_on:
+    description: "Turn the LEDs on, leaving brightness, colour and effect as they were."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"on": true}'
+    verification: "reported"
+  turn_off:
+    description: "Turn the LEDs off. Distinct from brightness 0 — WLED tracks `on` and `bri` separately."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"on": false}'
+    verification: "reported"
+  toggle:
+    description: "Flip the power state without having to read it first — the string \"t\" is WLED's own toggle sentinel."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"on": "t"}'
+    verification: "reported"
+  set_brightness:
+    description: "Set master brightness, 0-255. Does not turn the LEDs on: pair with turn_on when coming from off."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"bri": {brightness}}'
+    parameters:
+      brightness:
+        type: "uint8"
+        min: 0
+        max: 255
+        description: "Master brightness 0-255, as the `bri` field takes it."
+    verification: "reported"
+  set_effect:
+    description: "Select an effect on segment 0 by its index in /json/eff."
+    transport: "http"
+    method: "POST"
+    path: "/json/state"
+    body: '{"seg": [{"id": 0, "fx": {effect}}]}'
+    parameters:
+      effect:
+        type: "uint8"
+        min: 0
+        description: >
+          Index into the array returned by GET /json/eff. Build-specific — read
+          the list from the device rather than hardcoding, since forks add
+          entries and may reorder them.
+    notes: >
+      Addresses segment 0 explicitly. A controller with several segments needs
+      the id of the one it means; the `seg` array is keyed by id, not position.
+    verification: "reported"
+  # NOTE: no set_color command. The light entity declares an `rgb` feature and
+  # the read path is mapped (state.seg[0].col[0]), but the WRITE shape of `col`
+  # is not documented anywhere in this spec — the /json/state request_body
+  # fields cover on/bri/transition/ps/seg/v only. Writing one would be a guess
+  # at a colour format, so the gap is left visible instead.
+
 entities:
   - platform: "light"
     name: "WLED"
@@ -786,11 +849,11 @@ entities:
       rgb: "state.seg[0].col[0]"
       effect: "state.seg[0].fx"
     commands:
-      turn_on: "POST /json/state {\"on\": true}"
-      turn_off: "POST /json/state {\"on\": false}"
-      toggle: "POST /json/state {\"on\": \"t\"}"
-      set_brightness: "POST /json/state {\"bri\": <0-255>}"
-      set_effect: "POST /json/state {\"seg\": [{\"id\": 0, \"fx\": <index>}]}"
+      turn_on: "turn_on"
+      turn_off: "turn_off"
+      toggle: "toggle"
+      set_brightness: "set_brightness"
+      set_effect: "set_effect"
   - platform: "binary_sensor"
     name: "Realtime source active"
     device_class: "running"
