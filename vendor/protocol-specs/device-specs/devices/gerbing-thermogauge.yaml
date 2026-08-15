@@ -361,8 +361,22 @@ entities:
     unit: "%"
     state_characteristic: "00002a19-0000-1000-8000-00805f9b34fb"
 
-references:
-  - "https://github.com/home-assistant/core/blob/dev/homeassistant/components/snooz/manifest.json"
-  - "https://pypi.org/project/pysnooz/0.8.6/"
-  - "https://community.home-assistant.io/t/controlling-snooz-white-noise-machine-with-esp32-and-esphome-ble-client/451542"
-  - "https://www.gerbing.com/products/gerbing-thermogauge-12v-bluetooth-temperature-controller"
+helpful_urls:
+  - title: "Home Assistant: snooz integration manifest"
+    url: "https://github.com/home-assistant/core/blob/dev/homeassistant/components/snooz/manifest.json"
+    description: >-
+      Discovery matchers for the Snooz, which ships the identical OEM BLE module and UUID family as
+      the ThermoGauge.
+  - title: "pysnooz 0.8.6"
+    url: "https://pypi.org/project/pysnooz/0.8.6/"
+    description: >-
+      Python client for that shared module, and the source of the command-id table and advertisement
+      parsing this spec cites.
+  - title: "Home Assistant community: driving the Snooz over BLE"
+    url: "https://community.home-assistant.io/t/controlling-snooz-white-noise-machine-with-esp32-and-esphome-ble-client/451542"
+    description: >-
+      Community thread on controlling the same module from ESPHome; practical detail on the shared
+      protocol.
+  - title: "Gerbing ThermoGauge 12V controller"
+    url: "https://www.gerbing.com/products/gerbing-thermogauge-12v-bluetooth-temperature-controller"
+    description: "Vendor product page for the controller; model names and voltage variants."

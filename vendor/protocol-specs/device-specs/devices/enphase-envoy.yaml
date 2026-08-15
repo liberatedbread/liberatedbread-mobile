@@ -7,7 +7,22 @@ device:
   manufacturer: "Enphase Energy"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Driven live 2026-08-14 against the real gateway (serial 000000000000,
+      firmware D8.3.5427, reached at the address its _enphase-envoy._tcp
+      answer resolved to): GET /info and /info.xml returned the documented
+      unauthenticated envoy_info XML (sn/pn/software fields, web-tokens
+      true), and /production.json, /api/v1/production,
+      /api/v1/production/inverters, /ivp/livedata/status and /auth/check_jwt
+      all answered 401 with a login.html redirect — the firmware-7+ token
+      gate behaving exactly as documented. IMPORTANT transport observation:
+      on this firmware port 80 is CLOSED (connection refused) even though
+      the mDNS TXT/SRV still advertises port 80 — the API is served on
+      HTTPS 443 with a self-signed certificate only. Not exercised:
+      everything behind the JWT (no Enlighten cloud credentials were used),
+      the AP-mode/BLE commissioning flows, and digest-auth-era behavior.
   protocol: "wifi"
   category: "energy"
   transport: "http"
@@ -19,7 +34,14 @@ device:
     serialnum TXT record is the stable identity.
   identification:
     mdns_service_type: "_enphase-envoy._tcp.local."
-    default_port: 80
+    default_port: 443
+    port_notes: >
+      The mDNS answer still advertises port 80, but firmware 8.x serves the
+      API exclusively over HTTPS on 443 with a self-signed certificate —
+      port 80 refuses connections outright (live-observed on D8.3.5427,
+      2026-08-14). Consumers must ignore the advertised port, connect to
+      https://<ip>/ and skip certificate verification (or pin the gateway
+      cert).
     identity_keys:
       primary: "serialnum"
       display: "name"
@@ -154,12 +176,18 @@ device:
 
 evidence:
   live_lan_probe:
-    date: "2026-07-16"
-    address: "192.168.1.174"
+    date: "2026-08-14"
+    address: "192.168.1.230"
     serial: "000000000000"
     protovers: "v8.3.5427"
     mdns_service_type: "_enphase-envoy._tcp"
-    protocol: "REST API on port 80"
+    protocol: >
+      REST API on HTTPS 443 (self-signed cert); port 80 refused connections
+      despite the mDNS answer advertising it. /info and /info.xml served
+      unauthenticated; production/livedata/auth endpoints answered 401 +
+      login.html redirect without a JWT. (Earlier probe 2026-07-16 at
+      192.168.1.174 recorded the same serial via mDNS — DHCP moved the
+      gateway between probes, so serialnum, not address, is the identity.)
   app_static_analysis:
     date: "2026-08-13"
     source: "Enphase Android app, jadx decompile (clean-room audit; derived facts only)"
@@ -201,7 +229,7 @@ http_endpoints:
     path: "/auth/check_jwt"
     name: "JWT Check"
     status: "unverified"
-    description: "Firmware-7+ token validation probe: the Android app GETs this path with the entrez JWT as an Authorization: Bearer header to learn whether the gateway accepts the token locally before making further requests. App-derived (decompile audit 2026-08), not yet probed on hardware."
+    description: "Firmware-7+ token validation probe: the Android app GETs this path with the entrez JWT as an Authorization: Bearer header to learn whether the gateway accepts the token locally before making further requests. App-derived (decompile audit 2026-08). Hardware-probed 2026-08-14 (D8.3.5427): exists and answers 401 + login.html redirect WITHOUT a token; accept-path behavior still unverified (no token was available)."
   - method: "GET"
     path: "/admin/lib/wireless_display.json"
     name: "Wireless Config"
