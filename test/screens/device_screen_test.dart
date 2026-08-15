@@ -313,6 +313,55 @@ void main() {
     expect(find.text('Battery Service'), findsNothing);
   });
 
+  testWidgets('Disconnect tears down the link and returns to the listing',
+      (tester) async {
+    // The deliberate counterpart to the unexpected-disconnect test above: a
+    // chosen disconnect means "done with this device", so it pops back to the
+    // listing the screen was pushed from instead of parking on the reconnect
+    // state. Mounted behind a pushable route — the way scan_screen and
+    // saved_devices_screen actually open it — so the pop has somewhere to land.
+    final fake = FakeBleService(servicesToReturn: const [
+      BleDiscoveredService(
+          uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+    ]);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+      ],
+      child: MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => DeviceScreen(device: _device)),
+                ),
+                child: const Text('The listing'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('The listing'));
+    await tester.pumpAndSettle();
+    expect(find.text('Battery Service'), findsOneWidget);
+
+    await tester.tap(find.text('Disconnect'));
+    await tester.pumpAndSettle();
+
+    // The link was actually dropped (exactly once), and we are back on the
+    // listing route rather than a "Device disconnected" dead end.
+    expect(fake.disconnectedIds, ['01']);
+    expect(find.byType(DeviceScreen), findsNothing);
+    expect(find.text('The listing'), findsOneWidget);
+  });
+
   group('identity rows', () {
     IoTDevice deviceWith({
       String id = 'B8:94:D9:11:22:33',
