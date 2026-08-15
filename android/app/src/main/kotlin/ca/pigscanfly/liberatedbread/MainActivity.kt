@@ -38,6 +38,39 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIFI_SCAN_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "scanResults" -> result.success(wifiScanResults())
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    /**
+     * The SSIDs in the OS's most recent Wi-Fi scan cache, for the adoption
+     * hint. Reads the cache with `getScanResults()` rather than forcing a scan:
+     * `startScan()` is throttled to a handful of calls per two minutes on
+     * Android 9+ and returns cached results anyway, so forcing it would spend
+     * battery to animate an icon.
+     *
+     * Returns an empty list rather than throwing on the failure that actually
+     * happens in the field — a `SecurityException` when the location permission
+     * has not been granted, since `getScanResults()` is gated behind it. The
+     * Dart side treats "cannot see" and "nothing there" identically.
+     */
+    private fun wifiScanResults(): List<String> {
+        return try {
+            val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            // SSID is quoted for a UTF-8 network and bare for a hex one; strip
+            // the surrounding quotes so a prefix match sees "Wemo.1A2", not
+            // "\"Wemo.1A2\"". Blank/unknown SSIDs are dropped Dart-side.
+            wifi.scanResults.orEmpty().map { it.SSID.orEmpty().trim('"') }
+        } catch (e: SecurityException) {
+            emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     /**
@@ -74,6 +107,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val CHANNEL = "ca.pigscanfly.liberatedbread/multicast"
+        private const val WIFI_SCAN_CHANNEL = "ca.pigscanfly.liberatedbread/wifi_scan"
         private const val LOCK_TAG = "liberatedbread-network-scan"
     }
 }

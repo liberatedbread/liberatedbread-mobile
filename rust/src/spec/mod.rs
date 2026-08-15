@@ -3,4 +3,5 @@
 
 pub mod bindings;
 pub mod parser;
+pub mod setup;
 pub mod types;
