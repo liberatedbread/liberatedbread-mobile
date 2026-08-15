@@ -773,11 +773,24 @@ evidence:
       - claim: "uWeave GATT profile 883f45ec-14cb-46aa-9864-9a4e782b33d0 is present after connect"
         result: "untested — the lock never re-advertised, so no GATT connection could be made"
     follow_up: >
-      Wake a lock (keypad touch) while scanning to capture its awake-state
-      advertisement and then enumerate GATT read-only. User disambiguation
-      is needed to map the advertised "SCHLAGE<hex>" name to the
-      front/kitchen/laundry doors. Any deeper protocol testing needs the
-      printed programming codes (SPAKE2) and was out of scope.
+      Two radio-behavior findings from the awake-window attempts (also
+      2026-08-14): both observed lock addresses carry the
+      locally-administered bit — the locks use random-static BLE addresses
+      that can rotate, so any watcher must key on the Allegion
+      manufacturer-data company ID 315 or the SCHLAGE local name, never a
+      fixed MAC; and a keypad touch did NOT reliably produce an
+      advertisement at the scanner (two presses, nothing heard, on a link
+      previously measured at -74/-89 dBm) — which wake action opens the
+      BLE window on a commissioned lock is itself still unknown. The
+      productive next step is therefore an on-device capture: HCI snoop on
+      a phone running the Schlage Home app through a pairing and a session,
+      rather than more blind scanning. A clean-room Python port of the full
+      uWeave client stack (fragmentation, SPAKE2/P-224, AES-128-EAX, HKDF,
+      Privet CBOR), built for the pairing attempt and cross-checked against
+      the Go reference, is preserved uncommitted in
+      workspace/schlage-verify/ for that future session. User
+      disambiguation is needed to map the advertised "SCHLAGE<hex>" name to
+      the front/kitchen/laundry doors.
 
 sources:
   - type: "apk_decompilation"
