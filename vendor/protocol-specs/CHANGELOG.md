@@ -400,6 +400,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   not-observed / consistent / untested), names and MACs truncated; the
   DataTransfer UUID's absence from the idle advertisement is logged as
   "not observed", pending a capture from a woken lock.
+- **`schlage-smart-locks` WiFi surface, settled from both directions.** A
+  code-level audit of the app's WiFi path (com.allegion.leopard 3.6.0;
+  research-notes/schlage-wifi-local-surface.md) confirms provisioning is
+  100% BLE-driven — the app pushes credentials and the cloud-minted JITR
+  blob over the encrypted uWeave channel and never opens a socket to a lock,
+  and the lock hosts no softAP or listener — while a full-/16 LAN census of
+  the household (88 live hosts, OUI-resolved, candidates port-scanned) found
+  no lock-like listener on any host. Firmware: residential images are not on
+  the commercial release-notes page; metadata is
+  `GET api.allegionengage.com/api/firmware/{platformType}` with a
+  server-supplied binary URL and content-length-only verification, and WiFi
+  locks can self-download (interior button ×5). The one local WiFi surface
+  in the family is the Sense's BR400 adapter: an unauthenticated LAN HTTP
+  API including a firmware-update endpoint taking an arbitrary URL —
+  accessory-scoped, absent on Encode-family locks. Corrects the JITR status
+  enum to 0..5 (no state 6 exists) and records the hardcoded WiFi security
+  field.
 
 ### Fixed
 
