@@ -367,7 +367,11 @@ void main() {
   /// The cipher gap is not a retry situation. The panel has to say what does
   /// work instead of implying "try again" — otherwise someone spends an
   /// evening re-holding a button that was never the problem.
-  testWidgets('a legacy-TLS failure offers the two things that do work',
+  /// The cipher gap cannot be retried away, so the panel has to offer routes
+  /// rather than hope. The first of them is handing the robot to something
+  /// that CAN talk to it — which is also the answer to the one-client problem,
+  /// and the only answer for a robot this phone cannot reach.
+  testWidgets('a legacy-TLS failure offers the routes that do work',
       (tester) async {
     await tester.pumpWidget(wrap(
       connect: (_, __, ___) async => throw const RoombaConnectionException(
@@ -382,7 +386,11 @@ void main() {
     await pumpBusy(tester);
 
     expect(find.textContaining('TLS handshake failed'), findsOneWidget);
-    expect(find.textContaining('Node can use the old cipher'), findsOneWidget);
+    // Says plainly that retrying cannot work, and names what can.
+    expect(find.textContaining('no amount of retrying'), findsOneWidget);
+    expect(find.textContaining('Home Assistant'), findsOneWidget);
+    // The way out is reachable from here, not just described.
+    expect(find.text('Reach it another way'), findsOneWidget);
     expect(find.text('dorita980'), findsOneWidget);
     expect(find.text('rest980'), findsOneWidget);
     expect(await stored(), isNull);

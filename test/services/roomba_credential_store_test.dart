@@ -155,4 +155,49 @@ void main() {
       reason: 'no orphaned field is left behind for a later adoption to find',
     );
   });
+
+  /// A robot Home Assistant drives has NO password in this app — HA holds it.
+  /// That is the appeal of the route, so the store has to treat an entity id
+  /// as identity in its own right rather than insisting on a password it will
+  /// never be given.
+  test('a Home-Assistant-held robot stores without a password', () async {
+    final store = InMemorySettingsStore();
+    final credentials = RoombaCredentialStore(store);
+    const blid = '3193C60472324700';
+
+    await credentials.save(const RoombaCredentials(
+      blid: blid,
+      password: '',
+      name: 'Dorita',
+      haEntityId: 'vacuum.dorita',
+    ));
+
+    final loaded = await credentials.credentials(blid);
+    expect(loaded, isNotNull);
+    expect(loaded!.haEntityId, 'vacuum.dorita');
+    expect(loaded.usesHomeAssistant, isTrue);
+    expect(loaded.password, isEmpty);
+    // And no empty password key was left behind to read back as a credential.
+    expect(store.values.keys.any((k) => k.endsWith('.password')), isFalse);
+  });
+
+  /// Clearing is how a robot moves back to the direct path, so it has to be
+  /// expressible — a copyWith that could only ever SET a transport would make
+  /// the return trip unreachable.
+  test('clearing the HA entity returns the robot to direct control', () async {
+    final credentials = RoombaCredentialStore(InMemorySettingsStore());
+    const blid = '3193C60472324700';
+    await credentials.save(const RoombaCredentials(
+      blid: blid,
+      password: ':1:1486937829:gktkDoYpWaDxCfGh',
+      haEntityId: 'vacuum.dorita',
+    ));
+
+    await credentials.setHaEntityId(blid, null);
+
+    final loaded = await credentials.credentials(blid);
+    expect(loaded!.usesHomeAssistant, isFalse);
+    expect(loaded.usesRest980, isFalse);
+    expect(loaded.password, ':1:1486937829:gktkDoYpWaDxCfGh');
+  });
 }

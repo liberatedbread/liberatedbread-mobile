@@ -125,23 +125,33 @@ class RoombaCredentialStore {
     'ha_entity_id',
   ];
 
+  /// What this app knows about one robot, or null when it knows nothing usable.
+  ///
+  /// "Usable" is a password OR a Home Assistant entity, not a password alone.
+  /// A robot driven through Home Assistant has no password here on purpose —
+  /// HA holds it, and that is the whole appeal of the route — so requiring one
+  /// would make the recommended path the one that cannot be stored.
   Future<RoombaCredentials?> credentials(String blid) async {
     final password = await _store.read(_key(blid, 'password'));
-    if (password == null || password.isEmpty) return null;
+    final haEntityId = await _store.read(_key(blid, 'ha_entity_id'));
+    final hasPassword = password != null && password.isNotEmpty;
+    final hasHaEntity = haEntityId != null && haEntityId.isNotEmpty;
+    if (!hasPassword && !hasHaEntity) return null;
     return RoombaCredentials(
       blid: blid,
-      password: password,
+      password: password ?? '',
       name: await _store.read(_key(blid, 'name')),
       sku: await _store.read(_key(blid, 'sku')),
       lastIp: await _store.read(_key(blid, 'last_ip')),
       rest980BaseUrl: await _store.read(_key(blid, 'rest980_base_url')),
-      haEntityId: await _store.read(_key(blid, 'ha_entity_id')),
+      haEntityId: haEntityId,
     );
   }
 
   Future<void> save(RoombaCredentials credentials) async {
-    await _store.write(
-        _key(credentials.blid, 'password'), credentials.password);
+    // Empty means "we do not have one" — a robot Home Assistant holds. Writing
+    // it would leave an empty key that reads back as a password.
+    await _writeIfPresent(credentials.blid, 'password', credentials.password);
     await _writeIfPresent(credentials.blid, 'name', credentials.name);
     await _writeIfPresent(credentials.blid, 'sku', credentials.sku);
     await _writeIfPresent(credentials.blid, 'last_ip', credentials.lastIp);

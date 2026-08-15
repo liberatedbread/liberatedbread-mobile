@@ -471,14 +471,34 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await _decodeEntities();
   }
 
+  /// The Home Assistant entity driving this robot, if any.
+  ///
+  /// Either the device came FROM Home Assistant's own list — in which case the
+  /// entity id is the only identity it has — or a robot found on the network
+  /// has since been pointed at HA by the transport chooser.
+  String? get _haEntityId => widget.device.txt['ha_entity_id'];
+
   /// Open the robot's session and start taking its state pushes.
   ///
-  /// Which transport this builds — the robot's own protocol, or a rest980
-  /// server in front of it — is decided entirely by whether the stored
-  /// credential carries a server address. Nothing else on this screen branches
-  /// on the choice, because both hand back state keyed by the same dotted
-  /// paths.
+  /// Which transport this builds — Home Assistant, a rest980 server, or the
+  /// robot's own protocol — is decided by the device and its stored
+  /// credential. Nothing else on this screen branches on the choice, because
+  /// all three hand back state keyed by the same dotted paths.
   Future<void> _connectRoomba() async {
+    // A device that came FROM Home Assistant's list carries its entity id and
+    // nothing else — no BLID to look anything up by — so that case is settled
+    // before the store is consulted at all.
+    //
+    // A robot HA drives needs no BLID and no password in THIS app, because HA
+    // is holding them. That is a real advantage of the route rather than an
+    // implementation detail, and it is the only route that works for a robot
+    // this phone cannot reach.
+    final deviceEntityId = _haEntityId;
+    if (deviceEntityId != null && deviceEntityId.isNotEmpty) {
+      await _connectViaHomeAssistant(deviceEntityId);
+      return;
+    }
+
     final blid = _blid;
     if (blid == null) {
       throw const RoombaConnectionException(
@@ -492,6 +512,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       throw const RoombaConnectionException(
         'No password saved for this robot yet. Go back and adopt it first.',
       );
+    }
+
+    // A robot found on the network that the transport chooser has since
+    // pointed at Home Assistant.
+    final storedEntityId = credentials.haEntityId;
+    if (storedEntityId != null && storedEntityId.isNotEmpty) {
+      await _connectViaHomeAssistant(storedEntityId);
+      return;
     }
 
     final controller = roombaControllerFor(
@@ -512,10 +540,28 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       restClient: () => ref.read(rest980ClientProvider),
     );
     _roomba = controller;
+    _startRoombaState(controller);
+    await controller.connect();
+  }
 
-    // Subscribe before connecting: the robot pushes its whole shadow the
-    // moment a client subscribes, and a listener attached afterwards would
-    // miss the one message that fills the screen.
+  Future<void> _connectViaHomeAssistant(String entityId) async {
+    final haClient = ref.read(haRoombaClientProvider);
+    if (haClient == null) {
+      throw const RoombaConnectionException(
+        'This robot is driven through Home Assistant, but Home Assistant is '
+        'not connected in this app. Connect it in Settings.',
+      );
+    }
+    final controller = HaRoombaController(client: haClient, entityId: entityId);
+    _roomba = controller;
+    _startRoombaState(controller);
+    await controller.connect();
+  }
+
+  /// Subscribe BEFORE connecting: the robot pushes its whole shadow the moment
+  /// a client subscribes, and a listener attached afterwards would miss the one
+  /// message that fills the screen.
+  void _startRoombaState(RoombaController controller) {
     _roombaState = controller.state.listen(
       _onRoombaState,
       onError: (Object e) {
@@ -527,7 +573,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             ));
       },
     );
-    await controller.connect();
   }
 
   /// One state push, decoded into the readings the cards draw.

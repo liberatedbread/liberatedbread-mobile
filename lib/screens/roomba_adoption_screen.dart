@@ -8,8 +8,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/error_text.dart';
+import 'roomba_transport_screen.dart';
 import '../providers/ha_provider.dart' show urlOpenerProvider;
 import '../providers/roomba_provider.dart';
+import '../services/ha_api_client.dart';
 import '../services/irobot_cloud_service.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
@@ -152,6 +154,7 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
                   message: _error!,
                   legacyTls: _legacyTls,
                   onOpen: _open,
+                  onChooseTransport: _openTransportChooser,
                 ),
                 const SizedBox(height: 16),
               ],
@@ -432,6 +435,33 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
     }
   }
 
+  /// Offer the transport chooser from the failure panel.
+  ///
+  /// This is the answer for the two failures that are NOT "try again": a robot
+  /// whose firmware only speaks a cipher the phone cannot, and a robot already
+  /// held by something else. Both are fixed by not talking to the robot
+  /// directly — which is what the chooser is for.
+  ///
+  /// No credential is passed: reaching here means the app never got one. The
+  /// chooser therefore shows only the Home Assistant route, which is the one
+  /// that needs no password in this app at all.
+  Future<void> _openTransportChooser() async {
+    final entity = await Navigator.of(context).push<HaEntityState>(
+      MaterialPageRoute(builder: (_) => const RoombaTransportScreen()),
+    );
+    if (entity == null || !mounted) return;
+    // Adopted with no password of our own: Home Assistant holds it, and the
+    // robot is reachable through the entity id alone.
+    await _adopt(RoombaCredentials(
+      blid: widget.blid,
+      password: '',
+      name: widget.robotName,
+      sku: widget.sku,
+      lastIp: widget.host,
+      haEntityId: entity.entityId,
+    ));
+  }
+
   // ── Route 3: paste what you already have ───────────────────────────────────
 
   Widget _pasteRoute(BuildContext context) => Column(
@@ -671,11 +701,13 @@ class _ErrorPanel extends StatelessWidget {
   final String message;
   final bool legacyTls;
   final Future<void> Function(Uri) onOpen;
+  final Future<void> Function() onChooseTransport;
 
   const _ErrorPanel({
     required this.message,
     required this.legacyTls,
     required this.onOpen,
+    required this.onChooseTransport,
   });
 
   @override
@@ -693,17 +725,27 @@ class _ErrorPanel extends StatelessWidget {
               style: TextStyle(color: theme.colorScheme.onErrorContainer),
             ),
             // The cipher gap is not a retry situation, so the panel offers the
-            // two things that actually work instead of implying "try again".
+            // things that actually work instead of implying "try again". The
+            // button comes first: it is the one route that needs nothing from
+            // this phone's TLS stack, because the robot is reached through
+            // something else entirely.
             if (legacyTls) ...[
               const SizedBox(height: 12),
               Text(
-                'Two things do work for this robot: run dorita980 on a '
-                'computer and paste the password in here, or run a rest980 '
-                'server and point this app at it — Node can use the old '
-                'cipher, a phone cannot.',
+                'This robot\'s firmware only offers a cipher this phone cannot '
+                'use, so no amount of retrying will reach it directly. What '
+                'does work is letting something else hold the robot: Home '
+                'Assistant, or a rest980 server. Either one can use the old '
+                'cipher, and then this app just asks it. Failing that, run '
+                'dorita980 on a computer and paste the password in here.',
                 style: TextStyle(color: theme.colorScheme.onErrorContainer),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: onChooseTransport,
+                child: const Text('Reach it another way'),
+              ),
+              const SizedBox(height: 4),
               Wrap(
                 spacing: 8,
                 children: [
