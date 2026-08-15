@@ -257,7 +257,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServiceDto> dco_decode_list_service_dto(dynamic raw);
 
   @protected
+  List<SoapRequestDto> dco_decode_list_soap_request_dto(dynamic raw);
+
+  @protected
+  List<SoftApProfileDto> dco_decode_list_soft_ap_profile_dto(dynamic raw);
+
+  @protected
   List<SpecIdentityDto> dco_decode_list_spec_identity_dto(dynamic raw);
+
+  @protected
+  List<WemoAccessPointDto> dco_decode_list_wemo_access_point_dto(dynamic raw);
 
   @protected
   MacPrefixConfidence dco_decode_mac_prefix_confidence(dynamic raw);
@@ -395,6 +404,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SoapRequestDto dco_decode_soap_request_dto(dynamic raw);
 
   @protected
+  SoftApProfileDto dco_decode_soft_ap_profile_dto(dynamic raw);
+
+  @protected
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw);
 
   @protected
@@ -426,6 +438,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void dco_decode_unit(dynamic raw);
+
+  @protected
+  WemoAccessPointDto dco_decode_wemo_access_point_dto(dynamic raw);
+
+  @protected
+  WemoJoinStatus dco_decode_wemo_join_status(dynamic raw);
 
   @protected
   AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
@@ -696,7 +714,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<ServiceDto> sse_decode_list_service_dto(SseDeserializer deserializer);
 
   @protected
+  List<SoapRequestDto> sse_decode_list_soap_request_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<SoftApProfileDto> sse_decode_list_soft_ap_profile_dto(
+      SseDeserializer deserializer);
+
+  @protected
   List<SpecIdentityDto> sse_decode_list_spec_identity_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  List<WemoAccessPointDto> sse_decode_list_wemo_access_point_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -853,6 +883,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   SoapRequestDto sse_decode_soap_request_dto(SseDeserializer deserializer);
 
   @protected
+  SoftApProfileDto sse_decode_soft_ap_profile_dto(SseDeserializer deserializer);
+
+  @protected
   SpecIdentityDto sse_decode_spec_identity_dto(SseDeserializer deserializer);
 
   @protected
@@ -887,6 +920,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_decode_unit(SseDeserializer deserializer);
+
+  @protected
+  WemoAccessPointDto sse_decode_wemo_access_point_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  WemoJoinStatus sse_decode_wemo_join_status(SseDeserializer deserializer);
 
   @protected
   void sse_encode_AnyhowException(
@@ -1180,8 +1220,20 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       List<ServiceDto> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_soap_request_dto(
+      List<SoapRequestDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_soft_ap_profile_dto(
+      List<SoftApProfileDto> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_spec_identity_dto(
       List<SpecIdentityDto> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_wemo_access_point_dto(
+      List<WemoAccessPointDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_mac_prefix_confidence(
@@ -1349,6 +1401,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SoapRequestDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_soft_ap_profile_dto(
+      SoftApProfileDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_spec_identity_dto(
       SpecIdentityDto self, SseSerializer serializer);
 
@@ -1385,6 +1441,14 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_wemo_access_point_dto(
+      WemoAccessPointDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_wemo_join_status(
+      WemoJoinStatus self, SseSerializer serializer);
 }
 
 // Section: wire_class

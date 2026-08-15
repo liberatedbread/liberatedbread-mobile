@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -650,6 +650,62 @@ Future<List<ProfileInfoDto>> identifyStandardProfiles(
         {required List<String> serviceUuids}) =>
     RustLib.instance.api
         .crateApiDeviceApiIdentifyStandardProfiles(serviceUuids: serviceUuids);
+
+/// Every softap setup method the given specs declare, catalogue order. Specs
+/// that fail to parse are skipped — the watcher must not lose Wemo because a
+/// different spec broke.
+Future<List<SoftApProfileDto>> softApProfiles(
+        {required List<String> specYamls}) =>
+    RustLib.instance.api.crateApiDeviceApiSoftApProfiles(specYamls: specYamls);
+
+/// Whether `ssid` looks like any profile's setup AP; the index of the first
+/// profile it matches, else null. The prefix rule is the spec's:
+/// case-insensitive, anchored at the start.
+Future<int?> matchSoftApSsid(
+        {required List<SoftApProfileDto> profiles, required String ssid}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiMatchSoftApSsid(profiles: profiles, ssid: ssid);
+
+/// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
+/// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
+///
+/// This is where the Wemo credential-send is assembled in full: the passphrase
+/// is encrypted (every variant of the spec's sweep, in order) and each attempt
+/// is rendered into a SOAP request through the same `setup_connect_home_network`
+/// command the catalogue publishes. The caller POSTs each in turn until one
+/// joins — it owns only the socket and the poll, never the crypto or the XML,
+/// exactly as control's `render_network_command` leaves it.
+///
+/// An open network (`encrypt` NONE / `auth` OPEN) yields a single request with
+/// an empty password and no encryption; `meta_info` is then unused. For a
+/// secured network `meta_info` is the raw `GetMetaInfo` reply. Fails when the
+/// passphrase is outside the device's documented bounds (under 8 characters is
+/// terminal), before any network I/O.
+Future<List<SoapRequestDto>> renderWemoConnectRequests(
+        {required String specYaml,
+        required String metaInfo,
+        required String ssid,
+        required String auth,
+        required String encrypt,
+        required String channel,
+        required String passphrase}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderWemoConnectRequests(
+        specYaml: specYaml,
+        metaInfo: metaInfo,
+        ssid: ssid,
+        auth: auth,
+        encrypt: encrypt,
+        channel: channel,
+        passphrase: passphrase);
+
+/// Interpret a `GetNetworkStatus` reply's `NetworkStatus` value.
+Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
+    RustLib.instance.api.crateApiDeviceApiWemoNetworkStatus(code: code);
+
+/// Parse a Wemo `GetApList` reply by the spec's rules: skip the header line,
+/// split on `|`, the LAST column is `AUTHMODE/CIPHER`.
+Future<List<WemoAccessPointDto>> parseWemoApList({required String apList}) =>
+    RustLib.instance.api.crateApiDeviceApiParseWemoApList(apList: apList);
 
 class CharacteristicDto {
   final String uuid;
@@ -2662,6 +2718,69 @@ class SoapRequestDto {
           body == other.body;
 }
 
+/// One spec's softap setup method — the catalogue's answer to "what setup
+/// networks exist and where does the device answer on them".
+class SoftApProfileDto {
+  /// `device.name` — what the adopt UI calls the family.
+  final String specName;
+
+  /// `device.category`, for the icon.
+  final String? category;
+
+  /// `softap_soap`, `softap_udp`, `softap_http` — what the flow dispatches on.
+  final String methodType;
+
+  /// Case-insensitive SSID prefix of the setup AP.
+  final String ssidPrefix;
+  final List<String> ssidExamples;
+
+  /// True when the setup AP takes no passphrase; absent when the spec does
+  /// not say.
+  final bool? openNetwork;
+
+  /// Where the device answers on its own AP, when documented.
+  final String? gatewayIp;
+
+  /// Documented port first, then the probe list, deduplicated in order.
+  final Uint16List ports;
+
+  const SoftApProfileDto({
+    required this.specName,
+    this.category,
+    required this.methodType,
+    required this.ssidPrefix,
+    required this.ssidExamples,
+    this.openNetwork,
+    this.gatewayIp,
+    required this.ports,
+  });
+
+  @override
+  int get hashCode =>
+      specName.hashCode ^
+      category.hashCode ^
+      methodType.hashCode ^
+      ssidPrefix.hashCode ^
+      ssidExamples.hashCode ^
+      openNetwork.hashCode ^
+      gatewayIp.hashCode ^
+      ports.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SoftApProfileDto &&
+          runtimeType == other.runtimeType &&
+          specName == other.specName &&
+          category == other.category &&
+          methodType == other.methodType &&
+          ssidPrefix == other.ssidPrefix &&
+          ssidExamples == other.ssidExamples &&
+          openNetwork == other.openNetwork &&
+          gatewayIp == other.gatewayIp &&
+          ports == other.ports;
+}
+
 /// The identifying fields of a spec, without the services, characteristics and
 /// entities that make a [`DeviceSpecDto`] large.
 ///
@@ -2907,4 +3026,77 @@ class StoredUploadPlanDto {
           playWrite == other.playWrite &&
           responseCharacteristicUuid == other.responseCharacteristicUuid &&
           cid == other.cid;
+}
+
+/// One network out of a Wemo `GetApList` reply.
+class WemoAccessPointDto {
+  final String ssid;
+
+  /// Verbatim — it goes back verbatim as the `channel` argument.
+  final String channel;
+
+  /// `WPA2PSK`, `OPEN`, … or `Unknown`: the device saying it cannot express
+  /// that network's security (WPA3 appears this way).
+  final String auth;
+
+  /// `AES`, `NONE`, `TKIPAES`; absent when the auth was `Unknown`.
+  final String? encrypt;
+
+  /// False for the `Unknown` marker — the remedy is a WPA2 SSID, not a retry.
+  final bool joinable;
+
+  /// Open networks take `auth=OPEN, encrypt=NONE` and an empty password,
+  /// skipping the encryption entirely.
+  final bool isOpen;
+
+  const WemoAccessPointDto({
+    required this.ssid,
+    required this.channel,
+    required this.auth,
+    this.encrypt,
+    required this.joinable,
+    required this.isOpen,
+  });
+
+  @override
+  int get hashCode =>
+      ssid.hashCode ^
+      channel.hashCode ^
+      auth.hashCode ^
+      encrypt.hashCode ^
+      joinable.hashCode ^
+      isOpen.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WemoAccessPointDto &&
+          runtimeType == other.runtimeType &&
+          ssid == other.ssid &&
+          channel == other.channel &&
+          auth == other.auth &&
+          encrypt == other.encrypt &&
+          joinable == other.joinable &&
+          isOpen == other.isOpen;
+}
+
+/// The join state a Wemo `GetNetworkStatus` code names — the protocol's own
+/// vocabulary, kept in Rust with the rest of the Wemo semantics rather than
+/// re-spelled at each caller.
+enum WemoJoinStatus {
+  /// 0 — still trying. Keep polling.
+  connecting,
+
+  /// 1 — connected. Terminal success.
+  connected,
+
+  /// 2 — rejected because the passphrase is under 8 characters. Terminal.
+  rejected,
+
+  /// 3 — handshaking. Usually becomes Connected within a few seconds.
+  handshaking,
+
+  /// Anything else the device might answer.
+  unknown,
+  ;
 }
