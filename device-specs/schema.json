@@ -7,7 +7,7 @@
   "required": ["device"],
   "allOf": [
     {
-      "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own.",
+      "$comment": "A device spec must document at least one access surface, otherwise it says nothing a consumer can act on. Reference specs (device.type starting with 'reference-') are exempt: they document a published protocol — SAE J1979 PIDs, ISO 14229 UDS services, ISO 15765-2 framing — that other specs cite instead of restating, and so carry protocol tables rather than an access surface of their own. `camera` counts (a live feed is an access surface), and an `integration: identify_only` device counts when it carries a `discovery` block — for it the access surface IS 'find it and hand the user to its admin page', which is the whole point of an identify-only entry.",
       "if": {
         "required": ["device"],
         "properties": {
@@ -25,7 +25,17 @@
           { "required": ["mqtt_topics"] },
           { "required": ["obd"] },
           { "required": ["bus"] },
-          { "required": ["cloud"] }
+          { "required": ["cloud"] },
+          { "required": ["camera"] },
+          {
+            "properties": {
+              "device": {
+                "required": ["integration", "discovery"],
+                "properties": { "integration": { "const": "identify_only" } }
+              }
+            },
+            "required": ["device"]
+          }
         ]
       }
     },
@@ -502,6 +512,7 @@
             "light",
             "lock",
             "motor",
+            "network",
             "printer",
             "reference",
             "robot",
@@ -522,6 +533,20 @@
         "notes": {
           "type": "string",
           "description": "Optional notes about the device."
+        },
+        "pictogram": {
+          "type": "string",
+          "description": "Optional finer-grained visual identity than `category`, for devices worth recognising on sight even when this app does not control them (a MacBook, a Framework laptop, a NAS, a Nintendo console, a UniFi access point, a MikroTik router). A consumer resolves this token to a specific glyph and FALLS BACK to the `category` icon when it does not recognise the token -- so an unknown pictogram never loses the device, exactly as an unknown `category` degrades to the generic icon. Tokens are kebab-case and describe the thing a person sees across the room: e.g. `wifi-ap`, `network-switch`, `router`, `ip-camera`, `video-doorbell`, `nvr`, `nas`, `cloud-key`, `game-console`, `laptop`, `laptop-apple`, `desktop`, `mini-pc`, `smart-speaker`, `3d-printer`, `smoke-alarm`, `thermostat`, `power-station`, `air-quality`, `co2-sensor`, `streaming-stick`, `garage-door`, `label-printer`. The vocabulary is open on purpose; the consumer's resolver owns the token->glyph table and its fallbacks."
+        },
+        "admin_url": {
+          "type": "string",
+          "description": "URL template for the device's OWN administration interface, so a consumer can deep-link the user straight to it. Use `{address}` as the placeholder the consumer substitutes with the discovered IP/host (e.g. `https://{address}/`, `http://{address}/webfig/`). This is where a device we only IDENTIFY (see `integration`) sends the user to actually manage it -- a UniFi switch's web UI, a MikroTik router's WebFig. Not a research reference (those go in `helpful_urls`); this is a live control-plane link on the local network."
+        },
+        "integration": {
+          "type": "string",
+          "enum": ["supported", "identify_only"],
+          "default": "supported",
+          "description": "What THIS project's consumers actually DO with the device, as distinct from whether local control is theoretically possible (that is `local_access`). 'supported' (the default when omitted): the app implements a control and/or monitoring surface for it -- the normal case, implied by the presence of services/commands/http_endpoints/camera. 'identify_only': the app deliberately does not speak the device's control protocol; it discovers it, shows a pictogram, and links to its `admin_url`. Network infrastructure (routers, switches, access points) is the archetype -- fully controllable in principle (RouterOS/UniFi APIs) but out of scope here, so we recognise it and hand the user off to its own admin page rather than pretend to manage it. A device can be `identify_only` and still carry a rich `discovery` block: knowing what it is and where it lives is the whole point."
         },
         "identification": {
           "type": "object",
@@ -643,13 +668,15 @@
                         "properties": {
                           "local_name": {
                             "type": "object",
+                            "description": "Match the advertised BLE local name. With `match: regex`, `value` is a regular expression tested against the full name (use anchors ^...$ to require a full match). local_name and service_uuids are an EITHER/OR within a ble_scan method: a device matches if its name matches OR it advertises one of the service_uuids — a consumer ORs whichever of the two are present. Give both when a family spans models that are cleanest to catch one way or the other.",
                             "properties": {
-                              "match": { "type": "string", "enum": ["prefix", "exact", "contains"], "default": "prefix" },
+                              "match": { "type": "string", "enum": ["prefix", "exact", "contains", "regex"], "default": "prefix" },
                               "value": { "type": "string" }
                             }
                           },
                           "service_uuids": {
                             "type": "array",
+                            "description": "Advertised GATT service UUIDs to match. OR-combined with local_name (see local_name.description): a scan result matches the method if it satisfies either.",
                             "items": { "$ref": "#/$defs/uuid" }
                           },
                           "manufacturer_data": {
@@ -886,6 +913,60 @@
                         }
                       }
                     }
+                  },
+                  {
+                    "properties": {
+                      "type": { "const": "udp_broadcast" },
+                      "udp_broadcast": {
+                        "type": "object",
+                        "required": ["port"],
+                        "description": "Discovery by a UDP datagram exchange on the local segment: send a probe to a broadcast address (or just listen for the periodic unsolicited beacons many of these protocols emit). Covers Ubiquiti device discovery (port 10001), MikroTik MNDP (5678), TP-Link Kasa (9999), LIFX (56700) and similar. The reply is usually a TLV blob whose fields carry the device's model, name and firmware.",
+                        "properties": {
+                          "port": { "type": "integer", "description": "UDP port the probe is sent to and replies arrive on (Ubiquiti 10001, MNDP 5678, Kasa 9999, LIFX 56700)." },
+                          "broadcast_address": { "type": "string", "default": "255.255.255.255", "description": "Destination for the probe; the directed subnet broadcast (e.g. 10.69.255.255) also works and crosses fewer boundaries." },
+                          "probe_hex": { "type": "string", "pattern": "^[0-9a-fA-F]*$", "description": "The probe datagram as hex, if the protocol is request/response (Ubiquiti v1 '01000000', MNDP an empty/zero datagram). Omit or leave empty for listen-only protocols that beacon on their own." },
+                          "passive_ok": { "type": "boolean", "default": false, "description": "True when devices broadcast unsolicited beacons, so a consumer can also just listen without probing (MNDP and Ubiquiti both beacon periodically)." },
+                          "response_format": { "type": "string", "enum": ["tlv", "json", "json_xor", "binary"], "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON (LIFX is binary, Kasa is 'json_xor' = JSON under the 0xAB autokey cipher)." },
+                          "identity_mapping": {
+                            "type": "object",
+                            "required": ["stable_keys"],
+                            "properties": {
+                              "stable_keys": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": { "type": "object", "required": ["source"], "properties": { "source": { "type": "string", "description": "e.g. tlv:mac, tlv:0x0005, json:SensorId" } } }
+                              },
+                              "display": { "type": "object", "properties": { "source": { "type": "string" } } }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "type": { "const": "passive_l2" },
+                      "passive_l2": {
+                        "type": "object",
+                        "required": ["protocol"],
+                        "description": "Receive-only Layer-2 neighbour discovery: the consumer listens for the periodic multicast frames switches, routers and APs emit, and reads the device's identity out of them. Not routable and not a probe -- it needs a raw/link-layer capture on the local link, and it only sees directly-attached neighbours. LLDP is the vendor-neutral standard; CDP is Cisco's (Ubiquiti and MikroTik can emit LLDP).",
+                        "properties": {
+                          "protocol": { "type": "string", "enum": ["lldp", "cdp"], "description": "'lldp' (IEEE 802.1AB): EtherType 0x88CC, multicast 01:80:C2:00:00:0E, TLVs (Chassis ID, Port ID, TTL, System Name/Description, Capabilities, Management Address). 'cdp' (Cisco): SNAP multicast 01:00:0C:CC:CC:CC, TLVs (Device-ID, Port-ID, Capabilities, Software version, Platform)." },
+                          "identity_mapping": {
+                            "type": "object",
+                            "required": ["stable_keys"],
+                            "properties": {
+                              "stable_keys": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": { "type": "object", "required": ["source"], "properties": { "source": { "type": "string", "description": "e.g. lldp:chassis_id, lldp:system_name, cdp:device_id" } } }
+                              },
+                              "display": { "type": "object", "properties": { "source": { "type": "string" } } }
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 ]
               }
@@ -899,11 +980,15 @@
                   "type": "array",
                   "minItems": 1,
                   "items": { "type": "string" },
-                  "description": "Field names in priority order for stable device identity. First non-empty value wins. BLE typically: ['address']. Wemo: ['udn', 'serial', 'mac']. Vector: ['serial', 'hostname']."
+                  "description": "Field names in priority order for stable device identity. First non-empty value wins. BLE typically: ['address']. Wemo: ['udn', 'serial', 'mac']. Vector: ['serial', 'hostname']. 'address' is only a stable key for a device whose BLE address is PUBLIC: a random-static or resolvable-private address rotates, and keying on one makes a client either lose the device it already knows or enrol the same lock twice under two names. When a spec's evidence shows a rotating address, key on something the device carries across the rotation -- a serial-bearing local name, a manufacturer-data payload -- and treat the address as an ephemeral connection locator to be re-resolved by scanning, not as identity."
                 },
                 "display": {
                   "type": "string",
                   "description": "Field name for user-facing display. 'friendlyName' for Wemo, 'name' for mDNS, 'local_name' for BLE."
+                },
+                "notes": {
+                  "type": "string",
+                  "description": "Caveats about this identity that the key list alone cannot carry: which keys are only present in some device mode, what a client should do when the top-priority key is missing, or why an obvious-looking key (a rotating BLE address, a DHCP-assigned IP) was deliberately left out."
                 }
               }
             },
@@ -1155,14 +1240,14 @@
         },
         "variants": {
           "type": "array",
-          "description": "Distinct device models that share the same BLE service UUIDs but differ in command set. Consumers match a connected device to a variant via its identification block.",
+          "description": "Distinct device models covered by this one spec because they speak the same protocol, but which differ in command set or in what hardware they actually have -- BLE families sharing service UUIDs, and LAN families sharing a control protocol (the metering and non-metering Kasa plugs answer the same port-9999 JSON). Consumers match a connected device to a variant via its identification block, and an `entities[].variants` list says which models actually expose a given entity: without that pairing a spec draws a permanently unavailable control on the half of the family whose hardware does not have the sensor.",
           "items": {
             "type": "object",
             "required": ["model"],
             "properties": {
               "model": {
                 "type": "string",
-                "description": "Model identifier (e.g. 'SP107E')."
+                "description": "Model identifier (e.g. 'SP107E'). This string is the name `entities[].variants` refers to, so spell it identically in both places."
               },
               "identification": {
                 "type": "object",
@@ -1176,6 +1261,10 @@
                     "type": "array",
                     "items": { "$ref": "#/$defs/uuid" },
                     "description": "BLE service UUIDs advertised by this variant."
+                  },
+                  "model_prefix": {
+                    "type": "string",
+                    "description": "Prefix of the model string the device reports about ITSELF, for a LAN device that advertises no BLE local name: TP-Link's get_sysinfo answers `model: \"HS110(US)\"`, so the prefix 'HS110' matches every region's units. Matched as a prefix precisely because vendors suffix region and hardware-revision codes onto an otherwise stable model name. Where the device also reports a capability list, prefer that at runtime -- a variant table has to be edited when a new model ships, a capability flag does not."
                   }
                 }
               }
@@ -1194,6 +1283,13 @@
       "type": "array",
       "description": "Human-oriented video references for this device: teardown footage, setup walkthroughs, capture demonstrations or protocol explainers. Do not restrict this to YouTube; PeerTube, Vimeo, Invidious and direct video URLs are just as valid when they resolve and are relevant.",
       "items": { "$ref": "#/$defs/helpful_reference" }
+    },
+    "references": {
+      "description": "RESERVED, and always invalid. Reference links go in `helpful_urls`; video links go in `helpful_videos`.",
+      "$comment": "Alias trap, and the one place this schema closes a door on purpose. Unknown top-level keys are allowed everywhere else so bespoke per-device blocks can travel alongside the standard fields, and a consumer ignoring a key it does not know is the intended outcome. `references` is the exception because it is not a bespoke block, it is a misspelling of a field that already exists: eighteen specs collected their teardowns, protocol write-ups and working implementations under `references:` and every consumer dropped the lot -- the index generator reads `helpful_urls`, so the links were in the file, out of the artifact, and nothing anywhere said so. Permissiveness cannot distinguish 'a key we do not understand' from 'a key we do understand, spelled wrong'; naming the wrong spelling is what makes the difference legible. Scoped to the top level deliberately: a `references:` nested inside a bespoke block (devolo's `zwave:` cites OpenZWave and openHAB database entries there) is prose citation, not a link list, and stays legal.",
+      "not": {
+        "$comment": "the key `references` is not read by anything -- rename it to `helpful_urls` (or `helpful_videos` for video links) and give each entry a `title` and a `url`"
+      }
     },
     "protocol_handler": {
       "type": "string",
@@ -1489,7 +1585,9 @@
                       },
                       "payload": {
                         "type": "object",
-                        "description": "Structured payload description for json/tlv encoded commands.",
+                        "description": "Structured payload description for json/tlv encoded commands. A raw byte sequence does NOT go here: a fixed one is `value`, a parameterized one is `template`.",
+                        "$comment": "`additionalProperties: false` here, against the permissive habit of the rest of this schema, because `payload` is the block a byte sequence is most likely to be misfiled into -- `payload: {bytes: [...]}` reads perfectly and is not a field. Two Govee specs wrote exactly that, and what it cost is the argument for closing the list. The mobile Rust crate grew a bespoke shim to read `payload.bytes` back, so the plug kept working there and the misfiling stopped being visible to the one consumer that could have reported it; every other consumer -- the JSON API, the index, anything reading the schema -- saw commands carrying no bytes at all. The bulb was worse: its arrays were 3-to-7-byte prefixes of a 20-byte frame, so the shim faithfully emitted short writes the hardware rejects, and a spec that looked complete drove nothing. An unknown key elsewhere in this schema is bespoke metadata travelling alongside the standard fields, which is the design; an unknown key HERE is a byte sequence that has gone missing, and no consumer can tell the difference without a shim per vendor. The closed list is what makes the mistake fail loudly, once, in CI.",
+                        "additionalProperties": false,
                         "properties": {
                           "key": {
                             "type": "string",
@@ -1581,18 +1679,19 @@
                             },
                             "auto": {
                               "type": "string",
-                              "enum": ["sequence", "packet_length", "checksum"],
-                              "description": "Marks a parameter the encoder fills in itself rather than a value the user sets — without this flag a generic command UI renders one control per declared parameter and would happily show a slider for a checksum byte. 'sequence': a per-message counter the encoder increments (SmartDawn `sn`). 'packet_length': the total encoded packet length (SmartDawn `len`). 'checksum': an additive frame checksum — the byte is the sum (mod 256) of all encoded frame bytes from index `checksum_start` up to but not including this parameter's own position, then XOR `checksum_xor`. This covers the common sum8-over-frame idiom (KingSmith WiLink sums from index 1 with no xor; UREVO UR frames sum from index 1 and xor 0x5A) without a per-device handler. A parameter carrying `auto` SHOULD still declare its wire `type` so the encoder knows how wide the computed value is. A consumer must never present an auto parameter as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects."
+                              "enum": ["sequence", "packet_length", "checksum", "xor_checksum", "crc16_modbus"],
+                              "description": "Marks a parameter the encoder fills in itself rather than a value the user sets — without this flag a generic command UI renders one control per declared parameter and would happily show a slider for a checksum byte. 'sequence': a per-message counter the encoder increments (SmartDawn `sn`). 'packet_length': the total encoded packet length (SmartDawn `len`). 'checksum': an additive frame checksum — the byte is the sum (mod 256) of all encoded frame bytes from index `checksum_start` up to but not including this parameter's own position, then XOR `checksum_xor`. This covers the common sum8-over-frame idiom (KingSmith WiLink sums from index 1 with no xor; UREVO UR frames sum from index 1 and xor 0x5A) without a per-device handler. 'xor_checksum': the same span reduced with XOR instead of addition — every Govee 20-byte frame ends in one, over bytes 0..18 (`checksum_start: 0`). 'crc16_modbus': CRC-16/MODBUS over the same span — reflected polynomial 0xA001, init 0xFFFF, no final xor — for MODBUS-RTU framing (Bluetti's `[addr][function][payload][crc lo][crc hi]`, `checksum_start: 0` because the address byte is covered). It is TWO bytes, so the parameter declares `type: uint16`, and MODBUS puts the low byte first, which is this schema's default `endianness`. A parameter carrying `auto` SHOULD still declare its wire `type` so the encoder knows how wide the computed value is. A consumer must never present an auto parameter as a control. NOTE: declarative -- a consumer that does not compute these cannot send the command, which is the honest outcome, since inventing the bytes would produce a packet the device rejects.",
+                              "$comment": "'xor_checksum' and 'crc16_modbus' are separate ENUM VALUES rather than modifier keys (`checksum_op: xor`) beside 'checksum', and the choice is about how an old consumer fails. A modifier key is an unknown key, which every consumer here is built to ignore -- so it would read `auto: checksum`, compute an ADDITIVE sum over a frame that wanted something else, and send bytes the device silently drops, with a spec that validates and a UI that looks like it worked. An unrecognised `auto` VALUE cannot be mistaken for a mode the reader knows: it fails, which is what this key's own NOTE asks for. The cost is that it fails hard -- a strict enum reader (the mobile Rust crate) rejects the whole spec, not just the command -- so a consumer SHOULD treat an `auto` value it does not know as 'this command is unencodable' and keep the rest of the device. Each value names a COMPLETE algorithm rather than composing one from parts (width, polynomial, init, reflect, xorout): a spec that got one part wrong would still validate and still emit a plausible-looking wrong checksum, and CRC parameter soup is famously easy to get wrong. Naming whole algorithms keeps the failure at 'this reader does not implement crc16_modbus', which is checkable."
                             },
                             "checksum_start": {
                               "type": "integer",
                               "default": 1,
-                              "description": "First frame-byte index included in an `auto: checksum` sum. Defaults to 1 because the idiom's frame leader (0xF7 on KingSmith WiLink, the UR header on UREVO) is almost always excluded — it is a framing marker, not payload, and protocols that sum it in are the exception. Only meaningful alongside `auto: checksum`."
+                              "description": "First frame-byte index included in an `auto: checksum` / `auto: xor_checksum` / `auto: crc16_modbus` span. Defaults to 1 because the additive idiom's frame leader (0xF7 on KingSmith WiLink, the UR header on UREVO) is almost always excluded — it is a framing marker, not payload, and protocols that sum it in are the exception. Govee's XOR frames and MODBUS-RTU are both exceptions and say `checksum_start: 0` (MODBUS covers the address byte). Only meaningful alongside an `auto` checksum role."
                             },
                             "checksum_xor": {
                               "type": "integer",
                               "default": 0,
-                              "description": "Value XORed into an `auto: checksum` result after the mod-256 sum (e.g. 0x5A on UREVO UR frames). Present because a fixed xor constant is how vendors salt an otherwise trivially guessable sum8; absent means 0 (plain additive checksum, as on KingSmith WiLink). Only meaningful alongside `auto: checksum`."
+                              "description": "Value XORed into an `auto: checksum` result after the mod-256 sum (e.g. 0x5A on UREVO UR frames). Present because a fixed xor constant is how vendors salt an otherwise trivially guessable sum8; absent means 0 (plain additive checksum, as on KingSmith WiLink). Only meaningful alongside `auto: checksum` — it is a salt on the additive result, NOT the reduction operator, which is why an XOR-reduced frame is `auto: xor_checksum` and not this key."
                             }
                           }
                         }
@@ -1796,6 +1895,61 @@
             }
           }
         }
+      }
+    },
+    "camera": {
+      "type": "object",
+      "description": "How to obtain a live video (or single-frame) feed from a device that has a camera, so a consumer can render it locally. Separate from `services`/`http_endpoints` because a feed is a media transport (RTSP, MJPEG, HLS, WebRTC), not a control call, and often lives on a DIFFERENT host than the camera itself (a UniFi Protect camera streams from its NVR, not from the camera). A device with this block is normally `integration: supported` -- exposing the feed is the support.",
+      "required": ["streams"],
+      "properties": {
+        "streams": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One entry per selectable feed (quality tier, or a distinct transport).",
+          "items": {
+            "type": "object",
+            "required": ["transport", "url_template"],
+            "properties": {
+              "name": { "type": "string", "description": "Quality/label, e.g. 'High', 'Medium', 'Low', 'snapshot'." },
+              "transport": { "type": "string", "enum": ["rtsp", "rtsps", "mjpeg", "mjpeg_snapshot_poll", "hls", "webrtc"], "description": "'rtsp'/'rtsps' = RTSP(S) video; 'mjpeg' = multipart MJPEG stream; 'mjpeg_snapshot_poll' = poll a single JPEG at target_fps (the Snapmaker U1 stock camera works this way); 'hls'/'webrtc' as named." },
+              "url_template": { "type": "string", "description": "Feed URL with placeholders the consumer substitutes. Use {address} for the feed host (which may be `feed_host_source`, not the device's own IP), {stream_id} for a per-stream token resolved via `stream_discovery`, and {port} where variable. E.g. rtsp://{address}:7447/{stream_id} , http://{address}/server/files/camera/monitor.jpg" },
+              "default_port": { "type": "integer", "description": "Default transport port (RTSP 7447, RTSPS 7441 for UniFi Protect)." },
+              "served_by": { "type": "string", "enum": ["device", "nvr", "cloud"], "default": "device", "description": "Which host serves the feed. 'nvr': an aggregator on the LAN (UniFi Protect NVR) — combine `url_template` with the NVR address, not the camera's." },
+              "target_fps": { "type": "integer", "description": "For mjpeg_snapshot_poll: how often to fetch the JPEG (the U1 writes ~1 fps)." },
+              "auth": { "type": "string", "description": "How the feed is authorized: 'none' (RTSP token IS the secret), 'session_cookie', 'basic', etc." },
+              "notes": { "type": "string" }
+            }
+          }
+        },
+        "feed_host_source": {
+          "type": "string",
+          "description": "Where the feed host comes from when it is not the device itself: e.g. 'nvr' (a UniFi Protect NVR discovered separately), 'device' (the camera's own IP). Substituted into {address} in the stream url_template."
+        },
+        "stream_discovery": {
+          "type": "object",
+          "description": "How to obtain the per-stream token/id and confirm the stream is enabled, when url_template needs a {stream_id}.",
+          "properties": {
+            "method": { "type": "string", "description": "e.g. 'unifi_protect_bootstrap': GET /proxy/protect/api/bootstrap after local login, read cameras[].channels[].rtspAlias where isRtspEnabled is true." },
+            "id_source": { "type": "string", "description": "Where the token lives, e.g. 'cameras[].channels[].rtspAlias'." },
+            "enabled_flag": { "type": "string", "description": "The field that says the stream is on, e.g. 'cameras[].channels[].isRtspEnabled'." },
+            "notes": { "type": "string" }
+          }
+        },
+        "keepalive": {
+          "type": "object",
+          "description": "Some cameras only produce frames while a monitor session is held open. Describe the call to start/maintain it (the Snapmaker U1 needs camera.start_monitor over WebSocket, re-sent every ~5-10 s, before its monitor.jpg refreshes).",
+          "properties": {
+            "start": { "type": "string", "description": "The call that starts the feed, e.g. 'JSON-RPC camera.start_monitor over ws://{address}/websocket, params {domain:lan, interval:0}'." },
+            "interval_seconds": { "type": "integer", "description": "Re-send the start call at least this often to keep frames flowing." },
+            "stop": { "type": "string", "description": "The call that stops it, e.g. 'camera.stop_monitor'." }
+          }
+        },
+        "enable_required": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when the feed is OFF by default and a human must turn it on out-of-band before any of this works — UniFi Protect RTSP is disabled per-camera per-quality until enabled in the Protect UI."
+        },
+        "enable_notes": { "type": "string", "description": "How to enable the feed when enable_required is true." }
       }
     },
     "obd": {
@@ -2678,7 +2832,7 @@
           },
           "state_mapping": {
             "type": "object",
-            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. On an HTTP entity the role values are dotted JSON paths into what `state_command` returns ('state.on', 'state.bri') -- resolved from the response root, or, when the entity declares `instances:`, from inside the current child's object. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
+            "description": "How this entity's state is read out of what the transport returns. Deliberately open: the useful key set differs per platform and the vocabulary is still growing, so the keys below are the ones the catalogue uses rather than a closed list. Role keys name a field of the bound characteristic's `format:` block -- `value` (the reading itself), `is_on`, `brightness`, `color_rgb`, `state`, `effect`, `rgb`, and the climate quartet `current_temperature`/`target_temperature`/`hvac_mode`/`fan_mode`. On an HTTP entity the role values are dotted JSON paths into what `state_command` returns ('state.on', 'state.bri') -- resolved from the response root, or, when the entity declares `instances:`, from inside the current child's object. `scale` is an entity-level linear factor that REPLACES the bound field's own transform rather than compounding with it -- an entity-level scale is that layer's complete statement about its value. `on_when`/`on_value` say which raw value counts as on. `options`/`states` enumerate a `select`'s choices and a device's named states. A bare integer key is a code table mapping a raw value to a label. A `<role>_fallback` key -- `value_fallback` for `value` -- is a SECOND source for that same role, for a firmware or hardware revision that reports the identical reading under a different field name: an object with `path` (resolved exactly as the role's own value is) and an optional `scale` applied to whatever `path` yields. Read the role's primary source first and fall back only when that key is absent from the reply; a consumer that ignores the key still works on current firmware, which is why this is a fallback rather than a variant split -- splitting a renamed field across two entities makes a consumer that ignores `variants` draw the tile twice. NOTE: consumers vary in what they implement; an entity should still be identifiable from `platform`/`device_class`/`unit` when a consumer understands none of these."
           },
           "options_source": {
             "type": "object",

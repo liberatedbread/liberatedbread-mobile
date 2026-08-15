@@ -1,0 +1,205 @@
+# Ubiquiti UniFi Protect Camera (RTSP feed via NVR) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: Ubiquiti device discovery (UDP 10001, verified live), UniFi Protect
+# local API RE (hjdhjd/unifi-protect, uilibs/uiprotect) for the RTSP token, and
+# live hardware (RTSP server on the NVR confirmed answering).
+
+device:
+  name: "Ubiquiti UniFi Protect Camera"
+  manufacturer: "Ubiquiti Inc."
+  manufacturer_status: "active"
+  testing:
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Discovery + feed transport verified live 2026-08-14. Ubiquiti discovery
+      (UDP 10001) enumerated the whole camera fleet by model — UVC G3 Dome
+      ("Creeper cam"), UVC AI 360, UVC G4 Pro ("Fence Cam"/"yard"/"Roof Cam"),
+      UVC G4 Dome ("garage inside"), UVC G6 Bullet, UVC G4 PTZ, UVC G3 Instant
+      and a UVC G4 Doorbell ("G4 Doorbell") — each via platform (0x0c) and
+      hostname (0x0b) TLVs. The feed transport was confirmed on the UNVR
+      ("UNVR-holden"): RTSP port 7447 and RTSPS 7441 are open, and an RTSP
+      OPTIONS to 7447 answered "RTSP/1.0 200 OK ... Server: Media Server
+      (www.ui.com)" advertising DESCRIBE/PLAY/SETUP — i.e. the Protect stream
+      server is live and serving. NOT exercised (no local Protect credentials
+      were used): the bootstrap login that yields a camera's rtspAlias token,
+      and playing an actual stream (which additionally needs RTSP enabled
+      per-camera in the Protect UI).
+  protocol: "wifi"
+  category: "camera"
+  pictogram: "ip-camera"
+  transport: "rtsp"
+  integration: "supported"
+  admin_url: "https://{address}/"
+  notes: >
+    UniFi Protect cameras (UVC G3/G4/G5/G6 family, AI series, and the G4/G5
+    Doorbell) are adopted to a UniFi Protect NVR (a UNVR, UDM-Pro, or Cloud Key
+    Gen2+). We DISCOVER them with the Ubiquiti UDP-10001 protocol (same as
+    ubiquiti-unifi-device.yaml — a camera answers with platform 0x0c like
+    "UVC G4 Pro"), and we can SHOW A LIVE FEED with no Ubiquiti cloud — but the
+    stream is served by the NVR, not the camera, and RTSP is OFF by default.
+
+    FEED (see the `camera` block):
+    - RTSP must be ENABLED per-camera, per-quality (High/Medium/Low) in the
+      UniFi Protect UI. Until then no stream token exists.
+    - Once enabled, the stream lives on the NVR at
+      rtsp://<nvr-ip>:7447/<streamId>  (plaintext) or
+      rtsps://<nvr-ip>:7441/<streamId>?enableSrtp  (TLS+SRTP). The <streamId>
+      (rtspAlias) is an opaque per-quality token that IS the secret — no
+      username/password on the RTSP URL. Prefer plain 7447 for phone players:
+      Protect's rtsps uses SRTP + a self-signed cert that most mobile players
+      (ffmpeg/libVLC) fail to negotiate, while 7447 plays reliably (force TCP
+      transport; e.g. media_kit on Flutter).
+    - Getting the token programmatically (optional): log in to the NVR locally
+      (POST https://<nvr-ip>/api/auth/login -> TOKEN/UOS_TOKEN cookie +
+      x-csrf-token header), GET https://<nvr-ip>/proxy/protect/api/bootstrap,
+      and read cameras[].channels[] for isRtspEnabled + rtspAlias. Or just let
+      the user paste the URL the Protect UI shows when they enable RTSP.
+
+    The NVR is discovered as a separate device (platform "UNVR"/"UDM"/"UCKP"
+    via the same UDP-10001 sweep); a consumer pairs a camera to its NVR to
+    build the feed host. Camera control (PTZ, settings) is out of scope — this
+    entry is feed + identity only.
+
+    Admin: https://<nvr-ip>/ (UniFi OS -> Protect). A camera's own page is
+    https://<camera-ip>/ before adoption.
+  identification:
+    default_port: 10001
+    mac_prefixes:
+      - "24:5A:4C"
+      - "68:D7:9A"
+      - "74:AC:B9"
+      - "E0:63:DA"
+      - "78:45:58"
+    identity_keys:
+      primary: "mac"
+      secondary: "hostname"
+      display: "hostname"
+
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 10001
+          broadcast_address: "255.255.255.255"
+          probe_hex: "01000000"
+          passive_ok: false
+          response_format: "tlv"
+          identity_mapping:
+            stable_keys:
+              - source: "tlv:0x01"
+                key: "mac"
+              - source: "tlv:0x0b"
+                key: "hostname"
+            display:
+              source: "tlv:0x0b"
+    identity:
+      stable_keys: ["mac", "hostname"]
+      display: "hostname"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      Discovery needs nothing (UDP-10001 probe). To view a feed the user
+      enables RTSP for the camera in UniFi Protect once; after that the app
+      plays rtsp://<nvr>:7447/<streamId>. Confidence high for discovery and the
+      transport (both verified live); the credentialed token fetch is
+      documented from the RE'd local API but not exercised here.
+    methods:
+      - type: "wired"
+        description: "Camera is adopted to a Protect NVR on the LAN; discovery is the UDP-10001 probe, feed is RTSP from the NVR."
+        verified: true
+        steps:
+          - action: "Broadcast the Ubiquiti v1 probe 01 00 00 00 to UDP 10001; a camera answers with platform (e.g. 'UVC G4 Pro') and hostname."
+            actor: client
+          - action: "Enable RTSP for the camera (per quality) in the UniFi Protect UI."
+            actor: user
+          - action: "Obtain the streamId (paste the Protect-shown URL, or fetch cameras[].channels[].rtspAlias from the NVR bootstrap after a local login) and play rtsp://<nvr-ip>:7447/<streamId>."
+            actor: client
+            expect: "The NVR's RTSP server (Server: Media Server (www.ui.com)) serves the H.264 stream."
+    factory_reset:
+      applicable: false
+      confidence: medium
+      effect: >
+        Done at the camera (reset button) and re-adopted in UniFi Protect;
+        clears the camera's own adoption, not anything this app stores. We only
+        read the feed.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Camera stays discoverable by the UDP-10001 probe; the feed follows the
+        NVR, so a camera IP change does not change the stream URL (the NVR host
+        + rtspAlias do). Identity keys on MAC/hostname.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device:
+        - "The per-quality RTSP stream token (rtspAlias), created when RTSP is enabled"
+      issued_to_client: []
+      notes: >
+        The RTSP token IS the feed secret (no user/pass on the URL). To fetch
+        it programmatically the app authenticates to the NVR with a LOCAL UniFi
+        OS account (session cookie + CSRF), which the user supplies — no cloud.
+
+  local_access:
+    status: native
+    summary: >
+      Live feed is fully local via the NVR's RTSP server (no Ubiquiti cloud),
+      once RTSP is enabled per-camera in Protect. Camera settings/PTZ are out
+      of scope.
+    covers:
+      - "Live video feed (RTSP via the NVR)"
+
+camera:
+  enable_required: true
+  enable_notes: >
+    RTSP is disabled by default. In UniFi Protect: camera -> Settings ->
+    Advanced -> RTSP, toggle on the quality (High/Medium/Low) you want. Each
+    quality is an independent stream with its own token.
+  feed_host_source: "nvr"
+  streams:
+    - name: "High (RTSP)"
+      transport: "rtsp"
+      url_template: "rtsp://{address}:7447/{stream_id}"
+      default_port: 7447
+      served_by: "nvr"
+      auth: "none"
+      notes: >
+        {address} is the NVR IP, not the camera. {stream_id} is the rtspAlias
+        token. Preferred for phone players (force TCP transport). VERIFIED:
+        the NVR answered RTSP OPTIONS 200 OK on 7447.
+    - name: "High (RTSPS)"
+      transport: "rtsps"
+      url_template: "rtsps://{address}:7441/{stream_id}?enableSrtp"
+      default_port: 7441
+      served_by: "nvr"
+      auth: "none"
+      notes: >
+        TLS + SRTP with a self-signed cert; many mobile players fail to
+        negotiate it — offer as an opt-in, default to the 7447 rtsp stream.
+  stream_discovery:
+    method: "unifi_protect_bootstrap"
+    id_source: "cameras[].channels[].rtspAlias"
+    enabled_flag: "cameras[].channels[].isRtspEnabled"
+    notes: >
+      Local NVR login: POST https://<nvr-ip>/api/auth/login (username/password)
+      -> session cookie TOKEN/UOS_TOKEN + x-csrf-token header; GET
+      https://<nvr-ip>/proxy/protect/api/bootstrap; for the camera, pick a
+      channel where isRtspEnabled is true and read its rtspAlias. channel id
+      0/1/2 = High/Medium/Low. Alternatively the user pastes the URL the
+      Protect UI shows on enable.
+
+helpful_urls:
+  - url: "https://github.com/hjdhjd/unifi-protect"
+    title: "hjdhjd/unifi-protect"
+    description: "TypeScript UniFi Protect local API library: login flow, bootstrap, camera channels rtspAlias/isRtspEnabled."
+  - url: "https://github.com/uilibs/uiprotect"
+    title: "uilibs/uiprotect"
+    description: "Python UniFi Protect library (successor to pyunifiprotect): auth (TOKEN cookie + x-csrf-token), bootstrap data models."
+  - url: "https://help.ui.com/hc/en-us/articles/217879287-UniFi-Protect-RTSP-Streaming"
+    title: "Ubiquiti — UniFi Protect RTSP streaming"
+    description: "How to enable RTSP per camera; the 7447/7441 stream ports."

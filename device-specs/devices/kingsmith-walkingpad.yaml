@@ -27,7 +27,25 @@ device:
   manufacturer: "KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      WiLink generation verified live 2026-08-14 against a real pad advertising
+      as "WalkingPad" (public MAC, BLE module WLT8266M, firmware M30_V187.2.1
+      per DIS 0x2A24/0x2A26), driving byte values straight from this document
+      over bleak/BlueZ with no pairing. GATT layout matched as written (0xFE00
+      with FE01/FE02, DIS 0x180A, Telink OTA 00010203-…-1912 exposing char
+      00010203-…-2b12). query_status (F7 A2 00 00 A2 FD) answered with a
+      19-byte F8 A2 frame whose additive checksum validated and whose fields
+      decoded per the documented offsets (belt_state 5, mode 2 = standby, belt
+      idle at speed 0); query_params answered with an F8 A5 frame; and
+      query_last_record answered with an F8 A7 frame whose documented offsets
+      (time 8..10, distance 11..13, steps 14..16, 3-byte BE) decoded to a
+      plausible stored workout (5206 s, 2.89 km, 8261 steps). Deliberately NOT
+      exercised: anything that moves the belt (set_speed, start_belt,
+      switch_mode, calibration, preference writes) — the pad was unattended —
+      so the FTMS/MC-21 generation and all motion commands remain untested by
+      us.
   openness:
     status: "undocumented"
   protocol: "ble"
@@ -175,7 +193,7 @@ services:
     characteristics:
       - uuid: "0000fe01-0000-1000-8000-00805f9b34fb"
         name: "Status / record notifications"
-        properties: ["notify"]
+        properties: ["notify", "read"]
         notes: >
           Two response shapes. Current status (header F8 A2, 19 bytes):
           documented in `format` below; example frame
@@ -187,6 +205,11 @@ services:
           encoding); a second query pops the next stored record. The belt
           keeps the last record only briefly and loses it on power cut, so
           final statistics must be fetched promptly after the belt stops.
+          Live-observed (2026-08-14, WLT8266M / M30_V187.2.1): the
+          characteristic also exposes a `read` property alongside notify, and
+          a standby pad answers query_status with
+          f8 a2 05 00 02 00 00 00 00 00 00 00 00 00 00 00 00 00 a9 fd
+          (belt_state 5, mode 2, all counters zero, checksum valid).
         format:
           - offset: 0
             length: 2
