@@ -106,6 +106,16 @@ class Ecp2Session {
   var _nextId = 0;
   var _closed = false;
 
+  /// Whether a text field is focused on the device right now — the signal that
+  /// makes the on-screen keyboard usable. Fed by [queryTextEditFocused] and by
+  /// the device's unsolicited `textedit` notices; broadcast so the screen can
+  /// show or hide its keyboard card the moment focus changes.
+  final _textEditFocus = StreamController<bool>.broadcast();
+
+  /// The device's text-focus changes, as they arrive on the session. `true`
+  /// when a field is focused (keyboard usable), `false` when none is.
+  Stream<bool> get textEditFocusChanges => _textEditFocus.stream;
+
   Ecp2Session._(this._socket, this._timeout) {
     _subscription = _socket.stream
         .listen(_onFrame, onError: _failAll, onDone: () => _failAll(null));
@@ -144,7 +154,17 @@ class Ecp2Session {
       if (!_challenge.isCompleted) _challenge.complete(challenge);
       return;
     }
-    // Unsolicited notifies (events, textedit state) are nobody's answer.
+    // The device volunteers a `textedit` notice whenever a field gains or
+    // loses focus — the live half of the keyboard-usable signal. Its exact
+    // shape is firmware-dependent, so read the focus defensively (from the
+    // frame or its base64 content-data) rather than trusting one layout.
+    final focused = _focusFromFrame(decoded);
+    if (focused != null) {
+      if (!_textEditFocus.isClosed) _textEditFocus.add(focused);
+      // A notice carries no response-id; nothing below is waiting on it.
+      if (decoded['response-id'] is! String) return;
+    }
+    // Unsolicited notifies that are nobody's answer stop here.
     final id = decoded['response-id'];
     if (id is! String) return;
     final completer = _pending.remove(id);
@@ -264,9 +284,62 @@ class Ecp2Session {
     return null;
   }
 
+  /// Ask the device whether a text field is focused — the keyboard-usable
+  /// signal, which plain ECP cannot answer (`/query/textedit-state` is a 404
+  /// there) and only this session can. The reply is
+  /// `{"textedit-state":{"textedit-id":"..."}}`; a focused field carries a real
+  /// id, an unfocused one the literal `"none"`. Throws the same way [send]
+  /// does, so the caller can fall back to showing the keyboard when the answer
+  /// cannot be had.
+  Future<bool> queryTextEditFocused() async {
+    final result = await _roundTrip('query-textedit-state', const {});
+    if (result.status != '200') {
+      throw Ecp2Exception('query-textedit-state answered ${result.status}');
+    }
+    final focused = _focusFromTextEditState(_tryJson(result.body));
+    if (focused == null) {
+      throw const Ecp2Exception('textedit-state reply had no textedit-id');
+    }
+    return focused;
+  }
+
+  /// The focus a frame reports, or null when it carries no textedit state. The
+  /// state can ride directly on the frame or inside its base64 `content-data`.
+  static bool? _focusFromFrame(Map<String, dynamic> frame) {
+    final direct = _focusFromTextEditState(frame);
+    if (direct != null) return direct;
+    final data64 = frame['content-data'];
+    if (data64 is String) {
+      return _focusFromTextEditState(
+          _tryJson(utf8.decode(base64.decode(data64), allowMalformed: true)));
+    }
+    return null;
+  }
+
+  /// `true`/`false` from a `{"textedit-state":{"textedit-id":...}}` map, or null
+  /// when the map does not carry one. A field is focused when the id is present
+  /// and not the literal `"none"`.
+  static bool? _focusFromTextEditState(Object? json) {
+    if (json is! Map) return null;
+    final state = json['textedit-state'];
+    if (state is! Map) return null;
+    final id = state['textedit-id'];
+    if (id is! String) return null;
+    return id != 'none';
+  }
+
+  static Object? _tryJson(String body) {
+    try {
+      return jsonDecode(body);
+    } on FormatException {
+      return null;
+    }
+  }
+
   Future<void> close() async {
     _closed = true;
     await _subscription.cancel();
+    await _textEditFocus.close();
     await _socket.close();
   }
 }
