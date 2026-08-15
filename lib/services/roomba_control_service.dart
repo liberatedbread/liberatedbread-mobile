@@ -352,12 +352,26 @@ class RoombaMqttClient {
     _socket = socket;
     _connected = Completer<void>();
 
+    Log.hub.debug('roomba ${credentials.blid}: connected to $host, sending '
+        'CONNECT (password ${redact(credentials.password)})');
+
     _subscription = socket.incoming.listen(
       _enqueue,
       onError: (Object error) => _fail(error),
-      onDone: () => _fail(
-        const RoombaConnectionException('The robot closed the connection.'),
-      ),
+      onDone: () {
+        // The eviction signal. The robot serves ONE local client and a new
+        // connection displaces the old, so this is what "something else took
+        // the robot" looks like from here — the failure this whole feature
+        // keeps warning about. At warning so it survives the release floor
+        // into a bug report, where it is the first thing worth knowing.
+        Log.hub.warning(
+          'roomba ${credentials.blid}: the robot closed the connection — '
+          'another client (the iRobot app, Home Assistant) may have taken it',
+        );
+        _fail(
+          const RoombaConnectionException('The robot closed the connection.'),
+        );
+      },
       cancelOnError: false,
     );
 
@@ -388,6 +402,8 @@ class RoombaMqttClient {
     // '#', not the spec's topic names: which shape a given firmware publishes
     // locally is not settled (the spec grades the shadow topic `low`), and
     // subscribing to everything is the only reading that works on all of them.
+    Log.hub.debug('roomba ${credentials.blid}: login acknowledged');
+
     _packetId = (_packetId % 0xFFFF) + 1;
     socket.add(
         await _codec.roombaSubscribePacket(topic: '#', packetId: _packetId));
@@ -461,6 +477,12 @@ class RoombaMqttClient {
           if (packet.code == 0) {
             _connected?.complete();
           } else {
+            // The code IS the diagnosis (4 = bad username or password), and it
+            // is the difference between "redo the handshake" and "check the
+            // network". Logged as well as thrown because the throw becomes UI
+            // text that deliberately does not carry a number.
+            Log.hub.warning('roomba: broker refused the login, CONNACK code '
+                '${packet.code}');
             _fail(RoombaAuthException(packet.code));
           }
         case 'publish':
