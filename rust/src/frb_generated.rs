@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1744768274;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1765646651;
 
 // Section: executor
 
@@ -2428,6 +2428,47 @@ fn wire__crate__api__device_api__render_network_rabbit_air_state_request_impl(
         },
     )
 }
+fn wire__crate__api__device_api__render_network_roomba_command_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "render_network_roomba_command",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            let api_command_name = <String>::sse_decode(&mut deserializer);
+            let api_epoch_seconds = <i64>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::render_network_roomba_command(
+                            api_spec_yaml,
+                            api_command_name,
+                            api_epoch_seconds,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
 fn wire__crate__api__device_api__render_network_state_request_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -2512,6 +2553,388 @@ fn wire__crate__api__device_api__render_wemo_connect_requests_impl(
                         Ok(output_ok)
                     })(),
                 )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_connect_packet_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_connect_packet",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_blid = <String>::sse_decode(&mut deserializer);
+            let api_password = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::roomba_connect_packet(api_blid, api_password),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_disconnect_packet_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_disconnect_packet",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::device_api::roomba_disconnect_packet())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_discovery_probe_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_discovery_probe",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::device_api::roomba_discovery_probe())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_parse_announcement_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_parse_announcement",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_datagram = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::device_api::roomba_parse_announcement(api_datagram)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_parse_incoming_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_parse_incoming",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_buffer = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::roomba_parse_incoming(api_buffer)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_parse_password_reply_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_parse_password_reply",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_reply = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok =
+                            crate::api::device_api::roomba_parse_password_reply(api_reply)?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_password_probe_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_password_probe",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::device_api::roomba_password_probe())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_pingreq_packet_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_pingreq_packet",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::device_api::roomba_pingreq_packet())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_publish_packet_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_publish_packet",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_topic = <String>::sse_decode(&mut deserializer);
+            let api_payload = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::roomba_publish_packet(api_topic, api_payload),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_state_fields_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_state_fields",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_payload = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::roomba_state_fields(api_payload),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__roomba_subscribe_packet_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "roomba_subscribe_packet",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_topic = <String>::sse_decode(&mut deserializer);
+            let api_packet_id = <u16>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::roomba_subscribe_packet(api_topic, api_packet_id),
+                    )?;
+                    Ok(output_ok)
+                })())
             }
         },
     )
@@ -3475,6 +3898,20 @@ impl SseDecode for Vec<(u16, Vec<u8>)> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::RoombaIncomingDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::RoombaIncomingDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::ScanMatch> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3927,6 +4364,19 @@ impl SseDecode for Option<crate::api::device_api::QuerySourceDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::RoombaAnnouncementDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::RoombaAnnouncementDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::device_api::StoredUploadDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4136,6 +4586,73 @@ impl SseDecode for (u16, Vec<u8>) {
         let mut var_field0 = <u16>::sse_decode(deserializer);
         let mut var_field1 = <Vec<u8>>::sse_decode(deserializer);
         return (var_field0, var_field1);
+    }
+}
+
+impl SseDecode for crate::api::device_api::RoombaAnnouncementDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ver = <String>::sse_decode(deserializer);
+        let mut var_hostname = <String>::sse_decode(deserializer);
+        let mut var_blid = <String>::sse_decode(deserializer);
+        let mut var_robotname = <String>::sse_decode(deserializer);
+        let mut var_ip = <String>::sse_decode(deserializer);
+        let mut var_mac = <String>::sse_decode(deserializer);
+        let mut var_sw = <String>::sse_decode(deserializer);
+        let mut var_sku = <String>::sse_decode(deserializer);
+        let mut var_proto = <String>::sse_decode(deserializer);
+        return crate::api::device_api::RoombaAnnouncementDto {
+            ver: var_ver,
+            hostname: var_hostname,
+            blid: var_blid,
+            robotname: var_robotname,
+            ip: var_ip,
+            mac: var_mac,
+            sw: var_sw,
+            sku: var_sku,
+            proto: var_proto,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::RoombaIncomingDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_kind = <String>::sse_decode(deserializer);
+        let mut var_topic = <String>::sse_decode(deserializer);
+        let mut var_payload = <String>::sse_decode(deserializer);
+        let mut var_code = <u16>::sse_decode(deserializer);
+        return crate::api::device_api::RoombaIncomingDto {
+            kind: var_kind,
+            topic: var_topic,
+            payload: var_payload,
+            code: var_code,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::RoombaParsedDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_packets =
+            <Vec<crate::api::device_api::RoombaIncomingDto>>::sse_decode(deserializer);
+        let mut var_consumed = <u32>::sse_decode(deserializer);
+        return crate::api::device_api::RoombaParsedDto {
+            packets: var_packets,
+            consumed: var_consumed,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::RoombaRequestDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_topic = <String>::sse_decode(deserializer);
+        let mut var_payload = <String>::sse_decode(deserializer);
+        return crate::api::device_api::RoombaRequestDto {
+            topic: var_topic,
+            payload: var_payload,
+        };
     }
 }
 
@@ -4722,22 +5239,94 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        61 => wire__crate__api__device_api__render_network_state_request_impl(
+        61 => wire__crate__api__device_api__render_network_roomba_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        62 => wire__crate__api__device_api__render_wemo_connect_requests_impl(
+        62 => wire__crate__api__device_api__render_network_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        63 => {
+        63 => wire__crate__api__device_api__render_wemo_connect_requests_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        64 => wire__crate__api__device_api__roomba_connect_packet_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        65 => wire__crate__api__device_api__roomba_disconnect_packet_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        66 => wire__crate__api__device_api__roomba_discovery_probe_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        67 => wire__crate__api__device_api__roomba_parse_announcement_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        68 => wire__crate__api__device_api__roomba_parse_incoming_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        69 => wire__crate__api__device_api__roomba_parse_password_reply_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        70 => wire__crate__api__device_api__roomba_password_probe_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        71 => wire__crate__api__device_api__roomba_pingreq_packet_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        72 => wire__crate__api__device_api__roomba_publish_packet_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        73 => wire__crate__api__device_api__roomba_state_fields_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        74 => wire__crate__api__device_api__roomba_subscribe_packet_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        75 => {
             wire__crate__api__device_api__soft_ap_profiles_impl(port, ptr, rust_vec_len, data_len)
         }
-        64 => wire__crate__api__device_api__wemo_network_status_impl(
+        76 => wire__crate__api__device_api__wemo_network_status_impl(
             port,
             ptr,
             rust_vec_len,
@@ -5741,6 +6330,99 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RabbitAirRequestD
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::RoombaAnnouncementDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.ver.into_into_dart().into_dart(),
+            self.hostname.into_into_dart().into_dart(),
+            self.blid.into_into_dart().into_dart(),
+            self.robotname.into_into_dart().into_dart(),
+            self.ip.into_into_dart().into_dart(),
+            self.mac.into_into_dart().into_dart(),
+            self.sw.into_into_dart().into_dart(),
+            self.sku.into_into_dart().into_dart(),
+            self.proto.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::RoombaAnnouncementDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RoombaAnnouncementDto>
+    for crate::api::device_api::RoombaAnnouncementDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::RoombaAnnouncementDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::RoombaIncomingDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.kind.into_into_dart().into_dart(),
+            self.topic.into_into_dart().into_dart(),
+            self.payload.into_into_dart().into_dart(),
+            self.code.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::RoombaIncomingDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RoombaIncomingDto>
+    for crate::api::device_api::RoombaIncomingDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::RoombaIncomingDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::RoombaParsedDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.packets.into_into_dart().into_dart(),
+            self.consumed.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::RoombaParsedDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RoombaParsedDto>
+    for crate::api::device_api::RoombaParsedDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::RoombaParsedDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::RoombaRequestDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.topic.into_into_dart().into_dart(),
+            self.payload.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::RoombaRequestDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RoombaRequestDto>
+    for crate::api::device_api::RoombaRequestDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::RoombaRequestDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -6671,6 +7353,16 @@ impl SseEncode for Vec<(u16, Vec<u8>)> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::RoombaIncomingDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::RoombaIncomingDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::ScanMatch> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7013,6 +7705,16 @@ impl SseEncode for Option<crate::api::device_api::QuerySourceDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::RoombaAnnouncementDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::RoombaAnnouncementDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::device_api::StoredUploadDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7168,6 +7870,47 @@ impl SseEncode for (u16, Vec<u8>) {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <u16>::sse_encode(self.0, serializer);
         <Vec<u8>>::sse_encode(self.1, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::RoombaAnnouncementDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.ver, serializer);
+        <String>::sse_encode(self.hostname, serializer);
+        <String>::sse_encode(self.blid, serializer);
+        <String>::sse_encode(self.robotname, serializer);
+        <String>::sse_encode(self.ip, serializer);
+        <String>::sse_encode(self.mac, serializer);
+        <String>::sse_encode(self.sw, serializer);
+        <String>::sse_encode(self.sku, serializer);
+        <String>::sse_encode(self.proto, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::RoombaIncomingDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.kind, serializer);
+        <String>::sse_encode(self.topic, serializer);
+        <String>::sse_encode(self.payload, serializer);
+        <u16>::sse_encode(self.code, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::RoombaParsedDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Vec<crate::api::device_api::RoombaIncomingDto>>::sse_encode(self.packets, serializer);
+        <u32>::sse_encode(self.consumed, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::RoombaRequestDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.topic, serializer);
+        <String>::sse_encode(self.payload, serializer);
     }
 }
 
