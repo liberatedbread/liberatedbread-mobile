@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/roomba_control_service.dart';
+import 'package:liberated_bread_mobile/services/roomba_controller.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 
 import '../fakes/fake_spec_codec.dart';
@@ -327,6 +328,40 @@ void main() {
             .having((e) => e.code, 'code', 4)
             .having((e) => e.toString(), 'message', contains('factory reset'))),
       );
+    });
+
+    /// The robot only accepts `dock` from a paused or stopped state, so the
+    /// direct path owes the same stop-then-dock sequence the rest980 path
+    /// does. Asserted on the wire, because the bug this prevents is a
+    /// controller forgetting to expand it.
+    test('Dock publishes stop before dock', () async {
+      final (client, robot) = await connected();
+      addTearDown(client.dispose);
+
+      final controller = DirectRoombaController(
+        client: client,
+        specYaml: 'unused-by-the-fake',
+        host: '10.0.0.7',
+        credentials: credentials,
+      );
+
+      final before = robot.written.length;
+      await controller.sendCommand('dock');
+
+      final commands = <String>[];
+      for (final packet in robot.written.sublist(before)) {
+        final parsed = await codec.roombaParseIncoming(buffer: packet);
+        for (final message in parsed.packets) {
+          if (message.kind != 'publish') continue;
+          expect(message.topic, 'cmd');
+          commands
+              .add((jsonDecode(message.payload) as Map)['command'] as String);
+        }
+      }
+
+      expect(commands, ['stop', 'dock'],
+          reason: 'a send-home button that only sends dock does nothing '
+              'while the robot is cleaning');
     });
 
     /// The robot serves one client at a time, so letting go is part of the

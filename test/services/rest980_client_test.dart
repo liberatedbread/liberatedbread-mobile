@@ -138,6 +138,19 @@ void main() {
     });
   });
 
+  group('roombaCommandSequence', () {
+    /// The whole point: a Dock button pressed mid-clean sends nothing the
+    /// robot will act on unless it stops first. The spec's `dock` description
+    /// says a send-home button sends stop then dock; this is that, in one
+    /// place both transports share.
+    test('expands dock into stop-then-dock, and leaves the rest alone', () {
+      expect(roombaCommandSequence('dock'), ['stop', 'dock']);
+      for (final command in ['clean', 'pause', 'stop', 'resume', 'find']) {
+        expect(roombaCommandSequence(command), [command], reason: command);
+      }
+    });
+  });
+
   group('Rest980Controller', () {
     test('polls state and emits it on the stream', () async {
       var requests = 0;
@@ -178,6 +191,31 @@ void main() {
       await controller.connect();
 
       await expectLater(failure, throwsA(isA<Rest980Exception>()));
+    });
+
+    /// Both transports owe the sequence. Asserted on the wire rather than on
+    /// the helper, because the bug this prevents is a controller forgetting to
+    /// call it.
+    test('sends stop before dock', () async {
+      final paths = <String>[];
+      final controller = Rest980Controller(
+        client: Rest980Client(
+          codec: codec,
+          client: MockClient((request) async {
+            paths.add(request.url.path);
+            return http.Response('{}', 200);
+          }),
+        ),
+        baseUrl: 'http://pi.local:3000',
+      );
+      addTearDown(controller.dispose);
+
+      await controller.sendCommand('dock');
+
+      expect(paths, [
+        '/api/local/action/stop',
+        '/api/local/action/dock',
+      ]);
     });
 
     test('reports which commands it can send', () {

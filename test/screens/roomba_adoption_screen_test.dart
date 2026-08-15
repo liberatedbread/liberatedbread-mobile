@@ -147,7 +147,6 @@ void main() {
     );
   }
 
-
   /// Let a running route finish, then rebuild.
   ///
   /// Two things make this fiddlier than `pumpAndSettle`. The wizard shows a
@@ -217,8 +216,7 @@ void main() {
     // The promise made at the point the password is typed.
     expect(find.text('Not stored. Sent to iRobot once.'), findsOneWidget);
 
-    await tester.enterText(
-        find.byType(TextField).first, 'someone@example.com');
+    await tester.enterText(find.byType(TextField).first, 'someone@example.com');
     await tester.enterText(find.byType(TextField).last, 'account-secret');
     await tester.tap(find.text('Sign in and read my robots'));
     await pumpBusy(tester);
@@ -259,7 +257,8 @@ void main() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Both the BLID and the password'), findsOneWidget);
+    expect(
+        find.textContaining('Both the BLID and the password'), findsOneWidget);
     expect(await stored(), isNull);
   });
 
@@ -317,8 +316,7 @@ void main() {
   testWidgets('credits dorita980 on every step, tappably', (tester) async {
     await tester.pumpWidget(wrap());
 
-    Finder credit() =>
-        find.textContaining('koalazak/dorita980\'s work (MIT)');
+    Finder credit() => find.textContaining('koalazak/dorita980\'s work (MIT)');
     expect(credit(), findsOneWidget);
 
     await tester.tap(find.text('Hold the HOME button'));
