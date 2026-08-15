@@ -63,7 +63,11 @@ class _DisclosingRobot implements RoombaTlsSocket {
   }
 }
 
-MockClient _irobotAccount() => MockClient((request) async {
+MockClient _irobotAccount() => MockClient(_irobotAccountResponse);
+
+/// The happy-path answers for the three round trips the account route makes,
+/// so a test that only cares about ONE of them can reuse the other two.
+Future<http.Response> _irobotAccountResponse(http.Request request) async {
       final path = request.url.path;
       if (path.endsWith('/v1/discover/endpoints')) {
         return http.Response(
@@ -96,7 +100,7 @@ MockClient _irobotAccount() => MockClient((request) async {
         }),
         200,
       );
-    });
+}
 
 void main() {
   late InMemorySettingsStore settings;
@@ -216,8 +220,12 @@ void main() {
     // The promise made at the point the password is typed.
     expect(find.text('Not stored. Sent to iRobot once.'), findsOneWidget);
 
-    await tester.enterText(find.byType(TextField).first, 'someone@example.com');
-    await tester.enterText(find.byType(TextField).last, 'account-secret');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'iRobot account email'),
+        'someone@example.com');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'iRobot account password'),
+        'account-secret');
     await tester.tap(find.text('Sign in and read my robots'));
     await pumpBusy(tester);
 
@@ -229,6 +237,99 @@ void main() {
       isFalse,
       reason: 'the iRobot account password must never be persisted',
     );
+  });
+
+  /// iRobot runs several regional APIs, and the wrong one signs in fine and
+  /// then reports no robots. The country therefore has to reach the request,
+  /// and has to be correctable — the phone's country and the account's are not
+  /// always the same.
+  testWidgets('the account route sends the region the user can edit',
+      (tester) async {
+    final countries = <String>[];
+    await tester.pumpWidget(wrap(
+      cloudClient: MockClient((request) async {
+        if (request.url.path.endsWith('/v1/discover/endpoints')) {
+          countries.add(request.url.queryParameters['country_code'] ?? '');
+        }
+        return _irobotAccountResponse(request);
+      }),
+    ));
+
+    await tester.tap(find.text('Sign in to iRobot once'));
+    await tester.pumpAndSettle();
+
+    // Prefilled from the device locale, which the test binding reports as US —
+    // so the field is populated rather than demanding input for the common
+    // case.
+    final region = find.widgetWithText(TextField, 'Account region');
+    expect(tester.widget<TextField>(region).controller!.text, 'US');
+
+    await tester.enterText(region, 'de');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'iRobot account email'),
+        'someone@example.com');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'iRobot account password'),
+        'account-secret');
+    await tester.tap(find.text('Sign in and read my robots'));
+    await pumpBusy(tester);
+
+    // Upper-cased on the way out: the API wants DE, the user typed de.
+    expect(countries, ['DE']);
+  });
+
+  /// The account can hold robots that are not the one this screen was opened
+  /// for. Adopting the first of them would store a DIFFERENT robot's password
+  /// under that robot's BLID: the screen reports success, the robot the user
+  /// picked still has nothing saved, and the failure turns up later somewhere
+  /// else entirely.
+  testWidgets('a robot missing from the account fails instead of adopting '
+      'another one', (tester) async {
+    await tester.pumpWidget(wrap(
+      cloudClient: MockClient((request) async {
+        if (request.url.path.endsWith('/v1/discover/endpoints') ||
+            request.url.path.endsWith('/accounts.login')) {
+          return _irobotAccountResponse(request);
+        }
+        // A real account, real robots — none of them this one.
+        return http.Response(
+          jsonEncode({
+            'robots': {
+              'AAAA1111BBBB2222': {
+                'password': ':1:9999999999:someoneElsesRobot',
+                'name': 'Downstairs',
+                'sku': 'R980020',
+              },
+            },
+          }),
+          200,
+        );
+      }),
+    ));
+
+    await tester.tap(find.text('Sign in to iRobot once'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'iRobot account email'),
+        'someone@example.com');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'iRobot account password'),
+        'account-secret');
+    await tester.tap(find.text('Sign in and read my robots'));
+    await pumpBusy(tester);
+
+    // Nothing adopted, and nothing stored under EITHER blid.
+    expect(find.text('Screenshot this'), findsNothing);
+    expect(await stored(), isNull);
+    expect(
+      settings.values.values.any((v) => v.contains('someoneElsesRobot')),
+      isFalse,
+      reason: 'another robot\'s password was saved',
+    );
+    // The message has to name the robot and say what to do instead, or the
+    // user is left with "it did not work".
+    expect(find.textContaining(_blid), findsOneWidget);
+    expect(find.textContaining('Downstairs'), findsOneWidget);
   });
 
   testWidgets('the paste route keeps the whole password', (tester) async {
