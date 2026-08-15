@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/services/roomba_control_service.dart';
 import 'package:liberated_bread_mobile/services/roomba_controller.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
+import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
 import '../fakes/fake_spec_codec.dart';
 
@@ -48,6 +49,24 @@ class _ScriptedRobot implements RoombaTlsSocket {
 
   Future<void> hangUp() async {
     if (!_out.isClosed) await _out.close();
+  }
+}
+
+/// A codec whose parse takes a real turn of the event loop, like the one in
+/// production does.
+///
+/// [FakeSpecCodec.roombaParseIncoming] is `async` but completes within a single
+/// microtask, so a second chunk can never arrive mid-decode and the fake hides
+/// concurrency bugs the real codec exposes. The real one is a
+/// flutter_rust_bridge call that crosses to a Rust worker, which takes several
+/// turns. This models that, and nothing else.
+class _SlowParseCodec extends FakeSpecCodec {
+  @override
+  Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer}) async {
+    // A timer, not a microtask: it puts the completion behind pending stream
+    // deliveries, which is exactly where the real codec's completion sits.
+    await Future<void>.delayed(Duration.zero);
+    return super.roombaParseIncoming(buffer: buffer);
   }
 }
 
@@ -224,10 +243,11 @@ void main() {
       password: password,
     );
 
-    Future<(RoombaMqttClient, _ScriptedRobot)> connected() async {
+    Future<(RoombaMqttClient, _ScriptedRobot)> connected(
+        {SpecCodec? using}) async {
       final robot = _ScriptedRobot();
       final client = RoombaMqttClient(
-        codec: codec,
+        codec: using ?? codec,
         connect: (_, __, ___) async {
           // CONNACK, accepted.
           scheduleMicrotask(() => robot.send([0x20, 0x02, 0x00, 0x00]));
@@ -306,6 +326,53 @@ void main() {
       expect(fields['state.reported.cleanMissionStatus.phase'], 'run');
       // false -> "0", so the binary_sensor's `on_when: nonzero` reads it.
       expect(fields['state.reported.bin.full'], '0');
+    });
+
+    /// Two chunks arriving before the first has finished decoding.
+    ///
+    /// `Stream.listen` does not await an async callback, so the receive path
+    /// has to serialize itself. Without that, both chunks reach the decoder
+    /// and interleave at its await: each snapshots the shared buffer, then
+    /// each trims what IT consumed from a buffer the other already trimmed.
+    /// The second trim runs off the end — and because a stream discards the
+    /// future its callback returns, the `RangeError` never surfaces anywhere.
+    /// The second push is just lost. So this asserts the COUNT: contents alone
+    /// pass happily while half the robot's state quietly goes missing.
+    ///
+    /// Pushing back-to-back with no await between the two `add`s is what makes
+    /// the events land in the same turn; a delay would hide the bug entirely.
+    test('two pushes arriving together are decoded once each, in order',
+        () async {
+      final (client, robot) = await connected(using: _SlowParseCodec());
+      addTearDown(client.dispose);
+
+      String pushFor(int battery, String phase) => '{"state":{"reported":'
+          '{"batPct":$battery,"cleanMissionStatus":{"phase":"$phase"}}}}';
+
+      final first =
+          await codec.roombaPublishPacket(topic: 'delta', payload: pushFor(94, 'run'));
+      final second =
+          await codec.roombaPublishPacket(topic: 'delta', payload: pushFor(93, 'hmMidMsn'));
+
+      final seen = <Map<String, String>>[];
+      final errors = <Object>[];
+      final sub = client.state.listen(seen.add, onError: errors.add);
+      addTearDown(sub.cancel);
+
+      robot.send(first);
+      robot.send(second);
+      // Let the whole chain drain — several microtask turns, since each chunk
+      // awaits the codec.
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      expect(errors, isEmpty);
+      expect(seen, hasLength(2),
+          reason: 'a push was dropped or decoded twice');
+      expect(seen[0]['state.reported.batPct'], '94');
+      expect(seen[1]['state.reported.batPct'], '93');
+      expect(seen[1]['state.reported.cleanMissionStatus.phase'], 'hmMidMsn');
     });
 
     /// A wrong password must not read like an unreachable robot: the fix is to

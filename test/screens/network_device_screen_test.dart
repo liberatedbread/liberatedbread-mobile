@@ -17,6 +17,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
+import 'package:liberated_bread_mobile/providers/roomba_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/network_device_screen.dart';
@@ -25,6 +26,8 @@ import 'package:liberated_bread_mobile/services/http_control_service.dart';
 import 'package:liberated_bread_mobile/services/kasa_control_service.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_control_service.dart';
 import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
+import 'package:liberated_bread_mobile/services/roomba_control_service.dart';
+import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 import 'package:liberated_bread_mobile/services/soap_control_service.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 
@@ -1832,4 +1835,109 @@ void main() {
       expect(purifierState['mode'], 0);
     });
   });
+
+  group('the Roomba transport', () {
+    /// A Roomba's control surface: one button on the robot's own MQTT
+    /// transport. Enough for the screen to take the Roomba branch.
+    const roombaEntities = [
+      NetworkEntityDto(
+        isInstanced: false,
+        name: 'Clean',
+        platform: 'button',
+        // A button carries no state binding: the robot pushes, and there is no
+        // request whose reply is the battery level.
+        stateCommand: '',
+        options: [],
+        actions: [
+          NetworkActionDto(
+            credentials: [],
+            instanceParams: [],
+            role: 'press',
+            transport: 'mqtt',
+            commandName: 'clean',
+            userParams: [],
+            readBack: [],
+          ),
+        ],
+      ),
+    ];
+
+    final robot = NetworkDevice(
+      host: '10.0.0.7',
+      name: 'Dorita',
+      sources: const {NetworkDiscoverySource.lanProbe},
+      discoveredAt: DateTime.utc(2026),
+      txt: const {'blid': '3193C60472324700'},
+    );
+
+    /// `roombaClientProvider` is `autoDispose`, and its `onDispose` closes the
+    /// robot's TLS socket. Reading it without keeping a listener lets Riverpod
+    /// reclaim it a frame later — killing the session the screen is holding,
+    /// moments after it opened. The robot serves one client at a time, so the
+    /// screen cannot simply reconnect its way out of that.
+    ///
+    /// The override swaps the SOCKET and nothing else: it is still
+    /// `autoDispose`, and it still registers the same `onDispose`, because
+    /// those two facts together ARE the bug. Only the connector changes, to one
+    /// that refuses immediately — the real one dials a fictional address and
+    /// leaves its timeout Timer pending past the end of the test. The refusal
+    /// lands on the screen's error path, which is not what is being asserted.
+    testWidgets('holds the direct client for as long as the screen lives',
+        (tester) async {
+      final disposed = <ProviderBase<Object?>>[];
+      final store = InMemorySettingsStore();
+      await RoombaCredentialStore(store).save(const RoombaCredentials(
+        blid: '3193C60472324700',
+        password: ':1:1486937829:gktkDoYpWaDxCfGh',
+      ));
+
+      await tester.pumpWidget(ProviderScope(
+        observers: [_DisposeSpy(disposed)],
+        overrides: [
+          specCodecProvider.overrideWithValue(FakeSpecCodec()),
+          settingsStoreProvider.overrideWithValue(store),
+          roombaClientProvider.overrideWith((ref, blid) {
+            final client = RoombaMqttClient(
+              codec: FakeSpecCodec(),
+              connect: (_, __, ___) async =>
+                  throw const RoombaConnectionException('no robot in this test'),
+            );
+            ref.onDispose(client.dispose);
+            return client;
+          }),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+            device: robot,
+            controls:
+                const NetworkControls(specYaml: 'yaml', entities: roombaEntities),
+          ),
+        ),
+      ));
+      // Several frames: autoDispose reclaims on the turn after the last
+      // listener goes, so one pump would pass even unfixed.
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+
+      expect(
+        disposed.whereType<ProviderBase<RoombaMqttClient>>(),
+        isEmpty,
+        reason: 'the screen let go of the robot while still driving it',
+      );
+    });
+  });
+}
+
+/// Records every provider Riverpod tears down, so a test can assert one was
+/// NOT torn down.
+class _DisposeSpy extends ProviderObserver {
+  final List<ProviderBase<Object?>> disposed;
+  _DisposeSpy(this.disposed);
+
+  @override
+  void didDisposeProvider(
+      ProviderBase<Object?> provider, ProviderContainer container) {
+    disposed.add(provider);
+  }
 }

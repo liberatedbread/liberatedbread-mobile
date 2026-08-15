@@ -137,6 +137,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   RoombaController? _roomba;
   StreamSubscription<Map<String, String>>? _roombaState;
 
+  /// Keeps the direct client's provider alive for as long as this screen is
+  /// driving the robot.
+  ///
+  /// `roombaClientProvider` is `autoDispose`, and a provider with no listeners
+  /// is reclaimed a frame later — taking `ref.onDispose(client.dispose)` with
+  /// it, which closes the TLS socket. Reading it with `ref.read` registers no
+  /// listener, so the session this screen is holding would be torn down under
+  /// it moments after connecting. `listenManual` is the listener; closing the
+  /// subscription in [dispose] is what lets autoDispose do its job afterwards.
+  ///
+  /// Only the direct path needs this. `rest980ClientProvider` is a plain
+  /// `Provider` and is never reclaimed.
+  ProviderSubscription<RoombaMqttClient>? _directClientHandle;
+
   @override
   void dispose() {
     for (final controller in _textControllers.values) {
@@ -147,6 +161,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // occupied until this happens, and the owner's app stays locked out.
     unawaited(_roombaState?.cancel() ?? Future<void>.value());
     unawaited(_roomba?.close() ?? Future<void>.value());
+    _directClientHandle?.close();
     super.dispose();
   }
 
@@ -484,7 +499,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       host: widget.device.host,
       specYaml: widget.controls.specYaml,
       codec: ref.read(specCodecProvider),
-      directClient: () => ref.read(roombaClientProvider(blid)),
+      directClient: () {
+        // Held, not read: see [_directClientHandle]. The callback only runs on
+        // the direct path, so the rest980 path never takes the subscription.
+        final handle = ref.listenManual(
+          roombaClientProvider(blid),
+          (_, __) {},
+        );
+        _directClientHandle = handle;
+        return handle.read();
+      },
       restClient: () => ref.read(rest980ClientProvider),
     );
     _roomba = controller;
