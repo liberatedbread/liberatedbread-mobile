@@ -62,6 +62,15 @@ optional here — they're a feature.
   [liberatedbread-protocol-specs](https://github.com/liberatedbread/liberatedbread-protocol-specs).
   Edits are invisible upstream and CI fails the PR. To change a spec, open a PR
   against that repo, then refresh here with `./scripts/update-specs.sh`.
+  Iterating on a spec and the app together, refresh from your local checkout:
+  `./scripts/update-specs.sh my-branch --from ../liberatedbread-protocol-specs`.
+  Upstream's `device-specs/index.json` — the list the app's loader reads — is
+  built by upstream CI *after* a spec merges, so a branch's index never names
+  the spec you are writing. The script rebuilds it from the vendored specs for
+  you in that case (`--rebuild-index` forces it for any source), leaving it
+  uncommitted on purpose: it is local state, and committing it would put the
+  next subtree pull back into conflict on a generated file. Needs a python3
+  with `pyyaml` + `jsonschema`; nothing else here does.
 - **Never hand-edit generated FRB bindings** (`lib/src/rust/**`,
   `rust/src/frb_generated.rs`). Regenerate with
   `flutter_rust_bridge_codegen generate` after changing `rust/src/api/**`. CI
