@@ -60,7 +60,10 @@ export '../src/rust/api/device_api.dart'
         LifxStateDto,
         LifxZoneColorDto,
         LifxZonesDto,
-        LifxAccessPointDto;
+        LifxAccessPointDto,
+        SoftApProfileDto,
+        WemoAccessPointDto,
+        WemoJoinStatus;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -492,6 +495,46 @@ abstract class SpecCodec {
 
   /// Decode a `StateAccessPoint` scan-result reply.
   Future<LifxAccessPointDto> decodeLifxAccessPoint({required List<int> bytes});
+
+  // ── Wemo SoftAP setup, and the shared softap-profile catalogue ─────────────
+  // The Wemo half of adoption (SOAP): the passphrase encryption and the ApList
+  // parse. `softApProfiles`/`matchSoftApSsid` are family-agnostic — they back
+  // the "a setup network is nearby" hint that spins the adopt icon.
+
+  /// Every softap setup method the catalogue declares (Wemo, LIFX, …), from the
+  /// given spec YAMLs — the families the adopt flow can offer, and the SSID
+  /// prefixes the nearby-network hint watches for.
+  Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls);
+
+  /// The index of the first profile whose setup-AP prefix matches [ssid]
+  /// (case-insensitive, anchored), or null. Drives the spinning hint.
+  Future<int?> matchSoftApSsid({
+    required List<SoftApProfileDto> profiles,
+    required String ssid,
+  });
+
+  /// Every `ConnectHomeNetwork` request worth sending to join [ssid], rendered
+  /// and ready to POST — the Wemo counterpart of [renderLifxSetAccessPoint].
+  /// The passphrase is encrypted (each variant of the spec's sweep) and each
+  /// attempt rendered into a SOAP request; the caller POSTs them in turn until
+  /// one joins. [metaInfo] is the raw `GetMetaInfo` reply (unused for an open
+  /// network). Throws when the passphrase is too short — terminal, worth saying
+  /// before any network I/O.
+  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+    required String specYaml,
+    required String metaInfo,
+    required String ssid,
+    required String auth,
+    required String encrypt,
+    required String channel,
+    required String passphrase,
+  });
+
+  /// Interpret a Wemo `GetNetworkStatus` reply's `NetworkStatus` value.
+  Future<WemoJoinStatus> wemoNetworkStatus({required String code});
+
+  /// Parse a Wemo `GetApList` reply into pickable networks.
+  Future<List<WemoAccessPointDto>> parseWemoApList({required String apList});
 
   /// Encode the writes that loop stored frames as an animation: the
   /// set-playlist command then loop mode. [cids] are the stored frames in play

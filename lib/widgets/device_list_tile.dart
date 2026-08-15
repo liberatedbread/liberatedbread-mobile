@@ -13,14 +13,18 @@ import '../core/find_device.dart' show signalBars;
 /// Section label with a count pill, e.g. "Found · 2".
 class SectionHeader extends StatelessWidget {
   final String label;
-  final int count;
 
-  const SectionHeader({super.key, required this.label, required this.count});
+  /// The badge count. Null for a header that labels a section with no natural
+  /// count (a form step, say); the badge is then simply not drawn.
+  final int? count;
+
+  const SectionHeader({super.key, required this.label, this.count});
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final count = this.count;
     return Row(
       children: [
         Text(
@@ -30,21 +34,23 @@ class SectionHeader extends StatelessWidget {
             letterSpacing: 0.2,
           ),
         ),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            '$count',
-            style: text.labelSmall?.copyWith(
-              color: scheme.onSurfaceVariant,
-              fontWeight: FontWeight.w700,
+        if (count != null) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$count',
+              style: text.labelSmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
-        ),
+        ],
       ],
     );
   }

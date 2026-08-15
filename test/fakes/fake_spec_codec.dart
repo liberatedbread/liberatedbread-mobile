@@ -865,6 +865,66 @@ class FakeSpecCodec implements SpecCodec {
         channel: 11,
       );
 
+  /// Returned by [softApProfiles].
+  List<SoftApProfileDto> softApProfilesResult = const [];
+
+  /// Returned by [matchSoftApSsid].
+  int? Function(String ssid)? matchSoftApSsidFor;
+
+  /// Returned by [renderWemoConnectRequests]; if [wemoConnectError] is set, the
+  /// call throws it instead (the short-passphrase path).
+  List<SoapRequestDto> wemoConnectRequests = const [
+    SoapRequestDto(
+      service: 'urn:Belkin:service:WiFiSetup:1',
+      action: 'ConnectHomeNetwork',
+      soapAction: '"urn:Belkin:service:WiFiSetup:1#ConnectHomeNetwork"',
+      path: '/upnp/control/WiFiSetup1',
+      body: '<connect/>',
+    ),
+  ];
+  Object? wemoConnectError;
+
+  /// Returned by [wemoNetworkStatus].
+  WemoJoinStatus wemoStatus = WemoJoinStatus.connected;
+
+  /// Returned by [parseWemoApList].
+  List<WemoAccessPointDto> wemoApList = const [];
+
+  @override
+  Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls) async =>
+      softApProfilesResult;
+
+  @override
+  Future<int?> matchSoftApSsid({
+    required List<SoftApProfileDto> profiles,
+    required String ssid,
+  }) async =>
+      matchSoftApSsidFor?.call(ssid);
+
+  @override
+  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+    required String specYaml,
+    required String metaInfo,
+    required String ssid,
+    required String auth,
+    required String encrypt,
+    required String channel,
+    required String passphrase,
+  }) async {
+    if (wemoConnectError != null) throw wemoConnectError!;
+    return wemoConnectRequests;
+  }
+
+  @override
+  Future<WemoJoinStatus> wemoNetworkStatus({required String code}) async =>
+      wemoStatus;
+
+  @override
+  Future<List<WemoAccessPointDto>> parseWemoApList({
+    required String apList,
+  }) async =>
+      wemoApList;
+
   /// Every [encodeSetPlaylist] call's cids, in order.
   final List<List<int>> encodeSetPlaylistCalls = [];
 
