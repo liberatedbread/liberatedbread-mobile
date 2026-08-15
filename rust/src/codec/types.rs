@@ -372,10 +372,11 @@ pub fn unsupported_encoding_kind(command: &Command) -> Option<String> {
     if command.value.is_some() || command.template.is_some() {
         return None;
     }
-    // `encoding: bytes` + `payload.bytes` is a fixed byte write in a
-    // different envelope (govee specs), so it is encodable; the same
-    // encoding with a missing or malformed payload is not — there is
-    // nothing to send.
+    // `encoding: bytes` + `payload.bytes` is a fixed byte write filed under
+    // the wrong key, so it is still encodable; the same encoding with a
+    // missing or malformed payload is not — there is nothing to send. The
+    // spec schema rejects that key now; see Command::payload_bytes for why
+    // the reader stays anyway.
     if command.payload_bytes().is_some() {
         return None;
     }

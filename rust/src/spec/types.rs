@@ -1242,15 +1242,6 @@ impl LocateKind {
 }
 
 impl Command {
-    /// The fixed byte sequence of an `encoding: bytes` command, when its
-    /// `payload.bytes` is a well-formed byte list.
-    ///
-    /// Govee specs write fixed commands as `encoding: bytes` +
-    /// `payload: {bytes: [...]}` instead of the `value:` key — the same
-    /// information in a different envelope. Returns `None` for any other
-    /// encoding, for a missing/short payload, or for entries outside 0..=255,
-    /// so a malformed payload stays "unsupported" rather than sending a
-    /// truncated write.
     /// The declared locator modality, or `None` when this is not a locator.
     ///
     /// An unrecognised spelling is `None`: offering a button that writes an
@@ -1260,6 +1251,27 @@ impl Command {
         LocateKind::parse(self.locate.as_deref()?)
     }
 
+    /// The fixed byte sequence of an `encoding: bytes` command whose bytes
+    /// were filed under `payload.bytes` rather than under `value`.
+    ///
+    /// COMPATIBILITY ONLY. Two Govee specs wrote fixed commands this way.
+    /// Upstream has rewritten both to use `value`/`template` and the spec
+    /// schema now rejects the key outright, so once the next subtree refresh
+    /// lands, a spec reaching this path is one no schema validated — a
+    /// bundled spec pack, or a spec being edited. Until then the vendored
+    /// copies still take it. Either way it is not a second spelling of
+    /// `value`; do not write one.
+    ///
+    /// Reading it back is what let the misfiling go unnoticed here: the plug
+    /// worked, so nothing reported that every other consumer of the same YAML
+    /// saw a command with no bytes at all. It stays because dropping a spec
+    /// pack's commands on a rename is worse than parsing a shape we no longer
+    /// emit, not because the shape is supported.
+    ///
+    /// `None` for any other encoding, for an absent or empty list, or for
+    /// entries outside 0..=255. Note that "well-formed" is all this can
+    /// check: the bulb's entries were valid bytes and still only a prefix of
+    /// the 20-byte frame the hardware wants, and no accessor can see that.
     pub fn payload_bytes(&self) -> Option<Vec<u8>> {
         if self.encoding.as_deref() != Some("bytes") {
             return None;
