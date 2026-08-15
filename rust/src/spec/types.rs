@@ -1467,6 +1467,21 @@ pub enum AutoRole {
     /// silently drops. `checksum_xor` does not apply: it salts the additive
     /// result, and no XOR frame in the catalogue carries one.
     XorChecksum,
+    /// CRC-16/MODBUS over the same span: reflected polynomial 0xA001, init
+    /// 0xFFFF, no final xor. MODBUS-RTU framing, as Bluetti carries over GATT
+    /// (`[addr][function][payload][crc lo][crc hi]`, `checksum_start: 0`
+    /// because the address byte is covered).
+    ///
+    /// Two bytes wide, unlike the other checksum roles — the parameter
+    /// declares `type: uint16` and the ordinary numeric path emits it, so
+    /// MODBUS's low-byte-first convention falls out of the default
+    /// little-endian rather than being special-cased here.
+    ///
+    /// Named as a whole algorithm rather than assembled from width/poly/init/
+    /// reflect/xorout knobs: a spec that got one knob wrong would still
+    /// validate and still produce a plausible wrong CRC, which is the failure
+    /// mode this vocabulary exists to avoid.
+    Crc16Modbus,
 }
 
 impl std::fmt::Display for AutoRole {
@@ -1478,6 +1493,7 @@ impl std::fmt::Display for AutoRole {
             AutoRole::Sequence => write!(f, "sequence"),
             AutoRole::Checksum => write!(f, "checksum"),
             AutoRole::XorChecksum => write!(f, "xor_checksum"),
+            AutoRole::Crc16Modbus => write!(f, "crc16_modbus"),
         }
     }
 }
