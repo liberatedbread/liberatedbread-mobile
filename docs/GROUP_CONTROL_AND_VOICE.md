@@ -81,8 +81,10 @@ and Android TV (TLS-protobuf) declare transports the Rust core does not speak,
 so `qualify_network` returns `None` and they resolve to no controls at all.
 
 Of those four, three have discrete power-off commands. Only Viera is
-toggle-only. So a first cut of "turn all TVs off" correctly turns off Roku, Sony
-and Vizio, and honestly reports that it left the Viera alone.
+toggle-only — and P13 excludes it from the Power switch outright (see §E), so it
+resolves no power role at all rather than an unusable one. A first cut of "turn
+all TVs off" therefore turns off Roku, Sony and Vizio, and honestly reports that
+it left the Viera alone.
 
 ---
 
@@ -166,14 +168,35 @@ unit-testable with no network at all:
 3. Else — skip, with an honest reason ("No discrete power-off, and this device
    does not report whether it is on").
 
-A failed state read counts as **not confirmed on**, so it skips rather than
-retries. Three specs volunteer the reason: on Vizio, Philips and Hisense the
-state endpoint becomes *unreachable* rather than wrong when the set is asleep,
-so a read that times out is itself evidence the TV is off.
+A failed state read counts as **not confirmed on**, so step 2 declines to send.
+But do not mistake that for having learned the TV is off. A read can fail from
+packet loss, a stale address, an auth failure, or an endpoint that never
+existed — Philips documents 403/404 as *endpoint-not-present*, which says
+nothing about power. Only some specs supply a signal that genuinely means
+standby: a Sony answers control calls with the error string `"not power-on"`,
+which its spec says to read as "off, not broken", and Vizio documents its state
+endpoint as unreachable rather than wrong while asleep.
+
+So the failure is scoped narrowly: **unknown blocks the toggle, and nothing
+else.** The entity still reports *unavailable* rather than off, and ordinary
+retry behaviour is untouched — otherwise a bulk off quietly turns a broken
+network into a screen full of TVs that claim to be off.
 
 Skipping is never silent dropping — that convention already runs through
 `group_actions.dart` and the detail screen renders the reason per member. A
 user whose Viera stayed on is entitled to know the app decided that on purpose.
+
+**The Viera is the case that justifies the whole rule**, and it is worth being
+precise about why, because the obvious shortcut is wrong. It is tempting to
+argue that firing a toggle blindly is harmless — a TV that is off is off the
+network, so the packet lands nowhere. That holds for LG, Samsung and Hisense,
+whose specs all record that the network stack is down in standby. It does
+**not** hold for Panasonic: `panasonic-viera.yaml` documents that power-on over
+the network works from network standby ("Powered On By Apps"), with Wake-on-LAN
+needed only when that is off or on some older plasma models. A sleeping Viera
+is listening, and a blind toggle turns it on — during an operation the user
+asked for to turn things *off*. Since it also reports no power state, there is
+no way to establish it is safe to send, which is exactly why it skips.
 
 ### F. Rust: the `toggle` role
 
