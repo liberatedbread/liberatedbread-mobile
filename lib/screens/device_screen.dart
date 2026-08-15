@@ -401,9 +401,17 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               serviceCount: _services.length,
               onFind: _openFind,
               onDisconnect: () async {
+                // A deliberate disconnect means "done with this device", so
+                // return to the listing it was opened from. The reconnect
+                // state stays reserved for links *lost* (_watchConnection):
+                // parking a chosen disconnect there read as an error. The
+                // navigator is captured before the await so no BuildContext
+                // crosses the async gap, and the mounted guard keeps a
+                // pop-during-teardown from popping the listing itself.
+                final navigator = Navigator.of(context);
                 await _cleanupConnection();
                 if (!mounted) return;
-                setState(() => _state = _ScreenState.disconnected);
+                navigator.pop();
               },
             ),
             Expanded(
