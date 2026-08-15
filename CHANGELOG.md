@@ -407,6 +407,36 @@ heading.
 
 ### Added
 
+- **The Linux desktop build has an app icon.** It was the one platform without
+  one: iOS, macOS, Android and web all carried the mascot, and the GTK build
+  shipped whatever generic placeholder the desktop supplies — so a running
+  window was unidentifiable in a taskbar or an alt-tab switcher.
+  `tool/branding/generate_icons.mjs` now emits seven flattened sizes (16–256,
+  the freedesktop hicolor set) to `linux/resources/`, `linux/CMakeLists.txt`
+  copies them into the bundle at `data/resources/`, and
+  `linux/my_application.cc` loads them and sets the default window icon list at
+  startup, before any window exists. All seven ship rather than one large one
+  because a desktop picks per surface, and given only a 256 the compositor
+  downscales it into the muddy taskbar icon this exists to avoid.
+
+  The icons are loaded from the bundle rather than looked up by name through
+  the icon theme, which is the GTK-idiomatic call: a theme lookup only resolves
+  for an *installed* app, and this one normally runs straight out of
+  `build/linux/x64/<mode>/bundle`. `scripts/verify_linux_bundle.sh` asserts each
+  size arrives, since a bundle missing them builds green, starts fine, and is
+  wrong only somewhere CI never looks.
+
+  A native **Wayland** session needs one more piece, and cannot use the above:
+  the protocol has no per-window icons, so the compositor matches the surface's
+  `app_id` to an installed `.desktop` file instead. `linux/main.cc` therefore
+  sets the process name to `APPLICATION_ID` (`ca.pigscanfly.liberatedbread`,
+  which also fixes the X11 `WM_CLASS`), and the new
+  `scripts/install-linux-desktop-entry.sh` installs a matching entry and the
+  hicolor icons under `~/.local/share` — no root, nothing outside `$HOME`, and
+  `--uninstall` to undo. It is deliberately not run by the build or by
+  `run-linux.sh`: writing into a developer's desktop environment is not
+  something a build should do unasked.
+
 - **Rabbit Air purifiers (full local control over Wi-Fi).** The fourth
   network transport, after SOAP (Wemo), plain HTTP (Roku) and Kasa: the
   Rabbit Air LAN protocol is an encrypted JSON envelope — `{id, cmd, ts,
