@@ -1,5 +1,10 @@
 # iRobot Roomba (WiFi models) — Local MQTT Research Notes
 
+> **Promoted.** This note has graduated to a published spec at
+> `device-specs/devices/irobot-roomba.yaml`, with a device page at
+> `docs/devices/irobot-roomba.md`. The spec is authoritative; this note is
+> kept as the record of how the target was scoped.
+
 ## What it is
 iRobot Roomba WiFi-connected models: 690/890, 960/980 (first with local
 API), e5/e6, i3–i8, j7/j9, s9, plus Braava jet m6. All run a local TLS

@@ -924,26 +924,43 @@ def test_declared_endianness_matches_the_default(specs):
     assert all(s[2] in {"little", "big"} for s in stated)
 
 
-def test_index_json_parses_and_covers_every_spec():
-    """The committed index must be loadable and name exactly the specs on disk.
+def test_generated_index_covers_every_spec():
+    """The index the generator builds *now* must name exactly the specs on disk.
 
-    CI regenerates the index and diffs it, but that runs after the whole test
-    suite — a hand-edited index that no longer parses sails through every
-    other check here. Parsing it and comparing the path set catches the two
-    failure modes a hand edit actually produces (broken JSON, missing or
-    duplicated entries) without restating the generator byte for byte.
+    Deliberately not a check on the committed `device-specs/index.json`: that
+    file is written by CI on main (see the `publish-index` job), so on a branch
+    that adds a spec it is expected to be one commit behind, and asserting
+    otherwise would fail every spec PR. What still has to hold is that the
+    generator sees every spec exactly once — a spec the index cannot name is a
+    device consumers never load.
     """
-    index = json.loads(
-        (REPO_ROOT / "device-specs" / "index.json").read_text(encoding="utf-8")
-    )
+    import generate_index
     from validate_specs import discover_specs
 
-    indexed = [entry["path"] for entry in index]
+    entries, invalid = generate_index.collect_entries()
+    assert invalid == 0, "invalid specs are already reported by validate_specs.py"
+
+    indexed = [entry["path"] for entry in entries]
     on_disk = sorted(
         p.relative_to(REPO_ROOT).as_posix() for p in discover_specs()
     )
     assert sorted(indexed) == on_disk
     assert len(indexed) == len(set(indexed)), "duplicate index entries"
+
+
+def test_committed_index_still_parses():
+    """Whatever is checked in must at least be loadable JSON of the right shape.
+
+    Freshness is CI's job, but the file is a shipped asset (the mobile app
+    bundles it straight out of the subtree), so a truncated or hand-mangled one
+    breaks a consumer with no other check standing between it and a release.
+    """
+    index_path = REPO_ROOT / "device-specs" / "index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    assert isinstance(index, list) and index, "index.json should be a non-empty array"
+    assert all(isinstance(entry.get("path"), str) for entry in index), (
+        "every index entry needs a `path`"
+    )
 
 
 # ---------------------------------------------------------------------------

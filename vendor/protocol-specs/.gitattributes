@@ -1,0 +1,5 @@
+# device-specs/index.json is machine-written (scripts/generate_index.py) and
+# committed by CI's publish-index job, never by hand. Marking it generated
+# collapses it in GitHub's diff view, so a reviewer looking at a spec PR that
+# happened to pick it up in a merge sees the specs rather than 60 kB of JSON.
+device-specs/index.json linguist-generated=true

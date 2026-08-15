@@ -47,6 +47,16 @@ def entities(spec) -> list:
     return spec["entities"]
 
 
+@pytest.fixture(scope="module")
+def variants(spec) -> list:
+    return spec["device"]["variants"]
+
+
+@pytest.fixture(scope="module")
+def sensors(entities) -> list:
+    return [e for e in entities if e["platform"] == "sensor"]
+
+
 # ── Reference implementation, transcribed from the spec ──────────────────────
 
 
@@ -113,6 +123,41 @@ def read_dotted_path(reply: dict, path: str):
     for key in path.split("."):
         node = node[key]
     return node
+
+
+class Missing:
+    """Sentinel: the path is not present in this reply."""
+
+
+def try_dotted_path(reply: dict, path: str):
+    """`read_dotted_path`, but absence is an answer rather than a KeyError."""
+    node = reply
+    for key in path.split("."):
+        if not isinstance(node, dict) or key not in node:
+            return Missing
+        node = node[key]
+    return node
+
+
+def read_entity_value(reply: dict, mapping: dict):
+    """Read a role's value per state_mapping, honouring `value_fallback`.
+
+    The schema's contract: try the role's primary path; only when that key is
+    absent from the reply, resolve the fallback's `path` and multiply by its
+    `scale`. This is the whole reason HS110 hardware v1 — which names the
+    emeter fields differently rather than merely scaling them — is readable
+    from the same entity as current firmware.
+    """
+    value = try_dotted_path(reply, mapping["value"])
+    if value is not Missing:
+        return value
+    fallback = mapping.get("value_fallback")
+    if fallback is None:
+        return Missing
+    raw = try_dotted_path(reply, fallback["path"])
+    if raw is Missing:
+        return Missing
+    return raw * fallback.get("scale", 1)
 
 
 # ── The cipher reproduces the published vectors ──────────────────────────────
@@ -255,42 +300,147 @@ def test_the_state_field_is_one_the_command_returns(entities, commands):
 # ── The emeter sensors resolve and decode ────────────────────────────────────
 
 
-def test_the_emeter_sensors_bind_get_emeter(entities, commands):
-    """Each sensor's state_command is the get_emeter command — and the path it
-    reads must end in a field get_emeter says it returns, the same poll/decode
-    agreement the switch is held to."""
-    sensors = [e for e in entities if e["platform"] == "sensor"]
+EXPECTED_READINGS = {
+    "Voltage": 121.043,
+    "Current": 0.362,
+    "Power": 43.81,
+    "Total Consumption": 12.345,
+}
+
+# Current firmware: plain float fields, already in the entities' units.
+MODERN_EMETER_REPLY = {
+    "emeter": {
+        "get_realtime": {
+            "voltage": 121.043,
+            "current": 0.362,
+            "power": 43.81,
+            "total": 12.345,
+            "err_code": 0,
+        }
+    }
+}
+
+# HS110 hardware v1: the same four readings under DIFFERENT NAMES, in
+# milli-units. Not a scaled copy of the reply above — the modern keys are
+# absent entirely, which is exactly why prose telling a consumer to "divide by
+# 1000" is not enough and the fallback paths have to be in the spec.
+LEGACY_EMETER_REPLY = {
+    "emeter": {
+        "get_realtime": {
+            "voltage_mv": 121043,
+            "current_ma": 362,
+            "power_mw": 43810,
+            "total_wh": 12345,
+            "err_code": 0,
+        }
+    }
+}
+
+
+def test_the_emeter_sensors_bind_get_emeter(sensors, commands):
+    """Each sensor's state_command is the get_emeter command — and every path
+    it reads, primary and fallback alike, must end in a field get_emeter says
+    it returns, the same poll/decode agreement the switch is held to."""
     assert len(sensors) == 4, "Voltage/Current/Power/Total Consumption"
     returned = {r["name"] for r in commands["get_emeter"]["returns"]}
     for sensor in sensors:
         assert sensor["state_command"] == "get_emeter"
-        path = sensor["state_mapping"]["value"]
-        assert path.split(".")[-1] in returned, (
-            f"{sensor['name']}: {path!r} ends in a field get_emeter does not return"
-        )
+        mapping = sensor["state_mapping"]
+        paths = [mapping["value"]]
+        if "value_fallback" in mapping:
+            paths.append(mapping["value_fallback"]["path"])
+        for path in paths:
+            assert path.split(".")[-1] in returned, (
+                f"{sensor['name']}: {path!r} ends in a field get_emeter does not return"
+            )
 
 
-def test_an_emeter_reply_decodes_through_the_sensor_mappings(entities):
+def test_an_emeter_reply_decodes_through_the_sensor_mappings(sensors):
     """A get_emeter reply (current firmware's plain float fields, in SI units)
     resolves through every sensor's dotted state_mapping path — the poll a
     consumer runs to fill the four meter tiles."""
-    reply = {
-        "emeter": {
-            "get_realtime": {
-                "voltage": 121.043,
-                "current": 0.362,
-                "power": 43.81,
-                "total": 12.345,
-                "err_code": 0,
-            }
-        }
-    }
-    expected = {
-        "Voltage": 121.043,
-        "Current": 0.362,
-        "Power": 43.81,
-        "Total Consumption": 12.345,
-    }
-    for sensor in (e for e in entities if e["platform"] == "sensor"):
-        value = read_dotted_path(reply, sensor["state_mapping"]["value"])
-        assert value == pytest.approx(expected[sensor["name"]])
+    for sensor in sensors:
+        value = read_dotted_path(MODERN_EMETER_REPLY, sensor["state_mapping"]["value"])
+        assert value == pytest.approx(EXPECTED_READINGS[sensor["name"]])
+
+
+def test_a_legacy_milliunit_reply_decodes_to_the_same_readings(sensors):
+    """HS110 hardware v1's reply — different field NAMES, milli-units — decodes
+    through the same entities to the same values, via value_fallback.
+
+    The primary path finds nothing in this reply, so a consumer with no
+    fallback support renders no reading at all; that is the failure the
+    fallback exists to remove, and this pins that it is removed.
+    """
+    for sensor in sensors:
+        mapping = sensor["state_mapping"]
+        assert try_dotted_path(LEGACY_EMETER_REPLY, mapping["value"]) is Missing, (
+            f"{sensor['name']}: the legacy reply must not carry the modern key — "
+            "if it did, the fallback would be untested here"
+        )
+        value = read_entity_value(LEGACY_EMETER_REPLY, mapping)
+        assert value == pytest.approx(EXPECTED_READINGS[sensor["name"]])
+
+
+def test_both_reply_shapes_decode_through_one_reader(sensors):
+    """One `read_entity_value` reads both hardware generations, in the order
+    the schema states: primary first, fallback only when the primary is
+    absent. A consumer needs one code path, not a per-model branch."""
+    for reply in (MODERN_EMETER_REPLY, LEGACY_EMETER_REPLY):
+        for sensor in sensors:
+            value = read_entity_value(reply, sensor["state_mapping"])
+            assert value == pytest.approx(EXPECTED_READINGS[sensor["name"]])
+
+
+# ── Variant scoping: the emeter surface is not on every covered model ────────
+
+
+def test_variants_are_identifiable_from_a_sysinfo_reply(variants, commands):
+    """Every variant declares a model_prefix, and get_sysinfo declares the
+    `model` field a consumer matches it against — a variant table nothing in
+    the protocol can be matched to is decoration."""
+    assert variants, "the spec covers more than one model; they must be listed"
+    returned = {r["name"] for r in commands["get_sysinfo"]["returns"]}
+    assert "model" in returned and "feature" in returned
+    for variant in variants:
+        prefix = variant["identification"]["model_prefix"]
+        assert variant["model"].startswith(prefix)
+        # A region suffix must not defeat the match — this is a prefix test.
+        assert f"{prefix}(US)".startswith(prefix)
+
+
+def test_the_emeter_sensors_are_scoped_to_metering_models(sensors, variants):
+    """The four meter sensors name the models that actually have the meter,
+    and those names resolve to declared variants.
+
+    Unscoped, a consumer draws four permanently-unavailable tiles on an
+    HS100 — get_emeter on a plug with no metering hardware answers an error,
+    not a reading.
+    """
+    declared = {v["model"] for v in variants}
+    metering = {"HS110", "KP115"}
+    assert metering <= declared
+    for sensor in sensors:
+        scope = sensor.get("variants")
+        assert scope, f"{sensor['name']}: an emeter sensor must name its models"
+        assert set(scope) == metering, (
+            f"{sensor['name']}: scoped to {scope}, expected the metering models"
+        )
+
+
+def test_every_entity_variant_names_a_declared_variant(entities, variants):
+    """No entity may scope itself to a model the device block never declares —
+    a typo there silently hides the entity on every real device."""
+    declared = {v["model"] for v in variants}
+    for entity in entities:
+        for model in entity.get("variants", []):
+            assert model in declared, (
+                f"{entity['name']}: variants names {model!r}, not in device.variants"
+            )
+
+
+def test_the_switch_is_not_variant_scoped(entities):
+    """The relay is on every covered model, so the switch must NOT carry a
+    variants list — scoping it would hide the one control every plug has."""
+    switch = next(e for e in entities if e["platform"] == "switch")
+    assert "variants" not in switch

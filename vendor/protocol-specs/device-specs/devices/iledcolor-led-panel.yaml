@@ -194,10 +194,33 @@ services:
         notes: "JL OTA notification characteristic."
         properties: ["notify"]
 
-references:
-  - "https://pub.dev/packages/led_bt_jl_ota"
-  - "https://github.com/akkaisinabin/iledcolor-rs"
-  - "https://github.com/Jieli-Tech/Android-JL_OTA"
-  - "https://github.com/Jieli-Tech/fw-AC63_BT_SDK/issues/78"
-  - "https://github.com/iwalton3/python-spotled"
-  - "https://play.google.com/store/apps/details?id=com.led.iledcolor"
+helpful_urls:
+  - title: "led_bt_jl_ota on pub.dev"
+    url: "https://pub.dev/packages/led_bt_jl_ota"
+    description: >-
+      The vendor's own Flutter plugin, published open source. This is the complete implementation
+      this spec's packet format comes from, and the unobfuscated original of the app's Java BLE
+      layer.
+  - title: "iledcolor-rs"
+    url: "https://github.com/akkaisinabin/iledcolor-rs"
+    description: >-
+      Independent Rust reverse engineering that agrees with the vendor plugin byte-for-byte; also
+      the source of the SPOTLED-incompatibility finding.
+  - title: "JieLi Android JL_OTA SDK"
+    url: "https://github.com/Jieli-Tech/Android-JL_OTA"
+    description: >-
+      JieLi's official OTA SDK. Confirms that AE00/AE01/AE02 is the firmware-upgrade stack and not
+      the LED control path.
+  - title: "fw-AC63_BT_SDK issue #78"
+    url: "https://github.com/Jieli-Tech/fw-AC63_BT_SDK/issues/78"
+    description: >-
+      Upstream issue on the AC63-family SoC lineage implicated in CVE-2021-34150; the security
+      context this spec records.
+  - title: "python-spotled"
+    url: "https://github.com/iwalton3/python-spotled"
+    description: >-
+      Client for the earlier SPOTLED panel generation, whose protocol these panels are not
+      compatible with.
+  - title: "iLEDColor app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.led.iledcolor"
+    description: "Distribution page for the analysed app."

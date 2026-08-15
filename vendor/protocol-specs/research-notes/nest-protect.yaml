@@ -1,0 +1,32 @@
+# Nest Protect (2nd gen) — DUD note (rejected lead)
+# Verified locally-inaccessible: BLE is encrypted Weave commissioning only.
+
+device:
+  id: nest-protect
+  name: Nest Protect 2nd generation (smoke + CO alarm, "Topaz2")
+  manufacturer: Nest Labs / Google
+  category: safety_sensor
+  safety_class: HIGH   # life-safety device; never interfere with operation
+
+transport:
+  type: ble
+  local_only: false
+  note: >
+    REJECTED LEAD for control/reading. BLE service 0xFEAF is the Weave
+    commissioning transport (WoBLE); sessions are Weave PASE/CASE
+    authenticated and encrypted (per-device entry code / cloud tokens).
+    No local API exists on any transport; Google SDM cloud API does not
+    expose Protect either. Passive BLE presence inventory is the only
+    local capability.
+
+ble:
+  advertised_service: "0xFEAF (Nest Labs)"
+  service_data: >
+    WeaveBLEDeviceIdentificationInfo: 10 01 00 02, vendor 0x235A LE,
+    product 0x0009 LE (kNestWeaveProduct_Topaz2 = Protect 2nd gen),
+    8-byte Weave device id, pairing-status byte. Live-captured from five
+    units 2026-08-14; names match ^N[0-9A-Z]{4}$.
+
+status:
+  apk_acquired: false   # pointless — app has no local protocol to extract
+  verdict: rejected

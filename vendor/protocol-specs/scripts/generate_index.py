@@ -29,11 +29,19 @@ The script is idempotent: running it repeatedly produces byte-identical output,
 so a committed index.json shows no diff on re-run. Exits non-zero if any spec
 is invalid (a valid manifest cannot be built from invalid specs).
 
+CI owns the committed index: the `publish-index` job in
+`.github/workflows/ci.yml` runs this on every push to main and commits the
+result, so contributors never carry index.json in a branch (that file is the
+one every parallel spec PR used to conflict on). Running it locally is still
+fine — just don't commit the result.
+
 Usage:
-    python scripts/generate_index.py
+    python scripts/generate_index.py           # write device-specs/index.json
+    python scripts/generate_index.py --check   # report staleness, write nothing
 """
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
@@ -103,7 +111,13 @@ def build_entry(path, doc: dict, version: str) -> dict:
     return entry
 
 
-def main() -> int:
+def collect_entries() -> tuple[list[dict], int]:
+    """Build every index entry from the specs on disk, touching no files.
+
+    Returns ``(entries, invalid_count)``. Invalid specs are reported on stderr
+    and left out — the caller decides whether a partial set is usable (writing
+    the index is not, a test asking "does the generator see every spec?" is).
+    """
     schema = load_schema()
     Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema)
@@ -124,20 +138,54 @@ def main() -> int:
             doc = yaml.safe_load(fh)
         entries.append(build_entry(path, doc, version))
 
+    # Sort by path for deterministic, idempotent output.
+    entries.sort(key=lambda e: e["path"])
+    return entries, invalid
+
+
+def render(entries: list[dict]) -> str:
+    """Serialize entries to the exact bytes the index file carries."""
+    # Trailing newline + sorted-nothing (we control key order) => stable bytes.
+    return json.dumps(entries, indent=2, ensure_ascii=False) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="report whether the committed index matches the specs; write nothing",
+    )
+    args = parser.parse_args(argv)
+
+    entries, invalid = collect_entries()
     if invalid:
         print(
-            f"ERROR: {invalid} invalid spec(s); refusing to write a partial index.",
+            f"ERROR: {invalid} invalid spec(s); refusing to build an index.",
             file=sys.stderr,
         )
         return 1
 
-    # Sort by path for deterministic, idempotent output.
-    entries.sort(key=lambda e: e["path"])
+    text = render(entries)
+    rel = INDEX_PATH.relative_to(REPO_ROOT)
 
-    # Trailing newline + sorted-nothing (we control key order) => stable bytes.
-    text = json.dumps(entries, indent=2, ensure_ascii=False) + "\n"
+    if args.check:
+        current = INDEX_PATH.read_text(encoding="utf-8") if INDEX_PATH.exists() else None
+        if current == text:
+            print(f"{rel} is up to date ({len(entries)} spec(s)).")
+            return 0
+        # Not a failure a contributor has to fix: CI regenerates and commits
+        # this on main. Say so, and say it loudly enough to not be mistaken
+        # for a broken spec.
+        print(
+            f"{rel} is stale ({len(entries)} spec(s) on disk). CI rebuilds it on "
+            "main — no need to commit it here.",
+            file=sys.stderr,
+        )
+        return 1
+
     INDEX_PATH.write_text(text, encoding="utf-8")
-    print(f"Wrote {INDEX_PATH.relative_to(REPO_ROOT)} with {len(entries)} spec(s).")
+    print(f"Wrote {rel} with {len(entries)} spec(s).")
     return 0
 
 

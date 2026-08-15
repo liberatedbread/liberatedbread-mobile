@@ -1,6 +1,6 @@
 # KingSmith WalkingPad
 
-> **Status**: Complete (two protocol generations documented; FTMS supplement channel partial)
+> **Status**: Complete (two protocol generations documented; FTMS supplement channel partial). WiLink read path **hardware-verified 2026-08-14** (status/params/record queries against a live pad; belt-motion commands deliberately untested)
 > **Protocol**: BLE
 > **Manufacturer**: KingSmith Fitness (Beijing KingSmith Technology, Xiaomi ecosystem)
 > **Manufacturer Status**: Active — cloud-independent local control, not an abandonment rescue

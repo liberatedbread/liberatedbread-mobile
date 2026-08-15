@@ -7,7 +7,23 @@ device:
   manufacturer: "Lutron"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Probed live 2026-08-14 against the real bridge (same unit as the
+      2026-07-16 evidence; firmware has since moved 08.25.17f000 ->
+      08.28.11f000 per the _lutron._tcp CODEVER TXT). All four documented
+      mDNS services re-observed (_leap 8081, _lap 8083, _lutron 22 with
+      MACADDR/CODEVER/SYSTYPE=SmartBridge TXT, _hap 4548). The
+      certificate-auth model was exercised to its gate: a TLS handshake on
+      8081 (LEAP) reaches the bridge's CertificateRequest (RSA/ECDSA client
+      cert types listed) and is aborted by the bridge with a bad-certificate
+      alert when no client certificate is presented; 8083 (LAP) behaves the
+      same. Cross-check: the LEAP server certificate CN is
+      SmartBridgeB894D91EE767 — the MACADDR from the _lutron TXT record —
+      and the LAP server cert chains to "Caseta Local Access Protocol Cert
+      Authority". Halted at the physical pairing button (nobody home):
+      CSR signing and authenticated LEAP commands remain unexercised by us.
   protocol: "wifi"
   category: "hub"
   transport: "tls-json"

@@ -634,10 +634,31 @@ obd:
       type: "bytes"
       verification: "reported"
 
-references:
-  - "https://tuneecu.fr/"
-  - "https://www.dealertool.com/"
-  - "https://www.triumphrat.net/threads/tiger-900-2024-obd-reset-maintenance-by-healtech.1010313/"
-  - "https://www.triumphrat.net/threads/tigertool-by-bmdiag.1020203/"
-  - "https://www.healtech-electronics.com/products/mm/"
-  - "https://hexezcan.com/ezcan-tagus-for-triumph-tiger-900-installation-guide/"
+helpful_urls:
+  - title: "TuneECU"
+    url: "https://tuneecu.fr/"
+    description: >-
+      One of the paid third-party tools covering this bike. Its full init sequence for this stack,
+      and the UDS session only it reaches, are documented in this spec.
+  - title: "DealerTool"
+    url: "https://www.dealertool.com/"
+    description: "Another third-party diagnostic tool, reported to work on MY2024+ Gen 2 bikes."
+  - title: "TriumphRat: 2024 OBD service reset with HealTech"
+    url: "https://www.triumphrat.net/threads/tiger-900-2024-obd-reset-maintenance-by-healtech.1010313/"
+    description: >-
+      Owner-forum thread on resetting the service reminder; the community evidence behind this
+      spec's MY2024 notes.
+  - title: "TriumphRat: TigerTool by BMDiag"
+    url: "https://www.triumphrat.net/threads/tigertool-by-bmdiag.1020203/"
+    description: >-
+      Owner-forum thread on TigerTool, the tool this spec's reset frames were recovered from.
+  - title: "HealTech Maintenance Mate"
+    url: "https://www.healtech-electronics.com/products/mm/"
+    description: >-
+      Vendor page for the MM-T0x adapters; the MM-T03 is the one this spec notes as failing on
+      MY2024 bikes.
+  - title: "HEX ezCAN: Tiger 900 installation guide"
+    url: "https://hexezcan.com/ezcan-tagus-for-triumph-tiger-900-installation-guide/"
+    description: >-
+      Installation guide showing the connector that also exposes the CAN bus; the recommended hookup
+      this spec cites.
