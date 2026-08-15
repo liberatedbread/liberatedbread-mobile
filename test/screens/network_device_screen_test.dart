@@ -1900,7 +1900,8 @@ void main() {
             final client = RoombaMqttClient(
               codec: FakeSpecCodec(),
               connect: (_, __, ___) async =>
-                  throw const RoombaConnectionException('no robot in this test'),
+                  throw const RoombaConnectionException(
+                      'no robot in this test'),
             );
             ref.onDispose(client.dispose);
             return client;
@@ -1909,8 +1910,8 @@ void main() {
         child: MaterialApp(
           home: NetworkDeviceScreen(
             device: robot,
-            controls:
-                const NetworkControls(specYaml: 'yaml', entities: roombaEntities),
+            controls: const NetworkControls(
+                specYaml: 'yaml', entities: roombaEntities),
           ),
         ),
       ));

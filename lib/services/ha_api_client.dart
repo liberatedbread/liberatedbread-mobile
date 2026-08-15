@@ -87,6 +87,56 @@ class HaServerException extends HaApiException {
       : super('Home Assistant returned HTTP $statusCode: $body');
 }
 
+/// One Home Assistant entity, as `/api/states` reports it.
+///
+/// Deliberately not modelled per-domain: the fields below are the ones every
+/// entity has, and everything domain-specific (a vacuum's `battery_level`, its
+/// `supported_features`) stays in [attributes] for the caller that understands
+/// it to read. A typed vacuum class here would put HA's `vacuum` schema in the
+/// middle of a client that otherwise knows nothing about domains.
+class HaEntityState {
+  /// e.g. `vacuum.dorita`. The domain is the part before the dot.
+  final String entityId;
+
+  /// The canonical state string — for a vacuum: `cleaning`, `docked`,
+  /// `paused`, `idle`, `returning`, `error`, or `unavailable`.
+  final String state;
+
+  final Map<String, dynamic> attributes;
+
+  const HaEntityState({
+    required this.entityId,
+    required this.state,
+    this.attributes = const {},
+  });
+
+  /// The bit before the dot: `vacuum`, `sensor`, `binary_sensor`.
+  String get domain => entityId.split('.').first;
+
+  /// The bit after it, which sibling entities share — a vacuum's bin-full
+  /// binary_sensor is `binary_sensor.<object_id>_bin_full`.
+  String get objectId => entityId.substring(entityId.indexOf('.') + 1);
+
+  /// What HA shows the user. Falls back to the object id rather than to the
+  /// whole entity id: `dorita` reads better than `vacuum.dorita`.
+  String get friendlyName {
+    final name = attributes['friendly_name'];
+    return name is String && name.isNotEmpty ? name : objectId;
+  }
+
+  /// An entity HA cannot currently reach reports `unavailable`/`unknown`, and
+  /// its attributes go empty. Worth asking before trusting a reading: a
+  /// battery that has stopped being reported is not a battery at 0%.
+  bool get isAvailable => state != 'unavailable' && state != 'unknown';
+
+  factory HaEntityState.fromJson(Map<String, dynamic> json) => HaEntityState(
+        entityId: json['entity_id'] as String,
+        state: json['state'] as String? ?? 'unknown',
+        attributes:
+            (json['attributes'] as Map?)?.cast<String, dynamic>() ?? const {},
+      );
+}
+
 abstract class HaApiClient {
   /// One-time registration with HA's mobile_app integration. Returns the
   /// webhook id used for all subsequent pushes.
@@ -108,5 +158,48 @@ abstract class HaApiClient {
     required String baseUrl,
     required String webhookId,
     required List<HaSensorState> states,
+  });
+
+  // ── Reading and commanding ────────────────────────────────────────────────
+  //
+  // The three above push sensor readings INTO Home Assistant over the
+  // mobile_app webhook. These three go the other way, over the REST API with
+  // the same long-lived token the registration used: they let the app drive a
+  // device Home Assistant already owns.
+  //
+  // That direction is the recommended one for a Roomba. The robot serves ONE
+  // local client at a time and a new connection evicts the old, so an app and
+  // a Home Assistant both talking to it directly fight over the slot. If HA is
+  // in the house, HA should hold the robot and the app should ask HA.
+
+  /// Every entity in [domain] (`vacuum`, `sensor`, …) that HA knows about.
+  ///
+  /// Filters client-side because `/api/states` has no domain parameter — it
+  /// returns the whole state machine, which is also why the caller gets a
+  /// filtered list rather than everything.
+  Future<List<HaEntityState>> entitiesInDomain({
+    required String baseUrl,
+    required String token,
+    required String domain,
+  });
+
+  /// One entity's current state, or null when HA has no such entity — a robot
+  /// removed from HA is a different situation from one that is unreachable,
+  /// and the caller should be able to say so.
+  Future<HaEntityState?> entityState({
+    required String baseUrl,
+    required String token,
+    required String entityId,
+  });
+
+  /// Call `<domain>.<service>` against [entityId] — `vacuum.start` and
+  /// friends. Returns when HA has accepted the call, which is not the same as
+  /// the robot having finished acting on it.
+  Future<void> callService({
+    required String baseUrl,
+    required String token,
+    required String domain,
+    required String service,
+    required String entityId,
   });
 }

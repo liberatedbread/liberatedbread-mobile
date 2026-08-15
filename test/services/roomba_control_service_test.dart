@@ -62,7 +62,8 @@ class _ScriptedRobot implements RoombaTlsSocket {
 /// turns. This models that, and nothing else.
 class _SlowParseCodec extends FakeSpecCodec {
   @override
-  Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer}) async {
+  Future<RoombaParsedDto> roombaParseIncoming(
+      {required List<int> buffer}) async {
     // A timer, not a microtask: it puts the completion behind pending stream
     // deliveries, which is exactly where the real codec's completion sits.
     await Future<void>.delayed(Duration.zero);
@@ -349,10 +350,10 @@ void main() {
       String pushFor(int battery, String phase) => '{"state":{"reported":'
           '{"batPct":$battery,"cleanMissionStatus":{"phase":"$phase"}}}}';
 
-      final first =
-          await codec.roombaPublishPacket(topic: 'delta', payload: pushFor(94, 'run'));
-      final second =
-          await codec.roombaPublishPacket(topic: 'delta', payload: pushFor(93, 'hmMidMsn'));
+      final first = await codec.roombaPublishPacket(
+          topic: 'delta', payload: pushFor(94, 'run'));
+      final second = await codec.roombaPublishPacket(
+          topic: 'delta', payload: pushFor(93, 'hmMidMsn'));
 
       final seen = <Map<String, String>>[];
       final errors = <Object>[];
@@ -368,8 +369,7 @@ void main() {
       }
 
       expect(errors, isEmpty);
-      expect(seen, hasLength(2),
-          reason: 'a push was dropped or decoded twice');
+      expect(seen, hasLength(2), reason: 'a push was dropped or decoded twice');
       expect(seen[0]['state.reported.batPct'], '94');
       expect(seen[1]['state.reported.batPct'], '93');
       expect(seen[1]['state.reported.cleanMissionStatus.phase'], 'hmMidMsn');
