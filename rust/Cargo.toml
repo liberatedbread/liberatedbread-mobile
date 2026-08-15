@@ -59,6 +59,12 @@ cbc = { version = "0.1", features = ["alloc"] }
 # OS randomness for the per-message IV; works on every target the app builds
 # for, unlike pulling in the whole `rand` stack for one 16-byte fill.
 getrandom = "0.2"
+# Wemo SoftAP setup encryption: the passphrase key is MD5(keydata||salt) and
+# the ciphertext is base64-encoded (see protocol::wemo_setup, transcribed from
+# the spec's reproducible test vectors). AES-128-CBC/PKCS7 reuses the aes+cbc
+# crates already vendored above for Rabbit Air.
+md-5 = "0.10"
+base64 = "0.22"
 
 # Release profile tuned for the mobile cdylib/staticlib the app ships: the
 # library rides inside every APK/IPA download, so binary size wins over the

@@ -3423,6 +3423,143 @@ pub fn identify_standard_profiles(service_uuids: Vec<String>) -> Vec<ProfileInfo
         .collect()
 }
 
+// ── Device adoption (WiFi SoftAP setup) ──────────────────────────────────────
+//
+// The algorithmic half of putting a reset device onto a network from its own
+// setup AP. The conversations are I/O and belong to Dart; what crosses here is
+// the same kind of thing the rest of the API moves — bytes and strings computed
+// from the spec's rules, testable without a device. The LIFX SoftAP primitives
+// live above (`build_lifx_get_access_points` and friends); these add the Wemo
+// side (SOAP), and the softap-profile extraction both families share for the
+// "a setup network is nearby" hint.
+
+/// One spec's softap setup method — the catalogue's answer to "what setup
+/// networks exist and where does the device answer on them".
+#[derive(Debug, Clone)]
+pub struct SoftApProfileDto {
+    /// `device.name` — what the adopt UI calls the family.
+    pub spec_name: String,
+    /// `device.category`, for the icon.
+    pub category: Option<String>,
+    /// `softap_soap`, `softap_udp`, `softap_http` — what the flow dispatches on.
+    pub method_type: String,
+    /// Case-insensitive SSID prefix of the setup AP.
+    pub ssid_prefix: String,
+    pub ssid_examples: Vec<String>,
+    /// True when the setup AP takes no passphrase; absent when the spec does
+    /// not say.
+    pub open_network: Option<bool>,
+    /// Where the device answers on its own AP, when documented.
+    pub gateway_ip: Option<String>,
+    /// Documented port first, then the probe list, deduplicated in order.
+    pub ports: Vec<u16>,
+}
+
+/// Every softap setup method the given specs declare, catalogue order. Specs
+/// that fail to parse are skipped — the watcher must not lose Wemo because a
+/// different spec broke.
+pub fn soft_ap_profiles(spec_yamls: Vec<String>) -> Vec<SoftApProfileDto> {
+    let specs: Vec<DeviceSpec> = spec_yamls
+        .iter()
+        .filter_map(|yaml| parse_device_spec(yaml).ok())
+        .collect();
+    crate::spec::setup::soft_ap_profiles(specs.iter())
+        .into_iter()
+        .map(|p| SoftApProfileDto {
+            spec_name: p.spec_name,
+            category: p.category,
+            method_type: p.method_type,
+            ssid_prefix: p.ssid_prefix,
+            ssid_examples: p.ssid_examples,
+            open_network: p.open_network,
+            gateway_ip: p.gateway_ip,
+            ports: p.ports,
+        })
+        .collect()
+}
+
+/// Whether `ssid` looks like any profile's setup AP; the index of the first
+/// profile it matches, else null. The prefix rule is the spec's:
+/// case-insensitive, anchored at the start.
+pub fn match_soft_ap_ssid(profiles: Vec<SoftApProfileDto>, ssid: String) -> Option<u32> {
+    profiles
+        .iter()
+        .position(|p| crate::spec::setup::ssid_matches_prefix(&p.ssid_prefix, &ssid))
+        .map(|i| i as u32)
+}
+
+/// One encrypted Wemo passphrase attempt: what to send as the `password`
+/// argument, and which variant built it so the UI can log what worked.
+#[derive(Debug, Clone)]
+pub struct WemoPasswordCandidateDto {
+    /// Keydata layout 1-3, the spec's numbering.
+    pub method: u8,
+    /// Whether the two-hex-digit length suffix was appended.
+    pub add_lengths: bool,
+    pub password: String,
+}
+
+/// Every Wemo passphrase encryption worth sending, in the order to try them:
+/// the spec's sweep, with the rtos/iot-selected variant first when setup.xml
+/// supplied those fields.
+///
+/// `meta_info` is the raw `GetMetaInfo` reply; the MAC/serial key material is
+/// fields 0 and 1 of it. Fails when the reply is not in the documented layout
+/// or the passphrase is outside the device's documented bounds (under 8
+/// characters is rejected by the device itself, so it is refused here before
+/// any network I/O).
+pub fn wemo_password_candidates(
+    meta_info: String,
+    passphrase: String,
+    rtos: Option<i64>,
+    iot: Option<i64>,
+) -> anyhow::Result<Vec<WemoPasswordCandidateDto>> {
+    Ok(
+        crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, rtos, iot)?
+            .into_iter()
+            .map(|c| WemoPasswordCandidateDto {
+                method: c.method,
+                add_lengths: c.add_lengths,
+                password: c.password,
+            })
+            .collect(),
+    )
+}
+
+/// One network out of a Wemo `GetApList` reply.
+#[derive(Debug, Clone)]
+pub struct WemoAccessPointDto {
+    pub ssid: String,
+    /// Verbatim — it goes back verbatim as the `channel` argument.
+    pub channel: String,
+    /// `WPA2PSK`, `OPEN`, … or `Unknown`: the device saying it cannot express
+    /// that network's security (WPA3 appears this way).
+    pub auth: String,
+    /// `AES`, `NONE`, `TKIPAES`; absent when the auth was `Unknown`.
+    pub encrypt: Option<String>,
+    /// False for the `Unknown` marker — the remedy is a WPA2 SSID, not a retry.
+    pub joinable: bool,
+    /// Open networks take `auth=OPEN, encrypt=NONE` and an empty password,
+    /// skipping the encryption entirely.
+    pub is_open: bool,
+}
+
+/// Parse a Wemo `GetApList` reply by the spec's rules: skip the header line,
+/// split on `|`, the LAST column is `AUTHMODE/CIPHER`.
+pub fn parse_wemo_ap_list(ap_list: String) -> Vec<WemoAccessPointDto> {
+    crate::protocol::wemo_setup::parse_ap_list(&ap_list)
+        .into_iter()
+        .map(|ap| WemoAccessPointDto {
+            is_open: ap.is_open(),
+            ssid: ap.ssid,
+            channel: ap.channel,
+            auth: ap.auth,
+            encrypt: ap.encrypt,
+            joinable: ap.joinable,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

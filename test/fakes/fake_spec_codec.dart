@@ -865,6 +865,50 @@ class FakeSpecCodec implements SpecCodec {
         channel: 11,
       );
 
+  /// Returned by [softApProfiles].
+  List<SoftApProfileDto> softApProfilesResult = const [];
+
+  /// Returned by [matchSoftApSsid].
+  int? Function(String ssid)? matchSoftApSsidFor;
+
+  /// Returned by [wemoPasswordCandidates]; if [wemoCandidatesError] is set,
+  /// the call throws it instead (the short-passphrase path).
+  List<WemoPasswordCandidateDto> wemoCandidates = const [
+    WemoPasswordCandidateDto(method: 1, addLengths: true, password: 'ENC'),
+  ];
+  Object? wemoCandidatesError;
+
+  /// Returned by [parseWemoApList].
+  List<WemoAccessPointDto> wemoApList = const [];
+
+  @override
+  Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls) async =>
+      softApProfilesResult;
+
+  @override
+  Future<int?> matchSoftApSsid({
+    required List<SoftApProfileDto> profiles,
+    required String ssid,
+  }) async =>
+      matchSoftApSsidFor?.call(ssid);
+
+  @override
+  Future<List<WemoPasswordCandidateDto>> wemoPasswordCandidates({
+    required String metaInfo,
+    required String passphrase,
+    int? rtos,
+    int? iot,
+  }) async {
+    if (wemoCandidatesError != null) throw wemoCandidatesError!;
+    return wemoCandidates;
+  }
+
+  @override
+  Future<List<WemoAccessPointDto>> parseWemoApList({
+    required String apList,
+  }) async =>
+      wemoApList;
+
   /// Every [encodeSetPlaylist] call's cids, in order.
   final List<List<int>> encodeSetPlaylistCalls = [];
 

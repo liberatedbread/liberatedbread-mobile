@@ -486,6 +486,35 @@ class RealSpecCodec implements SpecCodec {
       rust.decodeLifxAccessPoint(bytes: bytes);
 
   @override
+  Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls) =>
+      rust.softApProfiles(specYamls: specYamls);
+
+  @override
+  Future<int?> matchSoftApSsid({
+    required List<SoftApProfileDto> profiles,
+    required String ssid,
+  }) =>
+      rust.matchSoftApSsid(profiles: profiles, ssid: ssid);
+
+  @override
+  Future<List<WemoPasswordCandidateDto>> wemoPasswordCandidates({
+    required String metaInfo,
+    required String passphrase,
+    int? rtos,
+    int? iot,
+  }) =>
+      rust.wemoPasswordCandidates(
+        metaInfo: metaInfo,
+        passphrase: passphrase,
+        rtos: rtos,
+        iot: iot,
+      );
+
+  @override
+  Future<List<WemoAccessPointDto>> parseWemoApList({required String apList}) =>
+      rust.parseWemoApList(apList: apList);
+
+  @override
   Future<PlaylistWritesDto> encodeSetPlaylist({
     required String specYaml,
     required List<int> cids,
