@@ -528,6 +528,10 @@ abstract class SpecCodec {
     required String encrypt,
     required String channel,
     required String passphrase,
+    // From the device's setup.xml: rtos=1 without iot=1 puts the method-2
+    // password layout first. Null (older firmware) keeps the default order.
+    int? rtos,
+    int? iot,
   });
 
   /// Interpret a Wemo `GetNetworkStatus` reply's `NetworkStatus` value.

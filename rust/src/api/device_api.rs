@@ -2217,6 +2217,9 @@ pub struct LifxAccessPointDto {
     /// The `SECURITY_PROTOCOL` byte (1 OPEN, 3 WPA-TKIP, 5 WPA2-AES, …), passed
     /// straight back in the `SetAccessPoint` for the chosen network.
     pub security: u8,
+    /// Whether this is an open network (no passphrase) — resolved from
+    /// [security] here so the caller never re-spells the OPEN value.
+    pub is_open: bool,
     /// Signal strength as the device reported it (higher is stronger).
     pub strength: i32,
     pub channel: u16,
@@ -2251,6 +2254,7 @@ pub fn decode_lifx_access_point(bytes: Vec<u8>) -> anyhow::Result<LifxAccessPoin
     Ok(LifxAccessPointDto {
         ssid: ap.ssid,
         security: ap.security,
+        is_open: crate::protocol::lifx::is_open(ap.security),
         strength: i32::from(ap.strength),
         channel: ap.channel,
     })
@@ -3503,6 +3507,9 @@ pub fn match_soft_ap_ssid(profiles: Vec<SoftApProfileDto>, ssid: String) -> Opti
 /// secured network `meta_info` is the raw `GetMetaInfo` reply. Fails when the
 /// passphrase is outside the device's documented bounds (under 8 characters is
 /// terminal), before any network I/O.
+// One flat argument list per credential input, mirrored across the FFI boundary
+// — a params struct would only move the same fields behind another type.
+#[allow(clippy::too_many_arguments)]
 pub fn render_wemo_connect_requests(
     spec_yaml: String,
     meta_info: String,
@@ -3511,6 +3518,12 @@ pub fn render_wemo_connect_requests(
     encrypt: String,
     channel: String,
     passphrase: String,
+    // From the device's own setup.xml: `rtos=1` without `iot=1` selects the
+    // method-2 password layout, so those units get it tried first instead of
+    // burning a full join-poll on method 1. Absent (older firmware, an
+    // unparsed description) leaves the ordinary method-1-first order.
+    rtos: Option<i64>,
+    iot: Option<i64>,
 ) -> anyhow::Result<Vec<SoapRequestDto>> {
     use std::collections::BTreeMap;
     let spec = parse_device_spec(&spec_yaml)?;
@@ -3538,7 +3551,7 @@ pub fn render_wemo_connect_requests(
         // The spec's open-network rule: auth OPEN, encrypt NONE, empty password.
         return Ok(vec![render("", "OPEN", "NONE")?]);
     }
-    crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, None, None)?
+    crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, rtos, iot)?
         .into_iter()
         .map(|c| render(&c.password, &auth, &encrypt))
         .collect()

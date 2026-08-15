@@ -2496,6 +2496,8 @@ fn wire__crate__api__device_api__render_wemo_connect_requests_impl(
             let api_encrypt = <String>::sse_decode(&mut deserializer);
             let api_channel = <String>::sse_decode(&mut deserializer);
             let api_passphrase = <String>::sse_decode(&mut deserializer);
+            let api_rtos = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_iot = <Option<i64>>::sse_decode(&mut deserializer);
             deserializer.end();
             move |context| {
                 transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
@@ -2508,6 +2510,8 @@ fn wire__crate__api__device_api__render_wemo_connect_requests_impl(
                             api_encrypt,
                             api_channel,
                             api_passphrase,
+                            api_rtos,
+                            api_iot,
                         )?;
                         Ok(output_ok)
                     })(),
@@ -2979,11 +2983,13 @@ impl SseDecode for crate::api::device_api::LifxAccessPointDto {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         let mut var_ssid = <String>::sse_decode(deserializer);
         let mut var_security = <u8>::sse_decode(deserializer);
+        let mut var_isOpen = <bool>::sse_decode(deserializer);
         let mut var_strength = <i32>::sse_decode(deserializer);
         let mut var_channel = <u16>::sse_decode(deserializer);
         return crate::api::device_api::LifxAccessPointDto {
             ssid: var_ssid,
             security: var_security,
+            is_open: var_isOpen,
             strength: var_strength,
             channel: var_channel,
         };
@@ -5135,6 +5141,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::LifxAccessPointDt
         [
             self.ssid.into_into_dart().into_dart(),
             self.security.into_into_dart().into_dart(),
+            self.is_open.into_into_dart().into_dart(),
             self.strength.into_into_dart().into_dart(),
             self.channel.into_into_dart().into_dart(),
         ]
@@ -6313,6 +6320,7 @@ impl SseEncode for crate::api::device_api::LifxAccessPointDto {
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <String>::sse_encode(self.ssid, serializer);
         <u8>::sse_encode(self.security, serializer);
+        <bool>::sse_encode(self.is_open, serializer);
         <i32>::sse_encode(self.strength, serializer);
         <u16>::sse_encode(self.channel, serializer);
     }

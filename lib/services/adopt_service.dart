@@ -193,6 +193,10 @@ class AdoptService {
         Uint8List.fromList(probe),
         sequence: seq,
         window: const Duration(seconds: 3),
+        // The setup AP holds one device; some firmware does not echo the
+        // sequence, and dropping its reply would strand it. The StateService
+        // decode below is the real check.
+        matchSequence: false,
       );
       // Any datagram that decodes as a StateService proves a LIFX device is on
       // the setup network.
@@ -248,6 +252,9 @@ class AdoptService {
       lifxSetupBroadcast,
       Uint8List.fromList(request),
       sequence: seq,
+      // As in discovery: accept the one setup-AP device's answer even if its
+      // firmware does not echo the sequence; the AccessPoint decode filters.
+      matchSequence: false,
     );
     final found = <String, SetupNetwork>{};
     for (final reply in replies) {
@@ -260,7 +267,9 @@ class AdoptService {
           () => SetupNetwork(
             ssid: ap.ssid,
             joinable: true,
-            isOpen: ap.security == 1,
+            // Whether it is an open network is the codec's call — it owns the
+            // LIFX security vocabulary — not an == against a byte here.
+            isOpen: ap.isOpen,
             securityByte: ap.security,
           ),
         );
@@ -324,6 +333,10 @@ class AdoptService {
         encrypt: network.encrypt ?? '',
         channel: network.channel ?? '',
         passphrase: passphrase,
+        // The setup.xml's own rtos/iot markers pick the password layout to try
+        // first, so an rtos=1 unit does not burn a full poll on the wrong one.
+        rtos: session.description?.rtos,
+        iot: session.description?.iot,
       );
     } catch (e) {
       throw AdoptException(friendlyErrorText(e,

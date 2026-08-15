@@ -89,6 +89,29 @@ void main() {
       );
     });
 
+    test('reads the Wemo rtos/iot markers when present, null when not',
+        () async {
+      // A Wemo setup.xml carries <rtos>/<iot>; they pick the credential layout.
+      final withMarkers = _setupXml.replaceFirst(
+          '<friendlyName>', '<rtos>1</rtos><iot>0</iot><friendlyName>');
+      final client = SoapControlClient(
+        httpClient:
+            MockClient((request) async => http.Response(withMarkers, 200)),
+      );
+      final description = await client.fetchDescription('10.0.0.5', 49153);
+      expect(description.rtos, 1);
+      expect(description.iot, 0);
+
+      // A device without them (the plain fixture) reads null, not zero.
+      final plain = SoapControlClient(
+        httpClient:
+            MockClient((request) async => http.Response(_setupXml, 200)),
+      );
+      final bare = await plain.fetchDescription('10.0.0.5', 49153);
+      expect(bare.rtos, isNull);
+      expect(bare.iot, isNull);
+    });
+
     test('parses a description with no namespace at all', () async {
       // The spec records that some firmware serves setup.xml with no
       // namespace; a parser that requires it loses exactly those devices.

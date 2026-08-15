@@ -182,6 +182,8 @@ fn render_connect_requests_assembles_the_whole_credential_send_in_rust() {
         "AES".to_string(),
         "6".to_string(),
         passphrase.to_string(),
+        None,
+        None,
     )
     .unwrap();
     // One rendered request per encryption variant of the sweep.
@@ -210,12 +212,50 @@ fn render_connect_requests_assembles_the_whole_credential_send_in_rust() {
         "NONE".to_string(),
         "1".to_string(),
         String::new(),
+        None,
+        None,
     )
     .unwrap();
     assert_eq!(open.len(), 1);
     assert!(open[0].body.contains("<auth>OPEN</auth>"));
     assert!(open[0].body.contains("<encrypt>NONE</encrypt>"));
     assert!(open[0].body.contains("<password></password>"));
+}
+
+#[test]
+fn the_setup_xml_rtos_selector_reaches_the_rendered_requests() {
+    // The rtos/iot markers from a device's setup.xml pick the password layout
+    // to try first; render must thread them into password_candidates, not drop
+    // them. Same inputs, different selector -> a different leading request.
+    let spec = vendored("wemo-devices.yaml");
+    let enc = wemo_credential_encryption();
+    let input = &enc["test_vectors"]["input"];
+    let meta_info = input["meta_info"].as_str().unwrap();
+    let passphrase = input["passphrase"].as_str().unwrap();
+
+    let render = |rtos, iot| {
+        render_wemo_connect_requests(
+            spec.clone(),
+            meta_info.to_string(),
+            "HomeNet".to_string(),
+            "WPA2PSK".to_string(),
+            "AES".to_string(),
+            "6".to_string(),
+            passphrase.to_string(),
+            rtos,
+            iot,
+        )
+        .unwrap()
+    };
+
+    let default_order = render(None, None);
+    let method2_first = render(Some(1), Some(0));
+    assert_ne!(
+        default_order[0].body, method2_first[0].body,
+        "rtos=1/iot=0 must lead with a different (method-2) password"
+    );
+    // iot=1 cancels the method-2 selection — back to the default leader.
+    assert_eq!(render(Some(1), Some(1))[0].body, default_order[0].body);
 }
 
 #[test]

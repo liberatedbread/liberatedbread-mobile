@@ -861,6 +861,7 @@ class FakeSpecCodec implements SpecCodec {
       const LifxAccessPointDto(
         ssid: 'HomeNet',
         security: 5,
+        isOpen: false,
         strength: -40,
         channel: 11,
       );
@@ -883,6 +884,10 @@ class FakeSpecCodec implements SpecCodec {
     ),
   ];
   Object? wemoConnectError;
+
+  /// The (rtos, iot) the last [renderWemoConnectRequests] was called with, so a
+  /// test can assert the setup.xml selectors are threaded through.
+  (int?, int?)? lastWemoConnectSelectors;
 
   /// Returned by [wemoNetworkStatus].
   WemoJoinStatus wemoStatus = WemoJoinStatus.connected;
@@ -910,7 +915,10 @@ class FakeSpecCodec implements SpecCodec {
     required String encrypt,
     required String channel,
     required String passphrase,
+    int? rtos,
+    int? iot,
   }) async {
+    lastWemoConnectSelectors = (rtos, iot);
     if (wemoConnectError != null) throw wemoConnectError!;
     return wemoConnectRequests;
   }
