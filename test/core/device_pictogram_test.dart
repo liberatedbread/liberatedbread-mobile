@@ -75,8 +75,8 @@ void main() {
         () {
       // `network` is a real category; even without a pictogram it should not
       // collapse to the anonymous fallback.
-      final icon =
-          DevicePictogram.forDevice(category: 'network', fallback: Icons.bluetooth);
+      final icon = DevicePictogram.forDevice(
+          category: 'network', fallback: Icons.bluetooth);
       expect(icon, isNot(Icons.bluetooth));
       expect(icon, DeviceCategory.parse('network')?.icon);
     });
