@@ -86,7 +86,23 @@ class _WemoAp {
       'NewFangled|1|SAE|blah|Unknown,\n';
   String networkStatus = '1';
 
+  /// When set, the AP answers only on this port; every other port errors, as a
+  /// device whose setup server came up somewhere other than the first guess.
+  int? onlyPort;
+
+  /// When true, every ConnectHomeNetwork errors — the setup AP dropping right
+  /// as the device starts hopping to join.
+  bool failConnect = false;
+
+  /// GetNetworkStatus errors this many times before it starts answering — a
+  /// transient drop mid-poll that must not read as total failure.
+  int statusFailuresBeforeOk = 0;
+  int _statusCalls = 0;
+
   http.Client get client => MockClient((request) async {
+        if (onlyPort != null && request.url.port != onlyPort) {
+          return http.Response('wrong port', 500);
+        }
         if (request.url.path == '/setup.xml') {
           return http.Response(_setupXml, 200);
         }
@@ -102,6 +118,7 @@ class _WemoAp {
               _soapResponse('GetApList', '<ApList>$apList</ApList>'), 200);
         }
         if (action.contains('connecthomenetwork')) {
+          if (failConnect) return http.Response('setup AP gone', 500);
           connectBodies.add(request.body);
           return http.Response(
               _soapResponse('ConnectHomeNetwork',
@@ -109,6 +126,9 @@ class _WemoAp {
               200);
         }
         if (action.contains('getnetworkstatus')) {
+          if (_statusCalls++ < statusFailuresBeforeOk) {
+            return http.Response('poll dropped', 500);
+          }
           return http.Response(
               _soapResponse('GetNetworkStatus',
                   '<NetworkStatus>$networkStatus</NetworkStatus>'),
@@ -252,6 +272,73 @@ void main() {
           await service.provision(session, home, 'password-long-enough');
       expect(outcome.status, AdoptStatus.rejected);
       expect(ap.connectBodies.length, 2, reason: 'one candidate, sent twice');
+    });
+
+    test('connect probes the port the spec profile names, not the defaults',
+        () async {
+      if (skipUnlessRust()) return;
+      // The setup server came up on 49157 — outside the service's built-in
+      // fallback list. Only the spec-derived port passed to connect reaches it.
+      final ap = _WemoAp()..onlyPort = 49157;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+      );
+      expect(
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml),
+          isNull,
+          reason: 'the default fallback ports do not include 49157');
+      final session = await service.connect(
+          family: AdoptFamily.wemo, specYaml: wemoYaml, ports: const [49157]);
+      expect(session, isNotNull,
+          reason: 'the spec profile names 49157, so the probe finds it');
+    });
+
+    test('a poll that drops mid-join is unconfirmed, not a thrown failure',
+        () async {
+      if (skipUnlessRust()) return;
+      // Credentials go through, then the setup AP drops for two polls before it
+      // answers "connected" — the ordinary shape of a successful join, which
+      // must not surface as "sending failed".
+      final ap = _WemoAp()..statusFailuresBeforeOk = 2;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      final networks = await service.listNetworks(session!);
+      final home = networks.firstWhere((n) => n.ssid == 'HomeNet');
+
+      final outcome = await service.provision(session, home, 'a-good-password');
+      expect(outcome.status, AdoptStatus.joined,
+          reason: 'the poll recovers and the join is confirmed');
+    });
+
+    test('a send that fails outright reports unreachable, never throws',
+        () async {
+      if (skipUnlessRust()) return;
+      // Every ConnectHomeNetwork errors: nothing was delivered, so the honest
+      // answer is "still on the setup network?", not a raised exception that
+      // aborts the whole variant sweep.
+      final ap = _WemoAp()..failConnect = true;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      final networks = await service.listNetworks(session!);
+      final home = networks.firstWhere((n) => n.ssid == 'HomeNet');
+
+      final outcome = await service.provision(session, home, 'a-good-password');
+      expect(outcome.status, AdoptStatus.unreachable);
+      expect(ap.connectBodies, isEmpty, reason: 'no send ever landed');
     });
   });
 
