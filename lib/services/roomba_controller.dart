@@ -7,6 +7,20 @@ import 'roomba_control_service.dart';
 import 'roomba_credential_store.dart';
 import 'spec_codec.dart';
 
+/// The commands a single control actually has to send.
+///
+/// Almost always one. `dock` is the exception: the robot accepts it only from a
+/// paused or stopped state, so a Dock button pressed mid-clean — the moment
+/// somebody most wants it — does nothing at all. The spec's own `dock`
+/// description says as much: "a consumer offering one 'send home' button sends
+/// stop then dock."
+///
+/// A pure function rather than a branch inside either controller, because both
+/// transports owe the same behaviour and a rule implemented twice is a rule
+/// that will eventually be implemented once.
+List<String> roombaCommandSequence(String commandName) =>
+    commandName == 'dock' ? const ['stop', 'dock'] : [commandName];
+
 /// How the app talks to a robot: straight at it, or through a rest980 server.
 ///
 /// # Why there are two
@@ -76,10 +90,11 @@ class DirectRoombaController implements RoombaController {
   Future<void> connect() => _client.connect(_host, _credentials);
 
   @override
-  Future<void> sendCommand(String commandName) => _client.sendCommand(
-        specYaml: _specYaml,
-        commandName: commandName,
-      );
+  Future<void> sendCommand(String commandName) async {
+    for (final step in roombaCommandSequence(commandName)) {
+      await _client.sendCommand(specYaml: _specYaml, commandName: step);
+    }
+  }
 
   @override
   Stream<Map<String, String>> get state => _client.state;
@@ -132,8 +147,11 @@ class Rest980Controller implements RoombaController {
   }
 
   @override
-  Future<void> sendCommand(String commandName) =>
-      _client.action(_baseUrl, commandName);
+  Future<void> sendCommand(String commandName) async {
+    for (final step in roombaCommandSequence(commandName)) {
+      await _client.action(_baseUrl, step);
+    }
+  }
 
   @override
   Stream<Map<String, String>> get state => _state.stream;

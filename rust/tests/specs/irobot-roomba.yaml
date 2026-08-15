@@ -260,11 +260,11 @@ device:
         old one. Maps and mission history are lost on the models that keep
         them.
       procedures:
-        - name: "CLEAN held (600/800/900 series)"
+        - name: "DOCK + SPOT + CLEAN held (600/800/900 series)"
           hold_seconds: 20
-          indicator: "The robot plays a reboot tone and the indicator ring cycles."
+          indicator: "The robot plays the reset tone and the light ring swirls."
           steps:
-            - action: "With the robot off the dock and powered on, press and hold CLEAN for about 20 seconds until the light ring swirls."
+            - action: "With the robot powered on, press and hold DOCK, SPOT Clean and CLEAN together until the robot signals the reset, then release."
               actor: "user"
               notes: "Hold time varies across the generation; check the model's manual before assuming a hold failed."
         - name: "HOME + SPOT + CLEAN held (i/j/s series)"
@@ -273,14 +273,34 @@ device:
           steps:
             - action: "Press and hold HOME, SPOT Clean and CLEAN together until the light ring swirls, then release."
               actor: "user"
+      not_a_reset: >
+        Holding CLEAN on its own REBOOTS the robot; it does not reset it. The
+        distinction matters here more than it usually would, because this spec
+        tells the reader a reset mints a new password: someone who reboots
+        believing they reset will either expect a credential change that never
+        happened, or conclude their stored password is dead and redo the whole
+        handshake for nothing. Both procedures above are multi-button holds for
+        exactly that reason.
     rejoin:
-      in_place_supported: false
-      requires_factory_reset: true
+      in_place_supported: true
+      requires_factory_reset: false
+      confidence: "low"
       notes: >
-        Moving the robot to a new router means re-running the vendor app's
-        onboarding, which on current firmware means a reset first. That reset
-        changes the local password, so plan on re-extracting the credential
-        afterwards rather than reusing the stored one.
+        A provisioned robot can be put back into Wi-Fi setup mode and
+        re-provisioned onto a new router without a factory reset — reported by
+        the vendor's own support material and by community accounts, NOT
+        replayed here, hence the low confidence.
+
+        Stated as `false` rather than left at `true` because the two answers
+        are not symmetric in cost. Claiming a reset is mandatory tells a
+        consumer's wizard to wipe maps, mission history and the local password
+        to solve a problem that may not need any of that; being wrong the other
+        way costs a reader one failed attempt before they reset anyway.
+
+        The consequence worth carrying downstream: if a router move does not
+        reset the robot, the local password SURVIVES it. A stored credential
+        stays valid across a network change, which is why a client should key
+        it on the BLID and not on the address it was last seen at.
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device:
