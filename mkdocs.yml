@@ -84,6 +84,8 @@ nav:
           - Inkbird IBS-TH1/TH2 Hygrometer: devices/inkbird-ibs-th.md
           - ThermoPro TP357-family Hygrometers: devices/thermopro-tp357.md
           - Omron BLE Blood Pressure Monitors: devices/omron-connect.md
+          - Aranet4 CO2 Sensor: devices/aranet4.md
+          - Bluetti Power Station: devices/bluetti-power-station.md
           - Johnson JLX Laser Distance Meters: devices/jlx-laser-distance-meter.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
@@ -100,11 +102,19 @@ nav:
           - Philips Hue Bridge: devices/hue-bridge.md
           - Enphase Envoy: devices/enphase-envoy.md
           - Dyson Air Purifier: devices/dyson-air-purifier.md
+          - iRobot Roomba (Wi-Fi models): devices/irobot-roomba.md
           - LIFX Z: devices/lifx-z.md
           - Lutron Caseta Smart Bridge 2: devices/lutron-caseta-smart-bridge.md
           - TP-Link Kasa Smart Plug: devices/tplink-kasa.md
           - Rachio Controller: devices/rachio-controller.md
           - SmartThings Hub v2: devices/smartthings-hub-v2.md
+          - Snapmaker U1 3D Printer: devices/snapmaker-u1.md
+          - PurpleAir Air Quality Sensor: devices/purpleair-sensor.md
+          - UniFi Protect Camera: devices/unifi-protect-camera.md
+          - Ubiquiti UniFi Device (identify): devices/ubiquiti-unifi-device.md
+          - MikroTik RouterOS Device (identify): devices/mikrotik-routeros.md
+          - Chamberlain Garage Opener (Security+): devices/chamberlain-garage-opener-secplus.md
+          - ratgdo Garage-Door Controller: devices/ratgdo.md
           - Frigidaire Connected ACs: devices/frigidaire-ac.md
           - Frigidaire Portable AC: devices/frigidaire-portable-ac.md
           - Frigidaire Window AC: devices/frigidaire-window-ac.md

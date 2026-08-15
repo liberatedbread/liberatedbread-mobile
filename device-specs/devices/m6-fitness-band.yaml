@@ -187,14 +187,34 @@ services:
           byte-reversed like the rest of the Telink GATT table). Carries
           the 16-byte OTA blocks.
 
-references:
-  - "https://rbaron.net/blog/2021/07/06/Reverse-engineering-the-M6-smart-fitness-band.html"
-  - "https://github.com/rbaron/m6-reveng"
-  - "https://xor.co.za/post/2022-11-30-hacking-smartwatch/"
-  - "https://github.com/DynamicDevices/lcd-badge-ble"
-  - "https://play.google.com/store/apps/details?id=xfkj.fitpro"
-  - "https://gadgetbridge.org/gadgets/wearables/fitpro/"
-  - "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/2955"
+helpful_urls:
+  - title: "Reverse-engineering the M6 smart fitness band"
+    url: "https://rbaron.net/blog/2021/07/06/Reverse-engineering-the-M6-smart-fitness-band.html"
+    description: >-
+      rbaron's teardown, and the source of this spec's hardware facts: the Telink TLSR8232 SoC and
+      the ST7735 display.
+  - title: "rbaron/m6-reveng"
+    url: "https://github.com/rbaron/m6-reveng"
+    description: >-
+      Companion repo carrying the stock firmware dump this spec's flash offsets and hashes refer to,
+      plus the TLSR82 debugger client for reading it back.
+  - title: "Hacking a smartwatch (LT716)"
+    url: "https://xor.co.za/post/2022-11-30-hacking-smartwatch/"
+    description: >-
+      Full reverse engineering of the identical LT716 platform; the source of this spec's
+      0xCD-framed command protocol over Nordic UART.
+  - title: "lcd-badge-ble"
+    url: "https://github.com/DynamicDevices/lcd-badge-ble"
+    description: "Another client for this Telink LCD-badge hardware family."
+  - title: "FitPro app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=xfkj.fitpro"
+    description: "The vendor app the M6 is sold with, package xfkj.fitpro."
+  - title: "Gadgetbridge: FitPro devices"
+    url: "https://gadgetbridge.org/gadgets/wearables/fitpro/"
+    description: "Gadgetbridge's support page for the FitPro protocol family."
+  - title: "Gadgetbridge issue #2955 (FitPro)"
+    url: "https://codeberg.org/Freeyourgadget/Gadgetbridge/issues/2955"
+    description: "Upstream issue thread on FitPro-protocol device support."
 # Vendor OTA cloud for the FitPro/M6 ecosystem: tomato.gulaike.com and
 # tomato.jusonsmart.com — endpoints verified alive 2026-07-31 but publish NO
 # M6/LT716 firmware (API returns data: null for M6/m6/M6S/LT716). Negative

@@ -1,0 +1,163 @@
+# Ubiquiti UniFi/EdgeMAX Device (discovery, identify-only) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: Ubiquiti device-discovery RE (nmap ubiquiti-discovery.nse TLV table,
+# v1/v2 probes) + live hardware. Covers non-camera UniFi/EdgeMAX gear;
+# UniFi Protect CAMERAS have their own spec (unifi-protect-camera.yaml) because
+# there we expose the video feed.
+
+device:
+  name: "Ubiquiti UniFi / EdgeMAX Device (AP / switch / gateway / NVR / NAS)"
+  manufacturer: "Ubiquiti Inc."
+  manufacturer_status: "active"
+  testing:
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Ubiquiti device discovery verified live 2026-08-14: a broadcast probe to
+      255.255.255.255:10001 (v1 probe 01 00 00 00, v2 02 08 00 00) drew TLV
+      replies from a large real fleet, decoded per the type table — access
+      points bridged into Protect (platform "UFP-UAP-B", hosts "downstairs",
+      "UpstairsU6LR", "HoldensRoom"), an EdgeSwitch 10X ("livingroom-switch",
+      model "EdgeSwitch 10X"), a UniFi NAS Pro ("UNASPRO"/"HCBackup"), a UNVR
+      ("UNVR-holden") and a Cloud Key Gen2+ ("UCKP"/"hk-cloudkey"). Each carried
+      platform (0x0c), hostname (0x0b), firmware (0x03) and MAC+IP (0x02),
+      confirming the 1-byte-type / 2-byte-length-BE TLV framing and the field
+      mapping. Identify-only: the app shows a pictogram and links to the
+      device's UniFi OS / EdgeMAX admin page. (UniFi Protect cameras from the
+      SAME probe are handled by unifi-protect-camera.yaml.)
+  protocol: "wifi"
+  category: "network"
+  pictogram: "wifi-ap"
+  transport: "udp"
+  integration: "identify_only"
+  admin_url: "https://{address}/"
+  notes: >
+    Ubiquiti UniFi and EdgeMAX infrastructure — access points, switches,
+    gateways/consoles (UDM, Cloud Key), the UniFi NAS and the UniFi Protect
+    NVR (UNVR) — answer the Ubiquiti device-discovery protocol on UDP 10001.
+    This project does NOT implement UniFi control (the inform/adoption protocol
+    and the UniFi Network/OS APIs are out of scope as home infrastructure); we
+    discover the device, pick a pictogram from its platform string, and
+    deep-link to its own admin UI at https://<ip>/.
+
+    Ubiquiti discovery: send a broadcast probe to UDP 10001 and devices unicast
+    a TLV reply from port 10001 — they do NOT beacon unsolicited, so the probe
+    is required. Probes: v1 = 01 00 00 00, v2 = 02 08 00 00 (try v1, fall back
+    to v2 for newer gear). Reply header is [version u8][command u8][length u16
+    BE], then TLVs each [type u8][length u16 BE][value] — note the 1-byte type
+    but 2-byte big-endian length. Known TLVs: 0x01 MAC (6B), 0x02 MAC+IPv4
+    (10B, once per interface), 0x03 firmware string, 0x0a uptime (u32),
+    0x0b hostname, 0x0c product/platform name (e.g. "UVC G4 Pro", "ES-10X",
+    "UNVR", "UCKP", "UFP-UAP-B"), 0x14/0x15 model code, 0x16 version (v2),
+    0x17 adoption state. Pictogram comes from the platform string (0x0c);
+    display name from hostname (0x0b). Ubiquiti gear also emits LLDP.
+
+    PICTOGRAM by platform prefix: "UVC*"/doorbell -> handled by the camera spec;
+    "U*-UAP*"/"UAP*"/"U6*"/"U7*" -> wifi-ap; "US*"/"ES*"/"USW*" -> network-switch;
+    "UDM*"/"UCK*"/"UCKP*" -> cloud-key (a console); "UNVR*" -> nvr;
+    "UNAS*" -> nas; "UXG*"/"UGW*" -> router. A consumer sets `pictogram`
+    dynamically from 0x0c; the spec-level default here is wifi-ap (the most
+    common UniFi endpoint), overridden per discovered platform.
+  identification:
+    default_port: 10001
+    mac_prefixes:
+      - "24:5A:4C"
+      - "68:D7:9A"
+      - "74:AC:B9"
+      - "78:45:58"
+      - "F4:92:BF"
+      - "E0:63:DA"
+      - "6C:63:F8"
+      - "1C:6A:1B"
+      - "D0:21:F9"
+      - "74:83:C2"
+    identity_keys:
+      primary: "mac"
+      secondary: "hostname"
+      display: "hostname"
+
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 10001
+          broadcast_address: "255.255.255.255"
+          probe_hex: "01000000"
+          passive_ok: false
+          response_format: "tlv"
+          identity_mapping:
+            stable_keys:
+              - source: "tlv:0x01"
+                key: "mac"
+              - source: "tlv:0x0b"
+                key: "hostname"
+            display:
+              source: "tlv:0x0b"
+      - type: "passive_l2"
+        passive_l2:
+          protocol: "lldp"
+          identity_mapping:
+            stable_keys:
+              - source: "lldp:chassis_id"
+                key: "mac"
+            display:
+              source: "lldp:system_name"
+    identity:
+      stable_keys: ["mac", "hostname"]
+      display: "hostname"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      Nothing to set up for identification: send the UDP 10001 probe, read the
+      TLVs, choose a pictogram from the platform string and offer the
+      https://<ip>/ admin link. Confidence high: verified live against a large
+      real UniFi/EdgeMAX fleet with the authoritative nmap TLV table.
+    methods:
+      - type: "wired"
+        description: "The device is already on the LAN; discovery is the UDP 10001 probe/response."
+        verified: true
+        steps:
+          - action: "Broadcast the v1 probe 01 00 00 00 to UDP 10001 (fall back to v2 02 08 00 00)."
+            actor: client
+            expect: "A TLV reply carrying platform (0x0c), hostname (0x0b), firmware (0x03) and MAC+IP (0x02)."
+          - action: "Offer the admin link https://<ip>/ (UniFi OS console, or the standalone device page)."
+            actor: client
+    factory_reset:
+      applicable: false
+      confidence: high
+      effect: >
+        Done at the device (hold its reset button ~10 s) and clears the
+        device's own adoption/config, not anything this app stores. We only
+        identify the device.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Stays discoverable by the UDP-10001 probe (and LLDP) wherever it sits;
+        identity keys on MAC/hostname, not IP.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Identify-only: no credential crosses to this app. The UniFi OS admin
+        login is entered by the user at https://<ip>/, which we only link to.
+
+  local_access:
+    status: native
+    summary: >
+      Controllable in principle via the UniFi Network/OS APIs — deliberately
+      identify-only here, handing off to the device's own admin UI.
+
+helpful_urls:
+  - url: "https://nmap.org/nsedoc/scripts/ubiquiti-discovery.html"
+    title: "nmap ubiquiti-discovery.nse"
+    description: "Authoritative TLV type table and v1/v2 probe bytes for the UDP-10001 discovery protocol."
+  - url: "https://www.rapid7.com/blog/post/2019/02/01/ubiquiti-discovery-service-exposures/"
+    title: "Rapid7 — Ubiquiti discovery service"
+    description: "Packet layout (01 00 00 00 probe) and TLV offsets."

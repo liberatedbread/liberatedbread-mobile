@@ -227,10 +227,19 @@ attempted (SPAKE2 needs the printed programming code) and nothing was written
 to any lock.
 
 - **BLE presence confirmed**: one lock was captured advertising once — complete
-  local name `SCHLAGE` + 8 uppercase hex digits (serial-looking suffix), public
-  address with OUI `B7:AC:C2` (partially recorded), RSSI −74 dBm, manufacturer
-  data under Bluetooth company ID **315 = Allegion** embedding the device's own
-  MAC. Which door it belongs to is not yet mapped.
+  local name `SCHLAGE` + 8 uppercase hex digits (serial-looking suffix),
+  address beginning `B7:AC:C2` (partially recorded), RSSI −74 dBm, manufacturer
+  data under Bluetooth company ID **315 = Allegion** embedding a MAC. Which
+  door it belongs to is not yet mapped.
+- **Don't key on the MAC**: both observed lock addresses had the
+  locally-administered bit set — these are *random-static* addresses, which the
+  lock may rotate. A client that stores one either loses a lock it already
+  knows or enrols the same lock twice. The spec's `discovery.identity`
+  therefore keys on the full `SCHLAGE<hex>` local name (serial-derived, and
+  stable across a rotation) and treats the address as an ephemeral connection
+  locator to be re-resolved by scanning. Scan filters should match the Allegion
+  company ID **315** or the `SCHLAGE` name prefix — *not* the DataTransfer
+  service UUID, which the observed lock did not advertise at all.
 - **Advertised-UUID claim not observed**: that single advertisement carried
   **no service UUIDs** — not the DataTransfer UUID
   `1F6B43AA-…` this page says Schlage-mode locks advertise. One sample from a

@@ -7,7 +7,19 @@ device:
   manufacturer: "Rachio"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Probed live 2026-08-14 against the real controller (Rachio-AABBCC):
+      _hap._tcp mDNS re-observed with the documented TXT identity keys
+      (id=0A:01:0A:AA:BB:CC, md=Rachio-AABBCC, pv=1.1, sf=1 — i.e. currently
+      UNPAIRED/discoverable). The port-80 service is HAP and nothing else:
+      GET /, /accessories and /pair-setup all answer HTTP 470 (HAP
+      connection-authorization-required), confirming there is no
+      unauthenticated local control surface. No pairing was attempted — the
+      HomeKit setup code only exists in the vendor app, and pairing an
+      unpaired unit out from under its owner would be hostile. SoftAP
+      provisioning flows remain unexercised.
   protocol: "wifi"
   category: "irrigation"
   transport: "homekit"
@@ -200,7 +212,19 @@ entities:
   - platform: "switch"
     name: "Irrigation Zone"
     state_topic: "homekit://{hap_id}"
-    commands:
-      turn_on: "HAP characteristic write"
-      turn_off: "HAP characteristic write"
+    # No `commands:` role map, deliberately. This entity used to bind turn_on
+    # and turn_off to the string "HAP characteristic write", which names no
+    # command and could not: the live probe recorded above found port 80
+    # answering HTTP 470 to everything, so there is no unauthenticated local
+    # control surface to bind to, and the HAP path needs a pairing this project
+    # has not performed. A role map naming an action nobody can send reads, to
+    # every consumer, exactly like one that works.
+    notes: >
+      Declarative until HAP pairing is done. Turning a zone on or off means
+      writing the Active characteristic of the corresponding HomeKit valve
+      service over a paired HAP session — so a consumer needs the setup code
+      from the vendor app first, and the characteristic instance IDs come from
+      the accessory database that pairing unlocks. Both are out of reach for
+      an unpaired unit, which is why no command is declared rather than one
+      being guessed at.
 

@@ -7,7 +7,21 @@ device:
   manufacturer: "Signify / Philips Hue"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Driven live 2026-08-14 against a real BSB002 bridge (bridgeid
+      001788FFFEAABBCC, apiversion 1.78.0, swversion 1978074000), discovered
+      via _hue._tcp mDNS whose TXT bridgeid matched GET /api/config exactly.
+      Executed as documented: GET /api/config unauthenticated returns the
+      whitelist-free config object on BOTH http:80 and https:443 (same body);
+      POST /api with a devicetype and no button press returned the error
+      envelope byte-identical to this spec's example — [{"error":{"type":101,
+      "address":"","description":"link button not pressed"}}]; GET
+      /clip/v2/resource without (or with a bogus) hue-application-key answers
+      403 with an HTML body, confirming the CLIP v2 key gate. Halted at the
+      physical link button (nobody home to press it): username creation,
+      light control and the eventstream remain unexercised by us.
   protocol: "wifi"
   category: "hub"
   transport: "http"
