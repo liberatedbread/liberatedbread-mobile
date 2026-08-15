@@ -478,12 +478,17 @@ pub fn encode_command_with_bytes(
                 // `seq`/`flag` come from the spec.
                 let val = match def.and_then(|d| d.auto) {
                     Some(AutoRole::Sequence) => params.get(name.as_str()).copied().unwrap_or(0.0),
-                    Some(AutoRole::Checksum) => match params.get(name.as_str()) {
-                        Some(v) => *v,
-                        None => {
-                            compute_checksum(&bytes, def.expect("auto implies a def"), name)? as f64
+                    Some(role @ (AutoRole::Checksum | AutoRole::XorChecksum)) => {
+                        match params.get(name.as_str()) {
+                            Some(v) => *v,
+                            None => compute_checksum(
+                                &bytes,
+                                def.expect("auto implies a def"),
+                                name,
+                                role,
+                            )? as f64,
                         }
-                    },
+                    }
                     _ => match params.get(name.as_str()) {
                         Some(v) => *v,
                         None => def
@@ -528,9 +533,18 @@ pub fn encode_command_with_bytes(
     Ok(bytes)
 }
 
-/// Compute the byte an `auto: checksum` parameter emits: the sum of every
-/// frame byte from `checksum_start` (default 1) up to the current end of the
-/// buffer, mod 256, then XORed with `checksum_xor` (default 0).
+/// Compute the byte an `auto: checksum` / `auto: xor_checksum` parameter
+/// emits, over every frame byte from `checksum_start` up to the current end of
+/// the buffer.
+///
+/// `AutoRole::Checksum` sums them mod 256 and then XORs `checksum_xor`
+/// (default 0); `AutoRole::XorChecksum` folds them with XOR instead, which is
+/// how the Govee 20-byte frames end. `checksum_xor` is a salt on the additive
+/// result and is deliberately not applied to the XOR fold — no spec pairs the
+/// two, and doing it silently would make one spelling mean two things.
+///
+/// `checksum_start` defaults to 1, the additive idiom's convention of skipping
+/// the frame leader; Govee's XOR frames cover the whole frame and say 0.
 ///
 /// `emitted` is the frame built so far — the checksum byte itself is not yet
 /// in it, so "up to but not including the checksum position" falls out of the
@@ -538,7 +552,12 @@ pub fn encode_command_with_bytes(
 /// (`ParameterInvalid`), not a silent zero-sum over an empty range: a frame
 /// whose checksum never sees its bytes fails on the device in a way nobody
 /// can debug from the app.
-fn compute_checksum(emitted: &[u8], def: &Parameter, name: &str) -> Result<u8, ProtocolError> {
+fn compute_checksum(
+    emitted: &[u8],
+    def: &Parameter,
+    name: &str,
+    role: AutoRole,
+) -> Result<u8, ProtocolError> {
     let start = def.checksum_start.unwrap_or(1);
     if emitted.len() <= start {
         return Err(ProtocolError::ParameterInvalid {
@@ -549,6 +568,9 @@ fn compute_checksum(emitted: &[u8], def: &Parameter, name: &str) -> Result<u8, P
                 emitted.len()
             ),
         });
+    }
+    if role == AutoRole::XorChecksum {
+        return Ok(emitted[start..].iter().fold(0u8, |acc, b| acc ^ b));
     }
     let sum: u32 = emitted[start..].iter().map(|b| u32::from(*b)).sum();
     // `checksum_xor` is i64 like every spec number; only its low byte can
@@ -1304,6 +1326,100 @@ mod tests {
             }
             other => panic!("expected ParameterInvalid, got {other:?}"),
         }
+    }
+
+    // ── auto: xor_checksum ──────────────────────────────────────────────────
+
+    /// The Govee 20-byte frame shape: `set_brightness` is `33 04 <val>` then
+    /// thirteen zero-padding bytes and a trailing XOR over bytes 0..18, so the
+    /// checksum covers the whole frame and says `checksum_start: 0`.
+    fn govee_brightness_cmd() -> Command {
+        let mut template = vec![
+            TemplateElement::Byte(0x33),
+            TemplateElement::Byte(0x04),
+            TemplateElement::Param("brightness".into()),
+        ];
+        template.extend(std::iter::repeat_n(TemplateElement::Byte(0x00), 16));
+        template.push(TemplateElement::Param("checksum".into()));
+        Command {
+            description: "set brightness".into(),
+            value: None,
+            template: Some(template),
+            parameters: Some(pset([
+                ("brightness", param(ValueType::Uint8, Some(0), Some(255))),
+                (
+                    "checksum",
+                    Parameter {
+                        value_type: ValueType::Uint8,
+                        auto: Some(AutoRole::XorChecksum),
+                        checksum_start: Some(0),
+                        ..Default::default()
+                    },
+                ),
+            ])),
+            setting_id: None,
+            encoding: None,
+            payload: None,
+            locate: None,
+            advanced: false,
+            advanced_reason: None,
+        }
+    }
+
+    #[test]
+    fn xor_checksum_folds_the_frame_from_checksum_start() {
+        // brightness 0x80: 0x33 ^ 0x04 ^ 0x80 = 0xB7, the zero padding being
+        // transparent to an XOR fold.
+        let out = encode_command(
+            &govee_brightness_cmd(),
+            &HashMap::from([("brightness".into(), 128.0)]),
+        )
+        .unwrap();
+        assert_eq!(out.len(), 20, "Govee frames are a fixed 20 bytes");
+        assert_eq!(out[..3], [0x33, 0x04, 0x80]);
+        assert_eq!(out[19], 0xB7);
+        assert_eq!(out[..19].iter().fold(0u8, |a, b| a ^ b), out[19]);
+    }
+
+    #[test]
+    fn xor_checksum_differs_from_the_additive_role() {
+        // The reason this is a separate role and not a flag: over the same
+        // span the two reductions disagree (0x33+0x04+0x80 = 0xB7 by luck
+        // here, so use a frame where they do not).
+        let out = encode_command(
+            &govee_brightness_cmd(),
+            &HashMap::from([("brightness".into(), 0x21 as f64)]),
+        )
+        .unwrap();
+        let xor = 0x33u8 ^ 0x04 ^ 0x21;
+        let additive = (0x33u32 + 0x04 + 0x21) as u8;
+        assert_ne!(xor, additive, "picked a value where the two agree");
+        assert_eq!(out[19], xor);
+    }
+
+    #[test]
+    fn xor_checksum_honors_a_caller_supplied_value() {
+        // Same contract as the additive role: a caller that already knows the
+        // byte is not forced to let the encoder recompute it.
+        let params = HashMap::from([
+            ("brightness".into(), 128.0),
+            ("checksum".into(), 0x99 as f64),
+        ]);
+        let out = encode_command(&govee_brightness_cmd(), &params).unwrap();
+        assert_eq!(out[19], 0x99);
+    }
+
+    #[test]
+    fn xor_checksum_is_not_a_user_control() {
+        // The whole point of the review that prompted this role: an auto
+        // parameter must never be presented as, or required from, a control.
+        let cmd = govee_brightness_cmd();
+        let checksum = &cmd.parameters.as_ref().unwrap().params["checksum"];
+        assert!(checksum.auto.is_some(), "checksum must carry an auto role");
+        assert!(
+            encode_command(&cmd, &HashMap::from([("brightness".into(), 10.0)])).is_ok(),
+            "brightness alone must be enough to send"
+        );
     }
 
     #[test]

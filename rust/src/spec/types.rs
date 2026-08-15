@@ -1458,6 +1458,15 @@ pub enum AutoRole {
     /// An additive frame checksum: the sum of the bytes already emitted (from
     /// `checksum_start` on) mod 256, then XORed with `checksum_xor`.
     Checksum,
+    /// The same span reduced with XOR instead of addition — every Govee
+    /// 20-byte frame ends in one, over bytes 0..18 (`checksum_start: 0`).
+    ///
+    /// A distinct role rather than a flag on [`AutoRole::Checksum`] because
+    /// the two produce different bytes from the same frame, and a reader that
+    /// took an unknown modifier as "additive" would send a packet the device
+    /// silently drops. `checksum_xor` does not apply: it salts the additive
+    /// result, and no XOR frame in the catalogue carries one.
+    XorChecksum,
 }
 
 impl std::fmt::Display for AutoRole {
@@ -1468,6 +1477,7 @@ impl std::fmt::Display for AutoRole {
             AutoRole::PacketLength => write!(f, "packet_length"),
             AutoRole::Sequence => write!(f, "sequence"),
             AutoRole::Checksum => write!(f, "checksum"),
+            AutoRole::XorChecksum => write!(f, "xor_checksum"),
         }
     }
 }
