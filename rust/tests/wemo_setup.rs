@@ -12,6 +12,9 @@
 
 use std::collections::BTreeMap;
 
+use liberated_bread_core::api::device_api::{
+    render_wemo_connect_requests, wemo_network_status, WemoJoinStatus,
+};
 use liberated_bread_core::protocol::wemo_setup::{self, KeydataMethod};
 use liberated_bread_core::spec::parser::parse_device_spec;
 use liberated_bread_core::spec::setup::soft_ap_profiles;
@@ -158,4 +161,69 @@ fn the_wemo_ap_list_example_parses_into_the_arguments_connecthomenetwork_wants()
     assert!(request.body.contains("<ssid>HomeNet</ssid>"));
     assert!(request.body.contains("<channel>6</channel>"));
     assert!(request.body.contains("<password>ENC</password>"));
+}
+
+#[test]
+fn render_connect_requests_assembles_the_whole_credential_send_in_rust() {
+    // The Dart caller hands network + passphrase and gets back ready-to-POST
+    // ConnectHomeNetwork requests — encryption and XML both done here, the
+    // Wemo counterpart of render_lifx_set_access_point.
+    let spec = vendored("wemo-devices.yaml");
+    let enc = wemo_credential_encryption();
+    let input = &enc["test_vectors"]["input"];
+    let meta_info = input["meta_info"].as_str().unwrap();
+    let passphrase = input["passphrase"].as_str().unwrap();
+
+    let requests = render_wemo_connect_requests(
+        spec.clone(),
+        meta_info.to_string(),
+        "HomeNet".to_string(),
+        "WPA2PSK".to_string(),
+        "AES".to_string(),
+        "6".to_string(),
+        passphrase.to_string(),
+    )
+    .unwrap();
+    // One rendered request per encryption variant of the sweep.
+    assert_eq!(requests.len(), 6);
+    for request in &requests {
+        assert_eq!(request.action, "ConnectHomeNetwork");
+        assert!(request.body.contains("<ssid>HomeNet</ssid>"));
+        assert!(request.body.contains("<channel>6</channel>"));
+        assert!(
+            !request.body.contains(passphrase),
+            "the passphrase must ride encrypted, never in the clear"
+        );
+    }
+    // The first request carries the spec's first published vector, encrypted.
+    let first_vector = enc["test_vectors"]["vectors"][0]["password_argument"]
+        .as_str()
+        .unwrap();
+    assert!(requests[0].body.contains(first_vector));
+
+    // An open network is one request: OPEN / NONE / empty password, no metadata.
+    let open = render_wemo_connect_requests(
+        spec,
+        String::new(),
+        "Guest".to_string(),
+        "OPEN".to_string(),
+        "NONE".to_string(),
+        "1".to_string(),
+        String::new(),
+    )
+    .unwrap();
+    assert_eq!(open.len(), 1);
+    assert!(open[0].body.contains("<auth>OPEN</auth>"));
+    assert!(open[0].body.contains("<encrypt>NONE</encrypt>"));
+    assert!(open[0].body.contains("<password></password>"));
+}
+
+#[test]
+fn network_status_codes_map_to_the_spec_vocabulary() {
+    assert_eq!(wemo_network_status("0".into()), WemoJoinStatus::Connecting);
+    assert_eq!(wemo_network_status("1".into()), WemoJoinStatus::Connected);
+    assert_eq!(wemo_network_status("2".into()), WemoJoinStatus::Rejected);
+    assert_eq!(wemo_network_status("3".into()), WemoJoinStatus::Handshaking);
+    assert_eq!(wemo_network_status(" 1 ".into()), WemoJoinStatus::Connected);
+    assert_eq!(wemo_network_status("9".into()), WemoJoinStatus::Unknown);
 }

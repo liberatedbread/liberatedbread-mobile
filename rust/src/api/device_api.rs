@@ -3488,42 +3488,88 @@ pub fn match_soft_ap_ssid(profiles: Vec<SoftApProfileDto>, ssid: String) -> Opti
         .map(|i| i as u32)
 }
 
-/// One encrypted Wemo passphrase attempt: what to send as the `password`
-/// argument, and which variant built it so the UI can log what worked.
-#[derive(Debug, Clone)]
-pub struct WemoPasswordCandidateDto {
-    /// Keydata layout 1-3, the spec's numbering.
-    pub method: u8,
-    /// Whether the two-hex-digit length suffix was appended.
-    pub add_lengths: bool,
-    pub password: String,
+/// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
+/// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
+///
+/// This is where the Wemo credential-send is assembled in full: the passphrase
+/// is encrypted (every variant of the spec's sweep, in order) and each attempt
+/// is rendered into a SOAP request through the same `setup_connect_home_network`
+/// command the catalogue publishes. The caller POSTs each in turn until one
+/// joins — it owns only the socket and the poll, never the crypto or the XML,
+/// exactly as control's `render_network_command` leaves it.
+///
+/// An open network (`encrypt` NONE / `auth` OPEN) yields a single request with
+/// an empty password and no encryption; `meta_info` is then unused. For a
+/// secured network `meta_info` is the raw `GetMetaInfo` reply. Fails when the
+/// passphrase is outside the device's documented bounds (under 8 characters is
+/// terminal), before any network I/O.
+pub fn render_wemo_connect_requests(
+    spec_yaml: String,
+    meta_info: String,
+    ssid: String,
+    auth: String,
+    encrypt: String,
+    channel: String,
+    passphrase: String,
+) -> anyhow::Result<Vec<SoapRequestDto>> {
+    use std::collections::BTreeMap;
+    let spec = parse_device_spec(&spec_yaml)?;
+    let is_open = encrypt.eq_ignore_ascii_case("NONE") || auth.eq_ignore_ascii_case("OPEN");
+
+    let render = |password: &str, auth: &str, encrypt: &str| -> anyhow::Result<SoapRequestDto> {
+        let values: BTreeMap<String, String> = [
+            ("ssid", ssid.as_str()),
+            ("auth", auth),
+            ("password", password),
+            ("encrypt", encrypt),
+            ("channel", channel.as_str()),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        Ok(SoapRequestDto::from(crate::protocol::soap::render_request(
+            &spec,
+            "setup_connect_home_network",
+            &values,
+        )?))
+    };
+
+    if is_open {
+        // The spec's open-network rule: auth OPEN, encrypt NONE, empty password.
+        return Ok(vec![render("", "OPEN", "NONE")?]);
+    }
+    crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, None, None)?
+        .into_iter()
+        .map(|c| render(&c.password, &auth, &encrypt))
+        .collect()
 }
 
-/// Every Wemo passphrase encryption worth sending, in the order to try them:
-/// the spec's sweep, with the rtos/iot-selected variant first when setup.xml
-/// supplied those fields.
-///
-/// `meta_info` is the raw `GetMetaInfo` reply; the MAC/serial key material is
-/// fields 0 and 1 of it. Fails when the reply is not in the documented layout
-/// or the passphrase is outside the device's documented bounds (under 8
-/// characters is rejected by the device itself, so it is refused here before
-/// any network I/O).
-pub fn wemo_password_candidates(
-    meta_info: String,
-    passphrase: String,
-    rtos: Option<i64>,
-    iot: Option<i64>,
-) -> anyhow::Result<Vec<WemoPasswordCandidateDto>> {
-    Ok(
-        crate::protocol::wemo_setup::password_candidates(&meta_info, &passphrase, rtos, iot)?
-            .into_iter()
-            .map(|c| WemoPasswordCandidateDto {
-                method: c.method,
-                add_lengths: c.add_lengths,
-                password: c.password,
-            })
-            .collect(),
-    )
+/// The join state a Wemo `GetNetworkStatus` code names — the protocol's own
+/// vocabulary, kept in Rust with the rest of the Wemo semantics rather than
+/// re-spelled at each caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WemoJoinStatus {
+    /// 0 — still trying. Keep polling.
+    Connecting,
+    /// 1 — connected. Terminal success.
+    Connected,
+    /// 2 — rejected because the passphrase is under 8 characters. Terminal.
+    Rejected,
+    /// 3 — handshaking. Usually becomes Connected within a few seconds.
+    Handshaking,
+    /// Anything else the device might answer.
+    Unknown,
+}
+
+/// Interpret a `GetNetworkStatus` reply's `NetworkStatus` value.
+pub fn wemo_network_status(code: String) -> WemoJoinStatus {
+    match code.trim() {
+        "0" => WemoJoinStatus::Connecting,
+        "1" => WemoJoinStatus::Connected,
+        "2" => WemoJoinStatus::Rejected,
+        "3" => WemoJoinStatus::Handshaking,
+        _ => WemoJoinStatus::Unknown,
+    }
 }
 
 /// One network out of a Wemo `GetApList` reply.
