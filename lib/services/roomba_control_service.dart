@@ -304,6 +304,24 @@ class RoombaMqttClient {
   StreamSubscription<Uint8List>? _subscription;
   Timer? _ping;
   final _buffer = <int>[];
+
+  /// The tail of the chunk-processing chain.
+  ///
+  /// `Stream.listen` does not await an async callback, so without this two
+  /// chunks arriving close together both run [_onBytes] and interleave at its
+  /// `await`: each snapshots the buffer, then each removes what IT consumed
+  /// from a buffer the other has already trimmed. The second removal runs off
+  /// the end.
+  ///
+  /// The failure is quiet, which is what makes it worth guarding. The
+  /// `RangeError` is thrown inside the async callback, and a stream discards
+  /// the future its callback returns — so nothing surfaces it, and the state
+  /// push that chunk carried is simply never delivered. A robot that goes
+  /// silent, not one that reports a problem.
+  ///
+  /// Chaining makes the listener synchronous — it only enqueues — so the
+  /// framing state is touched by one chunk at a time.
+  Future<void> _pump = Future<void>.value();
   final _state = StreamController<Map<String, String>>.broadcast();
   Completer<void>? _connected;
   var _packetId = 0;
@@ -335,7 +353,7 @@ class RoombaMqttClient {
     _connected = Completer<void>();
 
     _subscription = socket.incoming.listen(
-      _onBytes,
+      _enqueue,
       onError: (Object error) => _fail(error),
       onDone: () => _fail(
         const RoombaConnectionException('The robot closed the connection.'),
@@ -398,6 +416,16 @@ class RoombaMqttClient {
       topic: request.topic,
       payload: request.payload,
     ));
+  }
+
+  /// Queue one chunk behind whatever is still being decoded.
+  ///
+  /// The `catchError` is not decoration: an unhandled throw would leave [_pump]
+  /// a permanently-failed future, and every later chunk chained onto it would
+  /// be dropped without ever running — a robot that goes silent rather than one
+  /// that reports a problem.
+  void _enqueue(Uint8List chunk) {
+    _pump = _pump.then((_) => _onBytes(chunk)).catchError(_fail);
   }
 
   Future<void> _onBytes(Uint8List chunk) async {
