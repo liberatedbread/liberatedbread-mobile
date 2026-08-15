@@ -357,4 +357,143 @@ void main() {
     expect(find.text('Start'), findsNothing);
     expect(find.byType(Card), findsNothing);
   });
+
+  testWidgets("KingSmith's stop_belt resolves as the Stop verb",
+      (tester) async {
+    // The WiLink belt has no stop opcode; stop_belt is the speed-0 frame the
+    // spec names so the card has a Stop to bind to.
+    final spec = _spedSpec(const [
+      CommandDto(
+        name: 'start_belt',
+        description: 'Start',
+        parameters: [],
+        isFixed: true,
+        isEncodable: true,
+        unsupportedEncoding: null,
+        advanced: false,
+      ),
+      CommandDto(
+        name: 'stop_belt',
+        description: 'Stop',
+        parameters: [],
+        isFixed: true,
+        isEncodable: true,
+        unsupportedEncoding: null,
+        advanced: false,
+      ),
+    ]);
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0xF7, 0xA3]));
+    await tester.pumpWidget(_wrap(ble: ble, codec: codec, spec: spec));
+
+    expect(find.text('Stop'), findsOneWidget);
+    await tester.tap(find.text('Stop'));
+    await tester.pumpAndSettle();
+
+    final call = codec.encodeCalls.single;
+    expect(call.commandName, 'stop_belt');
+    expect(ble.writes.single.value, [0xF7, 0xA3]);
+  });
+
+  testWidgets("UREVO's proprietary verbs drive the card", (tester) async {
+    // The FT/UR classes name start/pause/stop/speed differently; the card
+    // resolves them so a UREVO pad gets real buttons, not raw hex.
+    final spec = _spedSpec(const [
+      CommandDto(
+        name: 'ur_training_prepared',
+        description: 'Start',
+        parameters: [],
+        isFixed: true,
+        isEncodable: true,
+        unsupportedEncoding: null,
+        advanced: false,
+      ),
+      CommandDto(
+        name: 'ur_training_pause',
+        description: 'Pause',
+        parameters: [],
+        isFixed: true,
+        isEncodable: true,
+        unsupportedEncoding: null,
+        advanced: false,
+      ),
+      CommandDto(
+        name: 'ur_training_stop',
+        description: 'Stop',
+        parameters: [],
+        isFixed: true,
+        isEncodable: true,
+        unsupportedEncoding: null,
+        advanced: false,
+      ),
+      CommandDto(
+        name: 'ur_set_speed_and_slope',
+        description: 'Set speed and slope',
+        isFixed: false,
+        isEncodable: true,
+        unsupportedEncoding: null,
+        advanced: false,
+        parameters: [
+          ParameterDto(name: 'speed', valueType: 'uint8', min: 0, max: 255),
+          // The slope defaults to 0 in the spec, so the card sends speed alone.
+          ParameterDto(name: 'slope', valueType: 'uint8', min: 0, max: 255),
+          ParameterDto(name: 'checksum', valueType: 'uint8', auto: 'checksum'),
+        ],
+      ),
+    ]);
+    final ble = FakeBleService();
+    final codec = FakeSpecCodec(encoded: Uint8List.fromList([0x02, 0x53]));
+    await tester.pumpWidget(_wrap(ble: ble, codec: codec, spec: spec));
+
+    expect(find.text('Start'), findsOneWidget);
+    expect(find.text('Pause'), findsOneWidget);
+    expect(find.text('Stop'), findsOneWidget);
+    expect(find.byType(Slider), findsOneWidget,
+        reason: 'the speed+slope write is the card speed control');
+
+    // Stop resolves to the UR stop, and it is not gated behind a confirm.
+    await tester.tap(find.text('Stop'));
+    await tester.pumpAndSettle();
+    expect(codec.encodeCalls.single.commandName, 'ur_training_stop');
+
+    // The speed control sends only the speed param; the slope rides its spec
+    // default, so nothing here fabricates an incline the pad does not have.
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    final speedCall = codec.encodeCalls
+        .lastWhere((c) => c.commandName == 'ur_set_speed_and_slope');
+    expect(speedCall.params.keys, ['speed']);
+  });
 }
+
+/// A treadmill-category spec whose one write characteristic carries [commands]
+/// — the shape most of these tests need with a different command set each.
+DeviceSpecDto _spedSpec(List<CommandDto> commands) => DeviceSpecDto(
+      deviceName: 'Treadmill',
+      manufacturer: 'Acme Fitness',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'treadmill',
+      localNamePrefixes: const [],
+      serviceUuids: const [_svc],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      mdnsServiceType: null,
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      defaultPort: null,
+      entities: const <EntityDto>[],
+      services: [
+        ServiceDto(uuid: _svc, name: 'Service', characteristics: [
+          CharacteristicDto(
+            uuid: _char,
+            name: 'Command write',
+            canRead: false,
+            canWrite: true,
+            canNotify: false,
+            commands: commands,
+            formatFields: const [],
+          ),
+        ]),
+      ],
+    );
