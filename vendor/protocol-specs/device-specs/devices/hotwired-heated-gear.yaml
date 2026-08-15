@@ -334,9 +334,21 @@ entities:
     unit: "°C"
     notes: "Scale and offset unconfirmed — requires bench testing"
 
-references:
-  - "https://play.google.com/store/apps/details?id=com.anji.mec"
-  - "https://apps.apple.com/app/id1634504597"
-  - "https://www.ventureheat.com/pages/bluetooth"
-  - "https://www.ventureheat.com/pages/motorcycle-guide"
-  - "https://www.addheat.com/"
+helpful_urls:
+  - title: "ADDHEAT app on Google Play"
+    url: "https://play.google.com/store/apps/details?id=com.anji.mec"
+    description: "MEC Addheat's own app: the same codebase as com.hotwired.mec, white-labelled."
+  - title: "Vendor app on the App Store"
+    url: "https://apps.apple.com/app/id1634504597"
+    description: "iOS build of the same controller app."
+  - title: "Venture Heat: Bluetooth gear"
+    url: "https://www.ventureheat.com/pages/bluetooth"
+    description: >-
+      Venture Heat's Bluetooth product line, which this spec likely also covers; the cloud backend
+      app.ventureheat.com is shared.
+  - title: "Venture Heat: motorcycle heated gear guide"
+    url: "https://www.ventureheat.com/pages/motorcycle-guide"
+    description: "Vendor guide to the 12V motorcycle garments this protocol drives."
+  - title: "MEC Addheat"
+    url: "https://www.addheat.com/"
+    description: "The ODM behind the hardware, and the mec in com.hotwired.mec."

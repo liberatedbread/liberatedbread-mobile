@@ -288,15 +288,68 @@ device:
       exclusive mode.
 
   discovery:
+    # Three match rules, ordered by what has actually been seen on hardware.
+    # The one commissioned lock captured on 2026-08-14 advertised NO service
+    # UUIDs at all — a scanner filtering only on the DataTransfer UUID would
+    # have missed it — but it did carry the Allegion company ID and a
+    # serial-bearing local name. See evidence.live_hardware.
     methods:
+      - type: "ble_scan"
+        ble:
+          manufacturer_data:
+            company_id: 315
+            description: >
+              Allegion. The single hardware-observed signal: the captured
+              advertisement carried manufacturer data under this company ID
+              (payload embeds a MAC) and nothing else identifying. Company ID
+              alone is a family match, not a model match.
+        notes: >
+          Observed 2026-08-14 on a commissioned lock. Prefer this filter: it
+          is independent of both the rotating BLE address and the advertising
+          mode.
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "SCHLAGE"
+        notes: >
+          Complete local name "SCHLAGE" followed by 8 uppercase hex digits (a
+          serial-looking suffix), observed 2026-08-14. This full string — not
+          the prefix — is the lock's stable identity; see `identity` below.
       - type: "ble_scan"
         ble:
           service_uuids:
             - "1f6b43aa-94de-4ba9-981c-da38823117bd"
-        notes: "Unified/Schlage-mode advertisement. HomeKit-mode locks are found by local name 'SENSE  ' instead."
+        notes: >
+          Unified/Schlage-mode advertisement as documented by the app (AD
+          0x06) — reported, and NOT observed on the one commissioned lock
+          captured here, which advertised no service UUIDs. Kept as a match
+          rule because uncommissioned locks are expected to advertise it.
+          HomeKit-mode locks are found by local name 'SENSE  ' instead, and
+          speak HAP rather than anything in this spec.
     identity:
-      stable_keys: ["address"]
+      # NOT the BLE address. Both lock addresses seen on 2026-08-14 had the
+      # locally-administered bit set — these are random-static addresses,
+      # which the lock may rotate at any time. Keying on one means a client
+      # either loses a lock it already knows or enrols the same lock twice.
+      stable_keys: ["local_name"]
       display: "local_name"
+      notes: >
+        `local_name` is the full advertised string "SCHLAGE<8 hex digits>";
+        the hex suffix is serial-derived and is what makes the name identity
+        rather than a family label — match the WHOLE string, never the
+        "SCHLAGE" prefix that discovery scans on. The BLE address is an
+        ephemeral connection locator only: use whatever address the most
+        recent advertisement carried to connect, and re-resolve it by scanning
+        after a failure rather than persisting it. A HomeKit-mode lock
+        advertises the constant name "SENSE  " (trailing spaces), which is a
+        mode label shared by every such unit and therefore no identity at all
+        — but such a lock speaks HAP, not this spec, so it is out of scope
+        here rather than a gap in these keys. The Allegion manufacturer-data
+        payload (company ID 315) embeds a MAC and may prove to be a better key
+        still; it is not used here because whether that MAC is the stable
+        public address or the rotating one it advertises with is unresolved —
+        the HCI-snoop session in evidence.follow_up should settle it.
     static_ip_required: false
 
   variants:
@@ -701,11 +754,16 @@ evidence:
       - >
         One lock was captured advertising exactly once at the start of the
         session: complete local name "SCHLAGE" followed by 8 uppercase hex
-        digits (serial-looking suffix), public Bluetooth address with OUI
-        B7:AC:C2 (recorded partially here on purpose — this is a security
-        device), RSSI -74 dBm, and manufacturer data under Bluetooth
-        company ID 315 ("Allegion" per registries/bluetooth-company-ids.tsv)
-        whose payload embeds the device's own MAC address.
+        digits (serial-looking suffix), Bluetooth address beginning B7:AC:C2
+        (recorded partially here on purpose — this is a security device),
+        RSSI -74 dBm, and manufacturer data under Bluetooth company ID 315
+        ("Allegion" per registries/bluetooth-company-ids.tsv) whose payload
+        embeds a MAC address. That address prefix is NOT a vendor OUI: the
+        locally-administered bit is set, so this is a random-static address
+        the lock may rotate (see follow_up) — which is why
+        discovery.identity keys on the local name instead. Whether the MAC
+        inside the manufacturer payload is the stable public address or a
+        copy of the rotating one was not determined.
       - >
         That captured advertisement contained NO service UUIDs at all —
         specifically NOT the DataTransfer UUID

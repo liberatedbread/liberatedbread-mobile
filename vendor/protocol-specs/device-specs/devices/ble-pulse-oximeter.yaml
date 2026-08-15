@@ -169,7 +169,19 @@ services:
         name: "Smart Bracelet Measurement"
         properties: ["write", "notify"]
 
-references:
-  - "https://github.com/joba-1/OximeterF7Bridge"
-  - "https://github.com/jcomas/PulseOximeterSP001"
-  - "https://web.archive.org/web/20220528040458/http://www.manridy.com/en/product-19070-18734-169757.html"
+helpful_urls:
+  - title: "OximeterF7Bridge"
+    url: "https://github.com/joba-1/OximeterF7Bridge"
+    description: >-
+      Hardware-tested third-party client for the F7 oximeter. Source of this spec's discovery facts
+      (advertised name, advertised service UUID, the single-connection and power-cycle quirks) and
+      the confirmation of the poll/response frame format against real hardware.
+  - title: "PulseOximeterSP001"
+    url: "https://github.com/jcomas/PulseOximeterSP001"
+    description: >-
+      Existing partial implementation for the SP001; a second opinion on the frame layout.
+  - title: "Manridy SP001 product page (Internet Archive)"
+    url: "https://web.archive.org/web/20220528040458/http://www.manridy.com/en/product-19070-18734-169757.html"
+    description: >-
+      Archived vendor product page. The live page is dead, so this is what remains of the
+      manufacturer's own description of the hardware.

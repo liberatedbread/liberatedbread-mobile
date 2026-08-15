@@ -275,8 +275,24 @@ entities:
       Measurement frame byte 7, enumerated a-j (m / ft / in / ft'in" 1/32 /
       in 1/32 / in 1/16 / in 1/8 / in 1/4 / in 1/2 / Taiwanese foot).
 
-references:
-  - "https://www.johnsonlevel.com/P/1762/LaserDistanceMeterwAngleSensorandBluetooth"
-  - "https://www.johnsonlevel.com/Content/files/Manuals/LDM%20330%20Quick%20Start%20Guide.pdf"
-  - "https://apkpure.net/measure-up/com.winho.measure_up"
-  - "https://www.imagemeter.com/manual/bluetooth/devices/"
+helpful_urls:
+  - title: "Johnson LDM330 product page"
+    url: "https://www.johnsonlevel.com/P/1762/LaserDistanceMeterwAngleSensorandBluetooth"
+    description: >-
+      Vendor page for the LDM330 (model 40-6013); the source of the range and angle-sensor facts
+      recorded here.
+  - title: "Johnson LDM330 quick start guide (PDF)"
+    url: "https://www.johnsonlevel.com/Content/files/Manuals/LDM%20330%20Quick%20Start%20Guide.pdf"
+    description: >-
+      Vendor manual. Covers the display units the measurement frame's unit code reports, and the
+      button sequence that puts the meter into Bluetooth mode.
+  - title: "Measure-Up on APKPure"
+    url: "https://apkpure.net/measure-up/com.winho.measure_up"
+    description: >-
+      Mirror the analysed APK came from (com.winho.measure_up v1.0.1) — this whole spec is static
+      analysis of that build.
+  - title: "ImageMeter: supported Bluetooth laser distance meters"
+    url: "https://www.imagemeter.com/manual/bluetooth/devices/"
+    description: >-
+      Third-party app's catalogue of which meters it speaks to and how, useful for placing this
+      Winho OEM platform among the other vendors' protocols.

@@ -252,10 +252,24 @@ entities:
     unit: "%"
     notes: "Advertisement byte 7 only; not present in the GATT poll."
 
-references:
-  - "https://github.com/Bluetooth-Devices/inkbird-ble"
-  - "https://github.com/Bluetooth-Devices/inkbird-ble/blob/main/src/inkbird_ble/parser.py"
-  - "https://github.com/Bluetooth-Devices/inkbird-ble/blob/main/tests/test_parser.py"
-  - "https://github.com/Ernst79/bleparser/blob/c42ae922e1abed2720c7fac993777e1bd59c0c93/package/bleparser/inkbird.py"
-  - "https://github.com/custom-components/ble_monitor"
-  - "https://www.home-assistant.io/integrations/inkbird"
+helpful_urls:
+  - title: "inkbird-ble"
+    url: "https://github.com/Bluetooth-Devices/inkbird-ble"
+    description: >-
+      Parser library behind the Home Assistant inkbird integration; the reference decode this spec
+      follows.
+  - title: "inkbird-ble: parser.py"
+    url: "https://github.com/Bluetooth-Devices/inkbird-ble/blob/main/src/inkbird_ble/parser.py"
+    description: "The advertisement decode itself."
+  - title: "inkbird-ble: test_parser.py"
+    url: "https://github.com/Bluetooth-Devices/inkbird-ble/blob/main/tests/test_parser.py"
+    description: "Test vectors: real advertisement bytes with the values they decode to."
+  - title: "bleparser: inkbird.py"
+    url: "https://github.com/Ernst79/bleparser/blob/c42ae922e1abed2720c7fac993777e1bd59c0c93/package/bleparser/inkbird.py"
+    description: "The older parser inkbird-ble was copied from, pinned at the commit read here."
+  - title: "ble_monitor"
+    url: "https://github.com/custom-components/ble_monitor"
+    description: "The Home Assistant custom component bleparser ships in."
+  - title: "Home Assistant: Inkbird integration"
+    url: "https://www.home-assistant.io/integrations/inkbird"
+    description: "Where the parser runs in production, and the supported-model list."

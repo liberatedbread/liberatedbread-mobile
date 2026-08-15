@@ -139,9 +139,24 @@ services:
         notes: "Reports arrive as notifications/indications: 0xD0 weight, 0xD1 unit, 0xD2 battery (/10 V), 0xD3 tare, 0xD4 region, 0xD5 auto-off, 0xE0 overflow, 0xE2 low voltage, 0xE4 item-on-scale."
         properties: ["notify", "indicate"]
 
-references:
-  - "https://github.com/hertzg/metekcity"
-  - "https://dev.to/hertzg/hacking-ble-kitchen-scale-55io"
-  - "https://www.npmjs.com/package/@metekcity/esn00-packet"
-  - "https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble"
-  - "https://fccid.io/2AB22-ESN00"
+helpful_urls:
+  - title: "hertzg/metekcity"
+    url: "https://github.com/hertzg/metekcity"
+    description: >-
+      Hardware reverse engineering of the ESN00 from HCI snoop plus noble against a real scale; one
+      of the two independent confirmations of the packet format, and the source of the Web Bluetooth
+      connect-by-name behaviour noted here.
+  - title: "Hacking a BLE kitchen scale"
+    url: "https://dev.to/hertzg/hacking-ble-kitchen-scale-55io"
+    description: "hertzg's write-up of that reverse engineering."
+  - title: "@metekcity/esn00-packet on npm"
+    url: "https://www.npmjs.com/package/@metekcity/esn00-packet"
+    description: "MIT-licensed parser and serializer for the ESN00 packet format, v2.0.0."
+  - title: "etekcity_esf551_ble"
+    url: "https://github.com/ronnnnnnnnnnnnn/etekcity_esf551_ble"
+    description: >-
+      Client for the sibling ESF-551 body scale. A different interface entirely, and useful for
+      telling the two apart.
+  - title: "FCC ID 2AB22-ESN00"
+    url: "https://fccid.io/2AB22-ESN00"
+    description: "FCC filing for the scale; the source of the FCC ID and variant recorded here."

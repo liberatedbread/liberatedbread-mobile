@@ -36,16 +36,96 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `git merge-base` below needs real history, not a depth-1 tip.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - name: Validate device specs against schema.json
         run: python scripts/validate_specs.py
-      - name: Verify device-specs/index.json is up to date
+      # The index is built by the publish-index job, not carried in branches —
+      # so what a PR owes is a spec set the generator can index, not a fresh
+      # index.json. Build it and throw it away: a spec that trips the generator
+      # (or is invalid) still fails here, where it is cheap to fix.
+      - name: Build the spec index (result discarded; CI publishes it on main)
+        run: python scripts/generate_index.py
+      # The whole point of moving the build into CI is that index.json stops
+      # appearing in branches — it is one file every parallel spec PR touches,
+      # so every pair of them conflicted. A branch that carries it puts that
+      # conflict right back.
+      - name: Reject a hand-carried index.json
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          python scripts/generate_index.py
-          git diff --exit-code device-specs/index.json
+          # Against the merge base, not the base tip: main gains index commits
+          # of its own, and a branch must not be blamed for those.
+          base="$(git merge-base "origin/$BASE_REF" HEAD)"
+          if git diff --quiet "$base" HEAD -- device-specs/index.json; then
+            echo "index.json untouched by this branch — good."
+            exit 0
+          fi
+          msg="device-specs/index.json is generated and committed by CI on main."
+          msg="$msg Drop it from this branch:"
+          msg="$msg git checkout $base -- device-specs/index.json && git commit -m 'drop generated index'"
+          echo "::error file=device-specs/index.json::$msg"
+          exit 1
+
+  # device-specs/index.json is generated, and used to be committed by hand in
+  # every branch that added a spec. With several spec PRs open at once that is a
+  # guaranteed conflict on a 60 kB machine-written file, resolved by
+  # regenerating it — work no one should be doing. Build it here instead, once,
+  # after the specs have landed. Downstream consumers (the mobile app vendors
+  # this repo as a subtree and bundles index.json as an asset) still read a
+  # committed file; it is just written by CI now.
+  publish-index:
+    needs: [lint-and-test, validate-specs]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Regenerate device-specs/index.json
+        run: python scripts/generate_index.py
+      - name: Commit it if the specs moved
+        run: |
+          if git diff --quiet -- device-specs/index.json; then
+            echo "index.json already matches the specs; nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add device-specs/index.json
+          git commit -m "chore: rebuild device-specs/index.json [skip ci]"
+          # A push that lands on main while this job runs rejects ours. Rebase
+          # onto it and rebuild rather than retrying the stale commit: the
+          # index is a pure function of the specs, so the rebuilt one is right
+          # for whatever main now holds.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Pushed the rebuilt index."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt); rebasing on main and rebuilding."
+            sleep $((attempt * 4))
+            git fetch origin main
+            git reset --hard origin/main
+            python scripts/generate_index.py
+            if git diff --quiet -- device-specs/index.json; then
+              echo "Another run already published this index; done."
+              exit 0
+            fi
+            git commit -am "chore: rebuild device-specs/index.json [skip ci]"
+          done
+          echo "::error::could not push the rebuilt index after 3 attempts" >&2
+          exit 1
 
   build:
     needs: [lint-and-test, validate-specs]

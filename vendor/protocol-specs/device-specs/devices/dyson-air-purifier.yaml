@@ -7,7 +7,21 @@ device:
   manufacturer: "Dyson"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Partially verified live 2026-08-14. WiFi/MQTT: the machine at
+      192.168.1.164 (an F3H Pure Cool per the 2026-07-16 evidence) has TCP
+      1883 open and answers an MQTT CONNECT with no credentials with a
+      CONNACK return code 4 (bad username/password) — proving the device IS
+      the local MQTT broker and that it enforces the device-specific local
+      password exactly as this spec describes; port 8883 (TLS) is closed, so
+      the plaintext 1883 broker is the local control plane. Full topic
+      exchange was NOT exercised (the local password is printed on the
+      machine's sticker, which nobody read out). BLE: two OTHER Dyson units
+      were seen advertising over BLE the same session (see the ble block and
+      the 2026-08-14 evidence) — their vendor service and serial-as-name
+      confirm the BLE identification, but no BLE GATT session was driven.
   protocol: "wifi"
   category: "climate"
   transport: "mqtt"
@@ -26,6 +40,19 @@ device:
     stale; the maintained continuation is libdyson-wg/libdyson-neon (PyPI
     libdyson-neon), and Home Assistant core removed its built-in Dyson
     integration in 2024.1.
+
+    BLE SIDE CHANNEL: Dyson machines also advertise a BLE GATT service based
+    on 2dd10010-1c37-452d-8979-d1b4a787d0a4, using the machine's SERIAL
+    NUMBER (<model>-<region>-<serial>, e.g. F6V-US-XXXXXXXX) as the BLE local
+    name, and some emit a Dyson-specific iBeacon (Apple company 0x004C,
+    proximity UUID 78F9140C-DCF8-4F5B-B49F-63AC9357C7C4). The BLE channel is
+    used by the MyDyson app for discovery and Wi-Fi onboarding, and newer
+    models expose a BLE control/state proxy; the mature local control path,
+    however, remains the local MQTT broker below. Live-observed on two units
+    2026-08-14 (see evidence). Cross-reference: this same vendor UUID is
+    catalogued as "Dyson Limited: Air purifying fan" in the Blue2thprinting
+    BLE-fingerprint dataset. GATT enumeration under this service is not yet
+    documented here (needs a bonded session on hardware).
   identification:
     mdns_service_type: "_dyson_mqtt._tcp.local."
     default_port: 1883
@@ -191,6 +218,26 @@ evidence:
         address: "192.168.1.165"
         mdns_service_type: "_dyson_mqtt._tcp"
         port: 1883
+  live_probe_2026_08_14:
+    date: "2026-08-14"
+    wifi_mqtt:
+      address: "192.168.1.164"
+      model: "F3H Pure Cool (per 2026-07-16 probe)"
+      observation: >
+        TCP 1883 open, 8883 closed; MQTT CONNECT without credentials returned
+        CONNACK rc=4 (bad user/pass) — the device is the broker and enforces
+        the local password. No mDNS _dyson_mqtt answer was seen in this
+        session's browse (the machine may suppress it when idle), but the
+        broker was reachable directly.
+    ble:
+      note: >
+        Two Dyson machines were simultaneously discoverable over BLE (adapter
+        scan), advertising the Dyson vendor GATT service
+        2dd10010-1c37-452d-8979-d1b4a787d0a4 with their SERIAL NUMBER as the
+        BLE local name — units "F6V-US-XXXXXXXX" (random addr, also emitting a
+        Dyson iBeacon: proximity UUID 78F9140C-DCF8-4F5B-B49F-63AC9357C7C4,
+        major/minor 0) and "E5V/E5R-US-PKA0694A". No GATT session was driven.
+        See the ble block for what the service is for.
 
 mqtt_topics:
   - topic: "{productType}/{serial}/status/current"

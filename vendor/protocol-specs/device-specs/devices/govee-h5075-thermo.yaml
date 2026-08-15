@@ -358,10 +358,32 @@ entities:
       flag, value = byte & 0x7F) or via `aa 08` on char ...2011 — this
       family has no standard Battery Service 0x180F/0x2A19.
 
-references:
-  - "https://github.com/wcbonner/GoveeBTTempLogger"
-  - "https://github.com/Bluetooth-Devices/govee-ble"
-  - "https://www.home-assistant.io/integrations/govee_ble"
-  - "https://github.com/NHaag87/govee-api/blob/main/API_documentation/H5105_protocol.md"
-  - "https://github.com/Heckie75/govee-h5075-thermo-hygrometer"
-  - "https://fccid.io/2AQA6-H5075"
+helpful_urls:
+  - title: "GoveeBTTempLogger"
+    url: "https://github.com/wcbonner/GoveeBTTempLogger"
+    description: >-
+      Production C++ logger for Govee thermometers. The primary source for the advertisement decode
+      and the connected command channel, and the origin of the archived captures this spec was built
+      from.
+  - title: "govee-ble"
+    url: "https://github.com/Bluetooth-Devices/govee-ble"
+    description: >-
+      Parser library behind the Home Assistant integration; independent confirmation of the
+      advertisement formats and the model list.
+  - title: "Home Assistant: Govee BLE integration"
+    url: "https://www.home-assistant.io/integrations/govee_ble"
+    description: >-
+      Where that parser runs in production, and the supported-model list this spec cross-checks
+      against.
+  - title: "H5105 protocol notes"
+    url: "https://github.com/NHaag87/govee-api/blob/main/API_documentation/H5105_protocol.md"
+    description: >-
+      Write-up of the sibling H5105's protocol, cited here for the encrypted handshake and the
+      connected command format.
+  - title: "Heckie75/govee-h5075-thermo-hygrometer"
+    url: "https://github.com/Heckie75/govee-h5075-thermo-hygrometer"
+    description: "Python tool for the H5075; a second decode of the same advertisement fields."
+  - title: "FCC ID 2AQA6-H5075"
+    url: "https://fccid.io/2AQA6-H5075"
+    description: >-
+      FCC filing; confirms the Telink SoC and the grantee recorded in the hardware notes.
