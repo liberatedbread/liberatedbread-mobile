@@ -373,6 +373,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   QuerySourceDto dco_decode_query_source_dto(dynamic raw);
 
   @protected
+  RabbitAirRequestDto dco_decode_rabbit_air_request_dto(dynamic raw);
+
+  @protected
   (String, double) dco_decode_record_string_f_64(dynamic raw);
 
   @protected
@@ -823,6 +826,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   QuerySourceDto sse_decode_query_source_dto(SseDeserializer deserializer);
+
+  @protected
+  RabbitAirRequestDto sse_decode_rabbit_air_request_dto(
+      SseDeserializer deserializer);
 
   @protected
   (String, double) sse_decode_record_string_f_64(SseDeserializer deserializer);
@@ -1312,6 +1319,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_query_source_dto(
       QuerySourceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_rabbit_air_request_dto(
+      RabbitAirRequestDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_record_string_f_64(

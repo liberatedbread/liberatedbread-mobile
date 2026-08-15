@@ -109,6 +109,24 @@ void main() {
         contains('control by mobile apps'));
   });
 
+  test('401 is the same refusal where the gate is a missing credential',
+      () async {
+    // The Envoy's firmware-7+ endpoints answer 401 until the entrez JWT rides
+    // along — a device-side gate, not a network fault and not a bad request.
+    final client = HttpControlClient(
+      httpClient: MockClient((request) async => http.Response('', 401)),
+    );
+
+    await expectLater(
+      client.send(
+          '10.0.0.10',
+          80,
+          const HttpRequestDto(
+              method: 'GET', path: '/api/v1/production', body: '')),
+      throwsA(isA<ControlRefusedException>()),
+    );
+  });
+
   test('a 400 naming Limited mode is the same refusal in its other spelling',
       () async {
     // Observed live on an OS 15.2.4 Roku TV: /query/apps answered
