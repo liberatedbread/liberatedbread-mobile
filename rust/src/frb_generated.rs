@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1498372497;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1363711687;
 
 // Section: executor
 
@@ -1549,6 +1549,43 @@ fn wire__crate__api__device_api__match_scanned_device_impl(
         },
     )
 }
+fn wire__crate__api__device_api__match_soft_ap_ssid_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "match_soft_ap_ssid",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_profiles =
+                <Vec<crate::api::device_api::SoftApProfileDto>>::sse_decode(&mut deserializer);
+            let api_ssid = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::match_soft_ap_ssid(api_profiles, api_ssid),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__mock_api__mock_read_characteristic_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1735,6 +1772,41 @@ fn wire__crate__api__device_api__parse_lifx_state_service_impl(
                         Ok(output_ok)
                     })(),
                 )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__parse_wemo_ap_list_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "parse_wemo_ap_list",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_ap_list = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::parse_wemo_ap_list(api_ap_list),
+                    )?;
+                    Ok(output_ok)
+                })())
             }
         },
     )
@@ -2387,6 +2459,84 @@ fn wire__crate__api__device_api__render_network_state_request_impl(
                         let output_ok = crate::api::device_api::render_network_state_request(
                             api_spec_yaml,
                             api_state_command,
+                        )?;
+                        Ok(output_ok)
+                    })(),
+                )
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__soft_ap_profiles_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "soft_ap_profiles",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yamls = <Vec<String>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(crate::api::device_api::soft_ap_profiles(
+                        api_spec_yamls,
+                    ))?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__device_api__wemo_password_candidates_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "wemo_password_candidates",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_meta_info = <String>::sse_decode(&mut deserializer);
+            let api_passphrase = <String>::sse_decode(&mut deserializer);
+            let api_rtos = <Option<i64>>::sse_decode(&mut deserializer);
+            let api_iot = <Option<i64>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, flutter_rust_bridge::for_generated::anyhow::Error>(
+                    (move || {
+                        let output_ok = crate::api::device_api::wemo_password_candidates(
+                            api_meta_info,
+                            api_passphrase,
+                            api_rtos,
+                            api_iot,
                         )?;
                         Ok(output_ok)
                     })(),
@@ -3313,6 +3463,20 @@ impl SseDecode for Vec<crate::api::device_api::ServiceDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::SoftApProfileDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::SoftApProfileDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::SpecIdentityDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3322,6 +3486,32 @@ impl SseDecode for Vec<crate::api::device_api::SpecIdentityDto> {
             ans_.push(<crate::api::device_api::SpecIdentityDto>::sse_decode(
                 deserializer,
             ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::WemoAccessPointDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::WemoAccessPointDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::WemoPasswordCandidateDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::WemoPasswordCandidateDto>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -3986,6 +4176,30 @@ impl SseDecode for crate::api::device_api::SoapRequestDto {
     }
 }
 
+impl SseDecode for crate::api::device_api::SoftApProfileDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_specName = <String>::sse_decode(deserializer);
+        let mut var_category = <Option<String>>::sse_decode(deserializer);
+        let mut var_methodType = <String>::sse_decode(deserializer);
+        let mut var_ssidPrefix = <String>::sse_decode(deserializer);
+        let mut var_ssidExamples = <Vec<String>>::sse_decode(deserializer);
+        let mut var_openNetwork = <Option<bool>>::sse_decode(deserializer);
+        let mut var_gatewayIp = <Option<String>>::sse_decode(deserializer);
+        let mut var_ports = <Vec<u16>>::sse_decode(deserializer);
+        return crate::api::device_api::SoftApProfileDto {
+            spec_name: var_specName,
+            category: var_category,
+            method_type: var_methodType,
+            ssid_prefix: var_ssidPrefix,
+            ssid_examples: var_ssidExamples,
+            open_network: var_openNetwork,
+            gateway_ip: var_gatewayIp,
+            ports: var_ports,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::SpecIdentityDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4124,6 +4338,40 @@ impl SseDecode for u8 {
 impl SseDecode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {}
+}
+
+impl SseDecode for crate::api::device_api::WemoAccessPointDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ssid = <String>::sse_decode(deserializer);
+        let mut var_channel = <String>::sse_decode(deserializer);
+        let mut var_auth = <String>::sse_decode(deserializer);
+        let mut var_encrypt = <Option<String>>::sse_decode(deserializer);
+        let mut var_joinable = <bool>::sse_decode(deserializer);
+        let mut var_isOpen = <bool>::sse_decode(deserializer);
+        return crate::api::device_api::WemoAccessPointDto {
+            ssid: var_ssid,
+            channel: var_channel,
+            auth: var_auth,
+            encrypt: var_encrypt,
+            joinable: var_joinable,
+            is_open: var_isOpen,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::WemoPasswordCandidateDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_method = <u8>::sse_decode(deserializer);
+        let mut var_addLengths = <bool>::sse_decode(deserializer);
+        let mut var_password = <String>::sse_decode(deserializer);
+        return crate::api::device_api::WemoPasswordCandidateDto {
+            method: var_method,
+            add_lengths: var_addLengths,
+            password: var_password,
+        };
+    }
 }
 
 fn pde_ffi_dispatcher_primary_impl(
@@ -4315,117 +4563,132 @@ fn pde_ffi_dispatcher_primary_impl(
             rust_vec_len,
             data_len,
         ),
-        39 => wire__crate__api__mock_api__mock_read_characteristic_impl(
+        39 => {
+            wire__crate__api__device_api__match_soft_ap_ssid_impl(port, ptr, rust_vec_len, data_len)
+        }
+        40 => wire__crate__api__mock_api__mock_read_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        40 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
-        41 => wire__crate__api__mock_api__mock_write_characteristic_impl(
+        41 => wire__crate__api__mock_api__mock_reset_impl(port, ptr, rust_vec_len, data_len),
+        42 => wire__crate__api__mock_api__mock_write_characteristic_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        42 => wire__crate__api__device_api__network_entities_for_device_impl(
+        43 => wire__crate__api__device_api__network_entities_for_device_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        43 => wire__crate__api__device_api__parse_lifx_state_service_impl(
+        44 => wire__crate__api__device_api__parse_lifx_state_service_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => wire__crate__api__device_api__rabbit_air_decrypt_datagram_impl(
+        45 => {
+            wire__crate__api__device_api__parse_wemo_ap_list_impl(port, ptr, rust_vec_len, data_len)
+        }
+        46 => wire__crate__api__device_api__rabbit_air_decrypt_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        45 => wire__crate__api__device_api__rabbit_air_encrypt_datagram_impl(
+        47 => wire__crate__api__device_api__rabbit_air_encrypt_datagram_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        46 => wire__crate__api__device_api__rabbit_air_port_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__device_api__rabbit_air_time_sync_offset_impl(
+        48 => wire__crate__api__device_api__rabbit_air_port_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__device_api__rabbit_air_time_sync_offset_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        48 => wire__crate__api__device_api__read_network_entity_impl(
+        50 => wire__crate__api__device_api__read_network_entity_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        49 => wire__crate__api__device_api__read_network_instance_impl(
+        51 => wire__crate__api__device_api__read_network_instance_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        50 => wire__crate__api__device_api__render_lifx_command_impl(
+        52 => wire__crate__api__device_api__render_lifx_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        51 => wire__crate__api__device_api__render_lifx_set_access_point_impl(
+        53 => wire__crate__api__device_api__render_lifx_set_access_point_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        52 => wire__crate__api__device_api__render_network_command_impl(
+        54 => wire__crate__api__device_api__render_network_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        53 => wire__crate__api__device_api__render_network_http_command_impl(
+        55 => wire__crate__api__device_api__render_network_http_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        54 => wire__crate__api__device_api__render_network_http_state_request_impl(
+        56 => wire__crate__api__device_api__render_network_http_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        55 => wire__crate__api__device_api__render_network_kasa_command_impl(
+        57 => wire__crate__api__device_api__render_network_kasa_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        56 => wire__crate__api__device_api__render_network_kasa_state_request_impl(
+        58 => wire__crate__api__device_api__render_network_kasa_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        57 => wire__crate__api__device_api__render_network_rabbit_air_command_impl(
+        59 => wire__crate__api__device_api__render_network_rabbit_air_command_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        58 => wire__crate__api__device_api__render_network_rabbit_air_state_request_impl(
+        60 => wire__crate__api__device_api__render_network_rabbit_air_state_request_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        59 => wire__crate__api__device_api__render_network_state_request_impl(
+        61 => wire__crate__api__device_api__render_network_state_request_impl(
+            port,
+            ptr,
+            rust_vec_len,
+            data_len,
+        ),
+        62 => {
+            wire__crate__api__device_api__soft_ap_profiles_impl(port, ptr, rust_vec_len, data_len)
+        }
+        63 => wire__crate__api__device_api__wemo_password_candidates_impl(
             port,
             ptr,
             rust_vec_len,
@@ -5527,6 +5790,33 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SoapRequestDto>
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::SoftApProfileDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.spec_name.into_into_dart().into_dart(),
+            self.category.into_into_dart().into_dart(),
+            self.method_type.into_into_dart().into_dart(),
+            self.ssid_prefix.into_into_dart().into_dart(),
+            self.ssid_examples.into_into_dart().into_dart(),
+            self.open_network.into_into_dart().into_dart(),
+            self.gateway_ip.into_into_dart().into_dart(),
+            self.ports.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::SoftApProfileDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SoftApProfileDto>
+    for crate::api::device_api::SoftApProfileDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::SoftApProfileDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -5668,6 +5958,53 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::StoredUploadPlanD
     for crate::api::device_api::StoredUploadPlanDto
 {
     fn into_into_dart(self) -> crate::api::device_api::StoredUploadPlanDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::WemoAccessPointDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.ssid.into_into_dart().into_dart(),
+            self.channel.into_into_dart().into_dart(),
+            self.auth.into_into_dart().into_dart(),
+            self.encrypt.into_into_dart().into_dart(),
+            self.joinable.into_into_dart().into_dart(),
+            self.is_open.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::WemoAccessPointDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WemoAccessPointDto>
+    for crate::api::device_api::WemoAccessPointDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::WemoAccessPointDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::WemoPasswordCandidateDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.method.into_into_dart().into_dart(),
+            self.add_lengths.into_into_dart().into_dart(),
+            self.password.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::WemoPasswordCandidateDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::WemoPasswordCandidateDto>
+    for crate::api::device_api::WemoPasswordCandidateDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::WemoPasswordCandidateDto {
         self
     }
 }
@@ -6303,12 +6640,42 @@ impl SseEncode for Vec<crate::api::device_api::ServiceDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::SoftApProfileDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::SoftApProfileDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::SpecIdentityDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::SpecIdentityDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::WemoAccessPointDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::WemoAccessPointDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::WemoPasswordCandidateDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::WemoPasswordCandidateDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -6805,6 +7172,20 @@ impl SseEncode for crate::api::device_api::SoapRequestDto {
     }
 }
 
+impl SseEncode for crate::api::device_api::SoftApProfileDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.spec_name, serializer);
+        <Option<String>>::sse_encode(self.category, serializer);
+        <String>::sse_encode(self.method_type, serializer);
+        <String>::sse_encode(self.ssid_prefix, serializer);
+        <Vec<String>>::sse_encode(self.ssid_examples, serializer);
+        <Option<bool>>::sse_encode(self.open_network, serializer);
+        <Option<String>>::sse_encode(self.gateway_ip, serializer);
+        <Vec<u16>>::sse_encode(self.ports, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::SpecIdentityDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6909,6 +7290,27 @@ impl SseEncode for u8 {
 impl SseEncode for () {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {}
+}
+
+impl SseEncode for crate::api::device_api::WemoAccessPointDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.ssid, serializer);
+        <String>::sse_encode(self.channel, serializer);
+        <String>::sse_encode(self.auth, serializer);
+        <Option<String>>::sse_encode(self.encrypt, serializer);
+        <bool>::sse_encode(self.joinable, serializer);
+        <bool>::sse_encode(self.is_open, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::WemoPasswordCandidateDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u8>::sse_encode(self.method, serializer);
+        <bool>::sse_encode(self.add_lengths, serializer);
+        <String>::sse_encode(self.password, serializer);
+    }
 }
 
 #[cfg(not(target_family = "wasm"))]
