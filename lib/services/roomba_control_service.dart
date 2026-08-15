@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../core/error_text.dart';
 import '../core/log.dart';
 import 'roomba_credential_store.dart';
 import 'spec_codec.dart';
@@ -47,7 +48,8 @@ const roombaTransport = 'mqtt';
 /// reached from this app at all — not because the network is wrong, and not
 /// because the robot is asleep. Saying that plainly is the whole point of the
 /// flag: the alternative is a user re-checking their Wi-Fi for an hour.
-class RoombaConnectionException implements Exception {
+class RoombaConnectionException implements UserFacingException {
+  @override
   final String message;
 
   /// True when the failure was a TLS handshake, which on this device usually
@@ -64,7 +66,8 @@ class RoombaConnectionException implements Exception {
 }
 
 /// The robot answered, but not with a password.
-class RoombaPasswordException implements Exception {
+class RoombaPasswordException implements UserFacingException {
+  @override
   final String message;
 
   /// True when holding the HOME button again is worth trying. False when the
@@ -79,12 +82,12 @@ class RoombaPasswordException implements Exception {
 }
 
 /// The broker refused the credentials.
-class RoombaAuthException implements Exception {
+class RoombaAuthException implements UserFacingException {
   final int code;
   const RoombaAuthException(this.code);
 
   @override
-  String toString() => switch (code) {
+  String get message => switch (code) {
         4 => 'The robot rejected this BLID and password. If it has been '
             'factory reset since you saved them, the reset made a new '
             'password — run the handshake again.',
@@ -92,6 +95,9 @@ class RoombaAuthException implements Exception {
             'serves one local connection at a time.',
         _ => 'The robot refused the connection (MQTT code $code).',
       };
+
+  @override
+  String toString() => message;
 }
 
 /// The default connector: real TLS to a real robot.
@@ -211,7 +217,22 @@ class RoombaPasswordService {
         // wastes the user's disclosure window.
         if (e.legacyTlsSuspected) rethrow;
         lastError = e;
+      } on RoombaPasswordException catch (e) {
+        if (!e.retryable) rethrow;
+        lastError = e;
       } catch (e) {
+        // The codec reports a model that cannot disclose locally at all. That
+        // is not a timing problem, so retrying is only a slower way to reach
+        // the same dead end — and the message already sends the user to the
+        // account route.
+        //
+        // Matched on the message because the codec surfaces errors as text.
+        // The coupling is pinned from both ends: `rust/tests/roomba_control.rs`
+        // asserts that reply's error names the account route, and
+        // `roomba_control_service_test.dart` asserts this branch fires on it.
+        if (e.toString().contains('account')) {
+          throw RoombaPasswordException(e.toString(), retryable: false);
+        }
         lastError = e;
       }
       if (attempt < attempts) await Future<void>.delayed(retryInterval);

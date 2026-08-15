@@ -88,6 +88,46 @@ const _roombaDiscoveryPort = 5678;
 const _roombaControlPort = 8883;
 const _roombaProtocol = 'irobot-mqtt';
 
+/// Build a device from a Roomba announcement, or null when the datagram is
+/// not one — which is the common case, since a broadcast probe reaches every
+/// host on the segment and printers answer things too.
+///
+/// Top-level, like [lifxStateServiceMac] and the SSDP parsers, so the
+/// announcement-to-device mapping is testable without opening a socket.
+Future<NetworkDevice?> roombaDeviceFrom(
+    Datagram datagram, SpecCodec codec) async {
+  final RoombaAnnouncementDto? robot;
+  try {
+    robot = await codec.roombaParseAnnouncement(datagram: datagram.data);
+  } catch (_) {
+    return null;
+  }
+  if (robot == null) return null;
+
+  String? nonEmpty(String value) => value.isEmpty ? null : value;
+  // The robot's own address, not the datagram's: they agree in practice, and
+  // when they do not (a robot behind a relay) the robot is the one that knows
+  // where it is.
+  final host = nonEmpty(robot.ip) ?? datagram.address.address;
+  return NetworkDevice(
+    host: host,
+    // The owner's name for it, falling back to the model then the BLID —
+    // never to an empty string, because this is what the scan list shows.
+    name: nonEmpty(robot.robotname) ?? nonEmpty(robot.sku) ?? robot.blid,
+    port: _roombaControlPort,
+    answeredLanProtocols: const [_roombaProtocol],
+    txt: {
+      // The identity every stored credential is keyed on.
+      'blid': robot.blid,
+      if (nonEmpty(robot.sku) != null) 'sku': robot.sku,
+      if (nonEmpty(robot.mac) != null) 'mac': robot.mac,
+      if (nonEmpty(robot.sw) != null) 'sw': robot.sw,
+    },
+    sources: const {NetworkDiscoverySource.lanProbe},
+    discoveredAt: DateTime.now(),
+  );
+}
+
 /// Parse an SSDP response into its headers, lowercased keys.
 ///
 /// Tolerant on purpose: SSDP implementations in shipped hardware are famously
@@ -798,7 +838,7 @@ class RealNetworkScanService implements NetworkScanService {
         final datagram = socket.receive();
         if (datagram == null) continue;
         heard = true;
-        final device = await _roombaDeviceFrom(datagram, codec);
+        final device = await roombaDeviceFrom(datagram, codec);
         if (device != null) emit(device);
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
@@ -806,43 +846,6 @@ class RealNetworkScanService implements NetworkScanService {
       socket.close();
       session.roombaSocket = null;
     }
-  }
-
-  /// Build a device from a Roomba announcement, or null when the datagram is
-  /// not one — which is the common case, since a broadcast probe reaches every
-  /// host on the segment and printers answer things too.
-  Future<NetworkDevice?> _roombaDeviceFrom(
-      Datagram datagram, SpecCodec codec) async {
-    final RoombaAnnouncementDto? robot;
-    try {
-      robot = await codec.roombaParseAnnouncement(datagram: datagram.data);
-    } catch (_) {
-      return null;
-    }
-    if (robot == null) return null;
-
-    String? nonEmpty(String value) => value.isEmpty ? null : value;
-    // The robot's own address, not the datagram's: they agree in practice, and
-    // when they do not (a robot behind a relay) the robot is the one that knows
-    // where it is.
-    final host = nonEmpty(robot.ip) ?? datagram.address.address;
-    return NetworkDevice(
-      host: host,
-      // The owner's name for it, falling back to the model then the BLID —
-      // never to an empty string, because this is what the scan list shows.
-      name: nonEmpty(robot.robotname) ?? nonEmpty(robot.sku) ?? robot.blid,
-      port: _roombaControlPort,
-      answeredLanProtocols: const [_roombaProtocol],
-      txt: {
-        // The identity every stored credential is keyed on.
-        'blid': robot.blid,
-        if (nonEmpty(robot.sku) != null) 'sku': robot.sku,
-        if (nonEmpty(robot.mac) != null) 'mac': robot.mac,
-        if (nonEmpty(robot.sw) != null) 'sw': robot.sw,
-      },
-      sources: const {NetworkDiscoverySource.lanProbe},
-      discoveredAt: DateTime.now(),
-    );
   }
 
   /// End [session]: stop its transports, and give the multicast lock back if

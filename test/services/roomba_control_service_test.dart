@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -163,6 +162,34 @@ void main() {
             .having((e) => e.legacyTlsSuspected, 'legacyTlsSuspected', isTrue)),
       );
       expect(connects, 1, reason: 'retrying a cipher gap cannot help');
+    });
+
+    /// A model that cannot disclose locally will never disclose locally, so
+    /// spending four retry intervals on it is only a slower way to reach the
+    /// same dead end. The Rust codec names the account route in that error;
+    /// `rust/tests/roomba_control.rs` pins the other end of this coupling.
+    test('does not retry a robot that says it cannot disclose locally',
+        () async {
+      var connects = 0;
+      final service = RoombaPasswordService(
+        codec: codec,
+        connect: (_, __, ___) async {
+          connects++;
+          final robot = _ScriptedRobot();
+          // The documented "unsupported" reply.
+          scheduleMicrotask(
+              () => robot.send([0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x03]));
+          return robot;
+        },
+      );
+
+      await expectLater(
+        service.fetchPassword('10.0.0.7'),
+        throwsA(isA<RoombaPasswordException>()
+            .having((e) => e.retryable, 'retryable', isFalse)
+            .having((e) => e.message, 'message', contains('account'))),
+      );
+      expect(connects, 1, reason: 'no point asking again');
     });
 
     /// The failure users actually hit: they did not hold HOME long enough. The

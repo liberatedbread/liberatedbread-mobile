@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../core/error_text.dart';
 import '../core/log.dart';
 import 'roomba_credential_store.dart';
 
@@ -317,7 +318,8 @@ class _GigyaAssertion {
 }
 
 /// A failure in the account route, with a message meant to be shown as-is.
-class IRobotCloudException implements Exception {
+class IRobotCloudException implements UserFacingException {
+  @override
   final String message;
   const IRobotCloudException(this.message);
   @override

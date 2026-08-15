@@ -5,12 +5,16 @@
 // a socket. The transports themselves need a real network; these are the parts
 // that get wrong answers silently, so they are the parts worth testing.
 
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:liberated_bread_mobile/models/network_device.dart';
 import 'package:liberated_bread_mobile/services/network_scan_service.dart';
 import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
+
+import '../fakes/fake_spec_codec.dart';
 
 NetworkDevice _device({
   String host = '192.168.1.10',
@@ -348,6 +352,84 @@ void main() {
         ..[32] = 107; // a light State, not StateService
       expect(lifxStateServiceMac(other), isNull);
       expect(lifxStateServiceMac(const [1, 2, 3]), isNull);
+    });
+  });
+
+  group('Roomba announcements', () {
+    final codec = FakeSpecCodec();
+
+    Datagram datagram(String json, {String from = '192.168.1.103'}) => Datagram(
+        Uint8List.fromList(utf8.encode(json)), InternetAddress(from), 5678);
+
+    test('becomes a device keyed by the BLID it announced', () async {
+      final device = await roombaDeviceFrom(
+        datagram('{"ver":"3","hostname":"Roomba-3193C60472324700",'
+            '"robotname":"Dorita","ip":"192.168.1.103",'
+            '"mac":"12:12:12:12:12:12","sw":"v2.4.16-126",'
+            '"sku":"R980020","proto":"mqtt"}'),
+        codec,
+      );
+
+      expect(device, isNotNull);
+      expect(device!.name, 'Dorita', reason: "the owner's name for it");
+      expect(device.host, '192.168.1.103');
+      expect(device.port, 8883);
+      expect(device.answeredLanProtocols, ['irobot-mqtt']);
+      // The identity everything else keys on. Without it the credential store
+      // has nothing to file a password under.
+      expect(device.txt['blid'], '3193C60472324700');
+      expect(device.txt['sku'], 'R980020');
+      expect(device.txt['sw'], 'v2.4.16-126');
+      expect(device.sources, {NetworkDiscoverySource.lanProbe});
+    });
+
+    /// The probe is a broadcast: it reaches printers, TVs and everything else
+    /// on the segment. Reporting those as robots would fill the scan list with
+    /// things that cannot be adopted.
+    test('ignores everything that is not a robot', () async {
+      for (final payload in [
+        '{"hostname":"printer-4f2a"}',
+        '{"hostname":"Roomba-"}', // the prefix, but no identity to key on
+        'not json',
+        '[]',
+      ]) {
+        expect(await roombaDeviceFrom(datagram(payload), codec), isNull,
+            reason: payload);
+      }
+    });
+
+    /// A scan list row with no label is unusable, so the name falls back
+    /// rather than ever being empty.
+    test('falls back through model to BLID for a nameless robot', () async {
+      final unnamed = await roombaDeviceFrom(
+        datagram('{"hostname":"Roomba-ABC123","sku":"R980020"}'),
+        codec,
+      );
+      expect(unnamed!.name, 'R980020');
+
+      final bare = await roombaDeviceFrom(
+        datagram('{"hostname":"iRobot-ABC123"}'),
+        codec,
+      );
+      expect(bare!.name, 'ABC123');
+    });
+
+    /// The robot knows where it is; the datagram only knows where it came
+    /// from. They agree in practice, and when they do not the robot wins.
+    test('prefers the announced address, and falls back to the sender',
+        () async {
+      final relayed = await roombaDeviceFrom(
+        datagram('{"hostname":"Roomba-ABC123","ip":"10.0.0.9"}',
+            from: '192.168.1.50'),
+        codec,
+      );
+      expect(relayed!.host, '10.0.0.9');
+
+      final silent = await roombaDeviceFrom(
+        datagram('{"hostname":"Roomba-ABC123"}', from: '192.168.1.50'),
+        codec,
+      );
+      expect(silent!.host, '192.168.1.50');
     });
   });
 }
