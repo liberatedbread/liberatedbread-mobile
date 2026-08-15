@@ -374,6 +374,15 @@ class RoombaMqttClient {
         'The robot accepted the connection but never acknowledged the login. '
         'Close the iRobot app — the robot serves one local client at a time.',
       );
+    } catch (_) {
+      // Every OTHER way this can fail — a refused CONNACK (RoombaAuthException),
+      // the robot hanging up mid-handshake — must also release the socket.
+      // Leaving it set makes the next connect() return early at the guard
+      // above, handing the caller a control panel over a session the broker
+      // never authenticated: every button press would go nowhere, silently.
+      // Rethrown as-is, because which failure it was is what the UI reports.
+      await close();
+      rethrow;
     }
 
     // '#', not the spec's topic names: which shape a given firmware publishes
@@ -386,7 +395,13 @@ class RoombaMqttClient {
     _ping = Timer.periodic(pingInterval, (_) async {
       final open = _socket;
       if (open == null) return;
-      open.add(await _codec.roombaPingreqPacket());
+      final packet = await _codec.roombaPingreqPacket();
+      // Re-check across the await, and check IDENTITY rather than null: close()
+      // can land in that window, and a later connect() can even have put a new
+      // socket in place. Writing to the old one throws inside a timer callback,
+      // where nothing is waiting to catch it.
+      if (!identical(_socket, open)) return;
+      open.add(packet);
     });
   }
 

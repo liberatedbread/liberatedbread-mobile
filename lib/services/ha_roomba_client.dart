@@ -53,8 +53,12 @@ class HaRoombaClient {
   /// An entity advertises what it can do, and integrations differ — not every
   /// vacuum HA knows about can locate, and a robot behind an integration that
   /// cannot pause should not be offered a Pause button.
+  /// The values are HA's own, and the ordering of that enum is a trap: `1` is
+  /// TURN_ON (a legacy bit the roomba integration never sets), while START —
+  /// the bit that actually gates Clean — is 8192, near the end. Getting this
+  /// wrong does not error; it silently removes the button.
   static const _featureBits = <String, int>{
-    'clean': 1, // START
+    'clean': 8192, // START
     'pause': 4, // PAUSE
     'stop': 8, // STOP
     'dock': 16, // RETURN_HOME
