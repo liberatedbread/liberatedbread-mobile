@@ -108,14 +108,32 @@ done
 log()  { printf '\033[1;32m[update-specs]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[update-specs]\033[0m %s\n' "$*"; }
 
+# The newest `git subtree ... --squash` commit in this history. `--grep` alone
+# cannot find it: it matches anywhere in a message, so a squash-merged PR whose
+# description quotes the trailer (any subtree bump reviewed as a PR does) is
+# picked over the real squash commit. Only a commit carrying git-subtree-split
+# in its *trailer block* — the last paragraph, the one git-subtree itself
+# writes and reads back — counts, so use --grep merely to gather candidates
+# and let git's trailer parser make the call.
+newest_subtree_squash() {
+  local c
+  while IFS= read -r c; do
+    [ -n "$(git log -1 --format='%(trailers:key=git-subtree-split,valueonly)' "$c" 2>/dev/null)" ] || continue
+    printf '%s\n' "$c"
+    return 0
+  done < <(git log --format=%H --grep='^git-subtree-split:' 2>/dev/null)
+  return 1
+}
+
 # The upstream commit the vendored tree is supposed to be at, read out of the
-# newest `git subtree ... --squash` commit. This is the same trailer git-subtree
-# itself looks for, so if this comes back empty git-subtree is about to be
-# unhappy too — except on a shallow clone, where the squash commit is simply
-# not in the fetched history and nothing is wrong.
+# newest squash commit. This is the same trailer git-subtree itself looks for,
+# so if this comes back empty git-subtree is about to be unhappy too — except
+# on a shallow clone, where the squash commit is simply not in the fetched
+# history and nothing is wrong.
 recorded_split() {
-  git log -1 --format=%B --grep='^git-subtree-split:' 2>/dev/null \
-    | awk '/^git-subtree-split:/ { print $2; exit }'
+  local squash
+  squash="$(newest_subtree_squash)" || return 0
+  git log -1 --format='%(trailers:key=git-subtree-split,valueonly)' "$squash" | head -n1
 }
 
 # ---------------------------------------------------------------------------
@@ -296,7 +314,7 @@ check_bundled_assets() {
 # innocent, which is the whole failure this is here to prevent.
 check_subtree_pristine() {
   local squash merge want have edits dirty
-  squash="$(git log -1 --format=%H --grep='^git-subtree-split:' 2>/dev/null)"
+  squash="$(newest_subtree_squash)" || squash=""
   if [ -z "$squash" ]; then
     warn "no subtree squash commit in this history (shallow clone?); skipping the pristine check."
     return 0
