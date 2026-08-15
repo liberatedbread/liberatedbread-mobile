@@ -334,6 +334,14 @@ pub fn read_entity(
             },
         });
     }
+    // A JSON boolean flattens to "true"/"false" — and for a switch that IS
+    // the on/off, needing no `on_when` (Rabbit Air's `power`/`ionizer`/`lock`;
+    // the rule http.rs already applies to a hub's `state.on`). Checked after
+    // the options table so an entity that enumerates its raw values keeps
+    // them.
+    if raw == "true" || raw == "false" {
+        return Some(EntityReading::OnOff(raw == "true"));
+    }
     match parse_number(raw) {
         // The entity layer's own scale, when it declares one: the same rule
         // the BLE path applies, so a reading means the same thing whichever
