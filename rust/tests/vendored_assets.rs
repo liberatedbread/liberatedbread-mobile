@@ -145,6 +145,13 @@ fn manifest_and_spec_files_agree() {
     // directly, both sides of this comparison come from upstream — so they now
     // drift only when upstream itself is inconsistent, which is exactly the case
     // a consumer cannot see.
+    //
+    // Upstream builds index.json in CI and commits it on main *after* the spec
+    // merge, so there is a window of a minute or two where main carries a spec
+    // the index does not name. A refresh that lands in that window vendors an
+    // inconsistent pair and fails here — the fix is to re-run
+    // ./scripts/update-specs.sh once upstream's index commit exists, not to
+    // touch the subtree.
     let manifest_path = repo_root().join("vendor/protocol-specs/device-specs/index.json");
     let raw = fs::read_to_string(&manifest_path).expect("index.json should exist");
 
@@ -180,7 +187,9 @@ fn manifest_and_spec_files_agree() {
     for file in &on_disk {
         assert!(
             listed.contains(file),
-            "`{file}` is vendored but absent from the manifest — it would never load"
+            "`{file}` is vendored but absent from the manifest — it would never \
+             load. If this spec merged upstream just now, upstream CI has not \
+             committed the rebuilt index yet: re-run ./scripts/update-specs.sh"
         );
     }
 }
