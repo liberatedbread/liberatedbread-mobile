@@ -29,6 +29,13 @@ enum DeviceCategory {
   light(Icons.lightbulb_outline, 'Light'),
   lock(Icons.lock_outline, 'Lock'),
   motor(Icons.settings_outlined, 'Motor'),
+
+  /// Network infrastructure — routers, switches, access points, NVRs, NAS.
+  /// Usually `integration: identify_only` in the spec: recognised and linked to
+  /// its own admin page rather than controlled here. The specific shape (AP vs
+  /// switch vs router) comes from the spec's `pictogram`; this is the generic
+  /// fallback when none resolves.
+  network(Icons.lan_outlined, 'Network'),
   printer(Icons.print_outlined, 'Printer'),
 
   /// A published-protocol reference (SAE J1979, ISO 14229, ISO 15765-2), not a
@@ -76,7 +83,8 @@ enum DeviceCategory {
         DeviceCategory.energy ||
         DeviceCategory.fitness ||
         DeviceCategory.health ||
-        DeviceCategory.irrigation =>
+        DeviceCategory.irrigation ||
+        DeviceCategory.network =>
           label,
         _ => '${label}s',
       };
