@@ -148,6 +148,29 @@ const IOS = {
 const MAC_DIR = 'macos/Runner/Assets.xcassets/AppIcon.appiconset';
 const MAC = [16, 32, 64, 128, 256, 512, 1024];
 
+// GTK has no asset catalogue and no manifest: linux/CMakeLists.txt copies this
+// directory into the bundle verbatim and linux/my_application.cc hands the
+// files to gtk_window_set_default_icon_list() by name, so the file names below
+// ARE the contract. Change one and change it there too — the loader logs a
+// debug line and carries on with a generic window icon, which is a silent
+// failure everywhere except a terminal with G_MESSAGES_DEBUG set.
+//
+// These are the freedesktop hicolor sizes, and the list is deliberately longer
+// than the other platforms': a Linux desktop draws the same icon at 16px in a
+// window list and much larger in an alt-tab overlay, picking per surface from
+// whatever the app offers. Supplying only a large one leaves the WM to
+// downscale it itself, which is where the muddy 16px icon in a taskbar comes
+// from.
+//
+// The two ends of the range serve different consumers. GDK's X11 backend drops
+// anything over 128px when it writes _NET_WM_ICON, so 256 exists purely for
+// the hicolor theme that scripts/install-linux-desktop-entry.sh populates,
+// where a GNOME overview does ask for it. 512 is left out: nothing on a
+// desktop asks for one, and it is a quarter-megabyte in a directory that ships
+// inside every Linux build.
+const LINUX_DIR = 'linux/resources';
+const LINUX = [16, 24, 32, 48, 64, 128, 256];
+
 const ANDROID_RES = 'android/app/src/main/res';
 // Legacy launcher icons are in dp-scaled buckets; adaptive foregrounds are the
 // same buckets at 108dp instead of 48dp.
@@ -195,6 +218,14 @@ async function main() {
   }
   for (const size of MAC) {
     jobs.push(render(master, size, 'macos', p(MAC_DIR, `app_icon_${size}.png`)));
+  }
+  // Flattened like iOS, for a different reason: GTK composites the window icon
+  // against whatever the compositor draws behind an alt-tab overlay, and a
+  // stray alpha edge from the downscale shows up there as a halo. The fullbleed
+  // variant already paints the brand ground across the whole square, so nothing
+  // is lost by dropping the channel.
+  for (const size of LINUX) {
+    jobs.push(render(master, size, 'fullbleed', p(LINUX_DIR, `app_icon_${size}.png`), { opaque: true }));
   }
   for (const [bucket, { legacy, fg }] of Object.entries(ANDROID)) {
     jobs.push(render(master, legacy, 'fullbleed', p(ANDROID_RES, bucket, 'ic_launcher.png')));
