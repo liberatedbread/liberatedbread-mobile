@@ -39,6 +39,17 @@ class RoombaCredentials {
   /// global setting would silently send one robot's commands to the other's.
   final String? rest980BaseUrl;
 
+  /// Home Assistant entity id (`vacuum.dorita`) to drive this robot through,
+  /// instead of talking to it directly. Null — the default — means not routed
+  /// through HA.
+  ///
+  /// The recommended setting when Home Assistant is in the house. The robot
+  /// serves one local client at a time, so the app and HA talking to it
+  /// directly evict each other; letting HA hold it and asking HA is the way
+  /// out. Per robot for the same reason [rest980BaseUrl] is: one entity is one
+  /// robot.
+  final String? haEntityId;
+
   const RoombaCredentials({
     required this.blid,
     required this.password,
@@ -46,17 +57,28 @@ class RoombaCredentials {
     this.sku,
     this.lastIp,
     this.rest980BaseUrl,
+    this.haEntityId,
   });
 
   /// Whether commands go through a rest980 server rather than straight at the
   /// robot.
   bool get usesRest980 => rest980BaseUrl != null && rest980BaseUrl!.isNotEmpty;
 
+  /// Whether commands go through Home Assistant.
+  bool get usesHomeAssistant => haEntityId != null && haEntityId!.isNotEmpty;
+
+  /// `null` clears a routing field, which `??` cannot express — so those two
+  /// take a sentinel-free explicit flag rather than being merged. Clearing is
+  /// how someone moves a robot back to the direct path, and a copyWith that
+  /// could only ever SET a transport would make that unreachable.
   RoombaCredentials copyWith({
     String? name,
     String? sku,
     String? lastIp,
     String? rest980BaseUrl,
+    bool clearRest980 = false,
+    String? haEntityId,
+    bool clearHaEntity = false,
   }) =>
       RoombaCredentials(
         blid: blid,
@@ -64,7 +86,9 @@ class RoombaCredentials {
         name: name ?? this.name,
         sku: sku ?? this.sku,
         lastIp: lastIp ?? this.lastIp,
-        rest980BaseUrl: rest980BaseUrl ?? this.rest980BaseUrl,
+        rest980BaseUrl:
+            clearRest980 ? null : (rest980BaseUrl ?? this.rest980BaseUrl),
+        haEntityId: clearHaEntity ? null : (haEntityId ?? this.haEntityId),
       );
 }
 
@@ -98,6 +122,7 @@ class RoombaCredentialStore {
     'sku',
     'last_ip',
     'rest980_base_url',
+    'ha_entity_id',
   ];
 
   Future<RoombaCredentials?> credentials(String blid) async {
@@ -110,6 +135,7 @@ class RoombaCredentialStore {
       sku: await _store.read(_key(blid, 'sku')),
       lastIp: await _store.read(_key(blid, 'last_ip')),
       rest980BaseUrl: await _store.read(_key(blid, 'rest980_base_url')),
+      haEntityId: await _store.read(_key(blid, 'ha_entity_id')),
     );
   }
 
@@ -124,6 +150,26 @@ class RoombaCredentialStore {
       'rest980_base_url',
       credentials.rest980BaseUrl,
     );
+    await _writeIfPresent(
+      credentials.blid,
+      'ha_entity_id',
+      credentials.haEntityId,
+    );
+  }
+
+  /// Drive this robot through a Home Assistant entity, or clear it back.
+  ///
+  /// The sibling of [setRest980BaseUrl], and a setter for the same reason: the
+  /// transport chooser flips it on its own, and re-saving the whole credential
+  /// to change one field invites a password round trip that has no business
+  /// happening.
+  Future<void> setHaEntityId(String blid, String? entityId) async {
+    final key = _key(blid, 'ha_entity_id');
+    if (entityId == null || entityId.isEmpty) {
+      await _store.delete(key);
+      return;
+    }
+    await _store.write(key, entityId);
   }
 
   /// Point this robot at a rest980 server, or clear it back to direct control.
