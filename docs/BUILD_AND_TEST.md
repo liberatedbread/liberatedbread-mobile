@@ -26,7 +26,7 @@ app on **Linux** and **macOS**.
 |------|---------|-------------|
 | Git | any | `git --version` |
 | Flutter | 3.44+ (stable) | `flutter --version` |
-| Rust | stable (1.82+) | `rustc --version` |
+| Rust | stable (1.85+) | `rustc --version` |
 
 No `cargo-ndk` needed: cargokit (the flutter_rust_bridge native-build plugin)
 drives the NDK itself during `flutter build`.

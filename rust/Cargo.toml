@@ -8,7 +8,7 @@ version = "0.1.0"
 edition = "2021"
 # setup.sh and the README document 1.82 as the supported floor; declaring it
 # here makes cargo enforce that claim instead of leaving it as prose.
-rust-version = "1.82"
+rust-version = "1.85"
 description = "Shared Rust core for the Liberated Bread BLE companion app"
 license = "Apache-2.0"
 repository = "https://github.com/liberatedbread/liberatedbread-mobile"
