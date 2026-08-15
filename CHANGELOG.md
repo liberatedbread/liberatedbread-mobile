@@ -26,6 +26,26 @@ heading.
 
 ### Changed
 
+- **`./scripts/update-specs.sh` builds the spec index when the source cannot
+  have a current one.** Upstream generates `device-specs/index.json` in CI and
+  commits it after a spec merges, so a spec *branch* — or a local checkout with
+  an uncommitted spec, which is how a spec and the app get written together —
+  carries an index that predates the spec being tested. The app's loader is
+  index-driven, so the device it names simply would not appear. The refresh now
+  runs upstream's own generator over the specs it just vendored whenever the
+  source is a local checkout, and on demand for any source with
+  `--rebuild-index` (`--no-rebuild-index` opts out). The rebuild is left
+  uncommitted deliberately: committing it would make the next `git subtree
+  pull` merge our generated index against upstream's, which is the conflict
+  upstream moved the build into CI to end — so a later pull discards it before
+  pulling, and rebuilds after. `--check` gained the matching pair: it tolerates
+  that one file being dirty when it verifies byte-for-byte as generator output
+  over the vendored specs, and it now fails when the index and the specs beside
+  it name different sets, which is the same invariant
+  `rust/tests/vendored_assets.rs` enforces but reported at refresh time with
+  the command that fixes it. The rebuild and the verification want a python3
+  with `pyyaml` + `jsonschema` (`PYTHON=` overrides the interpreter); nothing
+  else in this repo does, and a clean vendored tree never asks for them
 - **An Airthings dashboard now shows every sensor the unit has, wherever the
   firmware puts it.** Refreshed vendored protocol-specs: temperature and
   humidity gain bindings on each Wave model's combined packet — the source
