@@ -387,6 +387,27 @@ heading.
 
 ### Added
 
+- **Rabbit Air purifiers (full local control over Wi-Fi).** The fourth
+  network transport, after SOAP (Wemo), plain HTTP (Roku) and Kasa: the
+  Rabbit Air LAN protocol is an encrypted JSON envelope — `{id, cmd, ts,
+  data}` — over UDP datagrams on port 9009, AES-128-CBC under a per-device
+  16-byte user key with a random IV appended to each datagram. The crypto,
+  the envelope renderer and the device-clock handshake (cmd 9 `time_sync`,
+  then timestamps extrapolated from the learned offset) live in the Rust core
+  (`rust/src/protocol/rabbit_air.rs`, pinned against the spec's documented
+  example exchange); `RabbitAirControlClient` owns the UDP socket, the
+  vendor's 3-attempts/2 s retry discipline and reply matching on the echoed
+  request id. The spec's whole surface renders through the existing entity
+  cards: a Power switch, an Auto/Pollen/Manual mode select, a 1–5 fan-speed
+  number, air-quality / filter-life / Wi-Fi-RSSI sensors, and Ionizer and
+  Child Lock switches. Because the wire is encrypted, the first visit to the
+  device screen asks for the 32-character user key (the vendor app reveals it
+  under device page → Rename → tap the device name), validated as hex and
+  stored per Thing ID in the platform keychain
+  (`RabbitAirKeyStore`, the Hue credential store's precedent). Discovery
+  needed nothing new: the generic mDNS enumeration already finds
+  `_rabbitair._udp.local`. The tokenless plaintext mode and the TCP 9009
+  variant the vendor library also documents are deliberately not implemented.
 - **TP-Link Kasa smart plugs (on/off control over Wi-Fi).** The third network
   transport, after SOAP (Wemo) and plain HTTP (Roku): the Kasa local protocol
   is JSON over a raw TCP socket on port 9999, obfuscated by a trivial XOR-

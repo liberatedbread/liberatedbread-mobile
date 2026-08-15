@@ -54,6 +54,7 @@ export '../src/rust/api/device_api.dart'
         SoapRequestDto,
         HttpRequestDto,
         KasaRequestDto,
+        RabbitAirRequestDto,
         QuerySourceDto,
         LifxServiceDto,
         LifxStateDto,
@@ -275,6 +276,59 @@ abstract class SpecCodec {
 
   /// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
   Future<String> kasaDecodeDatagram({required List<int> datagram});
+
+  // ── Rabbit Air (encrypted JSON over UDP) ──────────────────────────────────
+  // Like Kasa the invocation is JSON, but the wire crypto is real:
+  // AES-128-CBC under the per-device user key, the random IV appended as the
+  // datagram's last 16 bytes. Byte-in/byte-out, same as Kasa — Dart owns the
+  // socket, the retries, and the request-id matching.
+
+  /// Render a named `transport: udp` command into the Rabbit Air envelope
+  /// JSON to send — the sibling of [renderNetworkKasaCommand]. [requestId] is
+  /// the caller's fresh nonce (the reply echoes it); [deviceTs] is the
+  /// device-clock timestamp, extrapolated from the learned offset.
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand({
+    required String specYaml,
+    required String commandName,
+    required Map<String, String> values,
+    required int requestId,
+    required int deviceTs,
+  });
+
+  /// Render the envelope that polls a Rabbit Air state command (`get_state`),
+  /// or the `time_sync` handshake command — the counterpart of
+  /// [renderNetworkKasaStateRequest].
+  Future<RabbitAirRequestDto> renderNetworkRabbitAirStateRequest({
+    required String specYaml,
+    required String stateCommand,
+    required int requestId,
+    required int deviceTs,
+  });
+
+  /// The UDP port every Rabbit Air purifier listens on (9009).
+  Future<int> rabbitAirPort();
+
+  /// Encrypt an envelope for the wire under the 16-byte user key (its
+  /// 32-hex-character spelling); the returned datagram is ciphertext with the
+  /// random IV appended as the last 16 bytes. Throws on a malformed key.
+  Future<List<int>> rabbitAirEncryptDatagram({
+    required String userKey,
+    required String plaintext,
+  });
+
+  /// Decrypt a reply datagram back to its JSON text. Throws on a wrong key or
+  /// a short/mis-sized datagram rather than returning garbage.
+  Future<String> rabbitAirDecryptDatagram({
+    required String userKey,
+    required List<int> datagram,
+  });
+
+  /// The clock offset a `time_sync` reply teaches: the reply's `data.ts`
+  /// minus [localNowSecs]. Throws on a reply carrying `error` or no `data.ts`.
+  Future<int> rabbitAirTimeSyncOffset({
+    required String replyJson,
+    required int localNowSecs,
+  });
 
   /// Decode one entity's state from the name→value pairs a state call
   /// returned. Null when the reply did not carry the entity's value — which

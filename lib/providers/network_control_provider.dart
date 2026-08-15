@@ -8,9 +8,12 @@ import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
 import '../services/kasa_control_service.dart';
 import '../services/lifx_control_service.dart';
+import '../services/rabbit_air_control_service.dart';
+import '../services/rabbit_air_key_store.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import 'device_spec_match_provider.dart';
+import 'settings_store_provider.dart';
 import 'spec_codec_provider.dart';
 
 /// The SOAP transport, as a provider so tests can substitute an http client
@@ -39,6 +42,20 @@ final lifxControlClientProvider =
 /// socket exchange (and a fake codec) instead of a real plug.
 final kasaControlClientProvider = Provider<KasaControlClient>(
     (ref) => KasaControlClient(ref.watch(specCodecProvider)));
+
+/// The Rabbit Air per-device user keys, on the same secure settings store the
+/// Hue bridge credentials use — a long-lived LAN secret, never in plain
+/// preferences. Tests override [settingsStoreProvider] with an in-memory fake
+/// and get an isolated store for free.
+final rabbitAirKeyStoreProvider = Provider<RabbitAirKeyStore>(
+    (ref) => RabbitAirKeyStore(ref.watch(settingsStoreProvider)));
+
+/// The Rabbit Air encrypted-UDP transport. Depends on the codec because the
+/// envelope rendering and the AES-128-CBC datagram crypto live in Rust; tests
+/// substitute a client with a fake exchange (and a fake codec) instead of a
+/// real purifier.
+final rabbitAirControlClientProvider = Provider<RabbitAirControlClient>(
+    (ref) => RabbitAirControlClient(ref.watch(specCodecProvider)));
 
 /// Identity of one network device the control layer is asked about.
 ///

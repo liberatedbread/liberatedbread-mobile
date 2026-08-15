@@ -1318,8 +1318,10 @@ pub struct NetworkEntityDto {
     /// [`render_network_state_request`]; one call serves every entity bound
     /// to the same command.
     pub state_command: String,
-    /// The one transport this entity's actions ride (`soap` | `http`), or
-    /// `None` for a pure reading with no actions. Surfaced at entity level
+    /// The one transport this entity's actions ride (`soap` | `http` |
+    /// `tcp-json`). For a pure reading with no actions, the transport its
+    /// state command declares, when it declares one — so the screen can route
+    /// the state poll the same way it routes a send. Surfaced at entity level
     /// because it is what routes the whole device screen — a hub gets a
     /// different screen from a Wemo plug.
     pub transport: Option<String>,
@@ -1558,13 +1560,25 @@ pub fn network_entities_for_device(
                 // Every resolved action on one entity rides one transport —
                 // a spec binding a light's toggle to SOAP and its slider to
                 // HTTP would be describing two devices — so the first
-                // action's answer is the entity's.
-                transport: actions.first().map(|a| {
-                    a.command
-                        .transport
-                        .clone()
-                        .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
-                }),
+                // action's answer is the entity's. A pure reading has no
+                // action to answer for it; its transport is the one its state
+                // command declares (the Envoy's http telemetry poll), so the
+                // screen can route the poll without guessing.
+                transport: actions
+                    .first()
+                    .map(|a| {
+                        a.command
+                            .transport
+                            .clone()
+                            .unwrap_or_else(|| crate::protocol::soap::TRANSPORT.to_string())
+                    })
+                    .or_else(|| {
+                        entity
+                            .state_command
+                            .as_deref()
+                            .and_then(|name| spec.commands.get(name))
+                            .and_then(|command| command.transport.clone())
+                    }),
                 is_instanced: entity.instances.is_some(),
                 value_field: entity.value_field().map(str::to_string),
                 options: entity
@@ -1723,6 +1737,115 @@ pub fn kasa_encrypt_datagram(json: String) -> Vec<u8> {
 pub fn kasa_decode_datagram(datagram: Vec<u8>) -> anyhow::Result<String> {
     let plaintext = crate::protocol::kasa::decrypt(&datagram);
     String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("Kasa datagram is not UTF-8: {e}"))
+}
+
+/// A rendered Rabbit Air request: the plaintext envelope JSON, and the client
+/// nonce it carries.
+///
+/// The fourth transport's sibling of [`KasaRequestDto`]. The envelope is
+/// complete — `id` and the device-clock `ts` stamped, `data` last — so the
+/// caller's whole job is [`rabbit_air_encrypt_datagram`], one UDP datagram to
+/// port 9009, and matching the reply on `request_id` (the response echoes it).
+#[derive(Debug, Clone)]
+pub struct RabbitAirRequestDto {
+    pub json: String,
+    pub request_id: u32,
+}
+
+impl From<crate::protocol::rabbit_air::RabbitAirRequest> for RabbitAirRequestDto {
+    fn from(request: crate::protocol::rabbit_air::RabbitAirRequest) -> Self {
+        Self {
+            json: request.json,
+            request_id: request.id,
+        }
+    }
+}
+
+/// Render a named `transport: udp` command into the envelope JSON to send —
+/// the Rabbit Air sibling of [`render_network_kasa_command`]. `request_id` is
+/// the caller's fresh nonce (Dart owns it, because Dart matches replies on
+/// it); `device_ts` is the device-clock timestamp — the local clock plus the
+/// offset [`rabbit_air_time_sync_offset`] learned, zero offset for the
+/// time-sync request itself.
+pub fn render_network_rabbit_air_command(
+    spec_yaml: String,
+    command_name: String,
+    values: HashMap<String, String>,
+    request_id: u32,
+    device_ts: u32,
+) -> anyhow::Result<RabbitAirRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request = crate::protocol::rabbit_air::render_request(
+        &spec,
+        &command_name,
+        &values.into_iter().collect(),
+        request_id,
+        device_ts,
+    )?;
+    Ok(RabbitAirRequestDto::from(request))
+}
+
+/// Render the envelope that polls a Rabbit Air state command (`get_state`) —
+/// the counterpart of [`render_network_kasa_state_request`], and of
+/// [`render_network_rabbit_air_command`] for the `time_sync` handshake
+/// command, which is rendered through here too (it takes no caller values).
+pub fn render_network_rabbit_air_state_request(
+    spec_yaml: String,
+    state_command: String,
+    request_id: u32,
+    device_ts: u32,
+) -> anyhow::Result<RabbitAirRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let request = crate::protocol::rabbit_air::render_state_request(
+        &spec,
+        &state_command,
+        request_id,
+        device_ts,
+    )?;
+    Ok(RabbitAirRequestDto::from(request))
+}
+
+/// The UDP port every Rabbit Air purifier listens on (9009), sourced from the
+/// codec so the client never hardcodes a second copy that could drift.
+pub fn rabbit_air_port() -> u16 {
+    crate::protocol::rabbit_air::PORT
+}
+
+/// Encrypt an envelope for the wire: AES-128-CBC with PKCS7 padding under the
+/// 16-byte user key (its 32-hex-character spelling as the vendor app shows
+/// it), a random 16-byte IV appended as the last 16 bytes. Dart writes the
+/// returned bytes as one UDP datagram and reads replies back through
+/// [`rabbit_air_decrypt_datagram`]; the cipher stays in one tested place.
+pub fn rabbit_air_encrypt_datagram(user_key: String, plaintext: String) -> anyhow::Result<Vec<u8>> {
+    let key = crate::protocol::rabbit_air::parse_user_key(&user_key)?;
+    Ok(crate::protocol::rabbit_air::encrypt(
+        &key,
+        plaintext.as_bytes(),
+    ))
+}
+
+/// Decrypt a reply datagram (IV = last 16 bytes) back to its JSON text, for
+/// Dart to parse with `dart:convert`. Errors on a wrong key, a short/mis-sized
+/// datagram, or non-UTF-8 payload rather than returning garbage — an
+/// undecryptable datagram is how an unmatched or corrupt reply reads.
+pub fn rabbit_air_decrypt_datagram(user_key: String, datagram: Vec<u8>) -> anyhow::Result<String> {
+    let key = crate::protocol::rabbit_air::parse_user_key(&user_key)?;
+    let plaintext = crate::protocol::rabbit_air::decrypt(&key, &datagram)?;
+    String::from_utf8(plaintext)
+        .map_err(|e| anyhow::anyhow!("Rabbit Air datagram is not UTF-8: {e}"))
+}
+
+/// The clock offset a `time_sync` reply teaches: the reply's `data.ts` minus
+/// the local clock (`local_now_secs`, seconds). The client stamps every later
+/// request with `local_now + offset`, and re-learns the offset whenever it
+/// re-creates the socket. Errors on a reply carrying `error` or no `data.ts`.
+/// The offset is the one signed value here — a device behind the local clock
+/// yields a negative one.
+pub fn rabbit_air_time_sync_offset(reply_json: String, local_now_secs: u32) -> anyhow::Result<i64> {
+    Ok(crate::protocol::rabbit_air::time_sync_offset(
+        &reply_json,
+        local_now_secs,
+    )?)
 }
 
 /// Render the argument-less request that reads a state command's values —

@@ -20,7 +20,7 @@ use super::types::{
     TemplateElement, ValueType,
 };
 use crate::codec::types::unsupported_encoding_kind;
-use crate::protocol::{http, kasa, soap};
+use crate::protocol::{http, kasa, rabbit_air, soap};
 
 /// Whether a characteristic's payloads must pass through a byte transform
 /// this crate does not implement, making any raw write to it wrong on the
@@ -823,7 +823,13 @@ pub fn resolve_network_actions<'a>(
                 .iter()
                 .find_map(|alias| entity.command_for_role(alias))?;
             let command = spec.commands.get(bound)?;
-            qualify_network(role.role, bound, command, role.takes_value)
+            qualify_network(
+                role.role,
+                bound,
+                command,
+                role.takes_value,
+                spec.protocol_handler.as_deref(),
+            )
         })
         .collect()
 }
@@ -840,6 +846,7 @@ fn qualify_network<'a>(
     command_name: &'a str,
     command: &'a SpecCommand,
     takes_value: bool,
+    protocol_handler: Option<&str>,
 ) -> Option<NetworkAction<'a>> {
     // Renderable at all: a command missing its transport's address, or one for
     // a transport this crate does not speak, resolves to nothing rather than
@@ -879,6 +886,13 @@ fn qualify_network<'a>(
             // The invocation IS the JSON body; a Kasa command without one has
             // nothing to send, exactly as a SOAP command without its service
             // or an HTTP command without its path does.
+            command.body.as_ref()?;
+        }
+        // Rabbit Air's envelope bodies ride bare `udp` — a name any spec could
+        // claim, so admission keys on the spec's `protocol_handler` too (the
+        // LIFX precedent: the dedicated handler owns its transport). The body
+        // rule is Kasa's: the invocation IS the JSON.
+        t if t == rabbit_air::TRANSPORT && protocol_handler == Some(rabbit_air::HANDLER_NAME) => {
             command.body.as_ref()?;
         }
         _ => return None,

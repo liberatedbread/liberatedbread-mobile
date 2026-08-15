@@ -84,6 +84,7 @@ nav:
           - Inkbird IBS-TH1/TH2 Hygrometer: devices/inkbird-ibs-th.md
           - ThermoPro TP357-family Hygrometers: devices/thermopro-tp357.md
           - Omron BLE Blood Pressure Monitors: devices/omron-connect.md
+          - Johnson JLX Laser Distance Meters: devices/jlx-laser-distance-meter.md
       - WiFi Devices:
           - Belkin Wemo Smart Devices: devices/wemo-devices.md
           - Anki Vector Robot: devices/vector-robot.md

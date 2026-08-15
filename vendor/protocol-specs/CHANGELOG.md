@@ -330,6 +330,93 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the two things the bare table does not say: the numbers are not an ordering,
   and an unrecognised value must not be folded into `off`, which would tell a
   user their cooker is off while it is heating
+- **`tplink-kasa-smart-plug` gains energy monitoring.** The HS110's
+  `emeter.get_realtime` — previously only named in the command tree — is now
+  a `get_emeter` command with documented returns, and four HS110-only sensor
+  entities (Voltage, Current, Power, Total Consumption) whose `state_mapping`
+  values are dotted JSON paths from the reply root
+  (`emeter.get_realtime.power`, etc.). The field-name quirk is documented as
+  data, not folklore: current firmware reports plain float fields already in
+  V/A/W/kWh, HS110 hardware v1 reports `voltage_mv`/`current_ma`/`power_mw`/
+  `total_wh` in milli-units, and consumers normalize as python-kasa's
+  `EmeterStatus` does — both code paths confirmed by a clean-room jadx audit
+  of the vendor app (recorded under the spec's `evidence:` block).
+  `scripts/test_kasa_spec.py` now pins the get_emeter request to its exact
+  framed bytes and decodes a sample emeter reply through the sensor mappings.
+  The paths are rooted at the reply root because the reference app's
+  `kasaSysinfoFields` flattener lifts only `system.get_sysinfo` replies — it
+  needs extending for the nested emeter reply before these sensors resolve
+  there
+- **`rabbit-air-purifier` becomes consumable, not just documented.** The spec
+  — the vendor's own published LAN library, transcribed — gains the
+  `commands:` block a client binds (`get_state`/`time_sync`/`get_info` for
+  cmd 4/9/255, `turn_on`/`turn_off`, parameterized `set_mode` and
+  `set_speed`, ionizer and child-lock toggles), each body carrying only the
+  static envelope fields while `id`/`ts` stay runtime-generated per the new
+  `client_rendering` note: wrap minified `{id, cmd, ts, data}`, AES-128-CBC
+  with the per-device user key, random IV appended as the datagram's last 16
+  bytes, one datagram to UDP 9009. The entities are rewritten from prose into
+  bindable form — power switch, mode select with static options, fan-speed
+  number, air-quality/filter-life/RSSI sensors, ionizer and child-lock
+  switches — with state paths rooted at the reply's `data` object, and the
+  two candidate BLE provisioning GATT UUIDs move into `identification` as
+  hypothesis-marked hints so a BLE scan can flag an unprovisioned unit.
+  `scripts/test_rabbit_air_spec.py` (sibling of `test_kasa_spec.py`)
+  transcribes the envelope, cipher and substitution rules from the YAML
+  alone, reproduces the spec's `example_exchange` plaintexts byte-for-byte,
+  and round-trips every command through the cipher; `cryptography` joins the
+  dev requirements for it
+- **`enphase-envoy` gains a bindable telemetry surface.** A `commands:`
+  block names the four local GETs (`get_production_v1`, `get_production_json`,
+  `get_inverters`, `get_info`) as invocations, and the sensor entities —
+  Solar Production, Lifetime Energy, plus a new Today's Energy — move off the
+  unconsumed `state_topic` onto `state_command: get_production_v1` with flat
+  dotted-path mappings (`wattsNow`, `wattHoursLifetime`, `wattHoursToday`).
+  The flat `/api/v1/production` object is the binding target precisely
+  because `/production.json`'s per-type array (`production[i].wNow`) cannot
+  be named by a flat path; both forms stay documented. The firmware-7+ JWT
+  gating caveat is unchanged and applies to every command.
+- **New device: `jlx-laser-distance-meter`.** The Johnson JLX LDM330
+  (40-6013) and its rebadge family (the vendor app's own build enum spans
+  Johnson Measure-Up, Starrett STR3, Ronix, MeasureMate and more) speak an
+  ASCII BLE protocol with no pairing: subscribe to the `f154` notify
+  characteristic, write a six-byte init handshake, and the meter streams
+  10-byte measurement frames — a 6-char decimal always in meters plus a
+  display-unit code — while commands are 13-byte checksummed frames.
+  Recovered by clean-room jadx analysis of the Measure-Up app
+  (`com.winho.measure_up`, APK hash in the research note); marked untested
+  with the open questions (advertised name/UUIDs, the byte-0 prefix,
+  error-frame formats) listed for the first hardware session.
+- **`schlage-smart-locks` gains its first live-hardware evidence.** A
+  read-only BLE + LAN session against a real installed fleet (2026-08-14)
+  caught one commissioned lock advertising once — name `SCHLAGE` + serial
+  suffix, Allegion's Bluetooth company ID 315 (checked against the repo's
+  own registry), MAC embedded in the manufacturer payload — and then
+  silence: idle locks advertise rarely enough that a 75-minute scan saw one
+  packet, so GATT enumeration stays app-derived. On the LAN the locks make
+  no mDNS/SSDP announcements of any kind and no HomeKit `_hap` presence —
+  consistent with, not proof of, the no-local-WiFi-API claim. Recorded as
+  an `evidence: live_hardware:` block with per-claim verdicts (confirmed /
+  not-observed / consistent / untested), names and MACs truncated; the
+  DataTransfer UUID's absence from the idle advertisement is logged as
+  "not observed", pending a capture from a woken lock.
+- **`schlage-smart-locks` WiFi surface, settled from both directions.** A
+  code-level audit of the app's WiFi path (com.allegion.leopard 3.6.0;
+  research-notes/schlage-wifi-local-surface.md) confirms provisioning is
+  100% BLE-driven — the app pushes credentials and the cloud-minted JITR
+  blob over the encrypted uWeave channel and never opens a socket to a lock,
+  and the lock hosts no softAP or listener — while a full-/16 LAN census of
+  the household (88 live hosts, OUI-resolved, candidates port-scanned) found
+  no lock-like listener on any host. Firmware: residential images are not on
+  the commercial release-notes page; metadata is
+  `GET api.allegionengage.com/api/firmware/{platformType}` with a
+  server-supplied binary URL and content-length-only verification, and WiFi
+  locks can self-download (interior button ×5). The one local WiFi surface
+  in the family is the Sense's BR400 adapter: an unauthenticated LAN HTTP
+  API including a firmware-update endpoint taking an arbitrary URL —
+  accessory-scoped, absent on Encode-family locks. Corrects the JITR status
+  enum to 0..5 (no state 6 exists) and records the hardcoded WiFi security
+  field.
 
 ### Fixed
 
