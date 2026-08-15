@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/error_text.dart';
 import '../providers/ha_provider.dart' show urlOpenerProvider;
 import '../providers/roomba_provider.dart';
+import '../services/irobot_cloud_service.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
 
@@ -86,14 +88,34 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
   final _blidController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  /// The iRobot region to sign in against.
+  ///
+  /// iRobot runs several, and the wrong one answers with an empty robot list
+  /// rather than an error — so a hardcoded default strands everyone outside it
+  /// with a screen that says the account has no robots. Prefilled from the
+  /// device locale and editable, because the phone's country and the account's
+  /// are not always the same: someone can move, or hold an account opened
+  /// elsewhere, and only they know which it is.
+  final _countryController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _blidController.text = widget.blid;
+    _countryController.text = _localeCountry();
+  }
+
+  /// The device's country, upper-cased, falling back to `US` — the same
+  /// default the service carried before this field existed, so a locale that
+  /// names no country behaves exactly as it used to.
+  String _localeCountry() {
+    final country = PlatformDispatcher.instance.locale.countryCode;
+    return (country == null || country.isEmpty) ? 'US' : country.toUpperCase();
   }
 
   @override
   void dispose() {
+    _countryController.dispose();
     _emailController.dispose();
     // The account password never leaves this widget; clearing it on the way
     // out means it is not sitting in a controller for the rest of the session.
@@ -327,6 +349,19 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
               helperText: 'Not stored. Sent to iRobot once.',
             ),
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _countryController,
+            enabled: !_busy,
+            autocorrect: false,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+              labelText: 'Account region',
+              border: OutlineInputBorder(),
+              helperText: 'Two-letter country code for your iRobot account. '
+                  'The wrong one signs in but finds no robots.',
+            ),
+          ),
           const SizedBox(height: 16),
           if (_busy)
             const LinearProgressIndicator()
@@ -351,21 +386,44 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
       _legacyTls = false;
     });
     try {
+      final country = _countryController.text.trim().toUpperCase();
       final robots =
           await ref.read(iRobotCloudServiceProvider).fetchCredentials(
                 email: _emailController.text.trim(),
                 password: _accountPasswordController.text,
+                countryCode: country.isEmpty ? _localeCountry() : country,
               );
       // Clear it the moment it has been used, rather than at dispose: the
       // window in which it exists should be as short as the flow allows.
       _accountPasswordController.clear();
 
-      // Prefer the robot this screen was opened for; an account with several
-      // robots would otherwise silently adopt the wrong one.
-      final match = robots.firstWhere(
-        (robot) => robot.blid.toUpperCase() == widget.blid.toUpperCase(),
-        orElse: () => robots.first,
-      );
+      // This screen was opened for ONE robot, and only that robot's credential
+      // is any use here: the scan flow carries on to the device it started
+      // from, and looks its password up by that BLID.
+      //
+      // Falling back to the account's first robot instead of failing is worse
+      // than it sounds. It stores a different robot's password under that
+      // robot's own BLID, so the adoption reports success, the robot the user
+      // actually picked still has nothing saved, and the failure surfaces
+      // later somewhere else entirely.
+      final wanted = widget.blid.toUpperCase();
+      final match = robots
+          .where((robot) => robot.blid.toUpperCase() == wanted)
+          .firstOrNull;
+      if (match == null) {
+        final names = robots
+            .map((robot) => robot.name ?? robot.blid)
+            .where((name) => name.isNotEmpty)
+            .join(', ');
+        throw IRobotCloudException(
+          robots.isEmpty
+              ? 'That account has no robots in this region. Check the account '
+                  'region above — the wrong one signs in but finds nothing.'
+              : 'This robot (${widget.blid}) is not on that account. It holds: '
+                  '$names. Sign in with the account that owns this robot, or '
+                  'use the HOME-button route instead.',
+        );
+      }
       await _adopt(match.copyWith(lastIp: widget.host));
     } catch (e) {
       _fail(e, 'Could not read your robots from iRobot.');
