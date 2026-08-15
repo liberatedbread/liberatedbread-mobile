@@ -194,43 +194,75 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
     );
   }
 
-  Widget _chooser(BuildContext context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+  Widget _chooser(BuildContext context) {
+    // Led by Home Assistant when it is connected, because if HA is in the
+    // house it is already talking to the robot — and the robot serves one
+    // local client at a time. Adopting a password here would make this app a
+    // second contender for that slot; routing through HA makes it a client of
+    // the thing that already has it. Not offered when HA is not connected,
+    // because there would be nothing to pick from.
+    final viaHomeAssistant = ref.watch(haRoombaClientProvider) != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (viaHomeAssistant) ...[
           FilledButton.icon(
-            onPressed: () => setState(() => _route = _Route.button),
-            icon: const Icon(Icons.touch_app),
-            label: const Text('Hold the HOME button'),
+            onPressed: _openTransportChooser,
+            icon: const Icon(Icons.home_outlined),
+            label: const Text('Use Home Assistant'),
           ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Text(
-              'Works offline, needs no iRobot account. Try this first.',
+              'Recommended. Home Assistant already holds this robot, and it '
+              'only talks to one thing at a time. Going through it needs no '
+              'password on this phone at all — and keeps working if the robot '
+              'is somewhere the phone cannot reach.',
               textAlign: TextAlign.center,
             ),
           ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: () => setState(() => _route = _Route.account),
-            icon: const Icon(Icons.cloud_outlined),
-            label: const Text('Sign in to iRobot once'),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              'Reads the same two values from your account. Used once, then '
-              'never again — and it stops working once you firewall the robot, '
-              'so do it before that.',
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: () => setState(() => _route = _Route.paste),
-            child: const Text('I already have the BLID and password'),
-          ),
+          const Divider(height: 32),
         ],
-      );
+        ..._passwordRoutes(context),
+      ],
+    );
+  }
+
+  /// The three routes that end in this app holding the robot's password.
+  List<Widget> _passwordRoutes(BuildContext context) => [
+        FilledButton.icon(
+          onPressed: () => setState(() => _route = _Route.button),
+          icon: const Icon(Icons.touch_app),
+          label: const Text('Hold the HOME button'),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            'Works offline, needs no iRobot account. Try this first.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: () => setState(() => _route = _Route.account),
+          icon: const Icon(Icons.cloud_outlined),
+          label: const Text('Sign in to iRobot once'),
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            'Reads the same two values from your account. Used once, then '
+            'never again — and it stops working once you firewall the robot, '
+            'so do it before that.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => setState(() => _route = _Route.paste),
+          child: const Text('I already have the BLID and password'),
+        ),
+      ];
 
   // ── Route 1: the HOME button ───────────────────────────────────────────────
 
