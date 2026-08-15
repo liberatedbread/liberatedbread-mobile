@@ -68,38 +68,38 @@ MockClient _irobotAccount() => MockClient(_irobotAccountResponse);
 /// The happy-path answers for the three round trips the account route makes,
 /// so a test that only cares about ONE of them can reuse the other two.
 Future<http.Response> _irobotAccountResponse(http.Request request) async {
-      final path = request.url.path;
-      if (path.endsWith('/v1/discover/endpoints')) {
-        return http.Response(
-          jsonEncode({
-            'gigya': {
-              'api_key': 'K',
-              'datacenter_domain': 'accounts.us1.gigya.com',
-            },
-            'httpBase': 'https://unauth2.prod.iot.irobotapi.com',
-          }),
-          200,
-        );
-      }
-      if (path.endsWith('/accounts.login')) {
-        return http.Response(
-          jsonEncode({
-            'errorCode': 0,
-            'UID': 'u',
-            'UIDSignature': 's',
-            'signatureTimestamp': 1,
-          }),
-          200,
-        );
-      }
-      return http.Response(
-        jsonEncode({
-          'robots': {
-            _blid: {'password': _password, 'name': 'Dorita', 'sku': 'R980020'},
-          },
-        }),
-        200,
-      );
+  final path = request.url.path;
+  if (path.endsWith('/v1/discover/endpoints')) {
+    return http.Response(
+      jsonEncode({
+        'gigya': {
+          'api_key': 'K',
+          'datacenter_domain': 'accounts.us1.gigya.com',
+        },
+        'httpBase': 'https://unauth2.prod.iot.irobotapi.com',
+      }),
+      200,
+    );
+  }
+  if (path.endsWith('/accounts.login')) {
+    return http.Response(
+      jsonEncode({
+        'errorCode': 0,
+        'UID': 'u',
+        'UIDSignature': 's',
+        'signatureTimestamp': 1,
+      }),
+      200,
+    );
+  }
+  return http.Response(
+    jsonEncode({
+      'robots': {
+        _blid: {'password': _password, 'name': 'Dorita', 'sku': 'R980020'},
+      },
+    }),
+    200,
+  );
 }
 
 void main() {
@@ -283,7 +283,8 @@ void main() {
   /// under that robot's BLID: the screen reports success, the robot the user
   /// picked still has nothing saved, and the failure turns up later somewhere
   /// else entirely.
-  testWidgets('a robot missing from the account fails instead of adopting '
+  testWidgets(
+      'a robot missing from the account fails instead of adopting '
       'another one', (tester) async {
     await tester.pumpWidget(wrap(
       cloudClient: MockClient((request) async {

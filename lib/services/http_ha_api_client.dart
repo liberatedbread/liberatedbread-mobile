@@ -75,6 +75,92 @@ class HttpHaApiClient implements HaApiClient {
     return _parseUpdateResults(response);
   }
 
+  @override
+  Future<List<HaEntityState>> entitiesInDomain({
+    required String baseUrl,
+    required String token,
+    required String domain,
+  }) async {
+    final response = await _get(Uri.parse('$baseUrl/api/states'), token);
+    _throwForStatus(response);
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! List) {
+        throw _malformed(response.statusCode, 'states', 'not a list');
+      }
+      final prefix = '$domain.';
+      return [
+        for (final entry in decoded)
+          if (entry is Map<String, dynamic> &&
+              (entry['entity_id'] as String?)?.startsWith(prefix) == true)
+            HaEntityState.fromJson(entry),
+      ];
+    } on FormatException catch (e) {
+      throw _malformed(response.statusCode, 'states', e);
+    } on TypeError catch (e) {
+      throw _malformed(response.statusCode, 'states', e);
+    }
+  }
+
+  @override
+  Future<HaEntityState?> entityState({
+    required String baseUrl,
+    required String token,
+    required String entityId,
+  }) async {
+    final response =
+        await _get(Uri.parse('$baseUrl/api/states/$entityId'), token);
+    // A 404 here means "no such entity", which is a real answer rather than a
+    // wrong address — unlike the 404 the mobile_app registration can get.
+    if (response.statusCode == 404) return null;
+    _throwForStatus(response);
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map<String, dynamic>) {
+        throw _malformed(response.statusCode, 'state', 'not an object');
+      }
+      return HaEntityState.fromJson(decoded);
+    } on FormatException catch (e) {
+      throw _malformed(response.statusCode, 'state', e);
+    } on TypeError catch (e) {
+      throw _malformed(response.statusCode, 'state', e);
+    }
+  }
+
+  @override
+  Future<void> callService({
+    required String baseUrl,
+    required String token,
+    required String domain,
+    required String service,
+    required String entityId,
+  }) async {
+    final response = await _post(
+      Uri.parse('$baseUrl/api/services/$domain/$service'),
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'entity_id': entityId}),
+    );
+    _throwForStatus(response);
+  }
+
+  Future<http.Response> _get(Uri url, String token) async {
+    try {
+      return await _client.get(
+        url,
+        headers: {'Authorization': 'Bearer $token'},
+      ).timeout(_timeout);
+    } on SocketException catch (e) {
+      throw HaNetworkException('Could not reach ${url.host}: ${e.message}');
+    } on TimeoutException {
+      throw HaNetworkException('Connection to ${url.host} timed out');
+    } on http.ClientException catch (e) {
+      throw HaNetworkException('Could not reach ${url.host}: ${e.message}');
+    }
+  }
+
   Future<http.Response> _postWebhook(
     String baseUrl,
     String webhookId,
