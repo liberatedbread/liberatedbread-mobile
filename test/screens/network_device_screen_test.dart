@@ -812,6 +812,186 @@ void main() {
     });
   });
 
+  // ── The on-screen keyboard: shown only when a field is focused ───────────
+  group('keyboard usability gate', () {
+    final rokuDevice = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const keyboardEntity = NetworkEntityDto(
+      isInstanced: false,
+      name: 'Keyboard',
+      platform: 'text',
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          credentials: [],
+          instanceParams: [],
+          role: 'submit',
+          commandName: 'type_char',
+          transport: 'http',
+          userParams: ['char'],
+          readBack: [],
+        ),
+        NetworkActionDto(
+          credentials: [],
+          instanceParams: [],
+          role: 'press',
+          commandName: 'press_backspace',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+        ),
+      ],
+    );
+
+    /// Mount the keyboard-only Roku screen against a virtual Limited-mode TV
+    /// whose ECP2 session reports [textEditId] as the focused field ('none'
+    /// for nothing focused). [ecp2] null runs with no ECP2 at all, so the
+    /// signal can never be read.
+    Future<void> pumpKeyboard(
+      WidgetTester tester, {
+      String textEditId = 'none',
+      bool withEcp2 = true,
+    }) async {
+      codec = FakeSpecCodec(networkEntities: (_) => [keyboardEntity]);
+      final ecp2 = withEcp2
+          ? ecp2On(AutoEcp2Socket(queryPayloads: {
+              'query-textedit-state':
+                  '{"textedit-state":{"textedit-id":"$textEditId"}}',
+            }))
+          : noEcp2();
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((request) async =>
+                  fail('a keyboard remote fetches no description')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient(
+                  (request) async => fail('nothing types during a render')))),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: [keyboardEntity])),
+        ),
+      ));
+      // Let the load drop the spinner and the ECP2 textedit poll resolve — a
+      // handful of microtask turns, not a settle (the poll timer never idles).
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+    }
+
+    testWidgets('hides the keyboard when no field is focused', (tester) async {
+      await pumpKeyboard(tester, textEditId: 'none');
+
+      expect(find.byType(TextField), findsNothing,
+          reason: 'a keystroke with nothing focused has nowhere to land');
+      // The remote itself loaded — it is the keyboard specifically that waits.
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+
+      await tester.pumpWidget(const SizedBox()); // dispose: cancel the poll.
+    });
+
+    testWidgets('shows the keyboard when a field is focused', (tester) async {
+      await pumpKeyboard(tester, textEditId: 'search-1');
+
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('shows the keyboard when the signal cannot be read',
+        (tester) async {
+      // No ECP2 session means no textedit-state to read; the keyboard shows
+      // rather than hide a control the user might have been able to use.
+      await pumpKeyboard(tester, withEcp2: false);
+
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets(
+        'a focused keyboard sits above the channel picker; an uncertain one '
+        'sits below it', (tester) async {
+      const channelEntity = NetworkEntityDto(
+        isInstanced: false,
+        name: 'Channel',
+        platform: 'select',
+        stateCommand: '',
+        options: [],
+        optionsSource: QuerySourceDto(
+            method: 'GET',
+            path: '/query/apps',
+            item: 'app',
+            valueAttribute: 'id'),
+        actions: [],
+      );
+
+      Future<void> pumpRemote(
+          {required bool withEcp2, String textEditId = 'none'}) async {
+        codec = FakeSpecCodec(
+            networkEntities: (_) => [channelEntity, keyboardEntity]);
+        final ecp2 = withEcp2
+            ? ecp2On(AutoEcp2Socket(queryPayloads: {
+                'query-textedit-state':
+                    '{"textedit-state":{"textedit-id":"$textEditId"}}',
+              }))
+            : noEcp2();
+        final roku = MockClient((request) async =>
+            request.url.path == '/query/apps'
+                ? http.Response('<apps><app id="12">Netflix</app></apps>', 200)
+                : http.Response('', 200));
+        await tester.pumpWidget(ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(SoapControlClient(
+                httpClient:
+                    MockClient((r) async => fail('a remote fetches no xml')))),
+            httpControlClientProvider
+                .overrideWithValue(HttpControlClient(httpClient: roku)),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+                device: rokuDevice,
+                controls: const NetworkControls(
+                    specYaml: 'yaml',
+                    entities: [channelEntity, keyboardEntity])),
+          ),
+        ));
+        for (var i = 0; i < 8; i++) {
+          await tester.pump();
+        }
+      }
+
+      // A focused field: the keyboard rides above the channel picker.
+      await pumpRemote(withEcp2: true, textEditId: 'search-1');
+      expect(find.byType(TextField), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Keyboard')).dy,
+          lessThan(tester.getTopLeft(find.text('Channel')).dy));
+      await tester.pumpWidget(const SizedBox());
+
+      // Unknown (no signed session): it drops to the foot, below the channels.
+      await pumpRemote(withEcp2: false);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Keyboard')).dy,
+          greaterThan(tester.getTopLeft(find.text('Channel')).dy));
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   // ── The TV keyboard: one keystroke per character ─────────────────────────
   group('text entry', () {
     final rokuDevice = NetworkDevice(

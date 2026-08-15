@@ -94,6 +94,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<Ecp2Session?>? _ecp2Opening;
   bool _ecp2Unavailable = false;
 
+  /// Whether the device has a text field focused, so its on-screen keyboard is
+  /// actually usable — and, through that, where the keyboard card sits:
+  /// `true` places it high, right under the controls and above the channel
+  /// picker; `null` (unknown — no signal yet, or none to be had because it is
+  /// not a Roku or ECP2 was refused) parks it at the very foot, below the
+  /// channels, shown rather than hide a keyboard the user might need; `false`,
+  /// the device saying "nothing is focused", shows it nowhere. Driven by the
+  /// ECP2 session's textedit state, the one place this can be known: plain ECP
+  /// has no such query. See [_watchKeyboard] and the build's placement.
+  bool? _keyboardFocused;
+  StreamSubscription<bool>? _keyboardSub;
+  Timer? _keyboardPoll;
+
   /// At least one refused command went through the signed session instead —
   /// the screen says so, because "everything works" and "control is gated"
   /// are both true at once and the user should know which path they're on.
@@ -117,6 +130,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   String? _soapSending;
 
   bool _loading = true;
+
+  /// The device-sourced option lists (a Roku's channel list) load on their own
+  /// slower path — plain ECP refuses them in Limited mode, so the ECP2 session
+  /// has to open first. This tracks that second fetch so the control surface
+  /// can draw the instant state is in, with the lists filling in under their
+  /// own indicator rather than holding the whole screen behind a spinner.
+  bool _loadingOptions = false;
+
   String? _error;
 
   /// Per-entity state for `text` entities (the TV keyboard): the field's
@@ -132,6 +153,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     for (final controller in _textControllers.values) {
       controller.dispose();
     }
+    _keyboardPoll?.cancel();
+    unawaited(_keyboardSub?.cancel());
     unawaited(_ecp2?.close() ?? Future<void>.value());
     super.dispose();
   }
@@ -140,6 +163,38 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_watchKeyboard());
+  }
+
+  /// Track whether the device's on-screen keyboard is usable, so the text card
+  /// only appears when a field is focused. The signal lives on the ECP2
+  /// session — plain ECP cannot answer it — so this is a no-op unless the
+  /// device has a `text` entity and answered the `roku:ecp` search target.
+  ///
+  /// The session volunteers a `textedit` notice on focus changes; a modest
+  /// poll backs that up, since whether a given firmware sends the notice is
+  /// not guaranteed. Any failure leaves [_keyboardFocused] null, and the card
+  /// shows — the keyboard is never hidden on a device this cannot read.
+  Future<void> _watchKeyboard() async {
+    final hasKeyboard = _entities.any((e) => e.platform == 'text');
+    if (!hasKeyboard || !widget.device.ssdpTargets.contains('roku:ecp')) return;
+    final session = await _openEcp2();
+    if (session == null || !mounted) return;
+    _keyboardSub = session.textEditFocusChanges.listen((focused) {
+      if (mounted) setState(() => _keyboardFocused = focused);
+    });
+    Future<void> poll() async {
+      try {
+        final focused = await session.queryTextEditFocused();
+        if (mounted) setState(() => _keyboardFocused = focused);
+      } catch (e) {
+        Log.net.debug('textedit-state poll failed for ${widget.device.host}: '
+            '$e');
+      }
+    }
+
+    await poll();
+    _keyboardPoll = Timer.periodic(const Duration(seconds: 3), (_) => poll());
   }
 
   List<NetworkEntityDto> get _entities => widget.controls.entities;
@@ -279,8 +334,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // remote of stateless buttons has none, and the poll is a no-op.
         await _refreshState();
       }
-      await _refreshQuerySources();
+      // Drop the spinner now — the buttons, readings and D-pad are ready. The
+      // device-sourced option lists (a Roku's channels) are a slower, gated
+      // fetch that must not hold the remote hostage: they load in the
+      // background under the select card's own indicator. See [_loadingOptions].
       if (mounted) setState(() => _loading = false);
+      unawaited(_refreshQuerySources());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -436,7 +495,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<void> _refreshQuerySources() async {
     final port = widget.device.port;
     if (port == null) return;
+    if (!_entities.any((e) => e.optionsSource != null)) return;
 
+    if (mounted) setState(() => _loadingOptions = true);
+    try {
+      await _fetchQuerySources();
+    } finally {
+      if (mounted) setState(() => _loadingOptions = false);
+    }
+  }
+
+  Future<void> _fetchQuerySources() async {
     for (final entity in _entities) {
       final options = entity.optionsSource;
       if (options == null) continue;
@@ -779,12 +848,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 const SizedBox(height: 12),
               ],
               // Readings and plain controls first, in the order the spec
-              // declares them — but not a select: the channel picker goes
-              // below the pad, so a Roku's remote keeps a stable position
-              // whether the app list is still loading or just came back.
+              // declares them — but not a select (the channel picker goes below
+              // the pad) and not the keyboard (placed by whether it's usable,
+              // below), so a Roku's remote keeps a stable position whether the
+              // app list is still loading or just came back.
               for (final entity in _entities.where((entity) =>
                   entity.platform != 'button' &&
-                  entity.platform != 'select')) ...[
+                  entity.platform != 'select' &&
+                  entity.platform != 'text')) ...[
                 _entityCard(entity),
                 const SizedBox(height: 12),
               ],
@@ -795,6 +866,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _remoteCard(_buttons),
                 const SizedBox(height: 12),
               ],
+              // The keyboard when the device says a field is focused: right
+              // under the controls, where a hand reaches after steering the
+              // D-pad onto a search box — and above the channel picker, which
+              // is the once-a-session tap.
+              if (_keyboardFocused == true)
+                for (final entity in _textEntities) ...[
+                  _entityCard(entity),
+                  const SizedBox(height: 12),
+                ],
               // The channel picker is the foot of the remote: launching Plex
               // or Prime matters, but it is the tap you reach for once —
               // not the D-pad you steer with — so it waits under the pad
@@ -804,6 +884,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _entityCard(entity),
                 const SizedBox(height: 12),
               ],
+              // The keyboard when we cannot tell whether it's usable (no signed
+              // session, or the query failed): parked at the very foot, out of
+              // the way but still reachable — hiding a control the user might
+              // need is worse than one extra card down here. A positive "no
+              // field focused" is the one case it shows nowhere at all.
+              if (_keyboardFocused == null)
+                for (final entity in _textEntities) ...[
+                  _entityCard(entity),
+                  const SizedBox(height: 12),
+                ],
               const SizedBox(height: 16),
               _deviceInfo(description),
             ],
@@ -815,6 +905,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   List<NetworkEntityDto> get _buttons =>
       _entities.where((entity) => entity.platform == 'button').toList();
+
+  /// The `text` entities (a Roku's on-screen keyboard). Placed by
+  /// [_keyboardFocused] rather than in the ordinary entity list — above the
+  /// channel picker when a field is focused, below it when the state is
+  /// unknown, nowhere when the device says nothing is focused.
+  Iterable<NetworkEntityDto> get _textEntities =>
+      _entities.where((entity) => entity.platform == 'text');
 
   /// The card shown for a Rabbit Air purifier with no stored user key:
   /// what the key is, where the owner finds it, and the way in. The key is a
@@ -1517,7 +1614,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                _loading
+                (_loading || _loadingOptions)
                     ? 'Asking the device...'
                     : _controlRefused
                         ? 'The device is refusing to share this list. Enable '
