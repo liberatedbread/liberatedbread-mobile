@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import '../core/log.dart';
 import '../models/ha_config.dart';
 import '../models/network_device.dart';
 import 'ha_api_client.dart';
@@ -115,6 +116,9 @@ class HaRoombaClient {
       throw HaServerException(
           400, 'Home Assistant has no vacuum service for "$commandName"');
     }
+    // Which service, against which entity. The token is never near this line;
+    // it lives in _config and goes only into an Authorization header.
+    Log.ha.debug('roomba: vacuum.$service -> $entityId');
     return _api.callService(
       baseUrl: _config.baseUrl,
       token: _config.token,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import '../core/log.dart';
 import 'ha_api_client.dart';
 import 'ha_roomba_client.dart';
 import 'rest980_client.dart';
@@ -213,6 +214,9 @@ class HaRoombaController implements RoombaController {
     try {
       final vacuum = await _client.vacuum(_entityId);
       if (vacuum == null) {
+        // Missing is not unreachable, and the fix differs: re-adopt vs check
+        // the network. Warning, so it reaches a bug report.
+        Log.ha.warning('roomba: Home Assistant has no entity $_entityId');
         // HA answered, and it has no such entity. That is a different problem
         // from an unreachable server and must not read as one: the robot was
         // removed or renamed in HA, and re-adopting is the fix.
@@ -300,21 +304,47 @@ RoombaController roombaControllerFor({
   required Rest980Client Function() restClient,
   HaRoombaClient? Function()? haClient,
 }) {
+  // The first question anyone asks when a robot will not respond is "which
+  // path did it even use" — there are three now, and one of them falls back
+  // silently. One line here answers it.
   final entityId = credentials.haEntityId;
   if (entityId != null && entityId.isNotEmpty) {
     final client = haClient?.call();
     if (client != null) {
+      Log.hub
+          .info('roomba ${credentials.blid}: via Home Assistant ($entityId)');
       return HaRoombaController(client: client, entityId: entityId);
     }
+    // The silent fallback. Worth a warning rather than a debug line: the robot
+    // is configured for a transport the app cannot build, so it is about to be
+    // driven a way the user did not choose — and on the direct path that means
+    // contending for the robot's single client slot with whatever holds it.
+    Log.hub.warning(
+      'roomba ${credentials.blid}: configured for Home Assistant ($entityId) '
+      'but HA is not connected in this app; falling back',
+    );
   }
   final baseUrl = credentials.rest980BaseUrl;
   if (baseUrl != null && baseUrl.isNotEmpty) {
+    // Host only, never the URL: Log.hub lines carry no paths (see log.dart).
+    Log.hub
+        .info('roomba ${credentials.blid}: via rest980 at ${_hostOf(baseUrl)}');
     return Rest980Controller(client: restClient(), baseUrl: baseUrl);
   }
+  Log.hub.info('roomba ${credentials.blid}: direct to the robot');
   return DirectRoombaController(
     client: directClient(),
     specYaml: specYaml,
     host: host,
     credentials: credentials,
   );
+}
+
+/// Host and port of [url], for logging. Falls back to a placeholder rather
+/// than to the raw string, so a malformed address cannot smuggle a path — or
+/// anything else — into a log line.
+String _hostOf(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null || uri.host.isEmpty) return '<unparseable>';
+  return uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
 }
