@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -220,6 +220,55 @@ Future<PlatformInt64> rabbitAirTimeSyncOffset(
         {required String replyJson, required int localNowSecs}) =>
     RustLib.instance.api.crateApiDeviceApiRabbitAirTimeSyncOffset(
         replyJson: replyJson, localNowSecs: localNowSecs);
+
+/// Frame a Rabbit Air payload for the BLE command characteristic: the 2-byte
+/// little-endian payload-length prefix, then chunks of `chunk_size` bytes,
+/// in write order. Dart writes each chunk with response and reads the reply
+/// back through [`rabbit_air_ble_expected_payload_len`]; the payload itself —
+/// cleartext setup JSON or an AES datagram's bytes — is unchanged from what a
+/// UDP datagram would carry.
+Future<List<Uint8List>> rabbitAirBleFrame(
+        {required List<int> payload, required int chunkSize}) =>
+    RustLib.instance.api.crateApiDeviceApiRabbitAirBleFrame(
+        payload: payload, chunkSize: chunkSize);
+
+/// The total payload length the first notification of a BLE reply announces
+/// (the 2-byte little-endian prefix), or `None` when the chunk is shorter
+/// than the prefix and must be ignored. Dart accumulates notification bodies
+/// — skipping only the first chunk's prefix — until this many payload bytes
+/// have arrived.
+Future<int?> rabbitAirBleExpectedPayloadLen({required List<int> firstChunk}) =>
+    RustLib.instance.api.crateApiDeviceApiRabbitAirBleExpectedPayloadLen(
+        firstChunk: firstChunk);
+
+/// Render a setup-phase envelope: minified cleartext `{"id":id,"cmd":cmd}`
+/// with `,"data":<object>` appended when `data_json` is supplied — no `ts`,
+/// no encryption, `id` the caller's per-client counter starting at 0. Errors
+/// when `data_json` is not a JSON object.
+Future<String> renderRabbitAirSetupEnvelope(
+        {required int id, required int cmd, String? dataJson}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderRabbitAirSetupEnvelope(
+        id: id, cmd: cmd, dataJson: dataJson);
+
+/// Generate a user key the way the vendor app does: 32 random uppercase hex
+/// characters. The client pushes it during setup (cmd 5, type 4) and keeps it
+/// as the AES key for every later exchange.
+Future<String> rabbitAirGenerateUserKey() =>
+    RustLib.instance.api.crateApiDeviceApiRabbitAirGenerateUserKey();
+
+/// The GATT service UUID the Rabbit Air BLE protocol lives on.
+Future<String> rabbitAirBleServiceUuid() =>
+    RustLib.instance.api.crateApiDeviceApiRabbitAirBleServiceUuid();
+
+/// The command characteristic UUID: write-with-response for requests,
+/// notifications for responses.
+Future<String> rabbitAirBleCommandCharacteristicUuid() => RustLib.instance.api
+    .crateApiDeviceApiRabbitAirBleCommandCharacteristicUuid();
+
+/// The ATT MTU the client requests (515); the negotiated chunk size is
+/// MTU - 5, and the pre-negotiation default is 512.
+Future<int> rabbitAirBleMtu() =>
+    RustLib.instance.api.crateApiDeviceApiRabbitAirBleMtu();
 
 /// Render the argument-less request that reads a state command's values —
 /// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.

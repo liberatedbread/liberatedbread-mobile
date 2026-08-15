@@ -32,6 +32,9 @@ class _ThrowingReadStore implements SettingsStore {
     deleted.add(key);
     values.remove(key);
   }
+
+  @override
+  Future<Map<String, String>> readAll() async => Map.of(values);
 }
 
 const _config = HaConfig(

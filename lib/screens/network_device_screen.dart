@@ -18,11 +18,12 @@ import '../services/json_fields.dart';
 import '../services/kasa_control_service.dart';
 import '../services/query_source_reader.dart';
 import '../services/rabbit_air_control_service.dart';
-import '../services/rabbit_air_key_store.dart';
+import '../services/rabbit_air_control_transport.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import '../widgets/network_light_card.dart';
 import '../widgets/power_strip_icon.dart';
+import '../widgets/rabbit_air_controls_panel.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
 /// Wi-Fi counterpart of the BLE device screen's typed control panel.
@@ -354,10 +355,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// key offered to the wrong device).
   String get _rabbitAirKeyScope => widget.device.hostname ?? widget.device.host;
 
-  /// The user key this session is driving the device under, or null when none
-  /// is stored — which is what brings up the key-entry card instead of the
-  /// controls.
-  String? _rabbitAirKey;
+  /// The shared Rabbit Air panel this screen delegates to — key handling,
+  /// clock sync, polling and sends all live there now, one implementation
+  /// serving this screen and the BLE device screen. The key lets the app
+  /// bar's refresh button forward into it.
+  final GlobalKey<RabbitAirControlsPanelState> _rabbitAirPanelKey =
+      GlobalKey<RabbitAirControlsPanelState>();
 
   /// The transport a state command rides, taken from any entity bound to it.
   /// The codec sets an entity's transport from the command's own declaration
@@ -407,13 +410,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // LOCATION, so the SOAP port check below does not apply.
         await _refreshState();
       } else if (_isRabbitAir) {
-        // No description either — but every exchange is encrypted under the
-        // per-device user key, so load it first; without it there is nothing
-        // to poll, and the key-entry card shows instead of the controls.
-        _rabbitAirKey = await ref
-            .read(rabbitAirKeyStoreProvider)
-            .userKey(_rabbitAirKeyScope);
-        if (_rabbitAirKey != null) await _refreshState();
+        // No description either — and the whole encrypted exchange (key,
+        // clock sync, poll) is the shared panel's job. Forward the refresh;
+        // a no-op on first load, when the panel has not mounted yet and its
+        // own initState will do the loading.
+        await _rabbitAirPanelKey.currentState?.refresh();
       } else {
         final port = widget.device.controlPort;
         if (port == null) {
@@ -491,10 +492,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<void> _refreshState() async {
     if (_isKasa) {
       await _refreshStateKasa();
-      return;
-    }
-    if (_isRabbitAir) {
-      await _refreshStateRabbitAir();
       return;
     }
     final codec = ref.read(specCodecProvider);
@@ -603,36 +600,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         };
       }
     }
-  }
-
-  /// The Rabbit Air state poll: sync the device clock (once per session, via
-  /// the spec's `time_sync` command), then render `get_state`, encrypt it
-  /// under the user key, and send it as one UDP datagram — the Kasa poll's
-  /// structural twin, one transport over. The decrypted reply's `data` object
-  /// is flattened into the name→value pairs the entity decoder reads (the
-  /// spec's state_mapping paths are rooted at that object), then the shared
-  /// decode runs.
-  Future<void> _refreshStateRabbitAir() async {
-    final key = _rabbitAirKey;
-    if (key == null) return; // No key, nothing to poll — the card is up.
-    final codec = ref.read(specCodecProvider);
-    final client = ref.read(rabbitAirControlClientProvider);
-    final host = widget.device.host;
-    final port = _rabbitAirHostPort;
-
-    await client.syncClock(host, port,
-        specYaml: widget.controls.specYaml, userKey: key);
-    for (final command in _stateCommands) {
-      final request = await codec.renderNetworkRabbitAirStateRequest(
-        specYaml: widget.controls.specYaml,
-        stateCommand: command,
-        requestId: client.nextRequestId(),
-        deviceTs: client.deviceTs(host),
-      );
-      final reply = await client.send(host, port, request, userKey: key);
-      _stateByCommand[command] = rabbitAirStateFields(reply);
-    }
-    await _decodeEntities();
   }
 
   /// Decode every entity from whatever `_stateByCommand` currently holds — the
@@ -751,8 +718,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           await _sendHttp(action, values);
         case _kasaTransport:
           await _sendKasa(action, values);
-        case _rabbitAirTransport:
-          await _sendRabbitAir(action, values);
         default:
           await _sendSoap(action, values);
       }
@@ -962,32 +927,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
   }
 
-  /// The Rabbit Air send: sync the clock, render the envelope, encrypt it
-  /// under the user key, and send it as one UDP datagram. Like the Kasa send
-  /// there is no read-back; the caller re-polls `get_state` afterwards, so a
-  /// control snaps to the purifier's true state whether or not the write took.
-  Future<void> _sendRabbitAir(
-      NetworkActionDto action, Map<String, String> values) async {
-    final key = _rabbitAirKey;
-    if (key == null) {
-      throw const RabbitAirControlException(
-          'no user key is stored for this purifier');
-    }
-    final codec = ref.read(specCodecProvider);
-    final client = ref.read(rabbitAirControlClientProvider);
-    final host = widget.device.host;
-    await client.syncClock(host, _rabbitAirHostPort,
-        specYaml: widget.controls.specYaml, userKey: key);
-    final request = await codec.renderNetworkRabbitAirCommand(
-      specYaml: widget.controls.specYaml,
-      commandName: action.commandName,
-      values: values,
-      requestId: client.nextRequestId(),
-      deviceTs: client.deviceTs(host),
-    );
-    await client.send(host, _rabbitAirHostPort, request, userKey: key);
-  }
-
   /// The SOAP send: read back the settings this action carries but is not
   /// changing, render the envelope, and POST it to the control URL the
   /// device's own description names.
@@ -1094,11 +1033,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   ),
                 ),
               ),
-            ] else if (_isRabbitAir && _rabbitAirKey == null) ...[
-              // Every exchange with this purifier is encrypted under its user
-              // key, and none is stored — so the entry card IS the control
-              // surface until the owner supplies one.
-              _rabbitAirKeyCard(),
+            ] else if (_isRabbitAir) ...[
+              // The whole Rabbit Air surface — the key-entry card when no key
+              // is stored, the entity cards otherwise — is the shared panel's;
+              // this screen only supplies the LAN transport and the info rows.
+              RabbitAirControlsPanel(
+                key: _rabbitAirPanelKey,
+                specYaml: widget.controls.specYaml,
+                entities: _entities,
+                transport: RabbitAirLanTransport(
+                  host: widget.device.host,
+                  port: _rabbitAirHostPort,
+                  keyScope: _rabbitAirKeyScope,
+                  client: ref.read(rabbitAirControlClientProvider),
+                  keyStore: ref.read(rabbitAirKeyStoreProvider),
+                ),
+              ),
               const SizedBox(height: 16),
               _deviceInfo(description),
             ] else ...[
@@ -1212,118 +1162,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// unknown, nowhere when the device says nothing is focused.
   Iterable<NetworkEntityDto> get _textEntities =>
       _entities.where((entity) => entity.platform == 'text');
-
-  /// The card shown for a Rabbit Air purifier with no stored user key:
-  /// what the key is, where the owner finds it, and the way in. The key is a
-  /// long-lived LAN secret the device generated itself — entered once here,
-  /// stored in the platform keychain, and never sent anywhere but to the
-  /// purifier it belongs to.
-  Widget _rabbitAirKeyCard() {
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      color: scheme.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.key_outlined, color: scheme.onSecondaryContainer),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'This purifier needs its user key',
-                    style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: scheme.onSecondaryContainer),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Rabbit Air encrypts local control with a per-device key. Find '
-              'it in the Rabbit Air app: open the device page, tap the '
-              'three-dot menu, choose Rename, then tap the device name — the '
-              'screen reveals the Thing ID and the 32-character User key.',
-              style:
-                  text.bodySmall?.copyWith(color: scheme.onSecondaryContainer),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton.icon(
-                onPressed: () => unawaited(_promptRabbitAirKey()),
-                icon: const Icon(Icons.edit_outlined),
-                label: const Text('Enter user key'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// The key-entry dialog: 32 hex characters, validated before anything is
-  /// stored — a typo here is a purifier that never answers, so the dialog
-  /// says so immediately instead. On save the screen reloads, and the first
-  /// poll proves the key against the device.
-  Future<void> _promptRabbitAirKey() async {
-    final controller = TextEditingController();
-    String? validation;
-    final entered = await showDialog<String>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Rabbit Air user key'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            autocorrect: false,
-            maxLength: 32,
-            decoration: InputDecoration(
-              isDense: true,
-              border: const OutlineInputBorder(),
-              hintText: '32 hex characters, from the Rabbit Air app',
-              helperText: 'Device page → Rename → tap the device name',
-              errorText: validation,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final key = controller.text.trim();
-                if (!RabbitAirKeyStore.isValidUserKey(key)) {
-                  setDialogState(() => validation =
-                      'The user key is exactly 32 hex characters (0-9, a-f).');
-                  return;
-                }
-                Navigator.of(context).pop(key);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-    // The controller is deliberately NOT disposed here: the dialog's pop
-    // animation still builds the TextField for a few frames after showDialog
-    // returns, and a focused field schedules a caret frame that would touch
-    // a disposed controller. It is dialog-scoped and collected with the tree.
-    if (entered == null || !mounted) return;
-    await ref
-        .read(rabbitAirKeyStoreProvider)
-        .saveUserKey(_rabbitAirKeyScope, entered);
-    setState(() => _rabbitAirKey = entered);
-    await _load();
-  }
 
   /// The note shown once a device has refused a command.
   ///
