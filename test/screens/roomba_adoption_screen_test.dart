@@ -21,10 +21,14 @@ import 'package:liberated_bread_mobile/providers/roomba_provider.dart';
 import 'package:liberated_bread_mobile/providers/settings_store_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/screens/roomba_adoption_screen.dart';
+import 'package:liberated_bread_mobile/models/ha_config.dart';
+import 'package:liberated_bread_mobile/services/ha_api_client.dart';
+import 'package:liberated_bread_mobile/services/ha_roomba_client.dart';
 import 'package:liberated_bread_mobile/services/irobot_cloud_service.dart';
 import 'package:liberated_bread_mobile/services/roomba_control_service.dart';
 import 'package:liberated_bread_mobile/services/roomba_credential_store.dart';
 
+import '../fakes/fake_ha_api_client.dart';
 import '../fakes/fake_spec_codec.dart';
 import '../fakes/in_memory_settings_store.dart';
 
@@ -117,6 +121,7 @@ void main() {
     RoombaTlsConnect? connect,
     http.Client? cloudClient,
     int passwordAttempts = 1,
+    HaRoombaClient? homeAssistant,
   }) {
     final codec = FakeSpecCodec();
     return ProviderScope(
@@ -135,6 +140,10 @@ void main() {
           iRobotCloudServiceProvider.overrideWithValue(
             IRobotCloudService(client: cloudClient),
           ),
+        // Overridden directly rather than by seeding the HA config: what the
+        // wizard branches on is "is there a client", and going through the
+        // config notifier would test that notifier instead.
+        haRoombaClientProvider.overrideWithValue(homeAssistant),
       ],
       child: MaterialApp(
         home: RoombaAdoptionScreen(
@@ -331,6 +340,46 @@ void main() {
     // user is left with "it did not work".
     expect(find.textContaining(_blid), findsOneWidget);
     expect(find.textContaining('Downstairs'), findsOneWidget);
+  });
+
+  /// If Home Assistant is connected it is ALREADY talking to the robot, and
+  /// the robot serves one client at a time. Adopting a password here would
+  /// make this app a second contender for that slot; going through HA makes it
+  /// a client of the thing that already holds it. So the wizard leads with it.
+  testWidgets('leads with Home Assistant when it is connected', (tester) async {
+    final api = FakeHaApiClient();
+    api.entities = {
+      'vacuum.dorita': const HaEntityState(
+        entityId: 'vacuum.dorita',
+        state: 'docked',
+        attributes: {'friendly_name': 'Dorita'},
+      ),
+    };
+    await tester.pumpWidget(wrap(
+      homeAssistant: HaRoombaClient(
+        api: api,
+        config: const HaConfig(
+          baseUrl: 'http://ha.local:8123',
+          token: 'llat',
+          deviceId: 'device',
+        ),
+      ),
+    ));
+
+    expect(find.text('Use Home Assistant'), findsOneWidget);
+    expect(find.textContaining('no password on this phone'), findsOneWidget);
+    // The password routes are still reachable — steering, not blocking.
+    expect(find.text('Hold the HOME button'), findsOneWidget);
+  });
+
+  /// And when it is not connected, the option is absent rather than a dead
+  /// button: there would be nothing to pick from.
+  testWidgets('offers no Home Assistant route when it is not connected',
+      (tester) async {
+    await tester.pumpWidget(wrap());
+
+    expect(find.text('Use Home Assistant'), findsNothing);
+    expect(find.text('Hold the HOME button'), findsOneWidget);
   });
 
   testWidgets('the paste route keeps the whole password', (tester) async {
