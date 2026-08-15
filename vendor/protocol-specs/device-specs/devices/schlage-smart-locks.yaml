@@ -309,6 +309,11 @@ device:
         softAP; commissioning-only, not a runtime channel). Also speaks Apple
         HAP-over-BLE in HomeKit mode — mutually exclusive with Schlage mode.
         Codename MARLIN in the app. Firmware OTA block/packet 1024/128.
+        The BR400 itself deserves a caveat: the 3.6.0 app speaks to it over
+        an UNAUTHENTICATED LAN HTTP API (mDNS _http._tcp; bridge/info,
+        bridge/ble/scan, and POST bridge/update_mcu accepting an arbitrary
+        firmware URL over plain HTTP) — accessory-scoped, not present on
+        Encode-family locks; see research-notes/schlage-wifi-local-surface.md.
     - model: "Encode (BE489)"
       identification:
         service_uuids:
@@ -489,16 +494,18 @@ services:
           set_wifi_credentials:
             description: >
               Push WiFi credentials: {1:8, 2:4, 16:{0:6, 1:0, 2:{0:ssid,
-              1:password, 2:security}}}. Only meaningful for WiFi models; the
-              lock's cloud identity (payload0) must already exist — see
-              `cloud`.
+              1:password, 2:security}}}. The security enum is hardcoded to 1
+              in the 3.6.0 app (fj.java:102). Only meaningful for WiFi
+              models; the lock's cloud identity (payload0) must already
+              exist — see `cloud`.
             verification: "reported"
           wifi_jitr_payload0:
             description: >
               Push the cloud-minted JITR identity blob: {1:8, 2:4, 16:{0:6,
               1:2, 2:{0:payload0Bytes}}}; poll status {1:8, 2:5, 16:{0:6,
-              1:4}} → 0..6 (stopped/started/success/AP error/host error/IP
-              acquired/wrong creds).
+              1:4}} → 0..5 (stopped/started/success/AP error/host error/IP
+              acquired). The app's enum ends at IP_ACQUIRED (pj.java:46-88);
+              no state 6 exists.
             verification: "reported"
 
   - uuid: "7f0dee73-4a3f-4103-98e6-a46cd301bdfb"
@@ -508,8 +515,12 @@ services:
       (byte-identical 3.6.0/6.1.0). LeopardControlPoint opcodes observed in
       the app: {1,1,1} start, {2,1,1} finish. Transfer sizing: Sense
       1024-byte blocks / 128-byte packets; newer locks 4096/241 or 1024/205
-      (reported). Firmware binaries/metadata themselves come from the vendor
-      cloud (api.allegionengage.com) — see `cloud`.
+      (reported). Firmware metadata comes from the vendor cloud:
+      GET api.allegionengage.com/api/firmware/{platformType} (Accept
+      version=3), the binary URL is server-supplied (links[rel=self]), and
+      the app verifies CONTENT-LENGTH ONLY (3.6.0). Delivery is BLE-push
+      (CRC-chunked, this profile) or lock self-download over WiFi (manual
+      trigger: interior button ×5, per vendor support doc) — see `cloud`.
     characteristics:
       - uuid: "bcde3b9e-3963-4123-b24d-42eccbb3a9c4"
         name: "FWImageVersion"
@@ -735,6 +746,21 @@ evidence:
         with — but not positive proof of — the claim that Encode-family
         WiFi has no local API: the locks make no discovery announcements
         on the LAN at all.
+      - >
+        Follow-up full-/16 census (same day, ~88 live hosts resolved by
+        ping/ARP with OUI lookups against registries/ieee-oui.tsv, then
+        bounded port scans of every module-vendor candidate): no host
+        identifiable as a Schlage lock. Candidates resolved to other
+        devices — the Murata-module host is a Rachio controller (TLS cert
+        says so), the FN-LINK-module host is a Chamberlain myQ garage
+        controller (MYQ-G0401) serving an unauthenticated WiFi-setup
+        page, the Gaoshengda-module hosts are a Roku TV (ECP on 8060)
+        and an IPv6-only neighbor, the TI-module host runs SSH. Locks
+        that only dial out to the cloud are indistinguishable from any
+        other silent host here — consistent with the app-level finding
+        (2026-08, com.allegion.leopard 3.6.0) that the lock never hosts
+        a softAP and the app never opens a socket to a lock: runtime
+        WiFi is outbound REST + MQTT-over-WSS only.
     claims_checked:
       - claim: "Schlage-mode locks advertise DataTransfer UUID 1f6b43aa-94de-4ba9-981c-da38823117bd (AD 0x06)"
         result: "not observed — the one captured advertisement (commissioned lock) carried no service UUIDs"

@@ -178,7 +178,7 @@ history-read/state, 4=reads/WiFi/claim, 5=deleteAll/claim-confirm/JITR,
 | History logs | check `{1:8,2:2,16:{0:3,1:0,2:{0:0}}}` + read `{1:8,2:3,16:{0:3,1:batchSize}}` | reported |
 | Factory reset | `{1:8,2:2,16:{0:3,1:3}}` (advanced) | reported |
 | WiFi credentials | `{1:8,2:4,16:{0:6,1:0,2:{0:ssid,1:password,2:security}}}` | reported |
-| WiFi JITR payload0 | `{1:8,2:4,16:{0:6,1:2,2:{0:payload0Bytes}}}`; status `{1:8,2:5,16:{0:6,1:4}}` → 0..6 | reported |
+| WiFi JITR payload0 | `{1:8,2:4,16:{0:6,1:2,2:{0:payload0Bytes}}}`; status `{1:8,2:5,16:{0:6,1:4}}` → 0..5 (enum ends at IP_ACQUIRED; no state 6) | reported |
 | Firmware OTA | separate GATT profile (above) | UUIDs in app resources |
 
 Enums: lockState 0=unlocked, 1=locked, 2=jammed, 3=unknown, 4=motorJammed,
@@ -197,16 +197,27 @@ Genuinely cloud-dependent:
   ("payload0" JITR blob) is minted by `factory.allegion.yonomi.cloud` and
   pushed to the lock over BLE (trait 6 prop 2). No cloud, no WiFi onboarding.
 - **CAT minting for non-owner users on non-Sense locks** (CatStar service).
-- **Firmware metadata and binaries** (`api.allegionengage.com`).
+- **Firmware metadata and binaries** (`api.allegionengage.com` — metadata at
+  `GET /api/firmware/{platformType}`, binary URL server-supplied, and the app
+  verifies content-length only; WiFi locks can also self-download over WiFi,
+  manual trigger: interior button ×5).
 - **Remote access, push notifications, multi-user invites.**
 
 The consumer cloud path itself is AWS Cognito SRP login plus REST
 `api.allegion.yonomi.cloud/v1` with an API-key header, realtime via per-device
 MQTT-over-WebSocket, TLS-pinned to Amazon Root CAs. (The app-embedded key and
 secret are vendor client credentials; only the shape is recorded here, per the
-clean-room rules.) There is **no local WiFi runtime API**: no open port, no
-SSDP, and the only mDNS observed is the Encode Plus's HomeKit `_hap._udp`
-record — Apple's protocol, mutually exclusive with Schlage-mode pairing.
+clean-room rules.) There is **no local WiFi runtime API**: the app never opens
+a socket to a lock and the lock hosts no softAP or listener (3.6.0 code-level
+confirmation, 2026-08), no SSDP, and the only mDNS observed is the Encode
+Plus's HomeKit `_hap._udp` record — Apple's protocol, mutually exclusive with
+Schlage-mode pairing. A full-/16 LAN census of a household with three
+commissioned locks (2026-08-14) found no lock-like listener on any host. The
+one local WiFi surface in the family is the Sense's optional **BR400 adapter**,
+which exposes an *unauthenticated* LAN HTTP API — including a firmware-update
+endpoint taking an arbitrary URL — documented in
+`research-notes/schlage-wifi-local-surface.md`; it is accessory-scoped and
+does not exist on Encode-family locks.
 
 ## Live verification (2026-08)
 
