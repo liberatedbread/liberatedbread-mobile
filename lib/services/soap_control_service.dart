@@ -171,6 +171,13 @@ class SoapDeviceDescription {
   final String? serialNumber;
   final String? firmwareVersion;
 
+  /// The Wemo setup.xml `<rtos>`/`<iot>` markers, when present. Together they
+  /// select the credential-encryption layout: rtos=1 without iot=1 wants the
+  /// method-2 password, which the connect-request render tries first when it
+  /// knows. Null on anything that does not carry them (every non-Wemo device).
+  final int? rtos;
+  final int? iot;
+
   /// serviceType URN → controlURL, exactly as the device stated them.
   final Map<String, String> controlUrls;
 
@@ -183,6 +190,8 @@ class SoapDeviceDescription {
     this.udn,
     this.serialNumber,
     this.firmwareVersion,
+    this.rtos,
+    this.iot,
   });
 
   /// Parse a description document.
@@ -211,6 +220,18 @@ class SoapDeviceDescription {
         ?.innerText
         .trim();
 
+    // rtos/iot are Wemo-only markers; look through the whole <device> subtree
+    // rather than assume they sit at the top, and read them as the integers
+    // the method-2 selector compares against.
+    int? intField(String name) {
+      final raw = device.descendantElements
+          .where((e) => e.localName == name)
+          .firstOrNull
+          ?.innerText
+          .trim();
+      return raw == null ? null : int.tryParse(raw);
+    }
+
     final controlUrls = <String, String>{};
     for (final service
         in device.descendantElements.where((e) => e.localName == 'service')) {
@@ -234,6 +255,8 @@ class SoapDeviceDescription {
       udn: text('UDN'),
       serialNumber: text('serialNumber'),
       firmwareVersion: text('firmwareVersion'),
+      rtos: intField('rtos'),
+      iot: intField('iot'),
       controlUrls: controlUrls,
     );
   }

@@ -688,7 +688,9 @@ Future<List<SoapRequestDto>> renderWemoConnectRequests(
         required String auth,
         required String encrypt,
         required String channel,
-        required String passphrase}) =>
+        required String passphrase,
+        PlatformInt64? rtos,
+        PlatformInt64? iot}) =>
     RustLib.instance.api.crateApiDeviceApiRenderWemoConnectRequests(
         specYaml: specYaml,
         metaInfo: metaInfo,
@@ -696,7 +698,9 @@ Future<List<SoapRequestDto>> renderWemoConnectRequests(
         auth: auth,
         encrypt: encrypt,
         channel: channel,
-        passphrase: passphrase);
+        passphrase: passphrase,
+        rtos: rtos,
+        iot: iot);
 
 /// Interpret a `GetNetworkStatus` reply's `NetworkStatus` value.
 Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
@@ -1563,6 +1567,10 @@ class LifxAccessPointDto {
   /// straight back in the `SetAccessPoint` for the chosen network.
   final int security;
 
+  /// Whether this is an open network (no passphrase) — resolved from
+  /// [security] here so the caller never re-spells the OPEN value.
+  final bool isOpen;
+
   /// Signal strength as the device reported it (higher is stronger).
   final int strength;
   final int channel;
@@ -1570,13 +1578,18 @@ class LifxAccessPointDto {
   const LifxAccessPointDto({
     required this.ssid,
     required this.security,
+    required this.isOpen,
     required this.strength,
     required this.channel,
   });
 
   @override
   int get hashCode =>
-      ssid.hashCode ^ security.hashCode ^ strength.hashCode ^ channel.hashCode;
+      ssid.hashCode ^
+      security.hashCode ^
+      isOpen.hashCode ^
+      strength.hashCode ^
+      channel.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -1585,6 +1598,7 @@ class LifxAccessPointDto {
           runtimeType == other.runtimeType &&
           ssid == other.ssid &&
           security == other.security &&
+          isOpen == other.isOpen &&
           strength == other.strength &&
           channel == other.channel;
 }

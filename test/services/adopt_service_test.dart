@@ -99,12 +99,16 @@ class _WemoAp {
   int statusFailuresBeforeOk = 0;
   int _statusCalls = 0;
 
+  /// The setup.xml this AP serves — overridable so a test can add the rtos/iot
+  /// markers that steer the credential layout.
+  String setupXml = _setupXml;
+
   http.Client get client => MockClient((request) async {
         if (onlyPort != null && request.url.port != onlyPort) {
           return http.Response('wrong port', 500);
         }
         if (request.url.path == '/setup.xml') {
-          return http.Response(_setupXml, 200);
+          return http.Response(setupXml, 200);
         }
         final action = (request.headers['soapaction'] ?? '').toLowerCase();
         if (action.contains('getmetainfo')) {
@@ -340,6 +344,34 @@ void main() {
       expect(outcome.status, AdoptStatus.unreachable);
       expect(ap.connectBodies, isEmpty, reason: 'no send ever landed');
     });
+
+    test("the setup.xml's rtos marker steers which credential is tried first",
+        () async {
+      if (skipUnlessRust()) return;
+      // rtos=1 without iot=1 selects the method-2 password layout, so the first
+      // ConnectHomeNetwork body must differ from a device that named neither.
+      Future<String> firstBodyFor(String setupXml) async {
+        final ap = _WemoAp()..setupXml = setupXml;
+        final service = AdoptService(
+          codec: const RealSpecCodec(),
+          soap: SoapControlClient(httpClient: ap.client),
+          lifx: FakeLifxControlClient(),
+          wemoPorts: const [49153],
+        );
+        final session =
+            await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+        final networks = await service.listNetworks(session!);
+        final home = networks.firstWhere((n) => n.ssid == 'HomeNet');
+        await service.provision(session, home, 'a-good-password');
+        return ap.connectBodies.first;
+      }
+
+      final plain = await firstBodyFor(_setupXml);
+      final rtos = await firstBodyFor(_setupXml.replaceFirst(
+          '<friendlyName>', '<rtos>1</rtos><iot>0</iot><friendlyName>'));
+      expect(rtos, isNot(plain),
+          reason: 'rtos=1/iot=0 leads with the method-2 credential');
+    });
   });
 
   group('LIFX (fake client + codec)', () {
@@ -364,10 +396,46 @@ void main() {
       expect(session, isNull);
     });
 
+    test('setup discovery accepts a reply that does not echo the sequence',
+        () async {
+      // On the setup AP there is one device, and some firmware zeroes the
+      // sequence byte; requiring the echo would strand it. connect must ask
+      // collect not to filter on the echo.
+      final client = FakeLifxControlClient();
+      final service = AdoptService(codec: FakeSpecCodec(), lifx: client);
+      await service.connect(family: AdoptFamily.lifx, specYaml: '');
+      expect(client.lastCollectMatchSequence, isFalse);
+    });
+
+    test('open-ness comes from the codec, not a byte compare here', () async {
+      // A non-1 security byte the codec still calls open (isOpen true) must
+      // read as open — the LIFX security vocabulary is the codec's to own.
+      final codec = FakeSpecCodec()
+        ..lifxAccessPoint = const LifxAccessPointDto(
+            ssid: 'GuestOpen',
+            security: 7,
+            isOpen: true,
+            strength: -50,
+            channel: 6);
+      final service = AdoptService(
+        codec: codec,
+        lifx: FakeLifxControlClient()..collectReplies = [Uint8List(41)],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.lifx, specYaml: '');
+      final networks = await service.listNetworks(session!);
+      expect(networks.single.isOpen, isTrue,
+          reason: 'security byte 7 but the codec says open');
+    });
+
     test('lists access points, de-duplicating a network seen twice', () async {
       final codec = FakeSpecCodec()
         ..lifxAccessPoint = const LifxAccessPointDto(
-            ssid: 'HomeNet', security: 5, strength: -40, channel: 11);
+            ssid: 'HomeNet',
+            security: 5,
+            isOpen: false,
+            strength: -40,
+            channel: 11);
       final client = FakeLifxControlClient()
         // Three replies, all decode (via the fake) to the same SSID.
         ..collectReplies = [Uint8List(41), Uint8List(41), Uint8List(41)];

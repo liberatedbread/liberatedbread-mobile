@@ -25,6 +25,10 @@ class FakeLifxControlClient extends LifxControlClient {
     sent.add((host: host, packet: packet));
   }
 
+  /// The [matchSequence] each `collect` was called with, so a test can assert
+  /// the SoftAP discovery path relaxes the echo requirement.
+  bool? lastCollectMatchSequence;
+
   @override
   Future<List<Uint8List>> collect(
     String host,
@@ -32,8 +36,11 @@ class FakeLifxControlClient extends LifxControlClient {
     required int sequence,
     Duration window = const Duration(seconds: 5),
     int sends = 2,
-  }) async =>
-      collectReplies;
+    bool matchSequence = true,
+  }) async {
+    lastCollectMatchSequence = matchSequence;
+    return collectReplies;
+  }
 
   @override
   Future<Uint8List?> request(
