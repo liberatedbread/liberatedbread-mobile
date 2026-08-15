@@ -118,9 +118,23 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
     'start_or_resume',
     'start_prepared',
     'start',
+    // UREVO's proprietary FT/UR classes: prepare/ready is the belt's start,
+    // and continue resumes from a pause the same button would.
+    'ur_training_prepared',
+    'ur_training_continue',
+    'ft_prepared',
   ]);
-  var pause = byName(const ['pause', 'training_pause']);
-  var stop = byName(const ['stop', 'training_stop']);
+  var pause = byName(const ['pause', 'training_pause', 'ur_training_pause']);
+  var stop = byName(const [
+    'stop',
+    'training_stop',
+    // KingSmith's WiLink belt has no stop opcode of its own; stop_belt is the
+    // speed-0 frame the spec names for exactly this button. UREVO's classes
+    // each carry their own stop.
+    'stop_belt',
+    'ur_training_stop',
+    'ft_stop',
+  ]);
   // FTMS's Treadmill Control Point has one Stop-or-Pause opcode whose action
   // byte picks the verb; it stands in for whichever dedicated verb the spec
   // does not name.
@@ -135,8 +149,14 @@ List<({String serviceUuid, String charUuid, CommandDto command})>
   }
 
   _ResolvedSpeed? speed;
-  final speedEntry =
-      byName(const ['set_speed', 'set_target_speed', 'set_speed_and_slope']);
+  final speedEntry = byName(const [
+    'set_speed',
+    'set_target_speed',
+    'set_speed_and_slope',
+    // UREVO's combined speed+slope write; its slope param defaults to 0 in the
+    // spec, so the card can drive speed alone without owning an incline.
+    'ur_set_speed_and_slope',
+  ]);
   if (speedEntry != null) {
     // The speed parameter is the caller-owned one that reads as a speed —
     // unit km/h when the spec says so, else the first caller-owned numeric
