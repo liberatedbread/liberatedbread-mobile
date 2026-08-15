@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -666,22 +666,41 @@ Future<int?> matchSoftApSsid(
     RustLib.instance.api
         .crateApiDeviceApiMatchSoftApSsid(profiles: profiles, ssid: ssid);
 
-/// Every Wemo passphrase encryption worth sending, in the order to try them:
-/// the spec's sweep, with the rtos/iot-selected variant first when setup.xml
-/// supplied those fields.
+/// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
+/// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
 ///
-/// `meta_info` is the raw `GetMetaInfo` reply; the MAC/serial key material is
-/// fields 0 and 1 of it. Fails when the reply is not in the documented layout
-/// or the passphrase is outside the device's documented bounds (under 8
-/// characters is rejected by the device itself, so it is refused here before
-/// any network I/O).
-Future<List<WemoPasswordCandidateDto>> wemoPasswordCandidates(
-        {required String metaInfo,
-        required String passphrase,
-        PlatformInt64? rtos,
-        PlatformInt64? iot}) =>
-    RustLib.instance.api.crateApiDeviceApiWemoPasswordCandidates(
-        metaInfo: metaInfo, passphrase: passphrase, rtos: rtos, iot: iot);
+/// This is where the Wemo credential-send is assembled in full: the passphrase
+/// is encrypted (every variant of the spec's sweep, in order) and each attempt
+/// is rendered into a SOAP request through the same `setup_connect_home_network`
+/// command the catalogue publishes. The caller POSTs each in turn until one
+/// joins — it owns only the socket and the poll, never the crypto or the XML,
+/// exactly as control's `render_network_command` leaves it.
+///
+/// An open network (`encrypt` NONE / `auth` OPEN) yields a single request with
+/// an empty password and no encryption; `meta_info` is then unused. For a
+/// secured network `meta_info` is the raw `GetMetaInfo` reply. Fails when the
+/// passphrase is outside the device's documented bounds (under 8 characters is
+/// terminal), before any network I/O.
+Future<List<SoapRequestDto>> renderWemoConnectRequests(
+        {required String specYaml,
+        required String metaInfo,
+        required String ssid,
+        required String auth,
+        required String encrypt,
+        required String channel,
+        required String passphrase}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderWemoConnectRequests(
+        specYaml: specYaml,
+        metaInfo: metaInfo,
+        ssid: ssid,
+        auth: auth,
+        encrypt: encrypt,
+        channel: channel,
+        passphrase: passphrase);
+
+/// Interpret a `GetNetworkStatus` reply's `NetworkStatus` value.
+Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
+    RustLib.instance.api.crateApiDeviceApiWemoNetworkStatus(code: code);
 
 /// Parse a Wemo `GetApList` reply by the spec's rules: skip the header line,
 /// split on `|`, the LAST column is `AUTHMODE/CIPHER`.
@@ -3061,31 +3080,23 @@ class WemoAccessPointDto {
           isOpen == other.isOpen;
 }
 
-/// One encrypted Wemo passphrase attempt: what to send as the `password`
-/// argument, and which variant built it so the UI can log what worked.
-class WemoPasswordCandidateDto {
-  /// Keydata layout 1-3, the spec's numbering.
-  final int method;
+/// The join state a Wemo `GetNetworkStatus` code names — the protocol's own
+/// vocabulary, kept in Rust with the rest of the Wemo semantics rather than
+/// re-spelled at each caller.
+enum WemoJoinStatus {
+  /// 0 — still trying. Keep polling.
+  connecting,
 
-  /// Whether the two-hex-digit length suffix was appended.
-  final bool addLengths;
-  final String password;
+  /// 1 — connected. Terminal success.
+  connected,
 
-  const WemoPasswordCandidateDto({
-    required this.method,
-    required this.addLengths,
-    required this.password,
-  });
+  /// 2 — rejected because the passphrase is under 8 characters. Terminal.
+  rejected,
 
-  @override
-  int get hashCode => method.hashCode ^ addLengths.hashCode ^ password.hashCode;
+  /// 3 — handshaking. Usually becomes Connected within a few seconds.
+  handshaking,
 
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is WemoPasswordCandidateDto &&
-          runtimeType == other.runtimeType &&
-          method == other.method &&
-          addLengths == other.addLengths &&
-          password == other.password;
+  /// Anything else the device might answer.
+  unknown,
+  ;
 }

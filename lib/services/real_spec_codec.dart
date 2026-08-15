@@ -497,18 +497,28 @@ class RealSpecCodec implements SpecCodec {
       rust.matchSoftApSsid(profiles: profiles, ssid: ssid);
 
   @override
-  Future<List<WemoPasswordCandidateDto>> wemoPasswordCandidates({
+  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+    required String specYaml,
     required String metaInfo,
+    required String ssid,
+    required String auth,
+    required String encrypt,
+    required String channel,
     required String passphrase,
-    int? rtos,
-    int? iot,
   }) =>
-      rust.wemoPasswordCandidates(
+      rust.renderWemoConnectRequests(
+        specYaml: specYaml,
         metaInfo: metaInfo,
+        ssid: ssid,
+        auth: auth,
+        encrypt: encrypt,
+        channel: channel,
         passphrase: passphrase,
-        rtos: rtos,
-        iot: iot,
       );
+
+  @override
+  Future<WemoJoinStatus> wemoNetworkStatus({required String code}) =>
+      rust.wemoNetworkStatus(code: code);
 
   @override
   Future<List<WemoAccessPointDto>> parseWemoApList({required String apList}) =>

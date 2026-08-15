@@ -280,40 +280,47 @@ class AdoptService {
     SetupNetwork network,
     String passphrase,
   ) async {
-    // An open network skips the encryption entirely — the spec's rule, and the
-    // device rejects a password on an OPEN/NONE entry.
-    final List<WemoPasswordCandidateDto> candidates;
-    if (network.isOpen) {
-      candidates = const [
-        WemoPasswordCandidateDto(method: 0, addLengths: false, password: '')
-      ];
-    } else {
-      final meta =
+    // A secured network needs the device metadata the passphrase key derives
+    // from; an open one skips the encryption entirely (the spec's rule) and
+    // GetMetaInfo with it.
+    var meta = '';
+    if (!network.isOpen) {
+      final metaInfo =
           (await _sendWemo(session, stateCommand: 'GetMetaInfo'))['MetaInfo'];
-      if (meta == null) {
+      if (metaInfo == null) {
         throw const AdoptException(
             'The device did not return the information needed to encrypt the '
             'password. Try again from a factory reset.');
       }
-      try {
-        // rtos/iot are left null: they only bias which encryption variant is
-        // tried first, and the sweep below tries all of them regardless.
-        candidates = await codec.wemoPasswordCandidates(
-          metaInfo: meta,
-          passphrase: passphrase,
-        );
-      } catch (e) {
-        throw AdoptException(friendlyErrorText(e,
-            context: 'wemo password encryption',
-            fallback: 'That password can\'t be used. Wi-Fi passwords must be '
-                'at least 8 characters.'));
-      }
+      meta = metaInfo;
     }
 
-    // Sweep the encryption variants: the device only tells us a variant was
-    // wrong by never connecting, so each is tried in turn until one joins.
-    for (final candidate in candidates) {
-      final outcome = await _tryWemoCandidate(session, network, candidate);
+    // Rust assembles the whole credential-send: it encrypts every variant of
+    // the spec's sweep and renders each into a ready ConnectHomeNetwork
+    // request. This service owns only the socket and the poll — never the
+    // crypto or the XML — exactly as control leaves it.
+    final List<SoapRequestDto> requests;
+    try {
+      requests = await codec.renderWemoConnectRequests(
+        specYaml: session.specYaml,
+        metaInfo: meta,
+        ssid: network.ssid,
+        auth: network.auth ?? '',
+        encrypt: network.encrypt ?? '',
+        channel: network.channel ?? '',
+        passphrase: passphrase,
+      );
+    } catch (e) {
+      throw AdoptException(friendlyErrorText(e,
+          context: 'wemo connect request',
+          fallback: 'That password can\'t be used. Wi-Fi passwords must be at '
+              'least 8 characters.'));
+    }
+
+    // The device only tells us a variant was wrong by never connecting, so each
+    // is tried in turn until one joins.
+    for (final request in requests) {
+      final outcome = await _tryWemoRequest(session, request);
       if (outcome.status == AdoptStatus.joined) {
         await _closeWemoSetup(session);
         return outcome;
@@ -332,46 +339,38 @@ class AdoptService {
     );
   }
 
-  Future<AdoptOutcome> _tryWemoCandidate(
+  Future<AdoptOutcome> _tryWemoRequest(
     AdoptSession session,
-    SetupNetwork network,
-    WemoPasswordCandidateDto candidate,
+    SoapRequestDto request,
   ) async {
-    final request = await codec.renderNetworkCommand(
-      specYaml: session.specYaml,
-      commandName: 'setup_connect_home_network',
-      values: {
-        'ssid': network.ssid,
-        'auth': network.isOpen ? 'OPEN' : (network.auth ?? ''),
-        'password': candidate.password,
-        'encrypt': network.isOpen ? 'NONE' : (network.encrypt ?? ''),
-        'channel': network.channel ?? '',
-      },
-    );
     // Send twice, ~100ms apart: pywemo reports a markedly higher success rate
     // when it is repeated, and the spec carries the rule forward.
     await _sendWemoRequest(session, request);
     await Future<void>.delayed(const Duration(milliseconds: 100));
     await _sendWemoRequest(session, request);
 
-    // Poll GetNetworkStatus: 1 = joined, 2 = rejected (terminal), else keep
-    // waiting up to the spec's 20-second floor.
+    // Poll GetNetworkStatus up to the spec's 20-second floor; Rust names the
+    // status code.
     final deadline = DateTime.now().add(const Duration(seconds: 20));
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(seconds: 1));
-      final status = (await _sendWemo(session,
+      final code = (await _sendWemo(session,
           stateCommand: 'GetNetworkStatus'))['NetworkStatus'];
-      switch (status?.trim()) {
-        case '1':
+      if (code == null) continue;
+      switch (await codec.wemoNetworkStatus(code: code)) {
+        case WemoJoinStatus.connected:
           return const AdoptOutcome(AdoptStatus.joined,
               'Connected. The device is joining your Wi-Fi now.');
-        case '2':
+        case WemoJoinStatus.rejected:
           return const AdoptOutcome(
             AdoptStatus.rejected,
             'The device rejected the password (it must be at least 8 '
             'characters). Fix it and try again.',
           );
-        // 0 = still connecting, 3 = handshaking; both mean keep polling.
+        case WemoJoinStatus.connecting:
+        case WemoJoinStatus.handshaking:
+        case WemoJoinStatus.unknown:
+          break; // Keep polling.
       }
     }
     return const AdoptOutcome(AdoptStatus.sentUnconfirmed, '');
