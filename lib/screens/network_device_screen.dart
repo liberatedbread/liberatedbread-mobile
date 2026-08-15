@@ -370,6 +370,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       await _refreshStateRabbitAir();
       return;
     }
+    // A Roomba PUSHES. There is no request whose reply is the battery level,
+    // so there is nothing to poll and nothing to do here — the state stream
+    // fills the cards. Without this branch the spec's `delta` state command
+    // falls through to the SOAP path below, which dereferences a description
+    // this device never had, and every SUCCESSFUL command ends in an error
+    // banner.
+    if (_isRoomba) return;
     final codec = ref.read(specCodecProvider);
     final client = ref.read(soapControlClientProvider);
 
@@ -485,6 +492,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// credential. Nothing else on this screen branches on the choice, because
   /// all three hand back state keyed by the same dotted paths.
   Future<void> _connectRoomba() async {
+    // Retry re-enters this. Without releasing first, each attempt orphans the
+    // previous controller — its 2-second poll timer keeps firing, its state
+    // subscription keeps delivering, and the listenManual handle keeps
+    // roombaClientProvider alive forever. On the direct path that pins the
+    // robot's ONE client slot open, which is precisely the failure the handle
+    // exists to prevent.
+    await _releaseRoomba();
+
     // A device that came FROM Home Assistant's list carries its entity id and
     // nothing else — no BLID to look anything up by — so that case is settled
     // before the store is consulted at all.
@@ -556,6 +571,21 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     _roomba = controller;
     _startRoombaState(controller);
     await controller.connect();
+  }
+
+  /// Let go of whatever Roomba session this screen is holding.
+  ///
+  /// Order matters: stop listening before closing, so a controller that emits
+  /// on its way down does not land on a screen that has moved on. Awaited
+  /// rather than fire-and-forget, because the caller is usually about to build
+  /// a replacement and the robot only serves one client at a time.
+  Future<void> _releaseRoomba() async {
+    await _roombaState?.cancel();
+    _roombaState = null;
+    await _roomba?.close();
+    _roomba = null;
+    _directClientHandle?.close();
+    _directClientHandle = null;
   }
 
   /// Subscribe BEFORE connecting: the robot pushes its whole shadow the moment

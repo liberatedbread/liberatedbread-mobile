@@ -121,7 +121,21 @@ class Rest980Client {
   }
 
   Future<http.Response> _get(String baseUrl, String path, String what) async {
-    final uri = Uri.parse('${normalizeBaseUrl(baseUrl)}$path');
+    // Parsed in its own guarded step. It used to sit above the try that
+    // handles FormatException, which made that handler unreachable — a
+    // malformed address surfaced as one of the server-blaming messages below
+    // instead of as "that is not an address". It stays outside the request try
+    // so `uri` is still in scope for those handlers.
+    //
+    // `Uri.parse` is lenient, so this catches outright-malformed input rather
+    // than every typo; a plausible-but-wrong host still fails as a connection
+    // error, which is the honest description of what happened.
+    final Uri uri;
+    try {
+      uri = Uri.parse('${normalizeBaseUrl(baseUrl)}$path');
+    } on FormatException {
+      throw Rest980Exception('"$baseUrl" is not a usable address.');
+    }
     try {
       return await _client.get(uri).timeout(timeout);
     } on SocketException catch (e) {
@@ -135,8 +149,6 @@ class Rest980Client {
     } on http.ClientException catch (e) {
       throw Rest980Exception(
           'The rest980 server failed on $what: ${e.message}');
-    } on FormatException {
-      throw Rest980Exception('"$baseUrl" is not a usable address.');
     }
   }
 

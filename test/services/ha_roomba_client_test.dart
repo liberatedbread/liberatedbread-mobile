@@ -22,7 +22,10 @@ HaEntityState _vacuum({
     'friendly_name': 'Dorita',
     'battery_level': 94,
     'status': 'Clean',
-    'supported_features': 1 | 4 | 8 | 16 | 512,
+    // HA's real VacuumEntityFeature bits for a roomba entity: START(8192) |
+    // PAUSE(4) | STOP(8) | RETURN_HOME(16) | LOCATE(512). Spelled out rather
+    // than as a bare number so a wrong constant is visible here too.
+    'supported_features': 8192 | 4 | 8 | 16 | 512,
   },
 }) =>
     HaEntityState(entityId: entityId, state: state, attributes: attributes);
@@ -165,12 +168,25 @@ void main() {
   group('supported_features', () {
     test('hides what the entity does not advertise', () {
       // START | RETURN_HOME only: no pause, no stop, no locate.
-      final entity = _vacuum(attributes: const {'supported_features': 1 | 16});
+      final entity =
+          _vacuum(attributes: const {'supported_features': 8192 | 16});
 
       expect(HaRoombaClient.supports(entity, 'clean'), isTrue);
       expect(HaRoombaClient.supports(entity, 'dock'), isTrue);
       expect(HaRoombaClient.supports(entity, 'pause'), isFalse);
       expect(HaRoombaClient.supports(entity, 'find'), isFalse);
+    });
+
+    /// The bit that gates the primary action, pinned against HA's own enum.
+    /// `1` is TURN_ON, which the roomba integration never sets — using it
+    /// would silently remove Clean from the recommended transport, which is
+    /// exactly what a fixture repeating the same wrong constant hid.
+    test('clean is gated on START (8192), not TURN_ON (1)', () {
+      final startOnly = _vacuum(attributes: const {'supported_features': 8192});
+      expect(HaRoombaClient.supports(startOnly, 'clean'), isTrue);
+
+      final turnOnOnly = _vacuum(attributes: const {'supported_features': 1});
+      expect(HaRoombaClient.supports(turnOnOnly, 'clean'), isFalse);
     });
 
     /// Some integrations omit the attribute. Drawing no buttons at all would
