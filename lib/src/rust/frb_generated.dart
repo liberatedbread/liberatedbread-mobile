@@ -345,7 +345,9 @@ abstract class RustLibApi extends BaseApi {
       required String auth,
       required String encrypt,
       required String channel,
-      required String passphrase});
+      required String passphrase,
+      PlatformInt64? rtos,
+      PlatformInt64? iot});
 
   Future<List<SoftApProfileDto>> crateApiDeviceApiSoftApProfiles(
       {required List<String> specYamls});
@@ -2215,7 +2217,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       required String auth,
       required String encrypt,
       required String channel,
-      required String passphrase}) {
+      required String passphrase,
+      PlatformInt64? rtos,
+      PlatformInt64? iot}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
@@ -2226,6 +2230,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(encrypt, serializer);
         sse_encode_String(channel, serializer);
         sse_encode_String(passphrase, serializer);
+        sse_encode_opt_box_autoadd_i_64(rtos, serializer);
+        sse_encode_opt_box_autoadd_i_64(iot, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
             funcId: 62, port: port_);
       },
@@ -2234,7 +2240,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         decodeErrorData: sse_decode_AnyhowException,
       ),
       constMeta: kCrateApiDeviceApiRenderWemoConnectRequestsConstMeta,
-      argValues: [specYaml, metaInfo, ssid, auth, encrypt, channel, passphrase],
+      argValues: [
+        specYaml,
+        metaInfo,
+        ssid,
+        auth,
+        encrypt,
+        channel,
+        passphrase,
+        rtos,
+        iot
+      ],
       apiImpl: this,
     ));
   }
@@ -2249,7 +2265,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           'auth',
           'encrypt',
           'channel',
-          'passphrase'
+          'passphrase',
+          'rtos',
+          'iot'
         ],
       );
 
@@ -2695,13 +2713,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   LifxAccessPointDto dco_decode_lifx_access_point_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 4)
-      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
     return LifxAccessPointDto(
       ssid: dco_decode_String(arr[0]),
       security: dco_decode_u_8(arr[1]),
-      strength: dco_decode_i_32(arr[2]),
-      channel: dco_decode_u_16(arr[3]),
+      isOpen: dco_decode_bool(arr[2]),
+      strength: dco_decode_i_32(arr[3]),
+      channel: dco_decode_u_16(arr[4]),
     );
   }
 
@@ -4100,11 +4119,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_ssid = sse_decode_String(deserializer);
     var var_security = sse_decode_u_8(deserializer);
+    var var_isOpen = sse_decode_bool(deserializer);
     var var_strength = sse_decode_i_32(deserializer);
     var var_channel = sse_decode_u_16(deserializer);
     return LifxAccessPointDto(
         ssid: var_ssid,
         security: var_security,
+        isOpen: var_isOpen,
         strength: var_strength,
         channel: var_channel);
   }
@@ -5716,6 +5737,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_String(self.ssid, serializer);
     sse_encode_u_8(self.security, serializer);
+    sse_encode_bool(self.isOpen, serializer);
     sse_encode_i_32(self.strength, serializer);
     sse_encode_u_16(self.channel, serializer);
   }

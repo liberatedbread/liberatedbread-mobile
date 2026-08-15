@@ -505,6 +505,8 @@ class RealSpecCodec implements SpecCodec {
     required String encrypt,
     required String channel,
     required String passphrase,
+    int? rtos,
+    int? iot,
   }) =>
       rust.renderWemoConnectRequests(
         specYaml: specYaml,
@@ -514,6 +516,8 @@ class RealSpecCodec implements SpecCodec {
         encrypt: encrypt,
         channel: channel,
         passphrase: passphrase,
+        rtos: rtos,
+        iot: iot,
       );
 
   @override
