@@ -22,8 +22,8 @@
 use liberated_bread_core::api::device_api::{
     network_entities_for_device, render_network_roomba_command, roomba_connect_packet,
     roomba_disconnect_packet, roomba_parse_announcement, roomba_parse_incoming,
-    roomba_parse_password_reply, roomba_password_probe, roomba_publish_packet,
-    roomba_state_fields, roomba_subscribe_packet, RoombaIncomingDto,
+    roomba_parse_password_reply, roomba_password_probe, roomba_publish_packet, roomba_state_fields,
+    roomba_subscribe_packet, RoombaIncomingDto,
 };
 
 const ROOMBA: &str = include_str!("specs/irobot-roomba.yaml");
@@ -122,7 +122,10 @@ fn the_readings_name_their_topic_and_their_path() {
         assert_eq!(entity.state_command, topic, "{name}");
         assert_eq!(entity.value_field.as_deref(), Some(path), "{name}");
         assert_eq!(entity.unit.as_deref(), unit, "{name}");
-        assert!(entity.actions.is_empty(), "{name} is a reading, not a control");
+        assert!(
+            entity.actions.is_empty(),
+            "{name} is a reading, not a control"
+        );
     }
 }
 
@@ -145,15 +148,15 @@ fn every_command_renders_the_example_body_the_spec_publishes() {
             .as_str()
             .unwrap_or_else(|| panic!("{name} publishes no example_body"));
 
-        let rendered = render_network_roomba_command(
-            ROOMBA.to_string(),
-            name.to_string(),
-            EXAMPLE_EPOCH,
-        )
-        .unwrap_or_else(|e| panic!("rendering {name}: {e}"));
+        let rendered =
+            render_network_roomba_command(ROOMBA.to_string(), name.to_string(), EXAMPLE_EPOCH)
+                .unwrap_or_else(|e| panic!("rendering {name}: {e}"));
 
         assert_eq!(rendered.topic, "cmd", "{name} publishes to the wrong topic");
-        assert_eq!(rendered.payload, expected, "{name} does not render its example");
+        assert_eq!(
+            rendered.payload, expected,
+            "{name} does not render its example"
+        );
     }
 }
 
@@ -311,7 +314,10 @@ fn a_full_session_encodes_and_parses() {
     let state = r#"{"state":{"reported":{"batPct":94,"bin":{"full":false,"present":true},"cleanMissionStatus":{"phase":"run","cycle":"clean"},"name":"Dorita"}}}"#;
     let mut stream = vec![0x20, 0x02, 0x00, 0x00]; // CONNACK, accepted
     stream.extend([0x90, 0x03, 0x00, 0x01, 0x00]); // SUBACK for packet id 1
-    stream.extend(roomba_publish_packet("delta".to_string(), state.to_string()));
+    stream.extend(roomba_publish_packet(
+        "delta".to_string(),
+        state.to_string(),
+    ));
 
     // Delivered a byte at a time — the worst case a TLS stream can produce.
     let mut buffer: Vec<u8> = Vec::new();

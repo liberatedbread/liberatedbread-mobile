@@ -10,6 +10,7 @@ import '../core/error_text.dart';
 import '../core/log.dart';
 import '../models/network_device.dart';
 import '../providers/network_control_provider.dart';
+import '../providers/roomba_provider.dart';
 import '../providers/spec_codec_provider.dart';
 import '../services/ecp2_control_service.dart';
 import '../services/http_control_service.dart';
@@ -19,6 +20,8 @@ import '../services/query_source_reader.dart';
 import '../services/rabbit_air_control_service.dart';
 import '../services/rabbit_air_key_store.dart';
 import '../services/soap_control_service.dart';
+import '../services/roomba_control_service.dart';
+import '../services/roomba_controller.dart';
 import '../services/spec_codec.dart';
 import '../widgets/network_light_card.dart';
 
@@ -127,12 +130,23 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   final Map<String, String> _typedText = {};
   final Map<String, Future<void>> _keystrokeChains = {};
 
+  /// The robot's session, when this screen is driving one. Held rather than
+  /// re-created per send because the robot serves ONE local client at a time:
+  /// a connect-per-command would evict itself, and would spend the whole
+  /// screen's life holding the owner out of their own iRobot app.
+  RoombaController? _roomba;
+  StreamSubscription<Map<String, String>>? _roombaState;
+
   @override
   void dispose() {
     for (final controller in _textControllers.values) {
       controller.dispose();
     }
     unawaited(_ecp2?.close() ?? Future<void>.value());
+    // Letting go is part of the Roomba protocol, not tidiness: the slot stays
+    // occupied until this happens, and the owner's app stays locked out.
+    unawaited(_roombaState?.cancel() ?? Future<void>.value());
+    unawaited(_roomba?.close() ?? Future<void>.value());
     super.dispose();
   }
 
@@ -214,6 +228,37 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     return null;
   }
 
+  /// Whether this device is a Roomba, driven over its own MQTT broker (or a
+  /// rest980 server standing in front of it).
+  ///
+  /// Like [_isKasa] this forks the load path — but for the opposite reason.
+  /// Kasa has no description to fetch and polls instead; a Roomba has no
+  /// description AND nothing to poll, because it pushes. There is no request
+  /// whose reply is the battery level.
+  bool get _isRoomba => _entities.any((e) =>
+      e.transport == roombaTransport ||
+      e.actions.any((a) => a.transport == roombaTransport));
+
+  /// The robot's BLID, from the discovery announcement. Null means this screen
+  /// was reached without one, which for a Roomba is not drivable.
+  String? get _blid => widget.device.txt['blid'];
+
+  /// Entities this transport can actually drive.
+  ///
+  /// rest980 publishes no locate endpoint, so in server mode the Locate button
+  /// is not drawn at all. A button whose every press reports "unsupported" is
+  /// worse than an absent one — it reads as a broken robot rather than as a
+  /// server that does not offer that call.
+  List<NetworkEntityDto> get _drawableEntities {
+    final roomba = _roomba;
+    if (roomba == null) return _entities;
+    return _entities
+        .where((entity) =>
+            entity.actions.isEmpty ||
+            entity.actions.every((a) => roomba.supports(a.commandName)))
+        .toList();
+  }
+
   /// Whether anything on this screen needs the UPnP description document.
   ///
   /// SOAP is what it exists for, and the only transport that needs it: state
@@ -228,6 +273,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool get _needsDescription =>
       !_isKasa &&
       !_isRabbitAir &&
+      !_isRoomba &&
       (_stateCommands.any((command) => _stateTransport(command) != 'http') ||
           _entities.any(
               (e) => e.actions.any((action) => action.transport == 'soap')));
@@ -242,7 +288,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       _error = null;
     });
     try {
-      if (_isKasa) {
+      if (_isRoomba) {
+        // Nothing to fetch and nothing to poll: the robot pushes. Opening the
+        // session IS the load, and state arrives on a stream from here on.
+        await _connectRoomba();
+      } else if (_isKasa) {
         // No description to fetch and no control URLs to resolve — poll the
         // relay state straight over the socket. The port is 9999, not a UPnP
         // LOCATION, so the SOAP port check below does not apply.
@@ -406,6 +456,81 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await _decodeEntities();
   }
 
+  /// Open the robot's session and start taking its state pushes.
+  ///
+  /// Which transport this builds — the robot's own protocol, or a rest980
+  /// server in front of it — is decided entirely by whether the stored
+  /// credential carries a server address. Nothing else on this screen branches
+  /// on the choice, because both hand back state keyed by the same dotted
+  /// paths.
+  Future<void> _connectRoomba() async {
+    final blid = _blid;
+    if (blid == null) {
+      throw const RoombaConnectionException(
+        'This robot did not announce a BLID, so there is no identity to look '
+        'a password up by. Scan again.',
+      );
+    }
+    final credentials =
+        await ref.read(roombaCredentialStoreProvider).credentials(blid);
+    if (credentials == null) {
+      throw const RoombaConnectionException(
+        'No password saved for this robot yet. Go back and adopt it first.',
+      );
+    }
+
+    final controller = roombaControllerFor(
+      credentials: credentials,
+      host: widget.device.host,
+      specYaml: widget.controls.specYaml,
+      codec: ref.read(specCodecProvider),
+      directClient: () => ref.read(roombaClientProvider(blid)),
+      restClient: () => ref.read(rest980ClientProvider),
+    );
+    _roomba = controller;
+
+    // Subscribe before connecting: the robot pushes its whole shadow the
+    // moment a client subscribes, and a listener attached afterwards would
+    // miss the one message that fills the screen.
+    _roombaState = controller.state.listen(
+      _onRoombaState,
+      onError: (Object e) {
+        if (!mounted) return;
+        setState(() => _error = friendlyErrorText(
+              e,
+              context: 'roomba state',
+              fallback: 'Lost contact with the robot.',
+            ));
+      },
+    );
+    await controller.connect();
+  }
+
+  /// One state push, decoded into the readings the cards draw.
+  ///
+  /// The push is filed under every state topic the entities name, so
+  /// [_decodeEntities] — which is the SOAP and Kasa paths' decoder, unchanged —
+  /// finds it where it expects to. That shared decode is what makes a battery
+  /// percentage mean the same thing whichever transport carried it.
+  Future<void> _onRoombaState(Map<String, String> fields) async {
+    for (final command in _stateCommands) {
+      _stateByCommand[command] = {
+        ...?_stateByCommand[command],
+        ...fields,
+      };
+    }
+    await _decodeEntities();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _sendRoomba(NetworkActionDto action) async {
+    final controller = _roomba;
+    if (controller == null) {
+      throw const RoombaConnectionException('Not connected to the robot.');
+    }
+    await controller.sendCommand(action.commandName);
+  }
+
   /// Decode every entity from whatever `_stateByCommand` currently holds — the
   /// step shared by both transports' state refresh, so a reading means the
   /// same thing whichever socket carried it.
@@ -475,12 +600,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     NetworkActionDto action, {
     String? value,
   }) async {
-    // HTTP, Kasa and Rabbit Air sends are independent — no read-back
+    // HTTP, Kasa, Rabbit Air and Roomba sends are independent — no read-back
     // coupling — so they do not serialize behind the single-SOAP-write gate
     // the Crock-Pot needs.
     final independent = action.transport == 'http' ||
         action.transport == _kasaTransport ||
-        action.transport == _rabbitAirTransport;
+        action.transport == _rabbitAirTransport ||
+        action.transport == roombaTransport;
     // The disabled controls are the visible gate; this is the real one — a
     // tap can race the rebuild that greys the SOAP controls out.
     if (!independent && _soapSending != null) return;
@@ -501,6 +627,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           await _sendKasa(action, values);
         case _rabbitAirTransport:
           await _sendRabbitAir(action, values);
+        case roombaTransport:
+          await _sendRoomba(action);
         default:
           await _sendSoap(action, values);
       }
@@ -782,7 +910,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // declares them — but not a select: the channel picker goes
               // below the pad, so a Roku's remote keeps a stable position
               // whether the app list is still loading or just came back.
-              for (final entity in _entities.where((entity) =>
+              for (final entity in _drawableEntities.where((entity) =>
                   entity.platform != 'button' &&
                   entity.platform != 'select')) ...[
                 _entityCard(entity),
@@ -814,7 +942,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   }
 
   List<NetworkEntityDto> get _buttons =>
-      _entities.where((entity) => entity.platform == 'button').toList();
+      _drawableEntities.where((entity) => entity.platform == 'button').toList();
 
   /// The card shown for a Rabbit Air purifier with no stored user key:
   /// what the key is, where the owner finds it, and the way in. The key is a
