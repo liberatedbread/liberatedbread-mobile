@@ -95,6 +95,41 @@ while (( $# > 0 )); do
   esac
 done
 
+# Renders a path as a Desktop Entry `Exec` value.
+#
+# WHY THIS IS NOT JUST THE PATH. Exec is a command line, not a filename: it is
+# split on whitespace, so a bundle under "~/My Projects/..." installs an entry
+# that tries to run ~/My with "Projects/..." as its first argument. Clicking it
+# does nothing and says nothing, which is the failure mode this whole script
+# exists to avoid. A repo path with a space is ordinary, not exotic.
+#
+# TWO LAYERS OF ESCAPING, applied in this order because a launcher undoes them
+# in the opposite one:
+#
+#   1. The desktop-file "string" layer. The value is read by a key-file parser
+#      that turns \\ into \, and \s \n \t \r into whitespace.
+#   2. The Exec argument layer. What survives layer 1 is then parsed shell-like:
+#      double-quoted arguments, inside which \" \` \$ \\ unescape.
+#
+# So a literal backslash in the path has to reach layer 2 as \\, which means
+# writing \\\\ into the file. Same reasoning gives \\" for a quote.
+#
+# Reserved characters (space among them) are handled by quoting the whole value
+# rather than escaping each one, which the spec allows and which keeps the
+# common case readable in the installed file.
+#
+# A literal % is NOT escaped here, because it cannot be — see the guard below.
+#
+# https://specifications.freedesktop.org/desktop-entry-spec/latest/exec-variables.html
+desktop_exec_escape() {
+  local s="$1"
+  s="${s//\\/\\\\\\\\}"   # \ -> \\\\   (must come first, or it re-escapes the below)
+  s="${s//\"/\\\\\"}"     # " -> \\"
+  s="${s//\`/\\\\\`}"     # ` -> \\`
+  s="${s//\$/\\\\\$}"     # $ -> \\$
+  printf '"%s"' "$s"
+}
+
 # Refreshes the desktop's caches. Both tools are optional — a session that has
 # neither picks the change up on next login — so a missing one is not an error.
 refresh_caches() {
@@ -158,6 +193,32 @@ if [[ ! -x "$EXE" ]]; then
   exit 1
 fi
 
+# A literal % in the path has no working spelling in an Exec value, so refuse
+# rather than install something that fails silently. Both candidates were tried
+# against GLib's own launcher (g_desktop_app_info_new_from_filename + launch):
+#
+#   %   the spec's field-code introducer, so "/one%20two/app" is read as %2
+#       (an unknown code, dropped) and GIO tries to run "/one0two/app"
+#   %%  the spec's escape for a literal %, but GLib's binary-existence check at
+#       load time does NOT expand field codes, so it looks for a path that
+#       still contains %% , fails to find it, and refuses the entry outright
+#
+# Every other awkward character round-trips fine through desktop_exec_escape —
+# spaces, quotes, backslashes, $, backticks, semicolons, ampersands, parens —
+# so this guard is deliberately narrow. Moving the bundle is a one-line fix and
+# a loud refusal beats a desktop entry that does nothing when clicked.
+case "$BUNDLE" in
+  *%*)
+    err "The bundle path contains a '%' character:"
+    err "  $BUNDLE"
+    err "A literal % cannot be represented in a .desktop Exec value — GIO either"
+    err "reads it as a field code and mangles the path, or rejects the entry."
+    err "Move or copy the bundle somewhere without a % and re-run, e.g.:"
+    err "  cp -r \"$BUNDLE\" ~/liberated-bread-bundle"
+    err "  $0 ~/liberated-bread-bundle"
+    exit 1 ;;
+esac
+
 ICON_SRC_DIR="$BUNDLE/data/resources"
 if [[ ! -d "$ICON_SRC_DIR" ]]; then
   err "No data/resources/ in the bundle — it predates the app icon, or the"
@@ -205,7 +266,7 @@ Type=Application
 Name=Liberated Bread
 GenericName=IoT Device Control
 Comment=Discover and control local IoT devices without the vendor cloud
-Exec=$EXE
+Exec=$(desktop_exec_escape "$EXE")
 Icon=$APP_ID
 Terminal=false
 Categories=Utility;
