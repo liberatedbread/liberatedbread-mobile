@@ -62,8 +62,8 @@ export '../src/rust/api/device_api.dart'
         LifxZonesDto,
         LifxAccessPointDto,
         SoftApProfileDto,
-        WemoPasswordCandidateDto,
-        WemoAccessPointDto;
+        WemoAccessPointDto,
+        WemoJoinStatus;
 
 // `MacPrefixDto.confidence` is generated into the spec module rather than the
 // api one, because the enum is declared where the catalogue is parsed. Callers
@@ -513,16 +513,25 @@ abstract class SpecCodec {
     required String ssid,
   });
 
-  /// Every Wemo passphrase encryption worth sending, in the spec's sweep order.
-  /// [metaInfo] is the raw `GetMetaInfo` reply; [rtos]/[iot] (from setup.xml)
-  /// bias which variant is tried first. Throws when the passphrase is too short
-  /// — terminal, and worth saying before any network I/O.
-  Future<List<WemoPasswordCandidateDto>> wemoPasswordCandidates({
+  /// Every `ConnectHomeNetwork` request worth sending to join [ssid], rendered
+  /// and ready to POST — the Wemo counterpart of [renderLifxSetAccessPoint].
+  /// The passphrase is encrypted (each variant of the spec's sweep) and each
+  /// attempt rendered into a SOAP request; the caller POSTs them in turn until
+  /// one joins. [metaInfo] is the raw `GetMetaInfo` reply (unused for an open
+  /// network). Throws when the passphrase is too short — terminal, worth saying
+  /// before any network I/O.
+  Future<List<SoapRequestDto>> renderWemoConnectRequests({
+    required String specYaml,
     required String metaInfo,
+    required String ssid,
+    required String auth,
+    required String encrypt,
+    required String channel,
     required String passphrase,
-    int? rtos,
-    int? iot,
   });
+
+  /// Interpret a Wemo `GetNetworkStatus` reply's `NetworkStatus` value.
+  Future<WemoJoinStatus> wemoNetworkStatus({required String code});
 
   /// Parse a Wemo `GetApList` reply into pickable networks.
   Future<List<WemoAccessPointDto>> parseWemoApList({required String apList});
