@@ -411,6 +411,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
           NetworkDiscoverySource.mdns => 'mDNS',
           NetworkDiscoverySource.ssdp => 'SSDP',
           NetworkDiscoverySource.lanProbe => 'LAN',
+          NetworkDiscoverySource.homeAssistant => 'Home Assistant',
         }
     };
     return labels.join(' + ');

@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import '../models/ha_config.dart';
+import '../models/network_device.dart';
 import 'ha_api_client.dart';
 
 /// The transport half of Home-Assistant-mediated Roomba control.
@@ -118,6 +119,31 @@ class HaRoombaClient {
       entityId: entityId,
     );
   }
+
+  /// Present one of HA's vacuums as a device the app can list and open.
+  ///
+  /// The robot may be somewhere this phone cannot reach — a separate VLAN, a
+  /// firewalled subnet — which is exactly why it is worth listing: the
+  /// commands go to Home Assistant, not to the robot, so the panel works
+  /// regardless. [host] is therefore the Home Assistant host, and is display
+  /// and grouping only; nothing on this transport dials it.
+  ///
+  /// The entity id rides in `txt`, which already exists for discovery-time
+  /// key/value facts, rather than in a new field on the model.
+  static NetworkDevice asDevice(HaEntityState vacuum, {required String host}) =>
+      NetworkDevice(
+        host: host,
+        name: vacuum.friendlyName,
+        sources: const {NetworkDiscoverySource.homeAssistant},
+        discoveredAt: DateTime.now(),
+        txt: {
+          'ha_entity_id': vacuum.entityId,
+          // So a robot listed from HA and the same robot found by the UDP
+          // probe can be recognised as one device, when both happen.
+          if (vacuum.attributes['blid'] is String)
+            'blid': vacuum.attributes['blid'] as String,
+        },
+      );
 
   /// Translate a vacuum entity into the dotted paths the spec's entities bind
   /// to, so one control screen renders every transport.
