@@ -35,7 +35,7 @@ AVD_NAME="${AVD_NAME:-liberated_bread_test}"
 # Not derived from CI: the Rust toolchain there is whatever dtolnay/
 # rust-toolchain@stable resolves to on the day, which names no version. This is
 # the floor the crate needs to compile.
-RUST_MIN_VERSION="1.82.0"
+RUST_MIN_VERSION="1.85.0"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
