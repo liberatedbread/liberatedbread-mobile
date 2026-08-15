@@ -11,8 +11,11 @@ import '../models/network_device.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
+import '../providers/roomba_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/network_scan_service.dart';
+import '../services/roomba_control_service.dart';
+import '../services/roomba_credential_store.dart';
 import '../services/number_registry.dart';
 import '../services/spec_codec.dart';
 import '../widgets/adopt_device_card.dart';
@@ -20,6 +23,7 @@ import '../widgets/device_list_tile.dart';
 import 'adopt_device_screen.dart';
 import 'hub_device_screen.dart';
 import 'network_device_screen.dart';
+import 'roomba_adoption_screen.dart';
 
 /// Discovery of devices on the local network, alongside the BLE scan.
 ///
@@ -334,18 +338,65 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       description:
           entry.guess?.namesAProduct == true ? null : _describe(device, vendor),
       onTap: controls != null
-          ? () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  // A hub (instanced children, link-button pairing) gets the
-                  // paired screen; everything else — SOAP devices and Roku's
-                  // plain-HTTP remote alike — keeps the ordinary control
-                  // screen, whose load path a Hue bridge would not survive.
-                  builder: (_) => controls.isHub
-                      ? HubDeviceScreen(device: device, controls: controls)
-                      : NetworkDeviceScreen(device: device, controls: controls),
-                ),
-              )
+          ? () => _openControls(device, controls)
           : () => _showDetails(device, vendor),
+    );
+  }
+
+  /// Open whatever this device's controls need.
+  ///
+  /// A robot with no stored password cannot be controlled at all, so it goes
+  /// to the adoption wizard first rather than to a screen of buttons that
+  /// would every one of them fail. Once adopted it takes the ordinary control
+  /// screen like anything else.
+  Future<void> _openControls(
+    NetworkDevice device,
+    NetworkControls controls,
+  ) async {
+    final blid = device.txt['blid'];
+    final isRoomba = blid != null &&
+        controls.entities.any((entity) =>
+            entity.transport == roombaTransport ||
+            entity.actions.any((a) => a.transport == roombaTransport));
+
+    if (isRoomba) {
+      final stored =
+          await ref.read(roombaCredentialStoreProvider).credentials(blid);
+      if (!mounted) return;
+      if (stored == null) {
+        final adopted = await Navigator.of(context).push<RoombaCredentials>(
+          MaterialPageRoute(
+            builder: (_) => RoombaAdoptionScreen(
+              blid: blid,
+              host: device.host,
+              robotName: device.name.isEmpty ? null : device.name,
+              sku: device.txt['sku'],
+            ),
+          ),
+        );
+        // Dismissed without adopting: there is nothing to control, so do not
+        // push a screen that would only show errors.
+        if (adopted == null || !mounted) return;
+      } else {
+        // The lease may have moved since the last session; discovery just told
+        // us where it is now.
+        await ref
+            .read(roombaCredentialStoreProvider)
+            .rememberAddress(blid, device.host);
+        if (!mounted) return;
+      }
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        // A hub (instanced children, link-button pairing) gets the paired
+        // screen; everything else — SOAP devices and Roku's plain-HTTP remote
+        // alike — keeps the ordinary control screen, whose load path a Hue
+        // bridge would not survive.
+        builder: (_) => controls.isHub
+            ? HubDeviceScreen(device: device, controls: controls)
+            : NetworkDeviceScreen(device: device, controls: controls),
+      ),
     );
   }
 

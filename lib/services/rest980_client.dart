@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../core/error_text.dart';
 import 'spec_codec.dart';
 
 /// The transport half of rest980 control: HTTP to a
@@ -153,7 +154,8 @@ class Rest980Client {
 }
 
 /// A rest980 request failed, with a message meant to be shown as-is.
-class Rest980Exception implements Exception {
+class Rest980Exception implements UserFacingException {
+  @override
   final String message;
   const Rest980Exception(this.message);
   @override
