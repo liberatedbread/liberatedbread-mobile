@@ -147,11 +147,13 @@ fn manifest_and_spec_files_agree() {
     // a consumer cannot see.
     //
     // Upstream builds index.json in CI and commits it on main *after* the spec
-    // merge, so there is a window of a minute or two where main carries a spec
-    // the index does not name. A refresh that lands in that window vendors an
-    // inconsistent pair and fails here — the fix is to re-run
-    // ./scripts/update-specs.sh once upstream's index commit exists, not to
-    // touch the subtree.
+    // merge, so any upstream tree that is not a published main commit — the
+    // window right after a merge, or any spec branch — carries an index that
+    // predates its own specs. A refresh landing there vendors an inconsistent
+    // pair and fails here. Both fixes are in the refresh script, neither is an
+    // edit to the subtree: refresh again once upstream's index commit exists,
+    // or build the index from the vendored specs with
+    // `./scripts/update-specs.sh --rebuild-index`.
     let manifest_path = repo_root().join("vendor/protocol-specs/device-specs/index.json");
     let raw = fs::read_to_string(&manifest_path).expect("index.json should exist");
 
@@ -188,8 +190,10 @@ fn manifest_and_spec_files_agree() {
         assert!(
             listed.contains(file),
             "`{file}` is vendored but absent from the manifest — it would never \
-             load. If this spec merged upstream just now, upstream CI has not \
-             committed the rebuilt index yet: re-run ./scripts/update-specs.sh"
+             load. Upstream's index is published by CI after a spec merges, so \
+             a branch or a just-merged main has one that predates its specs: \
+             re-run ./scripts/update-specs.sh, or build the index from these \
+             specs with ./scripts/update-specs.sh --rebuild-index"
         );
     }
 }

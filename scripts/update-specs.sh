@@ -26,6 +26,9 @@
 #   ./scripts/update-specs.sh some-branch --from ../liberatedbread-protocol-specs
 #   ./scripts/update-specs.sh --from /path/to/checkout
 #   ./scripts/update-specs.sh --check             # verify only: no network, no pull
+#   ./scripts/update-specs.sh --rebuild-index     # build the spec index from the
+#                                                 # vendored specs, here, now
+#   ./scripts/update-specs.sh --no-rebuild-index  # never build it, whatever the source
 #
 # `--from` takes any git remote: a URL, or a path to a local checkout. Pulling
 # from a local checkout is for iterating on a spec change alongside an app
@@ -35,6 +38,28 @@
 # asserts the vendored tree still satisfies pubspec.yaml and that nobody has
 # hand-edited it in this repo. It touches no network and works on a shallow
 # clone, which is what makes it usable from CI.
+#
+# THE LOCAL INDEX REBUILD
+#
+# `device-specs/index.json` is the list the app's loader reads: a spec missing
+# from it is a spec the app never loads. Upstream generates it in CI and commits
+# it on main *after* a spec merges, so any upstream tree that is not a merged
+# main commit — a spec branch, a local checkout with an uncommitted spec — has
+# an index that predates the spec you are testing. Pull that and the new device
+# simply is not there, which is a confusing way to spend an evening.
+#
+# So when the source is a local checkout, this script rebuilds the index from
+# the specs it just vendored, by running upstream's own generator out of the
+# subtree. `--rebuild-index` forces it for any source (useful right after a
+# spec merges, before upstream CI has published the rebuilt index);
+# `--no-rebuild-index` suppresses it.
+#
+# The rebuild is deliberately left UNCOMMITTED. It is local-iteration state,
+# not a change to this repo: committing it would make the next `git subtree
+# pull` merge our index against upstream's and conflict on a generated file,
+# which is the exact problem upstream moved the build into CI to end. The
+# checks below tolerate that one file being dirty as long as it is byte-for-byte
+# what the vendored specs generate, and a later pull silently discards it.
 
 set -uo pipefail
 
@@ -47,6 +72,10 @@ REF="main"
 REMOTE="$DEFAULT_REMOTE"
 saw_ref=0
 check_only=0
+# auto: rebuild when the source is a local checkout. 1/0: forced on/off.
+rebuild_index="auto"
+INDEX_REL="device-specs/index.json"
+INDEX_PATH="$PREFIX/$INDEX_REL"
 
 # Print the header's usage block. Deliberately keyed off the "# Usage:" line
 # rather than off line numbers: the previous `sed -n '5,28p'` silently started
@@ -62,6 +91,10 @@ while [ $# -gt 0 ]; do
       REMOTE="${1#--from=}"; shift ;;
     --check)
       check_only=1; shift ;;
+    --rebuild-index)
+      rebuild_index=1; shift ;;
+    --no-rebuild-index)
+      rebuild_index=0; shift ;;
     -h|--help)
       usage; exit 0 ;;
     -*)
@@ -83,6 +116,94 @@ warn() { printf '\033[1;33m[update-specs]\033[0m %s\n' "$*"; }
 recorded_split() {
   git log -1 --format=%B --grep='^git-subtree-split:' 2>/dev/null \
     | awk '/^git-subtree-split:/ { print $2; exit }'
+}
+
+# ---------------------------------------------------------------------------
+# The spec index. Generated upstream, read by the app's loader, and the one
+# vendored file this script is willing to write.
+# ---------------------------------------------------------------------------
+
+# An interpreter that can actually run upstream's generator. Both imports are
+# upstream's, not ours: the generator validates every spec against schema.json
+# on its way to building the index, which is why jsonschema is not optional.
+python_for_specs() {
+  local candidate
+  for candidate in "${PYTHON:-}" python3 python; do
+    [ -n "$candidate" ] || continue
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    "$candidate" -c 'import yaml, jsonschema' >/dev/null 2>&1 || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+no_python_error() {
+  echo "::error::the vendored spec index needs upstream's generator to build, and that" >&2
+  echo "::error::needs a python3 with pyyaml + jsonschema. Install them with:" >&2
+  echo "::error::  python3 -m pip install -r $PREFIX/requirements.txt" >&2
+  echo "::error::(or set PYTHON=/path/to/python). Nothing else in this repo needs them." >&2
+}
+
+# Build the index from the specs sitting in the subtree right now, in place.
+# Left uncommitted on purpose — see the header.
+rebuild_vendored_index() {
+  local py before after err
+  py="$(python_for_specs)" || { no_python_error; return 1; }
+
+  before="$(git hash-object "$INDEX_PATH" 2>/dev/null || echo absent)"
+  err="$(mktemp)"
+  if ! "$py" "$PREFIX/scripts/generate_index.py" >/dev/null 2>"$err"; then
+    echo "::error::upstream's generate_index.py failed over the vendored specs:" >&2
+    sed 's/^/::error::  /' "$err" >&2
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
+
+  after="$(git hash-object "$INDEX_PATH")"
+  if [ "$before" = "$after" ]; then
+    log "spec index already matched the vendored specs; nothing rebuilt."
+  else
+    warn "rebuilt $INDEX_PATH from the vendored specs."
+    warn "Deliberately left uncommitted: it is local-iteration state, and the next"
+    warn "refresh discards it in favour of the index upstream CI publishes."
+  fi
+}
+
+# Is the index on disk exactly what the vendored specs generate? Returns 0 yes,
+# 1 no, 2 cannot tell (no usable interpreter). Restores the file either way, so
+# asking the question never changes the answer.
+index_is_generated_output() {
+  local py saved rc=0
+  py="$(python_for_specs)" || return 2
+  [ -f "$INDEX_PATH" ] || return 1
+
+  saved="$(mktemp)"
+  cp "$INDEX_PATH" "$saved"
+  if ! "$py" "$PREFIX/scripts/generate_index.py" >/dev/null 2>&1; then
+    rc=1
+  elif ! cmp -s "$saved" "$INDEX_PATH"; then
+    rc=1
+  fi
+  cp "$saved" "$INDEX_PATH"
+  rm -f "$saved"
+  return "$rc"
+}
+
+# The `path` values the index lists, one per line, sorted.
+indexed_spec_paths() {
+  grep -o '"path"[[:space:]]*:[[:space:]]*"[^"]*"' "$INDEX_PATH" \
+    | sed 's/^.*:[[:space:]]*"//; s/"$//' \
+    | sort
+}
+
+# The spec files actually vendored, in the same repo-relative form the index
+# uses. Same recursive view of device-specs/ that upstream's generator takes.
+vendored_spec_paths() {
+  find "$PREFIX/device-specs" \( -name '*.yaml' -o -name '*.yml' \) -print \
+    | sed "s|^$PREFIX/||" \
+    | sort
 }
 
 # ---------------------------------------------------------------------------
@@ -217,17 +338,65 @@ check_subtree_pristine() {
   # unstaged YAML dropped into device-specs/devices/ is bundled by Flutter at
   # build time exactly like a real one.
   dirty="$(git status --porcelain -- "$PREFIX")"
-  if [ -n "$dirty" ]; then
-    echo "::error::$PREFIX has uncommitted changes:" >&2
-    printf '%s\n' "$dirty" | sed 's/^/::error::  /' >&2
-    echo "::error::Spec changes belong upstream, not in this working copy." >&2
+  [ -n "$dirty" ] || return 0
+
+  # One exception, and it is narrow: the spec index, rebuilt from the specs
+  # vendored right here. That is not an edit to upstream's content — it is
+  # upstream's own generator run over upstream's own specs, which is why it can
+  # be verified rather than trusted. Anything else under the prefix, including
+  # an index that merely looks plausible, still fails.
+  if [ "$(printf '%s\n' "$dirty" | cut -c4-)" = "$INDEX_PATH" ]; then
+    index_is_generated_output
+    case $? in
+      0)
+        warn "$INDEX_PATH is locally rebuilt (uncommitted) and matches the vendored specs."
+        warn "Fine while iterating; do not commit it — the next refresh discards it."
+        return 0 ;;
+      2)
+        echo "::error::$INDEX_PATH is modified and cannot be verified here." >&2
+        no_python_error
+        echo "::error::Or discard it: git checkout -- $INDEX_PATH" >&2
+        return 1 ;;
+    esac
+  fi
+
+  echo "::error::$PREFIX has uncommitted changes:" >&2
+  printf '%s\n' "$dirty" | sed 's/^/::error::  /' >&2
+  echo "::error::Spec changes belong upstream, not in this working copy." >&2
+  return 1
+}
+
+# The index is the list the app's loader reads, so a spec it does not name is a
+# spec the app does not have. Upstream publishes the rebuilt index from CI a
+# beat after the spec merges, so a refresh can legitimately land on a main whose
+# index is one commit behind — and the app would ship without the device.
+# Cheap, exact, and no interpreter required: compare the two path lists.
+check_index_covers_specs() {
+  local indexed on_disk missing extra
+  if [ ! -f "$INDEX_PATH" ]; then
+    echo "::error::$INDEX_PATH is missing; the app's catalogue loader has nothing to read." >&2
     return 1
   fi
+
+  indexed="$(indexed_spec_paths)"
+  on_disk="$(vendored_spec_paths)"
+  [ "$indexed" != "$on_disk" ] || return 0
+
+  missing="$(comm -13 <(printf '%s\n' "$indexed") <(printf '%s\n' "$on_disk"))"
+  extra="$(comm -23 <(printf '%s\n' "$indexed") <(printf '%s\n' "$on_disk"))"
+  echo "::error::$INDEX_REL disagrees with the specs vendored beside it:" >&2
+  [ -z "$missing" ] || printf '%s\n' "$missing" | sed 's/^/::error::  vendored but unindexed (never loads): /' >&2
+  [ -z "$extra" ] || printf '%s\n' "$extra" | sed 's/^/::error::  indexed but not vendored (loader skips): /' >&2
+  echo "::error::Usually this means the index upstream published predates these specs —" >&2
+  echo "::error::a branch, or a main commit whose index CI has not committed yet. Either" >&2
+  echo "::error::refresh again once it has, or build it here: ./scripts/update-specs.sh --rebuild-index" >&2
+  return 1
 }
 
 run_checks() {
   local rc=0
   check_bundled_assets || rc=1
+  check_index_covers_specs || rc=1
   check_subtree_pristine || rc=1
   return "$rc"
 }
@@ -242,6 +411,13 @@ if [ "$check_only" -eq 1 ]; then
     log "vendored at upstream ${split:0:9}"
   else
     warn "no recorded upstream commit found in this history."
+  fi
+  # `--check --rebuild-index` is the "make this tree consistent without
+  # touching the network" combination: the specs are already here, so the index
+  # for them can be built from them. Explicitly asked for, so it is not a
+  # surprise write from a command that otherwise only reads.
+  if [ "$rebuild_index" = "1" ]; then
+    rebuild_vendored_index || exit 1
   fi
   run_checks || exit 1
   exit 0
@@ -261,6 +437,21 @@ if [ ! -x "$(git --exec-path)/git-subtree" ] && ! command -v git-subtree >/dev/n
   exit 1
 fi
 
+# A locally rebuilt index is this script's own doing, and the pull is about to
+# overwrite it with upstream's anyway. Dropping it here is what keeps the
+# rebuild from ever becoming a merge: the tree that meets `git subtree pull` is
+# the tree upstream last gave us. Only when it verifies as generator output —
+# anything else is someone's edit, and the clean-tree check below should say so.
+if [ -n "$(git status --porcelain -- "$INDEX_PATH")" ]; then
+  if index_is_generated_output; then
+    git checkout -- "$INDEX_PATH" \
+      && log "discarded the locally rebuilt index; the pull brings upstream's."
+  else
+    warn "$INDEX_PATH is modified and is not what the vendored specs generate."
+    warn "If it is a stale local rebuild: git checkout -- $INDEX_PATH"
+  fi
+fi
+
 # `git subtree pull` merges, so it refuses to start on a dirty tree — and it
 # refuses *after* fetching, with a message about the merge rather than about
 # the working copy. Say it plainly first.
@@ -273,9 +464,11 @@ fi
 # A local checkout can be at a commit that exists nowhere else. The subtree
 # squash records that SHA in its message, so a teammate who tries to trace the
 # vendored content back finds nothing. Fine while iterating, worth saying.
+local_source=0
 case "$REMOTE" in
   *://*|git@*) ;;
-  *) warn "pulling from a local checkout ($REMOTE) — the recorded upstream"
+  *) local_source=1
+     warn "pulling from a local checkout ($REMOTE) — the recorded upstream"
      warn "commit will not exist for anyone else until that branch is pushed." ;;
 esac
 
@@ -352,6 +545,16 @@ if [ -n "$AFTER_SPLIT" ]; then
   else
     log "vendored at upstream ${AFTER_SPLIT:0:9}"
   fi
+fi
+
+# Build the index the specs we just vendored actually deserve. A local checkout
+# is the case that needs it by default: its index is whatever upstream CI last
+# published on main, so on any branch — or on any tree with an uncommitted spec
+# — it predates the spec being iterated on, and the app would load a catalogue
+# without it. Forced with --rebuild-index for the same situation on a remote
+# ref, which is the window between a spec merging and CI committing the index.
+if [ "$rebuild_index" = "1" ] || { [ "$rebuild_index" = "auto" ] && [ "$local_source" -eq 1 ]; }; then
+  rebuild_vendored_index || exit 1
 fi
 
 # Run even when the pull was a no-op: the question these answer is "does the
