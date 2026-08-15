@@ -29,6 +29,12 @@ enum DeviceCategory {
   light(Icons.lightbulb_outline, 'Light'),
   lock(Icons.lock_outline, 'Lock'),
   motor(Icons.settings_outlined, 'Motor'),
+
+  /// Routers, switches, access points and the NVR/NAS appliances that ship
+  /// alongside them. These are identify-only in the catalogue — a UniFi or
+  /// MikroTik device answers a discovery probe with its model and name, and
+  /// that is the whole surface; nothing here is controllable.
+  network(Icons.router_outlined, 'Network'),
   printer(Icons.print_outlined, 'Printer'),
 
   /// A published-protocol reference (SAE J1979, ISO 14229, ISO 15765-2), not a

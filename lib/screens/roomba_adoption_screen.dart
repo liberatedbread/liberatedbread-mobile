@@ -257,7 +257,8 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
           ),
         const SizedBox(height: 8),
         TextButton(
-          onPressed: _busy ? null : () => setState(() => _route = _Route.chooser),
+          onPressed:
+              _busy ? null : () => setState(() => _route = _Route.chooser),
           child: const Text('Back'),
         ),
       ],
@@ -272,13 +273,14 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
       _attempt = 0;
     });
     try {
-      final password = await ref.read(roombaPasswordServiceProvider).fetchPassword(
-            widget.host,
-            attempts: widget.passwordAttempts,
-            onAttempt: (attempt) {
-              if (mounted) setState(() => _attempt = attempt);
-            },
-          );
+      final password =
+          await ref.read(roombaPasswordServiceProvider).fetchPassword(
+        widget.host,
+        attempts: widget.passwordAttempts,
+        onAttempt: (attempt) {
+          if (mounted) setState(() => _attempt = attempt);
+        },
+      );
       await _adopt(RoombaCredentials(
         blid: widget.blid,
         password: password,
@@ -349,10 +351,11 @@ class _RoombaAdoptionScreenState extends ConsumerState<RoombaAdoptionScreen> {
       _legacyTls = false;
     });
     try {
-      final robots = await ref.read(iRobotCloudServiceProvider).fetchCredentials(
-            email: _emailController.text.trim(),
-            password: _accountPasswordController.text,
-          );
+      final robots =
+          await ref.read(iRobotCloudServiceProvider).fetchCredentials(
+                email: _emailController.text.trim(),
+                password: _accountPasswordController.text,
+              );
       // Clear it the moment it has been used, rather than at dispose: the
       // window in which it exists should be as short as the flow allows.
       _accountPasswordController.clear();
