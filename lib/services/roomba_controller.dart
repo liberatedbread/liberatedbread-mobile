@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
 
+import 'ha_api_client.dart';
+import 'ha_roomba_client.dart';
 import 'rest980_client.dart';
 import 'roomba_control_service.dart';
 import 'roomba_credential_store.dart';
@@ -172,11 +174,123 @@ class Rest980Controller implements RoombaController {
   }
 }
 
+/// The recommended path: Home Assistant holds the robot, the app asks HA.
+///
+/// Nothing here talks to the robot. That is the entire point — HA already has
+/// the one local connection the robot allows, and a second contender for that
+/// slot is what locks people out of their own app.
+class HaRoombaController implements RoombaController {
+  final HaRoombaClient _client;
+  final String _entityId;
+
+  /// HA polls the robot itself (its integration is `local_polling`), so there
+  /// is nothing to push here. Matches [Rest980Controller]: live enough for a
+  /// mission display, gentle enough for a Pi.
+  static const pollInterval = Duration(seconds: 2);
+
+  final _state = StreamController<Map<String, String>>.broadcast();
+  Timer? _poll;
+
+  /// What the entity last said it can do. Null until the first read — the
+  /// screen asks [supports] before drawing a button, so until HA has answered
+  /// the safe reading is "the four core commands", not "nothing".
+  HaEntityState? _entity;
+
+  HaRoombaController({
+    required HaRoombaClient client,
+    required String entityId,
+  })  : _client = client,
+        _entityId = entityId;
+
+  @override
+  Future<void> connect() async {
+    if (_poll != null) return;
+    await _read();
+    _poll = Timer.periodic(pollInterval, (_) => _read());
+  }
+
+  Future<void> _read() async {
+    try {
+      final vacuum = await _client.vacuum(_entityId);
+      if (vacuum == null) {
+        // HA answered, and it has no such entity. That is a different problem
+        // from an unreachable server and must not read as one: the robot was
+        // removed or renamed in HA, and re-adopting is the fix.
+        if (!_state.isClosed) {
+          _state.addError(HaServerException(
+            404,
+            'Home Assistant no longer has $_entityId. It may have been '
+            'removed or renamed there.',
+          ));
+        }
+        return;
+      }
+      _entity = vacuum;
+
+      // Only fetched when the vacuum does not carry the reading itself, so the
+      // common case stays one request per tick.
+      HaEntityState? binFull;
+      if (vacuum.attributes['bin_full'] is! bool) {
+        final sensors = await _client.binarySensors();
+        binFull = HaRoombaClient.binFullFor(vacuum, sensors);
+      }
+
+      final fields = HaRoombaClient.stateFields(vacuum, binFull: binFull);
+      if (fields.isNotEmpty && !_state.isClosed) _state.add(fields);
+    } catch (e) {
+      if (!_state.isClosed) _state.addError(e);
+    }
+  }
+
+  /// One service call per command — and deliberately NOT
+  /// [roombaCommandSequence].
+  ///
+  /// Stop-then-dock exists because the robot's own protocol rejects `dock`
+  /// mid-clean. `vacuum.return_to_base` performs that transition itself, so
+  /// sending `stop` first would be a spurious extra command — and on an
+  /// integration that reports the two asynchronously, a race with itself.
+  @override
+  Future<void> sendCommand(String commandName) =>
+      _client.send(_entityId, commandName);
+
+  @override
+  Stream<Map<String, String>> get state => _state.stream;
+
+  @override
+  bool supports(String commandName) {
+    if (!HaRoombaClient.knows(commandName)) return false;
+    final entity = _entity;
+    // Before the first read, hide only what no vacuum is guaranteed to have.
+    if (entity == null) return commandName != 'find';
+    return HaRoombaClient.supports(entity, commandName);
+  }
+
+  @override
+  Future<void> close() async {
+    _poll?.cancel();
+    _poll = null;
+  }
+
+  /// Stop polling and close the stream. After this the controller is spent.
+  Future<void> dispose() async {
+    await close();
+    await _state.close();
+  }
+}
+
 /// Build the controller a robot is configured for.
 ///
-/// A stored `rest980BaseUrl` is the whole switch: set it and the app routes
-/// through the server, clear it and the app talks to the robot. Nothing else
-/// in the UI branches on the choice.
+/// The stored credential is the whole switch — an HA entity id, a rest980 base
+/// URL, or neither — and nothing else in the UI branches on the choice.
+///
+/// Home Assistant wins when both are set. Not arbitrary: both exist to keep
+/// exactly one thing holding the robot's single local connection, and if HA is
+/// configured then HA is already that thing. Preferring the server would leave
+/// two of them contending, which is the failure both settings exist to avoid.
+///
+/// [haClient] returns null when Home Assistant is not configured in the app at
+/// all — a stored entity id is then unusable, and the robot falls back to the
+/// path that still works rather than to an error.
 RoombaController roombaControllerFor({
   required RoombaCredentials credentials,
   required String host,
@@ -184,7 +298,15 @@ RoombaController roombaControllerFor({
   required SpecCodec codec,
   required RoombaMqttClient Function() directClient,
   required Rest980Client Function() restClient,
+  HaRoombaClient? Function()? haClient,
 }) {
+  final entityId = credentials.haEntityId;
+  if (entityId != null && entityId.isNotEmpty) {
+    final client = haClient?.call();
+    if (client != null) {
+      return HaRoombaController(client: client, entityId: entityId);
+    }
+  }
   final baseUrl = credentials.rest980BaseUrl;
   if (baseUrl != null && baseUrl.isNotEmpty) {
     return Rest980Controller(client: restClient(), baseUrl: baseUrl);

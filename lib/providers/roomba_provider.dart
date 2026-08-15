@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../services/ha_roomba_client.dart';
 import '../services/irobot_cloud_service.dart';
 import '../services/rest980_client.dart';
 import '../services/roomba_control_service.dart';
 import '../services/roomba_credential_store.dart';
-import 'settings_store_provider.dart';
+import 'ha_provider.dart';
 import 'spec_codec_provider.dart';
 
 /// Adopted robots' BLIDs and passwords, on the same secure settings store the
@@ -15,6 +16,24 @@ import 'spec_codec_provider.dart';
 /// gets an isolated in-memory store for free.
 final roombaCredentialStoreProvider = Provider<RoombaCredentialStore>(
     (ref) => RoombaCredentialStore(ref.watch(settingsStoreProvider)));
+
+/// The Home Assistant transport, or null when HA is not set up in the app.
+///
+/// Null rather than throwing, because "no Home Assistant here" is an ordinary
+/// state the UI has to render — the transport chooser still offers HA, with a
+/// pointer to setting it up, rather than hiding a path the user may well want.
+///
+/// Reads the config synchronously off [haConfigProvider]'s current value: this
+/// is consulted while building a controller, and a robot whose config has not
+/// finished loading falls back to the direct path rather than stalling the
+/// screen.
+final haRoombaClientProvider = Provider<HaRoombaClient?>((ref) {
+  final config = ref.watch(haConfigProvider).valueOrNull;
+  if (config == null || config.token.isEmpty || config.baseUrl.isEmpty) {
+    return null;
+  }
+  return HaRoombaClient(api: ref.watch(haApiClientProvider), config: config);
+});
 
 /// The HOME-button password handshake. A provider so the adoption wizard's
 /// widget tests drive it from a scripted socket rather than a real robot.
