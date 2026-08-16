@@ -1170,14 +1170,15 @@ void main() {
     });
   });
 
-  // ── Limited mode: plain ECP refuses, the signed session answers ─────────
+  // ── The ECP2 session is the primary path for every Roku ─────────────────
   //
-  // A Roku with "Control by mobile apps = Limited" refuses plain ECP (403,
-  // or 400 with the Limited-mode body) but answers ECP2. The screen's
-  // fallback is what keeps the channel list, the remote and the keyboard
-  // alive on such a TV — these tests run that whole path against a scripted
-  // socket playing the device.
-  group('ECP2 fallback (Limited mode)', () {
+  // A Roku is driven over the app's authenticated ECP2 session for
+  // everything — the remote, the channel list and the keyboard — the same
+  // path the official Roku app uses. Plain ECP is only a fallback for when the
+  // session is unavailable (that path is the plain-HTTP remote group), so here
+  // the plain client is wired to fail if it is ever touched. These tests run
+  // the whole surface against a scripted socket playing the device.
+  group('ECP2 session (primary Roku path)', () {
     final rokuDevice = NetworkDevice(
       host: '10.0.0.9',
       name: '',
@@ -1258,9 +1259,10 @@ void main() {
       ],
     );
 
-    /// A virtual Limited-mode Roku: every plain-ECP request is refused, and
-    /// the signed session on [socket] is the only way anything answers.
-    Future<AutoEcp2Socket> pumpLimited(
+    /// A virtual Roku driven entirely over the ECP2 session on [socket]. The
+    /// plain-ECP client fails if it is ever called, so a passing test proves
+    /// the session carried the whole surface, not the plain path.
+    Future<AutoEcp2Socket> pumpRoku(
       WidgetTester tester, {
       required List<NetworkEntityDto> entities,
       required Map<String, String> queryPayloads,
@@ -1271,8 +1273,9 @@ void main() {
         networkEntities: (_) => entities,
         networkHttpRequest: render,
       );
-      final limited = MockClient((request) async =>
-          http.Response('ECP command not allowed in Limited mode.', 403));
+      final plain = MockClient((request) async => fail(
+          'plain ECP was used while the ECP2 session was available: '
+          '${request.url}'));
       await tester.pumpWidget(ProviderScope(
         overrides: [
           specCodecProvider.overrideWithValue(codec),
@@ -1280,7 +1283,7 @@ void main() {
               httpClient: MockClient((request) async =>
                   fail('no description exists for this device')))),
           httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: limited)),
+              .overrideWithValue(HttpControlClient(httpClient: plain)),
           ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
         ],
         child: const MaterialApp(home: SizedBox()),
@@ -1297,9 +1300,8 @@ void main() {
       return socket;
     }
 
-    testWidgets('the refused channel list loads over the signed session',
-        (tester) async {
-      await pumpLimited(
+    testWidgets('the channel list loads over the session', (tester) async {
+      await pumpRoku(
         tester,
         entities: const [channelEntity],
         queryPayloads: const {
@@ -1319,15 +1321,13 @@ void main() {
       final youtube =
           tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'YouTube'));
       expect(youtube.selected, isTrue);
-      // The gate note's "go flip the setting" framing is for when control is
-      // broken; here it is not, and the screen says which path it is on.
-      expect(find.text('Using the signed session'), findsOneWidget);
+      // Control works, so no gate note and no "list refused" note.
       expect(find.text('The device is refusing commands'), findsNothing);
       expect(find.textContaining('refusing to share this list'), findsNothing);
     });
 
-    testWidgets('a refused keypress goes through the session', (tester) async {
-      final socket = await pumpLimited(
+    testWidgets('a keypress goes through the session', (tester) async {
+      final socket = await pumpRoku(
         tester,
         entities: const [homeButton],
         queryPayloads: const {},
@@ -1342,13 +1342,12 @@ void main() {
       final keypress =
           socket.sent.firstWhere((frame) => frame['request'] == 'key-press');
       expect(keypress['param-key'], 'Home');
-      expect(find.text('Using the signed session'), findsOneWidget);
       expect(find.text('The device is refusing commands'), findsNothing);
     });
 
-    testWidgets('typing falls back too, one key-press per character',
+    testWidgets('typing goes over the session, one key-press per character',
         (tester) async {
-      final socket = await pumpLimited(
+      final socket = await pumpRoku(
         tester,
         entities: const [keyboardEntity],
         queryPayloads: const {},
