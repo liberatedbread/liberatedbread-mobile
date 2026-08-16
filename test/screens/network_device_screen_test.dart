@@ -1565,6 +1565,194 @@ void main() {
     });
   });
 
+  // ── A Kasa power strip: outlets are instanced children over the socket ────
+  //
+  // A HS300 reports a `children` array; each outlet is its own switch, named by
+  // its alias, toggled by scoping the write to the outlet's id via
+  // context.child_ids. The plain "Outlet" switch is hidden on a strip.
+  group('Kasa power strip', () {
+    final stripDevice = NetworkDevice(
+      host: '10.0.0.8',
+      name: 'Rack Strip',
+      port: 9999,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const stripEntities = [
+      // The plain single-outlet switch the shared spec also declares — hidden
+      // on a strip, which has no top-level relay_state to read.
+      NetworkEntityDto(
+        name: 'Outlet',
+        platform: 'switch',
+        deviceClass: 'outlet',
+        stateCommand: 'get_sysinfo',
+        valueField: 'relay_state',
+        options: [],
+        isInstanced: false,
+        actions: [
+          NetworkActionDto(
+              role: 'turn_on',
+              commandName: 'relay_on',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: []),
+          NetworkActionDto(
+              role: 'turn_off',
+              commandName: 'relay_off',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: []),
+        ],
+      ),
+      // The instanced multi-outlet switch: each child a switch, its id threaded
+      // into the child-scoped command through the instance param.
+      NetworkEntityDto(
+        name: 'Outlets',
+        platform: 'switch',
+        deviceClass: 'outlet',
+        stateCommand: 'get_sysinfo',
+        options: [],
+        isInstanced: true,
+        actions: [
+          NetworkActionDto(
+              role: 'turn_on',
+              commandName: 'relay_on_child',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: [NetworkSourceParamDto(param: 'child_id', name: 'id')]),
+          NetworkActionDto(
+              role: 'turn_off',
+              commandName: 'relay_off_child',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: [NetworkSourceParamDto(param: 'child_id', name: 'id')]),
+        ],
+      ),
+    ];
+
+    const children = [
+      NetworkInstanceDto(id: '8006AAA00', label: 'RackFans'),
+      NetworkInstanceDto(id: '8006AAA01', label: 'Pleaky1'),
+      NetworkInstanceDto(id: '8006AAA02', label: 'Spare'),
+    ];
+
+    late Map<String, bool> childOn;
+    late FakeSpecCodec stripCodec;
+
+    Future<void> pumpStrip(WidgetTester tester) async {
+      childOn = {'8006AAA00': true, '8006AAA01': false, '8006AAA02': true};
+      stripCodec = FakeSpecCodec(
+        networkEntities: (_) => stripEntities,
+        instances: children,
+        instanceReadings: (id) => [
+          NetworkRoleReadingDto(
+            role: 'is_on',
+            reading: NetworkReadingDto(
+                kind: NetworkReadingKind.onOff,
+                isOn: childOn[id] ?? false,
+                raw: (childOn[id] ?? false) ? '1' : '0'),
+          ),
+        ],
+        // The plain "Outlet" reads nothing on a strip.
+        networkReading: (entity, returned) => null,
+        // Echo command + child so the exchange can flip the addressed outlet.
+        networkKasaRequest: (name, values) => KasaRequestDto(
+            json: '{"cmd":"$name","child":"${values['child_id'] ?? ''}"}'),
+      );
+
+      Future<Uint8List> exchange(
+          String host, int port, List<int> request, Duration timeout) async {
+        final json = await stripCodec.kasaDecodeFrame(frame: request);
+        final child = RegExp(r'"child":"([^"]*)"').firstMatch(json)?.group(1);
+        if (child != null && child.isNotEmpty) {
+          if (json.contains('relay_on_child')) childOn[child] = true;
+          if (json.contains('relay_off_child')) childOn[child] = false;
+        }
+        // Every poll answers get_sysinfo; the fake codec enumerates the
+        // children from its configured list, so the body's exact shape is moot.
+        const reply = '{"system":{"get_sysinfo":{"alias":"Rack Strip"}}}';
+        return Uint8List.fromList(await stripCodec.kasaEncodeFrame(json: reply));
+      }
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(stripCodec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('fetched a description for a Kasa strip: ${r.url}')))),
+          kasaControlClientProvider.overrideWithValue(
+              KasaControlClient(stripCodec, exchange: exchange)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: stripDevice,
+              controls:
+                  NetworkControls(specYaml: 'yaml', entities: stripEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    Switch outletSwitch(WidgetTester tester, String label) =>
+        tester.widget<Switch>(find.descendant(
+            of: find.widgetWithText(Card, label),
+            matching: find.byType(Switch)));
+
+    testWidgets('renders one switch per outlet by alias, hiding the plain one',
+        (tester) async {
+      await pumpStrip(tester);
+
+      expect(find.text('RackFans'), findsOneWidget);
+      expect(find.text('Pleaky1'), findsOneWidget);
+      expect(find.text('Spare'), findsOneWidget);
+      // Three outlets, and no fourth plain "Outlet" switch beside them.
+      expect(find.byType(Switch), findsNWidgets(3));
+      expect(find.text('Outlet'), findsNothing);
+      // Each reflects its child's reported state.
+      expect(outletSwitch(tester, 'RackFans').value, isTrue);
+      expect(outletSwitch(tester, 'Pleaky1').value, isFalse);
+      expect(outletSwitch(tester, 'Spare').value, isTrue);
+    });
+
+    testWidgets('toggling an outlet scopes the write to its child id',
+        (tester) async {
+      await pumpStrip(tester);
+
+      // Pleaky1 is off; turn it on.
+      await tester.tap(find.descendant(
+          of: find.widgetWithText(Card, 'Pleaky1'),
+          matching: find.byType(Switch)));
+      await tester.pumpAndSettle();
+
+      // The child-scoped command rendered, carrying Pleaky1's id — not the
+      // whole-device relay_on.
+      expect(
+        stripCodec.renderNetworkKasaCommandCalls,
+        contains(predicate<({String commandName, Map<String, String> values})>(
+            (c) =>
+                c.commandName == 'relay_on_child' &&
+                c.values['child_id'] == '8006AAA01')),
+      );
+      // The post-send poll shows Pleaky1 on now, its siblings untouched.
+      expect(outletSwitch(tester, 'Pleaky1').value, isTrue);
+      expect(outletSwitch(tester, 'RackFans').value, isTrue);
+      expect(outletSwitch(tester, 'Spare').value, isTrue);
+    });
+  });
+
   // ── HTTP state polling: read-only telemetry (Enphase Envoy) ──────────────
   //
   // The Envoy's whole surface is three sensors whose state command is a
