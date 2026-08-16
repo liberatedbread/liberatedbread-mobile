@@ -37,8 +37,8 @@ drives the NDK itself during `flutter build`.
 |------|---------|
 | Android SDK | API 36 — the pinned Flutter's `flutter.compileSdkVersion` |
 | Android NDK | CI's `FLUTTER_NDK_VERSION` — the pinned Flutter's `flutter.ndkVersion` |
-| Android SDK Build-Tools | CI's `ANDROID_BUILD_TOOLS` — AGP 8.9.1's floor; a newer one only adds a download |
-| Java (for Gradle) | 17–23 (Gradle 8.11.1 wrapper) |
+| Android SDK Build-Tools | CI's `ANDROID_BUILD_TOOLS` — AGP 8.11.1's floor; a newer one only adds a download |
+| Java (for Gradle) | 17–24 (Gradle 8.14.3 wrapper) |
 
 The emulator is a separate axis: it boots API 34 (see the CI table below), and
 nothing requires it to match the compile SDK.
@@ -304,9 +304,9 @@ options → USB debugging, plug in, and accept the prompt.
   the toolbar and run. (`flutter pub get` runs on first open.) If the Android
   build fails with *"Unsupported class file major version …"*, the Gradle JDK is
   too new: set Settings → Build → Build Tools → Gradle → **Gradle JDK** to a
-  Java 17–23 (`setup.sh` and `run-android.sh` point Flutter's own JDK at a
+  Java 17–24 (`setup.sh` and `run-android.sh` point Flutter's own JDK at a
   compatible one automatically via `flutter config --jdk-dir`; the IDE has its
-  own separate setting). Gradle wrapper is 8.11.1, AGP 8.9.1, CI runs on JDK 17.
+  own separate setting). Gradle wrapper is 8.14.3, AGP 8.11.1, CI runs on JDK 17.
 - **Xcode** (macOS): open `ios/Runner.xcworkspace` (the *workspace*, not the
   project), pick the shared **Runner** scheme and a device/simulator, and Run.
   The scheme is committed, so no per-machine setup is needed beyond
