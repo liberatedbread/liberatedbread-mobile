@@ -559,6 +559,20 @@ pub struct EntityInstances {
     /// Absent means callers fall back to the bare id.
     #[serde(default)]
     pub label_path: Option<String>,
+    /// Dotted path to the ARRAY of children, when they are a nested array
+    /// rather than the reply's top-level object. A Kasa power strip carries its
+    /// outlets at `system.get_sysinfo.children`; a Hue bridge keys the reply
+    /// itself by light id, so it leaves this absent. When it resolves to
+    /// nothing (a single-outlet plug has no `children`), the entity enumerates
+    /// no children — the caller then falls back to the plain switch.
+    #[serde(default)]
+    pub children_path: Option<String>,
+    /// Field inside one array element that carries its id, when the id is a
+    /// member rather than a map key. Kasa's children hold theirs in `id`. Only
+    /// consulted alongside [`children_path`]; the object-keyed shape takes the
+    /// id from the map key.
+    #[serde(default)]
+    pub id_field: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
