@@ -4049,6 +4049,32 @@ services:
     }
 
     #[test]
+    fn match_by_exact_name_is_whole_string_not_prefix() {
+        const EXACT: &str = r#"
+device:
+  name: "Bare serial module"
+  manufacturer: "Unknown"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  identification:
+    local_names: ["HC-05", "HC-06"]
+"#;
+        let dto = load_device_spec(EXACT.into()).unwrap();
+        // The bare default name matches (case-insensitively, like the prefix path).
+        assert!(match_device_to_spec(vec![dto.clone()], "HC-05".into(), vec![])
+            .iter()
+            .any(|m| m.matched_by_name_prefix));
+        assert!(match_device_to_spec(vec![dto.clone()], "hc-06".into(), vec![])
+            .iter()
+            .any(|m| m.matched_by_name_prefix));
+        // But a configured module that only SHARES the prefix does not — the
+        // whole point of local_names over local_name_prefixes.
+        assert!(match_device_to_spec(vec![dto], "HC-05Foo".into(), vec![])
+            .iter()
+            .all(|m| !m.matched_by_name_prefix));
+    }
+
+    #[test]
     fn match_by_service_uuid_only() {
         let dto = load_device_spec(TEST_YAML.into()).unwrap();
         // Advertised UUID uses uppercase to exercise the case-insensitive
