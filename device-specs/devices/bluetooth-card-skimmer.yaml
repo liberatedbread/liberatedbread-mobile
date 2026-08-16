@@ -14,11 +14,15 @@
 # named exactly "HC-05" with the default PIN 1234, sends the byte 'P', and a
 # skimmer replies 'M'. That is a Bluetooth CLASSIC (SPP) connect-and-probe; this
 # app scans BLE passively and never connects, so it CANNOT perform that check.
-# So we no longer flag the whole HC-0x / FREE2MOVE family on a name prefix. We
-# match ONLY the exact factory-default name (a module left at defaults, as a
-# skimmer is, so the criminal's own app can find it) and down-rank it to a
-# "reported" heads-up that carries the verification method — rather than
-# asserting "skimmer" on a name we cannot verify.
+# So we no longer flag the whole HC-0x / FREE2MOVE family: we keep only the
+# HC-05 / HC-06 module names, drop HC-03 / HC-08 / FREE2MOVE, and down-rank the
+# match from "malicious" to a "reported" heads-up that carries the verification
+# method — rather than asserting "skimmer" on a name we cannot verify. Note the
+# scan matcher recognises the module by name PREFIX (identification.local_name_
+# prefixes), so a configured "HC-05Foo" gets the same soft note as a bare
+# "HC-05"; that is acceptable now that the note no longer asserts evil and hands
+# the user a real way to check. Truly exact-name matching would need a new
+# identification axis (the matcher only does prefix today).
 #
 # Sources (public): SparkFun "Skimmer Scanner" (github.com/sparkfunX) and the
 # "Gas Pump Skimmers" tutorial (learn.sparkfun.com); Snopes fact check,
@@ -34,11 +38,11 @@ device:
   testing:
     status: untested
     notes: >
-      Heuristic, not hardware-verified. Matches ONLY the exact factory-default
-      name of an HC-05 / HC-06 serial Bluetooth module ("HC-05" or "HC-06",
-      unrenamed). These are Bluetooth Classic modules, so whether one surfaces in
-      a BLE scan is module-dependent, and the same modules fill innocent hobby
-      projects — so this is a soft heads-up to verify, never proof.
+      Heuristic, not hardware-verified. Matches the HC-05 / HC-06 module name
+      (we dropped HC-03 / HC-08 / FREE2MOVE). These are Bluetooth Classic
+      modules, so whether one surfaces in a BLE scan is module-dependent, and the
+      same modules fill innocent hobby projects — so this is a soft heads-up to
+      verify, never proof.
   security_advisory:
     severity: "reported"
     summary: >
@@ -93,17 +97,18 @@ device:
       issued_to_client: []
       notes: "No credential crosses to this app; it never connects."
   discovery:
-    # Match ONLY the module's exact factory-default name (Classic modules, so
-    # BLE visibility is module-dependent). Anchored on both ends so a renamed
-    # hobby module ("HC-05-Robot") does NOT match — a bare default name is the
-    # skimmer tell. identification.local_name_prefixes carries the same names for
-    # the scanner's cheap pre-connect match.
+    # Match the HC-05 / HC-06 module name (Classic modules, so BLE visibility is
+    # module-dependent). We dropped HC-03 / HC-08 / FREE2MOVE and the "malicious"
+    # severity: a bare default-named module is the skimmer tell, but a passive
+    # scan cannot confirm it, so this is a soft heads-up, not an alert.
+    # identification.local_name_prefixes carries the same names; the scan matcher
+    # keys on that (a name PREFIX), so this regex is written as a prefix too.
     methods:
       - type: "ble_scan"
         ble:
           local_name:
             match: "regex"
-            value: "^HC-0[56]$"
+            value: "^HC-0[56]"
     identity:
       stable_keys: ["address"]
       display: "name"
