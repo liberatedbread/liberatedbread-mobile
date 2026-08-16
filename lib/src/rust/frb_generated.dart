@@ -2515,29 +2515,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 19)
-      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
+    if (arr.length != 23)
+      throw Exception('unexpected arr length: expect 23 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
       manufacturerStatus: dco_decode_String(arr[2]),
       protocol: dco_decode_String(arr[3]),
       category: dco_decode_opt_String(arr[4]),
+      pictogram: dco_decode_opt_String(arr[5]),
+      adminUrl: dco_decode_opt_String(arr[6]),
+      integration: dco_decode_opt_String(arr[7]),
       securityAdvisory:
-          dco_decode_opt_box_autoadd_security_advisory_dto(arr[5]),
-      notes: dco_decode_opt_String(arr[6]),
-      localNamePrefixes: dco_decode_list_String(arr[7]),
-      serviceUuids: dco_decode_list_String(arr[8]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[9]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[10]),
-      mdnsServiceType: dco_decode_opt_String(arr[11]),
-      ssdpSearchTargets: dco_decode_list_String(arr[12]),
-      lanProtocols: dco_decode_list_String(arr[13]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[14]),
-      services: dco_decode_list_service_dto(arr[15]),
-      entities: dco_decode_list_entity_dto(arr[16]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[17]),
-      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[18]),
+          dco_decode_opt_box_autoadd_security_advisory_dto(arr[8]),
+      notes: dco_decode_opt_String(arr[9]),
+      localNamePrefixes: dco_decode_list_String(arr[10]),
+      localNames: dco_decode_list_String(arr[11]),
+      serviceUuids: dco_decode_list_String(arr[12]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[13]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[14]),
+      mdnsServiceType: dco_decode_opt_String(arr[15]),
+      ssdpSearchTargets: dco_decode_list_String(arr[16]),
+      lanProtocols: dco_decode_list_String(arr[17]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[18]),
+      services: dco_decode_list_service_dto(arr[19]),
+      entities: dco_decode_list_entity_dto(arr[20]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[21]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[22]),
     );
   }
 
@@ -3478,21 +3482,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ScanMatch dco_decode_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 11)
-      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    if (arr.length != 14)
+      throw Exception('unexpected arr length: expect 14 but see ${arr.length}');
     return ScanMatch(
       specIndex: dco_decode_u_32(arr[0]),
       deviceName: dco_decode_String(arr[1]),
       manufacturer: dco_decode_String(arr[2]),
       category: dco_decode_opt_String(arr[3]),
+      pictogram: dco_decode_opt_String(arr[4]),
+      adminUrl: dco_decode_opt_String(arr[5]),
+      integration: dco_decode_opt_String(arr[6]),
       securityAdvisory:
-          dco_decode_opt_box_autoadd_security_advisory_dto(arr[4]),
-      confidence: dco_decode_match_confidence(arr[5]),
-      matchedByNamePrefix: dco_decode_bool(arr[6]),
-      matchedServiceUuids: dco_decode_list_String(arr[7]),
-      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[8]),
-      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[9]),
-      matchedServiceTypes: dco_decode_list_String(arr[10]),
+          dco_decode_opt_box_autoadd_security_advisory_dto(arr[7]),
+      confidence: dco_decode_match_confidence(arr[8]),
+      matchedByNamePrefix: dco_decode_bool(arr[9]),
+      matchedServiceUuids: dco_decode_list_String(arr[10]),
+      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[11]),
+      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[12]),
+      matchedServiceTypes: dco_decode_list_String(arr[13]),
     );
   }
 
@@ -3576,22 +3583,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 12)
-      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return SpecIdentityDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
       category: dco_decode_opt_String(arr[2]),
+      pictogram: dco_decode_opt_String(arr[3]),
+      adminUrl: dco_decode_opt_String(arr[4]),
+      integration: dco_decode_opt_String(arr[5]),
       securityAdvisory:
-          dco_decode_opt_box_autoadd_security_advisory_dto(arr[3]),
-      localNamePrefixes: dco_decode_list_String(arr[4]),
-      serviceUuids: dco_decode_list_String(arr[5]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[6]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[7]),
-      mdnsServiceType: dco_decode_opt_String(arr[8]),
-      ssdpSearchTargets: dco_decode_list_String(arr[9]),
-      lanProtocols: dco_decode_list_String(arr[10]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[11]),
+          dco_decode_opt_box_autoadd_security_advisory_dto(arr[6]),
+      localNamePrefixes: dco_decode_list_String(arr[7]),
+      localNames: dco_decode_list_String(arr[8]),
+      serviceUuids: dco_decode_list_String(arr[9]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[10]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[11]),
+      mdnsServiceType: dco_decode_opt_String(arr[12]),
+      ssdpSearchTargets: dco_decode_list_String(arr[13]),
+      lanProtocols: dco_decode_list_String(arr[14]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[15]),
     );
   }
 
@@ -3932,10 +3943,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_manufacturerStatus = sse_decode_String(deserializer);
     var var_protocol = sse_decode_String(deserializer);
     var var_category = sse_decode_opt_String(deserializer);
+    var var_pictogram = sse_decode_opt_String(deserializer);
+    var var_adminUrl = sse_decode_opt_String(deserializer);
+    var var_integration = sse_decode_opt_String(deserializer);
     var var_securityAdvisory =
         sse_decode_opt_box_autoadd_security_advisory_dto(deserializer);
     var var_notes = sse_decode_opt_String(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
+    var var_localNames = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
@@ -3955,9 +3970,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         manufacturerStatus: var_manufacturerStatus,
         protocol: var_protocol,
         category: var_category,
+        pictogram: var_pictogram,
+        adminUrl: var_adminUrl,
+        integration: var_integration,
         securityAdvisory: var_securityAdvisory,
         notes: var_notes,
         localNamePrefixes: var_localNamePrefixes,
+        localNames: var_localNames,
         serviceUuids: var_serviceUuids,
         companyIds: var_companyIds,
         macPrefixes: var_macPrefixes,
@@ -5226,6 +5245,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_deviceName = sse_decode_String(deserializer);
     var var_manufacturer = sse_decode_String(deserializer);
     var var_category = sse_decode_opt_String(deserializer);
+    var var_pictogram = sse_decode_opt_String(deserializer);
+    var var_adminUrl = sse_decode_opt_String(deserializer);
+    var var_integration = sse_decode_opt_String(deserializer);
     var var_securityAdvisory =
         sse_decode_opt_box_autoadd_security_advisory_dto(deserializer);
     var var_confidence = sse_decode_match_confidence(deserializer);
@@ -5240,6 +5262,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
         category: var_category,
+        pictogram: var_pictogram,
+        adminUrl: var_adminUrl,
+        integration: var_integration,
         securityAdvisory: var_securityAdvisory,
         confidence: var_confidence,
         matchedByNamePrefix: var_matchedByNamePrefix,
@@ -5337,9 +5362,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_deviceName = sse_decode_String(deserializer);
     var var_manufacturer = sse_decode_String(deserializer);
     var var_category = sse_decode_opt_String(deserializer);
+    var var_pictogram = sse_decode_opt_String(deserializer);
+    var var_adminUrl = sse_decode_opt_String(deserializer);
+    var var_integration = sse_decode_opt_String(deserializer);
     var var_securityAdvisory =
         sse_decode_opt_box_autoadd_security_advisory_dto(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
+    var var_localNames = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
     var var_macPrefixes = sse_decode_list_mac_prefix_dto(deserializer);
@@ -5351,8 +5380,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
         category: var_category,
+        pictogram: var_pictogram,
+        adminUrl: var_adminUrl,
+        integration: var_integration,
         securityAdvisory: var_securityAdvisory,
         localNamePrefixes: var_localNamePrefixes,
+        localNames: var_localNames,
         serviceUuids: var_serviceUuids,
         companyIds: var_companyIds,
         macPrefixes: var_macPrefixes,
@@ -5672,10 +5705,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.manufacturerStatus, serializer);
     sse_encode_String(self.protocol, serializer);
     sse_encode_opt_String(self.category, serializer);
+    sse_encode_opt_String(self.pictogram, serializer);
+    sse_encode_opt_String(self.adminUrl, serializer);
+    sse_encode_opt_String(self.integration, serializer);
     sse_encode_opt_box_autoadd_security_advisory_dto(
         self.securityAdvisory, serializer);
     sse_encode_opt_String(self.notes, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
+    sse_encode_list_String(self.localNames, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);
@@ -6679,6 +6716,9 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.deviceName, serializer);
     sse_encode_String(self.manufacturer, serializer);
     sse_encode_opt_String(self.category, serializer);
+    sse_encode_opt_String(self.pictogram, serializer);
+    sse_encode_opt_String(self.adminUrl, serializer);
+    sse_encode_opt_String(self.integration, serializer);
     sse_encode_opt_box_autoadd_security_advisory_dto(
         self.securityAdvisory, serializer);
     sse_encode_match_confidence(self.confidence, serializer);
@@ -6752,9 +6792,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.deviceName, serializer);
     sse_encode_String(self.manufacturer, serializer);
     sse_encode_opt_String(self.category, serializer);
+    sse_encode_opt_String(self.pictogram, serializer);
+    sse_encode_opt_String(self.adminUrl, serializer);
+    sse_encode_opt_String(self.integration, serializer);
     sse_encode_opt_box_autoadd_security_advisory_dto(
         self.securityAdvisory, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
+    sse_encode_list_String(self.localNames, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
     sse_encode_list_mac_prefix_dto(self.macPrefixes, serializer);

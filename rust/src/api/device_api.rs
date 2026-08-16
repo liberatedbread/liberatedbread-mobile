@@ -63,6 +63,16 @@ pub struct DeviceSpecDto {
     /// category added upstream after this build still reaches Dart, which
     /// decides what to do with a value it does not recognise.
     pub category: Option<String>,
+    /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
+    /// …), carried as the raw string; the Dart resolver owns the table and
+    /// falls back to the category icon for one it does not know.
+    pub pictogram: Option<String>,
+    /// URL template to the device's own admin page, `{address}` for the host.
+    pub admin_url: Option<String>,
+    /// `supported` (default) vs `identify_only` — whether this app drives the
+    /// device or only recognises it and hands off. Raw string, absent =
+    /// supported.
+    pub integration: Option<String>,
     /// A known security problem with this device, when the spec declares one —
     /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
     pub security_advisory: Option<SecurityAdvisoryDto>,
@@ -72,6 +82,9 @@ pub struct DeviceSpecDto {
     /// several -- the Inkbird thermometer ships under eight names with no
     /// shared prefix. Empty when the spec declares none.
     pub local_name_prefixes: Vec<String>,
+    /// EXACT advertised names this spec matches whole-string (not a prefix).
+    /// Empty when the spec declares none.
+    pub local_names: Vec<String>,
     pub service_uuids: Vec<String>,
     /// Bluetooth SIG company IDs this device family advertises in its
     /// manufacturer-specific data, primary first. Empty when the spec declares
@@ -620,10 +633,22 @@ pub struct SpecIdentityDto {
     /// that has to index back into its own list to draw an icon will sooner or
     /// later index into a stale one.
     pub category: Option<String>,
+    /// Finer-grained glyph token than `category`, carried so the scan list can
+    /// draw a NAS/power-strip/phone glyph without fetching the whole spec back.
+    pub pictogram: Option<String>,
+    /// URL template to the device's own admin page (`{address}` for the host),
+    /// so a recognise-only scan result can offer an "Open admin" deep link.
+    pub admin_url: Option<String>,
+    /// `supported` vs `identify_only`, so the scan badge can say "recognised,
+    /// not controlled" instead of claiming a device it cannot drive.
+    pub integration: Option<String>,
     /// The matched spec's security advisory, carried so the scan list can badge
     /// (and alert on) a known-bad device without fetching the whole spec back.
     pub security_advisory: Option<SecurityAdvisoryDto>,
     pub local_name_prefixes: Vec<String>,
+    /// EXACT advertised names this spec matches whole-string (not a prefix) —
+    /// a bare factory-default name only. Empty when the spec declares none.
+    pub local_names: Vec<String>,
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
     pub mac_prefixes: Vec<MacPrefixDto>,
@@ -651,6 +676,13 @@ pub struct ScanMatch {
     /// The matched spec's device class, copied through from
     /// [`SpecIdentityDto::category`]. `None` when the spec states none.
     pub category: Option<String>,
+    /// The matched spec's finer glyph token, admin-page URL template, and
+    /// integration mode, copied through so the scan tile can draw the right
+    /// pictogram, offer an admin deep link, and badge recognise-only devices
+    /// without fetching the whole spec back.
+    pub pictogram: Option<String>,
+    pub admin_url: Option<String>,
+    pub integration: Option<String>,
     /// The matched spec's security advisory, copied through so a scan result
     /// can warn or alert the moment it is recognised. `None` for a device with
     /// no known problem.
@@ -805,8 +837,12 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             device_name: spec.device_name.clone(),
             manufacturer: spec.manufacturer.clone(),
             category: spec.category.clone(),
+            pictogram: spec.pictogram.clone(),
+            admin_url: spec.admin_url.clone(),
+            integration: spec.integration.clone(),
             security_advisory: spec.security_advisory.clone(),
             local_name_prefixes: spec.local_name_prefixes.clone(),
+            local_names: spec.local_names.clone(),
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
             mac_prefixes: spec.mac_prefixes.clone(),
@@ -829,6 +865,9 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             manufacturer_status: spec.device.manufacturer_status.to_string(),
             protocol: spec.device.protocol.to_string(),
             category: spec.device.category.clone(),
+            pictogram: spec.device.pictogram.clone(),
+            admin_url: spec.device.admin_url.clone(),
+            integration: spec.device.integration.clone(),
             security_advisory: spec
                 .device
                 .security_advisory
@@ -838,6 +877,7 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             local_name_prefixes: ident
                 .map(Identification::local_name_prefixes)
                 .unwrap_or_default(),
+            local_names: ident.map(Identification::local_names).unwrap_or_default(),
             service_uuids: ident
                 .and_then(|i| i.service_uuids.clone())
                 .unwrap_or_default(),
@@ -2499,11 +2539,18 @@ fn match_axes(
     device_mac: Option<&str>,
 ) -> MatchAxes {
     // Any prefix matching is a match: the list holds the names one family ships
-    // under, not names a device must carry all of.
+    // under, not names a device must carry all of. `local_names` is the
+    // whole-string variant — a bare factory-default name only, where a prefix
+    // would also catch a configured one (an HC-05 skimmer vs a renamed hobby
+    // module). Either kind of name match counts the same.
     let by_name_prefix = identity
         .local_name_prefixes
         .iter()
-        .any(|prefix| name_has_prefix(&device.name, prefix));
+        .any(|prefix| name_has_prefix(&device.name, prefix))
+        || identity
+            .local_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&device.name));
 
     // Return the lowercased intersection. Matches the docstring's contract and
     // gives Dart callers a predictable casing. We only allocate the lowercased
@@ -2849,6 +2896,9 @@ fn rank_matches(
                 device_name: identity.device_name.clone(),
                 manufacturer: identity.manufacturer.clone(),
                 category: identity.category.clone(),
+                pictogram: identity.pictogram.clone(),
+                admin_url: identity.admin_url.clone(),
+                integration: identity.integration.clone(),
                 security_advisory: identity.security_advisory.clone(),
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,

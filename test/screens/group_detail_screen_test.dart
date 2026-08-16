@@ -31,6 +31,7 @@ final _bulbSpec = DeviceSpecDto(
   protocol: 'ble',
   category: 'light',
   localNamePrefixes: const [],
+  localNames: const [],
   serviceUuids: const [_svc],
   companyIds: Uint16List(0),
   macPrefixes: const [],

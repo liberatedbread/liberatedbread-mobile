@@ -441,6 +441,7 @@ void main() {
       protocol: 'ble',
       category: 'light',
       localNamePrefixes: const [],
+      localNames: const [],
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],

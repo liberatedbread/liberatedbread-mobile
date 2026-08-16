@@ -23,6 +23,7 @@ final _spec = DeviceSpecDto(
   protocol: 'ble',
   category: 'light',
   localNamePrefixes: const ['ACME_'],
+  localNames: const [],
   serviceUuids: const [_svcUuid],
   companyIds: Uint16List.fromList(const [961]),
   macPrefixes: const [
