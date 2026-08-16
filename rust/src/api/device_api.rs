@@ -4304,6 +4304,83 @@ services:
     }
 
     #[test]
+    fn a_security_advisory_reaches_the_dto_the_identity_and_the_scan_match() {
+        const YAML: &str = r#"
+device:
+  name: "Sketchy Alarm"
+  manufacturer: "Nobody"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "warning"
+  integration: "identify_only"
+  security_advisory:
+    severity: "vulnerable"
+    summary: "One shared key unlocks every unit."
+    detail: "The longer story."
+    advisory_url: "https://example.test/advisory"
+    mitigation:
+      summary: "Update the app."
+      url: "https://example.test/patch"
+  identification:
+    local_name_prefix: "SKETCH_"
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "SKETCH_"
+  setup:
+    required: false
+    confidence: low
+    notes: "none"
+    methods:
+      - type: "none"
+        description: "passive"
+        verified: false
+    factory_reset: { applicable: false, confidence: low, effect: "n/a" }
+    rejoin: { in_place_supported: true, requires_factory_reset: false }
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+"#;
+        // Parses onto the spec DTO...
+        let dto = load_device_spec(YAML.into()).unwrap();
+        let adv = dto.security_advisory.as_ref().expect("advisory parsed");
+        assert_eq!(adv.severity, "vulnerable");
+        assert_eq!(adv.summary, "One shared key unlocks every unit.");
+        assert_eq!(adv.mitigation_summary.as_deref(), Some("Update the app."));
+        assert_eq!(adv.mitigation_url.as_deref(), Some("https://example.test/patch"));
+
+        // ...through the scan identity...
+        let identity = SpecIdentityDto::from(&dto);
+        assert!(identity.security_advisory.is_some());
+
+        // ...and out to a scan match on a device that carries the name.
+        let mut device = anonymous_device();
+        device.name = "SKETCH_01".into();
+        let matches = match_scanned_device(vec![identity], device);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0]
+                .security_advisory
+                .as_ref()
+                .map(|a| a.severity.as_str()),
+            Some("vulnerable")
+        );
+    }
+
+    #[test]
+    fn a_spec_with_no_security_advisory_carries_none() {
+        assert!(scan_identity().security_advisory.is_none());
+        assert!(load_device_spec(SCAN_YAML.into())
+            .unwrap()
+            .security_advisory
+            .is_none());
+    }
+
+    #[test]
     fn a_spec_with_no_category_still_matches() {
         // Categories arrived after the catalogue did. A spec pack cached by an
         // older build must still rank and still be usable — it just has no
