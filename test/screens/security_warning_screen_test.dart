@@ -7,6 +7,7 @@ import 'package:liberated_bread_mobile/providers/scan_match_provider.dart';
 import 'package:liberated_bread_mobile/screens/security_warning_screen.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart'
     show MatchConfidence, SecurityAdvisoryDto;
+import 'package:liberated_bread_mobile/widgets/black_hat_icon.dart';
 
 IoTDevice _device() => IoTDevice(
       id: 'AA:BB:CC:DD:EE:01',
@@ -76,9 +77,20 @@ void main() {
     );
 
     expect(find.text('Do not trust this device'), findsOneWidget);
+    // A malicious device wears the black hat, not a Material severity glyph.
+    expect(find.byType(BlackHatIcon), findsOneWidget);
     // No mitigation, and malicious devices are not "awaiting a fix".
     expect(find.text('How to fix it'), findsNothing);
     expect(find.text('No fix has been published yet.'), findsNothing);
+  });
+
+  testWidgets('a non-malicious device does not wear the black hat',
+      (tester) async {
+    await _pump(
+      tester,
+      const SecurityAdvisoryDto(severity: 'vulnerable', summary: 'Shared key.'),
+    );
+    expect(find.byType(BlackHatIcon), findsNothing);
   });
 
   testWidgets('a reported issue with no fix says so', (tester) async {
