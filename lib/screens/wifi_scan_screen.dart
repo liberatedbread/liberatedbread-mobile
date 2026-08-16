@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -424,8 +425,8 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) {
-        final text = Theme.of(context).textTheme;
+      builder: (sheetContext) {
+        final text = Theme.of(sheetContext).textTheme;
         // Scrollable, because the content is whatever the device chose to
         // advertise: a printer's TXT records alone can be taller than the
         // sheet, and a Column would overflow rather than let the user read
@@ -437,9 +438,30 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(device.displayName,
-                    style:
-                        text.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(device.displayName,
+                          style: text.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w700)),
+                    ),
+                    // The details are the reason to open the sheet — a MAC to
+                    // save, a TXT record to paste into a bug report. Copy the
+                    // whole lot, since retyping a MAC or a serial off a phone
+                    // screen is exactly the friction this removes.
+                    IconButton(
+                      icon: const Icon(Icons.copy_outlined),
+                      tooltip: 'Copy details',
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(sheetContext);
+                        await Clipboard.setData(ClipboardData(
+                            text: _detailsText(device, vendor)));
+                        messenger.showSnackBar(const SnackBar(
+                            content: Text('Device details copied')));
+                      },
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 16),
                 _detailRow('Address', device.host),
                 if (device.port != null) _detailRow('Port', '${device.port}'),
@@ -466,6 +488,28 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
         );
       },
     );
+  }
+
+  /// The details sheet as plain text for the clipboard — the same rows the
+  /// sheet shows, one `Label: value` per line.
+  static String _detailsText(NetworkDevice device, String? vendor) {
+    final b = StringBuffer()..writeln(device.displayName);
+    b.writeln('Address: ${device.host}');
+    if (device.port != null) b.writeln('Port: ${device.port}');
+    if (device.hostname != null) b.writeln('Hostname: ${device.hostname}');
+    if (device.advertisedMac != null) b.writeln('MAC: ${device.advertisedMac}');
+    if (vendor != null) b.writeln('Address block: $vendor');
+    if (device.serviceTypes.isNotEmpty) {
+      b.writeln('mDNS: ${device.serviceTypes.join(', ')}');
+    }
+    if (device.ssdpTargets.isNotEmpty) {
+      b.writeln('SSDP: ${device.ssdpTargets.join(', ')}');
+    }
+    if (device.server != null) b.writeln('Server: ${device.server}');
+    for (final entry in device.txt.entries) {
+      b.writeln('${entry.key}: ${entry.value}');
+    }
+    return b.toString().trimRight();
   }
 
   Widget _detailRow(String label, String value) => Padding(
