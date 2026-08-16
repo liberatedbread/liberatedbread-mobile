@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/iot_device.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/spec_codec.dart' show MatchConfidence, SecurityAdvisoryDto;
+import '../widgets/black_hat_icon.dart';
 
 /// The page a scan result opens when the catalogue matched a spec carrying a
 /// `security_advisory` — a device with a known, cited security problem. It
@@ -101,7 +102,11 @@ class SecurityWarningScreen extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(_icon, color: accent, size: 32),
+                  // A malicious device wears the black hat; the rest a severity
+                  // glyph.
+                  advisory.severity == 'malicious'
+                      ? BlackHatIcon(size: 34, color: accent)
+                      : Icon(_icon, color: accent, size: 32),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
