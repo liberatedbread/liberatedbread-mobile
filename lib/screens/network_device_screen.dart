@@ -1735,6 +1735,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final turnOn = _actionFor(entity, 'turn_on');
     final turnOff = _actionFor(entity, 'turn_off');
     final busy = _sending.contains(entity.name);
+    // A single Kasa outlet/switch names itself in get_sysinfo (alias) — a wall
+    // switch called "Kitchen Lights", a plug called "Desk Lamp". Prefer that
+    // over the generic "Outlet", the same way a strip's per-outlet cards show
+    // each child's alias.
+    final kasaState =
+        _isKasa ? _stateByCommand[entity.stateCommand] : null;
+    final alias = kasaState?['alias'];
+    final title = (alias != null && alias.isNotEmpty) ? alias : entity.name;
 
     return _card(
       child: Row(
@@ -1743,7 +1751,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(entity.name,
+                Text(title,
                     style: Theme.of(context)
                         .textTheme
                         .titleMedium
