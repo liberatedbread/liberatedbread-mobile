@@ -976,7 +976,7 @@
                           "broadcast_address": { "type": "string", "default": "255.255.255.255", "description": "Destination for the probe; the directed subnet broadcast (e.g. 10.69.255.255) also works and crosses fewer boundaries." },
                           "probe_hex": { "type": "string", "pattern": "^[0-9a-fA-F]*$", "description": "The probe datagram as hex, if the protocol is request/response (Ubiquiti v1 '01000000', MNDP an empty/zero datagram). Omit or leave empty for listen-only protocols that beacon on their own." },
                           "passive_ok": { "type": "boolean", "default": false, "description": "True when devices broadcast unsolicited beacons, so a consumer can also just listen without probing (MNDP and Ubiquiti both beacon periodically)." },
-                          "response_format": { "type": "string", "enum": ["tlv", "json", "json_xor", "binary"], "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON (LIFX is binary, Kasa is 'json_xor' = JSON under the 0xAB autokey cipher)." },
+                          "response_format": { "type": "string", "enum": ["tlv", "json", "json_xor", "json_aes", "binary"], "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON; 'json_xor' = JSON under the 0xAB autokey cipher (Kasa); 'json_aes' = JSON under AES (Tuya's 6667 beacon is AES-128-ECB under a fixed, published discovery key); 'binary' = a packed struct (LIFX)." },
                           "identity_mapping": {
                             "type": "object",
                             "required": ["stable_keys"],
