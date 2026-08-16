@@ -16,11 +16,39 @@ use crate::spec::bindings;
 use crate::spec::parser::parse_device_spec;
 use crate::spec::types::{
     Characteristic, CharacteristicProperty, Command, DeviceSpec, Entity, FormatField,
-    Identification, MacPrefix, MacPrefixConfidence, Parameter, Service,
+    Identification, MacPrefix, MacPrefixConfidence, Parameter, SecurityAdvisory, Service,
 };
 
 // ── DTO types for the FFI boundary ──────────────────────────────────────────
 // These are simpler, FRB-friendly versions of the internal types.
+
+/// A device's known security problem, flattened for the FFI. The mitigation is
+/// split into two optional scalars rather than a nested struct so the whole
+/// advisory crosses as one flat record. See [`SecurityAdvisory`].
+#[derive(Debug, Clone)]
+pub struct SecurityAdvisoryDto {
+    /// `vulnerable`, `reported`, or `malicious` — the app colours and words the
+    /// warning by this, and treats `malicious` (a skimmer) as a scan alert.
+    pub severity: String,
+    pub summary: String,
+    pub detail: Option<String>,
+    pub advisory_url: Option<String>,
+    pub mitigation_summary: Option<String>,
+    pub mitigation_url: Option<String>,
+}
+
+impl From<&SecurityAdvisory> for SecurityAdvisoryDto {
+    fn from(a: &SecurityAdvisory) -> Self {
+        Self {
+            severity: a.severity.to_string(),
+            summary: a.summary.clone(),
+            detail: a.detail.clone(),
+            advisory_url: a.advisory_url.clone(),
+            mitigation_summary: a.mitigation.as_ref().map(|m| m.summary.clone()),
+            mitigation_url: a.mitigation.as_ref().and_then(|m| m.url.clone()),
+        }
+    }
+}
 
 /// A parsed device specification, ready for use by the Flutter app.
 #[derive(Debug, Clone)]
@@ -35,6 +63,9 @@ pub struct DeviceSpecDto {
     /// category added upstream after this build still reaches Dart, which
     /// decides what to do with a value it does not recognise.
     pub category: Option<String>,
+    /// A known security problem with this device, when the spec declares one —
+    /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
+    pub security_advisory: Option<SecurityAdvisoryDto>,
     pub notes: Option<String>,
     /// Every BLE local name prefix this device family advertises under, in
     /// spec order. Plural because a family sold as several rebadged models has
@@ -589,6 +620,9 @@ pub struct SpecIdentityDto {
     /// that has to index back into its own list to draw an icon will sooner or
     /// later index into a stale one.
     pub category: Option<String>,
+    /// The matched spec's security advisory, carried so the scan list can badge
+    /// (and alert on) a known-bad device without fetching the whole spec back.
+    pub security_advisory: Option<SecurityAdvisoryDto>,
     pub local_name_prefixes: Vec<String>,
     pub service_uuids: Vec<String>,
     pub company_ids: Vec<u16>,
@@ -617,6 +651,10 @@ pub struct ScanMatch {
     /// The matched spec's device class, copied through from
     /// [`SpecIdentityDto::category`]. `None` when the spec states none.
     pub category: Option<String>,
+    /// The matched spec's security advisory, copied through so a scan result
+    /// can warn or alert the moment it is recognised. `None` for a device with
+    /// no known problem.
+    pub security_advisory: Option<SecurityAdvisoryDto>,
     pub confidence: MatchConfidence,
     pub matched_by_name_prefix: bool,
     /// Matched advertised service UUIDs, lowercased.
@@ -767,6 +805,7 @@ impl From<&DeviceSpecDto> for SpecIdentityDto {
             device_name: spec.device_name.clone(),
             manufacturer: spec.manufacturer.clone(),
             category: spec.category.clone(),
+            security_advisory: spec.security_advisory.clone(),
             local_name_prefixes: spec.local_name_prefixes.clone(),
             service_uuids: spec.service_uuids.clone(),
             company_ids: spec.company_ids.clone(),
@@ -790,6 +829,11 @@ impl From<&DeviceSpec> for DeviceSpecDto {
             manufacturer_status: spec.device.manufacturer_status.to_string(),
             protocol: spec.device.protocol.to_string(),
             category: spec.device.category.clone(),
+            security_advisory: spec
+                .device
+                .security_advisory
+                .as_ref()
+                .map(SecurityAdvisoryDto::from),
             notes: spec.device.notes.clone(),
             local_name_prefixes: ident
                 .map(Identification::local_name_prefixes)
@@ -2805,6 +2849,7 @@ fn rank_matches(
                 device_name: identity.device_name.clone(),
                 manufacturer: identity.manufacturer.clone(),
                 category: identity.category.clone(),
+                security_advisory: identity.security_advisory.clone(),
                 confidence: axes.confidence(),
                 matched_by_name_prefix: axes.by_name_prefix,
                 matched_service_uuids,

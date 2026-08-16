@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -929,6 +929,10 @@ class DeviceSpecDto {
   /// category added upstream after this build still reaches Dart, which
   /// decides what to do with a value it does not recognise.
   final String? category;
+
+  /// A known security problem with this device, when the spec declares one —
+  /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
+  final SecurityAdvisoryDto? securityAdvisory;
   final String? notes;
 
   /// Every BLE local name prefix this device family advertises under, in
@@ -988,6 +992,7 @@ class DeviceSpecDto {
     required this.manufacturerStatus,
     required this.protocol,
     this.category,
+    this.securityAdvisory,
     this.notes,
     required this.localNamePrefixes,
     required this.serviceUuids,
@@ -1010,6 +1015,7 @@ class DeviceSpecDto {
       manufacturerStatus.hashCode ^
       protocol.hashCode ^
       category.hashCode ^
+      securityAdvisory.hashCode ^
       notes.hashCode ^
       localNamePrefixes.hashCode ^
       serviceUuids.hashCode ^
@@ -1034,6 +1040,7 @@ class DeviceSpecDto {
           manufacturerStatus == other.manufacturerStatus &&
           protocol == other.protocol &&
           category == other.category &&
+          securityAdvisory == other.securityAdvisory &&
           notes == other.notes &&
           localNamePrefixes == other.localNamePrefixes &&
           serviceUuids == other.serviceUuids &&
@@ -2559,6 +2566,11 @@ class ScanMatch {
   /// The matched spec's device class, copied through from
   /// [`SpecIdentityDto::category`]. `None` when the spec states none.
   final String? category;
+
+  /// The matched spec's security advisory, copied through so a scan result
+  /// can warn or alert the moment it is recognised. `None` for a device with
+  /// no known problem.
+  final SecurityAdvisoryDto? securityAdvisory;
   final MatchConfidence confidence;
   final bool matchedByNamePrefix;
 
@@ -2580,6 +2592,7 @@ class ScanMatch {
     required this.deviceName,
     required this.manufacturer,
     this.category,
+    this.securityAdvisory,
     required this.confidence,
     required this.matchedByNamePrefix,
     required this.matchedServiceUuids,
@@ -2594,6 +2607,7 @@ class ScanMatch {
       deviceName.hashCode ^
       manufacturer.hashCode ^
       category.hashCode ^
+      securityAdvisory.hashCode ^
       confidence.hashCode ^
       matchedByNamePrefix.hashCode ^
       matchedServiceUuids.hashCode ^
@@ -2610,6 +2624,7 @@ class ScanMatch {
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
           category == other.category &&
+          securityAdvisory == other.securityAdvisory &&
           confidence == other.confidence &&
           matchedByNamePrefix == other.matchedByNamePrefix &&
           matchedServiceUuids == other.matchedServiceUuids &&
@@ -2662,6 +2677,50 @@ class ScannedDeviceDto {
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macAddress == other.macAddress;
+}
+
+/// A device's known security problem, flattened for the FFI. The mitigation is
+/// split into two optional scalars rather than a nested struct so the whole
+/// advisory crosses as one flat record. See [`SecurityAdvisory`].
+class SecurityAdvisoryDto {
+  /// `vulnerable`, `reported`, or `malicious` — the app colours and words the
+  /// warning by this, and treats `malicious` (a skimmer) as a scan alert.
+  final String severity;
+  final String summary;
+  final String? detail;
+  final String? advisoryUrl;
+  final String? mitigationSummary;
+  final String? mitigationUrl;
+
+  const SecurityAdvisoryDto({
+    required this.severity,
+    required this.summary,
+    this.detail,
+    this.advisoryUrl,
+    this.mitigationSummary,
+    this.mitigationUrl,
+  });
+
+  @override
+  int get hashCode =>
+      severity.hashCode ^
+      summary.hashCode ^
+      detail.hashCode ^
+      advisoryUrl.hashCode ^
+      mitigationSummary.hashCode ^
+      mitigationUrl.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SecurityAdvisoryDto &&
+          runtimeType == other.runtimeType &&
+          severity == other.severity &&
+          summary == other.summary &&
+          detail == other.detail &&
+          advisoryUrl == other.advisoryUrl &&
+          mitigationSummary == other.mitigationSummary &&
+          mitigationUrl == other.mitigationUrl;
 }
 
 class ServiceDto {
@@ -2812,6 +2871,10 @@ class SpecIdentityDto {
   /// that has to index back into its own list to draw an icon will sooner or
   /// later index into a stale one.
   final String? category;
+
+  /// The matched spec's security advisory, carried so the scan list can badge
+  /// (and alert on) a known-bad device without fetching the whole spec back.
+  final SecurityAdvisoryDto? securityAdvisory;
   final List<String> localNamePrefixes;
   final List<String> serviceUuids;
   final Uint16List companyIds;
@@ -2836,6 +2899,7 @@ class SpecIdentityDto {
     required this.deviceName,
     required this.manufacturer,
     this.category,
+    this.securityAdvisory,
     required this.localNamePrefixes,
     required this.serviceUuids,
     required this.companyIds,
@@ -2851,6 +2915,7 @@ class SpecIdentityDto {
       deviceName.hashCode ^
       manufacturer.hashCode ^
       category.hashCode ^
+      securityAdvisory.hashCode ^
       localNamePrefixes.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
@@ -2868,6 +2933,7 @@ class SpecIdentityDto {
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
           category == other.category &&
+          securityAdvisory == other.securityAdvisory &&
           localNamePrefixes == other.localNamePrefixes &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&

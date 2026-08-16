@@ -2721,6 +2721,8 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_manufacturerStatus = <String>::sse_decode(deserializer);
         let mut var_protocol = <String>::sse_decode(deserializer);
         let mut var_category = <Option<String>>::sse_decode(deserializer);
+        let mut var_securityAdvisory =
+            <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
         let mut var_notes = <Option<String>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
@@ -2743,6 +2745,7 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             manufacturer_status: var_manufacturerStatus,
             protocol: var_protocol,
             category: var_category,
+            security_advisory: var_securityAdvisory,
             notes: var_notes,
             local_name_prefixes: var_localNamePrefixes,
             service_uuids: var_serviceUuids,
@@ -3933,6 +3936,19 @@ impl SseDecode for Option<crate::api::device_api::QuerySourceDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::SecurityAdvisoryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::SecurityAdvisoryDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::device_api::StoredUploadDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4152,6 +4168,8 @@ impl SseDecode for crate::api::device_api::ScanMatch {
         let mut var_deviceName = <String>::sse_decode(deserializer);
         let mut var_manufacturer = <String>::sse_decode(deserializer);
         let mut var_category = <Option<String>>::sse_decode(deserializer);
+        let mut var_securityAdvisory =
+            <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
         let mut var_confidence =
             <crate::api::device_api::MatchConfidence>::sse_decode(deserializer);
         let mut var_matchedByNamePrefix = <bool>::sse_decode(deserializer);
@@ -4165,6 +4183,7 @@ impl SseDecode for crate::api::device_api::ScanMatch {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
             category: var_category,
+            security_advisory: var_securityAdvisory,
             confidence: var_confidence,
             matched_by_name_prefix: var_matchedByNamePrefix,
             matched_service_uuids: var_matchedServiceUuids,
@@ -4187,6 +4206,26 @@ impl SseDecode for crate::api::device_api::ScannedDeviceDto {
             service_uuids: var_serviceUuids,
             company_ids: var_companyIds,
             mac_address: var_macAddress,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::SecurityAdvisoryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_severity = <String>::sse_decode(deserializer);
+        let mut var_summary = <String>::sse_decode(deserializer);
+        let mut var_detail = <Option<String>>::sse_decode(deserializer);
+        let mut var_advisoryUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_mitigationSummary = <Option<String>>::sse_decode(deserializer);
+        let mut var_mitigationUrl = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::SecurityAdvisoryDto {
+            severity: var_severity,
+            summary: var_summary,
+            detail: var_detail,
+            advisory_url: var_advisoryUrl,
+            mitigation_summary: var_mitigationSummary,
+            mitigation_url: var_mitigationUrl,
         };
     }
 }
@@ -4254,6 +4293,8 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
         let mut var_deviceName = <String>::sse_decode(deserializer);
         let mut var_manufacturer = <String>::sse_decode(deserializer);
         let mut var_category = <Option<String>>::sse_decode(deserializer);
+        let mut var_securityAdvisory =
+            <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
         let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
@@ -4267,6 +4308,7 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
             category: var_category,
+            security_advisory: var_securityAdvisory,
             local_name_prefixes: var_localNamePrefixes,
             service_uuids: var_serviceUuids,
             company_ids: var_companyIds,
@@ -4861,6 +4903,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.manufacturer_status.into_into_dart().into_dart(),
             self.protocol.into_into_dart().into_dart(),
             self.category.into_into_dart().into_dart(),
+            self.security_advisory.into_into_dart().into_dart(),
             self.notes.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
@@ -5755,6 +5798,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
             self.device_name.into_into_dart().into_dart(),
             self.manufacturer.into_into_dart().into_dart(),
             self.category.into_into_dart().into_dart(),
+            self.security_advisory.into_into_dart().into_dart(),
             self.confidence.into_into_dart().into_dart(),
             self.matched_by_name_prefix.into_into_dart().into_dart(),
             self.matched_service_uuids.into_into_dart().into_dart(),
@@ -5796,6 +5840,31 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ScannedDeviceDto>
     for crate::api::device_api::ScannedDeviceDto
 {
     fn into_into_dart(self) -> crate::api::device_api::ScannedDeviceDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::SecurityAdvisoryDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.severity.into_into_dart().into_dart(),
+            self.summary.into_into_dart().into_dart(),
+            self.detail.into_into_dart().into_dart(),
+            self.advisory_url.into_into_dart().into_dart(),
+            self.mitigation_summary.into_into_dart().into_dart(),
+            self.mitigation_url.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::SecurityAdvisoryDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SecurityAdvisoryDto>
+    for crate::api::device_api::SecurityAdvisoryDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::SecurityAdvisoryDto {
         self
     }
 }
@@ -5879,6 +5948,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
             self.device_name.into_into_dart().into_dart(),
             self.manufacturer.into_into_dart().into_dart(),
             self.category.into_into_dart().into_dart(),
+            self.security_advisory.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
             self.company_ids.into_into_dart().into_dart(),
@@ -6156,6 +6226,10 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <String>::sse_encode(self.manufacturer_status, serializer);
         <String>::sse_encode(self.protocol, serializer);
         <Option<String>>::sse_encode(self.category, serializer);
+        <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_encode(
+            self.security_advisory,
+            serializer,
+        );
         <Option<String>>::sse_encode(self.notes, serializer);
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
@@ -7021,6 +7095,16 @@ impl SseEncode for Option<crate::api::device_api::QuerySourceDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::SecurityAdvisoryDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::SecurityAdvisoryDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::device_api::StoredUploadDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7186,6 +7270,10 @@ impl SseEncode for crate::api::device_api::ScanMatch {
         <String>::sse_encode(self.device_name, serializer);
         <String>::sse_encode(self.manufacturer, serializer);
         <Option<String>>::sse_encode(self.category, serializer);
+        <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_encode(
+            self.security_advisory,
+            serializer,
+        );
         <crate::api::device_api::MatchConfidence>::sse_encode(self.confidence, serializer);
         <bool>::sse_encode(self.matched_by_name_prefix, serializer);
         <Vec<String>>::sse_encode(self.matched_service_uuids, serializer);
@@ -7205,6 +7293,18 @@ impl SseEncode for crate::api::device_api::ScannedDeviceDto {
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<u16>>::sse_encode(self.company_ids, serializer);
         <Option<String>>::sse_encode(self.mac_address, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::SecurityAdvisoryDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.severity, serializer);
+        <String>::sse_encode(self.summary, serializer);
+        <Option<String>>::sse_encode(self.detail, serializer);
+        <Option<String>>::sse_encode(self.advisory_url, serializer);
+        <Option<String>>::sse_encode(self.mitigation_summary, serializer);
+        <Option<String>>::sse_encode(self.mitigation_url, serializer);
     }
 }
 
@@ -7251,6 +7351,10 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
         <String>::sse_encode(self.device_name, serializer);
         <String>::sse_encode(self.manufacturer, serializer);
         <Option<String>>::sse_encode(self.category, serializer);
+        <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_encode(
+            self.security_advisory,
+            serializer,
+        );
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<u16>>::sse_encode(self.company_ids, serializer);

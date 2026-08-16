@@ -2422,6 +2422,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SecurityAdvisoryDto dco_decode_box_autoadd_security_advisory_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_security_advisory_dto(raw);
+  }
+
+  @protected
   StoredUploadDto dco_decode_box_autoadd_stored_upload_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_stored_upload_dto(raw);
@@ -2508,27 +2515,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   DeviceSpecDto dco_decode_device_spec_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 18)
-      throw Exception('unexpected arr length: expect 18 but see ${arr.length}');
+    if (arr.length != 19)
+      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
     return DeviceSpecDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
       manufacturerStatus: dco_decode_String(arr[2]),
       protocol: dco_decode_String(arr[3]),
       category: dco_decode_opt_String(arr[4]),
-      notes: dco_decode_opt_String(arr[5]),
-      localNamePrefixes: dco_decode_list_String(arr[6]),
-      serviceUuids: dco_decode_list_String(arr[7]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[8]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[9]),
-      mdnsServiceType: dco_decode_opt_String(arr[10]),
-      ssdpSearchTargets: dco_decode_list_String(arr[11]),
-      lanProtocols: dco_decode_list_String(arr[12]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[13]),
-      services: dco_decode_list_service_dto(arr[14]),
-      entities: dco_decode_list_entity_dto(arr[15]),
-      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[16]),
-      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[17]),
+      securityAdvisory:
+          dco_decode_opt_box_autoadd_security_advisory_dto(arr[5]),
+      notes: dco_decode_opt_String(arr[6]),
+      localNamePrefixes: dco_decode_list_String(arr[7]),
+      serviceUuids: dco_decode_list_String(arr[8]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[9]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[10]),
+      mdnsServiceType: dco_decode_opt_String(arr[11]),
+      ssdpSearchTargets: dco_decode_list_String(arr[12]),
+      lanProtocols: dco_decode_list_String(arr[13]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[14]),
+      services: dco_decode_list_service_dto(arr[15]),
+      entities: dco_decode_list_entity_dto(arr[16]),
+      imageUpload: dco_decode_opt_box_autoadd_image_upload_dto(arr[17]),
+      storedUpload: dco_decode_opt_box_autoadd_stored_upload_dto(arr[18]),
     );
   }
 
@@ -3280,6 +3289,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SecurityAdvisoryDto? dco_decode_opt_box_autoadd_security_advisory_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_security_advisory_dto(raw);
+  }
+
+  @protected
   StoredUploadDto? dco_decode_opt_box_autoadd_stored_upload_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_stored_upload_dto(raw);
@@ -3460,19 +3478,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ScanMatch dco_decode_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 10)
-      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return ScanMatch(
       specIndex: dco_decode_u_32(arr[0]),
       deviceName: dco_decode_String(arr[1]),
       manufacturer: dco_decode_String(arr[2]),
       category: dco_decode_opt_String(arr[3]),
-      confidence: dco_decode_match_confidence(arr[4]),
-      matchedByNamePrefix: dco_decode_bool(arr[5]),
-      matchedServiceUuids: dco_decode_list_String(arr[6]),
-      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[7]),
-      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[8]),
-      matchedServiceTypes: dco_decode_list_String(arr[9]),
+      securityAdvisory:
+          dco_decode_opt_box_autoadd_security_advisory_dto(arr[4]),
+      confidence: dco_decode_match_confidence(arr[5]),
+      matchedByNamePrefix: dco_decode_bool(arr[6]),
+      matchedServiceUuids: dco_decode_list_String(arr[7]),
+      matchedCompanyIds: dco_decode_list_prim_u_16_strict(arr[8]),
+      matchedMacPrefix: dco_decode_opt_box_autoadd_mac_prefix_dto(arr[9]),
+      matchedServiceTypes: dco_decode_list_String(arr[10]),
     );
   }
 
@@ -3487,6 +3507,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       serviceUuids: dco_decode_list_String(arr[1]),
       companyIds: dco_decode_list_prim_u_16_strict(arr[2]),
       macAddress: dco_decode_opt_String(arr[3]),
+    );
+  }
+
+  @protected
+  SecurityAdvisoryDto dco_decode_security_advisory_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return SecurityAdvisoryDto(
+      severity: dco_decode_String(arr[0]),
+      summary: dco_decode_String(arr[1]),
+      detail: dco_decode_opt_String(arr[2]),
+      advisoryUrl: dco_decode_opt_String(arr[3]),
+      mitigationSummary: dco_decode_opt_String(arr[4]),
+      mitigationUrl: dco_decode_opt_String(arr[5]),
     );
   }
 
@@ -3540,20 +3576,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SpecIdentityDto dco_decode_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 11)
-      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
     return SpecIdentityDto(
       deviceName: dco_decode_String(arr[0]),
       manufacturer: dco_decode_String(arr[1]),
       category: dco_decode_opt_String(arr[2]),
-      localNamePrefixes: dco_decode_list_String(arr[3]),
-      serviceUuids: dco_decode_list_String(arr[4]),
-      companyIds: dco_decode_list_prim_u_16_strict(arr[5]),
-      macPrefixes: dco_decode_list_mac_prefix_dto(arr[6]),
-      mdnsServiceType: dco_decode_opt_String(arr[7]),
-      ssdpSearchTargets: dco_decode_list_String(arr[8]),
-      lanProtocols: dco_decode_list_String(arr[9]),
-      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[10]),
+      securityAdvisory:
+          dco_decode_opt_box_autoadd_security_advisory_dto(arr[3]),
+      localNamePrefixes: dco_decode_list_String(arr[4]),
+      serviceUuids: dco_decode_list_String(arr[5]),
+      companyIds: dco_decode_list_prim_u_16_strict(arr[6]),
+      macPrefixes: dco_decode_list_mac_prefix_dto(arr[7]),
+      mdnsServiceType: dco_decode_opt_String(arr[8]),
+      ssdpSearchTargets: dco_decode_list_String(arr[9]),
+      lanProtocols: dco_decode_list_String(arr[10]),
+      defaultPort: dco_decode_opt_box_autoadd_u_16(arr[11]),
     );
   }
 
@@ -3779,6 +3817,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SecurityAdvisoryDto sse_decode_box_autoadd_security_advisory_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_security_advisory_dto(deserializer));
+  }
+
+  @protected
   StoredUploadDto sse_decode_box_autoadd_stored_upload_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -3887,6 +3932,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_manufacturerStatus = sse_decode_String(deserializer);
     var var_protocol = sse_decode_String(deserializer);
     var var_category = sse_decode_opt_String(deserializer);
+    var var_securityAdvisory =
+        sse_decode_opt_box_autoadd_security_advisory_dto(deserializer);
     var var_notes = sse_decode_opt_String(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
@@ -3908,6 +3955,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         manufacturerStatus: var_manufacturerStatus,
         protocol: var_protocol,
         category: var_category,
+        securityAdvisory: var_securityAdvisory,
         notes: var_notes,
         localNamePrefixes: var_localNamePrefixes,
         serviceUuids: var_serviceUuids,
@@ -4966,6 +5014,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  SecurityAdvisoryDto? sse_decode_opt_box_autoadd_security_advisory_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_security_advisory_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   StoredUploadDto? sse_decode_opt_box_autoadd_stored_upload_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5166,6 +5226,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_deviceName = sse_decode_String(deserializer);
     var var_manufacturer = sse_decode_String(deserializer);
     var var_category = sse_decode_opt_String(deserializer);
+    var var_securityAdvisory =
+        sse_decode_opt_box_autoadd_security_advisory_dto(deserializer);
     var var_confidence = sse_decode_match_confidence(deserializer);
     var var_matchedByNamePrefix = sse_decode_bool(deserializer);
     var var_matchedServiceUuids = sse_decode_list_String(deserializer);
@@ -5178,6 +5240,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
         category: var_category,
+        securityAdvisory: var_securityAdvisory,
         confidence: var_confidence,
         matchedByNamePrefix: var_matchedByNamePrefix,
         matchedServiceUuids: var_matchedServiceUuids,
@@ -5198,6 +5261,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         serviceUuids: var_serviceUuids,
         companyIds: var_companyIds,
         macAddress: var_macAddress);
+  }
+
+  @protected
+  SecurityAdvisoryDto sse_decode_security_advisory_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_severity = sse_decode_String(deserializer);
+    var var_summary = sse_decode_String(deserializer);
+    var var_detail = sse_decode_opt_String(deserializer);
+    var var_advisoryUrl = sse_decode_opt_String(deserializer);
+    var var_mitigationSummary = sse_decode_opt_String(deserializer);
+    var var_mitigationUrl = sse_decode_opt_String(deserializer);
+    return SecurityAdvisoryDto(
+        severity: var_severity,
+        summary: var_summary,
+        detail: var_detail,
+        advisoryUrl: var_advisoryUrl,
+        mitigationSummary: var_mitigationSummary,
+        mitigationUrl: var_mitigationUrl);
   }
 
   @protected
@@ -5255,6 +5337,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_deviceName = sse_decode_String(deserializer);
     var var_manufacturer = sse_decode_String(deserializer);
     var var_category = sse_decode_opt_String(deserializer);
+    var var_securityAdvisory =
+        sse_decode_opt_box_autoadd_security_advisory_dto(deserializer);
     var var_localNamePrefixes = sse_decode_list_String(deserializer);
     var var_serviceUuids = sse_decode_list_String(deserializer);
     var var_companyIds = sse_decode_list_prim_u_16_strict(deserializer);
@@ -5267,6 +5351,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         deviceName: var_deviceName,
         manufacturer: var_manufacturer,
         category: var_category,
+        securityAdvisory: var_securityAdvisory,
         localNamePrefixes: var_localNamePrefixes,
         serviceUuids: var_serviceUuids,
         companyIds: var_companyIds,
@@ -5501,6 +5586,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_security_advisory_dto(
+      SecurityAdvisoryDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_security_advisory_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_stored_upload_dto(
       StoredUploadDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5580,6 +5672,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.manufacturerStatus, serializer);
     sse_encode_String(self.protocol, serializer);
     sse_encode_opt_String(self.category, serializer);
+    sse_encode_opt_box_autoadd_security_advisory_dto(
+        self.securityAdvisory, serializer);
     sse_encode_opt_String(self.notes, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
@@ -6409,6 +6503,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_security_advisory_dto(
+      SecurityAdvisoryDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_security_advisory_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_stored_upload_dto(
       StoredUploadDto? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -6574,6 +6679,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.deviceName, serializer);
     sse_encode_String(self.manufacturer, serializer);
     sse_encode_opt_String(self.category, serializer);
+    sse_encode_opt_box_autoadd_security_advisory_dto(
+        self.securityAdvisory, serializer);
     sse_encode_match_confidence(self.confidence, serializer);
     sse_encode_bool(self.matchedByNamePrefix, serializer);
     sse_encode_list_String(self.matchedServiceUuids, serializer);
@@ -6591,6 +6698,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
     sse_encode_opt_String(self.macAddress, serializer);
+  }
+
+  @protected
+  void sse_encode_security_advisory_dto(
+      SecurityAdvisoryDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.severity, serializer);
+    sse_encode_String(self.summary, serializer);
+    sse_encode_opt_String(self.detail, serializer);
+    sse_encode_opt_String(self.advisoryUrl, serializer);
+    sse_encode_opt_String(self.mitigationSummary, serializer);
+    sse_encode_opt_String(self.mitigationUrl, serializer);
   }
 
   @protected
@@ -6633,6 +6752,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.deviceName, serializer);
     sse_encode_String(self.manufacturer, serializer);
     sse_encode_opt_String(self.category, serializer);
+    sse_encode_opt_box_autoadd_security_advisory_dto(
+        self.securityAdvisory, serializer);
     sse_encode_list_String(self.localNamePrefixes, serializer);
     sse_encode_list_String(self.serviceUuids, serializer);
     sse_encode_list_prim_u_16_strict(self.companyIds, serializer);
