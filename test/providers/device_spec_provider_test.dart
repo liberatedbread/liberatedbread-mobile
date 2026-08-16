@@ -22,6 +22,23 @@ void main() {
         isNotEmpty);
   });
 
+  test('loads a spec that the committed index.json omits, via the temp index',
+      () async {
+    // The IPP printer spec was added after the branch's index.json was last
+    // rebuilt, so a build that read index.json alone never loaded it (its
+    // pictogram silently missing). The gitignored index-temp.json, rebuilt from
+    // the vendored specs by the run/vendor scripts, restores it.
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    final specs = await container.read(deviceSpecsProvider.future);
+    expect(
+        specs,
+        contains(
+            'vendor/protocol-specs/device-specs/devices/ipp-network-printer.yaml'),
+        reason: 'the temp index must surface specs absent from index.json');
+  });
+
   test('specs map is defensively typed', () async {
     final container = ProviderContainer();
     addTearDown(container.dispose);
