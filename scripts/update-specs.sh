@@ -580,6 +580,16 @@ fi
 # moving at all.
 run_checks || exit 1
 
+# Rebuild the LOCAL index-temp.json so a build off THIS checkout sees every
+# vendored spec even though the committed index.json lags (CI rebuilds it on
+# main; a local-checkout pull cannot). Gitignored; the app prefers it. The
+# run-*.sh scripts also regenerate it, so this just makes a bare `update-specs`
+# self-sufficient. See scripts/regen-spec-index.sh.
+PROJECT_DIR="$(pwd)"
+# shellcheck source=regen-spec-index.sh
+source "$(dirname "$0")/regen-spec-index.sh"
+regen_spec_index
+
 if [ "$changed" -eq 1 ]; then
   log "Now run ./scripts/test.sh — the catalogue feeds the matcher, the iOS"
   log "Bonjour list and the registries, and each has a test that reads it."
