@@ -62,6 +62,7 @@ export '../src/rust/api/device_api.dart'
         LifxZonesDto,
         LifxAccessPointDto,
         SoftApProfileDto,
+        SecurityAdvisoryDto,
         WemoAccessPointDto,
         WemoJoinStatus;
 

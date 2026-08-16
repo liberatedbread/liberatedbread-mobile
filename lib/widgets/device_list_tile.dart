@@ -67,6 +67,11 @@ class DeviceListTile extends StatelessWidget {
   final String detail;
   final int? rssi;
   final IconData icon;
+
+  /// Overrides the icon tint when set — used to draw a security-warning row's
+  /// glyph in the theme's error/caution colour so it reads as a warning at a
+  /// glance, not just another device.
+  final Color? iconColor;
   final bool enabled;
   final VoidCallback? onTap;
   final VoidCallback? onForget;
@@ -106,6 +111,7 @@ class DeviceListTile extends StatelessWidget {
     required this.detail,
     this.rssi,
     this.icon = Icons.bluetooth,
+    this.iconColor,
     this.enabled = true,
     this.onTap,
     this.onForget,
@@ -145,7 +151,7 @@ class DeviceListTile extends StatelessWidget {
                   color: scheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(icon, color: tint, size: 22),
+                child: Icon(icon, color: iconColor ?? tint, size: 22),
               ),
               const SizedBox(width: 14),
               Expanded(

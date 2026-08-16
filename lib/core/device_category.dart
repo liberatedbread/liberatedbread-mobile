@@ -70,6 +70,12 @@ enum DeviceCategory {
   treadmill(Icons.directions_walk_outlined, 'Treadmill'),
   tv(Icons.tv_outlined, 'TV'),
   vehicle(Icons.directions_car_outlined, 'Vehicle'),
+
+  /// A device with a known, cited security problem — a dealer alarm with a
+  /// shared key, a card skimmer's Bluetooth module. Carries a
+  /// `security_advisory`; the app draws this glyph, badges the scan result by
+  /// severity, and opens a warning instead of a control surface.
+  warning(Icons.gpp_maybe_outlined, 'Security warning'),
   wearable(Icons.checkroom_outlined, 'Wearable'),
   other(Icons.devices_other_outlined, 'Device');
 
