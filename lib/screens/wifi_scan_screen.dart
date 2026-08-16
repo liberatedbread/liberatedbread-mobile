@@ -373,13 +373,43 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                       : NetworkDeviceScreen(device: device, controls: controls),
                 ),
               )
-          // A recognize-only device we can't drive but whose spec knows where
-          // its admin page lives (a NAS's DSM, a printer's web UI): the tap
-          // opens that, since it is the one useful action here.
-          : (guess?.adminUrl != null
-              ? () => _openAdmin(guess!, device)
-              : () => _showDetails(device, vendor)),
+          // A UniFi camera's own admin page is a dead end — cameras are driven
+          // through UniFi Protect, not individually — so it opens the details
+          // sheet (which points at the Protect controller) rather than
+          // click-and-go into nothing.
+          : (_isUnifiCamera(device)
+              ? () => _showDetails(device, vendor)
+              // A recognize-only device we can't drive but whose spec knows
+              // where its admin page lives (a NAS's DSM, a printer's web UI):
+              // the tap opens that, the one useful action here.
+              : (guess?.adminUrl != null
+                  ? () => _openAdmin(guess!, device)
+                  : () => _showDetails(device, vendor))),
     );
+  }
+
+  /// A UniFi camera or doorbell — recognized by the pictogram its transport
+  /// derived from the platform string. Cameras are managed in UniFi Protect,
+  /// not individually.
+  static bool _isUnifiCamera(NetworkDevice device) =>
+      device.answeredLanProtocols.contains('ubiquiti-discovery') &&
+      (device.pictogram == 'ip-camera' ||
+          device.pictogram == 'video-doorbell');
+
+  /// The UniFi Protect controller among the devices found this scan, if any —
+  /// a UNVR, or a UDM/Cloud Key that runs Protect. Cameras point back to it.
+  NetworkDevice? _unifiProtectController() {
+    for (final d in _found.values) {
+      final platform = (d.txt['platform'] ?? '').toUpperCase();
+      if (d.pictogram == 'nvr' ||
+          platform.startsWith('UNVR') ||
+          platform.startsWith('UDM') ||
+          platform.startsWith('UCKP') ||
+          platform.startsWith('UCK-G2')) {
+        return d;
+      }
+    }
+    return null;
   }
 
   /// Open a device's own admin page, filling `{address}` with its host.
@@ -486,11 +516,73 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                 if (device.server != null) _detailRow('Server', device.server!),
                 for (final entry in device.txt.entries)
                   _detailRow(entry.key, entry.value),
+                // Additional context for a camera we can recognize but not
+                // drive: it is managed in UniFi Protect, and if a controller
+                // turned up in this scan, where to find it.
+                if (_isUnifiCamera(device)) ...[
+                  const SizedBox(height: 16),
+                  _controllableViaNote(sheetContext),
+                ],
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  /// A footer note for a UniFi camera: it is driven through UniFi Protect, with
+  /// a link to the controller when one was found on the same scan.
+  Widget _controllableViaNote(BuildContext sheetContext) {
+    final scheme = Theme.of(sheetContext).colorScheme;
+    final text = Theme.of(sheetContext).textTheme;
+    final controller = _unifiProtectController();
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Icon(Icons.info_outline, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Text('Likely controlled via UniFi Protect',
+                style: text.titleSmall
+                    ?.copyWith(color: scheme.onSurfaceVariant)),
+          ]),
+          const SizedBox(height: 6),
+          Text(
+            controller != null
+                ? 'This app can recognise the camera but not drive it directly. '
+                    'Found a UniFi Protect controller at ${controller.host} '
+                    '(${controller.displayName}).'
+                : 'This app can recognise the camera but not drive it directly. '
+                    'It is managed in the UniFi Protect app/controller.',
+            style:
+                text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          if (controller != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Open UniFi Protect'),
+                onPressed: () {
+                  final uri =
+                      Uri.tryParse('https://${controller.host}/protect/');
+                  if (uri != null) {
+                    unawaited(ref.read(urlOpenerProvider)(uri));
+                  }
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
