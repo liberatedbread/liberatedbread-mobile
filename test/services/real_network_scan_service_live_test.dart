@@ -36,6 +36,12 @@ import 'package:liberated_bread_mobile/services/real_network_scan_service.dart';
 const _hueHost = '198.51.100.11';
 const _wemoHost = '198.51.100.12';
 
+/// The Snapmaker-style device: answers a direct PTR for `_snapmaker._tcp` but
+/// is deaf to the `_services._dns-sd._udp.local` meta-query, so it is found
+/// only when the scan is given its exact service type to ask for.
+const _snapHost = '198.51.100.13';
+const _snapType = '_snapmaker._tcp.local.';
+
 /// Long enough for two multicast round trips on loopback, short enough that a
 /// broken run fails in seconds. RealNetworkScanService splits this in half
 /// between enumerating service types and resolving them, so it is the budget
@@ -99,11 +105,13 @@ void main() {
   /// `isSupported: false` on the lock because it is an Android platform channel
   /// and there is no engine here to answer it; on this host it would be a no-op
   /// anyway. multicast_lock_test.dart covers the lock itself.
-  Future<List<NetworkDevice>> scan() async {
+  Future<List<NetworkDevice>> scan(
+      {List<String> mdnsTypes = const []}) async {
     final service = RealNetworkScanService(
         multicastLock: MulticastLock(isSupported: false));
     final found = <NetworkDevice>[];
-    await for (final device in service.scan(timeout: _scanWindow)) {
+    await for (final device in service.scan(
+        timeout: _scanWindow, extraMdnsServiceTypes: mdnsTypes)) {
       found.add(device);
     }
     return found;
@@ -170,6 +178,32 @@ void main() {
     // the target from SSDP.
     expect(hue.name, 'Philips Hue - 123456');
     expect(hue.ssdpTargets, contains('upnp:rootdevice'));
+  });
+
+  // Note the asymmetry with the other cases: this asserts only that supplying
+  // the type FINDS the device, never that withholding it hides the device. A
+  // clean net_virtual_device.py run would show the latter too (its responder
+  // hides `_snapmaker._tcp` from the meta-query), but this host — like any dev
+  // machine running avahi/systemd-resolved — has a cooperative mDNS daemon that
+  // answers the meta-query from its own cache, so an absence assertion is not
+  // reliable off a bare CI box. The mechanism itself is pinned by the unit test
+  // for normalizeMdnsServiceType and the direct-query wiring.
+  test('a device deaf to the meta-query is found via its catalogue service '
+      'type', () async {
+    // Handed the type the catalogue declares, the scan queries it directly and
+    // resolves the same PTR -> SRV -> A chain to a real address. This is the
+    // fix for "the Snapmaker isn't showing up".
+    final found = await scan(mdnsTypes: const [_snapType]);
+
+    final snap = deviceAt(found, _snapHost);
+    expect(snap, isNotNull,
+        reason: 'a direct PTR for _snapmaker._tcp was answered and resolved '
+            'all the way to an address');
+    expect(snap!.serviceTypes, contains('_snapmaker._tcp.local'));
+    expect(snap.hostname, 'snapmaker-u1.local');
+    expect(snap.port, 1884, reason: 'the advertised port, metadata only');
+    expect(snap.txt['sn'], 'SNAPU1TEST000');
+    expect(snap.sources, contains(NetworkDiscoverySource.mdns));
   });
 
   test('a scan can be stopped early without leaving the stream open', () async {

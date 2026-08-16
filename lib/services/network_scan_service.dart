@@ -65,9 +65,19 @@ abstract class NetworkScanService {
   /// standard question never hears one. The caller supplies them from the
   /// spec catalogue's `ssdp_search_targets` — the scan layer itself knows no
   /// product names.
+  ///
+  /// [extraMdnsServiceTypes] are the exact DNS-SD service types the catalogue
+  /// declares (`_snapmaker._tcp.local.`), queried directly in addition to the
+  /// `_services._dns-sd._udp.local` meta-query. The mDNS counterpart of
+  /// [extraSearchTargets], and for the same reason: a responder that ignores
+  /// the meta-query — a Snapmaker U1's embedded zeroconf is one — is invisible
+  /// unless the scan asks for its own `_vendor._tcp` by name. Also supplied
+  /// from the spec catalogue (`mdns_service_type`); deduplicated by the
+  /// implementation.
   Stream<NetworkDevice> scan({
     Duration timeout,
     List<String> extraSearchTargets,
+    List<String> extraMdnsServiceTypes,
   });
 
   /// Stop an in-progress scan.

@@ -156,6 +156,23 @@ String instanceNameOf(String instance) {
   return name.endsWith('.') ? name.substring(0, name.length - 1) : name;
 }
 
+/// Normalize a spec's declared mDNS service type into the form a direct PTR
+/// query wants, or null when it is not a usable DNS-SD service type.
+///
+/// Specs write the type with a trailing dot (`_snapmaker._tcp.local.`); the
+/// meta-query's own records and the `resolving` dedup set carry it without one
+/// (`_snapmaker._tcp.local`), so the trailing dot is stripped here to keep a
+/// direct query from re-resolving a type the enumeration already found. A value
+/// that is not shaped like a service type (`_label._tcp.` / `_label._udp.`) is
+/// dropped rather than sent, so a malformed catalogue entry cannot turn into a
+/// junk query.
+String? normalizeMdnsServiceType(String raw) {
+  var value = raw.trim();
+  if (value.endsWith('.')) value = value.substring(0, value.length - 1);
+  if (!RegExp(r'^_[^.]+\._(?:tcp|udp)\.').hasMatch(value)) return null;
+  return value;
+}
+
 /// What one discovery transport managed to do in a scan window.
 ///
 /// Three states rather than a bool because "the socket opened" and "anything
@@ -259,6 +276,7 @@ class RealNetworkScanService implements NetworkScanService {
   Stream<NetworkDevice> scan({
     Duration timeout = const Duration(seconds: 8),
     List<String> extraSearchTargets = const [],
+    List<String> extraMdnsServiceTypes = const [],
   }) {
     final controller = StreamController<NetworkDevice>();
     final coalescer = NetworkScanCoalescer();
@@ -292,7 +310,8 @@ class RealNetworkScanService implements NetworkScanService {
         // with IGMP snooping) should still return what the other found.
         final codec = this.codec;
         final outcomes = await Future.wait([
-          _runMdns(session, emit, timeout).catchError((Object e) {
+          _runMdns(session, emit, timeout, extraMdnsServiceTypes)
+              .catchError((Object e) {
             Log.net.warning('mDNS discovery failed', error: e);
             return TransportOutcome.failed;
           }),
@@ -344,6 +363,7 @@ class RealNetworkScanService implements NetworkScanService {
     _ScanSession session,
     void Function(NetworkDevice) emit,
     Duration timeout,
+    List<String> extraServiceTypes,
   ) async {
     // The default factory is `RawDatagramSocket.bind`, which start() calls with
     // `reusePort: true` — a bind Android's bionic libc rejects with a
@@ -355,6 +375,13 @@ class RealNetworkScanService implements NetworkScanService {
     await client.start();
     session.mdns = client;
     var heard = false;
+    // A direct-query resolution can be the only thing that hears anything (its
+    // service type is deaf to the meta-query), so it has to be able to flip
+    // `heard` too — otherwise a scan that found a device only that way would
+    // still report `silent`, and on Apple that silence is rendered as a
+    // local-network permission denial next to a device that was, in fact,
+    // found.
+    void markHeard() => heard = true;
     final resolving = <String>{};
     // `timeout` is the budget for the whole mDNS half, split between its two
     // phases: enumerate the link's service types, then resolve the instances
@@ -374,6 +401,26 @@ class RealNetworkScanService implements NetworkScanService {
     // bounds a chatty one.
     final deadline = DateTime.now().add(phase);
     try {
+      // Ask for the catalogue's known service types by name, not only through
+      // the `_services._dns-sd._udp.local` meta-query below. The meta-query
+      // only surfaces a type whose responder answers that enumeration; a device
+      // that answers a direct PTR for its own `_vendor._tcp` but is deaf to the
+      // meta-query — or whose meta-query answer is lost, or lands after this
+      // half's budget — is otherwise never resolved even though its exact type
+      // is in a spec we hold. This is the mDNS twin of the SSDP extra search
+      // targets (a Roku is deaf to `ssdp:all` and answers only its own ST); a
+      // Snapmaker U1 is the case that motivated it, advertising `_snapmaker._tcp`
+      // from an embedded responder the meta-query never drew out. Fired off
+      // alongside the enumeration and deduped against it by `resolving`.
+      for (final raw in extraServiceTypes) {
+        final serviceType = normalizeMdnsServiceType(raw);
+        if (serviceType == null || !resolving.add(serviceType)) continue;
+        unawaited(_resolveServiceType(session, client, serviceType, emit, phase,
+                onHeard: markHeard)
+            .catchError((Object e) {
+          Log.net.debug('mDNS direct resolve failed for $serviceType: $e');
+        }));
+      }
       await for (final PtrResourceRecord type in client
           .lookup<PtrResourceRecord>(
               ResourceRecordQuery.serverPointer(_serviceEnumerationQuery),
@@ -393,9 +440,10 @@ class RealNetworkScanService implements NetworkScanService {
         if (!resolving.add(type.domainName)) continue;
         // Fire the per-type resolution off rather than awaiting it: a slow or
         // unanswered service type must not hold up every other one.
-        unawaited(
-            _resolveServiceType(session, client, type.domainName, emit, phase)
-                .catchError((Object e) {
+        unawaited(_resolveServiceType(
+                session, client, type.domainName, emit, phase,
+                onHeard: markHeard)
+            .catchError((Object e) {
           Log.net.debug('mDNS resolve failed for ${type.domainName}: $e');
         }));
       }
@@ -425,8 +473,9 @@ class RealNetworkScanService implements NetworkScanService {
     MDnsClient client,
     String serviceType,
     void Function(NetworkDevice) emit,
-    Duration timeout,
-  ) async {
+    Duration timeout, {
+    required void Function() onHeard,
+  }) async {
     // Whether [client] can still be asked anything. These chains are fired off
     // and not awaited, and each stage carries its own inactivity timeout, so a
     // chain that began near the end of the enumeration phase is routinely
@@ -441,6 +490,10 @@ class RealNetworkScanService implements NetworkScanService {
             timeout: timeout)
         .timeout(timeout, onTimeout: (sink) => sink.close())) {
       if (!clientLive()) return;
+      // A PTR answer for this type means a device answered — enough to settle
+      // the "did anything reach us" question even before it resolves to a row,
+      // and the only signal a direct-queried type deaf to the meta-query gives.
+      onHeard();
       // TXT and SRV are independent queries; run them together. A device that
       // publishes no TXT record leaves that stream open until its timeout, and
       // awaiting it before even asking for SRV used to spend the whole
