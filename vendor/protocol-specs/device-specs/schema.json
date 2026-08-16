@@ -606,6 +606,12 @@
               "minItems": 1,
               "description": "Every BLE local name prefix this device family advertises under, for families sold as several rebadged models with no shared prefix (inkbird-bbq-thermometer ships under eight). A match on any one of them means exactly what a `local_name_prefix` match means -- these are alternatives, not a conjunction. May be used together with `local_name_prefix`, in which case a consumer treats the union."
             },
+            "local_names": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "description": "EXACT advertised names matched whole-string, not by prefix. For when a bare factory-default name is the signal and a configured one is not -- a bluetooth card skimmer leaves its module named exactly `HC-05`, where a hobby project renames it. Distinct from `local_name_prefixes`, which matches any name that STARTS with the value."
+            },
             "service_uuids": {
               "type": "array",
               "items": { "$ref": "#/$defs/uuid" },
