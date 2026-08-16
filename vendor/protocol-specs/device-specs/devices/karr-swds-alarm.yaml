@@ -1,0 +1,97 @@
+# KARR / SWDS Vehicle Alarm (dealer-installed) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# This is a WARNING spec, not a control spec. We do not talk to these alarms; we
+# recognise the advertisement and warn the owner about a confirmed, published
+# vulnerability, and point them at the vendor's patch. See security_advisory.
+#
+# Sources (public, clean-room):
+#   - UC San Diego, "2 million cars with anti-theft systems installed by dealers
+#     are at higher risk of theft" (2026), and the coordinated DEF CON / USENIX
+#     Security disclosure.
+#   - Vendor patch: KARR firmware update via the KARR app, released 2026-07-20.
+#
+# The BLE identification below is INFERRED from the product and window-sticker
+# names ("KARR", "SWDS"). The exact advertised device name / service UUID is not
+# published, so this matches on the local-name prefix and is deliberately a
+# low-confidence, WARN-ONLY match — the cost of a false positive is a warning
+# card on an unrelated device, never a wrong control action.
+
+device:
+  name: "KARR / SWDS Vehicle Alarm"
+  manufacturer: "Acrisure"
+  manufacturer_status: "active"
+  protocol: "ble"
+  category: "warning"
+  integration: "identify_only"
+  testing:
+    status: untested
+    notes: >
+      Not hardware-verified. The advertisement match (BLE local name starting
+      "KARR" / "SWDS") is inferred from the product and driver's-window sticker
+      names, because the exact BLE device name and service UUID are not public.
+      Treated as low-confidence and WARN-ONLY.
+  security_advisory:
+    severity: "vulnerable"
+    summary: >
+      Every KARR/SWDS unit shares one Bluetooth key — a nearby attacker can
+      unlock the car, silence the alarm, and immobilize the engine.
+    detail: >
+      Researchers at UC San Diego reverse-engineered the KARR app and extracted
+      a single Bluetooth authentication key common to ALL KARR-SWDS units. With
+      it, anyone within Bluetooth range (about five yards) can lock and unlock
+      doors, disable the alarm, honk the horn, flash the lights, and immobilize
+      the engine while the car is off. About 2.2 million dealer-installed units
+      are affected — sold through Honda, Toyota, Mazda, Ford and Jeep dealers
+      between 2017 and 2026. The unit also continuously broadcasts an
+      identifiable Bluetooth signal, so its history can reveal where a car has
+      been. Affected cars often carry a "KARR" or "SWDS" sticker on the
+      driver's-side window.
+    advisory_url: "https://today.ucsd.edu/story/2-million-cars-with-anti-theft-systems-installed-by-dealers-are-at-higher-risk-of-theft"
+    mitigation:
+      summary: >
+        Update the alarm's firmware from the KARR app — Acrisure released a
+        patch on 2026-07-20.
+      url: "https://www.KARRsecurity.com"
+  setup:
+    required: false
+    confidence: low
+    notes: >
+      Nothing to set up: this app never connects to the device. It recognises
+      the BLE advertisement and warns; the match is inferred from the
+      advertised name (see testing.notes), hence low confidence.
+    methods:
+      - type: "none"
+        description: "Passive: the device advertises over BLE, we match the name and warn. No connection is made."
+        verified: false
+    factory_reset:
+      applicable: false
+      confidence: low
+      effect: >
+        Not applicable — this app never connects to or configures the device,
+        so it has nothing to reset. Any real reset is done at the device.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Recognised on sight wherever it advertises; nothing is stored."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credential crosses to this app; it never connects."
+  discovery:
+    # The KARR module advertises continuously over BLE; match is on the
+    # advertised local name ("KARR" or "SWDS"), inferred not captured (see
+    # testing.notes). identification.local_name_prefixes carries the same names.
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^(KARR|SWDS)"
+    identity:
+      stable_keys: ["address"]
+      display: "name"
+  identification:
+    local_name_prefixes: ["KARR", "SWDS"]
