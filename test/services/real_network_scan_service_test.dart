@@ -156,6 +156,35 @@ void main() {
     });
   });
 
+  group('mDNS source-capture wire helpers', () {
+    test('mdnsPtrQuery encodes the name as length-prefixed labels + PTR/IN', () {
+      final q = mdnsPtrQuery('_snapmaker._tcp.local');
+      // Header: 12 bytes, qdcount 1.
+      expect(q.sublist(0, 12), [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+      // Labels: <len>_snapmaker <len>_tcp <len>local <root>.
+      expect(q[12], 10); // len("_snapmaker")
+      expect(String.fromCharCodes(q.sublist(13, 23)), '_snapmaker');
+      expect(q[23], 4); // len("_tcp")
+      // Ends with the root label then QTYPE PTR (12) + QCLASS IN (1).
+      expect(q.sublist(q.length - 5), [0, 0, 12, 0, 1]);
+    });
+
+    test('mdnsFirstLabelBytes returns the vendor label, or null when tiny', () {
+      expect(String.fromCharCodes(mdnsFirstLabelBytes('_snapmaker._tcp.local')!),
+          '_snapmaker');
+      // A 2-char label is too weak a discriminator.
+      expect(mdnsFirstLabelBytes('_x._tcp.local'), isNull);
+    });
+
+    test('containsBytes finds a contiguous subsequence', () {
+      // The wire carries `\x0a_snapmaker`, so the label bytes appear verbatim.
+      final packet = [1, 2, 10, ...'_snapmaker'.codeUnits, 4, ...'_tcp'.codeUnits];
+      expect(containsBytes(packet, '_snapmaker'.codeUnits), isTrue);
+      expect(containsBytes(packet, '_printer'.codeUnits), isFalse);
+      expect(containsBytes(packet, const []), isFalse);
+    });
+  });
+
   group('NetworkScanCoalescer', () {
     test('a first sighting is emitted', () {
       final coalescer = NetworkScanCoalescer();
