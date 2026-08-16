@@ -911,6 +911,48 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('a live textedit notice flips the keyboard on without a poll',
+        (tester) async {
+      // The device volunteers focus changes; the card must react to the notice,
+      // not wait out the 3s backstop poll.
+      final socket = AutoEcp2Socket(queryPayloads: {
+        'query-textedit-state': '{"textedit-state":{"textedit-id":"none"}}',
+      });
+      codec = FakeSpecCodec(networkEntities: (_) => [keyboardEntity]);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async => fail('no description')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient((r) async => fail('nothing types')))),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: [keyboardEntity])),
+        ),
+      ));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+      expect(find.byType(TextField), findsNothing,
+          reason: 'the poll read "none"');
+
+      socket.receive({
+        'notify': 'textedit',
+        'textedit-state': {'textedit-id': 'search-9'},
+      });
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(TextField), findsOneWidget,
+          reason: 'the notice flips it on live');
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('shows the keyboard when the signal cannot be read',
         (tester) async {
       // No ECP2 session means no textedit-state to read; the keyboard shows
