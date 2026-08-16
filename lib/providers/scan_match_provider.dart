@@ -46,6 +46,14 @@ class ScanGuess {
   /// matched. Trivially true when nothing else matched.
   final bool manufacturerAgreed;
 
+  /// A known, cited security problem the matched spec declares — a shared-key
+  /// car alarm, a card skimmer's module. Present means this row is a WARNING,
+  /// not an ordinary device: the scan badges it, tapping opens a warning page
+  /// instead of the controls, and a `malicious` one raises an alert. Surfaced
+  /// regardless of confidence — a *possible* skimmer is still worth flagging —
+  /// so the warning wording hedges on [confidence] instead.
+  final SecurityAdvisoryDto? advisory;
+
   const ScanGuess({
     required this.deviceName,
     required this.manufacturer,
@@ -53,7 +61,15 @@ class ScanGuess {
     required this.otherMatches,
     required this.manufacturerAgreed,
     this.category,
+    this.advisory,
   });
+
+  /// This row is a security warning rather than a controllable device.
+  bool get isSecurityWarning => advisory != null;
+
+  /// A `malicious` advisory — a device that should not be there at all (a
+  /// skimmer). The scan alerts on these, rather than only badging them.
+  bool get isMalicious => advisory?.severity == 'malicious';
 
   /// Reduce a matcher result to a guess, or null when nothing matched.
   ///
@@ -78,6 +94,10 @@ class ScanGuess {
       category: tied.every((m) => DeviceCategory.parse(m.category) == category)
           ? category
           : null,
+      // From the best match. A warning spec matches on specific names (KARR,
+      // HC-05), so it does not tie with a real product; take the top match's
+      // advisory rather than require agreement, so a warning is never dropped.
+      advisory: best.securityAdvisory,
     );
   }
 

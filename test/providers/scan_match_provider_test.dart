@@ -45,12 +45,14 @@ ScanMatch _match(
   String manufacturer = 'Acme',
   String? category = 'light',
   int specIndex = 0,
+  SecurityAdvisoryDto? advisory,
 }) =>
     ScanMatch(
       specIndex: specIndex,
       deviceName: deviceName,
       manufacturer: manufacturer,
       category: category,
+      securityAdvisory: advisory,
       confidence: confidence,
       matchedByNamePrefix: false,
       matchedServiceUuids: const [],
@@ -500,6 +502,46 @@ void main() {
       final guess = ScanGuess.fromMatches(
           [_match(MatchConfidence.strong, category: null)])!;
       expect(guess.iconOr(Icons.router_outlined), Icons.router_outlined);
+    });
+  });
+
+  group('ScanGuess.advisory', () {
+    const vuln = SecurityAdvisoryDto(
+        severity: 'vulnerable', summary: 'Shared key unlocks the car.');
+    const skimmer = SecurityAdvisoryDto(
+        severity: 'malicious', summary: 'Skimmer module signature.');
+
+    test('carries the best match advisory and flags the row as a warning', () {
+      final guess = ScanGuess.fromMatches(
+          [_match(MatchConfidence.possible, advisory: vuln)])!;
+      expect(guess.advisory?.severity, 'vulnerable');
+      expect(guess.isSecurityWarning, isTrue);
+      expect(guess.isMalicious, isFalse);
+    });
+
+    test('isMalicious is true only for a malicious advisory', () {
+      expect(
+          ScanGuess.fromMatches(
+                  [_match(MatchConfidence.possible, advisory: skimmer)])!
+              .isMalicious,
+          isTrue);
+    });
+
+    test('an ordinary device has no advisory and is not a warning', () {
+      final guess = ScanGuess.fromMatches([_match(MatchConfidence.strong)])!;
+      expect(guess.advisory, isNull);
+      expect(guess.isSecurityWarning, isFalse);
+    });
+
+    test(
+        'is surfaced even at possible confidence — a maybe-skimmer still '
+        'warns', () {
+      // Warning specs match by an inferred name, so the match is usually
+      // `possible`; dropping the advisory there would silence the warning.
+      final guess = ScanGuess.fromMatches(
+          [_match(MatchConfidence.possible, advisory: skimmer)])!;
+      expect(guess.namesAProduct, isFalse, reason: 'possible + hedged');
+      expect(guess.isSecurityWarning, isTrue);
     });
   });
 }
