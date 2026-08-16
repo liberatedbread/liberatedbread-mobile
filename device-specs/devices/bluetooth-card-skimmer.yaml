@@ -1,26 +1,31 @@
-# Bluetooth Card Skimmer (suspected) — Device Spec
+# Bluetooth serial module — possible card-skimmer check — Device Spec
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
 #
-# WARNING spec. This does not describe a product to control — it describes the
-# BLUETOOTH SIGNATURE of the cheap serial modules that criminals most commonly
-# build into credit-card skimmers (at gas pumps, ATMs, POS terminals) to
-# offload stolen card data. Recognising one is a reason to ALERT the user and
-# tell a merchant/operator, never to connect.
+# WARNING spec. This does not describe a product to control. It recognises a
+# bare, factory-default HC-05/HC-06 serial Bluetooth module — the cheap module
+# criminals most often build into credit-card skimmers — and raises a SOFT,
+# "worth a look" heads-up, never a connection.
 #
-# What we match: the default advertised names of the HC-0x hobbyist Bluetooth
-# modules (HC-03/05/06/08) and the FREE2MOVE module, which the widely-cited
-# skimmer-detection work (SparkFun "Skimmer Scanner", Undercode, Snopes fact
-# check) found in real skimmers. These are Bluetooth CLASSIC (SPP) modules;
-# whether a given one surfaces in a BLE scan depends on the module — so this is
-# a HEURISTIC, not proof. It also cannot see skimmers that use other modules or
-# no Bluetooth at all. A named HC-05 in a store is suspicious, not a conviction.
+# Deliberately conservative (dialled back on purpose). The module NAME alone is
+# a weak signal: the same HC-05/HC-06 modules fill innocent hobby electronics.
+# The signal that actually separates a skimmer from a hobby module is the skimmer
+# FIRMWARE's behaviour — the SparkFun "Skimmer Scanner" connects to a device
+# named exactly "HC-05" with the default PIN 1234, sends the byte 'P', and a
+# skimmer replies 'M'. That is a Bluetooth CLASSIC (SPP) connect-and-probe; this
+# app scans BLE passively and never connects, so it CANNOT perform that check.
+# So we no longer flag the whole HC-0x / FREE2MOVE family on a name prefix. We
+# match ONLY the exact factory-default name (a module left at defaults, as a
+# skimmer is, so the criminal's own app can find it) and down-rank it to a
+# "reported" heads-up that carries the verification method — rather than
+# asserting "skimmer" on a name we cannot verify.
 #
-# Sources (public): Snopes, "Can a Mobile Phone's Bluetooth Sensor Be Used to
-# Detect Card Skimmers?"; SparkFun Skimmer Scanner; Undercode Testing writeup.
+# Sources (public): SparkFun "Skimmer Scanner" (github.com/sparkfunX) and the
+# "Gas Pump Skimmers" tutorial (learn.sparkfun.com); Snopes fact check,
+# "Can a Mobile Phone's Bluetooth Sensor Be Used to Detect Card Skimmers?".
 
 device:
-  name: "Bluetooth Card Skimmer (suspected)"
+  name: "Bluetooth serial module (skimmer check)"
   manufacturer: "Unknown"
   manufacturer_status: "unsupported"
   protocol: "ble"
@@ -29,38 +34,48 @@ device:
   testing:
     status: untested
     notes: >
-      Heuristic, not hardware-verified. Matches the default names of the serial
-      Bluetooth modules commonly found in skimmers (HC-03/05/06/08, FREE2MOVE).
-      These are Bluetooth Classic modules; surfacing in a BLE scan is
-      module-dependent, and legitimate hobby projects use the same modules — so
-      this is a suspicion to investigate, never proof.
+      Heuristic, not hardware-verified. Matches ONLY the exact factory-default
+      name of an HC-05 / HC-06 serial Bluetooth module ("HC-05" or "HC-06",
+      unrenamed). These are Bluetooth Classic modules, so whether one surfaces in
+      a BLE scan is module-dependent, and the same modules fill innocent hobby
+      projects — so this is a soft heads-up to verify, never proof.
   security_advisory:
-    severity: "malicious"
+    severity: "reported"
     summary: >
-      This is the Bluetooth signature of the cheap module commonly built into
-      credit-card skimmers. If you did not put it here, treat it as one.
+      A bare Bluetooth serial module left at its factory-default name. Harmless
+      in hobby gear, but it is also what card skimmers use — worth a check if it
+      is near a card reader.
     detail: >
       Credit-card skimmers hidden in gas pumps, ATMs and card readers often use
-      an off-the-shelf serial Bluetooth module (HC-03, HC-05, HC-06, HC-08, or a
-      FREE2MOVE) to send stolen card numbers to a criminal parked nearby. A
-      device advertising one of those default names — especially a
-      password-protected one at a fuel pump or checkout — is a classic skimmer
-      tell. This is NOT proof: the same modules appear in innocent hobby
-      electronics, and many skimmers use other hardware or none. If you find one
-      where card data is handled, do not pay there, and report it to the station
-      or store operator and, in the U.S., your state's weights-and-measures or
-      agriculture department.
-    advisory_url: "https://www.snopes.com/fact-check/bluetooth-gas-pump-skimmers/"
+      an off-the-shelf serial Bluetooth module (commonly an HC-05 or HC-06) left
+      at its factory-default name and PIN, so the criminal's phone can find and
+      unlock it. This device is advertising exactly that default name. That does
+      NOT make it a skimmer — the same modules fill innocent hobby electronics,
+      and the name alone cannot tell them apart. What separates the two is the
+      skimmer firmware: the free SparkFun "Skimmer Scanner" app connects to an
+      "HC-05" with the default PIN 1234, sends the letter 'P', and a real skimmer
+      replies 'M'. This app scans passively over BLE and never connects, so it
+      cannot run that check for you. If you see this AT a fuel pump, ATM or
+      checkout, treat it with suspicion: don't pay there, verify with the Skimmer
+      Scanner, and report it to the station or store operator (in the U.S., your
+      state's weights-and-measures or agriculture department).
+    advisory_url: "https://learn.sparkfun.com/tutorials/gas-pump-skimmers/"
+    mitigation:
+      summary: >
+        Confirm before you worry: the SparkFun "Skimmer Scanner" app connects to
+        the module (default PIN 1234), sends 'P', and flags it only if it replies
+        'M' — the skimmer firmware's tell. A bare hobby module will not answer.
+      url: "https://github.com/sparkfunX/Skimmer_Scanner"
   setup:
     required: false
     confidence: low
     notes: >
       Nothing to set up: this app never connects to the device. It recognises
-      the BLE advertisement and warns; the match is inferred from the
-      advertised name (see testing.notes), hence low confidence.
+      the BLE advertisement and raises a soft heads-up; the match is inferred
+      from the advertised name (see testing.notes), hence low confidence.
     methods:
       - type: "none"
-        description: "Passive: the device advertises over BLE, we match the name and warn. No connection is made."
+        description: "Passive: the device advertises over BLE, we match the exact default name and note it. No connection is made."
         verified: false
     factory_reset:
       applicable: false
@@ -78,17 +93,19 @@ device:
       issued_to_client: []
       notes: "No credential crosses to this app; it never connects."
   discovery:
-    # Match on the module's default advertised name (Classic modules, so BLE
-    # visibility is module-dependent). identification.local_name_prefixes lists
-    # the same names for the scanner's cheap pre-connect match.
+    # Match ONLY the module's exact factory-default name (Classic modules, so
+    # BLE visibility is module-dependent). Anchored on both ends so a renamed
+    # hobby module ("HC-05-Robot") does NOT match — a bare default name is the
+    # skimmer tell. identification.local_name_prefixes carries the same names for
+    # the scanner's cheap pre-connect match.
     methods:
       - type: "ble_scan"
         ble:
           local_name:
             match: "regex"
-            value: "^(HC-0[3568]|FREE2MOVE)"
+            value: "^HC-0[56]$"
     identity:
       stable_keys: ["address"]
       display: "name"
   identification:
-    local_name_prefixes: ["HC-03", "HC-05", "HC-06", "HC-08", "FREE2MOVE"]
+    local_name_prefixes: ["HC-05", "HC-06"]
