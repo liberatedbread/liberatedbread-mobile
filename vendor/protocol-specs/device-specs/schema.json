@@ -527,6 +527,7 @@
             "treadmill",
             "tv",
             "vehicle",
+            "warning",
             "wearable",
             "other"
           ],
@@ -549,6 +550,47 @@
           "enum": ["supported", "identify_only"],
           "default": "supported",
           "description": "What THIS project's consumers actually DO with the device, as distinct from whether local control is theoretically possible (that is `local_access`). 'supported' (the default when omitted): the app implements a control and/or monitoring surface for it -- the normal case, implied by the presence of services/commands/http_endpoints/camera. 'identify_only': the app deliberately does not speak the device's control protocol; it discovers it, shows a pictogram, and links to its `admin_url`. Network infrastructure (routers, switches, access points) is the archetype -- fully controllable in principle (RouterOS/UniFi APIs) but out of scope here, so we recognise it and hand the user off to its own admin page rather than pretend to manage it. A device can be `identify_only` and still carry a rich `discovery` block: knowing what it is and where it lives is the whole point."
+        },
+        "security_advisory": {
+          "type": "object",
+          "description": "A KNOWN, PUBLIC security problem with this device -- a shared/hardcoded key, a replayable command, or a device that should not be trusted at all (a Bluetooth card skimmer). A consumer surfaces this as a WARNING ahead of any control surface: the app badges the scan result, opens a warning page instead of the controls, and for `severity: malicious` raises an alert on sight. Use ONLY for cited, real advisories -- link the writeup in `advisory_url` -- never speculation. This is orthogonal to `openness`/`manufacturer_status` (which describe the vendor and protocol), and to whether the device is otherwise controllable.",
+          "required": ["severity", "summary"],
+          "additionalProperties": false,
+          "properties": {
+            "severity": {
+              "type": "string",
+              "enum": ["vulnerable", "reported", "malicious"],
+              "description": "'vulnerable': a confirmed, practical exploit exists (e.g. a shared BLE key that unlocks every unit). 'reported': a weaker or unconfirmed problem -- harder to pull off (needs live intercept/replay), or disclosed but unacknowledged by the vendor. 'malicious': the device itself is the threat, not a flawed product -- a card skimmer's Bluetooth module -- and a consumer should alert, not offer control."
+            },
+            "summary": {
+              "type": "string",
+              "description": "One line, shown on the scan badge and at the top of the warning. State the risk plainly: 'Shared Bluetooth key lets a nearby attacker unlock and immobilize the car.'"
+            },
+            "detail": {
+              "type": "string",
+              "description": "The fuller explanation for the warning page: what the flaw is, what an attacker can do, who is affected."
+            },
+            "advisory_url": {
+              "type": "string",
+              "description": "The public writeup this is based on -- a research page, a news story, a CVE. Required in spirit: a security_advisory with no citation is speculation."
+            },
+            "mitigation": {
+              "type": "object",
+              "description": "How the owner can fix it, when the vendor shipped a patch. Absent means no known fix yet -- which the consumer says explicitly rather than implying safety.",
+              "required": ["summary"],
+              "additionalProperties": false,
+              "properties": {
+                "summary": {
+                  "type": "string",
+                  "description": "One line: what the owner does -- 'Update the firmware in the KARR app'."
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Where to do it, when there is a link (the vendor's patch page or app)."
+                }
+              }
+            }
+          }
         },
         "identification": {
           "type": "object",
