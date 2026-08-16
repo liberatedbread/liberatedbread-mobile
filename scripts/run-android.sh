@@ -127,6 +127,13 @@ if [[ -z "${ADB:-}" ]]; then
   exit 1
 fi
 
+# ── Gradle-compatible JDK ────────────────────────────────────────────────────
+#
+# Shared with setup.sh: point Flutter at a JDK the Gradle wrapper can run
+# under (17-23). Defines ensure_gradle_jdk, called before the build below.
+# shellcheck source=ensure-gradle-jdk.sh
+source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
+
 # ── device discovery ─────────────────────────────────────────────────────────
 
 # One serial per online ("device" state) device.
@@ -259,6 +266,9 @@ resolve_device() {
 resolve_device
 MODEL="$("$ADB" -s "$DEVICE_ID" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
 log "Device: $DEVICE_ID (${MODEL:-unknown})"
+
+# Every Android action below runs Gradle; make sure it runs under a JDK it can.
+ensure_gradle_jdk
 
 # ── dart deps ────────────────────────────────────────────────────────────────
 
