@@ -266,6 +266,26 @@ Emulation needs KVM on Linux (`sudo apt-get install -y qemu-kvm && sudo usermod 
 then log out and back in). Check with `ls -l /dev/kvm`; without it the x86-64
 image runs under software emulation and is too slow to be useful.
 
+#### On a physical Android phone
+
+`scripts/run-android-device.sh` targets a real phone (never the emulator — use
+`run-android.sh` for that). Enable Developer options → USB debugging on the
+phone, plug it in, accept the debugging prompt, then pick a mode:
+
+```bash
+./scripts/run-android-device.sh              # live: flutter run, hot reload, tethered
+./scripts/run-android-device.sh --sideload   # build + install + launch, runs standalone
+./scripts/run-android-device.sh --copy        # build + push the .apk to Downloads, no install
+./scripts/run-android-device.sh --list        # list attached devices and exit
+```
+
+`--live` keeps the app tethered to the terminal (hot reload, streaming logs) —
+the dev loop. `--sideload` installs it so it runs on its own after you unplug —
+the mode for BLE/Wi-Fi field testing away from the desk. `--copy` just drops the
+APK file on the phone (in `Download/`) to install yourself or hand off. All three
+take `--release` and `--mock`, and `--device <serial>` selects a specific phone;
+the built APK also stays on this machine under `build/app/outputs/flutter-apk/`.
+
 ### 5. Project Dependencies
 
 ```bash
