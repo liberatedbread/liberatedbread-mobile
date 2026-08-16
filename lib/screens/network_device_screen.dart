@@ -107,6 +107,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   StreamSubscription<bool>? _keyboardSub;
   Timer? _keyboardPoll;
 
+  /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
+  /// round trip and discards its answer if it changed meanwhile — so a stale
+  /// poll reply cannot clobber a fresher `textedit` notice that arrived while
+  /// the poll was in flight.
+  int _keyboardStateGen = 0;
+
   /// At least one refused command went through the signed session instead —
   /// the screen says so, because "everything works" and "control is gated"
   /// are both true at once and the user should know which path they're on.
@@ -166,27 +172,39 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     unawaited(_watchKeyboard());
   }
 
+  /// Apply a keyboard-focus reading, unless a fresher one already landed. The
+  /// generation guard is what keeps an in-flight poll's stale answer from
+  /// clobbering a `textedit` notice that arrived while it was on the wire.
+  void _setKeyboardFocused(bool focused) {
+    if (!mounted) return;
+    setState(() {
+      _keyboardFocused = focused;
+      _keyboardStateGen++;
+    });
+  }
+
   /// Track whether the device's on-screen keyboard is usable, so the text card
-  /// only appears when a field is focused. The signal lives on the ECP2
-  /// session — plain ECP cannot answer it — so this is a no-op unless the
-  /// device has a `text` entity and answered the `roku:ecp` search target.
+  /// is placed by that (above the channels when a field is focused, at the foot
+  /// when unknown). The signal lives on the ECP2 session — plain ECP cannot
+  /// answer it — so this is a no-op unless the device has a `text` entity and
+  /// answered the `roku:ecp` search target.
   ///
-  /// The session volunteers a `textedit` notice on focus changes; a modest
-  /// poll backs that up, since whether a given firmware sends the notice is
-  /// not guaranteed. Any failure leaves [_keyboardFocused] null, and the card
-  /// shows — the keyboard is never hidden on a device this cannot read.
+  /// The session volunteers a `textedit` notice on focus changes; a 3 s poll
+  /// backs that up, since whether a given firmware sends the notice is not
+  /// guaranteed. Any failure leaves [_keyboardFocused] null and the card shows
+  /// at the foot — the keyboard is never hidden on a device this cannot read.
   Future<void> _watchKeyboard() async {
     final hasKeyboard = _entities.any((e) => e.platform == 'text');
     if (!hasKeyboard || !widget.device.ssdpTargets.contains('roku:ecp')) return;
     final session = await _openEcp2();
     if (session == null || !mounted) return;
-    _keyboardSub = session.textEditFocusChanges.listen((focused) {
-      if (mounted) setState(() => _keyboardFocused = focused);
-    });
+    _keyboardSub = session.textEditFocusChanges.listen(_setKeyboardFocused);
     Future<void> poll() async {
+      final gen = _keyboardStateGen;
       try {
         final focused = await session.queryTextEditFocused();
-        if (mounted) setState(() => _keyboardFocused = focused);
+        // Drop a reply a notice has already superseded (see _keyboardStateGen).
+        if (gen == _keyboardStateGen) _setKeyboardFocused(focused);
       } catch (e) {
         Log.net.debug('textedit-state poll failed for ${widget.device.host}: '
             '$e');
@@ -194,6 +212,10 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
 
     await poll();
+    // A disposed widget cancels _keyboardPoll — but only a poll that already
+    // exists. This runs after an await, so guard against a dispose that landed
+    // during it, or the periodic timer would fire forever on a closed session.
+    if (!mounted) return;
     _keyboardPoll = Timer.periodic(const Duration(seconds: 3), (_) => poll());
   }
 
@@ -653,11 +675,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
   }
 
-  /// The signed session, opened once and reused. Only a Roku speaks ECP2 —
-  /// the check is the `roku:ecp` search target the device answered to at
-  /// discovery, not a name guess. A session that fails to open (not a Roku
-  /// after all, client id refused, TV asleep) is remembered as unavailable so
-  /// every later refusal keeps the plain answer instead of retrying a socket.
+  /// The signed session, opened once and reused. Only a Roku speaks ECP2 — the
+  /// check is the `roku:ecp` search target the device answered to at discovery,
+  /// not a name guess.
+  ///
+  /// A failure that means "no ECP2 here" — the client id refused, no challenge,
+  /// an [Ecp2Exception] — is latched as unavailable, so later refusals keep the
+  /// plain answer instead of waiting out a fresh timeout each time. A mere
+  /// transient (a socket drop, a busy TV at load) is NOT latched: it clears the
+  /// in-flight handle so the next caller re-attempts, so a hiccup while the
+  /// keyboard watch opens the session cannot poison the control fallback.
   Future<Ecp2Session?> _openEcp2() {
     final session = _ecp2;
     if (session != null) return Future.value(session);
@@ -667,9 +694,18 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     return _ecp2Opening ??= ref
         .read(ecp2ControlServiceProvider)
         .connect(widget.device.host, widget.device.port!)
-        .then<Ecp2Session?>((opened) => _ecp2 = opened)
-        .catchError((Object e) {
-      _ecp2Unavailable = true;
+        .then<Ecp2Session?>((opened) {
+      _ecp2Opening = null;
+      // Disposed while the connect was in flight: dispose() saw a null _ecp2
+      // and closed nothing, so close it here or the socket leaks.
+      if (!mounted) {
+        unawaited(opened.close());
+        return null;
+      }
+      return _ecp2 = opened;
+    }).catchError((Object e) {
+      _ecp2Opening = null;
+      if (e is Ecp2Exception) _ecp2Unavailable = true;
       Log.net.debug('ecp2 session failed for ${widget.device.host}: $e');
       return null;
     });
