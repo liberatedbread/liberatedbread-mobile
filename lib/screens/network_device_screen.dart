@@ -21,6 +21,7 @@ import '../services/rabbit_air_key_store.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import '../widgets/network_light_card.dart';
+import '../widgets/power_strip_icon.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
 /// Wi-Fi counterpart of the BLE device screen's typed control panel.
@@ -63,6 +64,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   SoapDeviceDescription? _description;
   final Map<String, Map<String, String>> _stateByCommand = {};
   final Map<String, NetworkReadingDto?> _readings = {};
+
+  /// The raw (unflattened) reply per state command, kept because an instanced
+  /// entity — a Kasa power strip's outlets — enumerates its children straight
+  /// from the reply's own structure, which the flattener discards.
+  final Map<String, String> _rawStateReply = {};
+
+  /// Children enumerated per instanced entity, and each child's role readings
+  /// keyed "entityName/childId". Populated for a Kasa strip; empty for a
+  /// single-outlet plug (no `children`), whose plain switch shows instead.
+  final Map<String, List<NetworkInstanceDto>> _instances = {};
+  final Map<String, Map<String, NetworkReadingDto>> _instanceReadings = {};
 
   /// Names of entities a send is in flight for, disabling their controls.
   ///
@@ -247,6 +259,12 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// go over a raw socket instead, so the load and refresh paths fork on it.
   bool get _isKasa =>
       _entities.any((e) => e.actions.any((a) => a.transport == _kasaTransport));
+
+  /// Whether an instanced entity enumerated any children this poll — a power
+  /// strip. Drives the render fork: per-outlet switches instead of the single
+  /// "Outlet" switch, which on a strip would only ever read "State unknown".
+  bool get _hasInstanceChildren =>
+      _entities.any((e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false));
 
   /// The address a Kasa send/poll uses.
   int get _kasaHostPort => widget.device.port ?? _kasaPort;
@@ -499,8 +517,40 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       final reply =
           await client.send(widget.device.host, _kasaHostPort, request);
       _stateByCommand[command] = kasaStateFields(reply);
+      _rawStateReply[command] = reply;
     }
+    await _decodeInstances();
     await _decodeEntities();
+  }
+
+  /// Enumerate each instanced entity's children from the raw reply and read
+  /// each child's roles — a Kasa power strip's per-outlet on/off. A
+  /// single-outlet plug reports no `children`, so this finds none and the plain
+  /// switch renders instead. Kept beside [_decodeEntities] so a poll refreshes
+  /// the outlets the same way it refreshes a plain reading.
+  Future<void> _decodeInstances() async {
+    final codec = ref.read(specCodecProvider);
+    for (final entity in _entities.where((e) => e.isInstanced)) {
+      final reply = _rawStateReply[entity.stateCommand];
+      if (reply == null) continue;
+      final children = await codec.listNetworkInstances(
+        specYaml: widget.controls.specYaml,
+        entityName: entity.name,
+        stateReply: reply,
+      );
+      _instances[entity.name] = children;
+      for (final child in children) {
+        final readings = await codec.readNetworkInstance(
+          specYaml: widget.controls.specYaml,
+          entityName: entity.name,
+          stateReply: reply,
+          instanceId: child.id,
+        );
+        _instanceReadings['${entity.name}/${child.id}'] = {
+          for (final reading in readings) reading.role: reading.reading,
+        };
+      }
+    }
   }
 
   /// The Rabbit Air state poll: sync the device clock (once per session, via
@@ -777,6 +827,43 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         .send(widget.device.host, _kasaHostPort, request);
   }
 
+  /// Toggle one outlet of a power strip: render the child-scoped command with
+  /// the outlet's id threaded into `context.child_ids` (via the action's
+  /// instance params), send it, and re-poll so the switch snaps to the strip's
+  /// true state. The busy key is "entity/childId", so one outlet's spinner
+  /// does not disable its siblings.
+  Future<void> _sendKasaChild(
+      NetworkEntityDto entity, NetworkInstanceDto child, bool on) async {
+    final action = _actionFor(entity, on ? 'turn_on' : 'turn_off');
+    if (action == null) return;
+    final key = '${entity.name}/${child.id}';
+    setState(() {
+      _sending.add(key);
+      _error = null;
+    });
+    try {
+      final codec = ref.read(specCodecProvider);
+      final request = await codec.renderNetworkKasaCommand(
+        specYaml: widget.controls.specYaml,
+        commandName: action.commandName,
+        values: {
+          for (final param in action.instanceParams) param.param: child.id,
+        },
+      );
+      await ref
+          .read(kasaControlClientProvider)
+          .send(widget.device.host, _kasaHostPort, request);
+      await _refreshState();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorText(e,
+          context: 'device control',
+          fallback: 'The outlet did not accept that. Try again.'));
+    } finally {
+      if (mounted) setState(() => _sending.remove(key));
+    }
+  }
+
   /// The Rabbit Air send: sync the clock, render the envelope, encrypt it
   /// under the user key, and send it as one UDP datagram. Like the Kasa send
   /// there is no read-back; the caller re-polls `get_state` afterwards, so a
@@ -933,10 +1020,39 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               for (final entity in _entities.where((entity) =>
                   entity.platform != 'button' &&
                   entity.platform != 'select' &&
-                  entity.platform != 'text')) ...[
+                  entity.platform != 'text' &&
+                  // Instanced entities render per-outlet below, not here.
+                  !entity.isInstanced &&
+                  // On a strip, the plain "Outlet" switch has no top-level
+                  // relay_state to read, so it would only ever show "State
+                  // unknown" beside the real per-outlet switches — hide it.
+                  !(_hasInstanceChildren && entity.platform == 'switch'))) ...[
                 _entityCard(entity),
                 const SizedBox(height: 12),
               ],
+              // A power strip's outlets: one switch per child, named by its
+              // alias, under a header that names it a strip. Empty (so nothing
+              // renders) on a single-outlet plug.
+              if (_hasInstanceChildren) ...[
+                Row(
+                  children: [
+                    PowerStripIcon(
+                        size: 22,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    const SizedBox(width: 8),
+                    Text('Outlets',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+              for (final entity in _entities.where((e) => e.isInstanced))
+                for (final child in _instances[entity.name] ?? const []) ...[
+                  _instanceSwitchCard(entity, child),
+                  const SizedBox(height: 12),
+                ],
               // The remote's buttons share one card: twenty-seven separate
               // cards would bury the D-pad below the fold, and a remote is
               // one control surface, not a list of readings.
@@ -1581,6 +1697,54 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   ? null
                   : (wantOn) =>
                       unawaited(_send(entity, wantOn ? turnOn : turnOff)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// One outlet of a power strip, named by its alias — the instanced twin of
+  /// [_switchCard]. Its on/off reads from the child's `is_on` role and its
+  /// toggle scopes the write to this outlet's id via [_sendKasaChild].
+  Widget _instanceSwitchCard(
+      NetworkEntityDto entity, NetworkInstanceDto child) {
+    final isOn = _instanceReadings['${entity.name}/${child.id}']?['is_on']?.isOn;
+    final turnOn = _actionFor(entity, 'turn_on');
+    final turnOff = _actionFor(entity, 'turn_off');
+    final busy = _sending.contains('${entity.name}/${child.id}');
+
+    return _card(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(child.label,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+                if (isOn == null)
+                  Text('State unknown',
+                      style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          if (busy)
+            const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2))
+          else
+            Switch(
+              value: isOn ?? false,
+              onChanged: (turnOn == null ||
+                      turnOff == null ||
+                      _lockedFor(turnOn) ||
+                      _lockedFor(turnOff))
+                  ? null
+                  : (wantOn) => unawaited(_sendKasaChild(entity, child, wantOn)),
             ),
         ],
       ),
