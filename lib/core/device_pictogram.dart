@@ -40,6 +40,8 @@ class DevicePictogram {
 
   /// Whether this token is drawn by a custom painter rather than a Material
   /// glyph — the caller builds the widget itself (the scan tile draws a
-  /// [PowerStripIcon] for `power-strip`).
-  static bool isCustom(String? token) => token == 'power-strip';
+  /// [PowerStripIcon] for `power-strip`, a `ThreeDPrinterIcon` for
+  /// `3d-printer`). Material has no glyph for either, so both are painted.
+  static bool isCustom(String? token) =>
+      token == 'power-strip' || token == '3d-printer';
 }
