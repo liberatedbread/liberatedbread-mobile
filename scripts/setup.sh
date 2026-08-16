@@ -23,6 +23,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=ci-versions.sh
 source "$SCRIPT_DIR/ci-versions.sh"
 
+# Provides ensure_gradle_jdk — points Flutter at a JDK the Gradle wrapper can
+# run under. Called at the end of setup_project, once Flutter is installed.
+# shellcheck source=ensure-gradle-jdk.sh
+source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
+
 FLUTTER_VERSION="$CI_FLUTTER_VERSION"
 FLUTTER_HOME="${FLUTTER_HOME:-$HOME/.flutter-sdk}"
 NDK_VERSION="$CI_NDK_VERSION"
@@ -486,6 +491,12 @@ setup_project() {
 
   log "Running flutter doctor..."
   flutter doctor || true
+
+  # Make sure Flutter will build Android under a JDK the Gradle wrapper accepts.
+  # A recent Android Studio's bundled JBR (Java 25) is too new for it, and that
+  # is the JDK Flutter picks by default — repoint jdk-dir at a compatible one.
+  log "Checking the Android build JDK..."
+  ensure_gradle_jdk
 }
 
 # ── main ─────────────────────────────────────────────────────────────────────
