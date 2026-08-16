@@ -35,6 +35,11 @@ const _lifxPort = 56700;
 const _lifxBroadcast = '255.255.255.255';
 const _lifxSearchTarget = 'lifx:udp';
 
+/// mDNS multicast group and port, for the raw source-capture listener that
+/// backstops [MDnsClient] on devices whose SRV/A records do not resolve.
+const _mdnsMulticast = '224.0.0.251';
+const _mdnsPort = 5353;
+
 /// The tagged-broadcast `GetService` probe (sequence 0). Byte-for-byte the
 /// packet `crate::protocol::lifx::get_service(0)` builds. Discovery reads only a
 /// reply's message type and 6-byte MAC, so it builds the probe and parses those
@@ -171,6 +176,44 @@ String? normalizeMdnsServiceType(String raw) {
   if (value.endsWith('.')) value = value.substring(0, value.length - 1);
   if (!RegExp(r'^_[^.]+\._(?:tcp|udp)\.').hasMatch(value)) return null;
   return value;
+}
+
+/// Build a raw mDNS PTR query datagram for a service type (`_snapmaker._tcp
+/// .local`), used by the source-capture listener to prompt the responders.
+List<int> mdnsPtrQuery(String serviceType) {
+  final b = BytesBuilder();
+  // Header: id 0, flags 0, qdcount 1, an/ns/ar 0.
+  b.add(const [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+  for (final label in serviceType.split('.')) {
+    if (label.isEmpty) continue;
+    final bytes = utf8.encode(label);
+    b.addByte(bytes.length);
+    b.add(bytes);
+  }
+  b.addByte(0); // root label
+  b.add(const [0, 12, 0, 1]); // QTYPE PTR, QCLASS IN
+  return b.toBytes();
+}
+
+/// The first label of a service type as it appears on the wire (`_snapmaker`),
+/// for a cheap substring test against a response datagram. Null when it is too
+/// short to be a safe discriminator.
+List<int>? mdnsFirstLabelBytes(String serviceType) {
+  final first = serviceType.split('.').first;
+  return first.length >= 3 ? utf8.encode(first) : null;
+}
+
+/// Whether [haystack] contains the contiguous byte sequence [needle].
+bool containsBytes(List<int> haystack, List<int> needle) {
+  if (needle.isEmpty || needle.length > haystack.length) return false;
+  outer:
+  for (var i = 0; i <= haystack.length - needle.length; i++) {
+    for (var j = 0; j < needle.length; j++) {
+      if (haystack[i + j] != needle[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
 }
 
 /// What one discovery transport managed to do in a scan window.
@@ -314,6 +357,14 @@ class RealNetworkScanService implements NetworkScanService {
               .catchError((Object e) {
             Log.net.warning('mDNS discovery failed', error: e);
             return TransportOutcome.failed;
+          }),
+          // A raw-socket backstop for devices that advertise a catalogue mDNS
+          // type but publish no resolvable SRV/A (a Snapmaker U1): emits them at
+          // the response's source IP. Best-effort — a bind clash returns silent.
+          _runMdnsSourceCapture(session, emit, timeout, extraMdnsServiceTypes)
+              .catchError((Object e) {
+            Log.net.debug('mDNS source-capture failed: $e');
+            return TransportOutcome.silent;
           }),
           _runSsdp(session, emit, timeout, extraSearchTargets)
               .catchError((Object e) {
@@ -465,6 +516,94 @@ class RealNetworkScanService implements NetworkScanService {
     } finally {
       client.stop();
       session.mdns = null;
+    }
+  }
+
+  /// Emit a device at the SOURCE address of any mDNS RESPONSE advertising a
+  /// catalogue service type. Backstops [_runMdns]: a device can advertise its
+  /// service type yet publish no resolvable SRV/A record — a Snapmaker U1
+  /// answers no A query for its own hostname, so PTR->SRV->A never yields an
+  /// address, yet the response came FROM the device and that source IS the
+  /// address. The coalescer merges by host and [NetworkDevice.mergedWith]
+  /// prefers a resolved row's name and SRV port, so this never degrades a
+  /// normally-resolved device; it only rescues the ones the normal path drops.
+  ///
+  /// Binds :5353 with reusePort ONLY (no exclusive fallback): on a host that
+  /// lacks reusePort (Android) it skips cleanly rather than stealing the port
+  /// from [MDnsClient], whose bind must win. So this is a Linux/desktop/iOS
+  /// backstop; where it cannot co-bind, the normal path still runs.
+  Future<TransportOutcome> _runMdnsSourceCapture(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+    List<String> serviceTypes,
+  ) async {
+    // First label per type, for the substring test, keyed by the normalized
+    // type we tag the emitted device with so it matches the spec.
+    final labels = <String, List<int>>{};
+    for (final raw in serviceTypes) {
+      final type = normalizeMdnsServiceType(raw);
+      final label = type == null ? null : mdnsFirstLabelBytes(type);
+      if (type != null && label != null) labels[type] = label;
+    }
+    if (labels.isEmpty) return TransportOutcome.silent;
+
+    final RawDatagramSocket socket;
+    try {
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _mdnsPort,
+          reuseAddress: true, reusePort: true);
+    } catch (e) {
+      // reusePort unsupported, or :5353 exclusively held — skip; the normal
+      // mDNS path still runs. Not a failure the user should hear about.
+      Log.net.debug('mDNS source-capture unavailable: $e');
+      return TransportOutcome.silent;
+    }
+    session.mdnsCaptureSocket = socket;
+    try {
+      socket.joinMulticast(InternetAddress(_mdnsMulticast));
+    } catch (_) {
+      // The group is already joined by another socket on this host; membership
+      // is shared, so this is safe to ignore.
+    }
+
+    var heard = false;
+    final seen = <String>{};
+    try {
+      final target = InternetAddress(_mdnsMulticast);
+      for (final raw in serviceTypes) {
+        socket.send(mdnsPtrQuery(raw), target, _mdnsPort);
+      }
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null || datagram.data.length < 12) continue;
+        // Responses only (QR bit in the DNS flags): a query — ours or another
+        // host's — must not be minted into a device.
+        if (datagram.data[2] & 0x80 == 0) continue;
+        final host = datagram.address.address;
+        for (final entry in labels.entries) {
+          if (!containsBytes(datagram.data, entry.value)) continue;
+          heard = true;
+          // Once per (host, type) per scan — a device answers repeatedly.
+          if (!seen.add('$host|${entry.key}')) continue;
+          emit(NetworkDevice(
+            host: host,
+            name: '',
+            serviceTypes: [entry.key],
+            sources: const {NetworkDiscoverySource.mdns},
+            discoveredAt: DateTime.now(),
+          ));
+        }
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.mdnsCaptureSocket = null;
     }
   }
 
@@ -829,6 +968,7 @@ class _ScanSession {
   RawDatagramSocket? ssdpSocket;
   RawDatagramSocket? lifxSocket;
   RawDatagramSocket? kasaSocket;
+  RawDatagramSocket? mdnsCaptureSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -855,5 +995,7 @@ class _ScanSession {
     lifxSocket = null;
     kasaSocket?.close();
     kasaSocket = null;
+    mdnsCaptureSocket?.close();
+    mdnsCaptureSocket = null;
   }
 }
