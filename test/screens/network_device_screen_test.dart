@@ -1454,6 +1454,7 @@ void main() {
       int initial = 0,
       bool emeter = false,
       bool bulb = false,
+      bool strip = false,
     }) async {
       relayState = initial;
       final entities = [...kasaEntities, if (emeter) ...emeterEntities];
@@ -1501,6 +1502,7 @@ void main() {
         } else {
           reply = bulb
               ? '{"system":{"get_sysinfo":{"mic_type":"IOT.SMARTBULB",'
+                  '${strip ? '"length":80,' : ''}'
                   '"light_state":{"on_off":1,"brightness":75},"alias":"Reading Lamp"}}}'
               : '{"system":{"get_sysinfo":{"relay_state":$relayState,'
                   '"alias":"Desk Lamp"}}}';
@@ -1590,6 +1592,22 @@ void main() {
         contains('light_off'),
       );
       expect(find.textContaining('Could not reach'), findsNothing);
+    });
+
+    testWidgets('a Kasa light STRIP switches over the lightStrip service',
+        (tester) async {
+      // A KL430 reports a `length` (LED count) and silently ignores the bulb's
+      // lightingservice — it must be driven through lightStrip.set_light_state.
+      await pumpPlug(tester, bulb: true, strip: true);
+
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      // The strip command, not the bulb one.
+      final sent =
+          kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName);
+      expect(sent, contains('strip_off'));
+      expect(sent, isNot(contains('light_off')));
     });
   });
 
