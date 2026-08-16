@@ -6,7 +6,7 @@
 # once) and run-android.sh (a safety net before every Android build). Defines
 # `ensure_gradle_jdk`; idempotent and safe to call repeatedly.
 #
-# Why this is needed: this project's Gradle wrapper (8.11.1) runs on Java 17-23,
+# Why this is needed: this project's Gradle wrapper (8.14.3) runs on Java 17-24,
 # and CI pins 17 — but Flutter chooses the JDK it hands Gradle from its OWN
 # `jdk-dir` config first, which it auto-points at Android Studio's bundled JBR.
 # A recent Android Studio ships a Java 25 JBR, which Gradle refuses with
@@ -18,7 +18,7 @@
 command -v warn >/dev/null 2>&1 || warn() { printf '\033[1;33m[jdk]\033[0m %s\n' "$*" >&2; }
 
 GRADLE_JDK_MIN=17
-GRADLE_JDK_MAX=23
+GRADLE_JDK_MAX=24
 
 _jdk_major() {  # echo the major Java version of the JDK at $1, or nothing
   [[ -x "$1/bin/java" ]] || return
