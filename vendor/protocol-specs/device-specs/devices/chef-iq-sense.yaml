@@ -12,6 +12,15 @@ device:
   category: "sensor"
   notes: >
     Smart thermometer hub (CQ60) with wireless probes and ESP32-WROVER-E chipset.
+    DUAL-INTERFACE: it works LOCALLY over BLE (probe data + Wi-Fi provisioning)
+    AND has a network component for REMOTE work — once provisioned it joins the
+    LAN (Wi-Fi; the mains-powered base can also sit on wired Ethernet) and
+    connects OUTBOUND to Chef iQ's cloud (AWS IoT MQTT) for remote monitoring.
+    DISCOVERY: because that network side is an outbound cloud connection, the
+    hub advertises NO local service (no mDNS/SSDP/Bonjour observed), so a passive
+    LAN scan cannot find it — it is discovered over BLE (manufacturer ID 0x05CD,
+    name "CQ60"). If a network capture ever shows a local advertisement, add a
+    Wi-Fi discovery method then; the captures on hand are BLE (Bluetooth H4) only.
     Uses BLE for probe communication and Wi-Fi provisioning; Wi-Fi for cloud (AWS IoT MQTT).
     React Native app with Hermes bytecode (v96); protocol logic decompiled via hermes-dec.
     Five BLE UUID families for different device generations and functions.

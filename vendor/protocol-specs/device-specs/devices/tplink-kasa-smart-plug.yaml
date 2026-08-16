@@ -373,6 +373,35 @@ commands:
         source: "instance:id"
         description: "The strip's own id for the outlet; see relay_on_child."
     verification: "reported"
+  # Kasa SMART BULBS (KL110/KL130/KL430 …) answer the same protocol as a plug
+  # but switch and dim through the lightingservice's transition_light_state, not
+  # set_relay_state, and report their state in get_sysinfo.light_state
+  # {on_off, brightness 1-100}. A consumer that finds light_state (not
+  # relay_state) drives the bulb with these instead of the outlet relay.
+  light_on:
+    description: "Turn a Kasa smart bulb on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":0}}}'
+    verification: "reported"
+  light_off:
+    description: "Turn a Kasa smart bulb off."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":0}}}'
+    verification: "reported"
+  set_brightness:
+    description: "Set a Kasa smart bulb's brightness (1-100), switching it on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"brightness":{brightness},"transition_period":0}}}'
+    example_body: '{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"brightness":50,"transition_period":0}}}'
+    parameters:
+      brightness:
+        type: "integer"
+        min: 1
+        max: 100
+        description: "Brightness percent, 1-100, from get_sysinfo.light_state.brightness."
+    verification: "reported"
   get_sysinfo:
     description: >
       Read device info and current relay state. This is both the state poll
