@@ -924,8 +924,8 @@ class RealNetworkScanService implements NetworkScanService {
           host: host,
           name: parsed.identity ?? '',
           answeredLanProtocols: const [_mikrotikLanProtocol],
-          pictogram: mikrotikPictogram(
-              board: parsed.board, identity: parsed.identity),
+          pictogram:
+              mikrotikPictogram(board: parsed.board, identity: parsed.identity),
           txt: {
             if (parsed.mac != null) 'mac': parsed.mac!,
             if (parsed.board != null) 'board': parsed.board!,

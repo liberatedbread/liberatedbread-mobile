@@ -105,8 +105,7 @@ void main() {
   /// `isSupported: false` on the lock because it is an Android platform channel
   /// and there is no engine here to answer it; on this host it would be a no-op
   /// anyway. multicast_lock_test.dart covers the lock itself.
-  Future<List<NetworkDevice>> scan(
-      {List<String> mdnsTypes = const []}) async {
+  Future<List<NetworkDevice>> scan({List<String> mdnsTypes = const []}) async {
     final service = RealNetworkScanService(
         multicastLock: MulticastLock(isSupported: false));
     final found = <NetworkDevice>[];
@@ -188,7 +187,8 @@ void main() {
   // answers the meta-query from its own cache, so an absence assertion is not
   // reliable off a bare CI box. The mechanism itself is pinned by the unit test
   // for normalizeMdnsServiceType and the direct-query wiring.
-  test('a device deaf to the meta-query is found via its catalogue service '
+  test(
+      'a device deaf to the meta-query is found via its catalogue service '
       'type', () async {
     // Handed the type the catalogue declares, the scan queries it directly and
     // resolves the same PTR -> SRV -> A chain to a real address. This is the

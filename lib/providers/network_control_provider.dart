@@ -106,8 +106,8 @@ class NetworkControls {
   /// raw tcp-json socket with no pairing, so it stays on the ordinary control
   /// screen, which enumerates its outlets there. So a hub is an instanced
   /// entity whose control is NOT tcp-json.
-  bool get isHub => entities.any((e) =>
-      e.isInstanced && !e.actions.any((a) => a.transport == 'tcp-json'));
+  bool get isHub => entities.any(
+      (e) => e.isInstanced && !e.actions.any((a) => a.transport == 'tcp-json'));
 }
 
 /// Resolve what the catalogue lets us control on one network device.

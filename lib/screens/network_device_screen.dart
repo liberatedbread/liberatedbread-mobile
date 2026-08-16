@@ -269,8 +269,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// Whether an instanced entity enumerated any children this poll — a power
   /// strip. Drives the render fork: per-outlet switches instead of the single
   /// "Outlet" switch, which on a strip would only ever read "State unknown".
-  bool get _hasInstanceChildren =>
-      _entities.any((e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false));
+  bool get _hasInstanceChildren => _entities
+      .any((e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false));
 
   /// A Kasa SMARTBULB (KL430 and kin) answering the plug spec: it reports a
   /// `light_state` object, not a top-level `relay_state`, so the plug's on/off
@@ -656,7 +656,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // no field in it mapped to this entity's reading. Without this the app is
       // silent about a real gap (a bulb's light_state, a variant's renamed
       // keys), which is exactly the "nothing's logged" complaint.
-      if (reading == null && returned != null && entity.stateCommand.isNotEmpty) {
+      if (reading == null &&
+          returned != null &&
+          entity.stateCommand.isNotEmpty) {
         Log.net.debug('kasa/${entity.name}: state command '
             '"${entity.stateCommand}" answered but no field mapped to a reading '
             '(keys: ${returned.keys.join(", ")})');
@@ -1146,8 +1148,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                     const SizedBox(width: 8),
                     Text('Outlets',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color:
-                                Theme.of(context).colorScheme.onSurfaceVariant)),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
                   ],
                 ),
                 const SizedBox(height: 8),
@@ -1444,8 +1447,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             children: [
               Expanded(
                 child: Text(title,
-                    style:
-                        text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                    style: text.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
               ),
               if (busy)
                 const SizedBox(
@@ -1455,15 +1458,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               else
                 Switch(
                   value: light.on,
-                  onChanged: (on) => unawaited(
-                      _sendKasaLight(on ? onCmd : offCmd, const {})),
+                  onChanged: (on) =>
+                      unawaited(_sendKasaLight(on ? onCmd : offCmd, const {})),
                 ),
             ],
           ),
           Row(
             children: [
-              Icon(Icons.brightness_6_outlined,
-                  color: scheme.onSurfaceVariant),
+              Icon(Icons.brightness_6_outlined, color: scheme.onSurfaceVariant),
               Expanded(
                 child: Slider(
                   value: brightness.toDouble(),
@@ -1888,8 +1890,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     // switch called "Kitchen Lights", a plug called "Desk Lamp". Prefer that
     // over the generic "Outlet", the same way a strip's per-outlet cards show
     // each child's alias.
-    final kasaState =
-        _isKasa ? _stateByCommand[entity.stateCommand] : null;
+    final kasaState = _isKasa ? _stateByCommand[entity.stateCommand] : null;
     final alias = kasaState?['alias'];
     final title = (alias != null && alias.isNotEmpty) ? alias : entity.name;
 
@@ -1937,7 +1938,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// toggle scopes the write to this outlet's id via [_sendKasaChild].
   Widget _instanceSwitchCard(
       NetworkEntityDto entity, NetworkInstanceDto child) {
-    final isOn = _instanceReadings['${entity.name}/${child.id}']?['is_on']?.isOn;
+    final isOn =
+        _instanceReadings['${entity.name}/${child.id}']?['is_on']?.isOn;
     final turnOn = _actionFor(entity, 'turn_on');
     final turnOff = _actionFor(entity, 'turn_off');
     final busy = _sending.contains('${entity.name}/${child.id}');
@@ -1973,7 +1975,8 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                       _lockedFor(turnOn) ||
                       _lockedFor(turnOff))
                   ? null
-                  : (wantOn) => unawaited(_sendKasaChild(entity, child, wantOn)),
+                  : (wantOn) =>
+                      unawaited(_sendKasaChild(entity, child, wantOn)),
             ),
         ],
       ),

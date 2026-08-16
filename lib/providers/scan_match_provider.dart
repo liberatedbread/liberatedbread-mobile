@@ -159,8 +159,7 @@ class ScanGuess {
       return manufacturerAgreed ? manufacturer : 'Recognized device';
     }
     return switch (confidence) {
-      MatchConfidence.strong =>
-        namesAProduct ? deviceName : 'Supported device',
+      MatchConfidence.strong => namesAProduct ? deviceName : 'Supported device',
       MatchConfidence.likely =>
         namesAProduct ? 'Likely $deviceName' : 'Likely supported',
       MatchConfidence.possible =>
