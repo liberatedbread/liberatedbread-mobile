@@ -255,6 +255,33 @@ void main() {
     });
   });
 
+  group('mdnsPictogram', () {
+    test('a legacy printer type (no _ipp) still resolves to printer', () {
+      // A Brother DCP-7065DN advertises only _printer._tcp / _pdl-datastream,
+      // never _ipp._tcp, so it fails the IPP spec match — the per-device
+      // pictogram is what draws its glyph.
+      expect(mdnsPictogram(['_printer._tcp.local']), 'printer');
+      expect(mdnsPictogram(['_pdl-datastream._tcp.local.']), 'printer');
+      expect(mdnsPictogram(['_ipp._tcp']), 'printer');
+      expect(mdnsPictogram(['_ipps._tcp.local']), 'printer');
+    });
+
+    test('the trailing dot and .local suffix do not matter', () {
+      expect(mdnsPictogram(['_PRINTER._TCP.LOCAL.']), 'printer');
+    });
+
+    test('a non-printer type resolves to nothing', () {
+      expect(mdnsPictogram(['_http._tcp.local']), isNull);
+      expect(mdnsPictogram(['_snapmaker._tcp.local']), isNull);
+      expect(mdnsPictogram(const []), isNull);
+    });
+
+    test('a printer type anywhere in the list wins', () {
+      expect(mdnsPictogram(['_http._tcp.local', '_pdl-datastream._tcp.local']),
+          'printer');
+    });
+  });
+
   group('NetworkScanCoalescer', () {
     test('a first sighting is emitted', () {
       final coalescer = NetworkScanCoalescer();
