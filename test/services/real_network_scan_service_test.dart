@@ -134,15 +134,15 @@ void main() {
   });
 
   group('normalizeMdnsServiceType', () {
-    test('strips the trailing dot a spec writes so it dedupes with the '
+    test(
+        'strips the trailing dot a spec writes so it dedupes with the '
         'meta-query', () {
       // Specs declare `_snapmaker._tcp.local.`; the enumeration and the
       // `resolving` set carry `_snapmaker._tcp.local`. Without stripping the
       // dot a direct query would re-resolve a type the enumeration found.
       expect(normalizeMdnsServiceType('_snapmaker._tcp.local.'),
           '_snapmaker._tcp.local');
-      expect(
-          normalizeMdnsServiceType('_hue._tcp.local'), '_hue._tcp.local');
+      expect(normalizeMdnsServiceType('_hue._tcp.local'), '_hue._tcp.local');
       expect(normalizeMdnsServiceType('  _coap._udp.local.  '),
           '_coap._udp.local');
     });
@@ -157,7 +157,8 @@ void main() {
   });
 
   group('mDNS source-capture wire helpers', () {
-    test('mdnsPtrQuery encodes the name as length-prefixed labels + PTR/IN', () {
+    test('mdnsPtrQuery encodes the name as length-prefixed labels + PTR/IN',
+        () {
       final q = mdnsPtrQuery('_snapmaker._tcp.local');
       // Header: 12 bytes, qdcount 1.
       expect(q.sublist(0, 12), [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
@@ -170,7 +171,8 @@ void main() {
     });
 
     test('mdnsFirstLabelBytes returns the vendor label, or null when tiny', () {
-      expect(String.fromCharCodes(mdnsFirstLabelBytes('_snapmaker._tcp.local')!),
+      expect(
+          String.fromCharCodes(mdnsFirstLabelBytes('_snapmaker._tcp.local')!),
           '_snapmaker');
       // A 2-char label is too weak a discriminator.
       expect(mdnsFirstLabelBytes('_x._tcp.local'), isNull);
@@ -178,7 +180,14 @@ void main() {
 
     test('containsBytes finds a contiguous subsequence', () {
       // The wire carries `\x0a_snapmaker`, so the label bytes appear verbatim.
-      final packet = [1, 2, 10, ...'_snapmaker'.codeUnits, 4, ...'_tcp'.codeUnits];
+      final packet = [
+        1,
+        2,
+        10,
+        ...'_snapmaker'.codeUnits,
+        4,
+        ...'_tcp'.codeUnits
+      ];
       expect(containsBytes(packet, '_snapmaker'.codeUnits), isTrue);
       expect(containsBytes(packet, '_printer'.codeUnits), isFalse);
       expect(containsBytes(packet, const []), isFalse);
@@ -202,7 +211,8 @@ void main() {
     });
 
     test('rejects a non-v1 datagram and a truncated one', () {
-      expect(parseUbiquitiDiscovery(const [0x02, 0x00, 0x00, 0x00]).mac, isNull);
+      expect(
+          parseUbiquitiDiscovery(const [0x02, 0x00, 0x00, 0x00]).mac, isNull);
       expect(parseUbiquitiDiscovery(const [0x01]).hostname, isNull);
     });
 

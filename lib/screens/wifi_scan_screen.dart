@@ -406,8 +406,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
   /// not individually.
   static bool _isUnifiCamera(NetworkDevice device) =>
       device.answeredLanProtocols.contains('ubiquiti-discovery') &&
-      (device.pictogram == 'ip-camera' ||
-          device.pictogram == 'video-doorbell');
+      (device.pictogram == 'ip-camera' || device.pictogram == 'video-doorbell');
 
   /// The UniFi Protect controller among the devices found this scan, if any —
   /// a UNVR, or a UDM/Cloud Key that runs Protect. Cameras point back to it.
@@ -427,7 +426,8 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
 
   /// Open a device's own admin page, filling `{address}` with its host.
   void _openAdmin(ScanGuess guess, NetworkDevice device) {
-    final uri = Uri.tryParse(guess.adminUrl!.replaceAll('{address}', device.host));
+    final uri =
+        Uri.tryParse(guess.adminUrl!.replaceAll('{address}', device.host));
     if (uri == null) return;
     unawaited(ref.read(urlOpenerProvider)(uri));
   }
@@ -501,8 +501,8 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                       tooltip: 'Copy details',
                       onPressed: () async {
                         final messenger = ScaffoldMessenger.of(sheetContext);
-                        await Clipboard.setData(ClipboardData(
-                            text: _detailsText(device, vendor)));
+                        await Clipboard.setData(
+                            ClipboardData(text: _detailsText(device, vendor)));
                         messenger.showSnackBar(const SnackBar(
                             content: Text('Device details copied')));
                       },
@@ -563,8 +563,8 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
             Icon(Icons.info_outline, size: 18, color: scheme.onSurfaceVariant),
             const SizedBox(width: 8),
             Text('Likely controlled via UniFi Protect',
-                style: text.titleSmall
-                    ?.copyWith(color: scheme.onSurfaceVariant)),
+                style:
+                    text.titleSmall?.copyWith(color: scheme.onSurfaceVariant)),
           ]),
           const SizedBox(height: 6),
           Text(
@@ -574,8 +574,7 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                     '(${controller.displayName}).'
                 : 'This app can recognise the camera but not drive it directly. '
                     'It is managed in the UniFi Protect app/controller.',
-            style:
-                text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           if (controller != null) ...[
             const SizedBox(height: 8),

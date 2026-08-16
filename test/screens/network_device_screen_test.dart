@@ -1273,9 +1273,9 @@ void main() {
         networkEntities: (_) => entities,
         networkHttpRequest: render,
       );
-      final plain = MockClient((request) async => fail(
-          'plain ECP was used while the ECP2 session was available: '
-          '${request.url}'));
+      final plain = MockClient((request) async =>
+          fail('plain ECP was used while the ECP2 session was available: '
+              '${request.url}'));
       await tester.pumpWidget(ProviderScope(
         overrides: [
           specCodecProvider.overrideWithValue(codec),
@@ -1672,7 +1672,9 @@ void main() {
               userParams: [],
               readBack: [],
               credentials: [],
-              instanceParams: [NetworkSourceParamDto(param: 'child_id', name: 'id')]),
+              instanceParams: [
+                NetworkSourceParamDto(param: 'child_id', name: 'id')
+              ]),
           NetworkActionDto(
               role: 'turn_off',
               commandName: 'relay_off_child',
@@ -1680,7 +1682,9 @@ void main() {
               userParams: [],
               readBack: [],
               credentials: [],
-              instanceParams: [NetworkSourceParamDto(param: 'child_id', name: 'id')]),
+              instanceParams: [
+                NetworkSourceParamDto(param: 'child_id', name: 'id')
+              ]),
         ],
       ),
     ];
@@ -1726,7 +1730,8 @@ void main() {
         // Every poll answers get_sysinfo; the fake codec enumerates the
         // children from its configured list, so the body's exact shape is moot.
         const reply = '{"system":{"get_sysinfo":{"alias":"Rack Strip"}}}';
-        return Uint8List.fromList(await stripCodec.kasaEncodeFrame(json: reply));
+        return Uint8List.fromList(
+            await stripCodec.kasaEncodeFrame(json: reply));
       }
 
       await tester.pumpWidget(ProviderScope(
