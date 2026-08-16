@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -75,6 +76,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// single-outlet plug (no `children`), whose plain switch shows instead.
   final Map<String, List<NetworkInstanceDto>> _instances = {};
   final Map<String, Map<String, NetworkReadingDto>> _instanceReadings = {};
+
+  /// The brightness the user is dragging on a Kasa light's slider, held locally
+  /// until they let go (then sent). Null when not dragging — the slider shows
+  /// the device's reported brightness.
+  double? _kasaBrightnessDraft;
 
   /// Names of entities a send is in flight for, disabling their controls.
   ///
@@ -273,6 +279,31 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// brightness at the Kasa app for now, rather than render a switch that lies.
   bool get _isKasaBulb =>
       _rawStateReply.values.any((reply) => reply.contains('"light_state"'));
+
+  /// The bulb's current on/off and brightness, parsed from the raw get_sysinfo
+  /// light_state. When off, on_off is 0 and the last brightness lives under
+  /// `dft_on_state`; when on it is at the top of light_state. Null when there
+  /// is no light_state to read.
+  ({bool on, int brightness})? get _kasaLight {
+    for (final reply in _rawStateReply.values) {
+      try {
+        final decoded = jsonDecode(reply);
+        final system = decoded is Map ? decoded['system'] : null;
+        final sysinfo = system is Map ? system['get_sysinfo'] : null;
+        final ls = sysinfo is Map ? sysinfo['light_state'] : null;
+        if (ls is! Map) continue;
+        final on = ls['on_off'] is num && (ls['on_off'] as num) != 0;
+        final source = on
+            ? ls
+            : (ls['dft_on_state'] is Map ? ls['dft_on_state'] as Map : ls);
+        final b = source['brightness'];
+        return (on: on, brightness: b is num ? b.toInt() : 0);
+      } catch (_) {
+        // Malformed reply — fall through to the note.
+      }
+    }
+    return null;
+  }
 
   /// The address a Kasa send/poll uses.
   int get _kasaHostPort => widget.device.port ?? _kasaPort;
@@ -889,6 +920,39 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
   }
 
+  /// Fixed busy key for the Kasa light card — one control surface, so a write
+  /// disables the whole card rather than one widget.
+  static const _kasaLightKey = '__kasa_light__';
+
+  /// Send a Kasa bulb command (on/off, brightness) and re-poll so the card
+  /// snaps to the bulb's true light_state.
+  Future<void> _sendKasaLight(
+      String commandName, Map<String, String> values) async {
+    setState(() {
+      _sending.add(_kasaLightKey);
+      _error = null;
+    });
+    try {
+      final codec = ref.read(specCodecProvider);
+      final request = await codec.renderNetworkKasaCommand(
+        specYaml: widget.controls.specYaml,
+        commandName: commandName,
+        values: values,
+      );
+      await ref
+          .read(kasaControlClientProvider)
+          .send(widget.device.host, _kasaHostPort, request);
+      await _refreshState();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorText(e,
+          context: 'device control',
+          fallback: 'The light did not accept that. Try again.'));
+    } finally {
+      if (mounted) setState(() => _sending.remove(_kasaLightKey));
+    }
+  }
+
   /// The Rabbit Air send: sync the clock, render the envelope, encrypt it
   /// under the user key, and send it as one UDP datagram. Like the Kasa send
   /// there is no read-back; the caller re-polls `get_state` afterwards, so a
@@ -1059,7 +1123,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 const SizedBox(height: 12),
               ],
               if (_isKasaBulb) ...[
-                _kasaBulbNote(),
+                _kasaLightCard(),
                 const SizedBox(height: 12),
               ],
               // A power strip's outlets: one switch per child, named by its
@@ -1340,6 +1404,78 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Real on/off + brightness for a Kasa smart bulb, driven over the same
+  /// socket as a plug but through the lightingservice (see the spec's light_on
+  /// / light_off / set_brightness). Falls back to [_kasaBulbNote] only if the
+  /// light_state can't be parsed. The brightness slider commits on release.
+  Widget _kasaLightCard() {
+    final light = _kasaLight;
+    if (light == null) return _kasaBulbNote();
+    final busy = _sending.contains(_kasaLightKey);
+    final alias = _stateByCommand['get_sysinfo']?['alias'];
+    final title = (alias != null && alias.isNotEmpty) ? alias : 'Light';
+    final brightness =
+        (_kasaBrightnessDraft ?? light.brightness.toDouble()).clamp(1, 100);
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(title,
+                    style:
+                        text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+              if (busy)
+                const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                Switch(
+                  value: light.on,
+                  onChanged: (on) => unawaited(
+                      _sendKasaLight(on ? 'light_on' : 'light_off', const {})),
+                ),
+            ],
+          ),
+          Row(
+            children: [
+              Icon(Icons.brightness_6_outlined,
+                  color: scheme.onSurfaceVariant),
+              Expanded(
+                child: Slider(
+                  value: brightness.toDouble(),
+                  min: 1,
+                  max: 100,
+                  divisions: 99,
+                  label: '${brightness.round()}%',
+                  onChanged: busy
+                      ? null
+                      : (v) => setState(() => _kasaBrightnessDraft = v),
+                  onChangeEnd: (v) {
+                    setState(() => _kasaBrightnessDraft = null);
+                    unawaited(_sendKasaLight(
+                        'set_brightness', {'brightness': v.round().toString()}));
+                  },
+                ),
+              ),
+              SizedBox(
+                width: 44,
+                child: Text('${brightness.round()}%',
+                    textAlign: TextAlign.end, style: text.bodyMedium),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -1568,16 +1568,27 @@ void main() {
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
     });
 
-    testWidgets('a Kasa light is recognized, not shown a dead switch',
+    testWidgets('a Kasa light gets real on/off and brightness controls',
         (tester) async {
       // A KL430 answers the plug protocol but reports light_state, not
-      // relay_state — the plug switch would be a dead control. Recognize it and
-      // point the user at the Kasa app instead.
+      // relay_state. Drive it as a light: an on/off switch reflecting
+      // light_state.on_off and a brightness slider, over the lightingservice.
       await pumpPlug(tester, bulb: true);
 
-      expect(find.byType(Switch), findsNothing);
-      expect(find.text('This is a Kasa smart light'), findsOneWidget);
-      expect(find.textContaining('Use the Kasa app'), findsOneWidget);
+      // On/off reflects light_state.on_off (on), plus a brightness slider at 75.
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(find.byType(Slider), findsOneWidget);
+      expect(find.text('75%'), findsOneWidget);
+      // Named by the bulb's alias, not the generic "Outlet".
+      expect(find.text('Reading Lamp'), findsOneWidget);
+
+      // Toggling sends light_off (the lightingservice), not set_relay_state.
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(
+        kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName),
+        contains('light_off'),
+      );
       expect(find.textContaining('Could not reach'), findsNothing);
     });
   });
