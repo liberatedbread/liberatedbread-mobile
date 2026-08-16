@@ -152,7 +152,7 @@ ci_versions_load() {
   _ci_set CI_FLUTTER_VERSION '3.44.8' "$(_ci_env FLUTTER_VERSION || true)"
   _ci_set CI_NDK_VERSION '28.2.13676358' "$(_ci_env FLUTTER_NDK_VERSION || true)"
   _ci_set CI_ANDROID_API '36' "$(_ci_env ANDROID_API || true)"
-  _ci_set CI_BUILD_TOOLS_VERSION '34.0.0' "$(_ci_env ANDROID_BUILD_TOOLS || true)"
+  _ci_set CI_BUILD_TOOLS_VERSION '35.0.0' "$(_ci_env ANDROID_BUILD_TOOLS || true)"
   _ci_set CI_CMAKE_VERSION '3.22.1' "$(_ci_env ANDROID_CMAKE || true)"
   _ci_set CI_JAVA_VERSION '17' "$(_ci_env JAVA_VERSION || true)"
   _ci_set CI_FRB_VERSION '2.9.0' "$(_ci_env FRB_VERSION || true)"
