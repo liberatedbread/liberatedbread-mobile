@@ -71,6 +71,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw);
 
   @protected
+  SecurityAdvisoryDto dco_decode_box_autoadd_security_advisory_dto(dynamic raw);
+
+  @protected
   StoredUploadDto dco_decode_box_autoadd_stored_upload_dto(dynamic raw);
 
   @protected
@@ -345,6 +348,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   QuerySourceDto? dco_decode_opt_box_autoadd_query_source_dto(dynamic raw);
 
   @protected
+  SecurityAdvisoryDto? dco_decode_opt_box_autoadd_security_advisory_dto(
+      dynamic raw);
+
+  @protected
   StoredUploadDto? dco_decode_opt_box_autoadd_stored_upload_dto(dynamic raw);
 
   @protected
@@ -398,6 +405,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ScannedDeviceDto dco_decode_scanned_device_dto(dynamic raw);
+
+  @protected
+  SecurityAdvisoryDto dco_decode_security_advisory_dto(dynamic raw);
 
   @protected
   ServiceDto dco_decode_service_dto(dynamic raw);
@@ -503,6 +513,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  SecurityAdvisoryDto sse_decode_box_autoadd_security_advisory_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -817,6 +831,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  SecurityAdvisoryDto? sse_decode_opt_box_autoadd_security_advisory_dto(
+      SseDeserializer deserializer);
+
+  @protected
   StoredUploadDto? sse_decode_opt_box_autoadd_stored_upload_dto(
       SseDeserializer deserializer);
 
@@ -877,6 +895,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ScannedDeviceDto sse_decode_scanned_device_dto(SseDeserializer deserializer);
+
+  @protected
+  SecurityAdvisoryDto sse_decode_security_advisory_dto(
+      SseDeserializer deserializer);
 
   @protected
   ServiceDto sse_decode_service_dto(SseDeserializer deserializer);
@@ -989,6 +1011,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_security_advisory_dto(
+      SecurityAdvisoryDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_stored_upload_dto(
@@ -1329,6 +1355,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       QuerySourceDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_security_advisory_dto(
+      SecurityAdvisoryDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_stored_upload_dto(
       StoredUploadDto? self, SseSerializer serializer);
 
@@ -1394,6 +1424,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_security_advisory_dto(
+      SecurityAdvisoryDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_service_dto(ServiceDto self, SseSerializer serializer);

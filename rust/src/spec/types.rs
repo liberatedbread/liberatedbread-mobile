@@ -840,6 +840,12 @@ pub struct DeviceInfo {
     /// older build, or one still being written, must keep loading.
     #[serde(default)]
     pub category: Option<String>,
+    /// A known, named security problem with this device — a shared BLE key, a
+    /// replayable command, or a device that should not be trusted at all (a
+    /// card skimmer). Surfaced to the user as a warning ahead of any control
+    /// surface. See [`SecurityAdvisory`].
+    #[serde(default)]
+    pub security_advisory: Option<SecurityAdvisory>,
     pub notes: Option<String>,
     pub identification: Option<Identification>,
     /// Device variants sharing service UUIDs but differing in command sets.
@@ -859,6 +865,59 @@ pub struct DeviceInfo {
     /// upstream adds next. Preserved verbatim so nothing is lost.
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// A named security problem with a device, for the app to warn about rather
+/// than quietly control. Deliberately small: a severity, a one-line summary,
+/// the writeup to link to, and — when the vendor shipped one — how to fix it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SecurityAdvisory {
+    pub severity: AdvisorySeverity,
+    /// One line, shown on the scan badge and at the top of the warning.
+    pub summary: String,
+    /// The fuller explanation for the warning page.
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// The public writeup or advisory (a news story, a CVE, a research page).
+    #[serde(default)]
+    pub advisory_url: Option<String>,
+    /// How the owner can fix it, when the vendor shipped a patch. Absent means
+    /// there is no known fix yet.
+    #[serde(default)]
+    pub mitigation: Option<AdvisoryMitigation>,
+}
+
+/// How bad, and how sure. `vulnerable` is a confirmed, practical exploit;
+/// `reported` is a weaker or unconfirmed problem (harder to pull off, or the
+/// vendor never answered disclosure); `malicious` is a device that should not
+/// be there at all — a Bluetooth card skimmer — and warrants an alert, not a
+/// control screen.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AdvisorySeverity {
+    Vulnerable,
+    Reported,
+    Malicious,
+}
+
+impl std::fmt::Display for AdvisorySeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AdvisorySeverity::Vulnerable => write!(f, "vulnerable"),
+            AdvisorySeverity::Reported => write!(f, "reported"),
+            AdvisorySeverity::Malicious => write!(f, "malicious"),
+        }
+    }
+}
+
+/// The fix for a [`SecurityAdvisory`], when one exists.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdvisoryMitigation {
+    /// One line: what the owner does — "Update the firmware in the KARR app".
+    pub summary: String,
+    /// Where to do it, when there is a link.
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 /// Why this device needs open-source rescue.
