@@ -19,6 +19,7 @@ import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/black_hat_icon.dart';
 import '../widgets/device_list_tile.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
@@ -573,6 +574,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       staleReason: 'No advertisement for $age — the device may be out of '
           'range or powered off',
       icon: guess?.iconOr(unknownDeviceIcon) ?? unknownDeviceIcon,
+      // A suspected-malicious device (a skimmer) gets the black-hat pictogram,
+      // not a Material glyph; other warnings keep their category icon, tinted.
+      iconWidget: guess?.isMalicious == true
+          ? BlackHatIcon(size: 24, color: scheme.error)
+          : null,
       iconColor: warning == null
           ? null
           : (guess!.isMalicious || warning.severity == 'vulnerable'
