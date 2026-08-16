@@ -35,6 +35,9 @@ class DevicePictogram {
         'laptop-apple' => Icons.laptop_mac_outlined,
         'monitor' => Icons.desktop_windows_outlined,
         'drawable-display' => Icons.grid_on_outlined,
+        // A device we can place on the network but not categorize further — a
+        // Tuya beacon names no product type, only that it is one.
+        'smart-device' => Icons.devices_other_outlined,
         _ => null,
       };
 

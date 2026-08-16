@@ -247,6 +247,10 @@ class RealSpecCodec implements SpecCodec {
       rust.kasaDecodeDatagram(datagram: datagram);
 
   @override
+  Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram}) =>
+      rust.tuyaParseBroadcast(datagram: datagram);
+
+  @override
   Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand({
     required String specYaml,
     required String commandName,
