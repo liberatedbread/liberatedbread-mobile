@@ -17,12 +17,11 @@
 # So we no longer flag the whole HC-0x / FREE2MOVE family: we keep only the
 # HC-05 / HC-06 module names, drop HC-03 / HC-08 / FREE2MOVE, and down-rank the
 # match from "malicious" to a "reported" heads-up that carries the verification
-# method — rather than asserting "skimmer" on a name we cannot verify. Note the
-# scan matcher recognises the module by name PREFIX (identification.local_name_
-# prefixes), so a configured "HC-05Foo" gets the same soft note as a bare
-# "HC-05"; that is acceptable now that the note no longer asserts evil and hands
-# the user a real way to check. Truly exact-name matching would need a new
-# identification axis (the matcher only does prefix today).
+# method — rather than asserting "skimmer" on a name we cannot verify. We match
+# the EXACT default name (identification.local_names, whole-string), so a bare
+# "HC-05" is flagged but a configured "HC-05Foo" — a hobby module someone
+# bothered to set up — is not: leaving the factory default is itself part of the
+# skimmer signal.
 #
 # Sources (public): SparkFun "Skimmer Scanner" (github.com/sparkfunX) and the
 # "Gas Pump Skimmers" tutorial (learn.sparkfun.com); Snopes fact check,
@@ -101,16 +100,17 @@ device:
     # module-dependent). We dropped HC-03 / HC-08 / FREE2MOVE and the "malicious"
     # severity: a bare default-named module is the skimmer tell, but a passive
     # scan cannot confirm it, so this is a soft heads-up, not an alert.
-    # identification.local_name_prefixes carries the same names; the scan matcher
-    # keys on that (a name PREFIX), so this regex is written as a prefix too.
+    # identification.local_names carries the same names; the scan matcher keys
+    # on that (whole-string, exact), so this regex is anchored at both ends —
+    # only a bare "HC-05" / "HC-06", never a configured "HC-05Foo".
     methods:
       - type: "ble_scan"
         ble:
           local_name:
             match: "regex"
-            value: "^HC-0[56]"
+            value: "^HC-0[56]$"
     identity:
       stable_keys: ["address"]
       display: "name"
   identification:
-    local_name_prefixes: ["HC-05", "HC-06"]
+    local_names: ["HC-05", "HC-06"]
