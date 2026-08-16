@@ -120,11 +120,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// the poll was in flight.
   int _keyboardStateGen = 0;
 
-  /// At least one refused command went through the signed session instead —
-  /// the screen says so, because "everything works" and "control is gated"
-  /// are both true at once and the user should know which path they're on.
-  bool _viaSignedSession = false;
-
   /// Names of entities whose device-sourced list never arrived — the query
   /// failed outright (timeout, unreachable), as opposed to answered-empty.
   /// The two read very differently on screen, and "listed nothing" is a lie
@@ -273,6 +268,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// mDNS SRV port (9009); the constant is the fallback.
   int get _rabbitAirHostPort =>
       widget.device.port ?? RabbitAirControlClient.defaultPort;
+
+  /// Roku control — plain ECP and the ECP2 session alike — always lives on
+  /// 8060 (the spec's `default_port`), whatever port the SSDP LOCATION carried.
+  /// A field TV answered discovery with a 7250 root-description port, but
+  /// /keypress, /query, /launch and /ecp-session are only ever served on 8060.
+  static const _rokuEcpPort = 8060;
+
+  /// A Roku, by the `roku:ecp` target it answered at discovery — the same test
+  /// [_openEcp2] gates the signed session on, not a name guess.
+  bool get _isRoku => widget.device.ssdpTargets.contains('roku:ecp');
+
+  /// The port a control request goes to. A Roku is pinned to its ECP port; every
+  /// other device uses the port discovery captured from its LOCATION.
+  int get _controlPort => _isRoku ? _rokuEcpPort : widget.device.port!;
 
   /// The identity the user key is stored under: the Thing ID, which IS the
   /// device's mDNS hostname, falling back to the host when discovery carried
@@ -689,27 +698,30 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await _sendNetworkHttp(request);
   }
 
-  /// One plain-HTTP exchange, with the ECP2 signed session as the fallback
-  /// for a refusal: a Roku in "Control by mobile apps = Limited" refuses
-  /// plain ECP but answers ECP2, so a 403 is where the fallback begins — the
-  /// same rendered request, translated and sent down the session. Every other
-  /// device, and every other failure, keeps the plain answer.
+  /// Send one control request. A Roku is driven over the app's authenticated
+  /// ECP2 session — the same path the official Roku app uses — for EVERYTHING,
+  /// and falls back to plain ECP only when the session is unavailable (not a
+  /// Roku, or ECP2 could not be opened) or cannot carry this particular request
+  /// (a path with no ECP2 equivalent, or the device refuses it over the
+  /// session). Every non-Roku device has only the plain path: [_openEcp2]
+  /// returns null and this is a plain send on the discovered port.
   Future<String> _sendNetworkHttp(HttpRequestDto request) async {
-    final host = widget.device.host;
-    final port = widget.device.port!;
-    try {
-      return await ref
-          .read(httpControlClientProvider)
-          .send(host, port, request);
-    } on ControlRefusedException {
-      final session = await _openEcp2();
-      if (session == null) rethrow;
-      final body = await session.send(request);
-      if (mounted && !_viaSignedSession) {
-        setState(() => _viaSignedSession = true);
+    final session = await _openEcp2();
+    if (session != null) {
+      try {
+        return await session.send(request);
+      } on ControlRefusedException {
+        // ECP2 has no equivalent for this path, or the device refused it over
+        // the session — fall through to the plain path below.
+      } on Ecp2Exception {
+        // The session faltered; fall back to plain ECP for this request. A
+        // socket that truly died self-closes and throws fast next time, so the
+        // fallback stays cheap and the keyboard watch keeps owning the session.
       }
-      return body;
     }
+    return ref
+        .read(httpControlClientProvider)
+        .send(widget.device.host, _controlPort, request);
   }
 
   /// The signed session, opened once and reused. Only a Roku speaks ECP2 — the
@@ -730,7 +742,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     return _ecp2Opening ??= ref
         .read(ecp2ControlServiceProvider)
-        .connect(widget.device.host, widget.device.port!)
+        .connect(widget.device.host, _controlPort)
         .then<Ecp2Session?>((opened) {
       _ecp2Opening = null;
       // Disposed while the connect was in flight: dispose() saw a null _ecp2
@@ -911,13 +923,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               // lists loaded, only control is gated.
               if (_controlRefused) ...[
                 _controlGateNote(),
-                const SizedBox(height: 12),
-              ],
-              // Refusals the signed session rescued: everything works, but
-              // the user is one settings toggle away from the plain path,
-              // and honesty about which path is in use beats silence.
-              if (!_controlRefused && _viaSignedSession) ...[
-                _signedSessionNote(),
                 const SizedBox(height: 12),
               ],
               // Readings and plain controls first, in the order the spec
@@ -1151,48 +1156,6 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// device refused plain ECP — the working state of a Limited-mode Roku.
   /// Names the setting like the refusal note does, but as an option, not a
   /// fix: nothing is broken.
-  Widget _signedSessionNote() {
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      margin: EdgeInsets.zero,
-      color: scheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.verified_user_outlined, color: scheme.onSurfaceVariant),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Using the signed session',
-                    style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600, color: scheme.onSurface),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'The device has "Control by mobile apps" set to Limited, '
-                    'so commands are going through the authenticated session '
-                    'the official Roku app uses. Everything here works; '
-                    'setting it to Enabled (Settings > System > Advanced '
-                    'system settings) lets this app use the plain, documented '
-                    'path instead.',
-                    style: text.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _entityCard(NetworkEntityDto entity) {
     switch (entity.platform) {
       case 'switch':
