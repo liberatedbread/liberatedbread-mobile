@@ -185,6 +185,28 @@ void main() {
     });
   });
 
+  group('parseUbiquitiDiscovery', () {
+    test('reads hostname, platform and MAC from a real TLV reply', () {
+      // Shape captured from an EdgeSwitch 10X: v1 header, then 0x0c platform,
+      // 0x0b hostname, 0x01 MAC.
+      final reply = <int>[
+        0x01, 0x00, 0x00, 0x82, // version 1, cmd 0, length
+        0x0c, 0x00, 0x06, ...'ES-10X'.codeUnits, // platform
+        0x0b, 0x00, 0x11, ...'livingroom-switch'.codeUnits, // hostname (17)
+        0x01, 0x00, 0x06, 0x74, 0xac, 0xb9, 0x01, 0x02, 0x03, // MAC
+      ];
+      final p = parseUbiquitiDiscovery(reply);
+      expect(p.hostname, 'livingroom-switch');
+      expect(p.platform, 'ES-10X');
+      expect(p.mac, '74:ac:b9:01:02:03');
+    });
+
+    test('rejects a non-v1 datagram and a truncated one', () {
+      expect(parseUbiquitiDiscovery(const [0x02, 0x00, 0x00, 0x00]).mac, isNull);
+      expect(parseUbiquitiDiscovery(const [0x01]).hostname, isNull);
+    });
+  });
+
   group('NetworkScanCoalescer', () {
     test('a first sighting is emitted', () {
       final coalescer = NetworkScanCoalescer();
