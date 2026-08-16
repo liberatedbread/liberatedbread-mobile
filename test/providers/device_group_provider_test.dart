@@ -34,6 +34,7 @@ DeviceSpecDto _bulbSpec({String name = 'Example Smart Bulb'}) => DeviceSpecDto(
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
       localNamePrefixes: const [],
+      localNames: const [],
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],

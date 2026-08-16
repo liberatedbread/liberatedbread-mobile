@@ -854,6 +854,25 @@ pub struct DeviceInfo {
     /// older build, or one still being written, must keep loading.
     #[serde(default)]
     pub category: Option<String>,
+    /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
+    /// `ip-camera`, `router`, …). Kept a `String` for the same
+    /// forward-compat reason as `category`: the resolver owns the table, and an
+    /// unknown token falls back to the category icon rather than losing the
+    /// device. See the Dart `DevicePictogram` resolver.
+    #[serde(default)]
+    pub pictogram: Option<String>,
+    /// URL template to the device's OWN admin page, with `{address}` for the
+    /// discovered host (`https://{address}:5001/`, `http://{address}/webfig/`).
+    /// A recognise-only device (see `integration`) can still hand the user off
+    /// to the vendor's UI even when this app drives nothing.
+    #[serde(default)]
+    pub admin_url: Option<String>,
+    /// How this app relates to the device: `supported` (default — it can be
+    /// driven) vs `identify_only` (recognised and handed off via `admin_url` /
+    /// a companion app, but not controlled). Kept a `String` for the same
+    /// forward-compat reason as `category`. Absent means `supported`.
+    #[serde(default)]
+    pub integration: Option<String>,
     /// A known, named security problem with this device — a shared BLE key, a
     /// replayable command, or a device that should not be trusted at all (a
     /// card skimmer). Surfaced to the user as a warning ahead of any control
@@ -1003,6 +1022,14 @@ pub struct Identification {
     /// through [`Identification::local_name_prefixes`].
     #[serde(default)]
     pub local_name_prefixes: Option<Vec<String>>,
+    /// EXACT advertised names (whole-string, not a prefix), for when a bare
+    /// factory-default name is the signal and a configured one is not — a
+    /// skimmer leaves an HC-05 module named exactly "HC-05", where a hobby
+    /// project renames it. Distinct from `local_name_prefixes`, which matches
+    /// any name that STARTS with the value. Read through
+    /// [`Identification::local_names`].
+    #[serde(default)]
+    pub local_names: Option<Vec<String>>,
     pub service_uuids: Option<Vec<String>>,
     /// BLE manufacturer-specific advertisement data (AD type 0xFF).
     #[serde(default)]
@@ -1062,6 +1089,17 @@ impl Identification {
             }
         }
         prefixes
+    }
+
+    /// Exact advertised names this device is matched on whole-string, empty
+    /// ones dropped. See [`local_names`](Self::local_names) the field.
+    pub fn local_names(&self) -> Vec<String> {
+        self.local_names
+            .iter()
+            .flatten()
+            .filter(|name| !name.is_empty())
+            .cloned()
+            .collect()
     }
 
     /// Every company ID this device family advertises: the primary one plus

@@ -2721,10 +2721,14 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
         let mut var_manufacturerStatus = <String>::sse_decode(deserializer);
         let mut var_protocol = <String>::sse_decode(deserializer);
         let mut var_category = <Option<String>>::sse_decode(deserializer);
+        let mut var_pictogram = <Option<String>>::sse_decode(deserializer);
+        let mut var_adminUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_integration = <Option<String>>::sse_decode(deserializer);
         let mut var_securityAdvisory =
             <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
         let mut var_notes = <Option<String>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
+        let mut var_localNames = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
         let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
         let mut var_macPrefixes =
@@ -2745,9 +2749,13 @@ impl SseDecode for crate::api::device_api::DeviceSpecDto {
             manufacturer_status: var_manufacturerStatus,
             protocol: var_protocol,
             category: var_category,
+            pictogram: var_pictogram,
+            admin_url: var_adminUrl,
+            integration: var_integration,
             security_advisory: var_securityAdvisory,
             notes: var_notes,
             local_name_prefixes: var_localNamePrefixes,
+            local_names: var_localNames,
             service_uuids: var_serviceUuids,
             company_ids: var_companyIds,
             mac_prefixes: var_macPrefixes,
@@ -4168,6 +4176,9 @@ impl SseDecode for crate::api::device_api::ScanMatch {
         let mut var_deviceName = <String>::sse_decode(deserializer);
         let mut var_manufacturer = <String>::sse_decode(deserializer);
         let mut var_category = <Option<String>>::sse_decode(deserializer);
+        let mut var_pictogram = <Option<String>>::sse_decode(deserializer);
+        let mut var_adminUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_integration = <Option<String>>::sse_decode(deserializer);
         let mut var_securityAdvisory =
             <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
         let mut var_confidence =
@@ -4183,6 +4194,9 @@ impl SseDecode for crate::api::device_api::ScanMatch {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
             category: var_category,
+            pictogram: var_pictogram,
+            admin_url: var_adminUrl,
+            integration: var_integration,
             security_advisory: var_securityAdvisory,
             confidence: var_confidence,
             matched_by_name_prefix: var_matchedByNamePrefix,
@@ -4293,9 +4307,13 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
         let mut var_deviceName = <String>::sse_decode(deserializer);
         let mut var_manufacturer = <String>::sse_decode(deserializer);
         let mut var_category = <Option<String>>::sse_decode(deserializer);
+        let mut var_pictogram = <Option<String>>::sse_decode(deserializer);
+        let mut var_adminUrl = <Option<String>>::sse_decode(deserializer);
+        let mut var_integration = <Option<String>>::sse_decode(deserializer);
         let mut var_securityAdvisory =
             <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_decode(deserializer);
         let mut var_localNamePrefixes = <Vec<String>>::sse_decode(deserializer);
+        let mut var_localNames = <Vec<String>>::sse_decode(deserializer);
         let mut var_serviceUuids = <Vec<String>>::sse_decode(deserializer);
         let mut var_companyIds = <Vec<u16>>::sse_decode(deserializer);
         let mut var_macPrefixes =
@@ -4308,8 +4326,12 @@ impl SseDecode for crate::api::device_api::SpecIdentityDto {
             device_name: var_deviceName,
             manufacturer: var_manufacturer,
             category: var_category,
+            pictogram: var_pictogram,
+            admin_url: var_adminUrl,
+            integration: var_integration,
             security_advisory: var_securityAdvisory,
             local_name_prefixes: var_localNamePrefixes,
+            local_names: var_localNames,
             service_uuids: var_serviceUuids,
             company_ids: var_companyIds,
             mac_prefixes: var_macPrefixes,
@@ -4903,9 +4925,13 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::DeviceSpecDto {
             self.manufacturer_status.into_into_dart().into_dart(),
             self.protocol.into_into_dart().into_dart(),
             self.category.into_into_dart().into_dart(),
+            self.pictogram.into_into_dart().into_dart(),
+            self.admin_url.into_into_dart().into_dart(),
+            self.integration.into_into_dart().into_dart(),
             self.security_advisory.into_into_dart().into_dart(),
             self.notes.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
+            self.local_names.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
             self.company_ids.into_into_dart().into_dart(),
             self.mac_prefixes.into_into_dart().into_dart(),
@@ -5798,6 +5824,9 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
             self.device_name.into_into_dart().into_dart(),
             self.manufacturer.into_into_dart().into_dart(),
             self.category.into_into_dart().into_dart(),
+            self.pictogram.into_into_dart().into_dart(),
+            self.admin_url.into_into_dart().into_dart(),
+            self.integration.into_into_dart().into_dart(),
             self.security_advisory.into_into_dart().into_dart(),
             self.confidence.into_into_dart().into_dart(),
             self.matched_by_name_prefix.into_into_dart().into_dart(),
@@ -5948,8 +5977,12 @@ impl flutter_rust_bridge::IntoDart for crate::api::device_api::SpecIdentityDto {
             self.device_name.into_into_dart().into_dart(),
             self.manufacturer.into_into_dart().into_dart(),
             self.category.into_into_dart().into_dart(),
+            self.pictogram.into_into_dart().into_dart(),
+            self.admin_url.into_into_dart().into_dart(),
+            self.integration.into_into_dart().into_dart(),
             self.security_advisory.into_into_dart().into_dart(),
             self.local_name_prefixes.into_into_dart().into_dart(),
+            self.local_names.into_into_dart().into_dart(),
             self.service_uuids.into_into_dart().into_dart(),
             self.company_ids.into_into_dart().into_dart(),
             self.mac_prefixes.into_into_dart().into_dart(),
@@ -6226,12 +6259,16 @@ impl SseEncode for crate::api::device_api::DeviceSpecDto {
         <String>::sse_encode(self.manufacturer_status, serializer);
         <String>::sse_encode(self.protocol, serializer);
         <Option<String>>::sse_encode(self.category, serializer);
+        <Option<String>>::sse_encode(self.pictogram, serializer);
+        <Option<String>>::sse_encode(self.admin_url, serializer);
+        <Option<String>>::sse_encode(self.integration, serializer);
         <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_encode(
             self.security_advisory,
             serializer,
         );
         <Option<String>>::sse_encode(self.notes, serializer);
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
+        <Vec<String>>::sse_encode(self.local_names, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<u16>>::sse_encode(self.company_ids, serializer);
         <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);
@@ -7270,6 +7307,9 @@ impl SseEncode for crate::api::device_api::ScanMatch {
         <String>::sse_encode(self.device_name, serializer);
         <String>::sse_encode(self.manufacturer, serializer);
         <Option<String>>::sse_encode(self.category, serializer);
+        <Option<String>>::sse_encode(self.pictogram, serializer);
+        <Option<String>>::sse_encode(self.admin_url, serializer);
+        <Option<String>>::sse_encode(self.integration, serializer);
         <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_encode(
             self.security_advisory,
             serializer,
@@ -7351,11 +7391,15 @@ impl SseEncode for crate::api::device_api::SpecIdentityDto {
         <String>::sse_encode(self.device_name, serializer);
         <String>::sse_encode(self.manufacturer, serializer);
         <Option<String>>::sse_encode(self.category, serializer);
+        <Option<String>>::sse_encode(self.pictogram, serializer);
+        <Option<String>>::sse_encode(self.admin_url, serializer);
+        <Option<String>>::sse_encode(self.integration, serializer);
         <Option<crate::api::device_api::SecurityAdvisoryDto>>::sse_encode(
             self.security_advisory,
             serializer,
         );
         <Vec<String>>::sse_encode(self.local_name_prefixes, serializer);
+        <Vec<String>>::sse_encode(self.local_names, serializer);
         <Vec<String>>::sse_encode(self.service_uuids, serializer);
         <Vec<u16>>::sse_encode(self.company_ids, serializer);
         <Vec<crate::api::device_api::MacPrefixDto>>::sse_encode(self.mac_prefixes, serializer);

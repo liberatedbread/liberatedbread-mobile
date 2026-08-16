@@ -149,6 +149,7 @@ void main() {
       deviceName: 'Philips Hue Bridge',
       manufacturer: 'Signify',
       localNamePrefixes: const [],
+      localNames: const [],
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],
