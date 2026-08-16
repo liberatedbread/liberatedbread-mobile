@@ -280,6 +280,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool get _isKasaBulb =>
       _rawStateReply.values.any((reply) => reply.contains('"light_state"'));
 
+  /// A Kasa light STRIP (KL400/KL430) rather than a bulb: it is SMARTBULB-class
+  /// but switches and dims through smartlife.iot.lightStrip.set_light_state, not
+  /// the bulb's lightingservice.transition_light_state — a strip silently
+  /// ignores the bulb call. Told apart by the `length` (LED count) field
+  /// get_sysinfo carries. Selects the strip_* commands over the bulb light_*.
+  bool get _isKasaLightStrip =>
+      _stateByCommand['get_sysinfo']?.containsKey('length') ?? false;
+
   /// The bulb's current on/off and brightness, parsed from the raw get_sysinfo
   /// light_state. When off, on_off is 0 and the last brightness lives under
   /// `dft_on_state`; when on it is at the top of light_state. Null when there
@@ -1420,6 +1428,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final title = (alias != null && alias.isNotEmpty) ? alias : 'Light';
     final brightness =
         (_kasaBrightnessDraft ?? light.brightness.toDouble()).clamp(1, 100);
+    // A strip and a bulb take on/off and brightness over different services.
+    final strip = _isKasaLightStrip;
+    final onCmd = strip ? 'strip_on' : 'light_on';
+    final offCmd = strip ? 'strip_off' : 'light_off';
+    final brightnessCmd = strip ? 'strip_brightness' : 'set_brightness';
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
 
@@ -1443,7 +1456,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 Switch(
                   value: light.on,
                   onChanged: (on) => unawaited(
-                      _sendKasaLight(on ? 'light_on' : 'light_off', const {})),
+                      _sendKasaLight(on ? onCmd : offCmd, const {})),
                 ),
             ],
           ),
@@ -1464,7 +1477,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   onChangeEnd: (v) {
                     setState(() => _kasaBrightnessDraft = null);
                     unawaited(_sendKasaLight(
-                        'set_brightness', {'brightness': v.round().toString()}));
+                        brightnessCmd, {'brightness': v.round().toString()}));
                   },
                 ),
               ),
