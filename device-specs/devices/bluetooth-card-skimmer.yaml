@@ -1,0 +1,94 @@
+# Bluetooth Card Skimmer (suspected) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# WARNING spec. This does not describe a product to control — it describes the
+# BLUETOOTH SIGNATURE of the cheap serial modules that criminals most commonly
+# build into credit-card skimmers (at gas pumps, ATMs, POS terminals) to
+# offload stolen card data. Recognising one is a reason to ALERT the user and
+# tell a merchant/operator, never to connect.
+#
+# What we match: the default advertised names of the HC-0x hobbyist Bluetooth
+# modules (HC-03/05/06/08) and the FREE2MOVE module, which the widely-cited
+# skimmer-detection work (SparkFun "Skimmer Scanner", Undercode, Snopes fact
+# check) found in real skimmers. These are Bluetooth CLASSIC (SPP) modules;
+# whether a given one surfaces in a BLE scan depends on the module — so this is
+# a HEURISTIC, not proof. It also cannot see skimmers that use other modules or
+# no Bluetooth at all. A named HC-05 in a store is suspicious, not a conviction.
+#
+# Sources (public): Snopes, "Can a Mobile Phone's Bluetooth Sensor Be Used to
+# Detect Card Skimmers?"; SparkFun Skimmer Scanner; Undercode Testing writeup.
+
+device:
+  name: "Bluetooth Card Skimmer (suspected)"
+  manufacturer: "Unknown"
+  manufacturer_status: "unsupported"
+  protocol: "ble"
+  category: "warning"
+  integration: "identify_only"
+  testing:
+    status: untested
+    notes: >
+      Heuristic, not hardware-verified. Matches the default names of the serial
+      Bluetooth modules commonly found in skimmers (HC-03/05/06/08, FREE2MOVE).
+      These are Bluetooth Classic modules; surfacing in a BLE scan is
+      module-dependent, and legitimate hobby projects use the same modules — so
+      this is a suspicion to investigate, never proof.
+  security_advisory:
+    severity: "malicious"
+    summary: >
+      This is the Bluetooth signature of the cheap module commonly built into
+      credit-card skimmers. If you did not put it here, treat it as one.
+    detail: >
+      Credit-card skimmers hidden in gas pumps, ATMs and card readers often use
+      an off-the-shelf serial Bluetooth module (HC-03, HC-05, HC-06, HC-08, or a
+      FREE2MOVE) to send stolen card numbers to a criminal parked nearby. A
+      device advertising one of those default names — especially a
+      password-protected one at a fuel pump or checkout — is a classic skimmer
+      tell. This is NOT proof: the same modules appear in innocent hobby
+      electronics, and many skimmers use other hardware or none. If you find one
+      where card data is handled, do not pay there, and report it to the station
+      or store operator and, in the U.S., your state's weights-and-measures or
+      agriculture department.
+    advisory_url: "https://www.snopes.com/fact-check/bluetooth-gas-pump-skimmers/"
+  setup:
+    required: false
+    confidence: low
+    notes: >
+      Nothing to set up: this app never connects to the device. It recognises
+      the BLE advertisement and warns; the match is inferred from the
+      advertised name (see testing.notes), hence low confidence.
+    methods:
+      - type: "none"
+        description: "Passive: the device advertises over BLE, we match the name and warn. No connection is made."
+        verified: false
+    factory_reset:
+      applicable: false
+      confidence: low
+      effect: >
+        Not applicable — this app never connects to or configures the device,
+        so it has nothing to reset. Any real reset is done at the device.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: "Recognised on sight wherever it advertises; nothing is stored."
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "No credential crosses to this app; it never connects."
+  discovery:
+    # Match on the module's default advertised name (Classic modules, so BLE
+    # visibility is module-dependent). identification.local_name_prefixes lists
+    # the same names for the scanner's cheap pre-connect match.
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "regex"
+            value: "^(HC-0[3568]|FREE2MOVE)"
+    identity:
+      stable_keys: ["address"]
+      display: "name"
+  identification:
+    local_name_prefixes: ["HC-03", "HC-05", "HC-06", "HC-08", "FREE2MOVE"]
