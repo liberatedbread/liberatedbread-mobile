@@ -107,6 +107,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   StreamSubscription<bool>? _keyboardSub;
   Timer? _keyboardPoll;
 
+  /// Background re-poll of device state, so a device toggled physically or from
+  /// another app updates here without a manual Refresh. Started after the first
+  /// successful load, only for devices that actually expose state. [_polling]
+  /// guards against a slow tick stacking on the one before it.
+  Timer? _statePoll;
+  bool _polling = false;
+
   /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
   /// round trip and discards its answer if it changed meanwhile — so a stale
   /// poll reply cannot clobber a fresher `textedit` notice that arrived while
@@ -160,6 +167,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       controller.dispose();
     }
     _keyboardPoll?.cancel();
+    _statePoll?.cancel();
     unawaited(_keyboardSub?.cancel());
     unawaited(_ecp2?.close() ?? Future<void>.value());
     super.dispose();
@@ -361,6 +369,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       // fetch that must not hold the remote hostage: they load in the
       // background under the select card's own indicator. See [_loadingOptions].
       if (mounted) setState(() => _loading = false);
+      _startStatePoll();
       unawaited(_refreshQuerySources());
     } catch (e) {
       if (!mounted) return;
@@ -373,6 +382,34 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               'try scanning again.',
         );
       });
+    }
+  }
+
+  /// Begin (or restart) the background state poll. A device with no state
+  /// commands — a Roku's stateless button remote — has nothing to poll and
+  /// never starts a timer. Idempotent: cancels any prior timer first, so a
+  /// re-load does not leave two running.
+  void _startStatePoll() {
+    _statePoll?.cancel();
+    if (_stateCommands.isEmpty) return;
+    _statePoll = Timer.periodic(
+        const Duration(seconds: 4), (_) => unawaited(_tickStatePoll()));
+  }
+
+  /// One background state refresh. Skips its turn — rather than stacking —
+  /// while a read is already in flight, the screen is still loading, or the
+  /// user is mid-send (don't fight an optimistic toggle). Transient errors are
+  /// swallowed so a momentary blip does not blank a working screen; [_load] and
+  /// the manual Refresh still surface failures.
+  Future<void> _tickStatePoll() async {
+    if (!mounted || _polling || _loading || _sending.isNotEmpty) return;
+    _polling = true;
+    try {
+      await _refreshState();
+    } catch (_) {
+      // Keep the last-known readings until a poll succeeds.
+    } finally {
+      _polling = false;
     }
   }
 
