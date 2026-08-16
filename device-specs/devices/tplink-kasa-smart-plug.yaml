@@ -303,10 +303,12 @@ tplink_smarthome_protocol:
     emeter.get_realtime: "Metering models only (HS110, KP115) — instantaneous voltage/current/power/total. Bound as the get_emeter command and the four sensor entities below; see device.variants for which models have the hardware."
     netif.set_stainfo: "Provisioning: join the plug to a Wi-Fi network (see device.setup)."
   multi_outlet_note: >
-    Power strips (HS300 / KP303 / EP40) report a `children` array in
+    Power strips (HS300 / KP200 / KP303 / EP40) report a `children` array in
     get_sysinfo and address each outlet by wrapping a command in
-    {"context":{"child_ids":["<deviceId>0N"]}}. That is a separate spec; this
-    one covers single-relay plugs only.
+    {"context":{"child_ids":["<deviceId>0N"]}}. Handled here now: the instanced
+    "Outlets" switch enumerates the children, and relay_on_child /
+    relay_off_child scope the write. A single-relay plug reports no `children`,
+    so the plain "Outlet" switch covers it.
 
 # A stub access surface so the schema's "document at least one access surface"
 # rule is satisfied; control is the tcp-json protocol above, not REST. The
@@ -346,6 +348,30 @@ commands:
     transport: "tcp-json"
     body: '{"system":{"set_relay_state":{"state":0}}}'
     example_body: '{"system":{"set_relay_state":{"state":0}}}'
+    verification: "reported"
+  relay_on_child:
+    description: >
+      Close one outlet's relay on a power strip — the same set_relay_state,
+      scoped to a single child by its id via the context.child_ids envelope.
+    transport: "tcp-json"
+    body: '{"context":{"child_ids":["{child_id}"]},"system":{"set_relay_state":{"state":1}}}'
+    example_body: '{"context":{"child_ids":["8006ABCDEF0123456789AB00"]},"system":{"set_relay_state":{"state":1}}}'
+    parameters:
+      child_id:
+        type: "string"
+        source: "instance:id"
+        description: "The strip's own id for the outlet (deviceId + 2-digit outlet index), from get_sysinfo's children[].id."
+    verification: "reported"
+  relay_off_child:
+    description: "Open one outlet's relay on a power strip. See relay_on_child."
+    transport: "tcp-json"
+    body: '{"context":{"child_ids":["{child_id}"]},"system":{"set_relay_state":{"state":0}}}'
+    example_body: '{"context":{"child_ids":["8006ABCDEF0123456789AB00"]},"system":{"set_relay_state":{"state":0}}}'
+    parameters:
+      child_id:
+        type: "string"
+        source: "instance:id"
+        description: "The strip's own id for the outlet; see relay_on_child."
     verification: "reported"
   get_sysinfo:
     description: >
@@ -456,6 +482,31 @@ entities:
     commands:
       turn_on: "relay_on"
       turn_off: "relay_off"
+
+  # The power-strip case: a HS300 / KP200 / KP303 / EP40 reports its outlets as
+  # a `children` array in get_sysinfo, each with its own id, alias and integer
+  # `state`, and one outlet is switched by scoping the write with
+  # context.child_ids (relay_on_child / relay_off_child). This instanced switch
+  # enumerates those outlets — one on/off per child, named by its alias. It
+  # yields nothing on a single-outlet plug (which reports no `children`), so a
+  # consumer shows the plain "Outlet" switch above there and these per-outlet
+  # switches on a strip, keyed on whether get_sysinfo carried a children array.
+  - platform: "switch"
+    name: "Outlets"
+    device_class: "outlet"
+    icon: "mdi:power-socket"
+    instances:
+      keyed_by: "id"
+      children_path: "system.get_sysinfo.children"
+      id_field: "id"
+      label_path: "alias"
+    state_command: "get_sysinfo"
+    state_mapping:
+      is_on: "state"
+      on_when: "nonzero"
+    commands:
+      turn_on: "relay_on_child"
+      turn_off: "relay_off_child"
 
   # The energy meter, as four sensors polled by get_emeter. The state_mapping
   # values are dotted JSON paths from the reply ROOT
