@@ -266,25 +266,47 @@ Emulation needs KVM on Linux (`sudo apt-get install -y qemu-kvm && sudo usermod 
 then log out and back in). Check with `ls -l /dev/kvm`; without it the x86-64
 image runs under software emulation and is too slow to be useful.
 
-#### On a physical Android phone
+#### Targets and modes: `run-android.sh` flags
 
-`scripts/run-android-device.sh` targets a real phone (never the emulator — use
-`run-android.sh` for that). Enable Developer options → USB debugging on the
-phone, plug it in, accept the debugging prompt, then pick a mode:
+`scripts/run-android.sh` picks WHERE it runs and WHAT it does. WHERE (default is
+"auto" — a connected device if any, else the emulator):
 
 ```bash
-./scripts/run-android-device.sh              # live: flutter run, hot reload, tethered
-./scripts/run-android-device.sh --sideload   # build + install + launch, runs standalone
-./scripts/run-android-device.sh --copy        # build + push the .apk to Downloads, no install
-./scripts/run-android-device.sh --list        # list attached devices and exit
+./scripts/run-android.sh                 # auto: connected device, else emulator
+./scripts/run-android.sh --attached      # a physical phone only (never the emulator)
+./scripts/run-android.sh --emulator      # the liberated_bread_test emulator
+./scripts/run-android.sh --device <serial>   # a specific device (see --list)
+./scripts/run-android.sh --list          # list attached devices and exit
 ```
 
-`--live` keeps the app tethered to the terminal (hot reload, streaming logs) —
-the dev loop. `--sideload` installs it so it runs on its own after you unplug —
-the mode for BLE/Wi-Fi field testing away from the desk. `--copy` just drops the
-APK file on the phone (in `Download/`) to install yourself or hand off. All three
-take `--release` and `--mock`, and `--device <serial>` selects a specific phone;
-the built APK also stays on this machine under `build/app/outputs/flutter-apk/`.
+WHAT (default is "live"):
+
+```bash
+./scripts/run-android.sh --attached                 # live: flutter run, hot reload, tethered
+./scripts/run-android.sh --attached --sideload      # build + install + launch, runs standalone
+./scripts/run-android.sh --attached --copy          # build + push the .apk to Download/, no install
+```
+
+`live` keeps the app tethered to the terminal (hot reload, streaming logs) — the
+dev loop. `--sideload` installs it so it runs on its own after you unplug — the
+mode for BLE/Wi-Fi field testing away from the desk. `--copy` just drops the APK
+on the phone to install yourself or hand off. All combine with `--release` and
+`--mock`; the built APK also stays on this machine under
+`build/app/outputs/flutter-apk/`. To run a physical phone: enable Developer
+options → USB debugging, plug in, and accept the prompt.
+
+#### Opening in an IDE (Run button)
+
+- **Android Studio / IntelliJ** (with the Flutter + Dart plugins): open this
+  folder. Two shared run configurations ship in `.run/` — **Liberated Bread**
+  and **Liberated Bread (mock)** (the latter passes the mock BLE dart-define) —
+  so the green Run button works without configuring anything; pick a device from
+  the toolbar and run. (`flutter pub get` runs on first open.)
+- **Xcode** (macOS): open `ios/Runner.xcworkspace` (the *workspace*, not the
+  project), pick the shared **Runner** scheme and a device/simulator, and Run.
+  The scheme is committed, so no per-machine setup is needed beyond
+  `flutter pub get` and CocoaPods. macOS desktop has a committed scheme too
+  (`macos/Runner.xcworkspace`).
 
 ### 5. Project Dependencies
 
