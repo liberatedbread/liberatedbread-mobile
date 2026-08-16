@@ -67,6 +67,7 @@
 		<string>_hap._tcp</string>
 		<string>_http._tcp</string>
 		<string>_ipp._tcp</string>
+		<string>_adb-tls-connect._tcp</string>
 		<string>_wled._tcp</string>
 		<string>_enphase-envoy._tcp</string>
 		<string>_home-assistant._tcp</string>
