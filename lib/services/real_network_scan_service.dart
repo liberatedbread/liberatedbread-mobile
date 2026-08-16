@@ -48,6 +48,14 @@ const _ubiquitiPort = 10001;
 const _ubiquitiProbe = [0x01, 0x00, 0x00, 0x00];
 const _ubiquitiLanProtocol = 'ubiquiti-discovery';
 
+/// MikroTik Neighbor Discovery (MNDP): RouterOS devices beacon a TLV record on
+/// UDP 5678, and answer a 4-byte-zero solicitation by BROADCASTING it back to
+/// :5678 (not unicast) — so the listener must BIND :5678, not send from an
+/// ephemeral port. Tagged with the lan-protocol the spec declares.
+const _mikrotikPort = 5678;
+const _mikrotikProbe = [0x00, 0x00, 0x00, 0x00];
+const _mikrotikLanProtocol = 'mikrotik-mndp';
+
 /// The tagged-broadcast `GetService` probe (sequence 0). Byte-for-byte the
 /// packet `crate::protocol::lifx::get_service(0)` builds. Discovery reads only a
 /// reply's message type and 6-byte MAC, so it builds the probe and parses those
@@ -273,6 +281,57 @@ String? ubiquitiPictogram(String? platform) {
   return null;
 }
 
+/// Parse a MikroTik MNDP datagram (UDP 5678) into identity / MAC / board /
+/// version. A 4-byte header, then TLVs each type(2 BE) length(2 BE) value.
+/// Wireshark's dissector: 0x0001 = MAC (6B), 0x0005 = Identity, 0x0007 =
+/// Version, 0x000c = Board (model, e.g. CRS328, RB4011).
+({String? identity, String? mac, String? board, String? version}) parseMndp(
+    List<int> data) {
+  String? identity, mac, board, version;
+  if (data.length < 8) {
+    return (identity: null, mac: null, board: null, version: null);
+  }
+  var i = 4;
+  while (i + 4 <= data.length) {
+    final type = (data[i] << 8) | data[i + 1];
+    final len = (data[i + 2] << 8) | data[i + 3];
+    i += 4;
+    if (i + len > data.length) break;
+    final value = data.sublist(i, i + len);
+    switch (type) {
+      case 0x0001:
+        if (len == 6) {
+          mac = value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':');
+        }
+      case 0x0005:
+        final s = String.fromCharCodes(value).trim();
+        if (s.isNotEmpty) identity = s;
+      case 0x0007:
+        final s = String.fromCharCodes(value).trim();
+        if (s.isNotEmpty) version = s;
+      case 0x000c:
+        final s = String.fromCharCodes(value).trim();
+        if (s.isNotEmpty) board = s;
+    }
+    i += len;
+  }
+  return (identity: identity, mac: mac, board: board, version: version);
+}
+
+/// A pictogram token for a MikroTik device: RouterOS runs on routers and
+/// switches alike, so a switch board (CRS/CSS/CSW) or a "switch"-named unit
+/// gets `network-switch`; everything else defaults to `router`.
+String mikrotikPictogram({String? board, String? identity}) {
+  final s = '${board ?? ''} ${identity ?? ''}'.toUpperCase();
+  if (s.contains('SWITCH') ||
+      s.contains('CRS') ||
+      s.contains('CSS') ||
+      s.contains('CSW')) {
+    return 'network-switch';
+  }
+  return 'router';
+}
+
 /// Whether [haystack] contains the contiguous byte sequence [needle].
 bool containsBytes(List<int> haystack, List<int> needle) {
   if (needle.isEmpty || needle.length > haystack.length) return false;
@@ -450,6 +509,11 @@ class RealNetworkScanService implements NetworkScanService {
           // without this.
           _runUbiquiti(session, emit, timeout).catchError((Object e) {
             Log.net.warning('Ubiquiti discovery failed', error: e);
+            return TransportOutcome.failed;
+          }),
+          // MikroTik RouterOS answers only MNDP on UDP 5678 (no mDNS/SSDP).
+          _runMikrotik(session, emit, timeout).catchError((Object e) {
+            Log.net.warning('MikroTik discovery failed', error: e);
             return TransportOutcome.failed;
           }),
           // The Kasa transport, when a codec is wired to run the cipher. Its
@@ -744,6 +808,76 @@ class RealNetworkScanService implements NetworkScanService {
     } finally {
       socket.close();
       session.ubiquitiSocket = null;
+    }
+  }
+
+  /// Discover MikroTik RouterOS devices over MNDP (UDP 5678). Must BIND :5678:
+  /// a solicited device broadcasts its TLV beacon back to :5678, not to the
+  /// sender's port, so a listener on an ephemeral port hears nothing. Each
+  /// beacon becomes a device at its source IP, named by its Identity and tagged
+  /// with [_mikrotikLanProtocol] so the RouterOS spec claims it.
+  Future<TransportOutcome> _runMikrotik(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final RawDatagramSocket socket;
+    try {
+      socket = await bindDatagramSocket(InternetAddress.anyIPv4, _mikrotikPort,
+          reuseAddress: true, reusePort: true);
+    } catch (e) {
+      // :5678 exclusively held, or the bind is otherwise refused — skip.
+      Log.net.debug('MikroTik MNDP bind failed: $e');
+      return TransportOutcome.silent;
+    }
+    session.mikrotikSocket = socket;
+    socket.broadcastEnabled = true;
+    var heard = false;
+    final seen = <String>{};
+    try {
+      final target = InternetAddress(_lifxBroadcast);
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(_mikrotikProbe, target, _mikrotikPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        final parsed = parseMndp(datagram.data);
+        // Our own 4-byte solicitation echoes back; a real beacon carries an
+        // identity or MAC.
+        if (parsed.identity == null && parsed.mac == null) continue;
+        heard = true;
+        final host = datagram.address.address;
+        if (!seen.add(host)) continue;
+        emit(NetworkDevice(
+          host: host,
+          name: parsed.identity ?? '',
+          answeredLanProtocols: const [_mikrotikLanProtocol],
+          pictogram: mikrotikPictogram(
+              board: parsed.board, identity: parsed.identity),
+          txt: {
+            if (parsed.mac != null) 'mac': parsed.mac!,
+            if (parsed.board != null) 'board': parsed.board!,
+            if (parsed.version != null) 'version': parsed.version!,
+          },
+          sources: const {NetworkDiscoverySource.lanProbe},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.mikrotikSocket = null;
     }
   }
 
@@ -1123,6 +1257,7 @@ class _ScanSession {
   RawDatagramSocket? kasaSocket;
   RawDatagramSocket? mdnsCaptureSocket;
   RawDatagramSocket? ubiquitiSocket;
+  RawDatagramSocket? mikrotikSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -1153,5 +1288,7 @@ class _ScanSession {
     mdnsCaptureSocket = null;
     ubiquitiSocket?.close();
     ubiquitiSocket = null;
+    mikrotikSocket?.close();
+    mikrotikSocket = null;
   }
 }

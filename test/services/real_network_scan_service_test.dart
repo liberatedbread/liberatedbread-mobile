@@ -221,6 +221,30 @@ void main() {
     });
   });
 
+  group('parseMndp (MikroTik)', () {
+    test('reads identity, MAC and version from a real beacon', () {
+      // Captured from a "edge-switch": 4-byte header, then 0x0001 MAC,
+      // 0x0005 Identity, 0x0007 Version. Types and lengths are 2 bytes BE.
+      final beacon = <int>[
+        0x00, 0x02, 0x6e, 0xb6, // header
+        0x00, 0x01, 0x00, 0x06, 0x18, 0xfd, 0x74, 0xaa, 0xbb, 0xcc, // MAC
+        0x00, 0x05, 0x00, 0x0f, ...'edge-switch'.codeUnits, // identity
+        0x00, 0x07, 0x00, 0x03, ...'7.9'.codeUnits, // version
+      ];
+      final p = parseMndp(beacon);
+      expect(p.identity, 'edge-switch');
+      expect(p.mac, '18:fd:74:aa:bb:cc');
+      expect(p.version, '7.9');
+    });
+
+    test('mikrotikPictogram picks switch vs router', () {
+      expect(mikrotikPictogram(identity: 'core-switch'), 'network-switch');
+      expect(mikrotikPictogram(board: 'CRS328-24P-4S+'), 'network-switch');
+      expect(mikrotikPictogram(board: 'RB4011', identity: 'core-router'),
+          'router');
+    });
+  });
+
   group('NetworkScanCoalescer', () {
     test('a first sighting is emitted', () {
       final coalescer = NetworkScanCoalescer();
