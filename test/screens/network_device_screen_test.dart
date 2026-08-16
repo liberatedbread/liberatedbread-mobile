@@ -1750,8 +1750,8 @@ void main() {
         MaterialPageRoute<void>(
           builder: (_) => NetworkDeviceScreen(
               device: stripDevice,
-              controls:
-                  NetworkControls(specYaml: 'yaml', entities: stripEntities)),
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: stripEntities)),
         ),
       ));
       await tester.pumpAndSettle();

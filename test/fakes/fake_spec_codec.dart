@@ -501,6 +501,16 @@ class FakeSpecCodec implements SpecCodec {
   Future<String> kasaDecodeDatagram({required List<int> datagram}) async =>
       utf8.decode(_kasaDecrypt(datagram));
 
+  /// The Tuya broadcast this fake will return for any datagram, or null (the
+  /// default) to model "not a Tuya frame". Tests set it to drive the transport
+  /// without a live device.
+  TuyaBroadcastDto? tuyaBroadcast;
+
+  @override
+  Future<TuyaBroadcastDto?> tuyaParseBroadcast(
+          {required List<int> datagram}) async =>
+      tuyaBroadcast;
+
   // ── Rabbit Air ────────────────────────────────────────────────────────────
   // The fake's stand-in for the AES-128-CBC datagram crypto, round-tripping
   // exactly as the Rust codec does so a RabbitAirControlClient test can drive
