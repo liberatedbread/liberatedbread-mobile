@@ -304,6 +304,32 @@ else
   log "  ok  data/icudtl.dat"
 fi
 
+# ── 6b. app icons ───────────────────────────────────────────────────────────
+# linux/my_application.cc loads these by name from data/resources/ and sets them
+# as the default window icon list. A bundle missing them builds green, starts
+# fine, and is only wrong in a window list and an alt-tab switcher — a defect
+# nobody notices in CI and everybody notices on a desktop. The install() in
+# linux/CMakeLists.txt is the only thing putting them there, and `flutter create`
+# regenerating that scaffold would drop it silently, exactly like APPLICATION_ID.
+#
+# The sizes are asserted individually rather than counted: GTK picks per surface
+# from what it is given, so losing only the 16 would leave a crisp alt-tab icon
+# and a downscaled smear in the taskbar.
+ICON_DIR="$DATA_DIR/resources"
+ICON_SIZES=(16 24 32 48 64 128 256)
+missing_icons=()
+for size in "${ICON_SIZES[@]}"; do
+  [[ -f "$ICON_DIR/app_icon_${size}.png" ]] || missing_icons+=("app_icon_${size}.png")
+done
+
+if [[ ! -d "$ICON_DIR" ]]; then
+  fail "data/resources/ is missing entirely — the app icon install() is gone from linux/CMakeLists.txt, so every window falls back to a generic icon."
+elif [[ ${#missing_icons[@]} -gt 0 ]]; then
+  fail "data/resources/ is missing ${#missing_icons[@]} icon(s): ${missing_icons[*]} — regenerate with tool/branding/generate_icons.mjs, and check kAppIconSizes in linux/my_application.cc still matches its LINUX list."
+else
+  log "  ok  data/resources/ (${#ICON_SIZES[@]} app icon sizes)"
+fi
+
 if [[ "$MODE" == "release" ]]; then
   if [[ ! -f "$LIB_DIR/libapp.so" ]]; then
     fail "lib/libapp.so is missing from a release bundle — the Dart AOT snapshot was not installed."
