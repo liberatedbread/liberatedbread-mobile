@@ -15,6 +15,7 @@ pub mod rabbit_air;
 pub mod soap;
 pub mod stored_upload;
 pub mod traits;
+pub mod tuya;
 pub mod wemo_setup;
 
 use crate::error::ProtocolError;

@@ -56,6 +56,17 @@ const _mikrotikPort = 5678;
 const _mikrotikProbe = [0x00, 0x00, 0x00, 0x00];
 const _mikrotikLanProtocol = 'mikrotik-mndp';
 
+/// Tuya devices (a large share of white-label plugs, bulbs and sensors) beacon
+/// a self-describing UDP datagram to the broadcast address on 6666 (protocol
+/// 3.1, plaintext) and 6667 (3.2+, fixed-key AES-128-ECB) roughly every ten
+/// seconds. There is no solicit — the beacon is unprompted — so the transport
+/// listens passively on both ports for the scan window. The 6667 cipher and
+/// the gwId identity it wraps are read by the Rust codec. Tagged with the
+/// lan-protocol the Tuya spec declares.
+const _tuyaPortPlain = 6666;
+const _tuyaPortEncrypted = 6667;
+const _tuyaLanProtocol = 'tuya-udp';
+
 /// The tagged-broadcast `GetService` probe (sequence 0). Byte-for-byte the
 /// packet `crate::protocol::lifx::get_service(0)` builds. Discovery reads only a
 /// reply's message type and 6-byte MAC, so it builds the probe and parses those
@@ -551,6 +562,14 @@ class RealNetworkScanService implements NetworkScanService {
               Log.net.warning('Kasa discovery failed', error: e);
               return TransportOutcome.failed;
             }),
+          // Tuya-based devices beacon on UDP 6666/6667 and nothing else on the
+          // LAN; the 6667 datagram's cipher runs in the codec, so this joins
+          // Kasa behind the codec gate.
+          if (codec != null)
+            _runTuya(session, emit, timeout, codec).catchError((Object e) {
+              Log.net.warning('Tuya discovery failed', error: e);
+              return TransportOutcome.failed;
+            }),
         ]);
 
         final failure = scanFailureFor(
@@ -920,6 +939,101 @@ class RealNetworkScanService implements NetworkScanService {
     } finally {
       socket.close();
       session.mikrotikSocket = null;
+    }
+  }
+
+  /// Discover Tuya-based devices from the UDP beacons they broadcast — the
+  /// identify-only sibling of the Ubiquiti/MikroTik transports for the ecosystem
+  /// behind a large share of white-label plugs, bulbs and sensors. Passive: a
+  /// Tuya device beacons on 6666 (plaintext) / 6667 (fixed-key AES) roughly
+  /// every ten seconds with no way to solicit it, so this binds both ports and
+  /// listens for the scan window. The 6667 cipher runs in [codec] (Rust), which
+  /// also reads the gwId identity out; the device is emitted at its own
+  /// advertised IP and tagged with [_tuyaLanProtocol] so the Tuya spec claims
+  /// it. Control needs the per-device local key this project does not hold, so
+  /// this identifies only.
+  Future<TransportOutcome> _runTuya(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+    SpecCodec codec,
+  ) async {
+    RawDatagramSocket? plain, encrypted;
+    try {
+      plain = await bindDatagramSocket(InternetAddress.anyIPv4, _tuyaPortPlain,
+          reuseAddress: true, reusePort: true);
+      session.tuyaPlainSocket = plain;
+    } catch (e) {
+      Log.net.debug('Tuya :$_tuyaPortPlain bind failed: $e');
+    }
+    try {
+      encrypted = await bindDatagramSocket(
+          InternetAddress.anyIPv4, _tuyaPortEncrypted,
+          reuseAddress: true, reusePort: true);
+      session.tuyaEncryptedSocket = encrypted;
+    } catch (e) {
+      Log.net.debug('Tuya :$_tuyaPortEncrypted bind failed: $e');
+    }
+    // Both ports held by another listener (or unavailable): nothing to do, and
+    // the rest of the scan is unaffected.
+    if (plain == null && encrypted == null) return TransportOutcome.silent;
+
+    var heard = false;
+    // Keyed on the stable gwId so a device beaconing repeatedly — or on both
+    // ports — is emitted once, and a re-scan after a DHCP move is still one.
+    final seen = <String>{};
+    final deadline = DateTime.now().add(timeout);
+
+    Future<void> listen(RawDatagramSocket socket, int port) async {
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        final parsed = await codec.tuyaParseBroadcast(datagram: datagram.data);
+        // Logged so a genuine Tuya beacon we failed to read (a newer framing,
+        // an unreadable cipher) is visible rather than silently dropped.
+        if (parsed == null) {
+          Log.net.debug('rejected Tuya :$port datagram from '
+              '${datagram.address.address} (${datagram.data.length}B, '
+              'not a readable broadcast)');
+          continue;
+        }
+        heard = true;
+        final host = (parsed.ip?.isNotEmpty ?? false)
+            ? parsed.ip!
+            : datagram.address.address;
+        final key = (parsed.gwId?.isNotEmpty ?? false) ? parsed.gwId! : host;
+        if (!seen.add(key)) continue;
+        emit(NetworkDevice(
+          host: host,
+          name: '',
+          answeredLanProtocols: const [_tuyaLanProtocol],
+          txt: {
+            if (parsed.gwId != null) 'gwId': parsed.gwId!,
+            if (parsed.version != null) 'version': parsed.version!,
+            if (parsed.productKey != null) 'productKey': parsed.productKey!,
+          },
+          sources: const {NetworkDiscoverySource.lanProbe},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+    }
+
+    try {
+      await Future.wait([
+        if (plain != null) listen(plain, _tuyaPortPlain),
+        if (encrypted != null) listen(encrypted, _tuyaPortEncrypted),
+      ]);
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      plain?.close();
+      encrypted?.close();
+      session.tuyaPlainSocket = null;
+      session.tuyaEncryptedSocket = null;
     }
   }
 
@@ -1312,6 +1426,8 @@ class _ScanSession {
   RawDatagramSocket? mdnsCaptureSocket;
   RawDatagramSocket? ubiquitiSocket;
   RawDatagramSocket? mikrotikSocket;
+  RawDatagramSocket? tuyaPlainSocket;
+  RawDatagramSocket? tuyaEncryptedSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -1344,5 +1460,9 @@ class _ScanSession {
     ubiquitiSocket = null;
     mikrotikSocket?.close();
     mikrotikSocket = null;
+    tuyaPlainSocket?.close();
+    tuyaPlainSocket = null;
+    tuyaEncryptedSocket?.close();
+    tuyaEncryptedSocket = null;
   }
 }

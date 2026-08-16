@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -141,6 +141,16 @@ Future<Uint8List> kasaEncryptDatagram({required String json}) =>
 Future<String> kasaDecodeDatagram({required List<int> datagram}) =>
     RustLib.instance.api
         .crateApiDeviceApiKasaDecodeDatagram(datagram: datagram);
+
+/// Parse a Tuya discovery datagram (UDP 6666 plaintext or 6667 fixed-key
+/// AES-128-ECB) into the identity it advertises, or `None` when the bytes are
+/// not a Tuya broadcast we can read. Identify-only: the cipher here unwraps the
+/// device's own beacon, never its control channel (which needs the per-device
+/// local key this project does not hold). The decrypt stays in Rust under test,
+/// like the Kasa cipher, rather than being re-implemented in Dart.
+Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiTuyaParseBroadcast(datagram: datagram);
 
 /// Render a named `transport: udp` command into the envelope JSON to send —
 /// the Rabbit Air sibling of [`render_network_kasa_command`]. `request_id` is
@@ -3180,6 +3190,44 @@ class StoredUploadPlanDto {
           playWrite == other.playWrite &&
           responseCharacteristicUuid == other.responseCharacteristicUuid &&
           cid == other.cid;
+}
+
+/// What a Tuya discovery broadcast identifies about its sender — the FFI face
+/// of [`crate::protocol::tuya::TuyaBroadcast`]. Every field optional: a partial
+/// datagram still identifies the device by whatever it carried.
+class TuyaBroadcastDto {
+  final String? gwId;
+  final String? ip;
+  final String? version;
+  final String? productKey;
+  final bool encrypted;
+
+  const TuyaBroadcastDto({
+    this.gwId,
+    this.ip,
+    this.version,
+    this.productKey,
+    required this.encrypted,
+  });
+
+  @override
+  int get hashCode =>
+      gwId.hashCode ^
+      ip.hashCode ^
+      version.hashCode ^
+      productKey.hashCode ^
+      encrypted.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TuyaBroadcastDto &&
+          runtimeType == other.runtimeType &&
+          gwId == other.gwId &&
+          ip == other.ip &&
+          version == other.version &&
+          productKey == other.productKey &&
+          encrypted == other.encrypted;
 }
 
 /// One network out of a Wemo `GetApList` reply.

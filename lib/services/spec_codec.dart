@@ -54,6 +54,7 @@ export '../src/rust/api/device_api.dart'
         SoapRequestDto,
         HttpRequestDto,
         KasaRequestDto,
+        TuyaBroadcastDto,
         RabbitAirRequestDto,
         QuerySourceDto,
         LifxServiceDto,
@@ -280,6 +281,12 @@ abstract class SpecCodec {
 
   /// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
   Future<String> kasaDecodeDatagram({required List<int> datagram});
+
+  /// Parse a Tuya discovery datagram (UDP 6666 plaintext / 6667 fixed-key
+  /// AES-128-ECB) into the identity it advertises, or null when the bytes are
+  /// not a Tuya broadcast. Identify-only: the decrypt unwraps the device's own
+  /// beacon, never a control channel.
+  Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram});
 
   // ── Rabbit Air (encrypted JSON over UDP) ──────────────────────────────────
   // Like Kasa the invocation is JSON, but the wire crypto is real:

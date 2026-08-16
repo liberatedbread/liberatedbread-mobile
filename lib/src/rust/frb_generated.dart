@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => 1744768274;
+  int get rustContentHash => -195892820;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -351,6 +351,9 @@ abstract class RustLibApi extends BaseApi {
 
   Future<List<SoftApProfileDto>> crateApiDeviceApiSoftApProfiles(
       {required List<String> specYamls});
+
+  Future<TuyaBroadcastDto?> crateApiDeviceApiTuyaParseBroadcast(
+      {required List<int> datagram});
 
   Future<WemoJoinStatus> crateApiDeviceApiWemoNetworkStatus(
       {required String code});
@@ -2298,6 +2301,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<TuyaBroadcastDto?> crateApiDeviceApiTuyaParseBroadcast(
+      {required List<int> datagram}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(datagram, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 64, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_box_autoadd_tuya_broadcast_dto,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiTuyaParseBroadcastConstMeta,
+      argValues: [datagram],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiTuyaParseBroadcastConstMeta =>
+      const TaskConstMeta(
+        debugName: 'tuya_parse_broadcast',
+        argNames: ['datagram'],
+      );
+
+  @override
   Future<WemoJoinStatus> crateApiDeviceApiWemoNetworkStatus(
       {required String code}) {
     return handler.executeNormal(NormalTask(
@@ -2305,7 +2334,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(code, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 64, port: port_);
+            funcId: 65, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_wemo_join_status,
@@ -2439,6 +2468,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_stored_upload_event_dto(raw);
+  }
+
+  @protected
+  TuyaBroadcastDto dco_decode_box_autoadd_tuya_broadcast_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_tuya_broadcast_dto(raw);
   }
 
   @protected
@@ -3317,6 +3352,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TuyaBroadcastDto? dco_decode_opt_box_autoadd_tuya_broadcast_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_tuya_broadcast_dto(raw);
+  }
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_16(raw);
@@ -3666,6 +3707,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TuyaBroadcastDto dco_decode_tuya_broadcast_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return TuyaBroadcastDto(
+      gwId: dco_decode_opt_String(arr[0]),
+      ip: dco_decode_opt_String(arr[1]),
+      version: dco_decode_opt_String(arr[2]),
+      productKey: dco_decode_opt_String(arr[3]),
+      encrypted: dco_decode_bool(arr[4]),
+    );
+  }
+
+  @protected
   int dco_decode_u_16(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -3846,6 +3902,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_stored_upload_event_dto(deserializer));
+  }
+
+  @protected
+  TuyaBroadcastDto sse_decode_box_autoadd_tuya_broadcast_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_tuya_broadcast_dto(deserializer));
   }
 
   @protected
@@ -5069,6 +5132,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TuyaBroadcastDto? sse_decode_opt_box_autoadd_tuya_broadcast_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_tuya_broadcast_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -5454,6 +5529,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TuyaBroadcastDto sse_decode_tuya_broadcast_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_gwId = sse_decode_opt_String(deserializer);
+    var var_ip = sse_decode_opt_String(deserializer);
+    var var_version = sse_decode_opt_String(deserializer);
+    var var_productKey = sse_decode_opt_String(deserializer);
+    var var_encrypted = sse_decode_bool(deserializer);
+    return TuyaBroadcastDto(
+        gwId: var_gwId,
+        ip: var_ip,
+        version: var_version,
+        productKey: var_productKey,
+        encrypted: var_encrypted);
+  }
+
+  @protected
   int sse_decode_u_16(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint16();
@@ -5637,6 +5728,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       StoredUploadEventDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_stored_upload_event_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_tuya_broadcast_dto(
+      TuyaBroadcastDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_tuya_broadcast_dto(self, serializer);
   }
 
   @protected
@@ -6573,6 +6671,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_tuya_broadcast_dto(
+      TuyaBroadcastDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_tuya_broadcast_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -6850,6 +6959,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_image_write_dto(self.playWrite, serializer);
     sse_encode_opt_String(self.responseCharacteristicUuid, serializer);
     sse_encode_u_32(self.cid, serializer);
+  }
+
+  @protected
+  void sse_encode_tuya_broadcast_dto(
+      TuyaBroadcastDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.gwId, serializer);
+    sse_encode_opt_String(self.ip, serializer);
+    sse_encode_opt_String(self.version, serializer);
+    sse_encode_opt_String(self.productKey, serializer);
+    sse_encode_bool(self.encrypted, serializer);
   }
 
   @protected
