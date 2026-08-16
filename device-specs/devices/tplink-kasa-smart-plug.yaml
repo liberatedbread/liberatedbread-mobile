@@ -402,6 +402,35 @@ commands:
         max: 100
         description: "Brightness percent, 1-100, from get_sysinfo.light_state.brightness."
     verification: "reported"
+  # Kasa LIGHT STRIPS (KL400/KL430) are SMARTBULB-class too, but switch and dim
+  # through a DIFFERENT service — smartlife.iot.lightStrip.set_light_state, not
+  # the bulb's lightingservice.transition_light_state (a strip silently ignores
+  # the bulb call). A strip is told apart from a bulb by the `length` field
+  # (LED count) get_sysinfo carries. Verified on a KL430.
+  strip_on:
+    description: "Turn a Kasa light strip on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"transition_period":0}}}'
+    verification: "confirmed"
+  strip_off:
+    description: "Turn a Kasa light strip off."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":0,"transition_period":0}}}'
+    example_body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":0,"transition_period":0}}}'
+    verification: "confirmed"
+  strip_brightness:
+    description: "Set a Kasa light strip's brightness (1-100), switching it on."
+    transport: "tcp-json"
+    body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"brightness":{brightness},"transition_period":0}}}'
+    example_body: '{"smartlife.iot.lightStrip":{"set_light_state":{"on_off":1,"brightness":50,"transition_period":0}}}'
+    parameters:
+      brightness:
+        type: "integer"
+        min: 1
+        max: 100
+        description: "Brightness percent, 1-100, from get_sysinfo.light_state.brightness."
+    verification: "confirmed"
   get_sysinfo:
     description: >
       Read device info and current relay state. This is both the state poll
