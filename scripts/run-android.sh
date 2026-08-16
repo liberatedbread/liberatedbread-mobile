@@ -130,7 +130,7 @@ fi
 # ── Gradle-compatible JDK ────────────────────────────────────────────────────
 #
 # Shared with setup.sh: point Flutter at a JDK the Gradle wrapper can run
-# under (17-23). Defines ensure_gradle_jdk, called before the build below.
+# under (17-24). Defines ensure_gradle_jdk, called before the build below.
 # shellcheck source=ensure-gradle-jdk.sh
 source "$SCRIPT_DIR/ensure-gradle-jdk.sh"
 
