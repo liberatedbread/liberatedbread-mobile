@@ -11,6 +11,7 @@ import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
 import '../models/network_device.dart';
 import '../widgets/power_strip_icon.dart';
+import '../widgets/three_d_printer_icon.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
@@ -337,9 +338,17 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     // camera's platform, a Kasa bulb's mic_type) wins over the shared spec's
     // category — that is the point of NetworkDevice.pictogram. Then the matched
     // spec's pictogram, then its category glyph.
-    final showPowerStrip = device.pictogram == 'power-strip' ||
-        DevicePictogram.isCustom(guess?.pictogram) ||
-        device.displayName.toLowerCase().contains('power strip');
+    // A pictogram Material has no glyph for is drawn by a custom painter. The
+    // transport's own token wins over the matched spec's (same precedence as
+    // the Material path below), and a name that reads as a power strip is a
+    // last resort for a plug that matched nothing.
+    final customToken = DevicePictogram.isCustom(device.pictogram)
+        ? device.pictogram
+        : DevicePictogram.isCustom(guess?.pictogram)
+            ? guess!.pictogram
+            : device.displayName.toLowerCase().contains('power strip')
+                ? 'power-strip'
+                : null;
     final scheme = Theme.of(context).colorScheme;
     return DeviceListTile(
       title: device.displayName,
@@ -349,9 +358,13 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       icon: DevicePictogram.iconFor(device.pictogram) ??
           entry.guess?.iconOr(Icons.router_outlined) ??
           Icons.router_outlined,
-      iconWidget: showPowerStrip
-          ? PowerStripIcon(size: 24, color: scheme.onSurfaceVariant)
-          : null,
+      iconWidget: switch (customToken) {
+        'power-strip' =>
+          PowerStripIcon(size: 24, color: scheme.onSurfaceVariant),
+        '3d-printer' =>
+          ThreeDPrinterIcon(size: 24, color: scheme.onSurfaceVariant),
+        _ => null,
+      },
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
       // Same rule as the BLE tab, and for the same reason: it is naming a

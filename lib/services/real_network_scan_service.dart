@@ -219,6 +219,33 @@ List<int>? mdnsFirstLabelBytes(String serviceType) {
   return first.length >= 3 ? utf8.encode(first) : null;
 }
 
+/// A per-device pictogram token worked out from the mDNS service types a device
+/// advertises, for a category the shared spec match misses.
+///
+/// A printer that speaks only the legacy `_printer._tcp` (LPD) and
+/// `_pdl-datastream._tcp` (JetDirect) types — an older Brother/HP laser with no
+/// AirPrint — never matches the IPP spec, whose identification keys on
+/// `_ipp._tcp`, so it would fall back to the router glyph. Keying the printer
+/// pictogram off the service type instead draws it correctly regardless of the
+/// match, the same way the Kasa/Ubiquiti transports set a device's glyph from
+/// what it told us. Compared on the trimmed stem (no trailing dot, no `.local`)
+/// so `_printer._tcp.local.` and `_printer._tcp` are the same entry.
+String? mdnsPictogram(Iterable<String> serviceTypes) {
+  const printerTypes = {
+    '_ipp._tcp',
+    '_ipps._tcp',
+    '_printer._tcp',
+    '_pdl-datastream._tcp',
+  };
+  for (final raw in serviceTypes) {
+    var t = raw.trim().toLowerCase();
+    if (t.endsWith('.')) t = t.substring(0, t.length - 1);
+    if (t.endsWith('.local')) t = t.substring(0, t.length - '.local'.length);
+    if (printerTypes.contains(t)) return 'printer';
+  }
+  return null;
+}
+
 /// Parse a Ubiquiti discovery reply (UDP 10001) into hostname / MAC / platform.
 ///
 /// Header: version(1) command(1) length(2 BE); then TLVs, each type(1)
@@ -736,6 +763,7 @@ class RealNetworkScanService implements NetworkScanService {
             host: host,
             name: '',
             serviceTypes: [entry.key],
+            pictogram: mdnsPictogram([entry.key]),
             sources: const {NetworkDiscoverySource.mdns},
             discoveredAt: DateTime.now(),
           ));
@@ -965,6 +993,7 @@ class RealNetworkScanService implements NetworkScanService {
             hostname: srv.target,
             port: srv.port,
             serviceTypes: [serviceTypeOf(instance.domainName)],
+            pictogram: mdnsPictogram([serviceTypeOf(instance.domainName)]),
             txt: txt,
             sources: const {NetworkDiscoverySource.mdns},
             discoveredAt: DateTime.now(),
