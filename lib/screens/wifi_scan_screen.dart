@@ -11,6 +11,7 @@ import '../core/error_text.dart';
 import '../models/network_device.dart';
 import '../widgets/power_strip_icon.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
 import '../providers/scan_match_provider.dart';
@@ -367,8 +368,20 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                       : NetworkDeviceScreen(device: device, controls: controls),
                 ),
               )
-          : () => _showDetails(device, vendor),
+          // A recognize-only device we can't drive but whose spec knows where
+          // its admin page lives (a NAS's DSM, a printer's web UI): the tap
+          // opens that, since it is the one useful action here.
+          : (guess?.adminUrl != null
+              ? () => _openAdmin(guess!, device)
+              : () => _showDetails(device, vendor)),
     );
+  }
+
+  /// Open a device's own admin page, filling `{address}` with its host.
+  void _openAdmin(ScanGuess guess, NetworkDevice device) {
+    final uri = Uri.tryParse(guess.adminUrl!.replaceAll('{address}', device.host));
+    if (uri == null) return;
+    unawaited(ref.read(urlOpenerProvider)(uri));
   }
 
   static String _transportLabel(NetworkDevice device) {
