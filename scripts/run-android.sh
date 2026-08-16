@@ -188,6 +188,14 @@ fi
 
 # Boot the project AVD and wait for it. Only reached when the target wants the
 # emulator (explicitly, or as the auto fallback with nothing else online).
+# Whether the project emulator can actually be launched: the binary exists and
+# the AVD has been created. Lets auto mode avoid promising a fallback it cannot
+# deliver.
+emulator_available() {
+  local e; e="$(find_emulator || true)"
+  [[ -n "$e" ]] && "$e" -list-avds 2>/dev/null | grep -qx "$AVD_NAME"
+}
+
 boot_emulator() {
   local emulator
   emulator="$(find_emulator || true)"
@@ -254,9 +262,21 @@ resolve_device() {
           err "pass --emulator to use the emulator instead."
           exit 1
         fi
-        log "No device online; falling back to the emulator."
-        boot_emulator
-        DEVICE_ID="$(list_online_devices | head -n1)"
+        # Nothing connected. Boot the emulator only if it is actually set up;
+        # otherwise say so plainly instead of "falling back" to a failure.
+        if emulator_available; then
+          log "No Android device connected; falling back to the $AVD_NAME emulator."
+          boot_emulator
+          DEVICE_ID="$(list_online_devices | head -n1)"
+        else
+          err "Nothing to run on: no phone connected, and the '$AVD_NAME' emulator"
+          err "is not set up here."
+          err "  Phone:    enable USB debugging, plug it in, accept the prompt, re-run"
+          err "            (then '$0 --list' should show it as 'ready')."
+          err "  Emulator: install the SDK cmdline-tools + emulator, then"
+          err "            ./scripts/setup.sh creates the AVD."
+          exit 1
+        fi
       fi
       [[ -n "$DEVICE_ID" ]] || { err "No device serial visible to adb."; exit 1; }
       ;;
