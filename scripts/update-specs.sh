@@ -585,7 +585,6 @@ run_checks || exit 1
 # main; a local-checkout pull cannot). Gitignored; the app prefers it. The
 # run-*.sh scripts also regenerate it, so this just makes a bare `update-specs`
 # self-sufficient. See scripts/regen-spec-index.sh.
-PROJECT_DIR="$(pwd)"
 # shellcheck source=regen-spec-index.sh
 source "$(dirname "$0")/regen-spec-index.sh"
 regen_spec_index

@@ -4095,12 +4095,16 @@ device:
 "#;
         let dto = load_device_spec(EXACT.into()).unwrap();
         // The bare default name matches (case-insensitively, like the prefix path).
-        assert!(match_device_to_spec(vec![dto.clone()], "HC-05".into(), vec![])
-            .iter()
-            .any(|m| m.matched_by_name_prefix));
-        assert!(match_device_to_spec(vec![dto.clone()], "hc-06".into(), vec![])
-            .iter()
-            .any(|m| m.matched_by_name_prefix));
+        assert!(
+            match_device_to_spec(vec![dto.clone()], "HC-05".into(), vec![])
+                .iter()
+                .any(|m| m.matched_by_name_prefix)
+        );
+        assert!(
+            match_device_to_spec(vec![dto.clone()], "hc-06".into(), vec![])
+                .iter()
+                .any(|m| m.matched_by_name_prefix)
+        );
         // But a configured module that only SHARES the prefix does not — the
         // whole point of local_names over local_name_prefixes.
         assert!(match_device_to_spec(vec![dto], "HC-05Foo".into(), vec![])
@@ -4461,7 +4465,10 @@ device:
         assert_eq!(adv.severity, "vulnerable");
         assert_eq!(adv.summary, "One shared key unlocks every unit.");
         assert_eq!(adv.mitigation_summary.as_deref(), Some("Update the app."));
-        assert_eq!(adv.mitigation_url.as_deref(), Some("https://example.test/patch"));
+        assert_eq!(
+            adv.mitigation_url.as_deref(),
+            Some("https://example.test/patch")
+        );
 
         // ...through the scan identity...
         let identity = SpecIdentityDto::from(&dto);

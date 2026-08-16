@@ -136,7 +136,11 @@ pub fn parse_broadcast(datagram: &[u8]) -> Option<TuyaBroadcast> {
     if data.is_empty() {
         return None;
     }
-    let without_retcode = if data.len() >= 4 { Some(&data[4..]) } else { None };
+    let without_retcode = if data.len() >= 4 {
+        Some(&data[4..])
+    } else {
+        None
+    };
 
     // Plaintext (6666): the data is JSON directly. Try both framings.
     for candidate in [Some(data), without_retcode].into_iter().flatten() {
@@ -181,7 +185,7 @@ mod tests {
         // PKCS#7 pad to a block boundary, then AES-128-ECB encrypt.
         let mut plain = json.as_bytes().to_vec();
         let pad = 16 - (plain.len() % 16);
-        plain.extend(std::iter::repeat(pad as u8).take(pad));
+        plain.extend(std::iter::repeat_n(pad as u8, pad));
         let cipher = Aes128::new(GenericArray::from_slice(&udp_key()));
         let mut ct = Vec::new();
         for chunk in plain.chunks_exact(16) {
