@@ -930,6 +930,19 @@ class DeviceSpecDto {
   /// decides what to do with a value it does not recognise.
   final String? category;
 
+  /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
+  /// …), carried as the raw string; the Dart resolver owns the table and
+  /// falls back to the category icon for one it does not know.
+  final String? pictogram;
+
+  /// URL template to the device's own admin page, `{address}` for the host.
+  final String? adminUrl;
+
+  /// `supported` (default) vs `identify_only` — whether this app drives the
+  /// device or only recognises it and hands off. Raw string, absent =
+  /// supported.
+  final String? integration;
+
   /// A known security problem with this device, when the spec declares one —
   /// the app warns rather than controls. See [`SecurityAdvisoryDto`].
   final SecurityAdvisoryDto? securityAdvisory;
@@ -940,6 +953,10 @@ class DeviceSpecDto {
   /// several -- the Inkbird thermometer ships under eight names with no
   /// shared prefix. Empty when the spec declares none.
   final List<String> localNamePrefixes;
+
+  /// EXACT advertised names this spec matches whole-string (not a prefix).
+  /// Empty when the spec declares none.
+  final List<String> localNames;
   final List<String> serviceUuids;
 
   /// Bluetooth SIG company IDs this device family advertises in its
@@ -992,9 +1009,13 @@ class DeviceSpecDto {
     required this.manufacturerStatus,
     required this.protocol,
     this.category,
+    this.pictogram,
+    this.adminUrl,
+    this.integration,
     this.securityAdvisory,
     this.notes,
     required this.localNamePrefixes,
+    required this.localNames,
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
@@ -1015,9 +1036,13 @@ class DeviceSpecDto {
       manufacturerStatus.hashCode ^
       protocol.hashCode ^
       category.hashCode ^
+      pictogram.hashCode ^
+      adminUrl.hashCode ^
+      integration.hashCode ^
       securityAdvisory.hashCode ^
       notes.hashCode ^
       localNamePrefixes.hashCode ^
+      localNames.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
@@ -1040,9 +1065,13 @@ class DeviceSpecDto {
           manufacturerStatus == other.manufacturerStatus &&
           protocol == other.protocol &&
           category == other.category &&
+          pictogram == other.pictogram &&
+          adminUrl == other.adminUrl &&
+          integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
           notes == other.notes &&
           localNamePrefixes == other.localNamePrefixes &&
+          localNames == other.localNames &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&
@@ -2567,6 +2596,14 @@ class ScanMatch {
   /// [`SpecIdentityDto::category`]. `None` when the spec states none.
   final String? category;
 
+  /// The matched spec's finer glyph token, admin-page URL template, and
+  /// integration mode, copied through so the scan tile can draw the right
+  /// pictogram, offer an admin deep link, and badge recognise-only devices
+  /// without fetching the whole spec back.
+  final String? pictogram;
+  final String? adminUrl;
+  final String? integration;
+
   /// The matched spec's security advisory, copied through so a scan result
   /// can warn or alert the moment it is recognised. `None` for a device with
   /// no known problem.
@@ -2592,6 +2629,9 @@ class ScanMatch {
     required this.deviceName,
     required this.manufacturer,
     this.category,
+    this.pictogram,
+    this.adminUrl,
+    this.integration,
     this.securityAdvisory,
     required this.confidence,
     required this.matchedByNamePrefix,
@@ -2607,6 +2647,9 @@ class ScanMatch {
       deviceName.hashCode ^
       manufacturer.hashCode ^
       category.hashCode ^
+      pictogram.hashCode ^
+      adminUrl.hashCode ^
+      integration.hashCode ^
       securityAdvisory.hashCode ^
       confidence.hashCode ^
       matchedByNamePrefix.hashCode ^
@@ -2624,6 +2667,9 @@ class ScanMatch {
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
           category == other.category &&
+          pictogram == other.pictogram &&
+          adminUrl == other.adminUrl &&
+          integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
           confidence == other.confidence &&
           matchedByNamePrefix == other.matchedByNamePrefix &&
@@ -2872,10 +2918,26 @@ class SpecIdentityDto {
   /// later index into a stale one.
   final String? category;
 
+  /// Finer-grained glyph token than `category`, carried so the scan list can
+  /// draw a NAS/power-strip/phone glyph without fetching the whole spec back.
+  final String? pictogram;
+
+  /// URL template to the device's own admin page (`{address}` for the host),
+  /// so a recognise-only scan result can offer an "Open admin" deep link.
+  final String? adminUrl;
+
+  /// `supported` vs `identify_only`, so the scan badge can say "recognised,
+  /// not controlled" instead of claiming a device it cannot drive.
+  final String? integration;
+
   /// The matched spec's security advisory, carried so the scan list can badge
   /// (and alert on) a known-bad device without fetching the whole spec back.
   final SecurityAdvisoryDto? securityAdvisory;
   final List<String> localNamePrefixes;
+
+  /// EXACT advertised names this spec matches whole-string (not a prefix) —
+  /// a bare factory-default name only. Empty when the spec declares none.
+  final List<String> localNames;
   final List<String> serviceUuids;
   final Uint16List companyIds;
   final List<MacPrefixDto> macPrefixes;
@@ -2899,8 +2961,12 @@ class SpecIdentityDto {
     required this.deviceName,
     required this.manufacturer,
     this.category,
+    this.pictogram,
+    this.adminUrl,
+    this.integration,
     this.securityAdvisory,
     required this.localNamePrefixes,
+    required this.localNames,
     required this.serviceUuids,
     required this.companyIds,
     required this.macPrefixes,
@@ -2915,8 +2981,12 @@ class SpecIdentityDto {
       deviceName.hashCode ^
       manufacturer.hashCode ^
       category.hashCode ^
+      pictogram.hashCode ^
+      adminUrl.hashCode ^
+      integration.hashCode ^
       securityAdvisory.hashCode ^
       localNamePrefixes.hashCode ^
+      localNames.hashCode ^
       serviceUuids.hashCode ^
       companyIds.hashCode ^
       macPrefixes.hashCode ^
@@ -2933,8 +3003,12 @@ class SpecIdentityDto {
           deviceName == other.deviceName &&
           manufacturer == other.manufacturer &&
           category == other.category &&
+          pictogram == other.pictogram &&
+          adminUrl == other.adminUrl &&
+          integration == other.integration &&
           securityAdvisory == other.securityAdvisory &&
           localNamePrefixes == other.localNamePrefixes &&
+          localNames == other.localNames &&
           serviceUuids == other.serviceUuids &&
           companyIds == other.companyIds &&
           macPrefixes == other.macPrefixes &&

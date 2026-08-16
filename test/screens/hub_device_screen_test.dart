@@ -69,7 +69,11 @@ const _lightEntity = NetworkEntityDto(
 );
 
 NetworkDevice _device() => NetworkDevice(
-      host: '10.69.200.190',
+      // RFC 5737 TEST-NET-2, a documentation address: this is a widget test
+      // driven by _StubHubClient, so the host is never dialed, but keeping it
+      // in a reserved range means the fixture cannot be read as (or collide
+      // with) a real device on whatever LAN the suite runs on.
+      host: '198.51.100.11',
       name: 'Philips Hue - FCB0',
       txt: const {'bridgeid': _bridgeId, 'modelid': 'BSB002'},
       sources: const {NetworkDiscoverySource.mdns},

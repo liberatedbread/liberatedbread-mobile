@@ -69,6 +69,7 @@ DeviceSpecDto _spec({
       manufacturerStatus: 'abandoned',
       protocol: 'ble',
       localNamePrefixes: const [],
+      localNames: const [],
       serviceUuids: const [_svc],
       companyIds: Uint16List(0),
       macPrefixes: const [],
