@@ -47,12 +47,16 @@ ScanMatch _match(
   String? category = 'light',
   int specIndex = 0,
   SecurityAdvisoryDto? advisory,
+  String? integration,
+  String? pictogram,
 }) =>
     ScanMatch(
       specIndex: specIndex,
       deviceName: deviceName,
       manufacturer: manufacturer,
       category: category,
+      pictogram: pictogram,
+      integration: integration,
       securityAdvisory: advisory,
       confidence: confidence,
       matchedByNamePrefix: false,
@@ -277,6 +281,29 @@ void main() {
           otherMatches: 3, manufacturerAgreed: false);
       expect(g.label, 'Possibly supported');
       expect(g.namesAProduct, isFalse);
+    });
+
+    test('an identify_only device is named, never claimed as supported', () {
+      // A SmartThings hub matches Strong on its mDNS type but the app drives
+      // nothing on it — recognise-only. So it is named, not badged "Supported
+      // device", and it is not treated as a likely-supported row.
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong,
+            deviceName: 'SmartThings Hub v2', integration: 'identify_only'),
+      ])!;
+      expect(g.isIdentifyOnly, isTrue);
+      expect(g.label, 'SmartThings Hub v2');
+      expect(Ranked(device: _device(), guess: g).isLikelySupported, isFalse);
+    });
+
+    test('a supported device still claims support and ranks above the fold',
+        () {
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, deviceName: 'Wemo Mini'),
+      ])!;
+      expect(g.isIdentifyOnly, isFalse);
+      expect(g.label, 'Wemo Mini');
+      expect(Ranked(device: _device(), guess: g).isLikelySupported, isTrue);
     });
   });
 

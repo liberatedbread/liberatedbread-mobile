@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../core/device_pictogram.dart';
 import '../core/error_text.dart';
 import '../models/network_device.dart';
+import '../widgets/power_strip_icon.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
@@ -329,12 +331,21 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               ssdpTargets: device.ssdpTargets,
             )))
             .valueOrNull;
+    // The power-strip pictogram shows when the matched spec asks for it OR when
+    // the device just calls itself one — a strip the user named "… Power Strip"
+    // is worth the glyph even before it is matched and driven.
+    final showPowerStrip = DevicePictogram.isCustom(guess?.pictogram) ||
+        device.displayName.toLowerCase().contains('power strip');
+    final scheme = Theme.of(context).colorScheme;
     return DeviceListTile(
       title: device.displayName,
       subtitle: _transportLabel(device),
       detail:
           device.port == null ? device.host : '${device.host}:${device.port}',
       icon: entry.guess?.iconOr(Icons.router_outlined) ?? Icons.router_outlined,
+      iconWidget: showPowerStrip
+          ? PowerStripIcon(size: 24, color: scheme.onSurfaceVariant)
+          : null,
       badge: entry.guess?.label,
       badgeIsClaim: entry.isLikelySupported,
       // Same rule as the BLE tab, and for the same reason: it is naming a
