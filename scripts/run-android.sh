@@ -131,23 +131,51 @@ fi
 
 # One serial per online ("device" state) device.
 list_online_devices() { "$ADB" devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1}'; }
+# "serial state" for EVERY attached device, whatever its state — so an
+# unauthorized or offline phone is visible, not silently treated as absent.
+adb_devices_states() { "$ADB" devices 2>/dev/null | awk 'NR>1 && NF>=2 {print $1, $2}'; }
 # `emulator-NNNN` is an emulator; anything else is a real phone or a network
 # (`ip:port`) connection.
 is_emulator() { [[ "$1" == emulator-* ]]; }
 first_physical() { list_online_devices | while read -r s; do is_emulator "$s" || echo "$s"; done | head -n1; }
 first_emulator() { list_online_devices | while read -r s; do is_emulator "$s" && echo "$s"; done | head -n1; }
 
+# Explain every attached-but-unusable device — the near-universal cause of "no
+# device online" when a phone IS plugged in. Returns 0 if it reported one.
+report_unusable_devices() {
+  local found=1 serial state
+  while read -r serial state; do
+    [[ -z "$serial" ]] && continue
+    case "$state" in
+      unauthorized)
+        found=0
+        err "Device $serial is attached but UNAUTHORIZED."
+        err "  Unlock the phone and tap Allow on the 'Allow USB debugging?'"
+        err "  prompt (tick \"Always allow from this computer\"), then re-run." ;;
+      offline)
+        found=0
+        err "Device $serial is attached but OFFLINE."
+        err "  Unplug and replug it, or run: $ADB reconnect offline" ;;
+    esac
+  done < <(adb_devices_states)
+  return $found
+}
+
 if [[ "$LIST_ONLY" == "true" ]]; then
   log "Attached Android devices:"
   found=false
-  while read -r serial; do
+  while read -r serial state; do
     [[ -z "$serial" ]] && continue
     found=true
-    model="$("$ADB" -s "$serial" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
     kind=$(is_emulator "$serial" && echo emulator || echo physical)
-    printf '  %-24s %-10s %s\n' "$serial" "$kind" "${model:-?}"
-  done < <(list_online_devices)
-  [[ "$found" == "true" ]] || warn "  (none online — start an emulator or plug a phone in)"
+    if [[ "$state" == "device" ]]; then
+      model="$("$ADB" -s "$serial" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
+      printf '  %-24s %-9s ready         %s\n' "$serial" "$kind" "${model:-?}"
+    else
+      printf '  %-24s %-9s %s\n' "$serial" "$kind" "$state"
+    fi
+  done < <(adb_devices_states)
+  [[ "$found" == "true" ]] || warn "  (none attached — start an emulator or plug a phone in)"
   exit 0
 fi
 
@@ -188,6 +216,8 @@ resolve_device() {
     attached)
       DEVICE_ID="$(first_physical)"
       if [[ -z "$DEVICE_ID" ]]; then
+        # A plugged-in-but-unauthorized/offline phone is the usual reason.
+        report_unusable_devices && exit 1
         if list_online_devices | grep -q .; then
           err "Only an emulator is online. --attached is for a physical phone;"
           err "drop the flag to use the emulator, or plug a phone in."
@@ -205,10 +235,18 @@ resolve_device() {
       ;;
     auto)
       # Prefer a connected device (physical first); boot the emulator only when
-      # nothing is online.
+      # nothing usable is online.
       DEVICE_ID="$(first_physical)"
       [[ -n "$DEVICE_ID" ]] || DEVICE_ID="$(list_online_devices | head -n1)"
       if [[ -z "$DEVICE_ID" ]]; then
+        # If a phone is attached but unauthorized/offline, that is almost
+        # certainly what the user meant — say how to fix it rather than boot the
+        # emulator behind their back (and then fail on a missing AVD).
+        if report_unusable_devices; then
+          err "A device is attached but not usable yet (above). Authorize it, or"
+          err "pass --emulator to use the emulator instead."
+          exit 1
+        fi
         log "No device online; falling back to the emulator."
         boot_emulator
         DEVICE_ID="$(list_online_devices | head -n1)"
