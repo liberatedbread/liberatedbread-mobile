@@ -11,6 +11,7 @@ import '../core/error_text.dart';
 import '../core/log.dart';
 import '../core/stop_signal.dart';
 import '../models/network_device.dart';
+import 'datagram_bind.dart';
 import 'multicast_lock.dart';
 import 'network_scan_service.dart';
 import 'spec_codec.dart';
@@ -344,7 +345,13 @@ class RealNetworkScanService implements NetworkScanService {
     void Function(NetworkDevice) emit,
     Duration timeout,
   ) async {
-    final client = MDnsClient();
+    // The default factory is `RawDatagramSocket.bind`, which start() calls with
+    // `reusePort: true` — a bind Android's bionic libc rejects with a
+    // SocketException, so the whole mDNS half used to throw there and be lost
+    // while SSDP/LIFX/Kasa (no reusePort) kept working. bindDatagramSocket tries
+    // reusePort and falls back without it, so mDNS binds on Android too; the
+    // multicast group join start() does after the bind is unchanged.
+    final client = MDnsClient(rawDatagramSocketFactory: bindDatagramSocket);
     await client.start();
     session.mdns = client;
     var heard = false;
