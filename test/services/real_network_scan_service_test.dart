@@ -133,6 +133,29 @@ void main() {
     });
   });
 
+  group('normalizeMdnsServiceType', () {
+    test('strips the trailing dot a spec writes so it dedupes with the '
+        'meta-query', () {
+      // Specs declare `_snapmaker._tcp.local.`; the enumeration and the
+      // `resolving` set carry `_snapmaker._tcp.local`. Without stripping the
+      // dot a direct query would re-resolve a type the enumeration found.
+      expect(normalizeMdnsServiceType('_snapmaker._tcp.local.'),
+          '_snapmaker._tcp.local');
+      expect(
+          normalizeMdnsServiceType('_hue._tcp.local'), '_hue._tcp.local');
+      expect(normalizeMdnsServiceType('  _coap._udp.local.  '),
+          '_coap._udp.local');
+    });
+
+    test('drops anything not shaped like a DNS-SD service type', () {
+      // A malformed catalogue entry must not become a junk PTR query.
+      expect(normalizeMdnsServiceType(''), isNull);
+      expect(normalizeMdnsServiceType('snapmaker'), isNull);
+      expect(normalizeMdnsServiceType('_snapmaker.local'), isNull);
+      expect(normalizeMdnsServiceType('http://x'), isNull);
+    });
+  });
+
   group('NetworkScanCoalescer', () {
     test('a first sighting is emitted', () {
       final coalescer = NetworkScanCoalescer();

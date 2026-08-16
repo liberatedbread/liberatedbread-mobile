@@ -75,9 +75,20 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
     final targets = <String>{
       for (final identity in identities) ...identity.ssdpSearchTargets,
     }.toList();
+    // The same idea one transport over: a device whose responder ignores the
+    // `_services._dns-sd._udp.local` meta-query (a Snapmaker U1's embedded
+    // zeroconf is one) is only found if the scan asks for its exact
+    // `_vendor._tcp` type by name. Sourced from the catalogue like the SSDP
+    // targets — the scan layer knows no product names.
+    final mdnsTypes = <String>{
+      for (final identity in identities)
+        if (identity.mdnsServiceType case final type?) type,
+    }.toList();
     if (!mounted) return;
 
-    _scanSub = _service.scan(extraSearchTargets: targets).listen(
+    _scanSub = _service
+        .scan(extraSearchTargets: targets, extraMdnsServiceTypes: mdnsTypes)
+        .listen(
       (device) {
         if (!mounted) return;
         setState(() => _found[device.host] = device);

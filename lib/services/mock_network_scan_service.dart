@@ -113,6 +113,7 @@ class MockNetworkScanService implements NetworkScanService {
     // Accepted for interface parity; a simulated network answers every
     // question, so the extra targets change nothing here.
     List<String> extraSearchTargets = const [],
+    List<String> extraMdnsServiceTypes = const [],
   }) async* {
     _stop = StopSignal();
     for (final device in _devices) {
