@@ -1823,6 +1823,40 @@ pub fn kasa_decode_datagram(datagram: Vec<u8>) -> anyhow::Result<String> {
     String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("Kasa datagram is not UTF-8: {e}"))
 }
 
+/// What a Tuya discovery broadcast identifies about its sender — the FFI face
+/// of [`crate::protocol::tuya::TuyaBroadcast`]. Every field optional: a partial
+/// datagram still identifies the device by whatever it carried.
+#[derive(Debug, Clone)]
+pub struct TuyaBroadcastDto {
+    pub gw_id: Option<String>,
+    pub ip: Option<String>,
+    pub version: Option<String>,
+    pub product_key: Option<String>,
+    pub encrypted: bool,
+}
+
+impl From<crate::protocol::tuya::TuyaBroadcast> for TuyaBroadcastDto {
+    fn from(b: crate::protocol::tuya::TuyaBroadcast) -> Self {
+        Self {
+            gw_id: b.gw_id,
+            ip: b.ip,
+            version: b.version,
+            product_key: b.product_key,
+            encrypted: b.encrypted,
+        }
+    }
+}
+
+/// Parse a Tuya discovery datagram (UDP 6666 plaintext or 6667 fixed-key
+/// AES-128-ECB) into the identity it advertises, or `None` when the bytes are
+/// not a Tuya broadcast we can read. Identify-only: the cipher here unwraps the
+/// device's own beacon, never its control channel (which needs the per-device
+/// local key this project does not hold). The decrypt stays in Rust under test,
+/// like the Kasa cipher, rather than being re-implemented in Dart.
+pub fn tuya_parse_broadcast(datagram: Vec<u8>) -> Option<TuyaBroadcastDto> {
+    crate::protocol::tuya::parse_broadcast(&datagram).map(TuyaBroadcastDto::from)
+}
+
 /// A rendered Rabbit Air request: the plaintext envelope JSON, and the client
 /// nonce it carries.
 ///

@@ -79,6 +79,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  TuyaBroadcastDto dco_decode_box_autoadd_tuya_broadcast_dto(dynamic raw);
+
+  @protected
   int dco_decode_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -357,6 +360,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       dynamic raw);
 
   @protected
+  TuyaBroadcastDto? dco_decode_opt_box_autoadd_tuya_broadcast_dto(dynamic raw);
+
+  @protected
   int? dco_decode_opt_box_autoadd_u_16(dynamic raw);
 
   @protected
@@ -433,6 +439,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredUploadPlanDto dco_decode_stored_upload_plan_dto(dynamic raw);
+
+  @protected
+  TuyaBroadcastDto dco_decode_tuya_broadcast_dto(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
@@ -523,6 +532,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   StoredUploadEventDto sse_decode_box_autoadd_stored_upload_event_dto(
+      SseDeserializer deserializer);
+
+  @protected
+  TuyaBroadcastDto sse_decode_box_autoadd_tuya_broadcast_dto(
       SseDeserializer deserializer);
 
   @protected
@@ -841,6 +854,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       SseDeserializer deserializer);
 
   @protected
+  TuyaBroadcastDto? sse_decode_opt_box_autoadd_tuya_broadcast_dto(
+      SseDeserializer deserializer);
+
+  @protected
   int? sse_decode_opt_box_autoadd_u_16(SseDeserializer deserializer);
 
   @protected
@@ -927,6 +944,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   StoredUploadPlanDto sse_decode_stored_upload_plan_dto(
       SseDeserializer deserializer);
+
+  @protected
+  TuyaBroadcastDto sse_decode_tuya_broadcast_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
@@ -1021,6 +1041,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_stored_upload_event_dto(
       StoredUploadEventDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_tuya_broadcast_dto(
+      TuyaBroadcastDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_u_16(int self, SseSerializer serializer);
@@ -1365,6 +1389,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
       StoredUploadEventDto? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_tuya_broadcast_dto(
+      TuyaBroadcastDto? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_16(int? self, SseSerializer serializer);
 
   @protected
@@ -1460,6 +1488,10 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_stored_upload_plan_dto(
       StoredUploadPlanDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_tuya_broadcast_dto(
+      TuyaBroadcastDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);
