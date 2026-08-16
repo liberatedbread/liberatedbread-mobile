@@ -40,6 +40,14 @@ const _lifxSearchTarget = 'lifx:udp';
 const _mdnsMulticast = '224.0.0.251';
 const _mdnsPort = 5353;
 
+/// Ubiquiti device discovery: a broadcast probe to UDP 10001 that every UniFi
+/// device (cameras, APs, switches, gateways) answers with a TLV record. The
+/// lan-protocol token the emitted device is tagged with, matched by the spec's
+/// `identification.lan_protocols`.
+const _ubiquitiPort = 10001;
+const _ubiquitiProbe = [0x01, 0x00, 0x00, 0x00];
+const _ubiquitiLanProtocol = 'ubiquiti-discovery';
+
 /// The tagged-broadcast `GetService` probe (sequence 0). Byte-for-byte the
 /// packet `crate::protocol::lifx::get_service(0)` builds. Discovery reads only a
 /// reply's message type and 6-byte MAC, so it builds the probe and parses those
@@ -201,6 +209,42 @@ List<int> mdnsPtrQuery(String serviceType) {
 List<int>? mdnsFirstLabelBytes(String serviceType) {
   final first = serviceType.split('.').first;
   return first.length >= 3 ? utf8.encode(first) : null;
+}
+
+/// Parse a Ubiquiti discovery reply (UDP 10001) into hostname / MAC / platform.
+///
+/// Header: version(1) command(1) length(2 BE); then TLVs, each type(1)
+/// length(2 BE) value. Known types: 0x01 = MAC (6 bytes), 0x0b = hostname,
+/// 0x0c = platform/model string ("UVC G4 Pro", "ES-10X", "UFP-UAP-B…"). Only a
+/// v1 (`0x01`) reply is parsed; anything else yields nothing.
+({String? hostname, String? mac, String? platform}) parseUbiquitiDiscovery(
+    List<int> data) {
+  String? hostname, mac, platform;
+  if (data.length < 4 || data[0] != 0x01) {
+    return (hostname: null, mac: null, platform: null);
+  }
+  var i = 4;
+  while (i + 3 <= data.length) {
+    final type = data[i];
+    final len = (data[i + 1] << 8) | data[i + 2];
+    i += 3;
+    if (i + len > data.length) break;
+    final value = data.sublist(i, i + len);
+    switch (type) {
+      case 0x01:
+        if (len == 6) {
+          mac = value.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':');
+        }
+      case 0x0b:
+        final h = String.fromCharCodes(value).trim();
+        if (h.isNotEmpty) hostname = h;
+      case 0x0c:
+        final p = String.fromCharCodes(value).trim();
+        if (p.isNotEmpty) platform = p;
+    }
+    i += len;
+  }
+  return (hostname: hostname, mac: mac, platform: platform);
 }
 
 /// Whether [haystack] contains the contiguous byte sequence [needle].
@@ -373,6 +417,13 @@ class RealNetworkScanService implements NetworkScanService {
           }),
           _runLifx(session, emit, timeout).catchError((Object e) {
             Log.net.warning('LIFX discovery failed', error: e);
+            return TransportOutcome.failed;
+          }),
+          // Ubiquiti/UniFi devices answer only their own UDP 10001 probe — no
+          // mDNS, no SSDP — so a whole fleet of cameras/APs/switches is silent
+          // without this.
+          _runUbiquiti(session, emit, timeout).catchError((Object e) {
+            Log.net.warning('Ubiquiti discovery failed', error: e);
             return TransportOutcome.failed;
           }),
           // The Kasa transport, when a codec is wired to run the cipher. Its
@@ -604,6 +655,68 @@ class RealNetworkScanService implements NetworkScanService {
     } finally {
       socket.close();
       session.mdnsCaptureSocket = null;
+    }
+  }
+
+  /// Broadcast the Ubiquiti discovery probe (UDP 10001) and collect the TLV
+  /// replies. Every UniFi device — cameras, APs, switches, gateways — answers
+  /// it, which is the only signal much of that gear gives on the LAN (no mDNS,
+  /// no SSDP). Each reply becomes a device at its source IP, named by its
+  /// hostname and tagged with [_ubiquitiLanProtocol] so the Ubiquiti spec (which
+  /// declares the matching `lan_protocols`) claims it.
+  Future<TransportOutcome> _runUbiquiti(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+  ) async {
+    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
+        reuseAddress: true);
+    session.ubiquitiSocket = socket;
+    socket.broadcastEnabled = true;
+    var heard = false;
+    final seen = <String>{};
+    try {
+      final target = InternetAddress(_lifxBroadcast);
+      // Twice: UDP is lossy and a dropped probe means a camera never heard from.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(_ubiquitiProbe, target, _ubiquitiPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        final parsed = parseUbiquitiDiscovery(datagram.data);
+        // A datagram that parsed nothing identifying is noise, not a device —
+        // the same rule the SSDP transport applies.
+        if (parsed.mac == null && parsed.hostname == null) continue;
+        heard = true;
+        final host = datagram.address.address;
+        if (!seen.add(host)) continue;
+        emit(NetworkDevice(
+          host: host,
+          name: parsed.hostname ?? '',
+          answeredLanProtocols: const [_ubiquitiLanProtocol],
+          txt: {
+            if (parsed.mac != null) 'mac': parsed.mac!,
+            if (parsed.platform != null) 'platform': parsed.platform!,
+          },
+          sources: const {NetworkDiscoverySource.lanProbe},
+          discoveredAt: DateTime.now(),
+        ));
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.ubiquitiSocket = null;
     }
   }
 
@@ -969,6 +1082,7 @@ class _ScanSession {
   RawDatagramSocket? lifxSocket;
   RawDatagramSocket? kasaSocket;
   RawDatagramSocket? mdnsCaptureSocket;
+  RawDatagramSocket? ubiquitiSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -997,5 +1111,7 @@ class _ScanSession {
     kasaSocket = null;
     mdnsCaptureSocket?.close();
     mdnsCaptureSocket = null;
+    ubiquitiSocket?.close();
+    ubiquitiSocket = null;
   }
 }
