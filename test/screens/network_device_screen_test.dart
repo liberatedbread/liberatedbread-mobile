@@ -1453,6 +1453,7 @@ void main() {
       WidgetTester tester, {
       int initial = 0,
       bool emeter = false,
+      bool bulb = false,
     }) async {
       relayState = initial;
       final entities = [...kasaEntities, if (emeter) ...emeterEntities];
@@ -1498,8 +1499,11 @@ void main() {
           reply = '{"emeter":{"get_realtime":{"voltage":120.4,"current":0.5,'
               '"power":60.2,"total":12.34,"err_code":0}}}';
         } else {
-          reply = '{"system":{"get_sysinfo":{"relay_state":$relayState,'
-              '"alias":"Desk Lamp"}}}';
+          reply = bulb
+              ? '{"system":{"get_sysinfo":{"mic_type":"IOT.SMARTBULB",'
+                  '"light_state":{"on_off":1,"brightness":75},"alias":"Reading Lamp"}}}'
+              : '{"system":{"get_sysinfo":{"relay_state":$relayState,'
+                  '"alias":"Desk Lamp"}}}';
         }
         return Uint8List.fromList(await kasaCodec.kasaEncodeFrame(json: reply));
       }
@@ -1562,6 +1566,19 @@ void main() {
         contains('relay_on'),
       );
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+
+    testWidgets('a Kasa light is recognized, not shown a dead switch',
+        (tester) async {
+      // A KL430 answers the plug protocol but reports light_state, not
+      // relay_state — the plug switch would be a dead control. Recognize it and
+      // point the user at the Kasa app instead.
+      await pumpPlug(tester, bulb: true);
+
+      expect(find.byType(Switch), findsNothing);
+      expect(find.text('This is a Kasa smart light'), findsOneWidget);
+      expect(find.textContaining('Use the Kasa app'), findsOneWidget);
+      expect(find.textContaining('Could not reach'), findsNothing);
     });
   });
 

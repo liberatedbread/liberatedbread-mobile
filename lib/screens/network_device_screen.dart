@@ -266,6 +266,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool get _hasInstanceChildren =>
       _entities.any((e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false));
 
+  /// A Kasa SMARTBULB (KL430 and kin) answering the plug spec: it reports a
+  /// `light_state` object, not a top-level `relay_state`, so the plug's on/off
+  /// switch would be a dead control — no state to read, and the bulb ignores
+  /// set_relay_state. We recognise it and hide that switch, pointing on/off and
+  /// brightness at the Kasa app for now, rather than render a switch that lies.
+  bool get _isKasaBulb =>
+      _rawStateReply.values.any((reply) => reply.contains('"light_state"'));
+
   /// The address a Kasa send/poll uses.
   int get _kasaHostPort => widget.device.port ?? _kasaPort;
 
@@ -518,6 +526,11 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
           await client.send(widget.device.host, _kasaHostPort, request);
       _stateByCommand[command] = kasaStateFields(reply);
       _rawStateReply[command] = reply;
+      // The reply, so an "unknown state" is diagnosable from a log instead of a
+      // blank card — a Kasa device that answers a shape we don't decode (a
+      // bulb's light_state, a variant's renamed fields) is exactly where this
+      // earns its keep.
+      Log.net.debug('kasa $command <- ${widget.device.host}: $reply');
     }
     await _decodeInstances();
     await _decodeEntities();
@@ -589,14 +602,26 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<void> _decodeEntities() async {
     final codec = ref.read(specCodecProvider);
     for (final entity in _entities) {
+      // Instanced entities are read per-child in _decodeInstances, not here.
+      if (entity.isInstanced) continue;
       final returned = _stateByCommand[entity.stateCommand];
-      _readings[entity.name] = returned == null
+      final reading = returned == null
           ? null
           : await codec.readNetworkEntity(
               specYaml: widget.controls.specYaml,
               entityName: entity.name,
               returned: returned,
             );
+      _readings[entity.name] = reading;
+      // Say WHY a card reads "State unknown": the state command answered, but
+      // no field in it mapped to this entity's reading. Without this the app is
+      // silent about a real gap (a bulb's light_state, a variant's renamed
+      // keys), which is exactly the "nothing's logged" complaint.
+      if (reading == null && returned != null && entity.stateCommand.isNotEmpty) {
+        Log.net.debug('kasa/${entity.name}: state command '
+            '"${entity.stateCommand}" answered but no field mapped to a reading '
+            '(keys: ${returned.keys.join(", ")})');
+      }
     }
     if (mounted) setState(() {});
   }
@@ -1026,8 +1051,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   // On a strip, the plain "Outlet" switch has no top-level
                   // relay_state to read, so it would only ever show "State
                   // unknown" beside the real per-outlet switches — hide it.
-                  !(_hasInstanceChildren && entity.platform == 'switch'))) ...[
+                  !(_hasInstanceChildren && entity.platform == 'switch') &&
+                  // A Kasa light answering the plug spec has no relay to switch;
+                  // hide the dead switch and show the note below instead.
+                  !(_isKasaBulb && entity.platform == 'switch'))) ...[
                 _entityCard(entity),
+                const SizedBox(height: 12),
+              ],
+              if (_isKasaBulb) ...[
+                _kasaBulbNote(),
                 const SizedBox(height: 12),
               ],
               // A power strip's outlets: one switch per child, named by its
@@ -1268,10 +1300,50 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
   }
 
-  /// The note shown while commands ride the ECP2 signed session because the
-  /// device refused plain ECP — the working state of a Limited-mode Roku.
-  /// Names the setting like the refusal note does, but as an option, not a
-  /// fix: nothing is broken.
+  /// A Kasa smart light answering the plug spec: recognise it and point on/off
+  /// and brightness at the Kasa app, rather than render a switch that cannot
+  /// work. See [_isKasaBulb].
+  Widget _kasaBulbNote() {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: scheme.secondaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.lightbulb_outline, color: scheme.onSecondaryContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'This is a Kasa smart light',
+                    style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSecondaryContainer),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'It answers the same protocol as a Kasa plug, so this app '
+                    'recognises it — but it switches and dims through a '
+                    'light_state the plug controls do not drive. Use the Kasa '
+                    'app for on/off and brightness for now.',
+                    style: text.bodySmall
+                        ?.copyWith(color: scheme.onSecondaryContainer),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _entityCard(NetworkEntityDto entity) {
     switch (entity.platform) {
       case 'switch':
