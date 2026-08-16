@@ -247,6 +247,32 @@ List<int>? mdnsFirstLabelBytes(String serviceType) {
   return (hostname: hostname, mac: mac, platform: platform);
 }
 
+/// A pictogram token for a Ubiquiti device from its platform string (the 0x0c
+/// TLV): a camera, an NVR, a switch, an AP, a gateway, etc. Null for an unknown
+/// platform, so the device falls back to the generic UniFi spec's glyph. The
+/// spec itself documents this platform->pictogram map; it lives here because
+/// the platform is only known at discovery, from the wire.
+String? ubiquitiPictogram(String? platform) {
+  if (platform == null) return null;
+  final p = platform.toUpperCase();
+  if (p.startsWith('UVC') || p.contains('CAMERA')) {
+    return p.contains('DOORBELL') ? 'video-doorbell' : 'ip-camera';
+  }
+  if (p.startsWith('UNVR')) return 'nvr';
+  if (p.startsWith('UNAS')) return 'nas';
+  if (p.startsWith('USW') || p.startsWith('US-') || p.startsWith('ES')) {
+    return 'network-switch';
+  }
+  if (p.startsWith('UXG') || p.startsWith('UGW') || p.startsWith('UDR')) {
+    return 'router';
+  }
+  if (p.startsWith('UDM') || p.startsWith('UCK')) return 'cloud-key';
+  if (p.contains('UAP') || p.startsWith('U6') || p.startsWith('U7')) {
+    return 'wifi-ap';
+  }
+  return null;
+}
+
 /// Whether [haystack] contains the contiguous byte sequence [needle].
 bool containsBytes(List<int> haystack, List<int> needle) {
   if (needle.isEmpty || needle.length > haystack.length) return false;
@@ -705,6 +731,7 @@ class RealNetworkScanService implements NetworkScanService {
           host: host,
           name: parsed.hostname ?? '',
           answeredLanProtocols: const [_ubiquitiLanProtocol],
+          pictogram: ubiquitiPictogram(parsed.platform),
           txt: {
             if (parsed.mac != null) 'mac': parsed.mac!,
             if (parsed.platform != null) 'platform': parsed.platform!,
@@ -1029,12 +1056,25 @@ class RealNetworkScanService implements NetworkScanService {
     final model = str('model');
     final mac = str('mac') ?? str('mic_mac');
     final deviceId = str('deviceId');
+    // A finer glyph than the shared spec's `switch` category: a Kasa bulb
+    // reports mic_type IOT.SMARTBULB, a power strip a `children` array.
+    final micType = str('mic_type') ?? str('type');
+    final children = sysinfo['children'];
+    final String? pictogram;
+    if (micType != null && micType.toUpperCase().contains('SMARTBULB')) {
+      pictogram = 'light';
+    } else if (children is List && children.isNotEmpty) {
+      pictogram = 'power-strip';
+    } else {
+      pictogram = null;
+    }
     return NetworkDevice(
       host: datagram.address.address,
       // The user's own name for the plug, falling back to the model.
       name: alias ?? model ?? '',
       port: _kasaPort,
       answeredLanProtocols: const [_kasaProtocol],
+      pictogram: pictogram,
       txt: {
         if (model != null) 'model': model,
         if (mac != null) 'mac': mac,

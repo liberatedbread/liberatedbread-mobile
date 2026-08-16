@@ -333,10 +333,12 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
               ssdpTargets: device.ssdpTargets,
             )))
             .valueOrNull;
-    // The power-strip pictogram shows when the matched spec asks for it OR when
-    // the device just calls itself one — a strip the user named "… Power Strip"
-    // is worth the glyph even before it is matched and driven.
-    final showPowerStrip = DevicePictogram.isCustom(guess?.pictogram) ||
+    // The pictogram a TRANSPORT worked out from the device itself (a UniFi
+    // camera's platform, a Kasa bulb's mic_type) wins over the shared spec's
+    // category — that is the point of NetworkDevice.pictogram. Then the matched
+    // spec's pictogram, then its category glyph.
+    final showPowerStrip = device.pictogram == 'power-strip' ||
+        DevicePictogram.isCustom(guess?.pictogram) ||
         device.displayName.toLowerCase().contains('power strip');
     final scheme = Theme.of(context).colorScheme;
     return DeviceListTile(
@@ -344,7 +346,9 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       subtitle: _transportLabel(device),
       detail:
           device.port == null ? device.host : '${device.host}:${device.port}',
-      icon: entry.guess?.iconOr(Icons.router_outlined) ?? Icons.router_outlined,
+      icon: DevicePictogram.iconFor(device.pictogram) ??
+          entry.guess?.iconOr(Icons.router_outlined) ??
+          Icons.router_outlined,
       iconWidget: showPowerStrip
           ? PowerStripIcon(size: 24, color: scheme.onSurfaceVariant)
           : null,

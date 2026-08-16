@@ -205,6 +205,20 @@ void main() {
       expect(parseUbiquitiDiscovery(const [0x02, 0x00, 0x00, 0x00]).mac, isNull);
       expect(parseUbiquitiDiscovery(const [0x01]).hostname, isNull);
     });
+
+    test('ubiquitiPictogram maps the platform to a glyph token', () {
+      expect(ubiquitiPictogram('UVC G4 Pro'), 'ip-camera');
+      expect(ubiquitiPictogram('UVC G4 Doorbell'), 'video-doorbell');
+      expect(ubiquitiPictogram('UNVR'), 'nvr');
+      expect(ubiquitiPictogram('UNASPRO'), 'nas');
+      expect(ubiquitiPictogram('ES-10X'), 'network-switch');
+      expect(ubiquitiPictogram('UFP-UAP-B'), 'wifi-ap');
+      expect(ubiquitiPictogram('U6-LR'), 'wifi-ap');
+      expect(ubiquitiPictogram('UDM-Pro'), 'cloud-key');
+      // Unknown platform falls back to the generic spec glyph.
+      expect(ubiquitiPictogram('SomethingNew'), isNull);
+      expect(ubiquitiPictogram(null), isNull);
+    });
   });
 
   group('NetworkScanCoalescer', () {
