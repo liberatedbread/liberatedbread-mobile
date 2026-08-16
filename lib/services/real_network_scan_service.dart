@@ -786,8 +786,14 @@ class RealNetworkScanService implements NetworkScanService {
         if (datagram == null) continue;
         final parsed = parseUbiquitiDiscovery(datagram.data);
         // A datagram that parsed nothing identifying is noise, not a device —
-        // the same rule the SSDP transport applies.
-        if (parsed.mac == null && parsed.hostname == null) continue;
+        // the same rule the SSDP transport applies. Logged so a device dropped
+        // for an unrecognized reply shape is visible, not silent.
+        if (parsed.mac == null && parsed.hostname == null) {
+          Log.net.debug('rejected Ubiquiti :$_ubiquitiPort datagram from '
+              '${datagram.address.address} (${datagram.data.length}B, '
+              'no id parsed)');
+          continue;
+        }
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(host)) continue;
@@ -854,8 +860,16 @@ class RealNetworkScanService implements NetworkScanService {
         if (datagram == null) continue;
         final parsed = parseMndp(datagram.data);
         // Our own 4-byte solicitation echoes back; a real beacon carries an
-        // identity or MAC.
-        if (parsed.identity == null && parsed.mac == null) continue;
+        // identity or MAC. Logged (skipping our own 4-byte echo) so a genuine
+        // beacon we failed to parse is visible.
+        if (parsed.identity == null && parsed.mac == null) {
+          if (datagram.data.length > 4) {
+            Log.net.debug('rejected MikroTik MNDP datagram from '
+                '${datagram.address.address} (${datagram.data.length}B, '
+                'no id parsed)');
+          }
+          continue;
+        }
         heard = true;
         final host = datagram.address.address;
         if (!seen.add(host)) continue;
@@ -1023,6 +1037,8 @@ class RealNetworkScanService implements NetworkScanService {
         if (location == null &&
             searchTarget == null &&
             headers['server'] == null) {
+          Log.net.debug('rejected SSDP datagram from '
+              '${datagram.address.address} (no LOCATION/ST/SERVER)');
           continue;
         }
         // Prefer the LOCATION host: a device behind a proxy or on a second
@@ -1151,7 +1167,16 @@ class RealNetworkScanService implements NetworkScanService {
         // this particular datagram decodes.
         heard = true;
         final device = await _kasaDeviceFrom(datagram, codec);
-        if (device != null) emit(device);
+        if (device != null) {
+          emit(device);
+        } else {
+          // A reply reached us but did not decode to a Kasa get_sysinfo — a
+          // non-Kasa service on :9999, or a shape we don't read. Logged so it
+          // is not a silent drop.
+          Log.net.debug('rejected Kasa :$_kasaPort datagram from '
+              '${datagram.address.address} (${datagram.data.length}B, '
+              'not a get_sysinfo reply)');
+        }
       }
       return heard ? TransportOutcome.heard : TransportOutcome.silent;
     } finally {
