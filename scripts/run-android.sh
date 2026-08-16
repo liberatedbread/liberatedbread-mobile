@@ -60,6 +60,7 @@ err()  { printf '\033[1;31m[android]\033[0m %s\n' "$*" >&2; }
 # Auto-upgrades the repo-managed SDK at ~/.flutter-sdk to CI's pinned Flutter.
 # shellcheck source=flutter-ensure-version.sh
 source "$SCRIPT_DIR/flutter-ensure-version.sh"
+source "$SCRIPT_DIR/regen-bindings.sh"
 
 # ── parse args ───────────────────────────────────────────────────────────────
 
@@ -293,6 +294,9 @@ ensure_gradle_jdk
 # ── dart deps ────────────────────────────────────────────────────────────────
 
 cd "$PROJECT_DIR"
+# A rebuild that reflects the current Rust: regenerate the FFI bindings if the
+# Rust API changed since they were last generated (no-op otherwise).
+regen_frb_bindings
 if [[ ! -d ".dart_tool" ]]; then
   log "flutter pub get..."
   flutter pub get

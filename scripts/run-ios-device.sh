@@ -34,6 +34,8 @@ log()  { printf '\033[1;32m[ios-device]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[ios-device]\033[0m %s\n' "$*"; }
 err()  { printf '\033[1;31m[ios-device]\033[0m %s\n' "$*" >&2; }
 
+source "$SCRIPT_DIR/regen-bindings.sh"
+
 # ── platform check ───────────────────────────────────────────────────────────
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -158,6 +160,9 @@ fi
 # ── project dependencies ─────────────────────────────────────────────────────
 
 cd "$PROJECT_DIR"
+# A rebuild that reflects the current Rust: regenerate the FFI bindings if the
+# Rust API changed since they were last generated (no-op otherwise).
+regen_frb_bindings
 if [[ ! -d ".dart_tool" ]]; then
   log "Running flutter pub get..."
   flutter pub get
