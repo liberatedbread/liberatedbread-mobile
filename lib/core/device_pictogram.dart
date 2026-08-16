@@ -19,6 +19,7 @@ class DevicePictogram {
   /// unknown OR is drawn by a custom widget (see [isCustom]) — in both cases
   /// the caller falls back (to a custom widget, then the category icon).
   static IconData? iconFor(String? token) => switch (token) {
+        'light' => Icons.lightbulb_outline,
         'nas' => Icons.storage_outlined,
         'phone' => Icons.smartphone_outlined,
         'printer' => Icons.print_outlined,
