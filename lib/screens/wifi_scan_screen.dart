@@ -16,6 +16,7 @@ import '../providers/device_description_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/network_control_provider.dart';
 import '../providers/network_scan_provider.dart';
+import '../providers/saved_network_device_provider.dart';
 import '../providers/scan_match_provider.dart';
 import '../services/network_scan_service.dart';
 import '../services/number_registry.dart';
@@ -375,7 +376,20 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
       description:
           entry.guess?.namesAProduct == true ? null : _describe(device, vendor),
       onTap: controls != null
-          ? () => Navigator.of(context).push(
+          ? () {
+              // Opening controls is the network counterpart of a BLE
+              // connect: the moment the device earns a saved record, so it
+              // can join groups and be reached while out of sight. The spec
+              // identity and category ride along — they are what the TVs
+              // auto-group buckets by.
+              unawaited(ref.read(savedNetworkDevicesProvider.notifier).touch(
+                    device,
+                    category: guess?.category?.wireName,
+                    specKey: guess == null
+                        ? null
+                        : '${guess.deviceName}|${guess.manufacturer}',
+                  ));
+              Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   // A hub (instanced children, link-button pairing) gets the
                   // paired screen; everything else — SOAP devices and Roku's
@@ -385,7 +399,8 @@ class _WifiScanScreenState extends ConsumerState<WifiScanScreen> {
                       ? HubDeviceScreen(device: device, controls: controls)
                       : NetworkDeviceScreen(device: device, controls: controls),
                 ),
-              )
+              );
+            }
           // A UniFi camera's own admin page is a dead end — cameras are driven
           // through UniFi Protect, not individually — so it opens the details
           // sheet (which points at the Protect controller) rather than
