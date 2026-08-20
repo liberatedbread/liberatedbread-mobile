@@ -306,6 +306,39 @@ class RealSpecCodec implements SpecCodec {
           replyJson: replyJson, localNowSecs: localNowSecs);
 
   @override
+  Future<List<List<int>>> rabbitAirBleFrame({
+    required List<int> payload,
+    required int chunkSize,
+  }) =>
+      rust.rabbitAirBleFrame(payload: payload, chunkSize: chunkSize);
+
+  @override
+  Future<int?> rabbitAirBleExpectedPayloadLen(
+          {required List<int> firstChunk}) =>
+      rust.rabbitAirBleExpectedPayloadLen(firstChunk: firstChunk);
+
+  @override
+  Future<String> renderRabbitAirSetupEnvelope({
+    required int id,
+    required int cmd,
+    String? dataJson,
+  }) =>
+      rust.renderRabbitAirSetupEnvelope(id: id, cmd: cmd, dataJson: dataJson);
+
+  @override
+  Future<String> rabbitAirGenerateUserKey() => rust.rabbitAirGenerateUserKey();
+
+  @override
+  Future<String> rabbitAirBleServiceUuid() => rust.rabbitAirBleServiceUuid();
+
+  @override
+  Future<String> rabbitAirBleCommandCharacteristicUuid() =>
+      rust.rabbitAirBleCommandCharacteristicUuid();
+
+  @override
+  Future<int> rabbitAirBleMtu() => rust.rabbitAirBleMtu();
+
+  @override
   Future<NetworkReadingDto?> readNetworkEntity({
     required String specYaml,
     required String entityName,

@@ -594,6 +594,73 @@ class FakeSpecCodec implements SpecCodec {
     return ts - localNowSecs;
   }
 
+  // ── Rabbit Air BLE framing ────────────────────────────────────────────────
+  // The pure byte functions re-implemented honestly — framing is cheap enough
+  // that mimicking the Rust codec exactly beats a canned answer a test could
+  // drift away from.
+
+  @override
+  Future<List<List<int>>> rabbitAirBleFrame({
+    required List<int> payload,
+    required int chunkSize,
+  }) async {
+    if (chunkSize < 3) {
+      throw const FormatException(
+          'a chunk must carry the 2-byte length prefix plus 1 payload byte');
+    }
+    if (payload.length > 0xFFFF) {
+      throw const FormatException('the payload must fit the u16 prefix');
+    }
+    final framed = [
+      payload.length & 0xFF,
+      (payload.length >> 8) & 0xFF,
+      ...payload,
+    ];
+    return [
+      for (var i = 0; i < framed.length; i += chunkSize)
+        framed.sublist(
+            i, i + chunkSize > framed.length ? framed.length : i + chunkSize),
+    ];
+  }
+
+  @override
+  Future<int?> rabbitAirBleExpectedPayloadLen({
+    required List<int> firstChunk,
+  }) async =>
+      firstChunk.length < 2 ? null : firstChunk[0] | (firstChunk[1] << 8);
+
+  @override
+  Future<String> renderRabbitAirSetupEnvelope({
+    required int id,
+    required int cmd,
+    String? dataJson,
+  }) async {
+    var data = '';
+    if (dataJson != null) {
+      final decoded = jsonDecode(dataJson);
+      if (decoded is! Map) {
+        throw const FormatException('setup data must be a JSON object');
+      }
+      data = ',"data":${jsonEncode(decoded)}';
+    }
+    return '{"id":$id,"cmd":$cmd$data}';
+  }
+
+  @override
+  Future<String> rabbitAirGenerateUserKey() async =>
+      '0123456789ABCDEF0123456789ABCDEF';
+
+  @override
+  Future<String> rabbitAirBleServiceUuid() async =>
+      '366048ae-9f36-43cf-8004-010c0c9fa52e';
+
+  @override
+  Future<String> rabbitAirBleCommandCharacteristicUuid() async =>
+      '53ef7d7d-c244-42bd-9064-a1569a521ca9';
+
+  @override
+  Future<int> rabbitAirBleMtu() async => 515;
+
   @override
   Future<StoredUploadPlanDto> encodeStoredImage({
     required String specYaml,

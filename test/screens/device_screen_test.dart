@@ -12,12 +12,15 @@ import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/providers/network_control_provider.dart';
 import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/screens/find_device_screen.dart';
 import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_key_store.dart';
+import 'package:liberated_bread_mobile/services/rabbit_air_provision_service.dart';
 import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
 import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
 import 'package:liberated_bread_mobile/services/number_registry.dart';
@@ -28,6 +31,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_ha_api_client.dart';
 import '../fakes/fake_spec_codec.dart';
+import '../fakes/in_memory_settings_store.dart';
 
 class _RecordingForwarder extends HaSensorForwarder {
   final Map<String, String> noted = {};
@@ -592,4 +596,95 @@ void main() {
     expect(find.text('Connection failed'), findsNWidgets(2));
     expect(find.text('How to connect'), findsNothing);
   });
+  // ── Rabbit Air setup CTA ────────────────────────────────────────────────
+  // An unprovisioned purifier advertises as "RabbitAirSetup": the device
+  // screen leads with the way into the BLE setup flow. A quiet provisioning
+  // service keeps the pushed screen from touching the fake radio.
+  group('Rabbit Air setup CTA', () {
+    final setupDevice = IoTDevice(
+      id: '07',
+      name: 'RabbitAirSetup-789A',
+      rssi: -40,
+      isConnectable: true,
+      discoveredAt: DateTime(2026),
+    );
+
+    /// A provisioning service that answers begin() with silence: the CTA
+    /// test asserts the way IN, not the conversation.
+    RabbitAirProvisionService quietService() => _QuietProvisionService();
+
+    testWidgets(
+        'a RabbitAirSetup device gets a Set up Wi-Fi card that opens '
+        'the setup flow', (tester) async {
+      final fake = FakeBleService(servicesToReturn: const [
+        BleDiscoveredService(
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+      ]);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          bleServiceProvider.overrideWithValue(fake),
+          sharedPreferencesProvider.overrideWithValue(_prefs),
+          numberRegistryProvider.overrideWith((ref) async => _registry),
+          rabbitAirProvisionServiceProvider.overrideWithValue(quietService()),
+        ],
+        child: MaterialApp(home: DeviceScreen(device: setupDevice)),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Finish setting up this purifier'), findsOneWidget);
+
+      await tester.tap(find.text('Set up Wi-Fi'));
+      // No pumpAndSettle: the pushed screen is mid-conversation with the
+      // purifier, a spinner state that never settles by design.
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('Set up a Rabbit Air purifier'), findsOneWidget);
+      // A preselected device skips the intro and the scan.
+      expect(find.text('Find the purifier'), findsNothing);
+    });
+
+    testWidgets('a provisioned purifier (plain "RabbitAir") gets no card',
+        (tester) async {
+      final provisioned = IoTDevice(
+        id: '08',
+        name: 'RabbitAir',
+        rssi: -40,
+        isConnectable: true,
+        discoveredAt: DateTime(2026),
+      );
+      final fake = FakeBleService(servicesToReturn: const [
+        BleDiscoveredService(
+            uuid: '0000180f-0000-1000-8000-00805f9b34fb', characteristics: []),
+      ]);
+      await tester.pumpWidget(_wrap(fake, device: provisioned));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Finish setting up this purifier'), findsNothing);
+      expect(find.text('Set up Wi-Fi'), findsNothing);
+    });
+  });
+}
+
+/// The provisioning service the CTA tests install: records nothing, answers
+/// begin() with a held "connecting" state, never touches the radio.
+class _QuietProvisionService extends RabbitAirProvisionService {
+  _QuietProvisionService()
+      : super(
+          codec: FakeSpecCodec(),
+          keyStore: RabbitAirKeyStore(InMemorySettingsStore()),
+          linkFactory: () => throw UnimplementedError('no link in this fake'),
+        );
+
+  @override
+  Future<void> begin(String deviceId) async {
+    emit(const RabbitAirProvisionState(RabbitAirProvisionStep.connecting));
+  }
+
+  @override
+  Future<void> join({
+    required String ssid,
+    required String passphrase,
+    required int security,
+  }) async {}
 }

@@ -11,6 +11,7 @@ import '../core/log.dart';
 import '../providers/adopt_provider.dart';
 import '../services/adopt_service.dart';
 import '../widgets/device_list_tile.dart';
+import 'rabbit_air_setup_screen.dart';
 
 /// Guides a person through putting a factory-reset Wi-Fi device onto their home
 /// network — the one thing a discovery-and-control app otherwise cannot do,
@@ -300,6 +301,28 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
               ],
             );
           },
+        ),
+        const SizedBox(height: 28),
+        const SectionHeader(label: 'Sets up over Bluetooth instead'),
+        const SizedBox(height: 12),
+        Card(
+          margin: EdgeInsets.zero,
+          child: ListTile(
+            leading: Icon(Icons.bluetooth, color: scheme.secondary),
+            title: Text('Rabbit Air purifier',
+                style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            subtitle: Text(
+              'No setup network to join — provisioning talks to the '
+              'purifier over Bluetooth.',
+              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const RabbitAirSetupScreen(),
+              ),
+            ),
+          ),
         ),
       ],
     );

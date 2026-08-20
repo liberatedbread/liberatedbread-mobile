@@ -52,4 +52,7 @@ class SecureSettingsStore implements SettingsStore {
 
   @override
   Future<void> delete(String key) => _storage.delete(key: key);
+
+  @override
+  Future<Map<String, String>> readAll() => _storage.readAll();
 }
