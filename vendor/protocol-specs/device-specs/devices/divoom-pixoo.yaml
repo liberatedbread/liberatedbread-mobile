@@ -442,6 +442,32 @@ pixel_encodings:
     name: variable
     description: '[text_data (text_length bytes)] [4-byte LE data_length] [ZSTD-compressed
       pixel data]'
+commands:
+  # Divoom's own documented local API on port 80: a plain JSON body whose
+  # `Command` names the action, no LocalToken. The `Channel/GetOnOff` this
+  # entity already polls for state is the read half of the same vocabulary.
+  screen_on:
+    description: Wake the panel's display.
+    transport: http
+    method: POST
+    path: /post
+    body: '{"Command": "Channel/OnOffScreen", "OnOff": 1}'
+    verification: reported
+  screen_off:
+    description: Blank the panel's display. The device stays on the network and keeps answering the API.
+    transport: http
+    method: POST
+    path: /post
+    body: '{"Command": "Channel/OnOffScreen", "OnOff": 0}'
+    verification: reported
+  # NOTE: no set_brightness command, and the entity's role map still names one.
+  # The device does support it — Divoom's third-party docs list brightness
+  # alongside Channel/OnOffScreen — but this spec has never recorded the
+  # command string or its value range, and writing one from memory is how a
+  # wrong Command name ends up looking authoritative. The gap is ours, not the
+  # device's, so the `brightness` feature stays declared and this is left as
+  # the one thing to read off docin.divoom-gz.com and fill in.
+
 entities:
 - platform: light
   name: Pixel Display
@@ -483,12 +509,34 @@ http_endpoints:
     (fw >= 90096). A 2026-05 documentation update adds a DeviceToken
     field, so newer firmware may start gating this endpoint.'
   name: post_api
-references:
-- "https://play.google.com/store/apps/details?id=com.divoom.Divoom"
-- "http://docin.divoom-gz.com"
-- "https://github.com/ztomer/divoom_lib"
-- "https://github.com/r12f/divoom"
-- "https://github.com/james-coder/divum-bridge"
-- "https://github.com/gickowtf/pixoo-homeassistant"
-- "https://github.com/d03n3rfr1tz3/hass-divoom"
-- "https://github.com/SomethingWithComputers/pixoo"
+helpful_urls:
+- title: "Divoom app on Google Play"
+  url: "https://play.google.com/store/apps/details?id=com.divoom.Divoom"
+  description: "Distribution page for the vendor app this spec was derived from."
+- title: "Divoom third-party API documentation"
+  url: "http://docin.divoom-gz.com"
+  description: >-
+    Divoom's own documentation for the open local API on port 80 that this spec's http_endpoints
+    block covers.
+- title: "ztomer/divoom_lib"
+  url: "https://github.com/ztomer/divoom_lib"
+  description: >-
+    Rust client for the local API, and the source of this spec's error-semantics note: port 9000
+    answers HTTP 200 even on rejection, with a non-zero error_code in the body.
+- title: "r12f/divoom"
+  url: "https://github.com/r12f/divoom"
+  description: >-
+    Community client built on the documented API; one of the users of the sibling cloud host
+    app.divoom-gz.com.
+- title: "james-coder/divum-bridge"
+  url: "https://github.com/james-coder/divum-bridge"
+  description: "Community bridge for Divoom displays."
+- title: "pixoo-homeassistant"
+  url: "https://github.com/gickowtf/pixoo-homeassistant"
+  description: "Home Assistant integration for the Pixoo, driving the same local API."
+- title: "hass-divoom"
+  url: "https://github.com/d03n3rfr1tz3/hass-divoom"
+  description: "Another Home Assistant integration covering Divoom devices."
+- title: "SomethingWithComputers/pixoo"
+  url: "https://github.com/SomethingWithComputers/pixoo"
+  description: "Python library for the Pixoo's local API."

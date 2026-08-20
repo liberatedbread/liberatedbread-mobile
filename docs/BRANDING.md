@@ -8,8 +8,8 @@ Everything visual about Liberated Bread comes from two files in
 | `brand.json` | The palette (hex values) |
 | `app_icon_mascot.png` | The logo artwork |
 
-Everything else — 42 icon files across iOS/macOS/Android/web (plus the local
-`app_icon_preview.png` render, see below), the Android adaptive-icon
+Everything else — 49 icon files across iOS/macOS/Android/Linux/web (plus the
+local `app_icon_preview.png` render, see below), the Android adaptive-icon
 background, the web manifest colours — is **generated** from those two. Don't
 hand-edit generated icons; they get overwritten.
 
@@ -101,6 +101,31 @@ this script encodes them:
 - **Android 13+ monochrome** is a flat silhouette derived from the artwork's
   alpha, since themed launchers tint the layer themselves. Face detail
   necessarily drops out — that's inherent to themed icons, not a bug.
+- **Linux** gets seven flattened sizes (16–256) rather than one, because a
+  desktop draws the same icon at 16px in a window list and at 256px in an
+  alt-tab overlay and picks per surface from whatever the app offers.
+
+## The Linux icon has wiring, not a manifest
+
+Every other platform has somewhere to *declare* an icon — an asset catalogue, a
+mipmap bucket, a web manifest. GTK has none, so the Linux icon is three pieces
+that have to agree, and `scripts/verify_linux_bundle.sh` fails the build if the
+first two come apart:
+
+| Piece | Does what |
+| --- | --- |
+| `linux/resources/app_icon_<size>.png` | Generated here, committed |
+| `linux/CMakeLists.txt` | Copies that directory to `data/resources/` in the bundle |
+| `linux/my_application.cc` | Loads them **by name** and sets the window icon list |
+
+The file names are the contract between the generator's `LINUX` list and
+`kAppIconSizes` in `my_application.cc`. Change the sizes in one and change them
+in the other, or the loader quietly skips what it cannot find.
+
+One more piece is *not* automatic. A native Wayland session has no per-window
+icons at all: the compositor matches the surface's `app_id` to an installed
+`.desktop` file. `scripts/install-linux-desktop-entry.sh` installs one under
+`~/.local/share`; see [BUILD_AND_TEST.md](BUILD_AND_TEST.md#linux).
 
 ## What else follows the brand background
 

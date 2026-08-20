@@ -1,0 +1,453 @@
+# Aranet4 / Aranet Home Sensor Family — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Protocol sources (all public prior art, cross-checked; clean-room):
+#   - Anrijs/Aranet4-Python v2.6.0 (reference implementation, ships in Home
+#     Assistant): every UUID, advert + GATT structs, history V1/V2, commands.
+#   - Anrijs/Aranet4-ESP32 (C++/NimBLE): independent byte-exact advert/GATT
+#     offsets, security parameters, the definitive pairing statement.
+#   - SAF-Tehnika-Developer/com.aranet4 (official SAF Tehnika Homey app):
+#     vendor-blessed advert offsets and company ID.
+#   - kasparsd/sensor-pilot (Web Bluetooth) + stefanthoss/esphome-aranet4:
+#     further independent confirmations of the current-readings format.
+
+device:
+  name: "Aranet4 CO2 Sensor (and Aranet2 / Radiation / Radon family)"
+  manufacturer: "SAF Tehnika JSC"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+    notes: >
+      Not yet driven end-to-end, but partially observed live 2026-08-14
+      against a real unit ("Aranet4 19385", random static address): it
+      advertised the 128-bit service f0cd1400-… with manufacturer ID 0x0702
+      and the SHORT 7-byte payload 21 0e 04 00 00 0c 0f — per this spec's
+      header layout that reads flags 0x21, firmware v0.4.14 (pre-v1.2.0), so
+      no measurements are broadcast and, as this spec predicts for old
+      firmware, every unauthenticated GATT connection was dropped by the
+      device during service discovery (three bleak attempts, link connected
+      then died before discovery completed; bonding was never initiated).
+      Full verification needs either a human at the device to confirm the
+      pairing PIN shown on its e-ink display, or a firmware update to
+      >= v1.2.0 plus the "Smart Home integrations" toggle. Everything else
+      here rests on the cited implementations (the Python lib is the one
+      Home Assistant ships).
+  protocol: "ble"
+  category: "sensor"
+  pictogram: "co2-sensor"
+  notes: >
+    Aranet4 is a battery-powered e-ink CO2 / temperature / humidity /
+    pressure sensor, beloved and fully local: with firmware >= v1.2.0 and the
+    "Smart Home integrations" setting enabled it broadcasts all measurements
+    in BLE advertisements (no connection, no pairing), and its GATT surface
+    serves current readings, full measurement history and settings. The
+    vendor is active and the protocol is stable across the family: Aranet2
+    (temp/humidity), Aranet Radiation, Aranet Radon (Rn+ / Radon One).
+
+    ADVERTISEMENT (manufacturer data, company ID 0x0702 "SAF Tehnika JSC").
+    All integers little-endian unsigned; offsets are into the payload AFTER
+    the 2-byte company ID. Two Aranet4 variants: SHORT 7-byte (integrations
+    disabled or firmware < v1.2.0: header only) and LONG 22-byte (header +
+    measurements). Aranet2/Radiation/Radon long payloads are 24 bytes and
+    START with a type byte (1 = Aranet2, 2 = Radiation, 3 = Radon); Aranet4
+    payloads have NO type byte. Header (Aranet4 offsets): byte 0 flags —
+    bit0 disconnected, bits2-3 calibration state (0 NOT_ACTIVE,
+    1 END_REQUEST, 2 IN_PROGRESS, 3 ERROR), bit4 DFU active, bit5 Smart Home
+    integrations enabled (measurements present only when set on >= v1.2.0
+    firmware); byte 1 fw patch, byte 2 fw minor, byte 3 fw major; bytes 4-7
+    reserved/unknown (byte 4 reported as hardware revision by the ESP32 lib
+    only — treat as tentative). Measurements (LONG variant): u16@8 CO2 ppm,
+    u16@10 temperature x0.05 degC, u16@12 pressure x0.1 hPa, u8@14 humidity
+    %RH, u8@15 battery %, u8@16 status color (0 ERROR, 1 GREEN, 2 YELLOW,
+    3 RED), u16@17 measurement interval s, u16@19 seconds since last
+    measurement ("ago"), u8@21 measurement counter.
+
+    INVALID-VALUE SENTINELS (adverts, GATT and history alike): CO2 /
+    pressure: bit15 set => invalid; temperature: bit14 set => invalid;
+    u8 humidity read through a 16-bit path: any bit above bit7 => invalid.
+    These occur notably during CO2 calibration.
+
+    ADVERTISED SERVICE UUIDS: firmware < v1.2.0 advertises (and hosts the
+    GATT under) 128-bit f0cd1400-95da-4f4b-9ac8-aa55d312af0c; firmware
+    >= v1.2.0 uses the SIG-assigned 16-bit 0xFCE0 (SAF Tehnika). Resolve
+    characteristics by UUID, not by parent service.
+
+    PAIRING: advertisements never require pairing. Firmware < v1.2.0
+    requires OS-level bonding (passkey entry; the device shows a PIN on its
+    e-ink display) for ALL vendor GATT reads — such units also drop
+    unbonded connections (observed live, see testing). Firmware >= v1.2.0
+    with integrations enabled serves current readings, interval, ago and
+    total-count reads unauthenticated; history download and settings writes
+    still require bonding.
+
+    HISTORY DOWNLOAD (bonded): parameter ids 1 temperature, 2 humidity (u8),
+    3 pressure, 4 CO2 (u16 unless noted). Read total count from f0cd2001,
+    interval from f0cd2002, ago from f0cd2004; timestamp[i] = now - ago -
+    (total - i) * interval, indices 1-based. V1 (older firmware): write
+    <0x82, param u8, 0x0000 u16, start u16, end u16> (little-endian struct)
+    to the command char f0cd1402, subscribe to f0cd2003; each notification
+    is <param u8, start u16, count u8> + count values; done when start >
+    total or count == 0. V2 (newer firmware; feature-detect by presence of
+    f0cd2005): write <0x61, param u8, start u16> to f0cd1402, then poll-read
+    f0cd2005: <param u8, interval u16, total u16, ago u16, start u16,
+    count u8> + packed values; re-read after ~100 ms on param mismatch or
+    count 0; done when start-1+count == total.
+
+    FAMILY DIFFERENCES (brief): Aranet2 long advert uses u16 temperature
+    x0.05 @10 and u16 humidity x0.1 @14 ("humidity2"), status flags instead
+    of color; Radiation restructures to u32 dose total nSv @6, u32 duration
+    s @10, u16 rate x10 nSv/h @14; Radon has u16 radon Bq/m3 @8 plus
+    temp/pressure/humidity2 (Radon One lacks temp/humidity). Their GATT
+    current readings go through f0cd1504 with a DIFFERENT type enum
+    (2 Aranet2, 3 Radon, 4 Radiation) than the advert type byte (1/2/3) —
+    keep the two enums separate. Radon averages >= 0xFF000000 mean
+    measurement-in-progress (progress = value & 0x00FFFFFF); radon values
+    >= 0x1F00 are error codes.
+
+    OTA: Nordic Secure DFU service 0xFE59 is present; deliberately not
+    documented here (bricking risk).
+
+    Cloud dependency: none. The Aranet Home app works fully offline; the
+    optional Aranet Cloud is a paid add-on the sensor never needs.
+  identification:
+    service_uuids:
+      - "f0cd1400-95da-4f4b-9ac8-aa55d312af0c"   # fw < v1.2.0
+      - "0000fce0-0000-1000-8000-00805f9b34fb"   # fw >= v1.2.0
+    manufacturer_data:
+      company_id: 1794
+      company_id_hex: "0x0702"
+      description: >
+        SAF Tehnika JSC. Payload length discriminates the family when the
+        name is absent: 7 or 22 bytes => Aranet4; 24 bytes => Aranet2 /
+        Radiation / Radon (leading type byte 1/2/3). Name prefixes:
+        "Aranet4", "Aranet2", "AranetRn"; Aranet Radiation uses the
+        radioactive-trefoil codepoint U+2622 in its name.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            value: "Aranet"
+          manufacturer_data:
+            company_id: 1794
+            description: "SAF Tehnika JSC (0x0702). Passive scan is sufficient for readings when the long payload is broadcast."
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      For passive readings nothing is required beyond firmware >= v1.2.0 with
+      "Smart Home integrations" enabled (one-time, via the Aranet Home app or
+      bonded command 0x91) — then any scanner parses measurements straight
+      from advertisements, exactly as the Home Assistant integration does
+      (connectable: false). For GATT (history, settings, or any read on old
+      firmware) the client must bond: passkey entry, PIN shown on the
+      device's e-ink display. Confidence high: multiple production
+      implementations, including the official SAF Tehnika Homey app.
+    methods:
+      - type: ble_direct
+        description: >
+          Passive: scan for manufacturer ID 0x0702, parse the long payload.
+          Active: connect (bond if required), read f0cd3001 for current
+          readings + interval + ago, or run the history download flow.
+        verified: false
+        ble:
+          pairing_required: true
+        steps:
+          - action: "Enable 'Smart Home integrations' once via the Aranet Home app (or bonded command 0x91 01) and update firmware to >= v1.2.0 if measurements should be broadcast."
+            actor: user
+          - action: "Passive path: scan for company ID 0x0702; a 22-byte (Aranet4) or 24-byte (family) payload carries all measurements — decode per the documented offsets."
+            actor: client
+            expect: "CO2/temperature/pressure/humidity/battery update every measurement interval without any connection."
+          - action: "Active path: connect over GATT; bond (passkey from the e-ink display) when required — always on firmware < v1.2.0, and for history/settings on any firmware."
+            actor: client
+          - action: "Read f0cd3001 (13 bytes) for current readings + interval + ago, or f0cd1503 (9 bytes) for readings only."
+            actor: client
+            expect: "Fields decode per payload_formats.current_readings; sentinel bits mark invalid values during calibration."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        No documented factory-reset procedure in the public RE literature.
+        Bonds can be cleared from the device's settings menu per vendor
+        support docs; nothing network-related is stored. Not stated rather
+        than guessed.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No network membership. A new client bonds independently; existing
+        bonds are unaffected by other clients scanning.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: ["BLE bonds (LTKs) for paired clients"]
+      issued_to_client: []
+      notes: >
+        Bonding is standard BLE passkey pairing; no application-layer
+        credentials exist. Broadcast measurements are readable by anyone in
+        radio range once integrations are enabled — a privacy consideration,
+        not a control risk (the sensor actuates nothing).
+
+services:
+  - uuid: "f0cd1400-95da-4f4b-9ac8-aa55d312af0c"
+    name: "Aranet vendor service"
+    notes: >
+      Hosts every vendor characteristic. On firmware >= v1.2.0 the same
+      characteristics appear under 16-bit service 0xFCE0 instead — resolve
+      characteristics by their own UUIDs. Standard services also present:
+      GAP 0x1800, Device Information 0x180A (0x2A24 model, 0x2A25 serial,
+      0x2A26 firmware e.g. "v1.2.0", 0x2A29 "SAF Tehnika"), Battery 0x180F
+      (0x2A19), Nordic Secure DFU 0xFE59 (not documented here).
+    characteristics:
+      - uuid: "f0cd3001-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Current readings + interval + ago (Aranet4)"
+        properties: ["read"]
+        notes: >
+          13 bytes, little-endian struct <HHHBBBHH> — see
+          payload_formats.current_readings. Unauthenticated on >= v1.2.0
+          with integrations enabled; bonded otherwise.
+        format:
+          - offset: 0
+            length: 2
+            name: "co2_ppm"
+            type: "uint16"
+            endianness: "little"
+          - offset: 2
+            length: 2
+            name: "temperature_c_x20"
+            type: "uint16"
+            endianness: "little"
+          - offset: 4
+            length: 2
+            name: "pressure_hpa_x10"
+            type: "uint16"
+            endianness: "little"
+          - offset: 6
+            length: 1
+            name: "humidity_pct"
+            type: "uint8"
+          - offset: 7
+            length: 1
+            name: "battery_pct"
+            type: "uint8"
+          - offset: 8
+            length: 1
+            name: "status_color"
+            type: "uint8"
+          - offset: 9
+            length: 2
+            name: "interval_s"
+            type: "uint16"
+            endianness: "little"
+          - offset: 11
+            length: 2
+            name: "ago_s"
+            type: "uint16"
+            endianness: "little"
+      - uuid: "f0cd1503-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Current readings, basic (Aranet4)"
+        properties: ["read"]
+        notes: "First 9 bytes of the f0cd3001 layout (through status_color)."
+      - uuid: "f0cd1504-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Current readings, Aranet2 / Radon / Radiation"
+        properties: ["read"]
+        notes: >
+          Variable length; byte 0 = GATT type: 2 Aranet2 (12 B), 3 Radon
+          (47 B), 4 Radiation (28 B) — a different enum than the advert type
+          byte. Layouts per the family notes on the device.
+      - uuid: "f0cd1402-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Command"
+        properties: ["write"]
+        commands:
+          request_history_v1:
+            description: "Start V1 history streaming on f0cd2003. Little-endian struct <BBHHH>: 0x82, parameter id, 0x0000, start index, end index (1-based; e.g. 82 04 00 00 01 00 e0 07 = CO2 records 1..2016)."
+            verification: "reported"
+            template: [0x82, "{param}", 0x00, 0x00, "{start}", "{end}"]
+            parameters:
+              param:
+                type: "uint8"
+                min: 1
+                max: 4
+                labels: ["temperature", "humidity", "pressure", "co2"]
+              start:
+                type: "uint16"
+                endianness: "little"
+                min: 1
+              end:
+                type: "uint16"
+                endianness: "little"
+          request_history_v2:
+            description: "Start V2 history on f0cd2005 (poll-read). Struct <BBH>: 0x61, parameter id, start index."
+            verification: "reported"
+            template: [0x61, "{param}", "{start}"]
+            parameters:
+              param:
+                type: "uint8"
+                min: 1
+                max: 10
+              start:
+                type: "uint16"
+                endianness: "little"
+                min: 1
+          set_interval:
+            description: "Set measurement interval in minutes; valid 1, 2, 5, 10. Verify by re-reading f0cd2002 (seconds)."
+            verification: "reported"
+            template: [0x90, "{minutes}"]
+            parameters:
+              minutes:
+                type: "uint8"
+                allowed: [1, 2, 5, 10]
+          set_integrations:
+            description: "Toggle 'Smart Home integrations' (measurement broadcasts + unauthenticated current-readings reads)."
+            verification: "reported"
+            template: [0x91, "{enable}"]
+            parameters:
+              enable:
+                type: "uint8"
+                min: 0
+                max: 1
+          set_range:
+            description: "Bluetooth range: 0 standard, 1 extended."
+            verification: "reported"
+            template: [0x92, "{extended}"]
+            parameters:
+              extended:
+                type: "uint8"
+                min: 0
+                max: 1
+      - uuid: "f0cd1401-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Sensor settings state"
+        properties: ["read"]
+        notes: >
+          byte 0 device type (0xF1 Aranet4, 0xF2 Aranet2, 0xF3 Radon, 0xF4
+          Radiation); byte 1 bits: 0 buzzer on, 1 buzzer each-vs-once, 2-3
+          calibration state, 4 LoRa enabled, 5 temp unit C(1)/F(0), 6 custom
+          threshold, 7 auto-calibration; byte 2 bits: 0 buzzer available,
+          1 range extended, 7 open-for-integration (Smart Home integrations
+          on); byte 3 calibration progress %.
+      - uuid: "f0cd2001-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Total readings in memory"
+        properties: ["read"]
+        notes: "u16 little-endian."
+      - uuid: "f0cd2002-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Measurement interval"
+        properties: ["read"]
+        notes: "u16 little-endian, seconds."
+      - uuid: "f0cd2004-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Seconds since last update"
+        properties: ["read"]
+        notes: "u16 little-endian."
+      - uuid: "f0cd2003-95da-4f4b-9ac8-aa55d312af0c"
+        name: "History V1 data"
+        properties: ["notify"]
+        notes: >
+          Streams after request_history_v1: each notification is
+          <param u8, start u16 LE, count u8> + count values (u8 for
+          humidity, u16 LE otherwise). Done when start > total or count 0.
+      - uuid: "f0cd2005-95da-4f4b-9ac8-aa55d312af0c"
+        name: "History V2 data"
+        properties: ["read"]
+        notes: >
+          Poll-read after request_history_v2: <param u8, interval u16,
+          total u16, ago u16, start u16, count u8> + packed values
+          (humidity u8; radiation dose/rate u16+pad; dose integral u64;
+          radon u32; else u16). Present only on newer firmware — its
+          presence IS the V2 feature detection.
+      - uuid: "f0cd1502-95da-4f4b-9ac8-aa55d312af0c"
+        name: "Sensor calibration data"
+        properties: ["read"]
+        notes: "8 bytes, undocumented."
+
+payload_formats:
+  advertisement_aranet4_long:
+    description: >
+      22-byte manufacturer-data payload (company ID 0x0702), firmware
+      >= v1.2.0 with Smart Home integrations enabled. Offsets after the
+      company ID; little-endian.
+    fields:
+      - index: 0
+        name: "flags"
+        description: "bit0 disconnected; bits2-3 calibration state; bit4 DFU active; bit5 integrations enabled."
+      - index: 1
+        name: "fw_patch"
+        description: "Firmware version patch component (bytes 1-3 = patch, minor, major)."
+      - index: 8
+        name: "co2_ppm"
+        description: "u16 LE; bit15 set => invalid."
+      - index: 10
+        name: "temperature"
+        description: "u16 LE, x0.05 degC; bit14 set => invalid."
+      - index: 12
+        name: "pressure"
+        description: "u16 LE, x0.1 hPa; bit15 set => invalid."
+      - index: 14
+        name: "humidity"
+        description: "u8, %RH."
+      - index: 15
+        name: "battery"
+        description: "u8, percent."
+      - index: 16
+        name: "status_color"
+        description: "0 ERROR, 1 GREEN, 2 YELLOW, 3 RED."
+      - index: 17
+        name: "interval_s"
+        description: "u16 LE, measurement interval seconds."
+      - index: 19
+        name: "ago_s"
+        description: "u16 LE, seconds since last measurement."
+      - index: 21
+        name: "counter"
+        description: "u8 measurement counter."
+    example: "21 0e 04 00 00 0c 0f"
+    parse_rules:
+      - "A 7-byte payload is the SHORT variant: header only (offsets 0-6), no measurements — integrations disabled or firmware < v1.2.0. The example above is a real short payload captured live 2026-08-14 (flags 0x21, firmware v0.4.14)."
+      - "24-byte payloads are Aranet2/Radiation/Radon and START with a type byte (1/2/3); Aranet4 payloads have no type byte."
+      - "Timestamping history: timestamp[i] = now - ago - (total - i) * interval, 1-based."
+
+entities:
+  - platform: "sensor"
+    name: "CO2"
+    device_class: "carbon_dioxide"
+    unit: "ppm"
+  - platform: "sensor"
+    name: "Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    notes: "Raw u16 x 0.05 °C; bit14 = invalid."
+  - platform: "sensor"
+    name: "Humidity"
+    device_class: "humidity"
+    unit: "%"
+  - platform: "sensor"
+    name: "Pressure"
+    device_class: "atmospheric_pressure"
+    unit: "hPa"
+    notes: "Raw u16 x 0.1 hPa; bit15 = invalid."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+
+helpful_urls:
+  - url: "https://github.com/Anrijs/Aranet4-Python"
+    title: "Anrijs/Aranet4-Python"
+    description: "Reference implementation (ships in Home Assistant): all UUIDs, advert and GATT structs, history V1/V2, commands, sentinels."
+  - url: "https://github.com/Anrijs/Aranet4-Python/blob/master/docs/UUIDs.md"
+    title: "Aranet4-Python UUIDs.md"
+    description: "Human-readable UUID / format / command tables matching the code."
+  - url: "https://github.com/Anrijs/Aranet4-ESP32"
+    title: "Anrijs/Aranet4-ESP32"
+    description: "Independent C++ implementation; byte-exact offset cross-check and the definitive pairing/firmware statement."
+  - url: "https://github.com/SAF-Tehnika-Developer/com.aranet4"
+    title: "SAF-Tehnika-Developer/com.aranet4"
+    description: "Official SAF Tehnika Homey app — vendor-blessed advert parsing."
+  - url: "https://www.home-assistant.io/integrations/aranet/"
+    title: "Home Assistant Aranet integration"
+    description: "Passive-only integration; documents the firmware v1.2.0 + integrations-enabled requirement."

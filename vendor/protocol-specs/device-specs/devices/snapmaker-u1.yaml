@@ -1,0 +1,323 @@
+# Snapmaker U1 Multi-Color 3D Printer — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Protocol sources (all public prior art + live hardware, clean-room):
+#   - Snapmaker/u1-moonraker, u1-klipper, u1-fluidd (vendor's own GPL forks,
+#     open-sourced 2026-03-30): mDNS advertisement, the LAN cert-pairing /
+#     secure-MQTT channel, on-device topic scheme, moonraker.conf trusted
+#     clients.
+#   - Snapmaker/OrcaSlicer src/slic3r/Utils/MoonRaker.cpp + MQTT.cpp (the
+#     shipping "Snapmaker Orca"): HTTP endpoints, multipart upload, the full
+#     JSON-RPC method surface, the MQTT auth handshake.
+#   - kbaker827/ha-snapmaker-u1 (pysnapmaker): confirms the stock-firmware
+#     unauthenticated port-80 Moonraker REST/WebSocket path.
+#   - Live hardware 2026-08-14 (this repo): see device.testing.
+
+device:
+  name: "Snapmaker U1 Multi-Color 3D Printer"
+  manufacturer: "Snapmaker (Shenzhen Snapmaker Technologies)"
+  manufacturer_status: "active"
+  testing:
+    status: verified
+    detail: minimally-verified
+    notes: >
+      Read/monitor path verified live 2026-08-14 against a real U1 (Moonraker
+      hostname "lava", software_version 1.5.1.2_20260703125508, Buildroot
+      2024.02, Klipper state ready) discovered by its _snapmaker._tcp mDNS
+      advertisement and reached on plain HTTP port 80 with NO authentication
+      (GET /server/files/list returned 200 without any API key, confirming
+      the LAN-trusted-clients posture). Exercised as documented: GET
+      /printer/info (state ready), GET /server/info (klippy_connected true),
+      GET /printer/objects/list — which showed the four independent toolheads
+      extruder/extruder1/extruder2/extruder3 plus per-nozzle heater fans,
+      confirming the quad-hotend architecture — and GET
+      /printer/objects/query returned live telemetry (heater_bed 27.0 C,
+      extruder 29.0 C, print_stats.state "complete", display_status.progress
+      1.0: a finished print resting on the bed). The CAMERA was verified live:
+      GET /server/webcams/list is empty (the stock camera is not a registered
+      Moonraker webcam), but the daemon path works — camera.start_monitor over
+      ws://<ip>/websocket returned notify_camera_status_change
+      {monitoring:true}, after which GET /server/files/camera/monitor.jpg
+      returned changing ~93 KB image/jpeg frames (a real interior view of the
+      four toolheads). The REPRINT read path was verified too:
+      /server/history/list returned 3 completed jobs (each with 3 thumbnails)
+      and /server/files/list returned 7 gcode files whose paths feed
+      /printer/print/start?filename=. NOT exercised (someone else's printer,
+      left untouched): the print-control WRITES themselves — print/cancel,
+      print/start, pause/resume, gcode/script, upload — and the secure-MQTT /
+      cert-pairing channel (documented from the vendor forks only).
+  protocol: "wifi"
+  category: "printer"
+  pictogram: "3d-printer"
+  transport: "http"
+  notes: >
+    The Snapmaker U1 is a 2025/2026 CoreXY FDM printer with four independent
+    toolheads for up to 4-color printing. Unlike Snapmaker's earlier machines
+    (which used the SACP binary protocol or the Snapmaker 2.0 HTTP-token API),
+    the U1 runs a stock-shaped Klipper + Moonraker + Fluidd stack (Snapmaker's
+    own GPL forks, open-sourced 2026-03-30) on embedded Linux (Buildroot;
+    internal user "lava"). Local control is therefore ordinary Moonraker:
+    an HTTP REST API and a JSON-RPC-2.0-over-WebSocket API on port 80 (nginx
+    fronts Moonraker's internal 7125; Orca falls back to 8080 for uploads).
+
+    NO CLOUD REQUIRED for local printing or monitoring. The device has an
+    explicit LAN mode (mDNS TXT link_mode=lan) and, on stock firmware,
+    moonraker.conf lists all RFC-1918 ranges in [authorization]
+    trusted_clients — so any LAN client reaches the full REST/WebSocket API
+    with no API key and no pairing. (An X-Api-Key header is accepted but not
+    required.) The cert-pairing / secure-MQTT channel below only gates the
+    unified transport that Snapmaker Orca and the mobile app prefer; it is
+    not needed to drive the printer locally.
+
+    SECURE-MQTT SIDE CHANNEL (documented, not driven here): the U1 also runs
+    an on-device Mosquitto broker — plain MQTT on 1884 (the port ADVERTISED
+    over mDNS), mTLS on 8883 — mirroring the Moonraker JSON-RPC API over
+    topics {SN}/request | {SN}/response | {SN}/notification | {SN}/status
+    (SN = serial, uppercase). LAN pairing: connect to 1884, publish a
+    JSON-RPC auth request to {access_code}/config/request (default access
+    code 12345678), the user taps Approve on the touchscreen, and the device
+    returns {ca, cert, key, port:8883} on {access_code}/config/response; the
+    client then reconnects over mqtts://<ip>:8883 with the issued client
+    certificate. This exists for parity with Orca and to survive a future
+    firmware that might lock the HTTP API — the plain HTTP/WS path is the
+    simpler local target today.
+
+    SAFETY: this is a heated FDM printer with motion. gcode/script and print
+    control move real hardware and drive 200 C+ hotends; treat all writes as
+    advanced and never issue them to a printer you are only monitoring.
+  identification:
+    mdns_service_type: "_snapmaker._tcp.local."
+    default_port: 80
+    identity_keys:
+      primary: "sn"
+      display: "device_name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_snapmaker._tcp.local."
+          port: 1884
+          txt_record_keys: ["sn", "device_name", "machine_type", "link_mode", "ip", "version", "userid", "region"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:sn"
+                key: "sn"
+            display:
+              source: "txt:device_name"
+    identity:
+      stable_keys: ["sn"]
+      display: "device_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      No provisioning is needed to control an already-networked U1: browse
+      _snapmaker._tcp, read the TXT ip/sn (or resolve the U1-<SN>.local
+      hostname), and hit Moonraker on http://<ip>/ — no auth on the LAN.
+      Confidence high: verified live here, and matched by the ha-snapmaker-u1
+      integration which connects to port 80 with no key. IMPORTANT: the mDNS
+      answer advertises port 1884 (the plain-MQTT LAN broker), NOT the HTTP
+      port — a consumer must ignore the advertised port for REST/WebSocket
+      and use 80 (fallback 8080 for uploads). Initial Wi-Fi onboarding is
+      done at the printer's own touchscreen; there is no app-only step for
+      local control.
+    methods:
+      - type: "wired"
+        description: >
+          Join the U1 to Wi-Fi (or Ethernet) from its touchscreen; it then
+          advertises _snapmaker._tcp and serves Moonraker on port 80.
+        verified: true
+        steps:
+          - action: "Connect the printer to the network from its touchscreen (LAN mode keeps it cloud-free)."
+            actor: user
+          - action: "Browse mDNS _snapmaker._tcp.local.; read TXT ip and sn (ignore the advertised port 1884 for HTTP)."
+            actor: client
+          - action: "GET http://<ip>/printer/info and /server/info to confirm Moonraker is up and Klipper is ready."
+            actor: client
+            expect: "state 'ready' and klippy_connected true, unauthenticated."
+    factory_reset:
+      applicable: "unknown"
+      confidence: low
+      effect: >
+        Not documented here. A network/cloud unbind is available from the
+        touchscreen; the machine stores no third-party credentials for the
+        plain HTTP path.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        Rejoin from the touchscreen. Clients should rediscover by mDNS TXT sn,
+        not by cached IP, since DHCP may move the printer.
+    credentials:
+      wifi_passphrase_protection: "device_encrypted"
+      stored_on_device:
+        - "Home Wi-Fi credentials (entered at the touchscreen)"
+        - "Per-approved-client X.509 certificates for the secure-MQTT channel (mapping in printer_data/mqtt/client.json)"
+      issued_to_client:
+        - "On the secure-MQTT path only: a CA + client cert/key, issued after touchscreen approval of access code 12345678"
+      notes: >
+        The plain HTTP/WebSocket API needs no credential on the LAN
+        (trusted_clients covers RFC-1918). The certificate scheme applies
+        only to the secure-MQTT channel; the on-device CA (15-year validity)
+        signs one client cert per approved client.
+
+http_endpoints:
+  # All served by Moonraker on port 80 (internal 7125 behind nginx); upload
+  # falls back to 8080. Unauthenticated on the LAN (verified live). WRITE
+  # endpoints are marked advanced — they move a heated printer.
+  - method: "GET"
+    path: "/printer/info"
+    name: "Printer Info"
+    description: "Klipper/host identity and readiness (state, hostname, software_version, cpu_info). Live-verified. JSON-RPC equivalent: printer.info."
+  - method: "GET"
+    path: "/server/info"
+    name: "Server Info"
+    description: "Moonraker server state incl. klippy_connected and klippy_state and the loaded component list. Live-verified."
+  - method: "GET"
+    path: "/printer/objects/list"
+    name: "List Printer Objects"
+    description: "Available Klipper objects. On the U1 this includes extruder, extruder1, extruder2, extruder3 (four toolheads), heater_bed, per-nozzle heater_fan e{0..3}_nozzle_fan, print_stats, virtual_sdcard, toolhead, display_status. Live-verified."
+  - method: "GET"
+    path: "/printer/objects/query"
+    name: "Query Objects"
+    description: "One-shot telemetry read, e.g. ?heater_bed&extruder&print_stats&display_status returns temperatures, print_stats.state and display_status.progress. Live-verified. For a live stream, use printer.objects.subscribe over the WebSocket."
+  - method: "GET"
+    path: "/server/files/list"
+    name: "List Files"
+    description: "G-code file listing. Live-verified returning 200 with no auth on the LAN — the clearest proof of the trusted-clients posture."
+  - method: "GET"
+    path: "/server/temperature_store"
+    name: "Temperature History"
+    description: "Recent temperature history for graphing."
+  - method: "GET"
+    path: "/server/webcams/list"
+    name: "List Webcams"
+    description: >
+      Moonraker-registered webcams. IMPORTANT: on stock U1 firmware the
+      built-in camera is NOT a registered webcam — this list is empty
+      (live-verified empty on a unit that HAS a working camera). The stock
+      camera is served through the Snapmaker daemon path in the `camera`
+      block below, not here. On third-party extended firmware this list
+      populates with real webrtc/mjpeg entries.
+  - method: "GET"
+    path: "/server/files/camera/monitor.jpg"
+    name: "Camera Frame (stock)"
+    description: >
+      Single JPEG frame from the built-in camera. Only refreshes while a
+      monitor session is held open via the WebSocket camera.start_monitor
+      call (see the `camera` block). Live-verified: after start_monitor,
+      polling this returns ~93 KB image/jpeg frames that change frame to
+      frame. Unauthenticated on the LAN.
+  - method: "GET"
+    path: "/server/history/list"
+    name: "Print History"
+    description: >
+      Past jobs, newest first (params: limit, start, order). Each job carries
+      filename, status (completed/cancelled/...), start/end time, and
+      metadata.thumbnails[] (fetch a thumbnail at
+      /server/files/gcodes/<relative_path>). Live-verified (3 completed jobs
+      with 3 thumbnails each). Pair with print/start to reprint without
+      re-uploading.
+  - method: "POST"
+    path: "/printer/print/cancel"
+    name: "Cancel Print"
+    description: >
+      Stop the current print. No body/params; returns {\"result\":\"ok\"}.
+      HTTP-allowed and unauthenticated on the LAN. Siblings
+      /printer/print/pause and /printer/print/resume behave the same. This is
+      the correct 'stop' button — NOT emergency_stop (which on the U1 is
+      WebSocket-only, JSON-RPC printer.emergency_stop, and needs a
+      firmware_restart to recover). Advanced (halts a running print) but
+      documented from the Snapmaker fork + upstream; not exercised here (no
+      active print to cancel)."
+    status: "unverified"
+  - method: "POST"
+    path: "/printer/print/start"
+    name: "Start / Reprint"
+    description: >
+      Start printing a file already on the printer: query param filename=<path
+      relative to the gcodes root, from /server/files/list or history>. This
+      is the reprint path — no re-upload. Requires the printer to be READY
+      (not printing/paused). JSON-RPC printer.print.start {filename}. This is
+      exactly the call Snapmaker's own Orca sends. Live-verified read side
+      (the 7 gcode filenames it accepts were listed); the start itself was not
+      triggered (someone else's printer). Advanced.
+    status: "unverified"
+  - method: "POST"
+    path: "/server/files/upload"
+    name: "Upload File"
+    description: "Multipart upload (file, path, print=true|false) to submit a NEW sliced job; start-after-upload when print=true. Orca retries on port 8080. Advanced: out of scope for the phone app (reprint from history is the intended flow); leads to printing."
+    status: "unverified"
+
+camera:
+  # Stock U1 camera. VERIFIED LIVE 2026-08-14: start_monitor over WebSocket
+  # returned notify_camera_status_change {monitoring:true}, then polling
+  # monitor.jpg returned changing ~93 KB JPEG frames.
+  enable_required: false
+  streams:
+    - name: "built-in"
+      transport: "mjpeg_snapshot_poll"
+      url_template: "http://{address}/server/files/camera/monitor.jpg"
+      served_by: "device"
+      target_fps: 1
+      auth: "none"
+      notes: >
+        A single JPEG the daemon overwrites. Poll with a cache-buster query
+        (?ts=...) at ~1 fps. Frames only refresh while a monitor session is
+        held (see keepalive). Verified live: image/jpeg, ~93 KB, frame-to-frame
+        changes.
+  keepalive:
+    start: >
+      JSON-RPC camera.start_monitor over ws://{address}/websocket, params
+      {req_id:<n>, domain:"lan", interval:0, expect_pw:false}. (HTTP transport
+      is disabled for this method in the Snapmaker fork — WebSocket only.)
+    interval_seconds: 5
+    stop: "JSON-RPC camera.stop_monitor (params {domain:\"lan\"}); send on close."
+
+entities:
+  - platform: "sensor"
+    name: "Bed Temperature"
+    device_class: "temperature"
+    unit: "°C"
+    state_topic: "/printer/objects/query?heater_bed"
+    state_mapping:
+      value: "heater_bed.temperature"
+  - platform: "sensor"
+    name: "Nozzle Temperature (T0)"
+    device_class: "temperature"
+    unit: "°C"
+    state_topic: "/printer/objects/query?extruder"
+    state_mapping:
+      value: "extruder.temperature"
+    notes: "Toolheads 1-3 are extruder1/extruder2/extruder3 (four-color quad-hotend)."
+  - platform: "sensor"
+    name: "Print State"
+    state_topic: "/printer/objects/query?print_stats"
+    state_mapping:
+      value: "print_stats.state"
+    notes: "standby / printing / paused / complete / error / cancelled."
+  - platform: "sensor"
+    name: "Print Progress"
+    unit: "%"
+    state_topic: "/printer/objects/query?display_status"
+    state_mapping:
+      value: "display_status.progress"
+    notes: "0.0-1.0 fraction."
+
+helpful_urls:
+  - url: "https://github.com/Snapmaker/u1-moonraker"
+    title: "Snapmaker/u1-moonraker"
+    description: "Vendor's GPL Moonraker fork: mDNS advertisement (zeroconf.py), moonraker.conf trusted_clients, the LAN cert-pairing flow (client_manager.py) and on-device MQTT topic scheme (mqtt.py)."
+  - url: "https://github.com/Snapmaker/OrcaSlicer"
+    title: "Snapmaker Orca (OrcaSlicer fork)"
+    description: "src/slic3r/Utils/MoonRaker.cpp + MQTT.cpp: HTTP endpoints, multipart upload with 8080 fallback, the JSON-RPC method surface and the secure-MQTT auth handshake."
+  - url: "https://github.com/kbaker827/ha-snapmaker-u1"
+    title: "kbaker827/ha-snapmaker-u1"
+    description: "Home Assistant integration (pysnapmaker) confirming the stock-firmware unauthenticated port-80 Moonraker REST/WebSocket path and the subscribed object set."
+  - url: "https://moonraker.readthedocs.io/en/latest/web_api/"
+    title: "Moonraker Web API reference"
+    description: "Upstream reference for the REST + JSON-RPC surface the U1 exposes."

@@ -1,0 +1,298 @@
+# Johnson JLX LDM330 / LDM130 BLE Laser Distance Meter device spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+
+device:
+  name: "Johnson JLX LDM330 / LDM130 Laser Distance Meter (Winho OEM platform)"
+  manufacturer: "Johnson Level & Tool (Winho OEM)"
+  manufacturer_status: "active"
+  testing:
+    status: untested
+  protocol: "ble"
+  category: "sensor"
+  notes: >
+    Bluetooth-equipped laser distance meters: LDM330 (Johnson model 40-6013,
+    330 ft / ~100 m range, integrated angle sensor) and its 130 ft sibling
+    LDM130. Companion app: "Measure-Up" by Johnson Level
+    (com.winho.measure_up, Android v1.0.1, APKPure mirror, APK sha256
+    fc7ac7272f8604bc3636874055a4d6fe7f6b5e989ee02db1255ce9a9e9fd9deb).
+    The "winho" package name and the app's internal AppName enum show this is
+    a shared OEM platform whose single codebase builds the Johnson Measure-Up
+    app plus sibling-branded builds: IM2, MeasureCam, TargetCam, three
+    Starrett STR3 variants, MeasureMate, and three Ronix variants
+    (MeasureBox / MeasureCam / TargetCam). All of those should speak the
+    protocol below (unverified against any of them).
+
+    EVERYTHING HERE IS DESK RESEARCH: recovered by static analysis of the
+    Measure-Up APK (jadx, sources under workspace/static/, gitignored). No
+    hardware was in hand; no over-the-air capture exists. Treat all protocol
+    details as static-analysis-derived ("reported" verification at best).
+
+    PROTOCOL SHAPE: a BLE GATT serial-style exchange over two vendor
+    characteristics, 0000f151 (write) and 0000f154 (notify), discovered by
+    scanning ALL services after connect — the app never pins a service UUID.
+    The containing service UUID is unknown; 0000f150 is only a numbering
+    guess (hypothesis). Payloads are printable ASCII frames:
+
+      Device -> app (notify on f154, 10 bytes, NUL-padded):
+        "Ztest01"  handshake request   -> app answers with the init frame
+        "Ztest02"  keep-alive request  -> app answers with the link frame
+        "Zbleoff"  device BLE is powering down (app auto-reconnects)
+        else       measurement frame (see payload_formats)
+
+      App -> device (write to f151):
+        init:     03 0D 0A 03 0D 0A                      (6 bytes)
+        link:     23 0A "Link" 00*6 BB                   (13 bytes)
+        measure:  23 0A "m"    00*9 9A                   (13 bytes)
+
+    The 13-byte command frames are '#' LF <ascii command> NUL-padded to 12
+    bytes, then a 1-byte checksum = 8-bit sum of all preceding bytes
+    (0x23+0x0A+0x6D = 0x9A; 0x23+0x0A+"Link" = 0x1BB -> 0xBB). The init
+    frame is fixed and carries no checksum.
+
+    MEASUREMENT FRAMES: 10-byte ASCII on f154. Byte 0 is a type/prefix
+    character the app discards; bytes 1-6 are a fixed-width 6-character
+    decimal value ALWAYS IN METERS (e.g. "12.345"); byte 7 is a unit code
+    indicating which unit the device DISPLAY is set to (the app re-converts
+    from meters for its own display); bytes 8-9 are NUL padding. Unit codes:
+    a=m, b=ft, c=in, d=ft'in" 1/32, e=in 1/32, f=in 1/16, g=in 1/8,
+    h=in 1/4, i=in 1/2, j=Taiwanese/Chinese foot. The app also guards
+    against the literal strings "error1".."error6", so the device likely
+    reports measurement failures as ASCII error frames (hypothesis — those
+    strings are only compared against, never produced, in the app).
+
+    ANGLE: the LDM330 has an integrated angle sensor (digital level /
+    indirect measurement), but no angle path was found in the recovered BLE
+    code — every frame carries a single scalar distance. Angle is likely
+    on-device only, or shares the measurement frame with a distinct byte-0
+    prefix the app ignores (unknown; needs a capture).
+
+    IDENTIFICATION: the app scans with NO name or service-UUID filter and
+    shows every BLE peripheral for the user to pick, so the advertised local
+    name is unknown from static analysis. Identify by GATT fingerprint after
+    connect: presence of characteristics 0000f151 (write) + 0000f154
+    (notify) with the ASCII "Ztest01" handshake.
+
+  identification:
+    notes: >
+      No advertised local-name prefix or advertised service UUID is known —
+      the vendor app scans unfiltered and the user picks from a list.
+      Identify post-connect by the 0000f151/0000f154 characteristic pair and
+      the "Ztest01" handshake notification.
+
+  discovery:
+    methods:
+      - type: "ble_scan"
+        ble:
+          local_name:
+            match: "prefix"
+            values: []
+          service_uuids: []
+        notes: >
+          Unfiltered scan in the vendor app; no advertisement-level
+          signature recovered. A replacement app should either list all
+          peripherals (as the vendor app does) or probe candidates by
+          connecting and checking for f151/f154.
+    identity:
+      stable_keys: ["address"]
+      display: "local_name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: "medium"
+    notes: >
+      No provisioning, pairing, bonding or account. Enable Bluetooth on the
+      meter (press-and-hold the Bluetooth button per the quick-start guide),
+      scan, pick the device, connect, enable f154 notifications, write the
+      init frame. Confidence medium: the whole flow is read from decompiled
+      app code and the vendor quick-start guide, never run against hardware.
+    methods:
+      - type: "ble_direct"
+        verified: false
+        description: >
+          Scan (unfiltered), user picks the meter, connect GATT, discover
+          services, find f151/f154, subscribe f154, write init frame to
+          f151, answer handshake/keep-alive frames, read measurements.
+        ble:
+          pairing_required: false
+        steps:
+          - action: "Press and hold the meter's Bluetooth button to enable BLE (per vendor quick-start guide)."
+            actor: user
+          - action: "Scan unfiltered; user selects the meter from the peripheral list."
+            actor: client
+          - action: "Connect, discover services, locate characteristics 0000f151 (write) and 0000f154 (notify) across all services."
+            actor: client
+          - action: "Enable notifications on 0000f154 via CCCD 00002902, then write the 6-byte init frame 03 0D 0A 03 0D 0A to 0000f151."
+            actor: client
+            expect: "Device notifies ASCII frames: Ztest01/Ztest02/Zbleoff or a 10-byte measurement frame."
+    factory_reset:
+      applicable: false
+      confidence: low
+      effect: >
+        No factory reset is documented or needed: the meter holds no bonds,
+        credentials or client state — the app connects without pairing.
+        Battery removal is the only reset relevant to a BLE client.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        No bond exists; any client can connect and run the handshake. The
+        vendor app auto-reconnects when the device notifies "Zbleoff".
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: "BLE direct, no auth. No Wi-Fi on this device."
+
+  variants:
+    - model: "LDM330 (40-6013)"
+      notes: "330 ft range, integrated angle sensor. Angle is not exposed over the recovered BLE protocol."
+    - model: "LDM130"
+      notes: "130 ft sibling without the angle sensor; same Measure-Up app and protocol per the vendor app listing."
+
+payload_formats:
+  Winho_Command_Frame:
+    description: >
+      13-byte command written to 0000f151: '#' (0x23), LF (0x0A), an ASCII
+      command string, NUL padding to 12 bytes, then a 1-byte checksum equal
+      to the 8-bit sum of bytes 0-11.
+    fields:
+      - index: 0
+        name: "header"
+        description: "Byte 0 = 0x23 '#', byte 1 = 0x0A LF."
+      - index: 2
+        name: "command"
+        description: "ASCII command, NUL-padded through byte 11. Known: 'm' (take/return a measurement), 'Link' (keep-alive answer)."
+      - index: 12
+        name: "checksum"
+        description: "8-bit sum of bytes 0-11. 'm' -> 0x9A; 'Link' -> 0xBB."
+    example: "23 0a 6d 00 00 00 00 00 00 00 00 00 9a"
+    parse_rules:
+      - "checksum = sum(bytes 0..11) & 0xFF"
+      - "init frame is a separate fixed 6-byte write: 03 0D 0A 03 0D 0A (no checksum)"
+
+  Winho_Measurement_Frame:
+    description: >
+      10-byte ASCII notification on 0000f154 carrying one measurement.
+      Value is always meters; the unit code only reports the device display
+      setting.
+    fields:
+      - index: 0
+        name: "prefix"
+        description: "Type/prefix character; the vendor app discards it. Meaning unknown (possibly distinguishes length/area/volume/angle readings)."
+      - index: 1
+        name: "value_m"
+        description: "Bytes 1-6, fixed 6-character ASCII decimal, ALWAYS meters (e.g. '12.345'). Parse as float."
+      - index: 7
+        name: "unit_code"
+        description: "ASCII a-j: a=m, b=ft, c=in, d=ft'in\" 1/32, e=in 1/32, f=in 1/16, g=in 1/8, h=in 1/4, i=in 1/2, j=Taiwanese/Chinese foot. Display preference only — value stays meters."
+      - index: 8
+        name: "padding"
+        description: "Bytes 8-9 NUL."
+    example: "3f 31 32 2e 33 34 35 61 00 00   ('?12.345a' = 12.345 m, device display in m)"
+    parse_rules:
+      - "value_m = float(ascii bytes 1-6)  # meters, regardless of unit_code"
+      - "control frames instead of a measurement: 'Ztest01', 'Ztest02', 'Zbleoff' (7 chars + 3 NUL)"
+      - "measurement failures are likely 'error1'..'error6' ASCII frames (hypothesis: app compares against these strings)"
+
+services:
+  - uuid: "0000f150-0000-1000-8000-00805f9b34fb"
+    name: "Winho LDM Service"
+    notes: >
+      HYPOTHESIS: the containing service UUID is not pinned anywhere in the
+      app — it discovers all services and matches the two characteristics
+      below by UUID. 0xF150 is inferred from the numbering convention
+      (service F150, characteristics F151-F154) and must be confirmed with a
+      scan or capture. Clients should match the characteristics, not this
+      service UUID.
+    verification: "hypothesis"
+    characteristics:
+      - uuid: "0000f151-0000-1000-8000-00805f9b34fb"
+        name: "command_rx"
+        properties: ["write"]
+        notes: >
+          Command channel, app -> device. Carries the 6-byte init frame and
+          13-byte checksummed command frames (see payload_formats).
+        commands:
+          init:
+            description: >
+              Fixed 6-byte init/handshake write sent right after enabling
+              f154 notifications, and again whenever the device notifies
+              "Ztest01". From BleService.sendInitBle_151() in the decompiled
+              app.
+            value: [0x03, 0x0D, 0x0A, 0x03, 0x0D, 0x0A]
+          link_keepalive:
+            description: >
+              Answer to the device's "Ztest02" keep-alive notification:
+              '#' LF "Link", NUL-padded, checksum 0xBB. From
+              BleService.sendLinkBle_151().
+            value: [0x23, 0x0A, 0x4C, 0x69, 0x6E, 0x6B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xBB]
+          measure:
+            description: >
+              Request a measurement: '#' LF 'm', NUL-padded, checksum 0x9A.
+              From BleService.sentMeasure(). Note the vendor app primarily
+              relies on the meter pushing readings when its measure button
+              is pressed; this command is used from the camera screen to
+              trigger a reading remotely (static analysis only).
+            value: [0x23, 0x0A, 0x6D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9A]
+      - uuid: "0000f154-0000-1000-8000-00805f9b34fb"
+        name: "data_tx"
+        properties: ["notify"]
+        notes: >
+          Notification channel, device -> app. Subscribe via CCCD
+          00002902-0000-1000-8000-00805f9b34fb. Payloads are 10-byte ASCII
+          frames: "Ztest01" (send init), "Ztest02" (send link keep-alive),
+          "Zbleoff" (device BLE powering down — treat as a clean
+          disconnect), or a measurement frame (see
+          payload_formats.Winho_Measurement_Frame).
+
+ble:
+  connection_sequence:
+    description: >
+      Scan (unfiltered) -> user picks meter -> connect GATT -> discover all
+      services -> find 0000f151 + 0000f154 -> enable f154 notifications
+      (CCCD 0x2902) -> write init frame (03 0D 0A 03 0D 0A) to f151 ->
+      answer "Ztest01" with init and "Ztest02" with the link keep-alive ->
+      measurement frames arrive on f154 when the meter takes a reading (or
+      after a 'm' command) -> on "Zbleoff" the meter is powering its radio
+      down; reconnect if still needed.
+
+entities:
+  - platform: "sensor"
+    name: "Distance"
+    device_class: "distance"
+    unit: "m"
+    notes: >
+      From the f154 measurement frame, bytes 1-6 as ASCII float, always
+      meters. unit_code (byte 7) is the device display preference; a client
+      may convert for display but should store meters.
+  - platform: "sensor"
+    name: "Display Unit"
+    device_class: "none"
+    unit: ""
+    notes: >
+      Measurement frame byte 7, enumerated a-j (m / ft / in / ft'in" 1/32 /
+      in 1/32 / in 1/16 / in 1/8 / in 1/4 / in 1/2 / Taiwanese foot).
+
+helpful_urls:
+  - title: "Johnson LDM330 product page"
+    url: "https://www.johnsonlevel.com/P/1762/LaserDistanceMeterwAngleSensorandBluetooth"
+    description: >-
+      Vendor page for the LDM330 (model 40-6013); the source of the range and angle-sensor facts
+      recorded here.
+  - title: "Johnson LDM330 quick start guide (PDF)"
+    url: "https://www.johnsonlevel.com/Content/files/Manuals/LDM%20330%20Quick%20Start%20Guide.pdf"
+    description: >-
+      Vendor manual. Covers the display units the measurement frame's unit code reports, and the
+      button sequence that puts the meter into Bluetooth mode.
+  - title: "Measure-Up on APKPure"
+    url: "https://apkpure.net/measure-up/com.winho.measure_up"
+    description: >-
+      Mirror the analysed APK came from (com.winho.measure_up v1.0.1) — this whole spec is static
+      analysis of that build.
+  - title: "ImageMeter: supported Bluetooth laser distance meters"
+    url: "https://www.imagemeter.com/manual/bluetooth/devices/"
+    description: >-
+      Third-party app's catalogue of which meters it speaks to and how, useful for placing this
+      Winho OEM platform among the other vendors' protocols.

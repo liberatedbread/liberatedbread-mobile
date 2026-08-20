@@ -734,6 +734,28 @@ flutter run --dart-define=LIBERATED_BREAD_MOCK=true
   `if (Platform.isAndroid)`, and every other platform falls through to
   "granted". BlueZ enforces access at the D-Bus level instead. Don't add
   permission_handler Linux code to "fix" this.
+- **App icon, and finding the window in alt-tab**: `linux/my_application.cc`
+  loads the PNGs the build copies to `data/resources/` and sets them as the
+  default window icon list, so the app shows the mascot rather than a generic
+  placeholder. That covers X11 and XWayland, which read the icon off the window
+  itself.
+
+  A **native Wayland session ignores window icons entirely** — the protocol has
+  none. The compositor matches the surface's `app_id` (which `linux/main.cc`
+  sets to `ca.pigscanfly.liberatedbread`) to an installed `.desktop` file and
+  uses the icon named there, so an app run straight out of `build/` has nothing
+  to match and stays anonymous in the switcher. Install the missing half once:
+
+  ```bash
+  ./scripts/install-linux-desktop-entry.sh          # newest built bundle
+  ./scripts/install-linux-desktop-entry.sh --uninstall
+  ```
+
+  It writes only under `~/.local/share` (no root), and points at the bundle in
+  place — so rebuilding in the same mode keeps working, while `flutter clean` or
+  switching debug/release means re-running it. Nothing in the build does this
+  for you on purpose: a build should not write into your desktop environment
+  behind your back.
 - **Window size**: `linux/my_application.cc` opens the window phone-shaped
   (430x900) rather than the template's 1280x720, because every screen in
   `lib/screens/` is laid out for a phone. Resize freely to check responsive
