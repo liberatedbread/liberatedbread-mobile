@@ -357,7 +357,11 @@ services:
                 type: "uint8"
                 min: 0
                 max: 255
-                description: "Target incline in device slope-step counts; 0 on flat walking pads."
+                default: 0
+                description: >
+                  Target incline in device slope-step counts; 0 on flat walking
+                  pads. Defaults to 0 so a speed-only client can drive
+                  set-speed without owning an incline it does not have.
               checksum:
                 type: "uint8"
                 auto: "checksum"
