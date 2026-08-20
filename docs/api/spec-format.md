@@ -581,6 +581,16 @@ live. So the two blocks divide as:
 | `http_endpoints` | What actions exist, what they take, what they return | `SetBinaryState` takes a `BinaryState` of 0 or 1 |
 | `commands` | One invocation of one action, arguments already chosen | `plug_turn_on` is that action with `1` |
 
+One role deserves its own sentence: **`toggle`** declares that the bound
+command *flips* power rather than setting it, so a consumer must establish
+the current state before sending — a blind toggle turns a sleeping device on.
+It exists for the sets whose only power channel is a flip (a TV remote's one
+power key); where a device has discrete commands, `turn_on`/`turn_off` are
+the honest bindings and `toggle` at most rides alongside for consumers that
+have read the state. An entity that resolves *no* roles a consumer knows must
+be hidden, not rendered as a dead control. The reasoning is worked through in
+[Spec Evolution P13](../contributing/spec-evolution.md#p13).
+
 ```yaml
 commands:
   set_cook_mode:
