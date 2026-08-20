@@ -53,11 +53,6 @@ device:
     https://<ip>/ when www-ssl is enabled). The native Winbox app listens on
     TCP 8291 (winbox://<ip>:8291).
   identification:
-    # The strong signal: a device that answered (or beaconed) MNDP on UDP 5678.
-    # The app's MikroTik transport tags a device it heard MNDP from with this,
-    # the same "it spoke the protocol" match Kasa/Ubiquiti use.
-    lan_protocols:
-      - "mikrotik-mndp"
     default_port: 5678
     identity_keys:
       primary: "mac"
