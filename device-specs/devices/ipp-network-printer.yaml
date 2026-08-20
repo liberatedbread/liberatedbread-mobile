@@ -1,0 +1,190 @@
+# Generic IPP Network Printer (DNS-SD discovery, identify-only) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: Apple Bonjour Printing Specification 1.2.1 (DNS-SD service types +
+# TXT keys) and the IETF/PWG IPP + IPP Everywhere standards. Vendor-neutral,
+# standards-based signature; NO vendor assets. This project has no hardware for
+# this spec — testing.status: untested; the signature is from public
+# documentation, not a capture of any one printer.
+
+device:
+  name: "Network Printer (IPP / AirPrint / IPP Everywhere)"
+  manufacturer: "Various (IPP Everywhere / AirPrint printers)"
+  manufacturer_status: "active"
+  openness:
+    status: "open_by_design"
+    reverse_engineered: false
+    upstream_docs:
+      - url: "https://developer.apple.com/bonjour/printing-specification/"
+        title: "Apple Bonjour Printing Specification 1.2.1"
+        covers: "DNS-SD service types (_ipp/_ipps/_printer/_pdl-datastream) and printer TXT keys"
+      - url: "https://www.pwg.org/ipp/everywhere.html"
+        title: "PWG IPP Everywhere"
+        covers: "Standard IPP discovery and TXT keys (rp, ty, pdl, adminurl, UUID)"
+  testing:
+    status: untested
+    notes: >
+      No hardware exercised by this project. The discovery signature here is
+      taken from public standards — Apple's Bonjour Printing Specification and
+      the PWG/IETF IPP + IPP Everywhere documents — not from a capture of a
+      specific printer. The service types (_ipp._tcp, _ipps._tcp,
+      _printer._tcp, _pdl-datastream._tcp) and the TXT keys are vendor-neutral
+      and standardised, so identification rests on the standard itself rather
+      than any one model.
+  protocol: "wifi"
+  category: "printer"
+  pictogram: "printer"
+  transport: "mdns"
+  integration: "identify_only"
+  admin_url: "http://{address}/"
+  notes: >
+    Office and home network printers advertise themselves over mDNS/DNS-SD
+    (Bonjour) using standard, vendor-neutral service types. This project does
+    NOT drive printers: printing is handled by the operating system's print
+    system (AirPrint on Apple platforms, IPP Everywhere / driverless printing
+    elsewhere) or by the vendor's own companion app (HP Smart, Epson Smart
+    Panel, Brother iPrint&Scan, Canon PRINT). We DISCOVER the printer, draw a
+    printer pictogram, and deep-link the user to the printer's embedded web
+    interface so they can manage it.
+
+    DNS-SD service types (Bonjour Printing Specification):
+      _ipp._tcp             — IPP, the modern print protocol (default TCP 631)
+      _ipps._tcp            — IPP over TLS
+      _printer._tcp         — legacy LPD (port 515)
+      _pdl-datastream._tcp  — raw socket / JetDirect (port 9100)
+    IPP Everywhere printers additionally advertise the _print._sub._ipps._tcp
+    subtype.
+
+    Useful TXT keys: rp (resource path, e.g. "ipp/print"), ty (make-and-model
+    string, good for display), pdl (supported page description languages), UUID
+    (a stable per-printer identifier — IPP Everywhere printers advertise one),
+    adminurl (the printer's own admin page, when published), note (location)
+    and product. The display name comes from the mDNS instance name (ty is a
+    good fallback); the stable key is the TXT UUID, falling back to the
+    hostname.
+
+    admin_url defaults to http://<ip>/ because most printers serve an embedded
+    web server at the root. A printer that advertises TXT adminurl supplies a
+    more exact link and a consumer should prefer it. Scheme/port may be
+    reconfigured (many printers redirect the root to https).
+  identification:
+    mdns_service_type: "_ipp._tcp.local."
+    default_port: 631
+    identity_keys:
+      primary: "uuid"
+      secondary: "hostname"
+      display: "name"
+
+  discovery:
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_ipp._tcp.local."
+          port: 631
+          txt_record_keys: ["rp", "ty", "pdl", "UUID", "adminurl", "note", "product"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:UUID"
+                key: "uuid"
+              - source: "hostname"
+                key: "hostname"
+            display:
+              source: "name"
+      - type: "mdns"
+        mdns:
+          service_type: "_ipps._tcp.local."
+          port: 631
+          txt_record_keys: ["rp", "ty", "pdl", "UUID", "adminurl", "note", "product"]
+          identity_mapping:
+            stable_keys:
+              - source: "txt:UUID"
+                key: "uuid"
+              - source: "hostname"
+                key: "hostname"
+            display:
+              source: "name"
+      - type: "mdns"
+        mdns:
+          service_type: "_pdl-datastream._tcp.local."
+          port: 9100
+          txt_record_keys: ["ty", "note", "product"]
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+                key: "hostname"
+            display:
+              source: "name"
+      - type: "mdns"
+        mdns:
+          service_type: "_printer._tcp.local."
+          port: 515
+          txt_record_keys: ["ty", "note", "product"]
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+                key: "hostname"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["uuid", "hostname"]
+      display: "name"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: high
+    notes: >
+      Nothing for this app to provision: the printer is already on the LAN and
+      advertises itself over mDNS. We browse for the standard IPP service
+      types, read the TXT record, draw the printer pictogram and offer the
+      embedded-web-server link. The printer is set up (and printed to) through
+      the OS print system or the vendor's own app, not here.
+    methods:
+      - type: "none"
+        verified: false
+        description: >
+          No provisioning is performed by this app. The printer joins the
+          network by its own setup (WPS, vendor app, or wired), after which it
+          is discovered passively by its _ipp._tcp / _ipps._tcp advertisement.
+    factory_reset:
+      applicable: false
+      confidence: high
+      effect: >
+        Not this project's concern: a printer's factory reset is done at the
+        device and clears the printer's own settings, not anything this app
+        stores. We only identify the printer.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The printer stays discoverable by its DNS-SD advertisement wherever it
+        sits on the LAN; identity keys on the TXT UUID (or hostname), not IP,
+        so a DHCP move does not lose it.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Identify-only: no credential crosses to this app. Any printer admin
+        password is entered by the user at the printer's own web UI, which we
+        only deep-link to.
+
+  local_access:
+    status: native
+    summary: >
+      Printers are natively usable locally through the OS print system
+      (AirPrint / IPP Everywhere driverless printing) with no vendor cloud —
+      this project deliberately scopes the entry to identify-only and hands the
+      user to the printer's embedded web interface for management.
+
+helpful_urls:
+  - url: "https://developer.apple.com/bonjour/printing-specification/"
+    title: "Apple — Bonjour Printing Specification 1.2.1"
+    description: "Authoritative DNS-SD service types (_ipp/_ipps/_printer/_pdl-datastream) and printer TXT record keys."
+  - url: "https://www.pwg.org/ipp/everywhere.html"
+    title: "PWG — IPP Everywhere"
+    description: "Vendor-neutral driverless printing: standard IPP discovery and TXT keys (rp, ty, pdl, UUID, adminurl)."
+  - url: "https://datatracker.ietf.org/doc/html/rfc8010"
+    title: "RFC 8010 — IPP/1.1 Encoding and Transport"
+    description: "IPP over HTTP; the default IPP port 631 and the ipp:// resource model."
