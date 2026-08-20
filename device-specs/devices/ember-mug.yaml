@@ -299,7 +299,7 @@ device:
         survive. Writes are then refused with ATT 0x03 until the mug is
         re-claimed through the Ember app.
       procedures:
-        - name: "Base button held"
+        - name: "Factory reset"
           hold_seconds: 15
           indicator: "LED goes blue, then yellow, then red; release at red. It then blinks red, blinks yellow, pulses white, goes solid white and powers off; one press brings it back."
           steps:
