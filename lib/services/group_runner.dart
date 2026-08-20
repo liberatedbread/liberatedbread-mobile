@@ -7,7 +7,12 @@ import '../core/group_actions.dart';
 import '../core/log.dart';
 import '../core/stop_signal.dart';
 import '../models/ble_discovered_service.dart';
+import '../models/network_device.dart';
 import 'ble_service.dart';
+import 'json_fields.dart';
+import 'network_command_sender.dart';
+import 'saved_network_device_store.dart';
+import 'soap_control_service.dart';
 import 'spec_codec.dart';
 
 /// One device taking part in a group run. [spec]/[specYaml] come from the
@@ -34,6 +39,34 @@ class GroupMember {
     this.spec,
     this.specYaml,
   }) : specOps = spec == null ? const {} : supportedGroupOps(spec);
+}
+
+/// One Wi-Fi device taking part in a group run — the network counterpart of
+/// [GroupMember]. Everything a run needs is resolved before it starts:
+/// [record] carries the cached address, [specYaml]/[entities] the resolved
+/// controls (null/empty when the spec no longer resolves — the member still
+/// appears, and the runner reports the honest skip), and [ops] what those
+/// entities support, from the same [supportedNetworkGroupOps] the op
+/// buttons read.
+class NetworkGroupMember {
+  /// The namespaced member id (`net:<store id>`), which is how this member
+  /// is keyed in [DeviceGroup.deviceIds] and in [GroupRunEvent.deviceId].
+  final String memberId;
+  final String name;
+  final String? category;
+  final SavedNetworkDevice record;
+  final String? specYaml;
+  final List<NetworkEntityDto> entities;
+  final Set<GroupOp> ops;
+
+  NetworkGroupMember({
+    required this.memberId,
+    required this.name,
+    required this.record,
+    this.category,
+    this.specYaml,
+    this.entities = const [],
+  }) : ops = supportedNetworkGroupOps(entities);
 }
 
 /// Where one member is in the run. `queued` is the UI's initial row state;
@@ -341,5 +374,253 @@ class GroupRunner {
       status: GroupDeviceStatus.ok,
       readings: readings,
     );
+  }
+}
+
+/// Executes one group operation across a group's Wi-Fi members.
+///
+/// Deliberately CONCURRENT, unlike [GroupRunner]: that runner's strict
+/// sequencing exists because flutter_blue_plus serializes all BLE work
+/// behind one process-wide untimed mutex, and none of that reasoning
+/// applies to independent HTTP exchanges — ten TVs turned off one at a
+/// time with generous timeouts would just be slow. A small worker pool
+/// bounds the burst instead, and each member is still strictly sequential
+/// within itself (its SOAP read-backs demand that much).
+class NetworkGroupRunner {
+  final SpecCodec _codec;
+  final SoapControlClient _soap;
+  final NetworkCommandSender Function({
+    required NetworkDevice device,
+    required String specYaml,
+  }) _senderFor;
+
+  /// A ceiling over one member's whole turn — resolve, state read, sends —
+  /// so a device that blackholes traffic fails its own row, not the run.
+  /// Well above the transports' own per-request timeouts (10 s), because a
+  /// member's turn is several exchanges.
+  static const memberTimeout = Duration(seconds: 45);
+
+  /// In-flight members at once. Enough to make a room feel instant; small
+  /// enough not to burst-flood a home AP with simultaneous TCP opens.
+  static const concurrency = 4;
+
+  NetworkGroupRunner({
+    required SpecCodec codec,
+    required SoapControlClient soap,
+    required NetworkCommandSender Function({
+      required NetworkDevice device,
+      required String specYaml,
+    }) senderFor,
+  })  : _codec = codec,
+        _soap = soap,
+        _senderFor = senderFor;
+
+  Stream<GroupRunEvent> run(
+    GroupOp op,
+    List<NetworkGroupMember> members, {
+    double? brightnessPercent,
+    required StopSignal stop,
+  }) {
+    final controller = StreamController<GroupRunEvent>();
+    var next = 0;
+    var live = 0;
+
+    void pump() {
+      while (live < concurrency && next < members.length) {
+        final member = members[next++];
+        if (stop.stopped) {
+          controller.add(GroupRunEvent(
+            deviceId: member.memberId,
+            status: GroupDeviceStatus.skipped,
+            detail: 'Cancelled',
+          ));
+          continue;
+        }
+        live++;
+        _runMember(op, member, brightnessPercent, stop)
+            .timeout(memberTimeout,
+                onTimeout: () => GroupRunEvent(
+                      deviceId: member.memberId,
+                      status: GroupDeviceStatus.failed,
+                      detail: 'The device did not answer in time.',
+                    ))
+            .then(controller.add)
+            .whenComplete(() {
+          live--;
+          pump();
+          if (live == 0 && next >= members.length) {
+            unawaited(controller.close());
+          }
+        });
+        controller.add(GroupRunEvent(
+          deviceId: member.memberId,
+          status: GroupDeviceStatus.running,
+        ));
+      }
+      if (live == 0 && next >= members.length && !controller.isClosed) {
+        unawaited(controller.close());
+      }
+    }
+
+    controller.onListen = pump;
+    return controller.stream;
+  }
+
+  Future<GroupRunEvent> _runMember(
+    GroupOp op,
+    NetworkGroupMember member,
+    double? brightnessPercent,
+    StopSignal stop,
+  ) async {
+    GroupRunEvent skip(String detail) => GroupRunEvent(
+          deviceId: member.memberId,
+          status: GroupDeviceStatus.skipped,
+          detail: detail,
+        );
+
+    if (!op.isCommand) {
+      // Battery/sensor sweeps are BLE ops today; a Wi-Fi member sits those
+      // out with a reason rather than vanishing from the run.
+      return skip('Not supported for Wi-Fi devices yet');
+    }
+    final specYaml = member.specYaml;
+    if (specYaml == null) return skip('No spec matched this device');
+    if (!member.ops.contains(op)) {
+      return skip("Not supported by this device's spec");
+    }
+    final plan = resolveNetworkGroupPlan(
+      op: op,
+      entities: member.entities,
+      brightnessPercent: brightnessPercent,
+    );
+    if (plan.isEmpty) return skip('Not found on this device');
+
+    final sender = _senderFor(
+      device: member.record.toNetworkDevice(),
+      specYaml: specYaml,
+    );
+    try {
+      // The description, only if something in the plan rides SOAP — the
+      // same rule the control screen applies: asking a Roku for setup.xml
+      // turns a working device into an error.
+      SoapDeviceDescription? description;
+      if (_needsDescription(plan)) {
+        final device = member.record;
+        final port = device.toNetworkDevice().controlPort;
+        if (port == null) {
+          return skip('No control port is known for this device');
+        }
+        description = await _soap.fetchDescription(
+          device.host,
+          port,
+          path: device.ssdpDescriptionPath ?? '/setup.xml',
+        );
+      }
+
+      var sent = 0;
+      for (final send in plan.direct) {
+        if (stop.stopped) break;
+        await sender.sendAction(send.action, Map.of(send.values),
+            description: description);
+        sent++;
+      }
+
+      var alreadyOff = 0;
+      var stateUnknown = 0;
+      for (final toggle in plan.gated) {
+        if (stop.stopped) break;
+        final isOn = await _readIsOn(toggle.entity, specYaml, sender,
+            description: description);
+        if (isOn == true) {
+          await sender.sendAction(toggle.action, {}, description: description);
+          sent++;
+        } else if (isOn == false) {
+          alreadyOff++;
+        } else {
+          // Unknown blocks the toggle and nothing else: a failed read is
+          // packet loss or a moved lease as often as it is standby, and a
+          // blind toggle would turn a sleeping device on.
+          stateUnknown++;
+        }
+      }
+
+      if (sent > 0) {
+        return GroupRunEvent(
+          deviceId: member.memberId,
+          status: GroupDeviceStatus.ok,
+          detail: sent == 1 ? '1 command sent' : '$sent commands sent',
+        );
+      }
+      if (alreadyOff > 0 && stateUnknown == 0) return skip('Already off');
+      if (stateUnknown > 0) {
+        return skip('Power state unknown — the toggle was not sent');
+      }
+      return skip('Cancelled');
+    } catch (e) {
+      return GroupRunEvent(
+        deviceId: member.memberId,
+        status: GroupDeviceStatus.failed,
+        detail: friendlyErrorText(
+          e,
+          context: 'group ${op.name} on ${member.memberId}',
+          fallback: 'Could not reach this device.',
+          log: Log.net,
+        ),
+      );
+    } finally {
+      await sender.close();
+    }
+  }
+
+  bool _needsDescription(GroupNetworkPlan plan) {
+    bool soap(NetworkActionDto action) =>
+        action.transport != 'http' && action.transport != 'tcp-json';
+    return plan.direct.any((send) => soap(send.action)) ||
+        plan.gated.any((toggle) =>
+            soap(toggle.action) ||
+            toggle.entity.transport == null ||
+            toggle.entity.transport == 'soap');
+  }
+
+  /// Read one entity's power state and decode it through the same
+  /// [SpecCodec.readNetworkEntity] path the device screen uses, so a group
+  /// row and the screen cannot disagree about what a reading means. Null —
+  /// from a failed exchange as much as an undecodable one — means unknown.
+  Future<bool?> _readIsOn(
+    NetworkEntityDto entity,
+    String specYaml,
+    NetworkCommandSender sender, {
+    SoapDeviceDescription? description,
+  }) async {
+    try {
+      final Map<String, String> returned;
+      if (entity.transport == 'http') {
+        final request = await _codec.renderNetworkHttpStateRequest(
+          specYaml: specYaml,
+          stateCommand: entity.stateCommand,
+          values: const {},
+        );
+        returned = jsonStateFields(await sender.sendHttpRequest(request));
+      } else {
+        final desc = description;
+        if (desc == null) return null;
+        final request = await _codec.renderNetworkStateRequest(
+          specYaml: specYaml,
+          stateCommand: entity.stateCommand,
+        );
+        final path = desc.controlPathFor(request);
+        if (path == null) return null;
+        returned = await _soap.send(desc.host, desc.port, path, request);
+      }
+      final reading = await _codec.readNetworkEntity(
+        specYaml: specYaml,
+        entityName: entity.name,
+        returned: returned,
+      );
+      return reading?.isOn;
+    } catch (e) {
+      Log.net.debug('group state read failed for ${entity.name}: $e');
+      return null;
+    }
   }
 }

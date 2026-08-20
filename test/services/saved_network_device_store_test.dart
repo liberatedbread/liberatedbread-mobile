@@ -65,8 +65,7 @@ void main() {
     expect(loaded.specKey, 'Roku External Control Protocol|Roku');
   });
 
-  test('loads newest-first and re-saving an id replaces the record',
-      () async {
+  test('loads newest-first and re-saving an id replaces the record', () async {
     final store = await _store();
     await store.save(SavedNetworkDevice(
         id: 'a', name: 'Old', lastSeen: DateTime(2026, 1, 1), host: '1.1.1.1'));
@@ -119,8 +118,8 @@ void main() {
     });
 
     test('the advertised name when there is no hostname either', () {
-      expect(SavedNetworkDevice.stableIdFor(_sighting()),
-          'name:Living Room TV');
+      expect(
+          SavedNetworkDevice.stableIdFor(_sighting()), 'name:Living Room TV');
     });
 
     test('the address only as a last resort', () {
@@ -129,8 +128,7 @@ void main() {
     });
   });
 
-  test('toNetworkDevice rebuilds a sighting the control screen can open',
-      () {
+  test('toNetworkDevice rebuilds a sighting the control screen can open', () {
     final device = SavedNetworkDevice(
       id: 'hn:tv.local',
       name: 'Living Room TV',

@@ -67,8 +67,7 @@ void main() {
   test('an http action renders through the codec and posts the result',
       () async {
     final received = <http.Request>[];
-    final s = sender(
-        httpClient: MockClient((request) async {
+    final s = sender(httpClient: MockClient((request) async {
       received.add(request);
       return http.Response('', 200);
     }));
@@ -128,8 +127,7 @@ void main() {
 
   test('a refusal on a non-roku stays a refusal', () async {
     final s = sender(
-      httpClient:
-          MockClient((request) async => http.Response('denied', 403)),
+      httpClient: MockClient((request) async => http.Response('denied', 403)),
       ssdpTargets: const ['urn:some:other:device'],
     );
     await expectLater(
@@ -141,8 +139,7 @@ void main() {
   test('a failed session open is remembered, not retried per send', () async {
     var connects = 0;
     final s = sender(
-      httpClient:
-          MockClient((request) async => http.Response('denied', 403)),
+      httpClient: MockClient((request) async => http.Response('denied', 403)),
       ecp2: Ecp2ControlService(connector: (host, port) async {
         connects++;
         throw const Ecp2Exception('TV asleep');

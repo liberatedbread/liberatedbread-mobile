@@ -7,8 +7,8 @@ import '../core/device_category.dart';
 import '../core/error_text.dart';
 import '../providers/device_group_provider.dart';
 import '../providers/saved_device_provider.dart';
+import '../providers/saved_network_device_provider.dart';
 import '../services/device_group_store.dart';
-import '../services/saved_device_store.dart';
 import '../widgets/device_list_tile.dart';
 
 /// Create a group, or rename/re-member/delete an existing one.
@@ -57,6 +57,10 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
       for (final device in ref.read(savedDevicesProvider))
         if (_selected.contains(device.id) && isGroupable(device.category))
           device.id,
+      for (final device in ref.read(savedNetworkDevicesProvider))
+        if (_selected.contains(networkMemberId(device.id)) &&
+            isGroupable(device.category))
+          networkMemberId(device.id),
     ];
     try {
       if (existing == null) {
@@ -119,12 +123,31 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    // Anything saved can join a group except the categories grouping
-    // excludes on principle (protocol references, OBD dongles). A device
-    // with no known kind is offered: battery reads work without a spec.
+    // Anything saved can join a group — either transport, any mix — except
+    // the categories grouping excludes on principle (protocol references,
+    // OBD dongles). A BLE device with no known kind is offered: battery
+    // reads work without a spec. Each candidate carries its member-id
+    // spelling (bare for BLE, namespaced for Wi-Fi), which is what
+    // _selected holds and what the group stores.
     final candidates = [
       for (final device in ref.watch(savedDevicesProvider))
-        if (isGroupable(device.category)) device,
+        if (isGroupable(device.category))
+          (
+            memberId: device.id,
+            name: device.name,
+            category: DeviceCategory.parse(device.category),
+            fallbackIcon: Icons.memory,
+            detail: device.id,
+          ),
+      for (final device in ref.watch(savedNetworkDevicesProvider))
+        if (isGroupable(device.category))
+          (
+            memberId: networkMemberId(device.id),
+            name: device.name,
+            category: DeviceCategory.parse(device.category),
+            fallbackIcon: Icons.router_outlined,
+            detail: device.host,
+          ),
     ];
 
     return Scaffold(
@@ -165,12 +188,15 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
               ),
             for (final device in candidates) ...[
               _PickRow(
-                device: device,
-                selected: _selected.contains(device.id),
+                name: device.name,
+                detail: device.detail,
+                icon: device.category?.icon ?? device.fallbackIcon,
+                categoryLabel: device.category?.label,
+                selected: _selected.contains(device.memberId),
                 onChanged: (selected) => setState(() {
                   selected
-                      ? _selected.add(device.id)
-                      : _selected.remove(device.id);
+                      ? _selected.add(device.memberId)
+                      : _selected.remove(device.memberId);
                 }),
               ),
               const SizedBox(height: 10),
@@ -201,14 +227,22 @@ class _GroupEditScreenState extends ConsumerState<GroupEditScreen> {
 
 /// A member-picker row: the shared card chrome with a checkbox, deliberately
 /// its own widget rather than a grown [DeviceListTile] — the shared tile
-/// serves three device lists that have no notion of selection.
+/// serves three device lists that have no notion of selection. Takes plain
+/// display fields rather than a record type, because the candidates come
+/// from two stores whose records share nothing but what this row draws.
 class _PickRow extends StatelessWidget {
-  final SavedDevice device;
+  final String name;
+  final String detail;
+  final IconData icon;
+  final String? categoryLabel;
   final bool selected;
   final ValueChanged<bool> onChanged;
 
   const _PickRow({
-    required this.device,
+    required this.name,
+    required this.detail,
+    required this.icon,
+    required this.categoryLabel,
     required this.selected,
     required this.onChanged,
   });
@@ -217,7 +251,6 @@ class _PickRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final category = DeviceCategory.parse(device.category);
 
     return Material(
       color: scheme.surfaceContainerLow,
@@ -240,7 +273,7 @@ class _PickRow extends StatelessWidget {
                 onChanged: (value) => onChanged(value ?? false),
               ),
               Icon(
-                category?.icon ?? unknownDeviceIcon,
+                icon,
                 size: 20,
                 color: scheme.onSurfaceVariant,
               ),
@@ -250,14 +283,14 @@ class _PickRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      device.name.isNotEmpty ? device.name : 'Unknown device',
+                      name.isNotEmpty ? name : 'Unknown device',
                       style: text.titleSmall
                           ?.copyWith(fontWeight: FontWeight.w600),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      category?.label ?? 'Kind not known yet',
+                      categoryLabel ?? 'Kind not known yet',
                       style: text.bodySmall
                           ?.copyWith(color: scheme.onSurfaceVariant),
                       maxLines: 1,
