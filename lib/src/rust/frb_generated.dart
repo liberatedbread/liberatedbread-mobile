@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -195892820;
+  int get rustContentHash => -1684596991;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -348,6 +348,9 @@ abstract class RustLibApi extends BaseApi {
       required String passphrase,
       PlatformInt64? rtos,
       PlatformInt64? iot});
+
+  Future<SetupInstructionsDto?> crateApiDeviceApiSetupInstructions(
+      {required String specYaml});
 
   Future<List<SoftApProfileDto>> crateApiDeviceApiSoftApProfiles(
       {required List<String> specYamls});
@@ -2275,6 +2278,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<SetupInstructionsDto?> crateApiDeviceApiSetupInstructions(
+      {required String specYaml}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 63, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_box_autoadd_setup_instructions_dto,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiSetupInstructionsConstMeta,
+      argValues: [specYaml],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiSetupInstructionsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'setup_instructions',
+        argNames: ['specYaml'],
+      );
+
+  @override
   Future<List<SoftApProfileDto>> crateApiDeviceApiSoftApProfiles(
       {required List<String> specYamls}) {
     return handler.executeNormal(NormalTask(
@@ -2282,7 +2311,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(specYamls, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 63, port: port_);
+            funcId: 64, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_soft_ap_profile_dto,
@@ -2308,7 +2337,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(datagram, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 64, port: port_);
+            funcId: 65, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_tuya_broadcast_dto,
@@ -2334,7 +2363,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(code, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 65, port: port_);
+            funcId: 66, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_wemo_join_status,
@@ -2397,6 +2426,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FactoryResetDto dco_decode_box_autoadd_factory_reset_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_factory_reset_dto(raw);
+  }
+
+  @protected
   PlatformInt64 dco_decode_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_i_64(raw);
@@ -2445,6 +2480,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RejoinDto dco_decode_box_autoadd_rejoin_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_rejoin_dto(raw);
+  }
+
+  @protected
   ScannedDeviceDto dco_decode_box_autoadd_scanned_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_scanned_device_dto(raw);
@@ -2455,6 +2496,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_security_advisory_dto(raw);
+  }
+
+  @protected
+  SetupInstructionsDto dco_decode_box_autoadd_setup_instructions_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_setup_instructions_dto(raw);
   }
 
   @protected
@@ -2660,6 +2708,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double dco_decode_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as double;
+  }
+
+  @protected
+  FactoryResetDto dco_decode_factory_reset_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return FactoryResetDto(
+      effect: dco_decode_opt_String(arr[0]),
+      procedures: dco_decode_list_factory_reset_procedure_dto(arr[1]),
+    );
+  }
+
+  @protected
+  FactoryResetProcedureDto dco_decode_factory_reset_procedure_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return FactoryResetProcedureDto(
+      name: dco_decode_String(arr[0]),
+      holdSeconds: dco_decode_opt_box_autoadd_u_32(arr[1]),
+      indicator: dco_decode_opt_String(arr[2]),
+      steps: dco_decode_list_setup_step_dto(arr[3]),
+    );
   }
 
   @protected
@@ -2880,6 +2954,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<FactoryResetProcedureDto> dco_decode_list_factory_reset_procedure_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_factory_reset_procedure_dto)
+        .toList();
+  }
+
+  @protected
   List<FormatFieldDto> dco_decode_list_format_field_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_format_field_dto).toList();
@@ -3056,6 +3139,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SetupMethodDto> dco_decode_list_setup_method_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_setup_method_dto).toList();
+  }
+
+  @protected
+  List<SetupStepDto> dco_decode_list_setup_step_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_setup_step_dto).toList();
+  }
+
+  @protected
   List<SoapRequestDto> dco_decode_list_soap_request_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_soap_request_dto).toList();
@@ -3071,6 +3166,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   List<SpecIdentityDto> dco_decode_list_spec_identity_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_spec_identity_dto).toList();
+  }
+
+  @protected
+  List<TroubleshootingDto> dco_decode_list_troubleshooting_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_troubleshooting_dto).toList();
   }
 
   @protected
@@ -3282,6 +3383,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FactoryResetDto? dco_decode_opt_box_autoadd_factory_reset_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_factory_reset_dto(raw);
+  }
+
+  @protected
   PlatformInt64? dco_decode_opt_box_autoadd_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_i_64(raw);
@@ -3328,12 +3435,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RejoinDto? dco_decode_opt_box_autoadd_rejoin_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_rejoin_dto(raw);
+  }
+
+  @protected
   SecurityAdvisoryDto? dco_decode_opt_box_autoadd_security_advisory_dto(
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null
         ? null
         : dco_decode_box_autoadd_security_advisory_dto(raw);
+  }
+
+  @protected
+  SetupInstructionsDto? dco_decode_opt_box_autoadd_setup_instructions_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_setup_instructions_dto(raw);
   }
 
   @protected
@@ -3520,6 +3642,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RejoinDto dco_decode_rejoin_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return RejoinDto(
+      inPlaceSupported: dco_decode_opt_box_autoadd_bool(arr[0]),
+      requiresFactoryReset: dco_decode_opt_box_autoadd_bool(arr[1]),
+      notes: dco_decode_opt_String(arr[2]),
+    );
+  }
+
+  @protected
   ScanMatch dco_decode_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -3584,6 +3719,47 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       uuid: dco_decode_String(arr[0]),
       name: dco_decode_String(arr[1]),
       characteristics: dco_decode_list_characteristic_dto(arr[2]),
+    );
+  }
+
+  @protected
+  SetupInstructionsDto dco_decode_setup_instructions_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return SetupInstructionsDto(
+      notes: dco_decode_opt_String(arr[0]),
+      methods: dco_decode_list_setup_method_dto(arr[1]),
+      factoryReset: dco_decode_opt_box_autoadd_factory_reset_dto(arr[2]),
+      rejoin: dco_decode_opt_box_autoadd_rejoin_dto(arr[3]),
+    );
+  }
+
+  @protected
+  SetupMethodDto dco_decode_setup_method_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return SetupMethodDto(
+      methodType: dco_decode_opt_String(arr[0]),
+      description: dco_decode_opt_String(arr[1]),
+      steps: dco_decode_list_setup_step_dto(arr[2]),
+      troubleshooting: dco_decode_list_troubleshooting_dto(arr[3]),
+    );
+  }
+
+  @protected
+  SetupStepDto dco_decode_setup_step_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return SetupStepDto(
+      action: dco_decode_String(arr[0]),
+      actor: dco_decode_opt_String(arr[1]),
+      expect: dco_decode_opt_String(arr[2]),
     );
   }
 
@@ -3707,6 +3883,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TroubleshootingDto dco_decode_troubleshooting_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return TroubleshootingDto(
+      symptom: dco_decode_String(arr[0]),
+      causes: dco_decode_list_String(arr[1]),
+    );
+  }
+
+  @protected
   TuyaBroadcastDto dco_decode_tuya_broadcast_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -3822,6 +4010,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FactoryResetDto sse_decode_box_autoadd_factory_reset_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_factory_reset_dto(deserializer));
+  }
+
+  @protected
   PlatformInt64 sse_decode_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_i_64(deserializer));
@@ -3877,6 +4072,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RejoinDto sse_decode_box_autoadd_rejoin_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_rejoin_dto(deserializer));
+  }
+
+  @protected
   ScannedDeviceDto sse_decode_box_autoadd_scanned_device_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -3888,6 +4089,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_security_advisory_dto(deserializer));
+  }
+
+  @protected
+  SetupInstructionsDto sse_decode_box_autoadd_setup_instructions_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_setup_instructions_dto(deserializer));
   }
 
   @protected
@@ -4150,6 +4358,30 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double sse_decode_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getFloat64();
+  }
+
+  @protected
+  FactoryResetDto sse_decode_factory_reset_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_effect = sse_decode_opt_String(deserializer);
+    var var_procedures =
+        sse_decode_list_factory_reset_procedure_dto(deserializer);
+    return FactoryResetDto(effect: var_effect, procedures: var_procedures);
+  }
+
+  @protected
+  FactoryResetProcedureDto sse_decode_factory_reset_procedure_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_holdSeconds = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_indicator = sse_decode_opt_String(deserializer);
+    var var_steps = sse_decode_list_setup_step_dto(deserializer);
+    return FactoryResetProcedureDto(
+        name: var_name,
+        holdSeconds: var_holdSeconds,
+        indicator: var_indicator,
+        steps: var_steps);
   }
 
   @protected
@@ -4417,6 +4649,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <EntityDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_entity_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<FactoryResetProcedureDto> sse_decode_list_factory_reset_procedure_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <FactoryResetProcedureDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_factory_reset_procedure_dto(deserializer));
     }
     return ans_;
   }
@@ -4734,6 +4979,32 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<SetupMethodDto> sse_decode_list_setup_method_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SetupMethodDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_setup_method_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SetupStepDto> sse_decode_list_setup_step_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SetupStepDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_setup_step_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<SoapRequestDto> sse_decode_list_soap_request_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -4768,6 +5039,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <SpecIdentityDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_spec_identity_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<TroubleshootingDto> sse_decode_list_troubleshooting_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TroubleshootingDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_troubleshooting_dto(deserializer));
     }
     return ans_;
   }
@@ -5013,6 +5297,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  FactoryResetDto? sse_decode_opt_box_autoadd_factory_reset_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_factory_reset_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   PlatformInt64? sse_decode_opt_box_autoadd_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -5096,12 +5392,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RejoinDto? sse_decode_opt_box_autoadd_rejoin_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_rejoin_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   SecurityAdvisoryDto? sse_decode_opt_box_autoadd_security_advisory_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_box_autoadd_security_advisory_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  SetupInstructionsDto? sse_decode_opt_box_autoadd_setup_instructions_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_setup_instructions_dto(deserializer));
     } else {
       return null;
     }
@@ -5314,6 +5634,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RejoinDto sse_decode_rejoin_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_inPlaceSupported = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_requiresFactoryReset =
+        sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_notes = sse_decode_opt_String(deserializer);
+    return RejoinDto(
+        inPlaceSupported: var_inPlaceSupported,
+        requiresFactoryReset: var_requiresFactoryReset,
+        notes: var_notes);
+  }
+
+  @protected
   ScanMatch sse_decode_scan_match(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_specIndex = sse_decode_u_32(deserializer);
@@ -5390,6 +5723,46 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_characteristics = sse_decode_list_characteristic_dto(deserializer);
     return ServiceDto(
         uuid: var_uuid, name: var_name, characteristics: var_characteristics);
+  }
+
+  @protected
+  SetupInstructionsDto sse_decode_setup_instructions_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_notes = sse_decode_opt_String(deserializer);
+    var var_methods = sse_decode_list_setup_method_dto(deserializer);
+    var var_factoryReset =
+        sse_decode_opt_box_autoadd_factory_reset_dto(deserializer);
+    var var_rejoin = sse_decode_opt_box_autoadd_rejoin_dto(deserializer);
+    return SetupInstructionsDto(
+        notes: var_notes,
+        methods: var_methods,
+        factoryReset: var_factoryReset,
+        rejoin: var_rejoin);
+  }
+
+  @protected
+  SetupMethodDto sse_decode_setup_method_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_methodType = sse_decode_opt_String(deserializer);
+    var var_description = sse_decode_opt_String(deserializer);
+    var var_steps = sse_decode_list_setup_step_dto(deserializer);
+    var var_troubleshooting = sse_decode_list_troubleshooting_dto(deserializer);
+    return SetupMethodDto(
+        methodType: var_methodType,
+        description: var_description,
+        steps: var_steps,
+        troubleshooting: var_troubleshooting);
+  }
+
+  @protected
+  SetupStepDto sse_decode_setup_step_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_action = sse_decode_String(deserializer);
+    var var_actor = sse_decode_opt_String(deserializer);
+    var var_expect = sse_decode_opt_String(deserializer);
+    return SetupStepDto(
+        action: var_action, actor: var_actor, expect: var_expect);
   }
 
   @protected
@@ -5529,6 +5902,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TroubleshootingDto sse_decode_troubleshooting_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_symptom = sse_decode_String(deserializer);
+    var var_causes = sse_decode_list_String(deserializer);
+    return TroubleshootingDto(symptom: var_symptom, causes: var_causes);
+  }
+
+  @protected
   TuyaBroadcastDto sse_decode_tuya_broadcast_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_gwId = sse_decode_opt_String(deserializer);
@@ -5647,6 +6029,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_factory_reset_dto(
+      FactoryResetDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_factory_reset_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_i_64(
       PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5703,6 +6092,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_box_autoadd_rejoin_dto(
+      RejoinDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_rejoin_dto(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_scanned_device_dto(
       ScannedDeviceDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5714,6 +6110,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       SecurityAdvisoryDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_security_advisory_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_setup_instructions_dto(
+      SetupInstructionsDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_setup_instructions_dto(self, serializer);
   }
 
   @protected
@@ -5887,6 +6290,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_f_64(double self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putFloat64(self);
+  }
+
+  @protected
+  void sse_encode_factory_reset_dto(
+      FactoryResetDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.effect, serializer);
+    sse_encode_list_factory_reset_procedure_dto(self.procedures, serializer);
+  }
+
+  @protected
+  void sse_encode_factory_reset_procedure_dto(
+      FactoryResetProcedureDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.holdSeconds, serializer);
+    sse_encode_opt_String(self.indicator, serializer);
+    sse_encode_list_setup_step_dto(self.steps, serializer);
   }
 
   @protected
@@ -6088,6 +6509,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_entity_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_factory_reset_procedure_dto(
+      List<FactoryResetProcedureDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_factory_reset_procedure_dto(item, serializer);
     }
   }
 
@@ -6352,6 +6783,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_setup_method_dto(
+      List<SetupMethodDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_setup_method_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_setup_step_dto(
+      List<SetupStepDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_setup_step_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_soap_request_dto(
       List<SoapRequestDto> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -6378,6 +6829,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_spec_identity_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_troubleshooting_dto(
+      List<TroubleshootingDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_troubleshooting_dto(item, serializer);
     }
   }
 
@@ -6561,6 +7022,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_factory_reset_dto(
+      FactoryResetDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_factory_reset_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_i_64(
       PlatformInt64? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -6638,6 +7110,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_rejoin_dto(
+      RejoinDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_rejoin_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_security_advisory_dto(
       SecurityAdvisoryDto? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -6645,6 +7128,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_box_autoadd_security_advisory_dto(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_setup_instructions_dto(
+      SetupInstructionsDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_setup_instructions_dto(self, serializer);
     }
   }
 
@@ -6819,6 +7313,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_rejoin_dto(RejoinDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_box_autoadd_bool(self.inPlaceSupported, serializer);
+    sse_encode_opt_box_autoadd_bool(self.requiresFactoryReset, serializer);
+    sse_encode_opt_String(self.notes, serializer);
+  }
+
+  @protected
   void sse_encode_scan_match(ScanMatch self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_32(self.specIndex, serializer);
@@ -6867,6 +7369,34 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.uuid, serializer);
     sse_encode_String(self.name, serializer);
     sse_encode_list_characteristic_dto(self.characteristics, serializer);
+  }
+
+  @protected
+  void sse_encode_setup_instructions_dto(
+      SetupInstructionsDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.notes, serializer);
+    sse_encode_list_setup_method_dto(self.methods, serializer);
+    sse_encode_opt_box_autoadd_factory_reset_dto(self.factoryReset, serializer);
+    sse_encode_opt_box_autoadd_rejoin_dto(self.rejoin, serializer);
+  }
+
+  @protected
+  void sse_encode_setup_method_dto(
+      SetupMethodDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_opt_String(self.methodType, serializer);
+    sse_encode_opt_String(self.description, serializer);
+    sse_encode_list_setup_step_dto(self.steps, serializer);
+    sse_encode_list_troubleshooting_dto(self.troubleshooting, serializer);
+  }
+
+  @protected
+  void sse_encode_setup_step_dto(SetupStepDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.action, serializer);
+    sse_encode_opt_String(self.actor, serializer);
+    sse_encode_opt_String(self.expect, serializer);
   }
 
   @protected
@@ -6959,6 +7489,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_image_write_dto(self.playWrite, serializer);
     sse_encode_opt_String(self.responseCharacteristicUuid, serializer);
     sse_encode_u_32(self.cid, serializer);
+  }
+
+  @protected
+  void sse_encode_troubleshooting_dto(
+      TroubleshootingDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.symptom, serializer);
+    sse_encode_list_String(self.causes, serializer);
   }
 
   @protected

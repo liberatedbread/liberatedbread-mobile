@@ -9,7 +9,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 // These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `assert_fields_are_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -675,6 +675,14 @@ Future<int?> matchSoftApSsid(
         {required List<SoftApProfileDto> profiles, required String ssid}) =>
     RustLib.instance.api
         .crateApiDeviceApiMatchSoftApSsid(profiles: profiles, ssid: ssid);
+
+/// The renderable `device.setup` instructions for one spec, or null when the
+/// spec carries none (or fails to parse). Fed the single YAML the caller
+/// resolved for a device — on a connect failure, the scan matcher's best
+/// `spec_index` — so it can show "how to connect / why it won't / how to reset"
+/// without any device present.
+Future<SetupInstructionsDto?> setupInstructions({required String specYaml}) =>
+    RustLib.instance.api.crateApiDeviceApiSetupInstructions(specYaml: specYaml);
 
 /// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
 /// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
@@ -1379,6 +1387,60 @@ class EntityWriteDto {
           serviceUuid == other.serviceUuid &&
           characteristicUuid == other.characteristicUuid &&
           bytes == other.bytes;
+}
+
+/// `setup.factory_reset` — what a reset clears and how to trigger it.
+class FactoryResetDto {
+  final String? effect;
+  final List<FactoryResetProcedureDto> procedures;
+
+  const FactoryResetDto({
+    this.effect,
+    required this.procedures,
+  });
+
+  @override
+  int get hashCode => effect.hashCode ^ procedures.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FactoryResetDto &&
+          runtimeType == other.runtimeType &&
+          effect == other.effect &&
+          procedures == other.procedures;
+}
+
+/// One named way to factory-reset the device.
+class FactoryResetProcedureDto {
+  final String name;
+  final int? holdSeconds;
+  final String? indicator;
+  final List<SetupStepDto> steps;
+
+  const FactoryResetProcedureDto({
+    required this.name,
+    this.holdSeconds,
+    this.indicator,
+    required this.steps,
+  });
+
+  @override
+  int get hashCode =>
+      name.hashCode ^
+      holdSeconds.hashCode ^
+      indicator.hashCode ^
+      steps.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is FactoryResetProcedureDto &&
+          runtimeType == other.runtimeType &&
+          name == other.name &&
+          holdSeconds == other.holdSeconds &&
+          indicator == other.indicator &&
+          steps == other.steps;
 }
 
 class FormatFieldDto {
@@ -2594,6 +2656,35 @@ class RabbitAirRequestDto {
           requestId == other.requestId;
 }
 
+/// `setup.rejoin` — whether a dropped device reconnects in place, and why it
+/// usually dropped.
+class RejoinDto {
+  final bool? inPlaceSupported;
+  final bool? requiresFactoryReset;
+  final String? notes;
+
+  const RejoinDto({
+    this.inPlaceSupported,
+    this.requiresFactoryReset,
+    this.notes,
+  });
+
+  @override
+  int get hashCode =>
+      inPlaceSupported.hashCode ^
+      requiresFactoryReset.hashCode ^
+      notes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RejoinDto &&
+          runtimeType == other.runtimeType &&
+          inPlaceSupported == other.inPlaceSupported &&
+          requiresFactoryReset == other.requiresFactoryReset &&
+          notes == other.notes;
+}
+
 /// One spec that a scanned device might be, and why we think so.
 class ScanMatch {
   /// Position of the matched identity in the list that was passed in, so the
@@ -2801,6 +2892,100 @@ class ServiceDto {
           uuid == other.uuid &&
           name == other.name &&
           characteristics == other.characteristics;
+}
+
+/// One spec's `device.setup` block, rendered-ready.
+class SetupInstructionsDto {
+  final String? notes;
+  final List<SetupMethodDto> methods;
+  final FactoryResetDto? factoryReset;
+  final RejoinDto? rejoin;
+
+  const SetupInstructionsDto({
+    this.notes,
+    required this.methods,
+    this.factoryReset,
+    this.rejoin,
+  });
+
+  @override
+  int get hashCode =>
+      notes.hashCode ^
+      methods.hashCode ^
+      factoryReset.hashCode ^
+      rejoin.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SetupInstructionsDto &&
+          runtimeType == other.runtimeType &&
+          notes == other.notes &&
+          methods == other.methods &&
+          factoryReset == other.factoryReset &&
+          rejoin == other.rejoin;
+}
+
+/// One `setup.methods[]` entry as human-readable prose.
+class SetupMethodDto {
+  /// `ble_direct`, `button_pairing`, … — labels the method.
+  final String? methodType;
+  final String? description;
+  final List<SetupStepDto> steps;
+  final List<TroubleshootingDto> troubleshooting;
+
+  const SetupMethodDto({
+    this.methodType,
+    this.description,
+    required this.steps,
+    required this.troubleshooting,
+  });
+
+  @override
+  int get hashCode =>
+      methodType.hashCode ^
+      description.hashCode ^
+      steps.hashCode ^
+      troubleshooting.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SetupMethodDto &&
+          runtimeType == other.runtimeType &&
+          methodType == other.methodType &&
+          description == other.description &&
+          steps == other.steps &&
+          troubleshooting == other.troubleshooting;
+}
+
+/// One `action`/`actor`/`expect` triple from a setup or reset step list.
+class SetupStepDto {
+  final String action;
+
+  /// Who does it (`user` / `client`), when the spec says.
+  final String? actor;
+
+  /// What confirms it worked, when the spec says.
+  final String? expect;
+
+  const SetupStepDto({
+    required this.action,
+    this.actor,
+    this.expect,
+  });
+
+  @override
+  int get hashCode => action.hashCode ^ actor.hashCode ^ expect.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SetupStepDto &&
+          runtimeType == other.runtimeType &&
+          action == other.action &&
+          actor == other.actor &&
+          expect == other.expect;
 }
 
 /// A rendered SOAP request, ready for Dart to POST.
@@ -3190,6 +3375,28 @@ class StoredUploadPlanDto {
           playWrite == other.playWrite &&
           responseCharacteristicUuid == other.responseCharacteristicUuid &&
           cid == other.cid;
+}
+
+/// A `symptom` + its likely `causes` — the "it won't connect" list.
+class TroubleshootingDto {
+  final String symptom;
+  final List<String> causes;
+
+  const TroubleshootingDto({
+    required this.symptom,
+    required this.causes,
+  });
+
+  @override
+  int get hashCode => symptom.hashCode ^ causes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TroubleshootingDto &&
+          runtimeType == other.runtimeType &&
+          symptom == other.symptom &&
+          causes == other.causes;
 }
 
 /// What a Tuya discovery broadcast identifies about its sender — the FFI face
