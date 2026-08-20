@@ -19,6 +19,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Android Device (Wireless Debugging / ADB over Wi-Fi)",
+    "path": "device-specs/devices/android-adb-wireless.yaml",
+    "protocol": "wifi",
+    "category": "other",
+    "manufacturer": "Various (Android 11+)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "url": "https://android.googlesource.com/platform/packages/modules/adb/+/refs/heads/main/docs/dev/adb_wifi.md",
+        "title": "AOSP adb — adb_wifi.md (wireless debugging design)",
+        "description": "Authoritative mDNS service types and instance-name format for wireless ADB."
+      },
+      {
+        "url": "https://developer.android.com/tools/adb",
+        "title": "Android Developers — Android Debug Bridge (adb)",
+        "description": "User-facing wireless debugging (Android 11+): mDNS discovery, pairing code and the dynamic connect port."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Android TV / Google TV (Android TV Remote Protocol v2)",
     "path": "device-specs/devices/android-tv-remote.yaml",
     "protocol": "wifi",
@@ -170,6 +193,16 @@
         "description": "Archived vendor product page. The live page is dead, so this is what remains of the manufacturer's own description of the hardware."
       }
     ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Bluetooth serial module (skimmer check)",
+    "path": "device-specs/devices/bluetooth-card-skimmer.yaml",
+    "protocol": "ble",
+    "category": "warning",
+    "manufacturer": "Unknown",
+    "manufacturer_status": "unsupported",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -532,7 +565,8 @@
     "category": "appliance",
     "manufacturer": "Ember Technologies",
     "manufacturer_status": "active",
-    "testing_status": "untested",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "Ember app on Google Play",
@@ -779,8 +813,8 @@
     "category": "sensor",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech Co., Ltd.)",
     "manufacturer_status": "active",
-    "testing_status": "untested",
-    "testing_detail": "capture-verified",
+    "testing_status": "verified",
+    "testing_detail": "mostly-verified",
     "helpful_urls": [
       {
         "title": "GoveeBTTempLogger",
@@ -1118,6 +1152,34 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Network Printer (IPP / AirPrint / IPP Everywhere)",
+    "path": "device-specs/devices/ipp-network-printer.yaml",
+    "protocol": "wifi",
+    "category": "printer",
+    "manufacturer": "Various (IPP Everywhere / AirPrint printers)",
+    "manufacturer_status": "active",
+    "openness": "open_by_design",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "url": "https://developer.apple.com/bonjour/printing-specification/",
+        "title": "Apple — Bonjour Printing Specification 1.2.1",
+        "description": "Authoritative DNS-SD service types (_ipp/_ipps/_printer/_pdl-datastream) and printer TXT record keys."
+      },
+      {
+        "url": "https://www.pwg.org/ipp/everywhere.html",
+        "title": "PWG — IPP Everywhere",
+        "description": "Vendor-neutral driverless printing: standard IPP discovery and TXT keys (rp, ty, pdl, UUID, adminurl)."
+      },
+      {
+        "url": "https://datatracker.ietf.org/doc/html/rfc8010",
+        "title": "RFC 8010 — IPP/1.1 Encoding and Transport",
+        "description": "IPP over HTTP; the default IPP port 631 and the ipp:// resource model."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "iRobot Roomba (Wi-Fi models)",
     "path": "device-specs/devices/irobot-roomba.yaml",
     "protocol": "wifi",
@@ -1187,7 +1249,8 @@
     "category": "sensor",
     "manufacturer": "Johnson Level & Tool (Winho OEM)",
     "manufacturer_status": "active",
-    "testing_status": "untested",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "Johnson LDM330 product page",
@@ -1210,6 +1273,16 @@
         "description": "Third-party app's catalogue of which meters it speaks to and how, useful for placing this Winho OEM platform among the other vendors' protocols."
       }
     ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "KARR / SWDS Vehicle Alarm",
+    "path": "device-specs/devices/karr-swds-alarm.yaml",
+    "protocol": "ble",
+    "category": "warning",
+    "manufacturer": "Acrisure",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
     "schema_version": "2020-12"
   },
   {
@@ -1397,6 +1470,29 @@
     "manufacturer_status": "abandoned",
     "protocol_handler": "cdbwsoft_ecb",
     "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Matter Device (Matter-over-Wi-Fi / Thread node)",
+    "path": "device-specs/devices/matter-device.yaml",
+    "protocol": "wifi",
+    "category": "other",
+    "manufacturer": "Various (Connectivity Standards Alliance / Matter)",
+    "manufacturer_status": "active",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "url": "https://csa-iot.org/all-solutions/matter/",
+        "title": "Connectivity Standards Alliance — Matter",
+        "description": "The cross-ecosystem smart-home standard: Wi-Fi/Thread, local control, multi-admin fabrics."
+      },
+      {
+        "url": "https://github.com/project-chip/connectedhomeip",
+        "title": "Matter SDK (connectedhomeip)",
+        "description": "Reference implementation; the DNS-SD service types (_matter._tcp / _matterc._udp) and TXT keys."
+      }
+    ],
     "schema_version": "2020-12"
   },
   {
@@ -1866,6 +1962,16 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Rockledge Vehicle Alarm",
+    "path": "device-specs/devices/rockledge-alarm.yaml",
+    "protocol": "ble",
+    "category": "warning",
+    "manufacturer": "Rockledge",
+    "manufacturer_status": "active",
+    "testing_status": "untested",
+    "schema_version": "2020-12"
+  },
+  {
     "name": "Roku External Control Protocol",
     "path": "device-specs/devices/roku-ecp.yaml",
     "protocol": "wifi",
@@ -2157,6 +2263,29 @@
     "schema_version": "2020-12"
   },
   {
+    "name": "Synology DiskStation / RackStation NAS (DSM)",
+    "path": "device-specs/devices/synology-diskstation.yaml",
+    "protocol": "wifi",
+    "category": "network",
+    "manufacturer": "Synology Inc.",
+    "manufacturer_status": "active",
+    "openness": "undocumented",
+    "testing_status": "untested",
+    "helpful_urls": [
+      {
+        "url": "https://kb.synology.com/en-us/DSM/tutorial/What_network_ports_are_used_by_Synology_services",
+        "title": "Synology — network ports used by Synology services",
+        "description": "Synology Assistant / findhostd discovery on UDP 9997-9999; DSM web on 5000 (HTTP) / 5001 (HTTPS)."
+      },
+      {
+        "url": "https://medium.com/@cq674350529/a-journey-into-synology-nas-part-2-analyzing-findhostd-service-2264e4fd21e9",
+        "title": "Analyzing the Synology findhostd discovery service",
+        "description": "Reverse-engineering of findhostd: UDP 9999, the SYNO packet magic, and the TLV reply carrying MAC/serial/model."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
     "name": "ThermoPro TempSpike / TP9xx BBQ Thermometer",
     "path": "device-specs/devices/thermopro-tempspike-bbq.yaml",
     "protocol": "ble",
@@ -2308,6 +2437,29 @@
         "title": "TSDZ2 wiki communication protocol",
         "url": "https://github.com/OpenSource-EBike-firmware/TSDZ2_wiki/wiki/Communication-Protocol",
         "description": "Community protocol notes for Tongsheng TSDZ2 firmware variants."
+      }
+    ],
+    "schema_version": "2020-12"
+  },
+  {
+    "name": "Tuya-Based Smart Device (Smart Life / white-label IoT)",
+    "path": "device-specs/devices/tuya-generic-device.yaml",
+    "protocol": "wifi",
+    "category": "other",
+    "manufacturer": "Various (Tuya IoT platform)",
+    "manufacturer_status": "active",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
+    "helpful_urls": [
+      {
+        "url": "https://github.com/jasonacox/tinytuya",
+        "title": "tinytuya",
+        "description": "Open Tuya LAN library: the discovery frame layout, the fixed broadcast key, and the gwId/version/productKey fields."
+      },
+      {
+        "url": "https://github.com/codetheweb/tuyapi/blob/master/docs/PROTOCOL.md",
+        "title": "tuyapi — protocol notes",
+        "description": "The 0x55aa frame format (prefix/command/length/CRC/suffix) and the 3.1/3.3 protocol versions."
       }
     ],
     "schema_version": "2020-12"

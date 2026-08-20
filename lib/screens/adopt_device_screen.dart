@@ -69,6 +69,10 @@ class _AdoptDeviceScreenState extends ConsumerState<AdoptDeviceScreen> {
       final session = await service.connect(
         family: device.family,
         specYaml: device.specYaml,
+        // Where and on which ports to probe come from the spec's softap
+        // profile, not a constant in the service — the setup port varies.
+        gatewayIp: device.profile.gatewayIp,
+        ports: device.profile.ports.toList(),
       );
       if (!mounted) return;
       if (session == null) {

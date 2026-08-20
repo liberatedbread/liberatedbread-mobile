@@ -7,6 +7,7 @@ import 'package:flutter/widgets.dart' show IconData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/device_category.dart';
+import '../core/device_pictogram.dart';
 import '../core/find_device.dart' show signalBars;
 import '../core/log.dart';
 import '../models/iot_device.dart';
@@ -46,6 +47,29 @@ class ScanGuess {
   /// matched. Trivially true when nothing else matched.
   final bool manufacturerAgreed;
 
+  /// A known, cited security problem the matched spec declares — a shared-key
+  /// car alarm, a card skimmer's module. Present means this row is a WARNING,
+  /// not an ordinary device: the scan badges it, tapping opens a warning page
+  /// instead of the controls, and a `malicious` one raises an alert. Surfaced
+  /// regardless of confidence — a *possible* skimmer is still worth flagging —
+  /// so the warning wording hedges on [confidence] instead.
+  final SecurityAdvisoryDto? advisory;
+
+  /// The matched spec's finer glyph token (`nas`, `power-strip`, `phone`, …),
+  /// when it declares one — a more specific icon than [category]. Null falls
+  /// back to the category glyph.
+  final String? pictogram;
+
+  /// URL template to the device's own admin page (`{address}` for the host),
+  /// when the matched spec declares one — an "Open admin" deep link for a
+  /// recognise-only device this app does not drive.
+  final String? adminUrl;
+
+  /// True when the matched spec is `integration: identify_only` — recognised
+  /// but not controlled (a SmartThings hub, a NAS, a printer). The scan says so
+  /// instead of claiming a "Supported device" it cannot drive.
+  final bool isIdentifyOnly;
+
   const ScanGuess({
     required this.deviceName,
     required this.manufacturer,
@@ -53,7 +77,18 @@ class ScanGuess {
     required this.otherMatches,
     required this.manufacturerAgreed,
     this.category,
+    this.advisory,
+    this.pictogram,
+    this.adminUrl,
+    this.isIdentifyOnly = false,
   });
+
+  /// This row is a security warning rather than a controllable device.
+  bool get isSecurityWarning => advisory != null;
+
+  /// A `malicious` advisory — a device that should not be there at all (a
+  /// skimmer). The scan alerts on these, rather than only badging them.
+  bool get isMalicious => advisory?.severity == 'malicious';
 
   /// Reduce a matcher result to a guess, or null when nothing matched.
   ///
@@ -78,6 +113,13 @@ class ScanGuess {
       category: tied.every((m) => DeviceCategory.parse(m.category) == category)
           ? category
           : null,
+      // From the best match. A warning spec matches on specific names (KARR,
+      // HC-05), so it does not tie with a real product; take the top match's
+      // advisory rather than require agreement, so a warning is never dropped.
+      advisory: best.securityAdvisory,
+      pictogram: best.pictogram,
+      adminUrl: best.adminUrl,
+      isIdentifyOnly: best.integration == 'identify_only',
     );
   }
 
@@ -98,7 +140,8 @@ class ScanGuess {
   /// real match is a claim with its evidence stripped off — and
   /// [DeviceDescription] already says the true version of that, naming who
   /// made the device and what it offers, out of the registries.
-  IconData iconOr(IconData fallback) => category?.icon ?? fallback;
+  IconData iconOr(IconData fallback) =>
+      DevicePictogram.iconFor(pictogram) ?? category?.icon ?? fallback;
 
   /// Short label for the scan list.
   ///
@@ -107,14 +150,22 @@ class ScanGuess {
   /// and reporting the first of them badged every one of those devices
   /// "Possibly Enphase Energy" — the same confident lie [namesAProduct] exists
   /// to prevent, one rung further down.
-  String get label => switch (confidence) {
-        MatchConfidence.strong =>
-          namesAProduct ? deviceName : 'Supported device',
-        MatchConfidence.likely =>
-          namesAProduct ? 'Likely $deviceName' : 'Likely supported',
-        MatchConfidence.possible =>
-          manufacturerAgreed ? 'Possibly $manufacturer' : 'Possibly supported',
-      };
+  String get label {
+    // A recognise-only device is named, never claimed as "supported": we know
+    // what it is, we just do not drive it. Fall back to the manufacturer, then
+    // a bare "Recognized device", when the exact product is contested.
+    if (isIdentifyOnly) {
+      if (namesAProduct) return deviceName;
+      return manufacturerAgreed ? manufacturer : 'Recognized device';
+    }
+    return switch (confidence) {
+      MatchConfidence.strong => namesAProduct ? deviceName : 'Supported device',
+      MatchConfidence.likely =>
+        namesAProduct ? 'Likely $deviceName' : 'Likely supported',
+      MatchConfidence.possible =>
+        manufacturerAgreed ? 'Possibly $manufacturer' : 'Possibly supported',
+    };
+  }
 }
 
 /// The identifying half of a scanned device — everything matching reads, and
@@ -171,7 +222,11 @@ final specIdentitiesProvider =
         deviceName: p.spec.deviceName,
         manufacturer: p.spec.manufacturer,
         category: p.spec.category,
+        pictogram: p.spec.pictogram,
+        adminUrl: p.spec.adminUrl,
+        integration: p.spec.integration,
         localNamePrefixes: p.spec.localNamePrefixes,
+        localNames: p.spec.localNames,
         serviceUuids: p.spec.serviceUuids,
         companyIds: p.spec.companyIds,
         macPrefixes: p.spec.macPrefixes,
@@ -230,9 +285,13 @@ class Ranked<T> {
 
   /// Whether this belongs above the fold. A [MatchConfidence.possible] match
   /// does not: a shared OUI is not grounds for telling someone their device is
-  /// supported, only for keeping it off the bottom of the pile.
+  /// supported, only for keeping it off the bottom of the pile. Nor does an
+  /// `identify_only` device (a NAS, a SmartThings hub): it is recognised, not
+  /// controlled, so it sits with the detected devices, not the supported ones.
   bool get isLikelySupported =>
-      guess != null && guess!.confidence != MatchConfidence.possible;
+      guess != null &&
+      guess!.confidence != MatchConfidence.possible &&
+      !guess!.isIdentifyOnly;
 }
 
 /// A scanned BLE device paired with its guess.

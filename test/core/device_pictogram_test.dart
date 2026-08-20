@@ -6,27 +6,45 @@ import 'package:liberated_bread_mobile/core/device_category.dart';
 import 'package:liberated_bread_mobile/core/device_pictogram.dart';
 
 void main() {
-  group('DevicePictogram.resolve', () {
+  group('DevicePictogram.iconFor', () {
     test('resolves known tokens to Material glyphs', () {
-      expect(DevicePictogram.resolve('wifi-ap'), Icons.wifi);
-      expect(DevicePictogram.resolve('router'), Icons.router);
-      expect(DevicePictogram.resolve('ip-camera'), Icons.videocam);
-      expect(DevicePictogram.resolve('nas'), Icons.storage);
-      expect(DevicePictogram.resolve('game-console'), Icons.sports_esports);
-      expect(DevicePictogram.resolve('3d-printer'), Icons.print);
-      expect(DevicePictogram.resolve('co2-sensor'), Icons.co2);
-      expect(DevicePictogram.resolve('garage-door'), Icons.garage);
+      expect(DevicePictogram.iconFor('wifi-ap'), Icons.wifi_tethering_outlined);
+      expect(DevicePictogram.iconFor('router'), Icons.router_outlined);
+      expect(DevicePictogram.iconFor('ip-camera'), Icons.videocam_outlined);
+      expect(DevicePictogram.iconFor('nas'), Icons.storage_outlined);
+      expect(DevicePictogram.iconFor('game-console'),
+          Icons.sports_esports_outlined);
+      expect(DevicePictogram.iconFor('co2-sensor'), Icons.co2_outlined);
+      expect(DevicePictogram.iconFor('garage-door'), Icons.garage_outlined);
     });
 
     test('is case- and whitespace-insensitive', () {
-      expect(DevicePictogram.resolve('  Wifi-AP '), Icons.wifi);
+      expect(
+          DevicePictogram.iconFor('  Wifi-AP '), Icons.wifi_tethering_outlined);
     });
 
     test('returns null for absent, empty, or unknown tokens', () {
-      expect(DevicePictogram.resolve(null), isNull);
-      expect(DevicePictogram.resolve(''), isNull);
-      expect(DevicePictogram.resolve('  '), isNull);
-      expect(DevicePictogram.resolve('flux-capacitor'), isNull);
+      expect(DevicePictogram.iconFor(null), isNull);
+      expect(DevicePictogram.iconFor(''), isNull);
+      expect(DevicePictogram.iconFor('  '), isNull);
+      expect(DevicePictogram.iconFor('flux-capacitor'), isNull);
+    });
+  });
+
+  group('DevicePictogram.isCustom', () {
+    test('custom-painted tokens have no Material glyph and say so', () {
+      // Material has no faithful glyph for these; the scan tile draws a
+      // custom painter instead, so iconFor must answer null to let it.
+      for (final token in ['power-strip', '3d-printer']) {
+        expect(DevicePictogram.isCustom(token), isTrue);
+        expect(DevicePictogram.iconFor(token), isNull);
+      }
+    });
+
+    test('is case- and whitespace-insensitive, and false elsewhere', () {
+      expect(DevicePictogram.isCustom('  3D-Printer '), isTrue);
+      expect(DevicePictogram.isCustom('router'), isFalse);
+      expect(DevicePictogram.isCustom(null), isFalse);
     });
   });
 
@@ -37,7 +55,7 @@ void main() {
         category: 'sensor',
         fallback: Icons.bluetooth,
       );
-      expect(icon, Icons.router);
+      expect(icon, Icons.router_outlined);
     });
 
     test('falls back to the category icon when pictogram is unknown', () {

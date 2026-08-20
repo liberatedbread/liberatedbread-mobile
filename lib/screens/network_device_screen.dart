@@ -1,6 +1,7 @@
 // Copyright 2026 Pigs Can Fly Labs LLC
 // SPDX-License-Identifier: Apache-2.0
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +22,7 @@ import '../services/rabbit_air_key_store.dart';
 import '../services/soap_control_service.dart';
 import '../services/spec_codec.dart';
 import '../widgets/network_light_card.dart';
+import '../widgets/power_strip_icon.dart';
 
 /// Controls for a network device whose matched spec declares entities — the
 /// Wi-Fi counterpart of the BLE device screen's typed control panel.
@@ -64,6 +66,22 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   final Map<String, Map<String, String>> _stateByCommand = {};
   final Map<String, NetworkReadingDto?> _readings = {};
 
+  /// The raw (unflattened) reply per state command, kept because an instanced
+  /// entity — a Kasa power strip's outlets — enumerates its children straight
+  /// from the reply's own structure, which the flattener discards.
+  final Map<String, String> _rawStateReply = {};
+
+  /// Children enumerated per instanced entity, and each child's role readings
+  /// keyed "entityName/childId". Populated for a Kasa strip; empty for a
+  /// single-outlet plug (no `children`), whose plain switch shows instead.
+  final Map<String, List<NetworkInstanceDto>> _instances = {};
+  final Map<String, Map<String, NetworkReadingDto>> _instanceReadings = {};
+
+  /// The brightness the user is dragging on a Kasa light's slider, held locally
+  /// until they let go (then sent). Null when not dragging — the slider shows
+  /// the device's reported brightness.
+  double? _kasaBrightnessDraft;
+
   /// Names of entities a send is in flight for, disabling their controls.
   ///
   /// A set rather than one slot because remote buttons overlap: a volume
@@ -94,10 +112,31 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<Ecp2Session?>? _ecp2Opening;
   bool _ecp2Unavailable = false;
 
-  /// At least one refused command went through the signed session instead —
-  /// the screen says so, because "everything works" and "control is gated"
-  /// are both true at once and the user should know which path they're on.
-  bool _viaSignedSession = false;
+  /// Whether the device has a text field focused, so its on-screen keyboard is
+  /// actually usable — and, through that, where the keyboard card sits:
+  /// `true` places it high, right under the controls and above the channel
+  /// picker; `null` (unknown — no signal yet, or none to be had because it is
+  /// not a Roku or ECP2 was refused) parks it at the very foot, below the
+  /// channels, shown rather than hide a keyboard the user might need; `false`,
+  /// the device saying "nothing is focused", shows it nowhere. Driven by the
+  /// ECP2 session's textedit state, the one place this can be known: plain ECP
+  /// has no such query. See [_watchKeyboard] and the build's placement.
+  bool? _keyboardFocused;
+  StreamSubscription<bool>? _keyboardSub;
+  Timer? _keyboardPoll;
+
+  /// Background re-poll of device state, so a device toggled physically or from
+  /// another app updates here without a manual Refresh. Started after the first
+  /// successful load, only for devices that actually expose state. [_polling]
+  /// guards against a slow tick stacking on the one before it.
+  Timer? _statePoll;
+  bool _polling = false;
+
+  /// Bumped on every write to [_keyboardFocused]. A poll captures it before its
+  /// round trip and discards its answer if it changed meanwhile — so a stale
+  /// poll reply cannot clobber a fresher `textedit` notice that arrived while
+  /// the poll was in flight.
+  int _keyboardStateGen = 0;
 
   /// Names of entities whose device-sourced list never arrived — the query
   /// failed outright (timeout, unreachable), as opposed to answered-empty.
@@ -117,6 +156,14 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   String? _soapSending;
 
   bool _loading = true;
+
+  /// The device-sourced option lists (a Roku's channel list) load on their own
+  /// slower path — plain ECP refuses them in Limited mode, so the ECP2 session
+  /// has to open first. This tracks that second fetch so the control surface
+  /// can draw the instant state is in, with the lists filling in under their
+  /// own indicator rather than holding the whole screen behind a spinner.
+  bool _loadingOptions = false;
+
   String? _error;
 
   /// Per-entity state for `text` entities (the TV keyboard): the field's
@@ -132,6 +179,9 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     for (final controller in _textControllers.values) {
       controller.dispose();
     }
+    _keyboardPoll?.cancel();
+    _statePoll?.cancel();
+    unawaited(_keyboardSub?.cancel());
     unawaited(_ecp2?.close() ?? Future<void>.value());
     super.dispose();
   }
@@ -140,6 +190,54 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_watchKeyboard());
+  }
+
+  /// Apply a keyboard-focus reading, unless a fresher one already landed. The
+  /// generation guard is what keeps an in-flight poll's stale answer from
+  /// clobbering a `textedit` notice that arrived while it was on the wire.
+  void _setKeyboardFocused(bool focused) {
+    if (!mounted) return;
+    setState(() {
+      _keyboardFocused = focused;
+      _keyboardStateGen++;
+    });
+  }
+
+  /// Track whether the device's on-screen keyboard is usable, so the text card
+  /// is placed by that (above the channels when a field is focused, at the foot
+  /// when unknown). The signal lives on the ECP2 session — plain ECP cannot
+  /// answer it — so this is a no-op unless the device has a `text` entity and
+  /// answered the `roku:ecp` search target.
+  ///
+  /// The session volunteers a `textedit` notice on focus changes; a 3 s poll
+  /// backs that up, since whether a given firmware sends the notice is not
+  /// guaranteed. Any failure leaves [_keyboardFocused] null and the card shows
+  /// at the foot — the keyboard is never hidden on a device this cannot read.
+  Future<void> _watchKeyboard() async {
+    final hasKeyboard = _entities.any((e) => e.platform == 'text');
+    if (!hasKeyboard || !widget.device.ssdpTargets.contains('roku:ecp')) return;
+    final session = await _openEcp2();
+    if (session == null || !mounted) return;
+    _keyboardSub = session.textEditFocusChanges.listen(_setKeyboardFocused);
+    Future<void> poll() async {
+      final gen = _keyboardStateGen;
+      try {
+        final focused = await session.queryTextEditFocused();
+        // Drop a reply a notice has already superseded (see _keyboardStateGen).
+        if (gen == _keyboardStateGen) _setKeyboardFocused(focused);
+      } catch (e) {
+        Log.net.debug('textedit-state poll failed for ${widget.device.host}: '
+            '$e');
+      }
+    }
+
+    await poll();
+    // A disposed widget cancels _keyboardPoll — but only a poll that already
+    // exists. This runs after an await, so guard against a dispose that landed
+    // during it, or the periodic timer would fire forever on a closed session.
+    if (!mounted) return;
+    _keyboardPoll = Timer.periodic(const Duration(seconds: 3), (_) => poll());
   }
 
   List<NetworkEntityDto> get _entities => widget.controls.entities;
@@ -168,6 +266,53 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   bool get _isKasa =>
       _entities.any((e) => e.actions.any((a) => a.transport == _kasaTransport));
 
+  /// Whether an instanced entity enumerated any children this poll — a power
+  /// strip. Drives the render fork: per-outlet switches instead of the single
+  /// "Outlet" switch, which on a strip would only ever read "State unknown".
+  bool get _hasInstanceChildren => _entities
+      .any((e) => e.isInstanced && (_instances[e.name]?.isNotEmpty ?? false));
+
+  /// A Kasa SMARTBULB (KL430 and kin) answering the plug spec: it reports a
+  /// `light_state` object, not a top-level `relay_state`, so the plug's on/off
+  /// switch would be a dead control — no state to read, and the bulb ignores
+  /// set_relay_state. We recognise it and hide that switch, pointing on/off and
+  /// brightness at the Kasa app for now, rather than render a switch that lies.
+  bool get _isKasaBulb =>
+      _rawStateReply.values.any((reply) => reply.contains('"light_state"'));
+
+  /// A Kasa light STRIP (KL400/KL430) rather than a bulb: it is SMARTBULB-class
+  /// but switches and dims through smartlife.iot.lightStrip.set_light_state, not
+  /// the bulb's lightingservice.transition_light_state — a strip silently
+  /// ignores the bulb call. Told apart by the `length` (LED count) field
+  /// get_sysinfo carries. Selects the strip_* commands over the bulb light_*.
+  bool get _isKasaLightStrip =>
+      _stateByCommand['get_sysinfo']?.containsKey('length') ?? false;
+
+  /// The bulb's current on/off and brightness, parsed from the raw get_sysinfo
+  /// light_state. When off, on_off is 0 and the last brightness lives under
+  /// `dft_on_state`; when on it is at the top of light_state. Null when there
+  /// is no light_state to read.
+  ({bool on, int brightness})? get _kasaLight {
+    for (final reply in _rawStateReply.values) {
+      try {
+        final decoded = jsonDecode(reply);
+        final system = decoded is Map ? decoded['system'] : null;
+        final sysinfo = system is Map ? system['get_sysinfo'] : null;
+        final ls = sysinfo is Map ? sysinfo['light_state'] : null;
+        if (ls is! Map) continue;
+        final on = ls['on_off'] is num && (ls['on_off'] as num) != 0;
+        final source = on
+            ? ls
+            : (ls['dft_on_state'] is Map ? ls['dft_on_state'] as Map : ls);
+        final b = source['brightness'];
+        return (on: on, brightness: b is num ? b.toInt() : 0);
+      } catch (_) {
+        // Malformed reply — fall through to the note.
+      }
+    }
+    return null;
+  }
+
   /// The address a Kasa send/poll uses.
   int get _kasaHostPort => widget.device.port ?? _kasaPort;
 
@@ -188,6 +333,20 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// mDNS SRV port (9009); the constant is the fallback.
   int get _rabbitAirHostPort =>
       widget.device.port ?? RabbitAirControlClient.defaultPort;
+
+  /// Roku control — plain ECP and the ECP2 session alike — always lives on
+  /// 8060 (the spec's `default_port`), whatever port the SSDP LOCATION carried.
+  /// A field TV answered discovery with a 7250 root-description port, but
+  /// /keypress, /query, /launch and /ecp-session are only ever served on 8060.
+  static const _rokuEcpPort = 8060;
+
+  /// A Roku, by the `roku:ecp` target it answered at discovery — the same test
+  /// [_openEcp2] gates the signed session on, not a name guess.
+  bool get _isRoku => widget.device.ssdpTargets.contains('roku:ecp');
+
+  /// The port a control request goes to. A Roku is pinned to its ECP port; every
+  /// other device uses the port discovery captured from its LOCATION.
+  int get _controlPort => _isRoku ? _rokuEcpPort : widget.device.controlPort!;
 
   /// The identity the user key is stored under: the Thing ID, which IS the
   /// device's mDNS hostname, falling back to the host when discovery carried
@@ -279,8 +438,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
         // remote of stateless buttons has none, and the poll is a no-op.
         await _refreshState();
       }
-      await _refreshQuerySources();
+      // Drop the spinner now — the buttons, readings and D-pad are ready. The
+      // device-sourced option lists (a Roku's channels) are a slower, gated
+      // fetch that must not hold the remote hostage: they load in the
+      // background under the select card's own indicator. See [_loadingOptions].
       if (mounted) setState(() => _loading = false);
+      _startStatePoll();
+      unawaited(_refreshQuerySources());
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -292,6 +456,34 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
               'try scanning again.',
         );
       });
+    }
+  }
+
+  /// Begin (or restart) the background state poll. A device with no state
+  /// commands — a Roku's stateless button remote — has nothing to poll and
+  /// never starts a timer. Idempotent: cancels any prior timer first, so a
+  /// re-load does not leave two running.
+  void _startStatePoll() {
+    _statePoll?.cancel();
+    if (_stateCommands.isEmpty) return;
+    _statePoll = Timer.periodic(
+        const Duration(seconds: 4), (_) => unawaited(_tickStatePoll()));
+  }
+
+  /// One background state refresh. Skips its turn — rather than stacking —
+  /// while a read is already in flight, the screen is still loading, or the
+  /// user is mid-send (don't fight an optimistic toggle). Transient errors are
+  /// swallowed so a momentary blip does not blank a working screen; [_load] and
+  /// the manual Refresh still surface failures.
+  Future<void> _tickStatePoll() async {
+    if (!mounted || _polling || _loading || _sending.isNotEmpty) return;
+    _polling = true;
+    try {
+      await _refreshState();
+    } catch (_) {
+      // Keep the last-known readings until a poll succeeds.
+    } finally {
+      _polling = false;
     }
   }
 
@@ -372,8 +564,45 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
       final reply =
           await client.send(widget.device.host, _kasaHostPort, request);
       _stateByCommand[command] = kasaStateFields(reply);
+      _rawStateReply[command] = reply;
+      // The reply, so an "unknown state" is diagnosable from a log instead of a
+      // blank card — a Kasa device that answers a shape we don't decode (a
+      // bulb's light_state, a variant's renamed fields) is exactly where this
+      // earns its keep.
+      Log.net.debug('kasa $command <- ${widget.device.host}: $reply');
     }
+    await _decodeInstances();
     await _decodeEntities();
+  }
+
+  /// Enumerate each instanced entity's children from the raw reply and read
+  /// each child's roles — a Kasa power strip's per-outlet on/off. A
+  /// single-outlet plug reports no `children`, so this finds none and the plain
+  /// switch renders instead. Kept beside [_decodeEntities] so a poll refreshes
+  /// the outlets the same way it refreshes a plain reading.
+  Future<void> _decodeInstances() async {
+    final codec = ref.read(specCodecProvider);
+    for (final entity in _entities.where((e) => e.isInstanced)) {
+      final reply = _rawStateReply[entity.stateCommand];
+      if (reply == null) continue;
+      final children = await codec.listNetworkInstances(
+        specYaml: widget.controls.specYaml,
+        entityName: entity.name,
+        stateReply: reply,
+      );
+      _instances[entity.name] = children;
+      for (final child in children) {
+        final readings = await codec.readNetworkInstance(
+          specYaml: widget.controls.specYaml,
+          entityName: entity.name,
+          stateReply: reply,
+          instanceId: child.id,
+        );
+        _instanceReadings['${entity.name}/${child.id}'] = {
+          for (final reading in readings) reading.role: reading.reading,
+        };
+      }
+    }
   }
 
   /// The Rabbit Air state poll: sync the device clock (once per session, via
@@ -412,14 +641,28 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   Future<void> _decodeEntities() async {
     final codec = ref.read(specCodecProvider);
     for (final entity in _entities) {
+      // Instanced entities are read per-child in _decodeInstances, not here.
+      if (entity.isInstanced) continue;
       final returned = _stateByCommand[entity.stateCommand];
-      _readings[entity.name] = returned == null
+      final reading = returned == null
           ? null
           : await codec.readNetworkEntity(
               specYaml: widget.controls.specYaml,
               entityName: entity.name,
               returned: returned,
             );
+      _readings[entity.name] = reading;
+      // Say WHY a card reads "State unknown": the state command answered, but
+      // no field in it mapped to this entity's reading. Without this the app is
+      // silent about a real gap (a bulb's light_state, a variant's renamed
+      // keys), which is exactly the "nothing's logged" complaint.
+      if (reading == null &&
+          returned != null &&
+          entity.stateCommand.isNotEmpty) {
+        Log.net.debug('kasa/${entity.name}: state command '
+            '"${entity.stateCommand}" answered but no field mapped to a reading '
+            '(keys: ${returned.keys.join(", ")})');
+      }
     }
     if (mounted) setState(() {});
   }
@@ -435,7 +678,17 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
   /// page over a channel list.
   Future<void> _refreshQuerySources() async {
     if (widget.device.controlPort == null) return;
+    if (!_entities.any((e) => e.optionsSource != null)) return;
 
+    if (mounted) setState(() => _loadingOptions = true);
+    try {
+      await _fetchQuerySources();
+    } finally {
+      if (mounted) setState(() => _loadingOptions = false);
+    }
+  }
+
+  Future<void> _fetchQuerySources() async {
     for (final entity in _entities) {
       final options = entity.optionsSource;
       if (options == null) continue;
@@ -560,34 +813,42 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await _sendNetworkHttp(request);
   }
 
-  /// One plain-HTTP exchange, with the ECP2 signed session as the fallback
-  /// for a refusal: a Roku in "Control by mobile apps = Limited" refuses
-  /// plain ECP but answers ECP2, so a 403 is where the fallback begins — the
-  /// same rendered request, translated and sent down the session. Every other
-  /// device, and every other failure, keeps the plain answer.
+  /// Send one control request. A Roku is driven over the app's authenticated
+  /// ECP2 session — the same path the official Roku app uses — for EVERYTHING,
+  /// and falls back to plain ECP only when the session is unavailable (not a
+  /// Roku, or ECP2 could not be opened) or cannot carry this particular request
+  /// (a path with no ECP2 equivalent, or the device refuses it over the
+  /// session). Every non-Roku device has only the plain path: [_openEcp2]
+  /// returns null and this is a plain send on the discovered port.
   Future<String> _sendNetworkHttp(HttpRequestDto request) async {
-    final host = widget.device.host;
-    final port = widget.device.controlPort!;
-    try {
-      return await ref
-          .read(httpControlClientProvider)
-          .send(host, port, request);
-    } on ControlRefusedException {
-      final session = await _openEcp2();
-      if (session == null) rethrow;
-      final body = await session.send(request);
-      if (mounted && !_viaSignedSession) {
-        setState(() => _viaSignedSession = true);
+    final session = await _openEcp2();
+    if (session != null) {
+      try {
+        return await session.send(request);
+      } on ControlRefusedException {
+        // ECP2 has no equivalent for this path, or the device refused it over
+        // the session — fall through to the plain path below.
+      } on Ecp2Exception {
+        // The session faltered; fall back to plain ECP for this request. A
+        // socket that truly died self-closes and throws fast next time, so the
+        // fallback stays cheap and the keyboard watch keeps owning the session.
       }
-      return body;
     }
+    return ref
+        .read(httpControlClientProvider)
+        .send(widget.device.host, _controlPort, request);
   }
 
-  /// The signed session, opened once and reused. Only a Roku speaks ECP2 —
-  /// the check is the `roku:ecp` search target the device answered to at
-  /// discovery, not a name guess. A session that fails to open (not a Roku
-  /// after all, client id refused, TV asleep) is remembered as unavailable so
-  /// every later refusal keeps the plain answer instead of retrying a socket.
+  /// The signed session, opened once and reused. Only a Roku speaks ECP2 — the
+  /// check is the `roku:ecp` search target the device answered to at discovery,
+  /// not a name guess.
+  ///
+  /// A failure that means "no ECP2 here" — the client id refused, no challenge,
+  /// an [Ecp2Exception] — is latched as unavailable, so later refusals keep the
+  /// plain answer instead of waiting out a fresh timeout each time. A mere
+  /// transient (a socket drop, a busy TV at load) is NOT latched: it clears the
+  /// in-flight handle so the next caller re-attempts, so a hiccup while the
+  /// keyboard watch opens the session cannot poison the control fallback.
   Future<Ecp2Session?> _openEcp2() {
     final session = _ecp2;
     if (session != null) return Future.value(session);
@@ -596,10 +857,19 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     }
     return _ecp2Opening ??= ref
         .read(ecp2ControlServiceProvider)
-        .connect(widget.device.host, widget.device.controlPort!)
-        .then<Ecp2Session?>((opened) => _ecp2 = opened)
-        .catchError((Object e) {
-      _ecp2Unavailable = true;
+        .connect(widget.device.host, _controlPort)
+        .then<Ecp2Session?>((opened) {
+      _ecp2Opening = null;
+      // Disposed while the connect was in flight: dispose() saw a null _ecp2
+      // and closed nothing, so close it here or the socket leaks.
+      if (!mounted) {
+        unawaited(opened.close());
+        return null;
+      }
+      return _ecp2 = opened;
+    }).catchError((Object e) {
+      _ecp2Opening = null;
+      if (e is Ecp2Exception) _ecp2Unavailable = true;
       Log.net.debug('ecp2 session failed for ${widget.device.host}: $e');
       return null;
     });
@@ -620,6 +890,76 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     await ref
         .read(kasaControlClientProvider)
         .send(widget.device.host, _kasaHostPort, request);
+  }
+
+  /// Toggle one outlet of a power strip: render the child-scoped command with
+  /// the outlet's id threaded into `context.child_ids` (via the action's
+  /// instance params), send it, and re-poll so the switch snaps to the strip's
+  /// true state. The busy key is "entity/childId", so one outlet's spinner
+  /// does not disable its siblings.
+  Future<void> _sendKasaChild(
+      NetworkEntityDto entity, NetworkInstanceDto child, bool on) async {
+    final action = _actionFor(entity, on ? 'turn_on' : 'turn_off');
+    if (action == null) return;
+    final key = '${entity.name}/${child.id}';
+    setState(() {
+      _sending.add(key);
+      _error = null;
+    });
+    try {
+      final codec = ref.read(specCodecProvider);
+      final request = await codec.renderNetworkKasaCommand(
+        specYaml: widget.controls.specYaml,
+        commandName: action.commandName,
+        values: {
+          for (final param in action.instanceParams) param.param: child.id,
+        },
+      );
+      await ref
+          .read(kasaControlClientProvider)
+          .send(widget.device.host, _kasaHostPort, request);
+      await _refreshState();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorText(e,
+          context: 'device control',
+          fallback: 'The outlet did not accept that. Try again.'));
+    } finally {
+      if (mounted) setState(() => _sending.remove(key));
+    }
+  }
+
+  /// Fixed busy key for the Kasa light card — one control surface, so a write
+  /// disables the whole card rather than one widget.
+  static const _kasaLightKey = '__kasa_light__';
+
+  /// Send a Kasa bulb command (on/off, brightness) and re-poll so the card
+  /// snaps to the bulb's true light_state.
+  Future<void> _sendKasaLight(
+      String commandName, Map<String, String> values) async {
+    setState(() {
+      _sending.add(_kasaLightKey);
+      _error = null;
+    });
+    try {
+      final codec = ref.read(specCodecProvider);
+      final request = await codec.renderNetworkKasaCommand(
+        specYaml: widget.controls.specYaml,
+        commandName: commandName,
+        values: values,
+      );
+      await ref
+          .read(kasaControlClientProvider)
+          .send(widget.device.host, _kasaHostPort, request);
+      await _refreshState();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = friendlyErrorText(e,
+          context: 'device control',
+          fallback: 'The light did not accept that. Try again.'));
+    } finally {
+      if (mounted) setState(() => _sending.remove(_kasaLightKey));
+    }
   }
 
   /// The Rabbit Air send: sync the clock, render the envelope, encrypt it
@@ -770,23 +1110,55 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _controlGateNote(),
                 const SizedBox(height: 12),
               ],
-              // Refusals the signed session rescued: everything works, but
-              // the user is one settings toggle away from the plain path,
-              // and honesty about which path is in use beats silence.
-              if (!_controlRefused && _viaSignedSession) ...[
-                _signedSessionNote(),
-                const SizedBox(height: 12),
-              ],
               // Readings and plain controls first, in the order the spec
-              // declares them — but not a select: the channel picker goes
-              // below the pad, so a Roku's remote keeps a stable position
-              // whether the app list is still loading or just came back.
+              // declares them — but not a select (the channel picker goes below
+              // the pad) and not the keyboard (placed by whether it's usable,
+              // below), so a Roku's remote keeps a stable position whether the
+              // app list is still loading or just came back.
               for (final entity in _entities.where((entity) =>
                   entity.platform != 'button' &&
-                  entity.platform != 'select')) ...[
+                  entity.platform != 'select' &&
+                  entity.platform != 'text' &&
+                  // Instanced entities render per-outlet below, not here.
+                  !entity.isInstanced &&
+                  // On a strip, the plain "Outlet" switch has no top-level
+                  // relay_state to read, so it would only ever show "State
+                  // unknown" beside the real per-outlet switches — hide it.
+                  !(_hasInstanceChildren && entity.platform == 'switch') &&
+                  // A Kasa light answering the plug spec has no relay to switch;
+                  // hide the dead switch and show the note below instead.
+                  !(_isKasaBulb && entity.platform == 'switch'))) ...[
                 _entityCard(entity),
                 const SizedBox(height: 12),
               ],
+              if (_isKasaBulb) ...[
+                _kasaLightCard(),
+                const SizedBox(height: 12),
+              ],
+              // A power strip's outlets: one switch per child, named by its
+              // alias, under a header that names it a strip. Empty (so nothing
+              // renders) on a single-outlet plug.
+              if (_hasInstanceChildren) ...[
+                Row(
+                  children: [
+                    PowerStripIcon(
+                        size: 22,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    const SizedBox(width: 8),
+                    Text('Outlets',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+              for (final entity in _entities.where((e) => e.isInstanced))
+                for (final child in _instances[entity.name] ?? const []) ...[
+                  _instanceSwitchCard(entity, child),
+                  const SizedBox(height: 12),
+                ],
               // The remote's buttons share one card: twenty-seven separate
               // cards would bury the D-pad below the fold, and a remote is
               // one control surface, not a list of readings.
@@ -794,6 +1166,15 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _remoteCard(_buttons),
                 const SizedBox(height: 12),
               ],
+              // The keyboard when the device says a field is focused: right
+              // under the controls, where a hand reaches after steering the
+              // D-pad onto a search box — and above the channel picker, which
+              // is the once-a-session tap.
+              if (_keyboardFocused == true)
+                for (final entity in _textEntities) ...[
+                  _entityCard(entity),
+                  const SizedBox(height: 12),
+                ],
               // The channel picker is the foot of the remote: launching Plex
               // or Prime matters, but it is the tap you reach for once —
               // not the D-pad you steer with — so it waits under the pad
@@ -803,6 +1184,16 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                 _entityCard(entity),
                 const SizedBox(height: 12),
               ],
+              // The keyboard when we cannot tell whether it's usable (no signed
+              // session, or the query failed): parked at the very foot, out of
+              // the way but still reachable — hiding a control the user might
+              // need is worse than one extra card down here. A positive "no
+              // field focused" is the one case it shows nowhere at all.
+              if (_keyboardFocused == null)
+                for (final entity in _textEntities) ...[
+                  _entityCard(entity),
+                  const SizedBox(height: 12),
+                ],
               const SizedBox(height: 16),
               _deviceInfo(description),
             ],
@@ -814,6 +1205,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
 
   List<NetworkEntityDto> get _buttons =>
       _entities.where((entity) => entity.platform == 'button').toList();
+
+  /// The `text` entities (a Roku's on-screen keyboard). Placed by
+  /// [_keyboardFocused] rather than in the ordinary entity list — above the
+  /// channel picker when a field is focused, below it when the state is
+  /// unknown, nowhere when the device says nothing is focused.
+  Iterable<NetworkEntityDto> get _textEntities =>
+      _entities.where((entity) => entity.platform == 'text');
 
   /// The card shown for a Rabbit Air purifier with no stored user key:
   /// what the key is, where the owner finds it, and the way in. The key is a
@@ -976,48 +1374,122 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     );
   }
 
-  /// The note shown while commands ride the ECP2 signed session because the
-  /// device refused plain ECP — the working state of a Limited-mode Roku.
-  /// Names the setting like the refusal note does, but as an option, not a
-  /// fix: nothing is broken.
-  Widget _signedSessionNote() {
+  /// A Kasa smart light answering the plug spec: recognise it and point on/off
+  /// and brightness at the Kasa app, rather than render a switch that cannot
+  /// work. See [_isKasaBulb].
+  Widget _kasaBulbNote() {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     return Card(
       margin: EdgeInsets.zero,
-      color: scheme.surfaceContainerHighest,
+      color: scheme.secondaryContainer,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.verified_user_outlined, color: scheme.onSurfaceVariant),
+            Icon(Icons.lightbulb_outline, color: scheme.onSecondaryContainer),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Using the signed session',
+                    'This is a Kasa smart light',
                     style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600, color: scheme.onSurface),
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSecondaryContainer),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'The device has "Control by mobile apps" set to Limited, '
-                    'so commands are going through the authenticated session '
-                    'the official Roku app uses. Everything here works; '
-                    'setting it to Enabled (Settings > System > Advanced '
-                    'system settings) lets this app use the plain, documented '
-                    'path instead.',
+                    'It answers the same protocol as a Kasa plug, so this app '
+                    'recognises it — but it switches and dims through a '
+                    'light_state the plug controls do not drive. Use the Kasa '
+                    'app for on/off and brightness for now.',
                     style: text.bodySmall
-                        ?.copyWith(color: scheme.onSurfaceVariant),
+                        ?.copyWith(color: scheme.onSecondaryContainer),
                   ),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Real on/off + brightness for a Kasa smart bulb, driven over the same
+  /// socket as a plug but through the lightingservice (see the spec's light_on
+  /// / light_off / set_brightness). Falls back to [_kasaBulbNote] only if the
+  /// light_state can't be parsed. The brightness slider commits on release.
+  Widget _kasaLightCard() {
+    final light = _kasaLight;
+    if (light == null) return _kasaBulbNote();
+    final busy = _sending.contains(_kasaLightKey);
+    final alias = _stateByCommand['get_sysinfo']?['alias'];
+    final title = (alias != null && alias.isNotEmpty) ? alias : 'Light';
+    final brightness =
+        (_kasaBrightnessDraft ?? light.brightness.toDouble()).clamp(1, 100);
+    // A strip and a bulb take on/off and brightness over different services.
+    final strip = _isKasaLightStrip;
+    final onCmd = strip ? 'strip_on' : 'light_on';
+    final offCmd = strip ? 'strip_off' : 'light_off';
+    final brightnessCmd = strip ? 'strip_brightness' : 'set_brightness';
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(title,
+                    style: text.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+              if (busy)
+                const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                Switch(
+                  value: light.on,
+                  onChanged: (on) =>
+                      unawaited(_sendKasaLight(on ? onCmd : offCmd, const {})),
+                ),
+            ],
+          ),
+          Row(
+            children: [
+              Icon(Icons.brightness_6_outlined, color: scheme.onSurfaceVariant),
+              Expanded(
+                child: Slider(
+                  value: brightness.toDouble(),
+                  min: 1,
+                  max: 100,
+                  divisions: 99,
+                  label: '${brightness.round()}%',
+                  onChanged: busy
+                      ? null
+                      : (v) => setState(() => _kasaBrightnessDraft = v),
+                  onChangeEnd: (v) {
+                    setState(() => _kasaBrightnessDraft = null);
+                    unawaited(_sendKasaLight(
+                        brightnessCmd, {'brightness': v.round().toString()}));
+                  },
+                ),
+              ),
+              SizedBox(
+                width: 44,
+                child: Text('${brightness.round()}%',
+                    textAlign: TextAlign.end, style: text.bodyMedium),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -1413,6 +1885,13 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
     final turnOn = _actionFor(entity, 'turn_on');
     final turnOff = _actionFor(entity, 'turn_off');
     final busy = _sending.contains(entity.name);
+    // A single Kasa outlet/switch names itself in get_sysinfo (alias) — a wall
+    // switch called "Kitchen Lights", a plug called "Desk Lamp". Prefer that
+    // over the generic "Outlet", the same way a strip's per-outlet cards show
+    // each child's alias.
+    final kasaState = _isKasa ? _stateByCommand[entity.stateCommand] : null;
+    final alias = kasaState?['alias'];
+    final title = (alias != null && alias.isNotEmpty) ? alias : entity.name;
 
     return _card(
       child: Row(
@@ -1421,7 +1900,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(entity.name,
+                Text(title,
                     style: Theme.of(context)
                         .textTheme
                         .titleMedium
@@ -1447,6 +1926,56 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
                   ? null
                   : (wantOn) =>
                       unawaited(_send(entity, wantOn ? turnOn : turnOff)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// One outlet of a power strip, named by its alias — the instanced twin of
+  /// [_switchCard]. Its on/off reads from the child's `is_on` role and its
+  /// toggle scopes the write to this outlet's id via [_sendKasaChild].
+  Widget _instanceSwitchCard(
+      NetworkEntityDto entity, NetworkInstanceDto child) {
+    final isOn =
+        _instanceReadings['${entity.name}/${child.id}']?['is_on']?.isOn;
+    final turnOn = _actionFor(entity, 'turn_on');
+    final turnOff = _actionFor(entity, 'turn_off');
+    final busy = _sending.contains('${entity.name}/${child.id}');
+
+    return _card(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(child.label,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+                if (isOn == null)
+                  Text('State unknown',
+                      style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          if (busy)
+            const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2))
+          else
+            Switch(
+              value: isOn ?? false,
+              onChanged: (turnOn == null ||
+                      turnOff == null ||
+                      _lockedFor(turnOn) ||
+                      _lockedFor(turnOff))
+                  ? null
+                  : (wantOn) =>
+                      unawaited(_sendKasaChild(entity, child, wantOn)),
             ),
         ],
       ),
@@ -1516,7 +2045,7 @@ class _NetworkDeviceScreenState extends ConsumerState<NetworkDeviceScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                _loading
+                (_loading || _loadingOptions)
                     ? 'Asking the device...'
                     : _controlRefused
                         ? 'The device is refusing to share this list. Enable '

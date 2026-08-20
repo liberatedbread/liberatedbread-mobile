@@ -71,3 +71,4 @@ emulator-logcat*.txt
 # `git commit -a` away from the history.
 ios-simulator-log*.txt
 ios-crash-reports/
+vendor/protocol-specs/device-specs/index-temp.json

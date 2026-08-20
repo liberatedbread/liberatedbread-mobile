@@ -69,6 +69,7 @@ final _catalogueSpec = DeviceSpecDto(
   protocol: 'ble',
   category: 'light',
   localNamePrefixes: const ['ACME_'],
+  localNames: const [],
   serviceUuids: const [],
   companyIds: Uint16List(0),
   macPrefixes: const [],

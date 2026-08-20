@@ -88,6 +88,18 @@ pub mod msg {
     pub const STATE_ACCESS_POINT: u16 = 0x132; // 306
 }
 
+/// The `SECURITY_PROTOCOL` byte for an open network — no passphrase. The other
+/// documented values (3 WPA-TKIP, 5 WPA2-AES, …) are all secured; only this one
+/// takes an empty password.
+pub const SECURITY_OPEN: u8 = 1;
+
+/// Whether a `SECURITY_PROTOCOL` byte names an open network — the one case that
+/// takes no passphrase. Kept here with the rest of the LIFX wire semantics so a
+/// consumer never re-spells the constant.
+pub fn is_open(security: u8) -> bool {
+    security == SECURITY_OPEN
+}
+
 /// The `SECURITY_PROTOCOL` byte to try when the target network never appeared in
 /// a scan (a hidden SSID, or a device that scanned nothing): home networks
 /// overwhelmingly run WPA2-AES.

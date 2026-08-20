@@ -23,7 +23,9 @@ use std::collections::BTreeMap;
 
 use crate::error::ProtocolError;
 use crate::protocol::soap::EntityReading;
-use crate::spec::types::{scalar_to_string, DeviceSpec, Entity, SpecCommand, SpecCommandParameter};
+use crate::spec::types::{
+    scalar_to_string, DeviceSpec, Entity, EntityInstances, SpecCommand, SpecCommandParameter,
+};
 
 /// The transport a command must declare to be sendable from here.
 pub const TRANSPORT: &str = "http";
@@ -403,27 +405,18 @@ pub fn list_instances(entity: &Entity, reply: &str) -> Result<Vec<Instance>, Pro
         .instances
         .as_ref()
         .ok_or_else(|| ProtocolError::EntityNotInstanced(entity.name.clone()))?;
-    let children = parse_reply_object(reply)?;
-
-    let mut listed: Vec<Instance> = children
-        .iter()
+    Ok(instance_children(instances, reply)?
+        .into_iter()
         .map(|(id, child)| Instance {
-            id: id.clone(),
             label: instances
                 .label_path
                 .as_deref()
-                .and_then(|path| walk(child, path))
+                .and_then(|path| walk(&child, path))
                 .and_then(|v| v.as_str().map(str::to_string))
                 .unwrap_or_else(|| id.clone()),
+            id,
         })
-        .collect();
-    listed.sort_by(|a, b| match (a.id.parse::<u64>(), b.id.parse::<u64>()) {
-        (Ok(x), Ok(y)) => x.cmp(&y),
-        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
-        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
-        (Err(_), Err(_)) => a.id.cmp(&b.id),
-    });
-    Ok(listed)
+        .collect())
 }
 
 /// Read one child's roles out of a state reply, per the entity's
@@ -439,14 +432,16 @@ pub fn read_instance_entity(
     reply: &str,
     instance_id: &str,
 ) -> Result<BTreeMap<String, EntityReading>, ProtocolError> {
-    if entity.instances.is_none() {
-        return Err(ProtocolError::EntityNotInstanced(entity.name.clone()));
-    }
-    let children = parse_reply_object(reply)?;
-    let Some(child) = children.get(instance_id) else {
+    let instances = entity
+        .instances
+        .as_ref()
+        .ok_or_else(|| ProtocolError::EntityNotInstanced(entity.name.clone()))?;
+    let children = instance_children(instances, reply)?;
+    let Some((_, child)) = children.iter().find(|(id, _)| id == instance_id) else {
         return Ok(BTreeMap::new());
     };
 
+    let on_when_nonzero = entity.on_when_nonzero();
     let mut readings = BTreeMap::new();
     for (role, path) in &entity.state_mapping {
         let Some(dotted) = path.as_str() else {
@@ -455,12 +450,16 @@ pub fn read_instance_entity(
         let Some(value) = walk(child, dotted) else {
             continue;
         };
-        // The JSON type decides the reading: this API reports decoded
-        // values, so a bool is on/off and a number is the number — no
-        // `on_when` table where the wire already speaks boolean.
+        // The JSON type decides the reading: a bool is on/off, a string is
+        // text. A number is the number — UNLESS the entity declares
+        // `on_when: nonzero`, in which case it is on/off (nonzero = on). A Hue
+        // light already speaks boolean and needs no table; a Kasa outlet
+        // reports `state` as 0/1 and does, exactly as the plain switch reads
+        // relay_state.
         let reading = match value {
             serde_json::Value::Bool(b) => EntityReading::OnOff(*b),
             serde_json::Value::Number(n) => match n.as_f64() {
+                Some(number) if on_when_nonzero => EntityReading::OnOff(number != 0.0),
                 Some(number) => EntityReading::Number(number),
                 None => continue,
             },
@@ -472,21 +471,65 @@ pub fn read_instance_entity(
     Ok(readings)
 }
 
-/// Parse a state reply as the JSON object the spec promises, naming what
-/// actually arrived when it is not one — "got a string" is diagnosable,
-/// "invalid" is not.
-fn parse_reply_object(
+/// Enumerate an instanced entity's children from its state reply, as (id, child)
+/// pairs in the order they should be shown.
+///
+/// Two shapes, chosen by whether `instances.children_path` is set:
+/// - **Nested array** (a Kasa strip's `system.get_sysinfo.children`): each
+///   element is a child and carries its own id in `instances.id_field`
+///   (default `id`). A path that resolves to nothing yields no children — a
+///   single-outlet plug reports no `children`, so the entity degrades to the
+///   plain switch rather than erroring.
+/// - **Object keyed by id** (a Hue bridge): the reply itself is the map, each
+///   key an id.
+///
+/// Ids sort numerically where they are numbers (light 2 before light 10) and
+/// lexically otherwise (Kasa's `<deviceId>00`, `<deviceId>01`, … stay in
+/// outlet order).
+fn instance_children(
+    instances: &EntityInstances,
     reply: &str,
-) -> Result<serde_json::Map<String, serde_json::Value>, ProtocolError> {
+) -> Result<Vec<(String, serde_json::Value)>, ProtocolError> {
     let parsed: serde_json::Value =
         serde_json::from_str(reply).map_err(|e| ProtocolError::InvalidStateReply(e.to_string()))?;
-    match parsed {
-        serde_json::Value::Object(map) => Ok(map),
-        other => Err(ProtocolError::InvalidStateReply(format!(
-            "expected an object keyed by instance id, got {}",
-            json_kind(&other)
-        ))),
-    }
+
+    let mut children: Vec<(String, serde_json::Value)> = match instances.children_path.as_deref() {
+        Some(path) => {
+            let Some(node) = walk(&parsed, path) else {
+                return Ok(Vec::new());
+            };
+            let serde_json::Value::Array(elements) = node else {
+                return Err(ProtocolError::InvalidStateReply(format!(
+                    "expected an array of children at {path}, got {}",
+                    json_kind(node)
+                )));
+            };
+            let id_field = instances.id_field.as_deref().unwrap_or("id");
+            elements
+                .iter()
+                .filter_map(|child| {
+                    let id = walk(child, id_field)?.as_str()?.to_string();
+                    Some((id, child.clone()))
+                })
+                .collect()
+        }
+        None => match parsed {
+            serde_json::Value::Object(map) => map.into_iter().collect(),
+            other => {
+                return Err(ProtocolError::InvalidStateReply(format!(
+                    "expected an object keyed by instance id, got {}",
+                    json_kind(&other)
+                )))
+            }
+        },
+    };
+    children.sort_by(|a, b| match (a.0.parse::<u64>(), b.0.parse::<u64>()) {
+        (Ok(x), Ok(y)) => x.cmp(&y),
+        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+        (Err(_), Err(_)) => a.0.cmp(&b.0),
+    });
+    Ok(children)
 }
 
 fn json_kind(value: &serde_json::Value) -> &'static str {
@@ -717,6 +760,64 @@ entities:
         parse_device_spec(HUB).expect("hub fixture parses")
     }
 
+    // ── A Kasa power strip: children are a nested ARRAY, not a keyed object,
+    // each carrying its id in a field, and its on/off as an integer state.
+    const STRIP: &str = r#"
+device:
+  name: "Test Strip"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "wifi"
+  category: "switch"
+commands:
+  get_sysinfo:
+    description: "Device info, including the children array."
+    transport: "tcp-json"
+    body: '{"system":{"get_sysinfo":{}}}'
+  relay_on_child:
+    description: "Turn one outlet on."
+    transport: "tcp-json"
+    body: '{"context":{"child_ids":["{child_id}"]},"system":{"set_relay_state":{"state":1}}}'
+    parameters:
+      child_id: { type: "string", source: "instance:id" }
+  relay_off_child:
+    description: "Turn one outlet off."
+    transport: "tcp-json"
+    body: '{"context":{"child_ids":["{child_id}"]},"system":{"set_relay_state":{"state":0}}}'
+    parameters:
+      child_id: { type: "string", source: "instance:id" }
+entities:
+  - platform: "switch"
+    name: "Outlet"
+    instances:
+      keyed_by: "id"
+      children_path: "system.get_sysinfo.children"
+      id_field: "id"
+      label_path: "alias"
+    state_command: "get_sysinfo"
+    state_mapping: { is_on: "state", on_when: "nonzero" }
+    commands: { turn_on: "relay_on_child", turn_off: "relay_off_child" }
+"#;
+
+    const STRIP_REPLY: &str = r#"{"system":{"get_sysinfo":{
+        "alias": "Rack Strip",
+        "relay_state": 0,
+        "children": [
+            {"id": "8006AAA00", "alias": "RackFans", "state": 1},
+            {"id": "8006AAA01", "alias": "Pleaky1",  "state": 0},
+            {"id": "8006AAA02", "alias": "Spare",    "state": 1}
+        ]
+    }}}"#;
+
+    // A single-outlet plug reports its relay at the top level and carries no
+    // `children` array at all.
+    const SINGLE_REPLY: &str =
+        r#"{"system":{"get_sysinfo":{"alias": "Desk Lamp", "relay_state": 1}}}"#;
+
+    fn strip() -> DeviceSpec {
+        parse_device_spec(STRIP).expect("strip fixture parses")
+    }
+
     #[test]
     fn a_json_body_renders_typed_and_in_declared_order() {
         let request = render_request(
@@ -846,6 +947,53 @@ entities:
         let readings = read_instance_entity(entity, REPLY, "zz").unwrap();
         assert!(!readings.contains_key("brightness"));
         assert!(read_instance_entity(entity, REPLY, "404")
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn kasa_outlets_enumerate_from_the_nested_children_array() {
+        let spec = strip();
+        let listed = list_instances(&spec.entities[0], STRIP_REPLY).unwrap();
+        assert_eq!(
+            listed,
+            vec![
+                Instance {
+                    id: "8006AAA00".into(),
+                    label: "RackFans".into()
+                },
+                Instance {
+                    id: "8006AAA01".into(),
+                    label: "Pleaky1".into()
+                },
+                Instance {
+                    id: "8006AAA02".into(),
+                    label: "Spare".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_kasa_outlet_reads_its_integer_state_as_on_off() {
+        let spec = strip();
+        let entity = &spec.entities[0];
+        // state 1 with on_when: nonzero is on, not the number 1.
+        let on = read_instance_entity(entity, STRIP_REPLY, "8006AAA00").unwrap();
+        assert_eq!(on.get("is_on"), Some(&EntityReading::OnOff(true)));
+        // state 0 is off.
+        let off = read_instance_entity(entity, STRIP_REPLY, "8006AAA01").unwrap();
+        assert_eq!(off.get("is_on"), Some(&EntityReading::OnOff(false)));
+    }
+
+    #[test]
+    fn a_single_outlet_plug_has_no_children_to_enumerate() {
+        let spec = strip();
+        let entity = &spec.entities[0];
+        // No `children` array: nothing to enumerate, so the caller falls back
+        // to the plain switch rather than seeing a bogus instance.
+        assert!(list_instances(entity, SINGLE_REPLY).unwrap().is_empty());
+        assert!(read_instance_entity(entity, SINGLE_REPLY, "anything")
             .unwrap()
             .is_empty());
     }

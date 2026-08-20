@@ -227,6 +227,85 @@ void main() {
           throwsA(isA<Ecp2Exception>()));
     });
 
+    test('query-textedit-state reads a focused field as usable', () async {
+      final (session, socket) = await authenticatedSession();
+      addTearDown(session.close);
+
+      final answer = session.queryTextEditFocused();
+      await Future<void>.delayed(Duration.zero);
+      expect(socket.sent.last,
+          {'request': 'query-textedit-state', 'request-id': '2'});
+      socket.receive({
+        'response': 'query-textedit-state',
+        'response-id': '2',
+        'status': '200',
+        'content-data': base64
+            .encode(utf8.encode('{"textedit-state":{"textedit-id":"12"}}')),
+      });
+
+      expect(await answer, isTrue);
+    });
+
+    test('query-textedit-state reads an unfocused device as not usable',
+        () async {
+      final (session, socket) = await authenticatedSession();
+      addTearDown(session.close);
+
+      final answer = session.queryTextEditFocused();
+      await Future<void>.delayed(Duration.zero);
+      socket.receive({
+        'response': 'query-textedit-state',
+        'response-id': '2',
+        'status': '200',
+        'content-data': base64
+            .encode(utf8.encode('{"textedit-state":{"textedit-id":"none"}}')),
+      });
+
+      expect(await answer, isFalse);
+    });
+
+    test(
+        'a textedit-state that cannot be read throws, so the caller shows the '
+        'keyboard rather than hide it', () async {
+      final (session, socket) = await authenticatedSession();
+      addTearDown(session.close);
+
+      final answer = session.queryTextEditFocused();
+      await Future<void>.delayed(Duration.zero);
+      socket.receive({
+        'response': 'query-textedit-state',
+        'response-id': '2',
+        'status': '200',
+        'content-data': base64.encode(utf8.encode('{"unexpected":true}')),
+      });
+
+      await expectLater(answer, throwsA(isA<Ecp2Exception>()));
+    });
+
+    test('an unsolicited textedit notice moves the focus stream', () async {
+      final (session, socket) = await authenticatedSession();
+      addTearDown(session.close);
+
+      final focuses = <bool>[];
+      final sub = session.textEditFocusChanges.listen(focuses.add);
+      addTearDown(sub.cancel);
+
+      // A notice carrying the state directly...
+      socket.receive({
+        'notify': 'textedit',
+        'textedit-state': {'textedit-id': 'search-1'},
+      });
+      // ...and one carrying it base64 in content-data, focus cleared.
+      socket.receive({
+        'notify': 'textedit',
+        'content-data': base64
+            .encode(utf8.encode('{"textedit-state":{"textedit-id":"none"}}')),
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(focuses, [true, false]);
+    });
+
     test('overlapping requests match their own responses by id', () async {
       final (session, socket) = await authenticatedSession();
       addTearDown(session.close);
