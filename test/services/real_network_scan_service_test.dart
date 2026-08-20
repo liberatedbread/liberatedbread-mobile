@@ -282,6 +282,117 @@ void main() {
     });
   });
 
+  group('parseWizReply', () {
+    test('reads mac / module / firmware from a getSystemConfig reply', () {
+      const reply = '{"method":"getSystemConfig","id":1,"result":'
+          '{"mac":"a8bb50123456","moduleName":"ESP01_SHRGB1C_31",'
+          '"fwVersion":"1.25.0"}}';
+      final p = parseWizReply(reply.codeUnits)!;
+      expect(p.mac, 'a8bb50123456');
+      expect(p.moduleName, 'ESP01_SHRGB1C_31');
+      expect(p.fwVersion, '1.25.0');
+    });
+
+    test('our own probe (method, no result) and non-Wiz JSON are rejected', () {
+      expect(
+          parseWizReply('{"method":"getSystemConfig","params":{}}'.codeUnits),
+          isNull);
+      expect(parseWizReply('{"foo":"bar"}'.codeUnits), isNull);
+      expect(parseWizReply('not json'.codeUnits), isNull);
+    });
+  });
+
+  group('parseYeelight', () {
+    test('reads id / model / name / location from an M-SEARCH reply', () {
+      const reply = 'HTTP/1.1 200 OK\r\n'
+          'Location: yeelight://192.168.1.55:55443\r\n'
+          'id: 0x0000000012345678\r\n'
+          'model: color\r\n'
+          'name: Bedroom\r\n';
+      final p = parseYeelight(reply)!;
+      expect(p.id, '0x0000000012345678');
+      expect(p.model, 'color');
+      expect(p.name, 'Bedroom');
+      expect(p.location, 'yeelight://192.168.1.55:55443');
+    });
+
+    test('a payload with neither id nor a yeelight:// location is rejected',
+        () {
+      expect(parseYeelight('HTTP/1.1 200 OK\r\nServer: x\r\n'), isNull);
+    });
+  });
+
+  group('parseGoveeReply', () {
+    test('reads device / sku / ip from a scan reply', () {
+      const reply = '{"msg":{"cmd":"scan","data":{"ip":"192.168.1.66",'
+          '"device":"AA:BB:CC:DD:EE:FF","sku":"H6159"}}}';
+      final p = parseGoveeReply(reply.codeUnits)!;
+      expect(p.device, 'AA:BB:CC:DD:EE:FF');
+      expect(p.sku, 'H6159');
+      expect(p.ip, '192.168.1.66');
+    });
+
+    test('the wrong cmd, or no device, is rejected', () {
+      expect(parseGoveeReply('{"msg":{"cmd":"turn","data":{}}}'.codeUnits),
+          isNull);
+      expect(parseGoveeReply('{"msg":{"cmd":"scan","data":{}}}'.codeUnits),
+          isNull);
+    });
+  });
+
+  group('parseIrobotReply', () {
+    test('reads hostname / robotname / blid from a Roomba reply', () {
+      const reply = '{"ver":"3","hostname":"Roomba-3117C012345678AB",'
+          '"robotname":"Living Room","ip":"192.168.1.77",'
+          '"mac":"80:91:33:AA:BB:CC","sku":"R980020"}';
+      final p = parseIrobotReply(reply.codeUnits)!;
+      expect(p.hostname, 'Roomba-3117C012345678AB');
+      expect(p.robotname, 'Living Room');
+      expect(p.blid, '3117C012345678AB');
+      expect(p.sku, 'R980020');
+      expect(p.mac, '80:91:33:AA:BB:CC');
+    });
+
+    test('a binary MNDP beacon on the same :5678 socket is not an iRobot', () {
+      // The guard that lets MNDP and iRobot share the port: the MikroTik beacon
+      // bytes are not JSON, so they parse to null here (and to a device via
+      // parseMndp).
+      final beacon = <int>[
+        0x00, 0x02, 0x6e, 0xb6, //
+        0x00, 0x05, 0x00, 0x04, ...'core'.codeUnits,
+      ];
+      expect(parseIrobotReply(beacon), isNull);
+      expect(parseIrobotReply('{"hostname":"NotARobot"}'.codeUnits), isNull);
+    });
+  });
+
+  group('parseKnxSearchResponse', () {
+    test('reads name / individual address / serial / mac from a DIB', () {
+      final packet = <int>[
+        0x06, 0x10, 0x02, 0x02, 0x00, 0x44, // header (SEARCH_RESPONSE, len 68)
+        0x08, 0x01, 0xc0, 0xa8, 0x01, 0x58, 0x0e, 0x57, // HPAI
+        0x36, 0x01, 0x02, 0x00, // DIB len 54, device-info, TP1, status
+        0x11, 0x0a, // individual address 1.1.10
+        0x00, 0x01, // project installation id
+        0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // serial
+        0xe0, 0x00, 0x17, 0x0c, // multicast address
+        0x00, 0x05, 0x26, 0xaa, 0xbb, 0xcc, // MAC
+        ...'KNX IP Router'.codeUnits,
+        ...List<int>.filled(30 - 'KNX IP Router'.length, 0), // name padding
+      ];
+      final p = parseKnxSearchResponse(packet)!;
+      expect(p.name, 'KNX IP Router');
+      expect(p.individualAddress, '1.1.10');
+      expect(p.serial, '001122334455');
+      expect(p.mac, '00:05:26:aa:bb:cc');
+    });
+
+    test('a non-SEARCH_RESPONSE or too-short datagram is rejected', () {
+      expect(parseKnxSearchResponse(List<int>.filled(68, 0)), isNull);
+      expect(parseKnxSearchResponse([0x06, 0x10, 0x02, 0x06]), isNull);
+    });
+  });
+
   group('NetworkScanCoalescer', () {
     test('a first sighting is emitted', () {
       final coalescer = NetworkScanCoalescer();

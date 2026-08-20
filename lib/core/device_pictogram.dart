@@ -38,6 +38,7 @@ class DevicePictogram {
         // A device we can place on the network but not categorize further — a
         // Tuya beacon names no product type, only that it is one.
         'smart-device' => Icons.devices_other_outlined,
+        'robot' => Icons.smart_toy_outlined,
         _ => null,
       };
 
