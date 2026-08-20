@@ -11,3 +11,9 @@ tags:
   # on a developer machine cannot start writing to whatever is advertising
   # nearby. Run deliberately, with the device you mean to poke in view.
   live_ble: {}
+  # The Wi-Fi counterpart: smoke tests against a REAL device on the LAN, over
+  # the machine's own network stack. Guarded the same way — the tag, plus a
+  # self-skip unless LB_LIVE_ROKU=1 — so a bare `flutter test` on a developer
+  # machine cannot start pressing buttons on whatever TV is in earshot. Run
+  # deliberately, with the device you mean to drive in view.
+  live_wifi: {}
