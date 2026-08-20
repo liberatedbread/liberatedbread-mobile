@@ -305,15 +305,6 @@ services:
             description: "Start the belt (enters run at start speed)."
             verification: "confirmed"
             value: [0xF7, 0xA2, 0x04, 0x01, 0xA7, 0xFD]
-          stop_belt:
-            description: >
-              Stop the belt. This generation has no dedicated stop opcode; the
-              belt stops on a speed of 0 (set_speed with speed 0), so this is
-              that frame as a constant — F7 A2 01 00 <sum(A2,01,00)=A3> FD — so
-              a client has a named Stop to bind a button to rather than reaching
-              for set_speed. switch_mode 2 (standby) also halts it.
-            verification: "confirmed"
-            value: [0xF7, 0xA2, 0x01, 0x00, 0xA3, 0xFD]
           calibration_mode:
             description: "Calibration mode toggle (opcode 0xA2/0x03; QWalkingPad setCali: 1 enables, 0 disables but keeps pad running)."
             verification: "reported"

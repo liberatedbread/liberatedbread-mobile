@@ -27,22 +27,12 @@ device:
   protocol: "wifi"
   category: "hub"
   transport: "tls-json"
-  integration: "identify_only"
   notes: >
     Lutron Caseta Smart Bridge 2 advertises multiple local services. LEAP on
     port 8081 is the modern local TLS JSON/WebSocket control protocol. LAP on
     port 8083 is deprecated. The _lutron._tcp status service exposes stable
     bridge identity including MACADDR, firmware CODEVER, system type, and
     device class. HomeKit HAP is separately advertised on port 4548.
-
-    This project does NOT drive LEAP yet, so the bridge is classified
-    integration: identify_only — the app recognises it from its _leap._tcp /
-    _lutron._tcp advertisements and hands the user off to Lutron's own app
-    rather than claiming control. The full LEAP handshake, certificate pairing
-    and command surface below are documented and kept intact for when a LEAP
-    transport is implemented; nothing here has been removed. There is no local
-    web admin UI to deep-link to (control is the LEAP protocol itself), so no
-    admin_url is set.
   identification:
     # Deliberately NO mac_prefixes. The bridge captured below reports
     # b8:94:d9:aa:bb:cc in its _lutron._tcp MACADDR record, but B8:94:D9 is

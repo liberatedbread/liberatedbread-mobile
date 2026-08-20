@@ -1,126 +1,246 @@
 # Govee H5075 BLE Thermometer/Hygrometer
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
+#
+# Hardware verification, 2026-08-12 and 2026-08-13. One unit: GVH5075_BBCC at
+# A4:C1:38:AA:BB:CC, firmware 1.04.07, hardware 1.03.02, read back off the device
+# itself with `aa 0e` and `aa 0d`. Captured from a Raspberry Pi 5 on BlueZ 5.82
+# with bleak 3.0.2. Packet captures and a claim-by-claim ledger accompany this file.
+#
+# A command marked `verification: confirmed` was sent to that unit and its response
+# recorded. `reported` means a named source says so and it was not reproduced here.
+# `hypothesis` means it is inferred and untested. The seventeen other models this
+# file covers were not tested at all; see device.variants.
 
 device:
   name: "Govee H5075 Thermometer/Hygrometer"
   manufacturer: "Govee (Shenzhen Intellirocks Tech Co., Ltd.)"
   manufacturer_status: "active"
   testing:
-    status: untested
-    detail: capture-verified
+    status: verified
+    detail: mostly-verified
     notes: >-
-      Advertisement decoding checked against third-party btsnoop/pcap captures
-      of real H5074/H5075/H5100/H5105/H5174 units archived in the research
-      store (govee-h5075-thermo/repo/BTData/). Captures were recorded by the
-      GoveeBTTempLogger author, not this project, and no hardware has been
-      driven from this spec here.
+      Driven end to end against one H5075, GVH5075_BBCC at A4:C1:38:AA:BB:CC,
+      firmware 1.04.07, hardware 1.03.02, on 2026-08-12 and 2026-08-13. A
+      Raspberry Pi 5, BlueZ 5.82, bleak 3.0.2. What was exercised: passive
+      advertisement decoding against the unit's own LCD, GATT enumeration, the
+      command channel swept across the whole opcode space, the history download,
+      the stored record count, and the firmware and hardware version reads. Every
+      command carrying `verification: confirmed` below was sent to that unit and
+      its reply recorded, and the captures are published alongside.
+
+      `mostly-verified` is claimed for the H5075 protocol surface, which is what
+      this document mostly is. It is not claimed for the variant list: seventeen
+      of the eighteen models here were never in the room and nothing
+      model-specific about any of them is confirmed. Of the four physical tests
+      on the H5075 itself that once stood here, three are done: sub-zero to
+      -10.6 C for the sign bit, up to 56.7 C for the mask divergence, and a
+      battery pull for the factory reset. The fourth cannot be closed rather
+      than merely being outstanding. The battery error flag needs a nearly dead
+      cell, and the cells that shipped with this unit read 100 percent
+      throughout.
   protocol: "ble"
   category: "sensor"
   notes: >
-    BLE thermometer and hygrometer that broadcasts temperature and humidity
-    via manufacturer-specific advertisement data — no connection required
-    for live readings. $10-15. Also covers H5072, H5074, H5100, H5101,
-    H5104, H5105, H5110, H5111, H5174, H5177, H5179 variants with similar
-    advertisement formats, plus (per the govee-ble parser) H5129 (same
-    6-byte format as H5075), H5071/H5051/H5052 (9-byte little-endian
-    H5179-like layout at bytes 1-5), H5178/B5178 (9-byte manufacturer
-    0x0001 with a sensor_id byte at index 2 — 0=primary, 1=remote) and
-    H5112 (8-byte probe variant).
+    BLE thermometer and hygrometer. It broadcasts temperature, humidity and
+    battery in a manufacturer advertisement, so live readings need no connection,
+    no pairing and no account. Connecting adds three things scanning cannot give
+    you: the reading at two decimals instead of one, the stored record count, and
+    the history buffer.
 
-    HARDWARE: Telink TLSR8253F512 BLE SoC; FCC ID 2AQA6-H5075 (grantee
-    Shenzhen Intellirocks Tech, 2019-12-13). Firmware updates are OTA via
-    the Govee Home app through the Telink OTA service
-    02f00000-0000-0000-0000-00000000fe00; no public firmware downloads
-    exist. The Govee Home app also probes for TI OAD service
-    F000FFC0-0451-4000-B000-000000000000 and 0xFD00 when identifying
-    OTA-capable devices.
 
-    ADVERTISEMENT DECODING (H5075, manufacturer ID 0xEC88, 6-byte data):
-      bytes 1-3: 24-bit value encoding temperature + humidity
-        Bit 23 = sign (1 = negative)
-        Bits 22-0 = temp*10000 + humidity*10 (combined integer)
-        temp = (value & 0x7FFFFF) / 10000.0  (apply sign if bit 23 set)
-        humidity = (value % 1000) / 10.0
-      byte 4: battery percentage (0-100)
+    ADVERTISEMENT, manufacturer 0xEC88, 6 bytes:
 
-    H5074 (manufacturer 0xEC88, 7-byte data):
-      bytes 1-2: temperature (int16 LE) / 100.0
-      bytes 3-4: humidity (uint16 LE) / 100.0
-      byte 5: battery percentage
-      (Little-endian — wcbonner goveebttemplogger.cpp:610 and govee-ble
-      parser.py:533 `<hHB`; proven against logged capture
-      `ec88:00 f8 09 9f 1c 64 02` → 25.52 °C / 73.27 %, LE-only decode.)
+      byte 0     0x00 in every packet observed
+      bytes 1-3  24-bit big-endian. Bit 23 is a sign flag. Bits 22-0 hold
+                 temperature and humidity packed into one decimal number as
+                 (temperature * 10000) + (humidity * 10)
+      byte 4     battery percent, 0 to 100
+      byte 5     0x00 in every packet observed
 
-    H5177/H5174/H5100 (manufacturer 0x0001, 6-byte data):
-      bytes 2-4: same 24-bit temp/humidity encoding as H5075
-      byte 5: battery percentage
+    Decode by splitting the digits rather than dividing the whole value:
 
-    H5179 (manufacturer 0xEC88, 9-byte data):
-      bytes 4-5: temperature (int16 LE) / 100.0
-      bytes 6-7: humidity (uint16 LE) / 100.0
-      byte 8: battery percentage
-      (Little-endian — wcbonner goveebttemplogger.cpp:689, govee-ble
-      parser.py:622 `<hHB`, Heckie75 govee-h5075.py:114.)
+      v = bits 22-0
+      temperature C = (v // 1000) / 10.0
+      humidity %    = (v % 1000) / 10.0
 
-    All models also advertise a custom 128-bit service UUID:
-      494e5445-4c4c-495f-524f-434b535f4857
-    which spells "INTELLI_ROCKS_HW" in ASCII (little-endian encoding).
+    Dividing v by 10000 leaves the humidity digits sitting inside the temperature,
+    so the reported temperature then drifts with the humidity. Worked example:
+    v = 243490 is 24.3 C at 49.0 %, not 24.349 C. Checked against the LCD three
+    times, and against a 75 second window where the temperature held at 24.1 while
+    the humidity walked from 46.2 % to 53.3 %.
 
-    HISTORY DOWNLOAD: available on most models (~20 days storage; H5177
-    holds 1 month of 1-minute records). Connect over GATT, subscribe to
-    notifications on 494e5445-4c4c-495f-524f-434b535f2013, write requests
-    to 494e5445-4c4c-495f-524f-434b535f2012. All packets are 20 bytes,
-    byte 19 = XOR checksum of bytes 0-18:
-      - start: write `33 01 <start u32 LE> <end u32 LE>` (record offsets)
-      - history records stream back as notifications on ...2013
-      - keep-alive: send `aa 01` roughly every 75 notifications
-      - end: device sends `ee 01`, or stop when offset <= 6
-    Characteristic ...2011 (DeviceData) carries a rich command set:
-    `aa 01` current measurement, `aa 03/04` alarms, `aa 06/07`
-    calibration offsets, `aa 08` battery, `aa 0c` MAC+serial,
-    `aa 0d` hardware rev, `aa 0e` firmware rev; `33 03/04/06/07` set
-    alarms/offsets. (Sources: wcbonner README "Download Details",
-    NHaag87 H5105_protocol.md, Heckie75 govee-h5075.py.)
+    The sign bit is confirmed. This unit went to -10.6 C on 2026-08-16, bit 23 set
+    on 61 advertisements with the magnitude decoding smoothly as it warmed, the
+    LCD agreed inside the logged window, and the stored history came back carrying
+    111 consecutive negative records.
 
-    ENCRYPTED GATT (newer firmware): GATT sessions may require an
-    app-layer auth handshake (not BLE pairing) before commands/history
-    work — H5105 disconnects if written unencrypted. Auth service
-    00010203-0405-0607-0809-0a0b0c0d1910, chars ...2b10 (notify),
-    ...2b11 (write), ...2b12 (config). Handshake: write encrypted
-    `e7 01` (TX1) → RX1 carries the 16-byte session key → write
-    `e7 02` (TX2). Encryption: AES-128-ECB on bytes 0-15 + RC4 on
-    bytes 16-19; hardcoded app PSK is ASCII "MakingLifeSmarte"
-    (goveebttemplogger.cpp:3389). Advertisement decoding needs no auth.
+    Masking bits 22-0 (0x7FFFFF) and masking bits 18-0 (0x7FFFF, which is what
+    wcbonner's GoveeBTTempLogger does) give the same answer below 52.4 C and part
+    company above it. That is now tested too, up to 56.7 C. The last agreeing
+    packet was 07ff87, 524167, just under the 19-bit ceiling of 524287; the next
+    one at 526165 read 52.6 C and 16.5 % under the wide mask against 0.1 C and
+    87.7 % under the narrow one. The wide mask in this file is the correct one.
+    The narrow one does not drift, it wraps, and it corrupts the humidity with it,
+    because both digits share the one packed integer.
 
-    BATTERY: there is NO standard Battery Service 0x180F/0x2A19 — it is
-    absent from every primary source including a full GATT map of the
-    sibling H5105. Battery comes from the advertisement byte (MSB = error
-    flag per govee-ble parser.py:61, `batt = data[-1] & 0x7F`) or the
-    `aa 08` command on characteristic ...2011.
+    The encoding leaves no room for a humidity of exactly 100.0 %, since 100.0 * 10
+    is 1000 and would carry into the temperature digits. Whether the device clamps
+    below that or overflows is untested.
 
-    ADDRESS TYPE: most models use public address. H5100/H5105 require
-    LE_RANDOM_ADDRESS.
+    The payload is Celsius whatever the screen is set to. Captured with the display
+    in Fahrenheit and confirmed against the same reading in Celsius.
 
-    CONFIDENCE: HIGH for advertisement decoding formats, manufacturer IDs,
-    custom UUIDs, and history download characteristics — sourced from
-    github.com/wcbonner/GoveeBTTempLogger, a production C++ logger used
-    in Home Assistant and other integrations. Advertised name patterns
-    ("GVH5075_XXXX", "Govee_H5074_XXXX", "GVH5174_XXXX") are confirmed
-    across all implementations.
+
+    ADVERTISING is split across two packets. The ADV_IND carries flags, the
+    complete local name, the 16-bit service UUID 0xEC88 and the sensor payload, and
+    it is exactly 31 bytes with nothing spare. The scan response carries an iBeacon
+    frame under Apple's company ID 0x004C, with proximity UUID
+    494e5445-4c4c-495f-524f-434b535f4857, major 0x5075, minor 0xf2ff. A passive
+    scanner never sees the beacon. The sensor data is in the ADV_IND, so passive
+    scanning is enough for live readings. Interval measured at about 2.04 s.
+
+    That 128-bit INTELLI_ROCKS_HW value is not advertised as a service UUID by this
+    unit. It appears only in the scan response as an iBeacon proximity UUID, which
+    is manufacturer data (AD type 0xFF) rather than a service UUID list (AD type
+    0x06 or 0x07). A GATT service with that UUID does exist once you connect.
+
+    Its ASCII reads forward on the wire: 49 4e 54 45 4c 4c 49 5f 52 4f 43 4b 53 5f
+    48 57 is "INTELLI_ROCKS_HW" left to right. btmon prints iBeacon fields
+    byte-swapped and will tell you the opposite. It swaps major and minor as well,
+    rendering 0x5075 and 0xf2ff as 30032 and 65522, which is how to catch it doing
+    so. bleak reports the raw bytes.
+
+    Advertising flags are 0x05, LE Limited Discoverable, on a device that
+    advertises permanently.
+
+
+    GATT. This unit answers commands in the clear with no app-layer handshake. Its
+    auth service is 00010203-0405-0607-0809-0a0b0c0d1912 and carries only 2b12, and
+    nothing needed it, so the presence of that service is not a signal that a
+    handshake is required. The handshake described below for newer firmware, and the
+    report that an H5105 disconnects when written unencrypted, were not reproduced.
+
+    The device hangs up on its own after about 11.9 s idle, measured three times.
+    A write every 1.5 s stretched that to roughly 20 s, twice, so there is a ceiling
+    either way and the client does not control it. Reconnecting costs about 8.4 s.
+    It keeps advertising while connected, so a second radio can read live values
+    during a history download.
+
+    Every packet on both channels is 20 bytes. On the command characteristic ...2011
+    byte 19 is an XOR of bytes 0 to 18, and it validated on every response seen. On
+    the history channel ...2013 it is not a checksum: a 2-byte offset plus six
+    3-byte records fills all 20 bytes, so byte 19 is the last byte of the sixth
+    record. Checking it as a checksum there will fail on valid data.
+
+
+    HISTORY. Subscribe to ...2013 first, then write 33 01 to ...2012. Subscribing
+    afterwards does not work and is not recoverable: the write is accepted, the link
+    survives, and subscribing four seconds later yields nothing.
+
+    Records stream back as notifications, each a 2-byte big-endian offset followed
+    by six 3-byte records carrying the same 24-bit encoding as the advertisement.
+    Offset 0 is the newest record and offsets increase with age. That was settled by
+    diffing three dumps taken minutes apart: dump A plus 6 equals dump B on 533 of
+    533 records, and dump B plus 2 equals dump C on 539 of 539. Unused slots in the
+    final packet are padded ffffff.
+
+    The two u32 arguments do not select a record range. They are accepted, `first`
+    influences how much comes back, and the stream always ends at the newest records
+    no matter what was asked for. Identical requests do not produce identical
+    transfers either: first=100 last=0 sent 108 notifications on air in one run and
+    92 in the next. Ask for the lot, then read the offsets you actually get rather
+    than the range you asked for. Roughly 24 parameter combinations were tried; the
+    trials are in the evidence.
+
+    Two things a client must not do. Do not stop when the offset drops to 6 or
+    below, because the final packet carries real records down to offset 0 and
+    discarding it throws away up to six of them. And do not wait for ee 01 to end
+    the transfer, because it was never sent across five dumps; the stream ends when
+    the offset reaches 0.
+
+    Ask `aa ef` for the stored record count before requesting anything. It is exact,
+    where a dump can be truncated, and it is how a client sizes the transfer.
+
+    Records are written every 61.3 s, not every 60. Measured by sampling `aa ef` every
+    five minutes for 12.9 hours, 149 samples covering 755 records, fitted by least
+    squares; the slope is 61.33 s and the worst residual is 0.61 of a record, so the
+    rate is constant across that window. A second reading over 25.8 hours against the
+    count taken the previous evening gives 61.24 s and agrees to within 0.15 %.
+
+    The device has no clock to ask, so a client timestamping a download walks back from
+    the time of the transfer and inherits this. At 61.3 s the drift against an assumed
+    60 s is 2.2 %, which puts the oldest record of a full 20 day buffer about ten hours
+    adrift. Take two counts a few hours apart on the unit in front of you rather than
+    trusting this figure: it is one unit's crystal, not a specification.
+
+    A 533 record transfer took 0.71 s, so the 11.9 s link budget was not close to
+    binding. A full buffer is a different question and has not been tested. The
+    `aa 01` keep-alive that other sources describe was not needed: four transfers of
+    89, 89, 90 and 91 notifications all ran to completion with none sent.
+
+
+    SILICON AND FIRMWARE, from the upstream audit rather than from this bench.
+    Telink TLSR8253F512 BLE SoC. FCC ID 2AQA6-H5075, grantee Shenzhen Intellirocks
+    Tech, granted 2019-12-13. Firmware updates go over the air through the Govee
+    Home app on the Telink OTA service 02f00000-0000-0000-0000-00000000fe00, and no
+    public firmware images exist. The app also probes for the TI OAD service
+    F000FFC0-0451-4000-B000-000000000000 and for 0xFD00 when it is working out
+    whether a device can take an update. None of that was exercised here and the
+    OTA service was not seen in the GATT enumeration of this unit, which is what
+    you would expect if it only appears in an update mode.
+
+
+    OTHER MODELS. This file also covers H5051, H5052, H5071, H5072, H5074, H5100,
+    H5101, H5104, H5105, H5110, H5111, H5112, H5129, H5174, H5177, H5178 and H5179.
+    None of them was tested. Their entries carry the source they came from and
+    nothing here should be read as confirming them.
+
+    Their advertisement layouts differ, all of it reported
+    rather than confirmed, sourced from the govee-ble parser and from wcbonner's
+    GoveeBTTempLogger:
+
+      H5129                 same 6 byte format as the H5075
+      H5177, H5174, H5100   manufacturer 0x0001, 6 bytes, the same 24 bit
+                            temperature and humidity encoding at bytes 2-4 and
+                            battery at byte 5
+      H5074                 manufacturer 0xEC88, 7 bytes, temperature int16 little
+                            endian over 100 at bytes 1-2, humidity uint16 little
+                            endian over 100 at bytes 3-4, battery at byte 5
+      H5179                 manufacturer 0xEC88, 9 bytes, temperature int16 little
+                            endian over 100 at bytes 4-5
+      H5071, H5051, H5052   9 bytes, the H5179 little endian layout at bytes 1-5
+      H5178, B5178          9 bytes, manufacturer 0x0001, with a sensor id byte at
+                            index 2 where 0 is the primary and 1 the remote
+      H5112                 8 bytes, a probe variant
+
+    Note that the digit-splitting correction above applies to every model using the
+    24 bit combined encoding, which is the H5075, the H5129, and the H5177, H5174
+    and H5100 group. It does not apply to the little endian layouts, which carry
+    temperature and humidity in separate fields and never had the defect.
 
   identification:
     local_name_prefix: "GVH5075"
     service_uuids:
-      - "000088ec-0000-1000-8000-00805f9b34fb"
+      # Advertised as the 16-bit UUID 0xEC88, written here in full 128-bit form.
+      # Earlier revisions of this file had 000088ec-..., which is this value byte
+      # swapped and matches no device. Filtering discovery on it finds nothing.
+      - "0000ec88-0000-1000-8000-00805f9b34fb"
     manufacturer_data:
       company_id: 60552
       company_id_hex: "0xEC88"
       description: >
-        Govee H5074/H5075/H5179. The H5177's 0x0001 is deliberately NOT listed
-        in additional_company_ids: 0x0001 is Nokia's assigned ID and is one of
-        the most widely squatted values in the wild, so scanning on it would
-        flag unrelated hardware as a likely Govee.
+        Govee H5074/H5075/H5179. The H5177's 0x0001 is deliberately not listed in
+        additional_company_ids: 0x0001 is Nokia's assigned ID and one of the most
+        widely squatted values in the wild, so scanning on it would flag unrelated
+        hardware as a likely Govee.
+    mac_prefixes:
+      - prefix: "A4:C1:38"
+        confidence: "low"
+        notes: >
+          Observed on this unit. The block belongs to Telink Semiconductor, who sell
+          the SoC into a great many unrelated vendors, so it ranks a device rather
+          than identifying one.
 
   discovery:
     methods:
@@ -132,6 +252,13 @@ device:
           manufacturer_data:
             company_id: 60552
             description: "Manufacturer ID 0xEC88 (Govee H5074/H5075/H5179). H5177 uses 0x0001."
+        notes: >
+          The GVH prefix matches this unit, which advertises GVH5075_BBCC. It does
+          not match two of the models listed in device.variants: the H5074
+          advertises as Govee_H5074_XXXX and the H5179 as Govee_H5179_XXXX. Whether
+          that costs you those models depends on whether a consumer ANDs the name
+          and the manufacturer ID or ORs them, which this spec does not say. Matching
+          on the company ID alone finds all three.
     identity:
       stable_keys: ["address"]
       display: "local_name"
@@ -141,30 +268,30 @@ device:
     required: false
     confidence: "high"
     notes: >
-      No provisioning or connection needed for live readings — device
-      broadcasts temperature and humidity via BLE advertisements.
-      Connection only needed for history download (H5177 and similar).
-      No pairing or bonding required.
+      No provisioning, no connection and no pairing for live readings. Connect only
+      when you want the two-decimal reading, the record count, or history.
     methods:
       - type: "ble_direct"
-        verified: false
+        verified: true
         description: >
-          Passive scan for manufacturer data with company ID 0xEC88 or 0x0001.
-          Parse temperature, humidity, and battery from advertisement payload.
-          For history download: connect, subscribe to ...2013 notify char,
-          write request to ...2012 write char.
+          Passive scan for manufacturer data with company ID 0xEC88, then decode the
+          6-byte payload. Run against GVH5075_BBCC on firmware 1.04.07 and correlated
+          to the device LCD.
         ble:
           pairing_required: false
         steps:
-          - action: "Scan for Govee BLE advertisements (company ID 0xEC88 or 0x0001)."
+          - action: "Passive scan for BLE advertisements carrying company ID 0xEC88."
             actor: "client"
             request:
               protocol: "ble_gatt"
-          - action: "Parse temperature and humidity from manufacturer data."
+          - action: "Decode temperature, humidity and battery from the 6-byte manufacturer payload."
             actor: "client"
     factory_reset:
       confidence: "medium"
-      effect: "Removes battery. No stored credentials — device is broadcast-only."
+      effect: >
+        Pull the battery. There are no stored credentials and no pairing state to
+        clear. Not executed on the test unit, so this is the expected behaviour of a
+        broadcast-only device rather than an observation.
       procedures:
         - name: "Remove battery"
           steps:
@@ -174,7 +301,7 @@ device:
     rejoin:
       in_place_supported: true
       requires_factory_reset: false
-      notes: "No persistent connection. Just scan for new advertisements."
+      notes: "No persistent connection state. Scan for new advertisements."
     credentials:
       wifi_passphrase_protection: "not_applicable"
       stored_on_device: []
@@ -182,181 +309,501 @@ device:
       notes: "BLE advertisement broadcast. No auth or pairing."
 
   variants:
+    # Only the H5075 row was tested. Every other row here is carried from the source
+    # named against it and is not hardware confirmed.
     - model: "H5072"
       identification:
         local_name_prefix: "GVH5072"
+      notes: "Untested. No format detail in any source consulted."
     - model: "H5074"
       identification:
         local_name_prefix: "Govee_H5074"
-      notes: "7-byte manufacturer data format (int16 temp, uint16 humidity)."
+      notes: >
+        Untested. 7-byte manufacturer data, int16 LE temperature and uint16 LE
+        humidity, both hundredths, then a battery byte. Reported by wcbonner
+        goveebttemplogger.cpp and Bluetooth-Devices/govee-ble parser.py, which agree.
+        Note the name prefix does not start with GVH.
     - model: "H5075"
       identification:
         local_name_prefix: "GVH5075"
-      notes: "6-byte manufacturer data format with combined 24-bit temp/humidity encoding."
+      notes: "Confirmed on hardware. 6-byte format, the packed 24-bit encoding above."
     - model: "H5100"
       identification:
         local_name_prefix: "GVH5100"
-      notes: "Uses LE_RANDOM_ADDRESS. 6-byte format (manufacturer 0x0001)."
+      notes: "Untested. Reported to use a random address and manufacturer 0x0001."
     - model: "H5101"
       identification:
         local_name_prefix: "GVH5101"
+      notes: "Untested."
     - model: "H5104"
       identification:
         local_name_prefix: "GVH5104"
+      notes: "Untested."
     - model: "H5105"
       identification:
         local_name_prefix: "GVH5105"
-      notes: "Uses LE_RANDOM_ADDRESS."
+      notes: >
+        Untested. Reported to use a random address, and the model the encrypted
+        handshake reports come from.
     - model: "H5110"
       identification:
         local_name_prefix: "GVH5110"
+      notes: "Untested."
     - model: "H5111"
       identification:
         local_name_prefix: "GVH5111"
-      notes: "8-byte format (manufacturer 0x0001)."
+      notes: "Untested. Reported 8-byte format under manufacturer 0x0001."
     - model: "H5174"
       identification:
         local_name_prefix: "GVH5174"
-      notes: "6-byte format (manufacturer 0x0001)."
+      notes: "Untested. Reported 6-byte format under manufacturer 0x0001."
     - model: "H5177"
       identification:
         local_name_prefix: "GVH5177"
-      notes: "6-byte format (manufacturer 0x0001). Supports history download (~1 month)."
+      notes: >
+        Untested. Reported 6-byte format under manufacturer 0x0001, and roughly a
+        month of one-minute history. An earlier revision of this file said the H5177
+        uses the same 24-bit encoding as the H5075. GoveeBTTempLogger still decodes
+        it with the older floating form at goveebttemplogger.cpp:656, so the two
+        genuinely differ as of that source.
     - model: "H5179"
       identification:
         local_name_prefix: "Govee_H5179"
-      notes: "9-byte format (manufacturer 0xEC88)."
+      notes: >
+        Untested. Reported 9-byte format, int16 LE temperature and uint16 LE
+        humidity in hundredths at bytes 4-7, battery at byte 8. Name prefix does not
+        start with GVH.
     - model: "H5129"
       identification:
         local_name_prefix: "H5129"
-      notes: "Same 6-byte format as H5075 (govee-ble parser matches local name substring 'H5129')."
+      notes: >
+        Untested. Reported to use the same 6-byte packed format as the H5075, which
+        means the digit-splitting decode above applies to it. Reported by the
+        Bluetooth-Devices/govee-ble parser, which matches on the local name
+        substring.
     - model: "H5071"
       identification:
         local_name_prefix: "H5071"
-      notes: "9-byte little-endian H5179-like layout, temp/humidity at bytes 1-5 (govee-ble parser)."
+      notes: >
+        Untested. Reported 9-byte little-endian layout with temperature and humidity
+        in bytes 1-5, the same shape as the H5179. Reported by the govee-ble parser.
     - model: "H5051"
       identification:
         local_name_prefix: "H5051"
-      notes: "Same 9-byte LE layout as H5071 (govee-ble parser)."
+      notes: "Untested. Reported to share the H5071 9-byte LE layout. govee-ble parser."
     - model: "H5052"
       identification:
         local_name_prefix: "H5052"
-      notes: "Same 9-byte LE layout as H5071 (govee-ble parser)."
+      notes: "Untested. Reported to share the H5071 9-byte LE layout. govee-ble parser."
     - model: "H5178"
       identification:
         local_name_prefix: "H5178"
-      notes: "9-byte format (manufacturer 0x0001) with sensor_id byte at index 2 (0=primary, 1=remote). B5178 shares it."
+      notes: >
+        Untested. Reported 9-byte format under manufacturer 0x0001 carrying a sensor
+        id at byte index 2, where 0 is the primary sensor and 1 the remote, so one
+        advertiser can report two sensors. The B5178 shares the format. Reported by
+        the govee-ble parser.
     - model: "H5112"
       identification:
         local_name_prefix: "GV5112"
-      notes: "8-byte probe variant (govee-ble parser matches 'GV5112' or 'H5112')."
+      notes: >
+        Untested. Reported 8-byte probe variant. The govee-ble parser matches either
+        GV5112 or H5112, so the name prefix here will miss half of them; a client
+        wanting this model should match both.
 
-  payload_formats:
-    H5075_Advertisement:
-      description: "6-byte manufacturer data for H5075 (company ID 0xEC88)."
-      fields:
-        - index: 0
-          name: "unknown"
-          description: "Always 0x00 in observed captures."
-        - index: 1
-          name: "temp_humi_combined"
-          description: >
-            24-bit combined value (bytes 1-3). Bit 23 = sign flag, bits 22-0 =
-            (temperature * 10000) + (humidity * 10). Decode: temp = (value & 0x7FFFFF) / 10000.0,
-            humidity = (value % 1000) / 10.0. Apply negative if sign bit set.
-        - index: 4
-          name: "battery"
-          description: "Battery percentage (0-100)."
-      example: "00 04 18 87 61 00"
-      parse_rules:
-        - "Bytes 1-3 form a 24-bit big-endian integer."
-        - "Bit 23 (MSB of byte 1) is the sign flag; mask it off before decoding."
-        - "temp = (masked_value / 10000.0); humidity = (masked_value % 1000) / 10.0."
-        - "Byte 4 is battery percent directly."
+payload_formats:
+  H5075_Advertisement:
+    description: >
+      The 6-byte manufacturer payload under company ID 0xEC88. Confirmed against
+      hardware on firmware 1.04.07.
+    fields:
+      - index: 0
+        name: "reserved"
+        description: "0x00 in every packet observed."
+      - index: 1
+        name: "temp_humidity_packed"
+        description: >
+          Bytes 1 to 3, a 24-bit big-endian value. Bit 23 is a sign flag for the
+          temperature. Bits 22-0 hold (temperature * 10000) + (humidity * 10), which
+          is two values sharing one decimal number rather than a scaled reading.
+      - index: 4
+        name: "battery"
+        unit: "%"
+        description: "Battery percent, 0 to 100. Read 100 on fresh cells across every packet."
+      - index: 5
+        name: "reserved_tail"
+        description: >
+          0x00 in every packet observed. Not the battery: an earlier revision of this
+          file decoded battery as data[-1] & 0x7F, which reads this byte and always
+          yields 0.
+    example: "00 04 18 87 61 00"
+    parse_rules:
+      - "Bytes 1 to 3 are a 24-bit big-endian integer. Call it raw."
+      - "Bit 23 (0x800000) is the temperature sign flag. Confirmed below freezing on 2026-08-16, down to -10.6 C."
+      - "v = raw & 0x7FFFFF"
+      - "Do NOT mask with 0x7FFFF, 19 bits. It agrees below 52.4 C and wraps above it: at a true 52.6 C it reads 0.1 C and reports 87.7 % humidity."
+      - "temperature in C = (v // 1000) / 10.0, negated if the sign flag is set."
+      - "humidity in % = (v % 1000) / 10.0"
+      - "Do NOT compute temperature as v / 10000.0. That leaves the humidity digits in the temperature and the reading drifts with humidity."
+      - "Byte 4 is battery percent directly. Byte 5 is not the battery."
+      - "Worked example: 00 04 18 87 61 00 has raw = 0x041887 = 268423, so 26.8 C at 42.3 %, battery 97."
+      - "Temperature is Celsius regardless of what the device display is set to."
+
+  H5075_HistoryNotification:
+    description: >
+      A single 20-byte notification on characteristic ...2013 during a history
+      transfer. Confirmed against five dumps.
+    fields:
+      - index: 0
+        name: "offset"
+        description: >
+          Bytes 0 to 1, 16-bit BIG-endian. The offset of the first record in this
+          packet. Offset 0 is the newest record and offsets increase with age, so the
+          offset counts down by 6 as the transfer proceeds.
+      - index: 2
+        name: "records"
+        description: >
+          Bytes 2 to 19, six 3-byte records back to back. Each record uses the same
+          24-bit packed encoding as the advertisement payload, so decode it with the
+          H5075_Advertisement rules. Slots past the end of the buffer are ffffff.
+    example: "02 14 03 52 2c 03 59 db 03 5d be 03 61 a2 03 61 9f 03 61 9c"
+    parse_rules:
+      - "Bytes 0 to 1 are a big-endian uint16 giving the offset of the first record in the packet."
+      - "The six records that follow are at offset, offset-1, offset-2 ... offset-5."
+      - "Decode each 3-byte record exactly like bytes 1 to 3 of the advertisement payload."
+      - "A record of ffffff is padding past the end of the buffer, not a reading."
+      - "There is NO checksum byte on this channel. All 20 bytes are offset plus record data."
+      - "Worked example: the offset above is 0x0214 = 532, and the first record 0x03522c = 217644 decodes to 21.7 C at 64.4 %."
 
 services:
   - uuid: "494e5445-4c4c-495f-524f-434b535f4857"
     name: "Govee INTELLI_ROCKS_HW Service"
     notes: >
-      Custom 128-bit service UUID spelling "INTELLI_ROCKS_HW" in ASCII
-      (little-endian: 0x57 0x48 0x5f 0x53 0x4b 0x43 0x4f 0x52 0x5f...
-      reversed). Advertised by all Govee thermometer models. Connection
-      is only needed for history download; live readings come from
-      passive advertisement scanning.
+      Custom 128-bit service whose UUID spells "INTELLI_ROCKS_HW" in ASCII, reading
+      forward on the wire. Present on this unit and enumerated without pairing. It is
+      not advertised as a service UUID; see device.identification.
     characteristics:
       - uuid: "494e5445-4c4c-495f-524f-434b535f2011"
         name: "Device Data / Command"
         properties: ["read", "write", "notify"]
         notes: >
-          Command channel (wcbonner: DeviceData). 20-byte packets,
-          byte 19 = XOR checksum. `aa 01` current measurement,
-          `aa 03/04` read alarms, `aa 06/07` read calibration offsets,
-          `aa 08` battery, `aa 0c` MAC+serial, `aa 0d` hardware rev,
-          `aa 0e` firmware rev, `aa 0f` MAC; `33 03/04/06/07` set
-          alarms/offsets. On newer firmware these writes require the
-          encrypted handshake on the 00010203-…-1910 auth service first.
+          The command channel. Write a 20-byte packet, take the answer back as a
+          notification on the same characteristic. Byte 0 is 0xAA to read and 0x33 to
+          set, byte 1 is the opcode, byte 19 is an XOR of bytes 0 to 18, and the
+          middle is zero padded.
+
+          The first command after connecting is dropped more often than not, two
+          rounds in three. Send a throwaway write first, or retry. This is why
+          `aa 0c` can look dead when it answers reliably otherwise.
+
+          The `aa` space was swept end to end, all 256 opcodes. Everything not listed
+          below is silent, including aa 00, aa 18 and aa 24, which were re-probed
+          behind a warm-up write in case they had been lost to the first-command drop.
+          aa 02, aa 10 and aa bd answer with an all-zero payload, which is also what
+          the documented but unset calibration reads do, so read that as an unset
+          value rather than an unimplemented opcode.
+        framing:
+          checksum: "xor"
+        commands:
+          get_current_measurement:
+            description: >
+              Current reading at two decimal places. Answers aa 0a with four payload
+              bytes at 2 to 5: temperature as a little-endian SIGNED int16 in
+              hundredths, then humidity as a little-endian unsigned uint16 in
+              hundredths. Example response aa0a 8209 870e -> 24.34 C, 37.19 %.
+              This is finer than the advertisement, which truncates to a tenth: the
+              advertisement showed 24.3 while this read 24.36. Nine samples over three
+              rounds. Not documented anywhere consulted.
+
+              The temperature being signed only shows below freezing and it is easy
+              to get wrong. At -5.61 C this field reads d1fd, which decoded as an
+              unsigned uint16 gives 649.77 C. Confirmed on 2026-08-16 against the
+              unit's own display reading -5.6 at the same moment. Humidity was never
+              observed negative and is treated as unsigned.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xA0]
+            packet_layout:
+              "0": "0xAA, read prefix"
+              "1": "0x0A, opcode"
+              "19": "XOR of bytes 0 to 18"
+          get_record_count:
+            description: >
+              Stored record count as a 32-bit big-endian value at bytes 2 to 5.
+              Answers aa ef. Read 642 on the evening of 2026-08-12, then 1401 and 1410
+              the next morning, and it exceeded the highest offset any dump reported at
+              the same moment. It advances at the history record rate, which is how the
+              record interval below was measured. A dump can be truncated and this
+              cannot, so it is the reliable way to size a transfer before asking for
+              one. Not documented anywhere consulted.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0xEF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x45]
+          get_device_string:
+            description: >
+              Answers aa fe with 0x01 at byte 2 then sixteen ASCII hex characters at
+              bytes 3 to 18. Identical across every read on this unit and different
+              per device, so a serial or key material. The value is deliberately not
+              recorded in this file. Not documented anywhere consulted.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0xFE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x54]
+          get_battery:
+            description: "Battery percent in byte 2. Answered aa08 64, which is 100 and agrees with the advertisement byte."
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x08, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xA2]
+          get_mac_and_serial:
+            description: >
+              Answered aa0c ccbbaa38c1a4 20c3. Bytes 2 to 7 are the MAC in reverse
+              order, A4:C1:38:AA:BB:CC, and bytes 8 to 9 are a further pair, 20 c3,
+              which is what the other sources call a serial. It gave the same answer
+              twice in one link. It returned nothing during the opcode sweep, where it
+              happened to be the first command after a connect; see the note above
+              about the first write being dropped.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xA6]
+          get_mac:
+            description: "Answered ccbbaa38c1a4, the MAC in reverse order with no trailing pair."
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x0F, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xA5]
+          get_hardware_revision:
+            description: >
+              ASCII hardware revision. Answered 1.03.02. Device Information carries
+              only a PnP ID, so this and aa 0e are the only route to a version string.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x0D, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xA7]
+          get_firmware_revision:
+            description: "ASCII firmware revision. Answered 1.04.07, which is the firmware every confirmed row here was verified against."
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x0E, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xA4]
+          get_humidity_alarm:
+            description: >
+              Humidity alarm thresholds. Answered aa03 00 0000 1027: byte 2 is 0x00,
+              then a low and a high as little-endian int16 in hundredths of a percent,
+              so 0.00 % to 100.00 %. That is the full range, so the alarm is off.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xA9]
+            packet_layout:
+              "2": "0x00 on this unit. Reads as an enable or mode flag, untested."
+              "3": "low threshold, int16 little-endian, hundredths of a percent"
+              "5": "high threshold, int16 little-endian, hundredths of a percent"
+          get_temperature_alarm:
+            description: >
+              Temperature alarm thresholds. Answered aa04 00 30f8 7017, the same shape
+              as aa 03: byte 2 is 0x00, then -2000 and 6000 as little-endian int16 in
+              hundredths of a degree, so -20.00 C to 60.00 C. That is the unit's full
+              rated range, so the alarm is off.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAE]
+            packet_layout:
+              "2": "0x00 on this unit. Reads as an enable or mode flag, untested."
+              "3": "low threshold, int16 little-endian, hundredths of a degree C"
+              "5": "high threshold, int16 little-endian, hundredths of a degree C"
+          get_temperature_calibration:
+            description: "Temperature calibration offset. All zero on this unit, which has never been calibrated."
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAC]
+          get_humidity_calibration:
+            description: "Humidity calibration offset. All zero on this unit, which has never been calibrated."
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            value: [0xAA, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAD]
+          get_current_measurement_aa01:
+            description: >
+              Listed by wcbonner and others as the current measurement, and it does
+              not answer on this unit. Twenty consecutive sends in a run where it was
+              not first, plus fifteen more across two other runs, all silent. Use
+              aa 0a instead. Kept here because other sources document it and because
+              it may be the keep-alive the history download is said to want.
+            encoding: "bytes"
+            verification: "reported"
+            observed: false
+            value: [0xAA, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xAB]
+          set_alarms_and_calibration:
+            description: >
+              The 0x33 setter family, 33 03 and 33 04 for alarms and 33 06 and 33 07
+              for calibration offsets, mirroring the aa reads above. Deliberately not
+              exercised: these write persistent state to the device, and changing a
+              unit's stored settings was not needed to document a read path. Byte
+              layout is the mirror of the corresponding read and is untested.
+            encoding: "bytes"
+            verification: "hypothesis"
+            observed: false
+            advanced: true
+            advanced_reason: >
+              Writes persistent settings. A wrong calibration offset silently shifts
+              every reading the device produces afterwards, including the ones already
+              in its history buffer, and there is no read-back that tells you it was
+              you. Read the current values with aa 06 and aa 07 first and save them.
 
       - uuid: "494e5445-4c4c-495f-524f-434b535f2012"
         name: "History Download Request"
-        properties: ["write", "write_without_response"]
+        properties: ["read", "write", "notify"]
         notes: >
-          Write `33 01 <start u32 LE> <end u32 LE>` to download stored
-          records (most models ~20 days; H5177 ~1 month of 1-minute
-          records). 20-byte packets, byte 19 = XOR checksum. Send
-          `aa 01` keep-alive every ~75 notifications; transfer ends on
-          `ee 01` or when the offset reaches <= 6.
+          Where the history request is written. Earlier revisions of this file gave
+          the properties as write and write_without_response;
+          write_without_response is not present on this unit and read and notify are.
+        framing:
+          checksum: "xor"
+        commands:
+          request_history:
+            description: >
+              Start a history transfer. Records arrive as notifications on ...2013, so
+              subscribe there before writing this.
+
+              The two u32 arguments do not select a record range, whatever their names
+              suggest. They are accepted, `first` influences the volume returned, and
+              every transfer ends at the newest records regardless. Repeating the same
+              request does not repeat the transfer: first=100 last=0 produced 108
+              notifications on air in one run and 92 in the next. first=0 last=0
+              produces nothing at all. About 24 combinations were tried.
+
+              Ask for more than you need, then trust the offsets in the reply.
+            encoding: "bytes"
+            verification: "confirmed"
+            observed: true
+            fixed_length: 20
+            template: [0x33, 0x01, "{first}", "{last}"]
+            packet_layout:
+              "0": "0x33, set prefix"
+              "1": "0x01, history request"
+              "2": "first, uint32 little-endian, bytes 2 to 5"
+              "6": "last, uint32 little-endian, bytes 6 to 9"
+              "10": "zero padding through byte 18"
+              "19": "XOR of bytes 0 to 18"
+            parameters:
+              first:
+                type: "uint32"
+                endianness: "little"
+                default: 100
+                notes: >
+                  Influences how many records come back. Does not select a starting
+                  offset. 100 returned a full buffer in every trial.
+              last:
+                type: "uint32"
+                endianness: "little"
+                default: 0
+                notes: "No effect that survived repetition across the trials."
 
       - uuid: "494e5445-4c4c-495f-524f-434b535f2013"
         name: "History Download Response"
-        properties: ["notify"]
+        properties: ["read", "notify"]
         notes: >
-          Notification channel for history data responses. Subscribe
-          before writing to 0x2012.
+          Notification channel for history records. Subscribe before writing to
+          ...2012; subscribing afterwards yields nothing and the transfer cannot be
+          recovered without starting again. Packet layout is in
+          payload_formats.H5075_HistoryNotification. Byte 19 is record data, not a
+          checksum. Earlier revisions of this file gave the properties as notify
+          alone; read is also present.
 
-  - uuid: "00010203-0405-0607-0809-0a0b0c0d1910"
-    name: "Govee Auth Service (newer firmware)"
+  - uuid: "00010203-0405-0607-0809-0a0b0c0d1912"
+    name: "Govee Auth Service"
     notes: >
-      App-layer encrypted handshake required on newer firmware before
-      GATT commands/history (not BLE pairing). Write encrypted `e7 01`
-      (TX1) → RX1 notification carries the 16-byte session key → write
-      `e7 02` (TX2). Encryption: AES-128-ECB on bytes 0-15 + RC4 on
-      bytes 16-19; app PSK is ASCII "MakingLifeSmarte"
-      (wcbonner goveebttemplogger.cpp:3389; NHaag87 H5105_protocol.md).
+      Present on this unit, which carries 2b12 under it and nothing else. Earlier
+      revisions of this file gave the service as ...1910; this unit has ...1912.
+
+      No handshake was required here. Every aa command and the 33 01 history request
+      answered unencrypted on firmware 1.04.07, with no disconnect and no rejection,
+      so the presence of this service does not mean a handshake is needed.
+
+      The handshake other sources describe, for firmware this unit is not running:
+      write an encrypted e7 01 as TX1, take a 16-byte session key back as RX1, write
+      e7 02 as TX2, with AES-128-ECB over bytes 0 to 15 and RC4 over bytes 16 to 19,
+      under the app PSK "MakingLifeSmarte" (wcbonner goveebttemplogger.cpp:3389,
+      NHaag87 H5105_protocol.md). Reported, not reproduced. The claim that an H5105
+      disconnects when written unencrypted is about a model we do not have.
     characteristics:
-      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b10"
-        name: "Auth Notify"
-        properties: ["notify"]
-        notes: "Carries RX1 (session key) and later encrypted responses."
-      - uuid: "00010203-0405-0607-0809-0a0b0c0d2b11"
-        name: "Auth Write"
-        properties: ["write", "write_without_response"]
-        notes: "Write encrypted TX1 (`e7 01`) / TX2 (`e7 02`) handshake packets."
       - uuid: "00010203-0405-0607-0809-0a0b0c0d2b12"
         name: "Auth Config"
-        properties: ["read", "write"]
-        notes: "Handshake configuration characteristic."
+        properties: ["read", "write_without_response", "notify"]
+        notes: >
+          Reads back a single 0x00 byte. Earlier revisions of this file gave the
+          properties as read and write. The 2b10 and 2b11 characteristics those
+          revisions list are absent from this unit; since the service is described as
+          newer-firmware behaviour, that needs a second unit before it is called an
+          error rather than a firmware difference.
 
-  # NOTE: no standard Battery Service 0x180F/0x2A19 exists on this
-  # family — absent from every primary source incl. a full H5105 GATT
-  # map. Battery comes from the advertisement byte or `aa 08` on ...2011.
+  - uuid: "00001800-0000-1000-8000-00805f9b34fb"
+    name: "Generic Access"
+    characteristics:
+      - uuid: "00002a00-0000-1000-8000-00805f9b34fb"
+        name: "Device Name"
+        properties: ["read", "notify"]
+        notes: "Reads GVH5075_BBCC null padded to 18 bytes, where the advertised name is 12 characters."
+      - uuid: "00002a01-0000-1000-8000-00805f9b34fb"
+        name: "Appearance"
+        properties: ["read"]
+        notes: "0x0000, unset."
+      - uuid: "00002a04-0000-1000-8000-00805f9b34fb"
+        name: "Peripheral Preferred Connection Parameters"
+        properties: ["read"]
+        notes: >
+          140028000000e803, which is a 25 to 50 ms connection interval, zero slave
+          latency and a 10 second supervision timeout.
+
+  - uuid: "0000180a-0000-1000-8000-00805f9b34fb"
+    name: "Device Information"
+    notes: >
+      Carries a PnP ID and nothing else. There is no firmware or hardware revision
+      string here, which is why aa 0e and aa 0d on the command channel are the only
+      way to pin the version a verification ran against.
+    characteristics:
+      - uuid: "00002a50-0000-1000-8000-00805f9b34fb"
+        name: "PnP ID"
+        properties: ["read"]
+        notes: >
+          028a2466820100, which decodes as vendor ID source USB-IF, vendor 0x248A,
+          product 0x8266, version 0x0001. The vendor number wants a registry lookup
+          rather than a guess.
+
+  # There is no standard Battery Service 0x180F/0x2A19 on this unit, and none in any
+  # primary source consulted, including a full GATT map of the sibling H5105. Battery
+  # comes from advertisement byte 4 or from aa 08 on ...2011.
 
 entities:
   - platform: "sensor"
     name: "Temperature"
     device_class: "temperature"
-    unit: "°C"
+    unit: "C"
+    precision: 0.1
+    notes: >
+      From advertisement bytes 1 to 3. The wire value is Celsius whatever the display
+      is set to. Connecting and reading aa 0a gives the same measurement to 0.01 C.
   - platform: "sensor"
     name: "Humidity"
     device_class: "humidity"
     unit: "%"
+    precision: 0.1
+    notes: "From advertisement bytes 1 to 3. aa 0a gives it to 0.01 % over a connection."
   - platform: "sensor"
     name: "Battery"
     device_class: "battery"
     unit: "%"
     notes: >
-      Decoded from the advertisement battery byte (MSB = sensor error
-      flag, value = byte & 0x7F) or via `aa 08` on char ...2011 — this
-      family has no standard Battery Service 0x180F/0x2A19.
+      Advertisement byte 4, or aa 08 on ...2011. Not byte 5, which is always zero on
+      this unit. Bluetooth-Devices/govee-ble treats the top bit of the battery byte
+      as an error flag; it was never seen set here, so that is carried from the
+      source rather than confirmed.
 
 helpful_urls:
   - title: "GoveeBTTempLogger"

@@ -80,9 +80,6 @@ spec's `device.setup` block; the patterns are explained in
 | [UniFi Protect Camera](unifi-protect-camera.md) | WiFi | Complete | Enable RTSP in Protect | Ubiquiti |
 | [Ubiquiti UniFi Device](ubiquiti-unifi-device.md) | UDP 10001 | Complete (identify-only) | None needed | Ubiquiti |
 | [MikroTik RouterOS Device](mikrotik-routeros.md) | MNDP | Complete (identify-only) | None needed | MikroTik |
-| [Synology DiskStation NAS](synology-diskstation.md) | findhostd (UDP 9999) | Identify-only (untested) | None needed | Synology |
-| [IPP Network Printer](ipp-network-printer.md) | mDNS / DNS-SD | Identify-only (untested) | None needed | Various (IPP/AirPrint) |
-| [Android Wireless-ADB Device](android-adb-wireless.md) | mDNS / DNS-SD | Identify-only (untested) | None needed | Various (Android 11+) |
 | [Chamberlain Garage Opener (Security+)](chamberlain-garage-opener-secplus.md) | UART | Complete (needs bridge) | ratgdo/Konnected bridge | Chamberlain |
 | [ratgdo Garage-Door Controller](ratgdo.md) | WiFi (ESPHome) | Complete (untested) | Flash + wire to opener | ratgdo / Konnected |
 | [SmartThings Hub v2](smartthings-hub-v2.md) | WiFi | Research | Wired + cloud account (low) | Samsung SmartThings |

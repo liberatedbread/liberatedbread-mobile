@@ -532,7 +532,8 @@
     "category": "appliance",
     "manufacturer": "Ember Technologies",
     "manufacturer_status": "active",
-    "testing_status": "untested",
+    "testing_status": "verified",
+    "testing_detail": "minimally-verified",
     "helpful_urls": [
       {
         "title": "Ember app on Google Play",
@@ -779,8 +780,8 @@
     "category": "sensor",
     "manufacturer": "Govee (Shenzhen Intellirocks Tech Co., Ltd.)",
     "manufacturer_status": "active",
-    "testing_status": "untested",
-    "testing_detail": "capture-verified",
+    "testing_status": "verified",
+    "testing_detail": "mostly-verified",
     "helpful_urls": [
       {
         "title": "GoveeBTTempLogger",
