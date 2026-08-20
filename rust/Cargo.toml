@@ -53,18 +53,18 @@ anyhow = "1"
 # The Rabbit Air LAN protocol's wire crypto: AES-128-CBC with PKCS7 padding,
 # a random IV per message. Pure-Rust RustCrypto crates — the cipher lives here
 # under test rather than being re-implemented (and mis-implemented) per client.
-aes = "0.8"
+aes = "0.9"
 # `alloc` for the padded-vec encrypt/decrypt helpers.
-cbc = { version = "0.1", features = ["alloc"] }
+cbc = { version = "0.2", features = ["alloc"] }
 # OS randomness for the per-message IV; works on every target the app builds
 # for, unlike pulling in the whole `rand` stack for one 16-byte fill.
-getrandom = "0.2"
+getrandom = "0.4"
 # Wemo SoftAP setup encryption: the passphrase key is MD5(keydata||salt) and
 # the ciphertext is base64-encoded (see protocol::wemo_setup, transcribed from
 # the spec's reproducible test vectors). AES-128-CBC/PKCS7 reuses the aes+cbc
 # crates already vendored above for Rabbit Air.
-md-5 = "0.10"
-base64 = "0.22"
+md-5 = "0.11"
+base64 = "0.23"
 
 # Release profile tuned for the mobile cdylib/staticlib the app ships: the
 # library rides inside every APK/IPA download, so binary size wins over the
