@@ -504,6 +504,7 @@
             "camera",
             "climate",
             "display",
+            "earbuds",
             "energy",
             "fitness",
             "health",
@@ -512,6 +513,7 @@
             "light",
             "lock",
             "motor",
+            "mouse",
             "network",
             "printer",
             "reference",
@@ -525,6 +527,7 @@
             "treadmill",
             "tv",
             "vehicle",
+            "warning",
             "wearable",
             "other"
           ],
@@ -548,6 +551,47 @@
           "default": "supported",
           "description": "What THIS project's consumers actually DO with the device, as distinct from whether local control is theoretically possible (that is `local_access`). 'supported' (the default when omitted): the app implements a control and/or monitoring surface for it -- the normal case, implied by the presence of services/commands/http_endpoints/camera. 'identify_only': the app deliberately does not speak the device's control protocol; it discovers it, shows a pictogram, and links to its `admin_url`. Network infrastructure (routers, switches, access points) is the archetype -- fully controllable in principle (RouterOS/UniFi APIs) but out of scope here, so we recognise it and hand the user off to its own admin page rather than pretend to manage it. A device can be `identify_only` and still carry a rich `discovery` block: knowing what it is and where it lives is the whole point."
         },
+        "security_advisory": {
+          "type": "object",
+          "description": "A KNOWN, PUBLIC security problem with this device -- a shared/hardcoded key, a replayable command, or a device that should not be trusted at all (a Bluetooth card skimmer). A consumer surfaces this as a WARNING ahead of any control surface: the app badges the scan result, opens a warning page instead of the controls, and for `severity: malicious` raises an alert on sight. Use ONLY for cited, real advisories -- link the writeup in `advisory_url` -- never speculation. This is orthogonal to `openness`/`manufacturer_status` (which describe the vendor and protocol), and to whether the device is otherwise controllable.",
+          "required": ["severity", "summary"],
+          "additionalProperties": false,
+          "properties": {
+            "severity": {
+              "type": "string",
+              "enum": ["vulnerable", "reported", "malicious"],
+              "description": "'vulnerable': a confirmed, practical exploit exists (e.g. a shared BLE key that unlocks every unit). 'reported': a weaker or unconfirmed problem -- harder to pull off (needs live intercept/replay), or disclosed but unacknowledged by the vendor. 'malicious': the device itself is the threat, not a flawed product -- a card skimmer's Bluetooth module -- and a consumer should alert, not offer control."
+            },
+            "summary": {
+              "type": "string",
+              "description": "One line, shown on the scan badge and at the top of the warning. State the risk plainly: 'Shared Bluetooth key lets a nearby attacker unlock and immobilize the car.'"
+            },
+            "detail": {
+              "type": "string",
+              "description": "The fuller explanation for the warning page: what the flaw is, what an attacker can do, who is affected."
+            },
+            "advisory_url": {
+              "type": "string",
+              "description": "The public writeup this is based on -- a research page, a news story, a CVE. Required in spirit: a security_advisory with no citation is speculation."
+            },
+            "mitigation": {
+              "type": "object",
+              "description": "How the owner can fix it, when the vendor shipped a patch. Absent means no known fix yet -- which the consumer says explicitly rather than implying safety.",
+              "required": ["summary"],
+              "additionalProperties": false,
+              "properties": {
+                "summary": {
+                  "type": "string",
+                  "description": "One line: what the owner does -- 'Update the firmware in the KARR app'."
+                },
+                "url": {
+                  "type": "string",
+                  "description": "Where to do it, when there is a link (the vendor's patch page or app)."
+                }
+              }
+            }
+          }
+        },
         "identification": {
           "type": "object",
           "description": "How to identify this device during scanning. This is the canonical machine-readable summary of the signals a scanner can see BEFORE connecting: local name, advertised service UUIDs, manufacturer-data company ID and MAC OUI. `device.discovery` carries the full evidence and the payload-level matching rules; anything here should also be derivable from there. Kept separate because a scanner needs a cheap answer to \"is this thing worth showing the user?\" on every advertisement, and the signals differ sharply in strength -- see `mac_prefixes`.",
@@ -561,6 +605,12 @@
               "items": { "type": "string", "minLength": 1 },
               "minItems": 1,
               "description": "Every BLE local name prefix this device family advertises under, for families sold as several rebadged models with no shared prefix (inkbird-bbq-thermometer ships under eight). A match on any one of them means exactly what a `local_name_prefix` match means -- these are alternatives, not a conjunction. May be used together with `local_name_prefix`, in which case a consumer treats the union."
+            },
+            "local_names": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "description": "EXACT advertised names matched whole-string, not by prefix. For when a bare factory-default name is the signal and a configured one is not -- a bluetooth card skimmer leaves its module named exactly `HC-05`, where a hobby project renames it. Distinct from `local_name_prefixes`, which matches any name that STARTS with the value."
             },
             "service_uuids": {
               "type": "array",
@@ -927,7 +977,7 @@
                           "broadcast_address": { "type": "string", "default": "255.255.255.255", "description": "Destination for the probe; the directed subnet broadcast (e.g. 192.168.1.255) also works and crosses fewer boundaries." },
                           "probe_hex": { "type": "string", "pattern": "^[0-9a-fA-F]*$", "description": "The probe datagram as hex, if the protocol is request/response (Ubiquiti v1 '01000000', MNDP an empty/zero datagram). Omit or leave empty for listen-only protocols that beacon on their own." },
                           "passive_ok": { "type": "boolean", "default": false, "description": "True when devices broadcast unsolicited beacons, so a consumer can also just listen without probing (MNDP and Ubiquiti both beacon periodically)." },
-                          "response_format": { "type": "string", "enum": ["tlv", "json", "json_xor", "binary"], "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON (LIFX is binary, Kasa is 'json_xor' = JSON under the 0xAB autokey cipher)." },
+                          "response_format": { "type": "string", "enum": ["tlv", "json", "json_xor", "json_aes", "binary"], "description": "Shape of the reply. 'tlv' = type/length/value records (Ubiquiti, MNDP); 'json' = plain JSON; 'json_xor' = JSON under the 0xAB autokey cipher (Kasa); 'json_aes' = JSON under AES (Tuya's 6667 beacon is AES-128-ECB under a fixed, published discovery key); 'binary' = a packed struct (LIFX)." },
                           "identity_mapping": {
                             "type": "object",
                             "required": ["stable_keys"],
