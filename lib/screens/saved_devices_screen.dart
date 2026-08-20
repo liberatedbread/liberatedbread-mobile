@@ -3,15 +3,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/device_category.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
 import '../providers/device_group_provider.dart';
+import '../providers/network_control_provider.dart';
 import '../providers/saved_device_provider.dart';
+import '../providers/saved_network_device_provider.dart';
 import '../services/number_registry.dart';
 import '../services/saved_device_store.dart';
+import '../services/saved_network_device_store.dart';
 import '../widgets/device_list_tile.dart';
 import 'device_screen.dart';
+import 'hub_device_screen.dart';
+import 'network_device_screen.dart';
 
 /// The devices the user has already paired with.
 ///
@@ -70,9 +76,41 @@ class SavedDevicesScreen extends ConsumerWidget {
     messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
   }
 
+  /// Open a saved network device's control screen at its cached address.
+  ///
+  /// The controls re-resolve from the recorded spec identity; the cached
+  /// host/ports are the last sighting, so a device whose lease moved fails
+  /// with the screen's own "could not reach — try scanning again" rather
+  /// than anything new.
+  Future<void> _openNetwork(BuildContext context, WidgetRef ref,
+      SavedNetworkDevice saved, NetworkControls controls) async {
+    final device = saved.toNetworkDevice();
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => controls.isHub
+            ? HubDeviceScreen(device: device, controls: controls)
+            : NetworkDeviceScreen(device: device, controls: controls),
+      ),
+    );
+  }
+
+  Future<void> _forgetNetwork(
+      BuildContext context, WidgetRef ref, SavedNetworkDevice saved) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final savedDevices = ref.read(savedNetworkDevicesProvider.notifier);
+    final groups = ref.read(deviceGroupsProvider.notifier);
+    await forgetNetworkDevice(
+      savedDevices: savedDevices,
+      groups: groups,
+      deviceId: saved.id,
+    );
+    messenger.showSnackBar(SnackBar(content: Text('Removed ${saved.name}')));
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final saved = ref.watch(savedDevicesProvider);
+    final savedNetwork = ref.watch(savedNetworkDevicesProvider);
     final registry = ref.watch(numberRegistryProvider);
     final scheme = Theme.of(context).colorScheme;
 
@@ -80,30 +118,45 @@ class SavedDevicesScreen extends ConsumerWidget {
       backgroundColor: scheme.surface,
       appBar: AppBar(title: const Text('Saved devices')),
       body: SafeArea(
-        child: saved.isEmpty
+        child: saved.isEmpty && savedNetwork.isEmpty
             ? const _EmptyState()
             : ListView(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
                 children: [
-                  SectionHeader(label: 'Paired', count: saved.length),
-                  const SizedBox(height: 12),
-                  for (final device in saved) ...[
-                    DeviceListTile(
-                      title: device.name.isNotEmpty
-                          ? device.name
-                          : 'Unknown device',
-                      subtitle: 'Paired',
-                      detail: relativeTime(device.lastSeen),
-                      icon: Icons.memory,
-                      // The address is all a saved record keeps, so run it
-                      // through the registry the same way a scan result is —
-                      // a paired device you cannot place by name is exactly as
-                      // confusing here as it is in the scan list.
-                      description: _savedDescription(registry, device),
-                      onTap: () => _reconnect(context, ref, device),
-                      onForget: () => _forget(context, ref, device),
-                    ),
-                    const SizedBox(height: 10),
+                  if (saved.isNotEmpty) ...[
+                    SectionHeader(label: 'Paired', count: saved.length),
+                    const SizedBox(height: 12),
+                    for (final device in saved) ...[
+                      DeviceListTile(
+                        title: device.name.isNotEmpty
+                            ? device.name
+                            : 'Unknown device',
+                        subtitle: 'Paired',
+                        detail: relativeTime(device.lastSeen),
+                        icon: Icons.memory,
+                        // The address is all a saved record keeps, so run it
+                        // through the registry the same way a scan result is —
+                        // a paired device you cannot place by name is exactly
+                        // as confusing here as it is in the scan list.
+                        description: _savedDescription(registry, device),
+                        onTap: () => _reconnect(context, ref, device),
+                        onForget: () => _forget(context, ref, device),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                  ],
+                  if (savedNetwork.isNotEmpty) ...[
+                    SectionHeader(label: 'Wi-Fi', count: savedNetwork.length),
+                    const SizedBox(height: 12),
+                    for (final device in savedNetwork) ...[
+                      _NetworkSavedTile(
+                        device: device,
+                        onOpen: (controls) =>
+                            _openNetwork(context, ref, device, controls),
+                        onForget: () => _forgetNetwork(context, ref, device),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                   ],
                 ],
               ),
@@ -118,6 +171,47 @@ class SavedDevicesScreen extends ConsumerWidget {
       AsyncValue<NumberRegistry> registry, SavedDevice device) {
     final vendor = registry.valueOrNull?.vendorForMac(device.id);
     return [device.id, if (vendor != null) vendor].join(' · ');
+  }
+}
+
+/// One saved Wi-Fi device row. A ConsumerWidget of its own because the
+/// controls re-resolve per row (the same family the Wi-Fi scan tile
+/// watches), and a row whose spec no longer resolves must render disabled
+/// rather than take the whole list down.
+class _NetworkSavedTile extends ConsumerWidget {
+  final SavedNetworkDevice device;
+  final void Function(NetworkControls controls) onOpen;
+  final VoidCallback onForget;
+
+  const _NetworkSavedTile({
+    required this.device,
+    required this.onOpen,
+    required this.onForget,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final specKey = device.specKey;
+    final parts = specKey?.split('|');
+    final controls = parts != null && parts.length == 2
+        ? ref
+            .watch(networkControlsProvider(NetworkControlRequest(
+              deviceName: parts[0],
+              manufacturer: parts[1],
+              ssdpTargets: device.ssdpTargets,
+            )))
+            .valueOrNull
+        : null;
+    final category = DeviceCategory.parse(device.category);
+    return DeviceListTile(
+      title: device.name.isNotEmpty ? device.name : 'Unknown device',
+      subtitle: category?.label ?? 'Wi-Fi',
+      detail: relativeTime(device.lastSeen),
+      icon: category?.icon ?? Icons.router_outlined,
+      description: device.host,
+      onTap: controls == null ? null : () => onOpen(controls),
+      onForget: onForget,
+    );
   }
 }
 

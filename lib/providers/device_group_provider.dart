@@ -8,6 +8,7 @@ import '../core/hex.dart';
 import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
+import 'saved_network_device_provider.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
 import 'saved_device_provider.dart';
@@ -103,6 +104,36 @@ Future<void> forgetDevice({
   await groups.pruneDevice(deviceId);
   await savedDevices.remove(deviceId);
 }
+
+/// [forgetDevice]'s network sibling, with the same crash-safe order. The
+/// membership pruned is the namespaced form — see [networkMemberId] —
+/// because that is how network devices appear in a group's member list.
+Future<void> forgetNetworkDevice({
+  required SavedNetworkDevicesNotifier savedDevices,
+  required DeviceGroupsNotifier groups,
+  required String deviceId,
+}) async {
+  await groups.pruneDevice(networkMemberId(deviceId));
+  await savedDevices.remove(deviceId);
+}
+
+/// How a network device's id is spelled inside [DeviceGroup.deviceIds].
+///
+/// BLE ids stay bare — every membership stored before Wi-Fi devices could
+/// join reads exactly as it always did — and network members carry this
+/// prefix, which no BLE id can collide with (a MAC or CoreBluetooth UUID
+/// never contains `net:`).
+const String kNetworkMemberPrefix = 'net:';
+
+String networkMemberId(String savedNetworkDeviceId) =>
+    '$kNetworkMemberPrefix$savedNetworkDeviceId';
+
+bool isNetworkMemberId(String memberId) =>
+    memberId.startsWith(kNetworkMemberPrefix);
+
+/// The store id inside a namespaced network member id.
+String networkDeviceIdOf(String memberId) =>
+    memberId.substring(kNetworkMemberPrefix.length);
 
 /// One automatic by-kind group ("Lights"), derived from the saved devices.
 @immutable
