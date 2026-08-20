@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.9.0';
 
   @override
-  int get rustContentHash => -941522709;
+  int get rustContentHash => -1778172987;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -349,6 +349,11 @@ abstract class RustLibApi extends BaseApi {
           required int requestId,
           required int deviceTs});
 
+  Future<RoombaRequestDto> crateApiDeviceApiRenderNetworkRoombaCommand(
+      {required String specYaml,
+      required String commandName,
+      required PlatformInt64 epochSeconds});
+
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand});
 
@@ -365,6 +370,35 @@ abstract class RustLibApi extends BaseApi {
       required String passphrase,
       PlatformInt64? rtos,
       PlatformInt64? iot});
+
+  Future<Uint8List> crateApiDeviceApiRoombaConnectPacket(
+      {required String blid, required String password});
+
+  Future<Uint8List> crateApiDeviceApiRoombaDisconnectPacket();
+
+  Future<Uint8List> crateApiDeviceApiRoombaDiscoveryProbe();
+
+  Future<RoombaAnnouncementDto?> crateApiDeviceApiRoombaParseAnnouncement(
+      {required List<int> datagram});
+
+  Future<RoombaParsedDto> crateApiDeviceApiRoombaParseIncoming(
+      {required List<int> buffer});
+
+  Future<String> crateApiDeviceApiRoombaParsePasswordReply(
+      {required List<int> reply});
+
+  Future<Uint8List> crateApiDeviceApiRoombaPasswordProbe();
+
+  Future<Uint8List> crateApiDeviceApiRoombaPingreqPacket();
+
+  Future<Uint8List> crateApiDeviceApiRoombaPublishPacket(
+      {required String topic, required String payload});
+
+  Future<Map<String, String>> crateApiDeviceApiRoombaStateFields(
+      {required String payload});
+
+  Future<Uint8List> crateApiDeviceApiRoombaSubscribePacket(
+      {required String topic, required int packetId});
 
   Future<SetupInstructionsDto?> crateApiDeviceApiSetupInstructions(
       {required String specYaml});
@@ -2357,6 +2391,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           );
 
   @override
+  Future<RoombaRequestDto> crateApiDeviceApiRenderNetworkRoombaCommand(
+      {required String specYaml,
+      required String commandName,
+      required PlatformInt64 epochSeconds}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(specYaml, serializer);
+        sse_encode_String(commandName, serializer);
+        sse_encode_i_64(epochSeconds, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 67, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_roomba_request_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRenderNetworkRoombaCommandConstMeta,
+      argValues: [specYaml, commandName, epochSeconds],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRenderNetworkRoombaCommandConstMeta =>
+      const TaskConstMeta(
+        debugName: 'render_network_roomba_command',
+        argNames: ['specYaml', 'commandName', 'epochSeconds'],
+      );
+
+  @override
   Future<SoapRequestDto> crateApiDeviceApiRenderNetworkStateRequest(
       {required String specYaml, required String stateCommand}) {
     return handler.executeNormal(NormalTask(
@@ -2365,7 +2429,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_String(specYaml, serializer);
         sse_encode_String(stateCommand, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 67, port: port_);
+            funcId: 68, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_soap_request_dto,
@@ -2393,7 +2457,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_u_32(cmd, serializer);
         sse_encode_opt_String(dataJson, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 68, port: port_);
+            funcId: 69, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -2435,7 +2499,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         sse_encode_opt_box_autoadd_i_64(rtos, serializer);
         sse_encode_opt_box_autoadd_i_64(iot, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 69, port: port_);
+            funcId: 70, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_soap_request_dto,
@@ -2474,6 +2538,287 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<Uint8List> crateApiDeviceApiRoombaConnectPacket(
+      {required String blid, required String password}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(blid, serializer);
+        sse_encode_String(password, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 71, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaConnectPacketConstMeta,
+      argValues: [blid, password],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaConnectPacketConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_connect_packet',
+        argNames: ['blid', 'password'],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiRoombaDisconnectPacket() {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 72, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaDisconnectPacketConstMeta,
+      argValues: [],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaDisconnectPacketConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_disconnect_packet',
+        argNames: [],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiRoombaDiscoveryProbe() {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 73, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaDiscoveryProbeConstMeta,
+      argValues: [],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaDiscoveryProbeConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_discovery_probe',
+        argNames: [],
+      );
+
+  @override
+  Future<RoombaAnnouncementDto?> crateApiDeviceApiRoombaParseAnnouncement(
+      {required List<int> datagram}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(datagram, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 74, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_box_autoadd_roomba_announcement_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaParseAnnouncementConstMeta,
+      argValues: [datagram],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaParseAnnouncementConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_parse_announcement',
+        argNames: ['datagram'],
+      );
+
+  @override
+  Future<RoombaParsedDto> crateApiDeviceApiRoombaParseIncoming(
+      {required List<int> buffer}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(buffer, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 75, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_roomba_parsed_dto,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaParseIncomingConstMeta,
+      argValues: [buffer],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaParseIncomingConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_parse_incoming',
+        argNames: ['buffer'],
+      );
+
+  @override
+  Future<String> crateApiDeviceApiRoombaParsePasswordReply(
+      {required List<int> reply}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(reply, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 76, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_AnyhowException,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaParsePasswordReplyConstMeta,
+      argValues: [reply],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaParsePasswordReplyConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_parse_password_reply',
+        argNames: ['reply'],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiRoombaPasswordProbe() {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 77, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaPasswordProbeConstMeta,
+      argValues: [],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaPasswordProbeConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_password_probe',
+        argNames: [],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiRoombaPingreqPacket() {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 78, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaPingreqPacketConstMeta,
+      argValues: [],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaPingreqPacketConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_pingreq_packet',
+        argNames: [],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiRoombaPublishPacket(
+      {required String topic, required String payload}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(topic, serializer);
+        sse_encode_String(payload, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 79, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaPublishPacketConstMeta,
+      argValues: [topic, payload],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaPublishPacketConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_publish_packet',
+        argNames: ['topic', 'payload'],
+      );
+
+  @override
+  Future<Map<String, String>> crateApiDeviceApiRoombaStateFields(
+      {required String payload}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(payload, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 80, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_Map_String_String_None,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaStateFieldsConstMeta,
+      argValues: [payload],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaStateFieldsConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_state_fields',
+        argNames: ['payload'],
+      );
+
+  @override
+  Future<Uint8List> crateApiDeviceApiRoombaSubscribePacket(
+      {required String topic, required int packetId}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(topic, serializer);
+        sse_encode_u_16(packetId, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 81, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiDeviceApiRoombaSubscribePacketConstMeta,
+      argValues: [topic, packetId],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiDeviceApiRoombaSubscribePacketConstMeta =>
+      const TaskConstMeta(
+        debugName: 'roomba_subscribe_packet',
+        argNames: ['topic', 'packetId'],
+      );
+
+  @override
   Future<SetupInstructionsDto?> crateApiDeviceApiSetupInstructions(
       {required String specYaml}) {
     return handler.executeNormal(NormalTask(
@@ -2481,7 +2826,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(specYaml, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 70, port: port_);
+            funcId: 82, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_setup_instructions_dto,
@@ -2507,7 +2852,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(specYamls, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 71, port: port_);
+            funcId: 83, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_soft_ap_profile_dto,
@@ -2533,7 +2878,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_prim_u_8_loose(datagram, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 72, port: port_);
+            funcId: 84, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_opt_box_autoadd_tuya_broadcast_dto,
@@ -2559,7 +2904,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(code, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 73, port: port_);
+            funcId: 85, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_wemo_join_status,
@@ -2679,6 +3024,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RejoinDto dco_decode_box_autoadd_rejoin_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_rejoin_dto(raw);
+  }
+
+  @protected
+  RoombaAnnouncementDto dco_decode_box_autoadd_roomba_announcement_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_roomba_announcement_dto(raw);
   }
 
   @protected
@@ -3323,6 +3675,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<RoombaIncomingDto> dco_decode_list_roomba_incoming_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_roomba_incoming_dto).toList();
+  }
+
+  @protected
   List<ScanMatch> dco_decode_list_scan_match(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_scan_match).toList();
@@ -3637,6 +3995,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RoombaAnnouncementDto? dco_decode_opt_box_autoadd_roomba_announcement_dto(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null
+        ? null
+        : dco_decode_box_autoadd_roomba_announcement_dto(raw);
+  }
+
+  @protected
   SecurityAdvisoryDto? dco_decode_opt_box_autoadd_security_advisory_dto(
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -3847,6 +4214,63 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       inPlaceSupported: dco_decode_opt_box_autoadd_bool(arr[0]),
       requiresFactoryReset: dco_decode_opt_box_autoadd_bool(arr[1]),
       notes: dco_decode_opt_String(arr[2]),
+    );
+  }
+
+  @protected
+  RoombaAnnouncementDto dco_decode_roomba_announcement_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return RoombaAnnouncementDto(
+      ver: dco_decode_String(arr[0]),
+      hostname: dco_decode_String(arr[1]),
+      blid: dco_decode_String(arr[2]),
+      robotname: dco_decode_String(arr[3]),
+      ip: dco_decode_String(arr[4]),
+      mac: dco_decode_String(arr[5]),
+      sw: dco_decode_String(arr[6]),
+      sku: dco_decode_String(arr[7]),
+      proto: dco_decode_String(arr[8]),
+    );
+  }
+
+  @protected
+  RoombaIncomingDto dco_decode_roomba_incoming_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return RoombaIncomingDto(
+      kind: dco_decode_String(arr[0]),
+      topic: dco_decode_String(arr[1]),
+      payload: dco_decode_String(arr[2]),
+      code: dco_decode_u_16(arr[3]),
+    );
+  }
+
+  @protected
+  RoombaParsedDto dco_decode_roomba_parsed_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return RoombaParsedDto(
+      packets: dco_decode_list_roomba_incoming_dto(arr[0]),
+      consumed: dco_decode_u_32(arr[1]),
+    );
+  }
+
+  @protected
+  RoombaRequestDto dco_decode_roomba_request_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return RoombaRequestDto(
+      topic: dco_decode_String(arr[0]),
+      payload: dco_decode_String(arr[1]),
     );
   }
 
@@ -4271,6 +4695,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RejoinDto sse_decode_box_autoadd_rejoin_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_rejoin_dto(deserializer));
+  }
+
+  @protected
+  RoombaAnnouncementDto sse_decode_box_autoadd_roomba_announcement_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_roomba_announcement_dto(deserializer));
   }
 
   @protected
@@ -5151,6 +5582,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<RoombaIncomingDto> sse_decode_list_roomba_incoming_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <RoombaIncomingDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_roomba_incoming_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<ScanMatch> sse_decode_list_scan_match(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -5600,6 +6044,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  RoombaAnnouncementDto? sse_decode_opt_box_autoadd_roomba_announcement_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_roomba_announcement_dto(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   SecurityAdvisoryDto? sse_decode_opt_box_autoadd_security_advisory_dto(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -5840,6 +6296,59 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         inPlaceSupported: var_inPlaceSupported,
         requiresFactoryReset: var_requiresFactoryReset,
         notes: var_notes);
+  }
+
+  @protected
+  RoombaAnnouncementDto sse_decode_roomba_announcement_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_ver = sse_decode_String(deserializer);
+    var var_hostname = sse_decode_String(deserializer);
+    var var_blid = sse_decode_String(deserializer);
+    var var_robotname = sse_decode_String(deserializer);
+    var var_ip = sse_decode_String(deserializer);
+    var var_mac = sse_decode_String(deserializer);
+    var var_sw = sse_decode_String(deserializer);
+    var var_sku = sse_decode_String(deserializer);
+    var var_proto = sse_decode_String(deserializer);
+    return RoombaAnnouncementDto(
+        ver: var_ver,
+        hostname: var_hostname,
+        blid: var_blid,
+        robotname: var_robotname,
+        ip: var_ip,
+        mac: var_mac,
+        sw: var_sw,
+        sku: var_sku,
+        proto: var_proto);
+  }
+
+  @protected
+  RoombaIncomingDto sse_decode_roomba_incoming_dto(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_kind = sse_decode_String(deserializer);
+    var var_topic = sse_decode_String(deserializer);
+    var var_payload = sse_decode_String(deserializer);
+    var var_code = sse_decode_u_16(deserializer);
+    return RoombaIncomingDto(
+        kind: var_kind, topic: var_topic, payload: var_payload, code: var_code);
+  }
+
+  @protected
+  RoombaParsedDto sse_decode_roomba_parsed_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_packets = sse_decode_list_roomba_incoming_dto(deserializer);
+    var var_consumed = sse_decode_u_32(deserializer);
+    return RoombaParsedDto(packets: var_packets, consumed: var_consumed);
+  }
+
+  @protected
+  RoombaRequestDto sse_decode_roomba_request_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_topic = sse_decode_String(deserializer);
+    var var_payload = sse_decode_String(deserializer);
+    return RoombaRequestDto(topic: var_topic, payload: var_payload);
   }
 
   @protected
@@ -6292,6 +6801,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       RejoinDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_rejoin_dto(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_roomba_announcement_dto(
+      RoombaAnnouncementDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_roomba_announcement_dto(self, serializer);
   }
 
   @protected
@@ -6959,6 +7475,16 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_roomba_incoming_dto(
+      List<RoombaIncomingDto> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_roomba_incoming_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_scan_match(
       List<ScanMatch> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7317,6 +7843,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_roomba_announcement_dto(
+      RoombaAnnouncementDto? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_roomba_announcement_dto(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_security_advisory_dto(
       SecurityAdvisoryDto? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -7514,6 +8051,47 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_box_autoadd_bool(self.inPlaceSupported, serializer);
     sse_encode_opt_box_autoadd_bool(self.requiresFactoryReset, serializer);
     sse_encode_opt_String(self.notes, serializer);
+  }
+
+  @protected
+  void sse_encode_roomba_announcement_dto(
+      RoombaAnnouncementDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.ver, serializer);
+    sse_encode_String(self.hostname, serializer);
+    sse_encode_String(self.blid, serializer);
+    sse_encode_String(self.robotname, serializer);
+    sse_encode_String(self.ip, serializer);
+    sse_encode_String(self.mac, serializer);
+    sse_encode_String(self.sw, serializer);
+    sse_encode_String(self.sku, serializer);
+    sse_encode_String(self.proto, serializer);
+  }
+
+  @protected
+  void sse_encode_roomba_incoming_dto(
+      RoombaIncomingDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.kind, serializer);
+    sse_encode_String(self.topic, serializer);
+    sse_encode_String(self.payload, serializer);
+    sse_encode_u_16(self.code, serializer);
+  }
+
+  @protected
+  void sse_encode_roomba_parsed_dto(
+      RoombaParsedDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_roomba_incoming_dto(self.packets, serializer);
+    sse_encode_u_32(self.consumed, serializer);
+  }
+
+  @protected
+  void sse_encode_roomba_request_dto(
+      RoombaRequestDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.topic, serializer);
+    sse_encode_String(self.payload, serializer);
   }
 
   @protected

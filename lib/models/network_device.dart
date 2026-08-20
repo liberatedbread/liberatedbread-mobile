@@ -22,6 +22,16 @@ enum NetworkDiscoverySource {
   /// get_sysinfo on UDP 9999). Neither passive mDNS nor SSDP: the answer is
   /// itself the identification.
   lanProbe,
+
+  /// Not discovered on this network at all: reported by a Home Assistant the
+  /// user has connected, out of its own entity list.
+  ///
+  /// The one source whose devices the phone may be unable to reach. That is
+  /// the point — a robot firewalled onto a VLAN the phone cannot route to
+  /// still gets a full panel, because the commands travel to Home Assistant
+  /// and Home Assistant talks to the robot. Anything keying off "we found it,
+  /// so we can dial it" must not assume that here.
+  homeAssistant,
 }
 
 /// A device found on the local network.

@@ -41,11 +41,14 @@ enum DeviceCategory {
   /// specifically gets the mouse glyph instead of a bare Bluetooth address.
   mouse(Icons.mouse_outlined, 'Mouse'),
 
-  /// Routers, switches, access points and gateways — the vendored examples are
-  /// MikroTik RouterOS and the Ubiquiti UniFi/EdgeMAX family, both of which
-  /// cover several form factors under one spec. The router glyph is the one
-  /// that reads at a glance for all of them; a switch or an AP drawn as a
-  /// generic box would say less than the thing people already picture.
+  /// Routers, switches, access points and the NVR/NAS appliances that ship
+  /// alongside them — the vendored examples are MikroTik RouterOS and the
+  /// Ubiquiti UniFi/EdgeMAX family, both of which cover several form factors
+  /// under one spec. These are identify-only: the device answers a discovery
+  /// probe with its model and name, and that is the whole surface. The router
+  /// glyph is the one that reads at a glance for all of them; a switch or an
+  /// AP drawn as a generic box would say less than the thing people already
+  /// picture.
   network(Icons.router_outlined, 'Network'),
   printer(Icons.print_outlined, 'Printer'),
 
