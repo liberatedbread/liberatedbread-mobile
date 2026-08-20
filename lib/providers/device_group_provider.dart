@@ -8,10 +8,12 @@ import '../core/hex.dart';
 import '../services/device_group_store.dart';
 import '../services/group_runner.dart';
 import '../services/saved_device_store.dart';
-import 'saved_network_device_provider.dart';
+import '../services/saved_network_device_store.dart';
 import 'ble_provider.dart';
 import 'device_spec_match_provider.dart';
+import 'network_control_provider.dart';
 import 'saved_device_provider.dart';
+import 'saved_network_device_provider.dart';
 import 'scan_match_provider.dart';
 import 'spec_choice_provider.dart';
 import 'spec_codec_provider.dart';
@@ -135,13 +137,32 @@ bool isNetworkMemberId(String memberId) =>
 String networkDeviceIdOf(String memberId) =>
     memberId.substring(kNetworkMemberPrefix.length);
 
-/// One automatic by-kind group ("Lights"), derived from the saved devices.
+/// One automatic by-kind group ("Lights", "TVs"), derived from the saved
+/// devices of both transports. The two lists stay separate because their
+/// records are different classes with different id namespaces; a consumer
+/// wanting "how many" adds the lengths, and one wanting member ids maps
+/// each through its own spelling.
 @immutable
 class AutoGroup {
   final DeviceCategory category;
   final List<SavedDevice> devices;
+  final List<SavedNetworkDevice> networkDevices;
 
-  const AutoGroup({required this.category, required this.devices});
+  const AutoGroup({
+    required this.category,
+    required this.devices,
+    this.networkDevices = const [],
+  });
+
+  int get memberCount => devices.length + networkDevices.length;
+
+  /// Every member in this bucket, in group-member-id spelling: bare BLE
+  /// ids, namespaced network ids — exactly what [GroupMembersRequest]
+  /// takes.
+  List<String> get memberIds => [
+        for (final device in devices) device.id,
+        for (final device in networkDevices) networkMemberId(device.id),
+      ];
 }
 
 /// The saved devices bucketed by kind, plus the ones no kind is known for
@@ -165,6 +186,9 @@ class AutoGroups {
 /// once records the real answer.
 final autoGroupsProvider = FutureProvider<AutoGroups>((ref) async {
   final saved = ref.watch(savedDevicesProvider);
+  // Watched here with everything else, before the first await — watching
+  // after an await is unsound, as the comment below explains.
+  final savedNetwork = ref.watch(savedNetworkDevicesProvider);
 
   // Two passes on purpose. The first is synchronous and does every ref.watch
   // up front: watching after an await is unsound (this build may already be
@@ -205,9 +229,27 @@ final autoGroupsProvider = FutureProvider<AutoGroups>((ref) async {
     }
   }
 
+  // Saved network devices join the same buckets — this is where "TVs"
+  // comes from. Their category was recorded from the spec match at save
+  // time; a record without one (a spec that states no category) simply
+  // stays out of the by-kind lists, still reachable from Saved and from
+  // custom groups — there is no scan-guess path to invent one from.
+  final networkByCategory = <DeviceCategory, List<SavedNetworkDevice>>{};
+  for (final device in savedNetwork) {
+    final category = DeviceCategory.parse(device.category);
+    if (category == null || kNonGroupableCategories.contains(category)) {
+      continue;
+    }
+    networkByCategory.putIfAbsent(category, () => []).add(device);
+  }
+
   final groups = [
-    for (final entry in byCategory.entries)
-      AutoGroup(category: entry.key, devices: entry.value),
+    for (final category in {...byCategory.keys, ...networkByCategory.keys})
+      AutoGroup(
+        category: category,
+        devices: byCategory[category] ?? const [],
+        networkDevices: networkByCategory[category] ?? const [],
+      ),
   ]..sort((a, b) => a.category.label.compareTo(b.category.label));
   return AutoGroups(groups: groups, unidentified: unidentified);
 });
@@ -229,25 +271,68 @@ class GroupMembersRequest {
   int get hashCode => Object.hashAll(deviceIds);
 }
 
-/// Resolve saved devices into runnable [GroupMember]s: each member carries
-/// its spec when one can be found without a connection. Resolution order is
-/// the user's explicit per-device spec choice, then the match recorded at
-/// last connect; a member with neither still runs (the runner matches after
-/// discovery, and battery reads work spec-less). Ids no longer in the saved
-/// list are dropped — a forgotten device leaves its groups.
-final groupMembersProvider = FutureProvider.autoDispose
-    .family<List<GroupMember>, GroupMembersRequest>((ref, request) async {
-  final saved = ref.watch(savedDevicesProvider);
-  final choices = ref.watch(specChoicesProvider);
-  final parsed = await ref.watch(parsedDeviceSpecsProvider.future);
+/// A group's resolved members, both transports, in membership order within
+/// each transport. Kept as two lists rather than one union type because the
+/// two runners take different inputs and run under different disciplines —
+/// see [NetworkGroupRunner]'s class doc.
+@immutable
+class GroupMembers {
+  final List<GroupMember> ble;
+  final List<NetworkGroupMember> network;
 
+  const GroupMembers({required this.ble, required this.network});
+
+  int get length => ble.length + network.length;
+  bool get isEmpty => ble.isEmpty && network.isEmpty;
+}
+
+/// Resolve saved devices into runnable members: each member carries its
+/// spec when one can be found without a connection. For BLE ids the order
+/// is the user's explicit per-device spec choice, then the match recorded
+/// at last connect; a member with neither still runs (the runner matches
+/// after discovery, and battery reads work spec-less). Network ids resolve
+/// their controls through the same family the Wi-Fi tiles watch. Ids no
+/// longer in either saved list are dropped — a forgotten device leaves its
+/// groups.
+final groupMembersProvider = FutureProvider.autoDispose
+    .family<GroupMembers, GroupMembersRequest>((ref, request) async {
+  final saved = ref.watch(savedDevicesProvider);
+  final savedNetwork = ref.watch(savedNetworkDevicesProvider);
+  final choices = ref.watch(specChoicesProvider);
+
+  // Everything watched before the first await, futures gathered up front —
+  // the same two-pass discipline as autoGroupsProvider, and for the same
+  // soundness reason.
+  final parsedFuture = ref.watch(parsedDeviceSpecsProvider.future);
+  final savedNetworkById = {
+    for (final device in savedNetwork) device.id: device
+  };
+  final networkIds = <String>[];
+  final controlsFutures = <Future<NetworkControls?>?>[];
+  for (final id in request.deviceIds) {
+    if (!isNetworkMemberId(id)) continue;
+    final device = savedNetworkById[networkDeviceIdOf(id)];
+    if (device == null || !isGroupable(device.category)) continue;
+    networkIds.add(id);
+    final parts = device.specKey?.split('|');
+    controlsFutures.add(parts != null && parts.length == 2
+        ? ref.watch(networkControlsProvider(NetworkControlRequest(
+            deviceName: parts[0],
+            manufacturer: parts[1],
+            ssdpTargets: device.ssdpTargets,
+          )).future)
+        : null);
+  }
+
+  final parsed = await parsedFuture;
   final savedById = {for (final device in saved) device.id: device};
   // Built through specEntriesByKey so the pack-shadows-bundled rule for
   // duplicate keys stays defined in exactly one place.
   final entriesByKey = specEntriesByKey(parsed);
 
-  final members = <GroupMember>[];
+  final ble = <GroupMember>[];
   for (final id in request.deviceIds) {
+    if (isNetworkMemberId(id)) continue;
     final device = savedById[id];
     if (device == null) continue;
     // Enforced at run time, not just in the pickers: a member that recorded
@@ -256,14 +341,43 @@ final groupMembersProvider = FutureProvider.autoDispose
     // its stale membership.
     if (!isGroupable(device.category)) continue;
     final resolved = entriesByKey[choices[id]] ?? entriesByKey[device.specKey];
-    members.add(GroupMember(
+    ble.add(GroupMember(
       id: id,
       name: device.name,
       spec: resolved?.spec,
       specYaml: resolved?.yaml,
     ));
   }
-  return members;
+
+  final network = <NetworkGroupMember>[];
+  for (var i = 0; i < networkIds.length; i++) {
+    final id = networkIds[i];
+    final device = savedNetworkById[networkDeviceIdOf(id)]!;
+    // A controls resolution that failed resolves to null (the family's own
+    // contract), leaving a member whose row and runner both report the
+    // honest "no spec matched" rather than dropping the device.
+    final controls = await controlsFutures[i];
+    network.add(NetworkGroupMember(
+      memberId: id,
+      name: device.name,
+      category: device.category,
+      record: device,
+      specYaml: controls?.specYaml,
+      entities: controls?.entities ?? const [],
+    ));
+  }
+  return GroupMembers(ble: ble, network: network);
+});
+
+/// The Wi-Fi group executor, wired to the same sender factory and transport
+/// clients the device screen uses — so a group send and a screen tap are
+/// the same exchange.
+final networkGroupRunnerProvider = Provider<NetworkGroupRunner>((ref) {
+  return NetworkGroupRunner(
+    codec: ref.watch(specCodecProvider),
+    soap: ref.watch(soapControlClientProvider),
+    senderFor: ref.watch(networkCommandSenderFactoryProvider),
+  );
 });
 
 /// The group-operation executor, wired to the live BLE service and codec.

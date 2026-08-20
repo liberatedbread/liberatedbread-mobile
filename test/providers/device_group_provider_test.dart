@@ -292,7 +292,7 @@ void main() {
       final members = await container.read(
         groupMembersProvider(const GroupMembersRequest(['A', 'B'])).future,
       );
-      final byId = {for (final m in members) m.id: m};
+      final byId = {for (final m in members.ble) m.id: m};
       expect(byId['A']!.specYaml, 'chosen-yaml');
       expect(byId['B']!.specYaml, 'recorded-yaml');
       // Members arrive with their op memo already derived from the spec.
@@ -309,8 +309,9 @@ void main() {
       final members = await container.read(
         groupMembersProvider(const GroupMembersRequest(['A', 'GONE'])).future,
       );
-      expect(members.single.id, 'A');
-      expect(members.single.spec, isNull);
+      expect(members.ble.single.id, 'A');
+      expect(members.ble.single.spec, isNull);
+      expect(members.network, isEmpty);
     });
 
     test('a member that recorded a non-groupable category stops running',
@@ -329,7 +330,7 @@ void main() {
       final members = await container.read(
         groupMembersProvider(const GroupMembersRequest(['A', 'B'])).future,
       );
-      expect(members.single.id, 'B');
+      expect(members.ble.single.id, 'B');
     });
 
     test('pruneDevice drops a device from every stored group', () async {
