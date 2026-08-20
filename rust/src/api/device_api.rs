@@ -1587,6 +1587,60 @@ fn lifx_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
         .collect()
 }
 
+/// Roomba entities as [`NetworkEntityDto`]s.
+///
+/// Two fields are carrying MQTT meanings here, and both are documented on the
+/// DTO as the transport's business: `state_command` holds the TOPIC the
+/// reading arrives on (`delta`) rather than a command to send, and
+/// `value_field` holds a dotted path into that topic's payload
+/// (`state.reported.batPct`) rather than a field name in a reply. The
+/// alternative was widening the shared DTO with two MQTT-only fields every
+/// other transport would leave empty; a client that dispatches on
+/// `transport: mqtt` — which is the only client that ever sees these — reads
+/// them correctly, and one that does not never gets here.
+fn roomba_network_entities(spec: &DeviceSpec) -> Vec<NetworkEntityDto> {
+    crate::protocol::roomba::network_entities(spec)
+        .into_iter()
+        .map(|entity| NetworkEntityDto {
+            name: entity.name,
+            platform: Some(entity.platform),
+            device_class: entity.device_class,
+            icon: entity.icon,
+            unit: entity.unit,
+            state_endpoint: None,
+            state_command: entity.state_topic.unwrap_or_default(),
+            // Routes the whole device screen onto the MQTT client, exactly as
+            // the LIFX token routes onto the UDP one.
+            transport: Some(crate::protocol::roomba::TRANSPORT.to_string()),
+            is_instanced: false,
+            value_field: entity.value_path,
+            options: Vec::new(),
+            options_source: None,
+            state_source: None,
+            actions: entity
+                .actions
+                .into_iter()
+                .map(|action| NetworkActionDto {
+                    role: action.role,
+                    command_name: action.command_name,
+                    transport: crate::protocol::roomba::TRANSPORT.to_string(),
+                    // Every Roomba command is a fixed envelope: the only blank
+                    // is the timestamp, and the client owns its own clock.
+                    user_params: Vec::new(),
+                    read_back: Vec::new(),
+                    credentials: Vec::new(),
+                    instance_params: Vec::new(),
+                    min: None,
+                    max: None,
+                })
+                .collect(),
+            setpoint_min: None,
+            setpoint_max: None,
+            setpoint_step: None,
+        })
+        .collect()
+}
+
 /// Resolve an entity's query source against the spec's endpoint catalogue.
 ///
 /// None when the entity declares none, and also when the named endpoint is
@@ -1623,6 +1677,13 @@ pub fn network_entities_for_device(
     // entities are synthesised from `features` before the generic path runs.
     if spec.protocol_handler.as_deref() == Some(crate::protocol::lifx::HANDLER_NAME) {
         return Ok(lifx_network_entities(&spec));
+    }
+    // A Roomba pushes its readings on an MQTT topic; the generic resolver is
+    // built around `state_command`, which asks a question and reads the reply.
+    // There is no such question here, so the entities are synthesised the same
+    // way LIFX's are.
+    if spec.protocol_handler.as_deref() == Some(crate::protocol::roomba::HANDLER_NAME) {
+        return Ok(roomba_network_entities(&spec));
     }
     Ok(bindings::network_entities_for_targets(&spec, &ssdp_targets)
         .into_iter()
@@ -1879,6 +1940,43 @@ impl From<crate::protocol::rabbit_air::RabbitAirRequest> for RabbitAirRequestDto
     }
 }
 
+// ── Roomba: discovery, credentials, MQTT ─────────────────────────────────────
+//
+// The protocol behind all of this is koalazak/dorita980's work (MIT); see
+// `crate::protocol::roomba` and the vendored spec for the full credit.
+
+/// One robot's answer to the UDP-5678 discovery probe.
+#[derive(Debug, Clone)]
+pub struct RoombaAnnouncementDto {
+    pub ver: String,
+    pub hostname: String,
+    /// The MQTT username, and the key credentials are stored against. Never
+    /// the IP: that is a DHCP lease, this is the robot.
+    pub blid: String,
+    pub robotname: String,
+    pub ip: String,
+    pub mac: String,
+    pub sw: String,
+    pub sku: String,
+    pub proto: String,
+}
+
+impl From<crate::protocol::roomba::Announcement> for RoombaAnnouncementDto {
+    fn from(a: crate::protocol::roomba::Announcement) -> Self {
+        Self {
+            ver: a.ver,
+            hostname: a.hostname,
+            blid: a.blid,
+            robotname: a.robotname,
+            ip: a.ip,
+            mac: a.mac,
+            sw: a.sw,
+            sku: a.sku,
+            proto: a.proto,
+        }
+    }
+}
+
 /// Render a named `transport: udp` command into the envelope JSON to send —
 /// the Rabbit Air sibling of [`render_network_kasa_command`]. `request_id` is
 /// the caller's fresh nonce (Dart owns it, because Dart matches replies on
@@ -2026,6 +2124,188 @@ pub fn rabbit_air_ble_command_characteristic_uuid() -> String {
 /// MTU - 5, and the pre-negotiation default is 512.
 pub fn rabbit_air_ble_mtu() -> u32 {
     u32::from(crate::protocol::rabbit_air_ble::NEGOTIATED_MTU)
+}
+
+/// The nine ASCII bytes broadcast to 255.255.255.255:5678 to find robots.
+pub fn roomba_discovery_probe() -> Vec<u8> {
+    crate::protocol::roomba::DISCOVERY_PROBE.to_vec()
+}
+
+/// Parse one discovery datagram.
+///
+/// `None` — not an error — for a datagram that is not from a robot. The probe
+/// is a broadcast and reaches every host on the segment, so a scan must not
+/// fail because a printer answered.
+pub fn roomba_parse_announcement(
+    datagram: Vec<u8>,
+) -> anyhow::Result<Option<RoombaAnnouncementDto>> {
+    Ok(crate::protocol::roomba::parse_announcement(&datagram)?.map(RoombaAnnouncementDto::from))
+}
+
+/// The 7-byte password-disclosure probe, written on a TLS connection to
+/// `<robot>:8883` while the robot is in disclosure mode.
+pub fn roomba_password_probe() -> Vec<u8> {
+    crate::protocol::roomba::PASSWORD_PROBE.to_vec()
+}
+
+/// Extract the password from a disclosure reply.
+///
+/// The whole returned string is the credential — Roomba passwords begin with
+/// `:` and contain `:` separators, so a caller must not split it. Errors carry
+/// text meant to be shown: "not in disclosure mode" (retry the button) reads
+/// differently from "this model cannot disclose locally" (use the account
+/// route), and a client that collapses them sends the user in a circle.
+pub fn roomba_parse_password_reply(reply: Vec<u8>) -> anyhow::Result<String> {
+    Ok(crate::protocol::roomba::parse_password_reply(&reply)?)
+}
+
+/// A rendered Roomba command: the topic to publish on, and the JSON payload.
+#[derive(Debug, Clone)]
+pub struct RoombaRequestDto {
+    pub topic: String,
+    pub payload: String,
+}
+
+impl From<crate::protocol::roomba::RoombaRequest> for RoombaRequestDto {
+    fn from(request: crate::protocol::roomba::RoombaRequest) -> Self {
+        Self {
+            topic: request.topic,
+            payload: request.payload,
+        }
+    }
+}
+
+/// Render a named `transport: mqtt` command — the Roomba sibling of
+/// [`render_network_kasa_command`].
+///
+/// `epoch_seconds` is the caller's clock, and is required: this crate has no
+/// clock of its own, and a command rendered with a silently defaulted
+/// timestamp is a plausible-but-wrong request that is painful to debug against
+/// hardware.
+pub fn render_network_roomba_command(
+    spec_yaml: String,
+    command_name: String,
+    epoch_seconds: i64,
+) -> anyhow::Result<RoombaRequestDto> {
+    let spec = parse_device_spec(&spec_yaml)?;
+    let values =
+        std::collections::BTreeMap::from([("time".to_string(), epoch_seconds.to_string())]);
+    let request = crate::protocol::roomba::render_request(&spec, &command_name, &values)?;
+    Ok(RoombaRequestDto::from(request))
+}
+
+/// Flatten a state payload into the dotted paths entities bind to
+/// (`state.reported.batPct`). Booleans come back as `1`/`0` so an entity's
+/// `on_when: nonzero` reads them the way it reads a Kasa relay state.
+///
+/// An unparseable payload yields an empty map rather than an error: a dropped
+/// connection can deliver half a message, and that must not take the control
+/// screen down.
+pub fn roomba_state_fields(payload: String) -> HashMap<String, String> {
+    crate::protocol::roomba::state_fields(&payload)
+        .into_iter()
+        .collect()
+}
+
+/// MQTT CONNECT, with the BLID as both client id and username.
+pub fn roomba_connect_packet(blid: String, password: String) -> Vec<u8> {
+    crate::protocol::roomba::connect_packet(&blid, &password)
+}
+
+/// MQTT SUBSCRIBE at QoS 0. Pass `#`: which topic shape a given firmware
+/// publishes locally is not settled, so subscribing to everything is the only
+/// reading that works across all of them.
+pub fn roomba_subscribe_packet(topic: String, packet_id: u16) -> Vec<u8> {
+    crate::protocol::roomba::subscribe_packet(&topic, packet_id)
+}
+
+/// MQTT PUBLISH at QoS 0 — the robot does not acknowledge commands.
+pub fn roomba_publish_packet(topic: String, payload: String) -> Vec<u8> {
+    crate::protocol::roomba::publish_packet(&topic, &payload)
+}
+
+/// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
+pub fn roomba_pingreq_packet() -> Vec<u8> {
+    crate::protocol::roomba::pingreq_packet()
+}
+
+/// MQTT DISCONNECT. Sent on the way out, always: the robot serves one local
+/// client at a time, so a client that just drops the socket leaves the owner
+/// locked out of their own app until the robot notices.
+pub fn roomba_disconnect_packet() -> Vec<u8> {
+    crate::protocol::roomba::disconnect_packet()
+}
+
+/// One packet read off the MQTT stream.
+#[derive(Debug, Clone)]
+pub struct RoombaIncomingDto {
+    /// `connack` | `suback` | `publish` | `pingresp` | `other`.
+    pub kind: String,
+    /// PUBLISH only.
+    pub topic: String,
+    /// PUBLISH only.
+    pub payload: String,
+    /// CONNACK's return code — 0 is accepted, 4 is a bad BLID or password.
+    /// SUBACK's packet id. Zero elsewhere.
+    pub code: u16,
+}
+
+/// Whole packets parsed out of a receive buffer, and how many bytes they
+/// consumed.
+#[derive(Debug, Clone)]
+pub struct RoombaParsedDto {
+    pub packets: Vec<RoombaIncomingDto>,
+    /// Bytes the caller may now drop. The remainder is a partial packet and
+    /// must be kept: a TLS stream splits and coalesces wherever it likes, and
+    /// treating one read as one packet is the bug this count prevents.
+    pub consumed: u32,
+}
+
+/// Parse whole MQTT packets out of whatever has arrived so far.
+pub fn roomba_parse_incoming(buffer: Vec<u8>) -> anyhow::Result<RoombaParsedDto> {
+    use crate::protocol::roomba::{ConnectOutcome, Incoming};
+    let (packets, consumed) = crate::protocol::roomba::parse_incoming(&buffer)?;
+    Ok(RoombaParsedDto {
+        consumed: consumed as u32,
+        packets: packets
+            .into_iter()
+            .map(|packet| match packet {
+                Incoming::ConnAck(outcome) => RoombaIncomingDto {
+                    kind: "connack".to_string(),
+                    topic: String::new(),
+                    payload: String::new(),
+                    code: match outcome {
+                        ConnectOutcome::Accepted => 0,
+                        ConnectOutcome::Refused(code) => u16::from(code),
+                    },
+                },
+                Incoming::SubAck { packet_id } => RoombaIncomingDto {
+                    kind: "suback".to_string(),
+                    topic: String::new(),
+                    payload: String::new(),
+                    code: packet_id,
+                },
+                Incoming::Publish { topic, payload } => RoombaIncomingDto {
+                    kind: "publish".to_string(),
+                    topic,
+                    payload,
+                    code: 0,
+                },
+                Incoming::PingResp => RoombaIncomingDto {
+                    kind: "pingresp".to_string(),
+                    topic: String::new(),
+                    payload: String::new(),
+                    code: 0,
+                },
+                Incoming::Other { packet_type } => RoombaIncomingDto {
+                    kind: "other".to_string(),
+                    topic: String::new(),
+                    payload: String::new(),
+                    code: u16::from(packet_type),
+                },
+            })
+            .collect(),
+    })
 }
 
 /// Render the argument-less request that reads a state command's values —

@@ -337,6 +337,68 @@ class RealSpecCodec implements SpecCodec {
 
   @override
   Future<int> rabbitAirBleMtu() => rust.rabbitAirBleMtu();
+  @override
+  Future<List<int>> roombaDiscoveryProbe() => rust.roombaDiscoveryProbe();
+
+  @override
+  Future<RoombaAnnouncementDto?> roombaParseAnnouncement({
+    required List<int> datagram,
+  }) =>
+      rust.roombaParseAnnouncement(datagram: datagram);
+
+  @override
+  Future<List<int>> roombaPasswordProbe() => rust.roombaPasswordProbe();
+
+  @override
+  Future<String> roombaParsePasswordReply({required List<int> reply}) =>
+      rust.roombaParsePasswordReply(reply: reply);
+
+  @override
+  Future<RoombaRequestDto> renderNetworkRoombaCommand({
+    required String specYaml,
+    required String commandName,
+    required int epochSeconds,
+  }) =>
+      rust.renderNetworkRoombaCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        epochSeconds: epochSeconds,
+      );
+
+  @override
+  Future<Map<String, String>> roombaStateFields({required String payload}) =>
+      rust.roombaStateFields(payload: payload);
+
+  @override
+  Future<List<int>> roombaConnectPacket({
+    required String blid,
+    required String password,
+  }) =>
+      rust.roombaConnectPacket(blid: blid, password: password);
+
+  @override
+  Future<List<int>> roombaSubscribePacket({
+    required String topic,
+    required int packetId,
+  }) =>
+      rust.roombaSubscribePacket(topic: topic, packetId: packetId);
+
+  @override
+  Future<List<int>> roombaPublishPacket({
+    required String topic,
+    required String payload,
+  }) =>
+      rust.roombaPublishPacket(topic: topic, payload: payload);
+
+  @override
+  Future<List<int>> roombaPingreqPacket() => rust.roombaPingreqPacket();
+
+  @override
+  Future<List<int>> roombaDisconnectPacket() => rust.roombaDisconnectPacket();
+
+  @override
+  Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer}) =>
+      rust.roombaParseIncoming(buffer: buffer);
 
   @override
   Future<NetworkReadingDto?> readNetworkEntity({

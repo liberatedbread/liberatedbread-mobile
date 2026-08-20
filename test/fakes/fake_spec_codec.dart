@@ -660,6 +660,256 @@ class FakeSpecCodec implements SpecCodec {
 
   @override
   Future<int> rabbitAirBleMtu() async => 515;
+  // ── Roomba ────────────────────────────────────────────────────────────────
+  //
+  // Implemented for real rather than canned, the same way the Kasa cipher above
+  // is: a RoombaMqttClient test drives connect -> subscribe -> publish -> parse
+  // against a loopback socket, and canned bytes would only prove the fake
+  // agrees with itself. Kept deliberately parallel to `protocol::roomba` so a
+  // divergence shows up as a failing round-trip rather than as silence.
+
+  @override
+  Future<List<int>> roombaDiscoveryProbe() async => utf8.encode('irobotmcs');
+
+  @override
+  Future<RoombaAnnouncementDto?> roombaParseAnnouncement({
+    required List<int> datagram,
+  }) async {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(datagram));
+    } catch (_) {
+      return null;
+    }
+    if (decoded is! Map) return null;
+    final hostname = decoded['hostname']?.toString() ?? '';
+    String? blid;
+    for (final prefix in const ['Roomba-', 'iRobot-']) {
+      if (hostname.startsWith(prefix) && hostname.length > prefix.length) {
+        blid = hostname.substring(prefix.length);
+        break;
+      }
+    }
+    if (blid == null) return null;
+    String field(String key) =>
+        decoded is Map ? (decoded[key]?.toString() ?? '') : '';
+    return RoombaAnnouncementDto(
+      ver: field('ver'),
+      hostname: hostname,
+      blid: blid,
+      robotname: field('robotname'),
+      ip: field('ip'),
+      mac: field('mac'),
+      sw: field('sw'),
+      sku: field('sku'),
+      proto: field('proto'),
+    );
+  }
+
+  @override
+  Future<List<int>> roombaPasswordProbe() async =>
+      const [0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x00];
+
+  @override
+  Future<String> roombaParsePasswordReply({required List<int> reply}) async {
+    const unsupported = [0xf0, 0x05, 0xef, 0xcc, 0x3b, 0x29, 0x03];
+    if (reply.length == unsupported.length &&
+        List.generate(reply.length, (i) => reply[i] == unsupported[i])
+            .every((ok) => ok)) {
+      throw StateError('cannot disclose its password locally; use the account');
+    }
+    if (reply.length < 8) {
+      throw StateError('the robot was not in disclosure mode');
+    }
+    final body = reply.sublist(2);
+    var start = 0;
+    while (
+        start < body.length && !(body[start] >= 0x20 && body[start] < 0x7F)) {
+      start++;
+    }
+    if (start == body.length) throw StateError('no printable bytes');
+    return utf8.decode(body.sublist(start)).replaceAll(RegExp(r'\x00+$'), '');
+  }
+
+  @override
+  Future<RoombaRequestDto> renderNetworkRoombaCommand({
+    required String specYaml,
+    required String commandName,
+    required int epochSeconds,
+  }) async =>
+      RoombaRequestDto(
+        topic: 'cmd',
+        payload: jsonEncode({
+          'command': commandName,
+          'time': epochSeconds,
+          'initiator': 'localApp',
+        }),
+      );
+
+  @override
+  Future<Map<String, String>> roombaStateFields({
+    required String payload,
+  }) async {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(payload);
+    } catch (_) {
+      return const {};
+    }
+    final out = <String, String>{};
+    void walk(Object? node, String prefix) {
+      if (node is Map) {
+        node.forEach((key, value) {
+          walk(value, prefix.isEmpty ? '$key' : '$prefix.$key');
+        });
+      } else if (node is bool) {
+        out[prefix] = node ? '1' : '0';
+      } else if (node is String || node is num) {
+        out[prefix] = '$node';
+      }
+    }
+
+    walk(decoded, '');
+    return out;
+  }
+
+  static void _mqttString(List<int> out, String value) {
+    final bytes = utf8.encode(value);
+    out
+      ..add((bytes.length >> 8) & 0xFF)
+      ..add(bytes.length & 0xFF)
+      ..addAll(bytes);
+  }
+
+  static List<int> _mqttPacket(int header, List<int> body) {
+    final out = <int>[header];
+    var length = body.length;
+    do {
+      var byte = length % 128;
+      length ~/= 128;
+      if (length > 0) byte |= 0x80;
+      out.add(byte);
+    } while (length > 0);
+    return out..addAll(body);
+  }
+
+  @override
+  Future<List<int>> roombaConnectPacket({
+    required String blid,
+    required String password,
+  }) async {
+    final body = <int>[];
+    _mqttString(body, 'MQTT');
+    body
+      ..add(0x04)
+      ..add(0xC2)
+      ..add(0x00)
+      ..add(0x3C);
+    _mqttString(body, blid);
+    _mqttString(body, blid);
+    _mqttString(body, password);
+    return _mqttPacket(0x10, body);
+  }
+
+  @override
+  Future<List<int>> roombaSubscribePacket({
+    required String topic,
+    required int packetId,
+  }) async {
+    final body = <int>[(packetId >> 8) & 0xFF, packetId & 0xFF];
+    _mqttString(body, topic);
+    body.add(0x00);
+    return _mqttPacket(0x82, body);
+  }
+
+  @override
+  Future<List<int>> roombaPublishPacket({
+    required String topic,
+    required String payload,
+  }) async {
+    final body = <int>[];
+    _mqttString(body, topic);
+    body.addAll(utf8.encode(payload));
+    return _mqttPacket(0x30, body);
+  }
+
+  @override
+  Future<List<int>> roombaPingreqPacket() async => const [0xC0, 0x00];
+
+  @override
+  Future<List<int>> roombaDisconnectPacket() async => const [0xE0, 0x00];
+
+  @override
+  Future<RoombaParsedDto> roombaParseIncoming({
+    required List<int> buffer,
+  }) async {
+    final packets = <RoombaIncomingDto>[];
+    var cursor = 0;
+    while (cursor < buffer.length) {
+      final header = buffer[cursor];
+      var value = 0;
+      var multiplier = 1;
+      var lengthBytes = 0;
+      var complete = false;
+      while (cursor + 1 + lengthBytes < buffer.length) {
+        final byte = buffer[cursor + 1 + lengthBytes];
+        value += (byte & 0x7F) * multiplier;
+        lengthBytes++;
+        if (byte & 0x80 == 0) {
+          complete = true;
+          break;
+        }
+        multiplier *= 128;
+      }
+      if (!complete) break;
+      final start = cursor + 1 + lengthBytes;
+      if (start + value > buffer.length) break;
+      final body = buffer.sublist(start, start + value);
+
+      switch (header >> 4) {
+        case 2:
+          packets.add(RoombaIncomingDto(
+            kind: 'connack',
+            topic: '',
+            payload: '',
+            code: body.length > 1 ? body[1] : 0,
+          ));
+        case 9:
+          packets.add(RoombaIncomingDto(
+            kind: 'suback',
+            topic: '',
+            payload: '',
+            code: body.length > 1 ? (body[0] << 8) | body[1] : 0,
+          ));
+        case 3:
+          final topicLen = (body[0] << 8) | body[1];
+          final topic = utf8.decode(body.sublist(2, 2 + topicLen));
+          final skip = ((header >> 1) & 0x03) > 0 ? 2 : 0;
+          packets.add(RoombaIncomingDto(
+            kind: 'publish',
+            topic: topic,
+            payload: utf8.decode(body.sublist(2 + topicLen + skip)),
+            code: 0,
+          ));
+        case 13:
+          packets.add(const RoombaIncomingDto(
+            kind: 'pingresp',
+            topic: '',
+            payload: '',
+            code: 0,
+          ));
+        default:
+          packets.add(RoombaIncomingDto(
+            kind: 'other',
+            topic: '',
+            payload: '',
+            code: header >> 4,
+          ));
+      }
+      cursor = start + value;
+    }
+    return RoombaParsedDto(packets: packets, consumed: cursor);
+  }
 
   @override
   Future<StoredUploadPlanDto> encodeStoredImage({

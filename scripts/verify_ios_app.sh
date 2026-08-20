@@ -72,6 +72,72 @@ SKIP_SYMBOLS=0
 log()  { printf '\033[1;32m[verify-ios]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[verify-ios]\033[0m %s\n' "$*"; }
 
+# Everything a missing-FFI failure needs somebody to know, printed at the
+# moment it fails.
+#
+# WHY THIS EXISTS. The failure this serves says the Rust library "was not
+# linked in (podspec -force_load no-op, or cargokit produced nothing)" — two
+# very different causes, and the message alone distinguishes neither. This job
+# runs on macOS, which bills at 10x, and `flutter build ios` swallows cargokit's
+# output entirely, so the evidence is not in the log either. Twice in a row that
+# meant a full red run taught nothing and the only way forward was another one.
+#
+# So: on the way out, say which candidates were Mach-O at all, what
+# architectures they carry, how many global symbols they have, and whether ANY
+# frb_ symbol is present. Then list what cargokit actually produced. That is
+# enough to tell "nothing was built" from "it was built and not linked" from
+# "it is linked and the entry points are named something else" — the last being
+# a real possibility across flutter_rust_bridge versions, and one this script
+# would otherwise misreport as the first.
+#
+# Only runs on the failure path, so a green run pays nothing for it.
+diagnose_missing_ffi() {
+  printf '\033[1;33m[verify-ios] --- FFI diagnostics ---\033[0m\n' >&2
+
+  local bin arch syms frb
+  for bin in "$@"; do
+    # nm exits non-zero on anything that is not an object file, which is the
+    # filter used above too: no dependency on `file`.
+    if ! "$NM" -g "$bin" >/dev/null 2>&1; then
+      continue
+    fi
+    arch="not available"
+    if command -v lipo >/dev/null 2>&1; then
+      arch="$(lipo -info "$bin" 2>/dev/null || echo 'lipo failed')"
+    fi
+    syms="$("$NM" -g "$bin" 2>/dev/null | wc -l | tr -d ' ')"
+    # Any frb_ symbol, not just the two expected ones. A non-zero count here
+    # with the check still failing means the entry points were RENAMED, which
+    # is a completely different fix from "the library is missing".
+    frb="$("$NM" -g "$bin" 2>/dev/null | grep -c 'frb_' || true)"
+    printf '\033[1;33m[verify-ios]\033[0m   %s\n' "${bin#"$APP/"}" >&2
+    printf '\033[1;33m[verify-ios]\033[0m     %s\n' "$arch" >&2
+    printf '\033[1;33m[verify-ios]\033[0m     %s global symbols, %s matching frb_\n' \
+      "$syms" "$frb" >&2
+  done
+
+  # Half the error message's own guess is "cargokit produced nothing" — this
+  # answers that directly rather than leaving it a guess. Relative to the repo
+  # root, which is where CI invokes this from; absent is itself the answer.
+  printf '\033[1;33m[verify-ios]\033[0m   Rust staticlibs under rust/target:\n' >&2
+  if [[ -d rust/target ]]; then
+    local found=0 lib
+    while IFS= read -r lib; do
+      found=1
+      printf '\033[1;33m[verify-ios]\033[0m     %s (%s bytes)\n' \
+        "$lib" "$(wc -c <"$lib" | tr -d ' ')" >&2
+      if command -v lipo >/dev/null 2>&1; then
+        printf '\033[1;33m[verify-ios]\033[0m       %s\n' \
+          "$(lipo -info "$lib" 2>/dev/null || echo 'lipo failed')" >&2
+      fi
+    done < <(find rust/target -name 'libliberated_bread_core.a' 2>/dev/null)
+    [[ "$found" -eq 1 ]] || printf '\033[1;33m[verify-ios]\033[0m     none — cargokit produced no staticlib\n' >&2
+  else
+    printf '\033[1;33m[verify-ios]\033[0m     rust/target does not exist here\n' >&2
+  fi
+  printf '\033[1;33m[verify-ios] --- end diagnostics ---\033[0m\n' >&2
+}
+
 # Same rationale as scripts/verify_apk.sh: collect every failure so one CI run
 # shows the whole picture instead of one problem per push.
 FAILURES=0
@@ -83,8 +149,14 @@ fail() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-symbols) SKIP_SYMBOLS=1; shift ;;
+    # So the CI summary step can grep for the SAME symbols this script checks,
+    # instead of keeping a second copy of the regex that drifts the first time
+    # flutter_rust_bridge renames an entry point.
+    --print-symbol-pattern) printf '%s\n' "$FRB_SYMBOL_PATTERN"; exit 0 ;;
     -h|--help)
-      echo "Usage: $0 <path-to-Runner.app | path-to.ipa> [--skip-symbols]"; exit 0 ;;
+      echo "Usage: $0 <path-to-Runner.app | path-to.ipa> [--skip-symbols]"
+      echo "       $0 --print-symbol-pattern"
+      exit 0 ;;
     -*)
       echo "Unknown option: $1" >&2; exit 2 ;;
     *)
@@ -264,7 +336,12 @@ else
     if [[ -n "$found" ]]; then
       log "  ok  flutter_rust_bridge FFI entry points present in ${found#"$APP/"}"
     else
-      fail "No flutter_rust_bridge FFI entry point found in any Mach-O in the bundle. The Rust static library was not linked in (podspec -force_load no-op, or cargokit produced nothing), so the app would crash on its first Rust call. Searched: $searched"
+      # Diagnostics FIRST, so they sit above the failure in the log rather than
+      # scrolled off below it.
+      if [[ ${#candidates[@]} -gt 0 ]]; then
+        diagnose_missing_ffi "${candidates[@]}"
+      fi
+      fail "No flutter_rust_bridge FFI entry point found in any Mach-O in the bundle. The Rust static library was not linked in (podspec -force_load no-op, or cargokit produced nothing), so the app would crash on its first Rust call. See the diagnostics above for which. Searched: $searched"
     fi
   fi
 fi

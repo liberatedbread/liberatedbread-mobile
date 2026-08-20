@@ -24,6 +24,55 @@ class FakeHaApiClient implements HaApiClient {
 
   String webhookId = 'wh-test-0123456789abcdef';
 
+  // ── Reading and commanding ────────────────────────────────────────────────
+
+  /// The state machine this fake HA is holding, by entity id. Tests seed it
+  /// with whatever shape the case needs — including the awkward ones, like a
+  /// vacuum reporting `unavailable` with no attributes at all.
+  Map<String, HaEntityState> entities = {};
+
+  /// Every service call made, in order: `(domain, service, entityId)`.
+  final List<({String domain, String service, String entityId})> serviceCalls =
+      [];
+
+  Object? readError;
+  Object? callServiceError;
+
+  @override
+  Future<List<HaEntityState>> entitiesInDomain({
+    required String baseUrl,
+    required String token,
+    required String domain,
+  }) async {
+    final error = readError;
+    if (error != null) throw error;
+    return entities.values.where((e) => e.domain == domain).toList();
+  }
+
+  @override
+  Future<HaEntityState?> entityState({
+    required String baseUrl,
+    required String token,
+    required String entityId,
+  }) async {
+    final error = readError;
+    if (error != null) throw error;
+    return entities[entityId];
+  }
+
+  @override
+  Future<void> callService({
+    required String baseUrl,
+    required String token,
+    required String domain,
+    required String service,
+    required String entityId,
+  }) async {
+    final error = callServiceError;
+    if (error != null) throw error;
+    serviceCalls.add((domain: domain, service: service, entityId: entityId));
+  }
+
   @override
   Future<HaRegistrationResult> registerDevice({
     required String baseUrl,

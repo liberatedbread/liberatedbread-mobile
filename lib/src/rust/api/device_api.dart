@@ -7,9 +7,9 @@ import '../frb_generated.dart';
 import '../spec/types.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
+// These functions are ignored because they are not marked as `pub`: `agreeing`, `all_service_types`, `all_service_uuids`, `brightness_to_byte`, `confidence`, `entity_dto`, `find_entity`, `format_mac`, `format_number`, `from_lifx`, `from`, `image_upload_dto`, `is_empty`, `is_shared_service_type`, `is_sig_assigned_service`, `lifx_network_entities`, `mac_prefix_confidence`, `match_axes`, `match_network_axes`, `name_has_prefix`, `normalize_mac_prefix`, `normalize_mac`, `normalize_service_type`, `rank_matches`, `reading_to_dto`, `resolve_query_source`, `roomba_network_entities`, `scroll_from_str`, `stored_plan_to_dto`, `stored_upload_dto`, `strip_hex`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `MatchAxes`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `cmp`, `eq`, `eq`, `eq`, `eq`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `from`, `partial_cmp`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `default`
 
 /// Resolve a `device_reported` panel's REAL width/height from its BLE
@@ -269,6 +269,96 @@ Future<String> rabbitAirBleCommandCharacteristicUuid() => RustLib.instance.api
 /// MTU - 5, and the pre-negotiation default is 512.
 Future<int> rabbitAirBleMtu() =>
     RustLib.instance.api.crateApiDeviceApiRabbitAirBleMtu();
+
+/// The nine ASCII bytes broadcast to 255.255.255.255:5678 to find robots.
+Future<Uint8List> roombaDiscoveryProbe() =>
+    RustLib.instance.api.crateApiDeviceApiRoombaDiscoveryProbe();
+
+/// Parse one discovery datagram.
+///
+/// `None` — not an error — for a datagram that is not from a robot. The probe
+/// is a broadcast and reaches every host on the segment, so a scan must not
+/// fail because a printer answered.
+Future<RoombaAnnouncementDto?> roombaParseAnnouncement(
+        {required List<int> datagram}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiRoombaParseAnnouncement(datagram: datagram);
+
+/// The 7-byte password-disclosure probe, written on a TLS connection to
+/// `<robot>:8883` while the robot is in disclosure mode.
+Future<Uint8List> roombaPasswordProbe() =>
+    RustLib.instance.api.crateApiDeviceApiRoombaPasswordProbe();
+
+/// Extract the password from a disclosure reply.
+///
+/// The whole returned string is the credential — Roomba passwords begin with
+/// `:` and contain `:` separators, so a caller must not split it. Errors carry
+/// text meant to be shown: "not in disclosure mode" (retry the button) reads
+/// differently from "this model cannot disclose locally" (use the account
+/// route), and a client that collapses them sends the user in a circle.
+Future<String> roombaParsePasswordReply({required List<int> reply}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiRoombaParsePasswordReply(reply: reply);
+
+/// Render a named `transport: mqtt` command — the Roomba sibling of
+/// [`render_network_kasa_command`].
+///
+/// `epoch_seconds` is the caller's clock, and is required: this crate has no
+/// clock of its own, and a command rendered with a silently defaulted
+/// timestamp is a plausible-but-wrong request that is painful to debug against
+/// hardware.
+Future<RoombaRequestDto> renderNetworkRoombaCommand(
+        {required String specYaml,
+        required String commandName,
+        required PlatformInt64 epochSeconds}) =>
+    RustLib.instance.api.crateApiDeviceApiRenderNetworkRoombaCommand(
+        specYaml: specYaml,
+        commandName: commandName,
+        epochSeconds: epochSeconds);
+
+/// Flatten a state payload into the dotted paths entities bind to
+/// (`state.reported.batPct`). Booleans come back as `1`/`0` so an entity's
+/// `on_when: nonzero` reads them the way it reads a Kasa relay state.
+///
+/// An unparseable payload yields an empty map rather than an error: a dropped
+/// connection can deliver half a message, and that must not take the control
+/// screen down.
+Future<Map<String, String>> roombaStateFields({required String payload}) =>
+    RustLib.instance.api.crateApiDeviceApiRoombaStateFields(payload: payload);
+
+/// MQTT CONNECT, with the BLID as both client id and username.
+Future<Uint8List> roombaConnectPacket(
+        {required String blid, required String password}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiRoombaConnectPacket(blid: blid, password: password);
+
+/// MQTT SUBSCRIBE at QoS 0. Pass `#`: which topic shape a given firmware
+/// publishes locally is not settled, so subscribing to everything is the only
+/// reading that works across all of them.
+Future<Uint8List> roombaSubscribePacket(
+        {required String topic, required int packetId}) =>
+    RustLib.instance.api.crateApiDeviceApiRoombaSubscribePacket(
+        topic: topic, packetId: packetId);
+
+/// MQTT PUBLISH at QoS 0 — the robot does not acknowledge commands.
+Future<Uint8List> roombaPublishPacket(
+        {required String topic, required String payload}) =>
+    RustLib.instance.api
+        .crateApiDeviceApiRoombaPublishPacket(topic: topic, payload: payload);
+
+/// MQTT PINGREQ, sent inside the keepalive window to hold the session open.
+Future<Uint8List> roombaPingreqPacket() =>
+    RustLib.instance.api.crateApiDeviceApiRoombaPingreqPacket();
+
+/// MQTT DISCONNECT. Sent on the way out, always: the robot serves one local
+/// client at a time, so a client that just drops the socket leaves the owner
+/// locked out of their own app until the robot notices.
+Future<Uint8List> roombaDisconnectPacket() =>
+    RustLib.instance.api.crateApiDeviceApiRoombaDisconnectPacket();
+
+/// Parse whole MQTT packets out of whatever has arrived so far.
+Future<RoombaParsedDto> roombaParseIncoming({required List<int> buffer}) =>
+    RustLib.instance.api.crateApiDeviceApiRoombaParseIncoming(buffer: buffer);
 
 /// Render the argument-less request that reads a state command's values —
 /// what a client sends to poll `GetCrockpotState` or `GetBinaryState`.
@@ -2732,6 +2822,147 @@ class RejoinDto {
           inPlaceSupported == other.inPlaceSupported &&
           requiresFactoryReset == other.requiresFactoryReset &&
           notes == other.notes;
+}
+
+/// One robot's answer to the UDP-5678 discovery probe.
+class RoombaAnnouncementDto {
+  final String ver;
+  final String hostname;
+
+  /// The MQTT username, and the key credentials are stored against. Never
+  /// the IP: that is a DHCP lease, this is the robot.
+  final String blid;
+  final String robotname;
+  final String ip;
+  final String mac;
+  final String sw;
+  final String sku;
+  final String proto;
+
+  const RoombaAnnouncementDto({
+    required this.ver,
+    required this.hostname,
+    required this.blid,
+    required this.robotname,
+    required this.ip,
+    required this.mac,
+    required this.sw,
+    required this.sku,
+    required this.proto,
+  });
+
+  @override
+  int get hashCode =>
+      ver.hashCode ^
+      hostname.hashCode ^
+      blid.hashCode ^
+      robotname.hashCode ^
+      ip.hashCode ^
+      mac.hashCode ^
+      sw.hashCode ^
+      sku.hashCode ^
+      proto.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoombaAnnouncementDto &&
+          runtimeType == other.runtimeType &&
+          ver == other.ver &&
+          hostname == other.hostname &&
+          blid == other.blid &&
+          robotname == other.robotname &&
+          ip == other.ip &&
+          mac == other.mac &&
+          sw == other.sw &&
+          sku == other.sku &&
+          proto == other.proto;
+}
+
+/// One packet read off the MQTT stream.
+class RoombaIncomingDto {
+  /// `connack` | `suback` | `publish` | `pingresp` | `other`.
+  final String kind;
+
+  /// PUBLISH only.
+  final String topic;
+
+  /// PUBLISH only.
+  final String payload;
+
+  /// CONNACK's return code — 0 is accepted, 4 is a bad BLID or password.
+  /// SUBACK's packet id. Zero elsewhere.
+  final int code;
+
+  const RoombaIncomingDto({
+    required this.kind,
+    required this.topic,
+    required this.payload,
+    required this.code,
+  });
+
+  @override
+  int get hashCode =>
+      kind.hashCode ^ topic.hashCode ^ payload.hashCode ^ code.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoombaIncomingDto &&
+          runtimeType == other.runtimeType &&
+          kind == other.kind &&
+          topic == other.topic &&
+          payload == other.payload &&
+          code == other.code;
+}
+
+/// Whole packets parsed out of a receive buffer, and how many bytes they
+/// consumed.
+class RoombaParsedDto {
+  final List<RoombaIncomingDto> packets;
+
+  /// Bytes the caller may now drop. The remainder is a partial packet and
+  /// must be kept: a TLS stream splits and coalesces wherever it likes, and
+  /// treating one read as one packet is the bug this count prevents.
+  final int consumed;
+
+  const RoombaParsedDto({
+    required this.packets,
+    required this.consumed,
+  });
+
+  @override
+  int get hashCode => packets.hashCode ^ consumed.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoombaParsedDto &&
+          runtimeType == other.runtimeType &&
+          packets == other.packets &&
+          consumed == other.consumed;
+}
+
+/// A rendered Roomba command: the topic to publish on, and the JSON payload.
+class RoombaRequestDto {
+  final String topic;
+  final String payload;
+
+  const RoombaRequestDto({
+    required this.topic,
+    required this.payload,
+  });
+
+  @override
+  int get hashCode => topic.hashCode ^ payload.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoombaRequestDto &&
+          runtimeType == other.runtimeType &&
+          topic == other.topic &&
+          payload == other.payload;
 }
 
 /// One spec that a scanned device might be, and why we think so.

@@ -1010,9 +1010,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.RUST_IOS_TARGETS }}
+      # prefix-key bumped off the default `v0` deliberately. The snapshot under
+      # the old key restored as a "full match" while the crate was never
+      # compiled, and the framework that ended up in the bundle carried no FFI
+      # entry points — so the verifier below failed twice on a tree whose iOS
+      # build config is identical to a main commit that passes. This repo has
+      # been bitten by a poisoned rust-cache snapshot before; see the
+      # cache-bin note in unit-tests for that one.
+      #
+      # Keep it. Reverting to v0 risks restoring the same bad snapshot, and the
+      # cost of not reverting is one cold build of RUST_IOS_TARGETS. The key
+      # already carries a per-job segment, so this touches no other job.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+          prefix-key: v1-ios
       - run: flutter pub get
       # Newer Flutter enables Swift Package Manager by default, and
       # SPM-capable plugins (flutter_blue_plus_darwin ships a Package.swift)
@@ -1124,6 +1136,49 @@ jobs:
       # present in the linked binary. That is the iOS counterpart of the APK's
       # .so check — see scripts/verify_ios_app.sh for why the linked binary,
       # rather than the .a in the build intermediates, is the thing to assert on.
+      # What cargokit actually produced, recorded before anything can consume
+      # it. Three lines on a green run; on a red one it is the evidence that
+      # was missing.
+      #
+      # `flutter build ios` swallows cargokit's output entirely, so when the
+      # bundle check below fails there is no way to tell a crate that was never
+      # built from one that was built and not linked — and this job bills at
+      # 10x, so "run it again with --verbose" is an expensive way to ask. This
+      # reads the artifacts directly instead, which is deterministic and costs
+      # about a second. It also shows whether the crate was REBUILT or restored
+      # from the rust-cache above, which a stale-artifact failure turns on.
+      #
+      # Not `--verbose` on the build itself: that would slow every green run to
+      # serve the rare red one, and still only produce a wall of log to grep.
+      #
+      # `|| true` throughout — this step reports, it does not judge. The bundle
+      # check below is what fails the job, and a diagnostic that can itself go
+      # red just adds a second thing to debug.
+      - name: Record the Rust artifacts cargokit produced
+        if: always()
+        run: |
+          {
+            echo "=== staticlibs under rust/target ==="
+            find rust/target -name 'libliberated_bread_core.a' \
+              -exec ls -l {} \; -exec lipo -info {} \; 2>/dev/null || true
+            echo "=== FFI entry points in each ==="
+            # Sourced from the verifier so there is ONE copy of this regex; a
+            # second one here would drift the first time FRB renames a symbol.
+            # Guarded: GitHub runs `run:` under `bash -e`, so an unguarded
+            # failure here would abort the block and truncate the very output
+            # this step exists to produce.
+            pattern="$(./scripts/verify_ios_app.sh --print-symbol-pattern || true)"
+            if [ -z "$pattern" ]; then
+              echo "could not read the symbol pattern from verify_ios_app.sh"
+              pattern='_?frb_'
+            fi
+            echo "pattern: $pattern"
+            while IFS= read -r lib; do
+              printf '%s: ' "$lib"
+              nm -g "$lib" 2>/dev/null | grep -cE "$pattern" || echo 0
+            done < <(find rust/target -name 'libliberated_bread_core.a' 2>/dev/null)
+          } 2>&1 | tee ios-rust-artifacts.txt
+
       - name: Verify built .app bundle (Info.plist + linked Rust library)
         run: ./scripts/verify_ios_app.sh build/ios/iphonesimulator/Runner.app
 
@@ -1172,6 +1227,7 @@ jobs:
             ios-simulator-log.txt
             ios-simulator-log-attempt*.txt
             ios-crash-reports/
+            ios-rust-artifacts.txt
           if-no-files-found: warn
           retention-days: 7
 

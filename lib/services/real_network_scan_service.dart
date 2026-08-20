@@ -156,6 +156,56 @@ const _knxProbe = [
   0x06, 0x10, 0x02, 0x01, 0x00, 0x0e, //
   0x08, 0x01, 0, 0, 0, 0, 0, 0,
 ];
+/// iRobot Roomba discovery: a broadcast of the nine ASCII bytes `irobotmcs` to
+/// UDP 5678, which every iRobot robot on the segment answers with a JSON
+/// datagram carrying its BLID, name, address and firmware. The probe and the
+/// reply parse both live in the Rust codec; this half owns the socket.
+///
+/// koalazak/dorita980's work, like the rest of the Roomba path.
+const _roombaBroadcast = '255.255.255.255';
+const _roombaDiscoveryPort = 5678;
+const _roombaControlPort = 8883;
+const _roombaProtocol = 'irobot-mqtt';
+
+/// Build a device from a Roomba announcement, or null when the datagram is
+/// not one — which is the common case, since a broadcast probe reaches every
+/// host on the segment and printers answer things too.
+///
+/// Top-level, like [lifxStateServiceMac] and the SSDP parsers, so the
+/// announcement-to-device mapping is testable without opening a socket.
+Future<NetworkDevice?> roombaDeviceFrom(
+    Datagram datagram, SpecCodec codec) async {
+  final RoombaAnnouncementDto? robot;
+  try {
+    robot = await codec.roombaParseAnnouncement(datagram: datagram.data);
+  } catch (_) {
+    return null;
+  }
+  if (robot == null) return null;
+
+  String? nonEmpty(String value) => value.isEmpty ? null : value;
+  // The robot's own address, not the datagram's: they agree in practice, and
+  // when they do not (a robot behind a relay) the robot is the one that knows
+  // where it is.
+  final host = nonEmpty(robot.ip) ?? datagram.address.address;
+  return NetworkDevice(
+    host: host,
+    // The owner's name for it, falling back to the model then the BLID —
+    // never to an empty string, because this is what the scan list shows.
+    name: nonEmpty(robot.robotname) ?? nonEmpty(robot.sku) ?? robot.blid,
+    port: _roombaControlPort,
+    answeredLanProtocols: const [_roombaProtocol],
+    txt: {
+      // The identity every stored credential is keyed on.
+      'blid': robot.blid,
+      if (nonEmpty(robot.sku) != null) 'sku': robot.sku,
+      if (nonEmpty(robot.mac) != null) 'mac': robot.mac,
+      if (nonEmpty(robot.sw) != null) 'sw': robot.sw,
+    },
+    sources: const {NetworkDiscoverySource.lanProbe},
+    discoveredAt: DateTime.now(),
+  );
+}
 
 /// Parse an SSDP response into its headers, lowercased keys.
 ///
@@ -773,6 +823,14 @@ class RealNetworkScanService implements NetworkScanService {
             Log.net.warning('KNX discovery failed', error: e);
             return TransportOutcome.failed;
           }),
+          // The Roomba transport, on the same terms as Kasa: a broadcast probe
+          // whose answer is itself the identification, so its outcome joins
+          // the others.
+          if (codec != null)
+            _runRoomba(session, emit, timeout, codec).catchError((Object e) {
+              Log.net.warning('Roomba discovery failed', error: e);
+              return TransportOutcome.failed;
+            }),
         ]);
 
         final failure = scanFailureFor(
@@ -1891,6 +1949,62 @@ class RealNetworkScanService implements NetworkScanService {
     );
   }
 
+  /// Find iRobot Roombas by the protocol they answer.
+  ///
+  /// A broadcast of `irobotmcs` to 255.255.255.255:5678; every iRobot robot on
+  /// the segment replies to our ephemeral port with a JSON announcement. The
+  /// Kasa transport's twin — same shape, same absolute deadline, same "a reply
+  /// arrived at all settles the permission question" rule — with the probe
+  /// bytes and the reply parse coming from the codec.
+  ///
+  /// Broadcast is the load-bearing word: this finds nothing across a VLAN
+  /// boundary, no matter how much mDNS reflection is enabled, because mDNS
+  /// reflection is a different protocol. That is a real limitation of the
+  /// discovery path and not of the robot — control by a known address works
+  /// fine — so it is documented in the guide rather than worked around here.
+  Future<TransportOutcome> _runRoomba(
+    _ScanSession session,
+    void Function(NetworkDevice) emit,
+    Duration timeout,
+    SpecCodec codec,
+  ) async {
+    final probe = await codec.roombaDiscoveryProbe();
+    final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0,
+        reuseAddress: true);
+    session.roombaSocket = socket;
+    socket.broadcastEnabled = true;
+    var heard = false;
+    try {
+      final target = InternetAddress(_roombaBroadcast);
+      // Sent more than once: UDP, and a dropped probe is a robot never found.
+      for (var attempt = 0; attempt < 2; attempt++) {
+        socket.send(probe, target, _roombaDiscoveryPort);
+        if (await session
+            .sleepUnlessStopped(const Duration(milliseconds: 250))) {
+          break;
+        }
+      }
+
+      final deadline = DateTime.now().add(timeout);
+      await for (final event in socket.timeout(
+        timeout,
+        onTimeout: (sink) => sink.close(),
+      )) {
+        if (session.stopped || DateTime.now().isAfter(deadline)) break;
+        if (event != RawSocketEvent.read) continue;
+        final datagram = socket.receive();
+        if (datagram == null) continue;
+        heard = true;
+        final device = await roombaDeviceFrom(datagram, codec);
+        if (device != null) emit(device);
+      }
+      return heard ? TransportOutcome.heard : TransportOutcome.silent;
+    } finally {
+      socket.close();
+      session.roombaSocket = null;
+    }
+  }
+
   /// End [session]: stop its transports, and give the multicast lock back if
   /// it is still the session holding it.
   ///
@@ -1936,6 +2050,7 @@ class _ScanSession {
   RawDatagramSocket? yeelightSocket;
   RawDatagramSocket? goveeSocket;
   RawDatagramSocket? knxSocket;
+  RawDatagramSocket? roombaSocket;
 
   /// The interruptible-wait mechanism, shared with the mock service: a wait
   /// races [whenStopped] rather than only checking a flag at its ends — a
@@ -1980,5 +2095,7 @@ class _ScanSession {
     goveeSocket = null;
     knxSocket?.close();
     knxSocket = null;
+    roombaSocket?.close();
+    roombaSocket = null;
   }
 }

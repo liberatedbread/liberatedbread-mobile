@@ -1,0 +1,826 @@
+# iRobot Roomba (Wi-Fi models) — Device Specification
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Protocol sources — all public prior art. Nothing here came from a vendor
+# APK: com.irobot.home was never fetched, because the local protocol is
+# already documented better than a teardown would document it.
+#
+#   - koalazak/dorita980 (Node.js, MIT): THE source for everything on this
+#     page. The UDP-5678 "irobotmcs" discovery probe, the password-disclosure
+#     magic packet and its reply offsets, the local MQTT-over-TLS session, the
+#     cmd/delta topic vocabulary and the cloud credential-extraction flow are
+#     all its work. rest980 (same author) is the REST shim over it.
+#   - pschmitt/roombapy (Python, MIT): the Python lineage of the same
+#     protocol; backs Home Assistant core's `roomba` integration
+#     (iot_class local_polling).
+#   - NickWaterton/Roomba980-Python: independent implementation of the same
+#     password handshake, useful as a second reading of the reply framing.
+#   - homebridge-plugins/homebridge-roomba: issue tracker is where the j-series
+#     TLS-reset behaviour during the password handshake is recorded.
+#
+# This project has NOT replayed any of it against a robot — see
+# device.testing and every method's `verified: false`.
+
+device:
+  name: "iRobot Roomba (Wi-Fi models)"
+  manufacturer: "iRobot (Picea Robotics since 2026-01)"
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    source_code: "https://github.com/koalazak/dorita980"
+    license: "MIT"
+    notes: >
+      iRobot publishes nothing about the local interface; every byte below was
+      recovered by other people. dorita980 is the authoritative implementation
+      and roombapy is the authoritative Python one — a consumer that wants a
+      supported, hardware-tested client should use one of those rather than
+      re-implement from this document. This spec exists to describe the
+      protocol in one machine-readable place, not to compete with the work it
+      is transcribing.
+  testing:
+    status: untested
+  protocol: "wifi"
+  category: "robot"
+  type: "robot vacuum"
+  transport: "mqtts"
+  notes: >
+    Wi-Fi Roombas run an MQTT broker on the robot itself: TLS on TCP 8883,
+    username = BLID (the robot's 80-bit id), password = a per-device secret.
+    That broker is the same channel the vendor app uses when it is on the LAN,
+    so local control is not a fallback path — it is the primary one, and it
+    keeps working with the robot firewalled off the internet.
+
+    The password is retrievable from the robot itself with no iRobot account:
+    put the robot on its dock with the app closed, hold HOME until it plays a
+    tone, and connect to 8883 with a 7-byte probe (see setup below). An iRobot
+    account can also be used to read the same BLID/password pair out of the
+    vendor's own API, which is useful when the button handshake will not
+    complete — but that route stops working the moment the robot (or the
+    phone) is cut off from the internet, so extract before you firewall.
+
+    Two hard limits. The robot accepts ONE local client at a time and a new
+    connection evicts the old one, so a polling client must connect, read and
+    disconnect rather than hold the socket — that is why Home Assistant's
+    integration is `local_polling` and why dorita980 tells callers to `.end()`.
+    And the 2025 model line (Roomba 105/205, Combo 405 — the "V4 protocol"
+    reboot) refuses connections on 8883 outright; those are cloud-only and
+    nothing in this spec applies to them.
+
+    Coverage here is the 690/890, 960/980, e5/e6, i3–i8, j7/j9 and s9
+    generations, plus the Braava jet m6, which speak the same protocol.
+
+  identification:
+    # The strong, honest signal: a device is a Roomba because it ANSWERED the
+    # UDP-5678 probe with an iRobot announcement. Nothing else on a home LAN
+    # replies to it, so a consumer that completed that exchange tags the device
+    # with this token and the two are matched. See irobot_lan_protocol below.
+    lan_protocols:
+      - "irobot-mqtt"
+    # Gates this spec into the network match path. Never evidence on its own —
+    # 8883 is the registered MQTT-over-TLS port and names no vendor.
+    default_port: 8883
+    mac_prefixes:
+      - "4C:B9:EA"
+      - "50:14:79"
+      - "AC:F4:73"
+    identity_keys:
+      primary: "blid"
+      display: "robotname"
+
+  discovery:
+    # The reliable method is the UDP broadcast documented in the top-level
+    # irobot_lan_protocol block: the schema's structured discovery.methods
+    # vocabulary has no udp_broadcast type, so it cannot be expressed here.
+    # mDNS is listed because robots are also seen on 5353, but it is the weaker
+    # signal of the two and should not be the only thing a client tries.
+    methods:
+      - type: "mdns"
+        mdns:
+          service_type: "_amzn-wplay._tcp.local."
+          identity_mapping:
+            stable_keys:
+              - source: "hostname"
+                key: "blid"
+            display:
+              source: "name"
+    identity:
+      stable_keys: ["blid"]
+      display: "robotname"
+    static_ip_required: false
+
+  setup:
+    required: true
+    confidence: "medium"
+    notes: >
+      "Setup" here is two different things and the spec keeps them apart.
+      Getting the robot onto Wi-Fi is a vendor-app job that has never been
+      documented outside iRobot; getting the local MQTT credential off an
+      already-provisioned robot is what a third-party client actually needs,
+      and that is what the methods below cover.
+
+      Extract the credentials BEFORE cutting the robot off from the internet.
+      The button handshake is local and unaffected, but the account route
+      needs both the phone and iRobot's API reachable, and a firewall rule
+      added first turns a five-minute job into a temporary un-firewalling.
+
+      The password is stable: community reports have it changing only on a
+      factory reset. Treat it as a long-lived secret worth writing down —
+      it is the same BLID/password pair Home Assistant, dorita980 and every
+      other local client will ask for.
+    methods:
+      - type: "button_pairing"
+        verified: false
+        description: >
+          The account-free route, and dorita980's `get-roomba-password`. With
+          the robot docked, powered and NOT connected to the vendor app, hold
+          the HOME button for about two seconds until the robot plays a series
+          of tones; it then answers a password-disclosure exchange on its own
+          TLS port for a short window. The client opens TLS to <robot-ip>:8883
+          (self-signed certificate — pin it on first sight rather than trying
+          to validate it), writes the 7-byte probe below, and reads one reply.
+
+          Wire detail, transcribed from dorita980 and cross-read against
+          roombapy — see irobot_lan_protocol.password_disclosure for the
+          machine-readable form:
+            - probe: f0 05 ef cc 3b 29 00
+              (0xf0 = an MQTT reserved packet type, 0x05 = payload length,
+               then the five-byte payload ef cc 3b 29 00)
+            - reply: [0xf0][length][payload]. Drop the 2-byte header, drop any
+              remaining leading non-printable bytes, decode the rest as UTF-8
+              and strip trailing NULs — that whole remaining string is the
+              password. Published clients each hardcode a different fixed
+              offset (7, 9 or 13 depending on how the socket delivered the
+              bytes), which is why the rule rather than the number is the
+              contract here.
+            - a reply of fewer than 8 bytes means the robot is not in
+              disclosure mode: release, re-hold the button and retry. A reply
+              equal to f0 05 ef cc 3b 29 03 means the model does not support
+              direct extraction — use the account route.
+            - the reply also carries the BLID; it is equally available from the
+              UDP-5678 announcement's `hostname`, which is the easier read.
+
+          j-series firmware is reported to reset the TLS connection on the
+          first attempt or two before answering, so a client should retry
+          within the window rather than treat one reset as a refusal.
+        steps:
+          - action: "Put the robot on its dock, powered on, and close the iRobot app on every phone — the robot serves one client at a time."
+            actor: "user"
+          - action: "Hold the HOME button for about two seconds, until the robot plays a series of tones, then release."
+            actor: "user"
+            notes: "900/i/s series play the tone. On models without it, hold until the Wi-Fi indicator changes."
+          - action: "Open a TLS connection to <robot-ip>:8883, accepting the robot's self-signed certificate."
+            actor: "client"
+            request:
+              protocol: "mqtt"
+              action: "tls_connect"
+            timeout_seconds: 10
+          - action: "Write the 7-byte probe f0 05 ef cc 3b 29 00 and read the reply."
+            actor: "client"
+            request:
+              protocol: "mqtt"
+              action: "password_disclosure_probe"
+            timeout_seconds: 10
+          - action: "Drop the 2-byte header and any leading non-printable bytes, decode the rest as UTF-8, strip trailing NULs, and store the whole remaining string against the BLID."
+            actor: "client"
+            notes: "A reply shorter than 8 bytes means disclosure mode was not active — retry from the button hold. A reply of f0 05 ef cc 3b 29 03 means the model cannot disclose locally."
+      - type: "cloud_account"
+        verified: false
+        description: >
+          The fallback when the button handshake will not complete, and
+          dorita980's `get-roomba-password-cloud`. Used ONLY to read the
+          BLID/password pair out of the vendor API — nothing about steady-state
+          control needs an account, and the credentials it returns are the same
+          ones the local handshake would have produced. Three calls: discover
+          the regional endpoints, authenticate against iRobot's identity
+          provider (Gigya), then exchange that assertion for the account's
+          robot list, where each entry is keyed by BLID and carries `password`,
+          `name`, `sku` and `softwareVer`.
+
+          A client doing this must treat the account password as
+          write-never: use it for the one login call and keep nothing.
+        cloud:
+          provider: "iRobot (Gigya identity + iRobot IoT API)"
+          local_alternative: >
+            Yes — the button_pairing method above yields the same BLID and
+            password with no account at all, and is the preferred route. This
+            path exists for robots whose disclosure handshake will not
+            complete, and stops working once the robot or phone is firewalled.
+        steps:
+          - action: "GET https://disc-prod.iot.irobotapi.com/v1/discover/endpoints?country_code=<CC> for the regional Gigya API key, Gigya base URL and iRobot API base URL."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "GET /v1/discover/endpoints"
+              arguments:
+                - name: "country_code"
+                  required: true
+                  description: "Two-letter country code of the account's region, e.g. US."
+          - action: "POST {gigyaBase}/accounts.login with the account email and password to obtain UID, UIDSignature and signatureTimestamp."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /accounts.login"
+              arguments:
+                - name: "apiKey"
+                  required: true
+                  description: "Regional Gigya API key from the discovery call."
+                - name: "loginID"
+                  required: true
+                  description: "Account email address."
+                - name: "password"
+                  required: true
+                  description: "Account password. Used for this call only and never stored."
+                - name: "targetEnv"
+                  description: "Sent as 'mobile'."
+          - action: "POST {httpBase}/v2/login with the Gigya uid/signature/timestamp assertion and the client's app id."
+            actor: "client"
+            request:
+              protocol: "http"
+              action: "POST /v2/login"
+              arguments:
+                - name: "gigya"
+                  required: true
+                  description: "Object carrying uid, signature and timestamp from the previous call."
+                - name: "app_id"
+                  required: true
+                  description: "Client application identifier."
+                - name: "assume_robot_ownership"
+                  description: "0 to read the account's existing robots without claiming them."
+          - action: "Read the response's `robots` map: each key is a BLID and each value carries the local `password`, plus name, sku and softwareVer."
+            actor: "client"
+            notes: "Store password against BLID; discard the account credentials and the Gigya assertion."
+    factory_reset:
+      confidence: "medium"
+      effect: >
+        Clears the stored Wi-Fi credentials and the robot's cloud registration,
+        and — importantly for this spec — mints a NEW local password. A robot
+        that has been reset since you wrote its password down will refuse the
+        old one. Maps and mission history are lost on the models that keep
+        them.
+      procedures:
+        - name: "DOCK + SPOT + CLEAN held (600/800/900 series)"
+          hold_seconds: 20
+          indicator: "The robot plays the reset tone and the light ring swirls."
+          steps:
+            - action: "With the robot powered on, press and hold DOCK, SPOT Clean and CLEAN together until the robot signals the reset, then release."
+              actor: "user"
+              notes: "Hold time varies across the generation; check the model's manual before assuming a hold failed."
+        - name: "HOME + SPOT + CLEAN held (i/j/s series)"
+          hold_seconds: 20
+          indicator: "The light ring swirls clockwise, then the robot reboots."
+          steps:
+            - action: "Press and hold HOME, SPOT Clean and CLEAN together until the light ring swirls, then release."
+              actor: "user"
+      not_a_reset: >
+        Holding CLEAN on its own REBOOTS the robot; it does not reset it. The
+        distinction matters here more than it usually would, because this spec
+        tells the reader a reset mints a new password: someone who reboots
+        believing they reset will either expect a credential change that never
+        happened, or conclude their stored password is dead and redo the whole
+        handshake for nothing. Both procedures above are multi-button holds for
+        exactly that reason.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      confidence: "low"
+      notes: >
+        A provisioned robot can be put back into Wi-Fi setup mode and
+        re-provisioned onto a new router without a factory reset — reported by
+        the vendor's own support material and by community accounts, NOT
+        replayed here, hence the low confidence.
+
+        Stated as `false` rather than left at `true` because the two answers
+        are not symmetric in cost. Claiming a reset is mandatory tells a
+        consumer's wizard to wipe maps, mission history and the local password
+        to solve a problem that may not need any of that; being wrong the other
+        way costs a reader one failed attempt before they reset anyway.
+
+        The consequence worth carrying downstream: if a router move does not
+        reset the robot, the local password SURVIVES it. A stored credential
+        stays valid across a network change, which is why a client should key
+        it on the BLID and not on the address it was last seen at.
+    credentials:
+      wifi_passphrase_protection: "not_applicable"
+      stored_on_device:
+        - "Home network credentials (placed there by the vendor app's onboarding, which this spec does not document)"
+        - "The local MQTT password, regenerated on factory reset"
+      issued_to_client:
+        - "BLID — the MQTT username, also the robot's stable identity"
+        - "Local MQTT password — the long-lived per-robot secret"
+      confidence: "medium"
+      confidence_notes: >
+        The handshake, the probe bytes and the reply offsets are transcribed
+        from dorita980 rather than captured here; the offsets in particular are
+        the kind of detail a firmware revision can move, which is one more
+        reason to treat dorita980 as authoritative over this file.
+      notes: >
+        Anyone who has the BLID and password has full local control of the
+        robot for as long as it is not factory reset, and there is no way to
+        revoke one without resetting. Store it the way you would a password,
+        not the way you would a device id.
+
+  variants:
+    - model: "690, 890, 960, 980, e5, e6, i3–i8, j7, j9, s9, Braava jet m6"
+      name: "Local-MQTT generation"
+      characteristics:
+        - "Local MQTT broker on TCP 8883; everything in this spec applies."
+        - "Firmware 2.x (900-series lineage) and 3.x (i/j/s lineage) both answer the same command vocabulary."
+        - "Newer firmware in this generation stops reporting the robot's x/y `pose`; read mission state instead of position."
+    - model: "105, 205, Combo 405 (2025 line, 'V4 protocol')"
+      name: "Cloud-only generation"
+      characteristics:
+        - "DUD for local control: refuses connections on 8883 outright — connection refused, not a timeout."
+        - "Cloud credentials are still retrievable, but there is no local broker to use them against."
+        - "Reported against firmware p25-105 (Home Assistant community, 2026-04); no local path known."
+
+# Names the consumer-side handler that drives this device. The local protocol
+# is MQTT-over-TLS with a push state stream, which no generic YAML-driven
+# renderer in a consumer can express: the commands are ordinary JSON envelopes
+# but the session, the framing and the subscription are code. A consumer with
+# a handler by this name dispatches to it; one without simply reads the
+# document, which is why everything below is still stated in full.
+protocol_handler: "roomba_mqtt"
+
+# The discovery exchange, documented here because the schema's structured
+# `discovery.methods` vocabulary has no udp_broadcast type — the same reason
+# tplink-kasa-smart-plug.yaml carries a tplink_smarthome_protocol block.
+irobot_lan_protocol:
+  discovery:
+    transport: "udp"
+    destination: "255.255.255.255:5678"
+    request:
+      encoding: "string"
+      payload: "irobotmcs"
+      description: >
+        A single datagram containing the nine ASCII bytes `irobotmcs`,
+        broadcast to port 5678. Every iRobot robot on the segment answers to
+        the sender's ephemeral port with a JSON datagram. Send it more than
+        once: UDP is lossy and a dropped probe is a robot never found.
+    response:
+      encoding: "json"
+      description: >
+        One JSON object per robot. `hostname` is the identity carrier: it is
+        `Roomba-<blid>` (or `iRobot-<blid>` on Braava), so the BLID is the
+        substring after the first '-'. A datagram whose hostname starts with
+        neither prefix is not a robot and must be ignored — the probe reaches
+        every host on the segment.
+      example: '{"ver":"3","hostname":"Roomba-3193C60472324700","robotname":"Dorita","ip":"192.168.1.103","mac":"12:12:12:12:12:12","sw":"v2.4.16-126","sku":"R980020","nc":0,"proto":"mqtt"}'
+      fields:
+        - name: "ver"
+          type: "string"
+          description: "Announcement format version."
+        - name: "hostname"
+          type: "string"
+          description: "'Roomba-<blid>' or 'iRobot-<blid>'. The BLID is the part after the first hyphen, and is the MQTT username."
+        - name: "robotname"
+          type: "string"
+          description: "User-assigned name, for display only — it changes."
+        - name: "ip"
+          type: "string"
+          description: "The robot's current address. A DHCP lease; never key stored credentials on it."
+        - name: "mac"
+          type: "string"
+          description: "Wi-Fi MAC address."
+        - name: "sw"
+          type: "string"
+          description: "Firmware version, e.g. v2.4.16-126. Determines which of the two firmware lineages the robot is on."
+        - name: "sku"
+          type: "string"
+          description: "Model code, e.g. R980020."
+        - name: "proto"
+          type: "string"
+          description: "'mqtt' on every robot this spec covers. A robot reporting anything else is outside it."
+    verification: "reported"
+    notes: >
+      Requires UDP broadcast to reach the robot: a client-isolated guest SSID
+      or a VLAN without broadcast forwarding will find nothing even though the
+      robot is up and its broker is answering. Falling back to a known IP is
+      always valid — discovery is a convenience, not a dependency.
+  password_disclosure:
+    transport: "tls"
+    destination: "<robot-ip>:8883"
+    request:
+      encoding: "binary"
+      payload_hex: "f005efcc3b2900"
+      description: >
+        Seven bytes: 0xf0 (an MQTT reserved packet type), 0x05 (payload
+        length), then ef cc 3b 29 00. Written on a TLS connection to the
+        robot's own broker port while the robot is in password-disclosure
+        mode.
+    response:
+      encoding: "binary"
+      header_length: 2
+      length_byte_index: 1
+      minimum_length: 8
+      unsupported_reply_hex: "f005efcc3b2903"
+      password_extraction: >
+        Drop the 2-byte header, then drop any remaining leading bytes that are
+        not printable ASCII, then decode the rest as UTF-8 and strip trailing
+        NULs. What is left is the password, and it is the WHOLE remaining
+        string — Roomba passwords begin with a ':' and contain ':' separators,
+        so nothing may be split off the front.
+      password_extraction_verification: "hypothesis"
+      password_extraction_notes: >
+        This rule is THIS PROJECT'S SYNTHESIS, not a transcription: no
+        published client states it, and none of the three has been run against
+        a robot here. It was derived by asking what single rule satisfies all
+        the offsets in `observed_offsets`, and it rests on one assumption
+        nobody has verified — that every byte between the header and the
+        credential is non-printable. If a firmware puts a printable byte in
+        that gap the rule returns a credential with junk on the front, and the
+        only symptom is the broker refusing the login.
+
+        A client that wants to be conservative should implement this rule AND
+        compare it against a fixed slice at each observed offset, and warn when
+        they disagree. A client that hits a robot where they do disagree should
+        report it upstream to dorita980 and roombapy, who own this protocol.
+      description: >
+        The reply is [0xf0][length][payload]; `length` is the payload size, so
+        a client reads until it has header_length + length bytes. A reply
+        shorter than `minimum_length` (8) bytes means disclosure mode was not
+        active. A reply equal to `unsupported_reply_hex` means this model does
+        not support direct extraction at all — use the account route.
+
+        Published implementations disagree about where in the reply the
+        password starts, which is why `password_extraction` above is stated as
+        a rule rather than a number: the fixed offsets each client uses are
+        recorded in `observed_offsets` as evidence, not as the contract. A new
+        client that scans for the printable run is correct under all of them.
+      observed_offsets:
+        - implementation: "pschmitt/roombapy"
+          offset: 7
+          basis: "Whole reply including the 2-byte header, then trailing NULs stripped."
+        - implementation: "koalazak/dorita980"
+          offset: 13
+          basis: "Whole reply, when the socket delivers it in a single read."
+        - implementation: "koalazak/dorita980"
+          offset: 9
+          basis: "The payload read, when the 2-byte header arrived in a separate read."
+    tls:
+      certificate: "self-signed; validate by pinning on first sight, not against a CA"
+      cipher_note: >
+        Older firmware negotiates only AES128-SHA256 (TLS_RSA_WITH_AES_128_
+        CBC_SHA256) and expects legacy renegotiation. Runtimes whose TLS stack
+        has retired that suite — anything on BoringSSL, which includes Dart and
+        Chromium — cannot complete the handshake at all and will fail before
+        the probe is written. dorita980 works around it with the ROBOT_CIPHERS
+        and ROBOT_TLS_LEGACY environment variables; a client that cannot select
+        ciphers should say so plainly rather than reporting the robot as
+        unreachable.
+    verification: "reported"
+
+mqtt_topics:
+  - topic: "cmd"
+    name: "Command"
+    direction: "publish"
+    description: >
+      The single command topic. Payload is a JSON envelope
+      {"command":"<name>","time":<epoch seconds>,"initiator":"localApp"};
+      see the `commands` block for the vocabulary. Published on the robot's
+      own broker after a CONNECT with clientId = username = BLID and
+      password = the local secret.
+    qos: 0
+    confidence: "medium"
+    confidence_notes: >
+      Transcribed from dorita980's publish path, not captured from a robot
+      here. The QoS is what that client uses; the robot has not been observed
+      rejecting other values.
+    payload_format:
+      encoding: "json"
+      fields:
+        - name: "command"
+          type: "string"
+          description: "One of clean, start, pause, stop, resume, dock, find."
+        - name: "time"
+          type: "integer"
+          unit: "seconds"
+          description: >
+            Unix epoch seconds, taken from the SENDER's clock at the moment of
+            sending — every published client fills it that way. What the robot
+            does with it is not documented anywhere and has not been tested
+            here; do not assume it is ignored, and do not assume a stale value
+            is rejected.
+        - name: "initiator"
+          type: "string"
+          description: "Who is asking. 'localApp' for a LAN client."
+  - topic: "delta"
+    name: "State Delta"
+    direction: "subscribe"
+    description: >
+      Incremental state pushed by the robot as things change, as
+      {"state":{"reported":{...}}}. Subscribing to '#' receives this plus the
+      shadow topics; a client that wants only state changes subscribes here.
+    qos: 0
+    confidence: "medium"
+    confidence_notes: "Topic and envelope transcribed from dorita980; not captured here."
+    payload_format:
+      encoding: "json"
+      fields:
+        - name: "state.reported.batPct"
+          type: "integer"
+          unit: "%"
+          description: "Battery charge."
+        - name: "state.reported.cleanMissionStatus.phase"
+          type: "string"
+          description: "Mission phase: charge, run, stop, hmUsrDock (returning on request), hmMidMsn (returning to recharge), hmPostMsn (returning, mission done), evac, stuck."
+        - name: "state.reported.cleanMissionStatus.cycle"
+          type: "string"
+          description: "Cycle kind: none, clean, spot, evac, dock."
+        - name: "state.reported.bin.full"
+          type: "boolean"
+          description: "True when the debris bin needs emptying."
+        - name: "state.reported.bin.present"
+          type: "boolean"
+          description: "False when the bin has been removed."
+        - name: "state.reported.name"
+          type: "string"
+          description: "User-assigned robot name."
+        - name: "state.reported.sku"
+          type: "string"
+          description: "Model code."
+        - name: "state.reported.softwareVer"
+          type: "string"
+          description: "Firmware version string."
+  - topic: "$aws/things/{blid}/shadow/update"
+    name: "Device Shadow Update"
+    direction: "subscribe"
+    description: >
+      The full device shadow, in the AWS IoT shape the robot's cloud
+      personality uses — published locally as well. Carries the same
+      state.reported tree as `delta` but complete rather than incremental, so
+      a client subscribing after connect gets a whole picture without waiting
+      for something to change.
+    qos: 0
+    confidence: "low"
+    confidence_notes: >
+      The topic shape is reported by community implementations and matches the
+      AWS IoT convention the firmware is built on, but this project has neither
+      captured it nor confirmed which firmware lineages publish it locally. A
+      client should subscribe to '#' rather than depend on this exact string.
+    payload_format:
+      encoding: "json"
+
+commands:
+  clean:
+    description: >
+      Start or resume a full cleaning mission. `start` is accepted as a synonym
+      on every firmware this spec covers.
+    transport: "mqtt"
+    path: "cmd"
+    arguments:
+      command: "clean"
+      time: "{time}"
+      initiator: "localApp"
+    parameters:
+      time:
+        type: "integer"
+        required: true
+        description: >
+          Unix epoch seconds from the sender's clock at the moment of sending.
+          Rendered as a JSON number, not a string.
+    example_body: '{"command":"clean","time":1755129600,"initiator":"localApp"}'
+    example_notes: "Rendered at 2025-08-13T23:20:00Z. Arguments render as compact JSON in declared order."
+    verification: "reported"
+  pause:
+    description: "Pause the mission in progress; the robot stays where it is."
+    transport: "mqtt"
+    path: "cmd"
+    arguments:
+      command: "pause"
+      time: "{time}"
+      initiator: "localApp"
+    parameters:
+      time:
+        type: "integer"
+        required: true
+        description: "Unix epoch seconds at the moment of sending."
+    example_body: '{"command":"pause","time":1755129600,"initiator":"localApp"}'
+    verification: "reported"
+  stop:
+    description: >
+      End the mission. The robot stops and stays put — it does not return to
+      the dock. Send `dock` afterwards to bring it home.
+    transport: "mqtt"
+    path: "cmd"
+    arguments:
+      command: "stop"
+      time: "{time}"
+      initiator: "localApp"
+    parameters:
+      time:
+        type: "integer"
+        required: true
+        description: "Unix epoch seconds at the moment of sending."
+    example_body: '{"command":"stop","time":1755129600,"initiator":"localApp"}'
+    verification: "reported"
+  resume:
+    description: "Resume a paused mission."
+    transport: "mqtt"
+    path: "cmd"
+    arguments:
+      command: "resume"
+      time: "{time}"
+      initiator: "localApp"
+    parameters:
+      time:
+        type: "integer"
+        required: true
+        description: "Unix epoch seconds at the moment of sending."
+    example_body: '{"command":"resume","time":1755129600,"initiator":"localApp"}'
+    verification: "reported"
+  dock:
+    description: >
+      Send the robot back to its dock. Only accepted from a paused or stopped
+      state — a robot mid-mission must be paused or stopped first, which is why
+      a consumer offering one "send home" button sends stop then dock.
+    transport: "mqtt"
+    path: "cmd"
+    arguments:
+      command: "dock"
+      time: "{time}"
+      initiator: "localApp"
+    parameters:
+      time:
+        type: "integer"
+        required: true
+        description: "Unix epoch seconds at the moment of sending."
+    example_body: '{"command":"dock","time":1755129600,"initiator":"localApp"}'
+    verification: "reported"
+  find:
+    description: >
+      Make the robot announce itself so it can be found under the sofa. It
+      beeps when it is away from the dock and does nothing when docked.
+    transport: "mqtt"
+    path: "cmd"
+    arguments:
+      command: "find"
+      time: "{time}"
+      initiator: "localApp"
+    parameters:
+      time:
+        type: "integer"
+        required: true
+        description: "Unix epoch seconds at the moment of sending."
+    example_body: '{"command":"find","time":1755129600,"initiator":"localApp"}'
+    verification: "reported"
+
+# The control surface a consumer draws. Commands are buttons because a
+# cleaning mission is an action with no on/off to read back — the mission's
+# actual state is the `Mission Phase` sensor, not a switch position.
+entities:
+  - platform: "button"
+    name: "Clean"
+    icon: "mdi:robot-vacuum"
+    commands:
+      press: "clean"
+  - platform: "button"
+    name: "Pause"
+    icon: "mdi:pause"
+    commands:
+      press: "pause"
+  - platform: "button"
+    name: "Stop"
+    icon: "mdi:stop"
+    commands:
+      press: "stop"
+  - platform: "button"
+    name: "Dock"
+    icon: "mdi:home-import-outline"
+    commands:
+      press: "dock"
+    notes: "Only accepted when the robot is paused or stopped; send stop first."
+  - platform: "button"
+    name: "Locate"
+    icon: "mdi:map-marker-radius"
+    commands:
+      press: "find"
+    notes: "Beeps so you can find the robot. Silent while docked."
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    state_topic: "delta"
+    state_mapping:
+      value: "state.reported.batPct"
+  - platform: "sensor"
+    name: "Mission Phase"
+    icon: "mdi:robot-vacuum-variant"
+    state_topic: "delta"
+    state_mapping:
+      value: "state.reported.cleanMissionStatus.phase"
+  - platform: "binary_sensor"
+    name: "Bin Full"
+    device_class: "problem"
+    state_topic: "delta"
+    state_mapping:
+      value: "state.reported.bin.full"
+      on_when: "nonzero"
+
+cloud:
+  required: false
+  vendor_service: "iRobot IoT (AWS IoT backend, Gigya identity)"
+  hosts:
+    - "https://disc-prod.iot.irobotapi.com"
+    - "https://unauth2.prod.iot.irobotapi.com"
+    - "https://accounts.us1.gigya.com"
+  auth:
+    type: "other"
+    endpoint: "/accounts.login then /v2/login"
+    notes: >
+      Gigya username/password login yields a signed assertion (uid, signature,
+      timestamp) which is exchanged at the iRobot API for the account's robot
+      list. Shape only — no real credential appears in this repository.
+    verification: "reported"
+  endpoints:
+    - path: "/v1/discover/endpoints"
+      method: "GET"
+      name: "Endpoint discovery"
+      returns: "Regional Gigya API key and base URLs for the identity and iRobot APIs."
+      verification: "reported"
+    - path: "/accounts.login"
+      method: "POST"
+      name: "Gigya account login"
+      returns: "UID, UIDSignature, signatureTimestamp and a session token."
+      verification: "reported"
+    - path: "/v2/login"
+      method: "POST"
+      name: "iRobot login"
+      returns: "A `robots` map keyed by BLID, each carrying the local password, name, sku and softwareVer."
+      verification: "reported"
+  failure_mode: >
+    The robot keeps cleaning and keeps serving its local broker. What stops is
+    remote (off-LAN) control from the vendor app, cloud-side scheduling, map
+    sync on the i/j/s series, and — the reason this block matters — over-the-air
+    firmware updates. Losing OTA is the point for most readers here: a firmware
+    change is the most likely way the local broker documented above goes away.
+  data_leaves_device:
+    - "Mission telemetry and run history"
+    - "The home's floor plan, on the mapping models (i/j/s series, Braava m6)"
+    - "Robot identity, model and firmware version"
+  notes: >
+    These hosts are the published ones and are marked `reported`, not
+    `confirmed`: this project has not captured a robot's DNS traffic. Anyone
+    building a blocklist from them should log the robot's own lookups at the
+    router for a day first — a blocklist that misses a host is a firmware
+    update that arrives anyway, and one that is too broad breaks the account
+    route to the password before you have used it.
+
+local_access:
+  status: "native"
+  summary: >
+    The robot speaks a complete local protocol as shipped, with no account, no
+    bridge and no firmware modification. This is one of the better cases in the
+    registry: the local path is not a leftover debugging surface but the same
+    channel the vendor's own app uses on the LAN, and it survives the vendor
+    disappearing entirely.
+  covers:
+    - "Start, pause, stop, resume, dock and locate."
+    - "Battery, mission phase and cycle, bin full/present."
+    - "Robot identity: name, model, firmware version."
+    - "Discovery on the LAN without any prior knowledge of the robot."
+  not_covered:
+    - "Maps and per-room cleaning on i/j/s series — the pmap identifiers come from the vendor app, and are out of scope for this spec."
+    - "Schedules stored in the cloud rather than on the robot."
+    - "Firmware updates: blocking them is the recommendation here, but there is no local way to apply one."
+    - "The 2025 V4 models, which have no local broker at all."
+
+helpful_urls:
+  - title: "koalazak/dorita980 — the reference implementation, and the origin of everything in this spec"
+    url: "https://github.com/koalazak/dorita980"
+    description: >
+      Node.js SDK (MIT). The UDP-5678 discovery probe, the password-disclosure
+      magic packet and its reply offsets, the local MQTT-over-TLS session, the
+      cmd/delta vocabulary and the cloud credential-extraction flow are all its
+      work, and its README is the authoritative text this document transcribes.
+      Also the source of the advice to firewall the robot so an OTA cannot take
+      the local API away.
+  - title: "koalazak/rest980 — REST interface over dorita980"
+    url: "https://github.com/koalazak/rest980"
+    description: >
+      Same author. Wraps dorita980 in an HTTP API, which is the easiest way to
+      exercise the protocol by hand before writing a client against it.
+  - title: "pschmitt/roombapy — the Python implementation, and Home Assistant's backend"
+    url: "https://github.com/pschmitt/roombapy"
+    description: >
+      Python client for the same local protocol; backs Home Assistant core's
+      `roomba` integration. Its getpassword module is a second, independent
+      reading of the disclosure handshake and reply framing.
+  - title: "Home Assistant — Roomba integration (iot_class: local_polling)"
+    url: "https://www.home-assistant.io/integrations/roomba/"
+    description: >
+      The user-facing documentation for the same credentials, including why the
+      integration polls rather than holding the connection: the robot serves
+      one local client at a time.
+  - title: "NickWaterton/Roomba980-Python — independent implementation of the password handshake"
+    url: "https://github.com/NickWaterton/Roomba980-Python"
+    description: >
+      A third reading of the same probe and reply framing, useful when the
+      offsets in one implementation and the bytes on your wire disagree.
+  - title: "homebridge-plugins/homebridge-roomba — where the j-series TLS quirks are recorded"
+    url: "https://github.com/homebridge-plugins/homebridge-roomba"
+    description: >
+      HomeKit bridge over the same protocol. Its issue tracker is the best
+      public record of j7-era firmware resetting the TLS connection during the
+      password handshake, and of the retry timings that get past it.
