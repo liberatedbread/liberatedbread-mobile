@@ -89,6 +89,13 @@ Google's own app, and many devices leave the network in standby (Xiaomi; TCL
 without *Screenless service*; Shield without the wake-buttons setting), which
 puts power-on beyond any network command.
 
+`KEYCODE_POWER` is a toggle with no discrete pair, so the spec's stateful
+**Power** `switch` entity binds it as `toggle`, gated on the
+`remote_start { started }` push — the Power State reading
+([Spec Evolution P13](../contributing/spec-evolution.md#p13)). The push
+arrives over the session rather than any pollable binding, so a consumer
+without the session sees no state and must not send blind.
+
 ## Fire TV variant — ADB over TCP 5555
 
 Enable on the TV: *Settings > My Fire TV > Developer Options > ADB Debugging*

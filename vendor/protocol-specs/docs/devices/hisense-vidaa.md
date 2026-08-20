@@ -129,6 +129,11 @@ power-on key; wake is WoL only), `KEY_UP/DOWN/LEFT/RIGHT/OK`, `KEY_RETURNS`
 the APK. Power-off is `KEY_POWER`; power-on is **Wake-on-LAN only** — the
 broker is down in standby.
 
+`KEY_POWER` has no discrete pair, so the spec's stateful **Power** `switch`
+entity binds it as `toggle`, gated on the ui_service state broadcast
+(`statetype: fake_sleep_0` = standby, do not send)
+([Spec Evolution P13](../contributing/spec-evolution.md#p13)).
+
 ## Transport gap
 
 The reference app implements **HTTP (GET/POST, empty body) and SOAP only**.
