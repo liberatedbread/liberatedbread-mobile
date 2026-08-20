@@ -14,7 +14,7 @@ Temperature-controlled drinkware family including Ember Mug 2 (10/14 oz), Travel
 | Property | Value |
 |----------|-------|
 | Models | Mug 2 (CM19/CM21M), Travel Mug 2 (TM19), Cup (CM21S), Tumbler (CM21XL) |
-| Chipset | Unknown (BLE SIG company ID: 0x03C1) |
+| Chipset | Unknown (BLE SIG company ID is firmware-dependent: 0xFFFF on a fw-367 Mug 2, 0x03C1/961 on a fw-394 Mug 2) |
 | Radio | BLE |
 | FCC ID | Not documented |
 
@@ -55,7 +55,9 @@ All characteristics use UUID pattern `fc54XXXX-236c-4c94-8fa9-944a3e5353fa`.
 ### Discovery
 
 - Advertised name starts with `"Ember"` (e.g., "Ember Ceramic Mug")
-- BLE SIG company ID: `0x03C1`
+- BLE SIG company ID is firmware-dependent, measured in both the idle and pairing states on
+  each unit: `0xFFFF` on a fw-367 Mug 2, `0x03C1` (961) on a fw-394 Mug 2 (2026-08-19). A
+  discovery filter keyed on either value misses half the fleet; filter on the name.
 - Pairing: standard BLE "Just Works" (non-fatal if it fails)
 
 ## Tools Used

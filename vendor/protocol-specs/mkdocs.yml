@@ -113,9 +113,6 @@ nav:
           - UniFi Protect Camera: devices/unifi-protect-camera.md
           - Ubiquiti UniFi Device (identify): devices/ubiquiti-unifi-device.md
           - MikroTik RouterOS Device (identify): devices/mikrotik-routeros.md
-          - Synology DiskStation NAS (identify): devices/synology-diskstation.md
-          - IPP Network Printer (identify): devices/ipp-network-printer.md
-          - Android Wireless-ADB Device (identify): devices/android-adb-wireless.md
           - Chamberlain Garage Opener (Security+): devices/chamberlain-garage-opener-secplus.md
           - ratgdo Garage-Door Controller: devices/ratgdo.md
           - Frigidaire Connected ACs: devices/frigidaire-ac.md
