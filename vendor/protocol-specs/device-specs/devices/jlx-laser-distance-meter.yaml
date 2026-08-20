@@ -19,14 +19,21 @@ device:
       and the Ztest02/Link keep-alive loop driven live over a raw ATT channel
       for 66+ seconds; Ztest01, Ztest02 and Zbleoff all observed on the air.
       Measurement frames confirmed from the capture (e.g. "A02.509b" = 2.509 m,
-      display in feet), with prefixes A, B and C all seen.
+      display in feet), with prefixes A, B and C all seen. A second session:
+      the remote 'm' command produced an instant live reading ("A02.822d" =
+      2.822 m, display ft'in" 1/32) with the display awake, answering every
+      Ztest02 with Link held the session for the full three-minute window with
+      no Zbleoff, and Device Information read fine via plain by-handle reads —
+      manufacturer "Precaster", model "BT A8105", hw "A810501", fw "0001",
+      sw "1000", serial "00001", battery 100% — so the hardware platform is a
+      Precaster BLE module and only Read By Type is broken, not reads.
 
-      `minimally-verified` because the LDM130 was never in the room, the remote
-      'm' measure command was sent but returned no reading (the meter's display
-      had auto-slept; inconclusive rather than refuted), and — the load-bearing
-      caveat — this device cannot be enumerated through BlueZ's bluetoothd at
-      all (see the BLUEZ QUIRK note), so every live result above came through a
-      raw ATT channel (gatttool) or the vendor-app capture.
+      `minimally-verified` because the LDM130 was never in the room, a repeat
+      'm' sixty seconds later (display presumably re-slept) returned nothing,
+      and — the load-bearing caveat — this device cannot be enumerated through
+      BlueZ's bluetoothd at all (see the BLUEZ QUIRK note), so every live
+      result above came through a raw ATT channel (gatttool) or the vendor-app
+      capture.
   protocol: "ble"
   category: "sensor"
   notes: >
@@ -102,25 +109,31 @@ device:
     bluetoothd eats the 30 s ATT transaction timeout, abandons init, and
     reports the device "resolved" with an EMPTY service database (reproduced:
     32.5 s to an empty resolve, and the stalled read leaves the ATT channel
-    dead). Read By Type on other UUIDs is also unreliable (some return
-    errors, GAP device name by type got silence). Exchange MTU is answered
-    instantly, and plain requests (discovery, writes, notifications) work, so
-    Android/iOS clients and raw ATT channels (gatttool, a custom L2CAP CID 4
-    client) are unaffected. Consequence: this device cannot be used through
-    bluetoothd-based stacks (bleak, flutter_blue_plus on Linux) until BlueZ
-    or the firmware changes; nothing an application layered on bluetoothd can
-    do fixes it.
+    dead). The breakage is specific to the Read By Type opcode: by-type reads
+    of other UUIDs also error or hang (GAP device name by type got silence),
+    while PLAIN Read Requests by handle work perfectly — every Device
+    Information string and the battery level read fine that way. Exchange MTU
+    is answered instantly, and discovery, writes and notifications all work,
+    so Android/iOS clients and raw ATT channels (gatttool, a custom L2CAP
+    CID 4 client) are unaffected. Consequence: this device cannot be used
+    through bluetoothd-based stacks (bleak, flutter_blue_plus on Linux) until
+    BlueZ or the firmware changes; nothing an application layered on
+    bluetoothd can do fixes it.
 
     HARDWARE, GATT extras the static analysis could not see: a parallel
     vendor service 0000fff3 with 0000fff4 (notify) + 0000fff5
     (write/write-without-response) at handles 0x0060..0x0065, mirroring the
     f150 pair's shape — purpose unknown, never touched by the vendor app in
     the capture. Stock SDK services also enumerate: Generic Access, Device
-    Information (declared, but string reads are unverified — read-by-type
-    fails; plain reads by handle untested), Link Loss, Immediate Alert, Tx
-    Power, Battery (0x2a19), and, comically, Heart Rate. f151's properties
-    are write AND write-without-response; the working clients use
-    write-without-response.
+    Information, Link Loss, Immediate Alert, Tx Power, Battery (0x2a19), and,
+    comically, Heart Rate. Device Information reads live via plain by-handle
+    reads (see BLUEZ QUIRK for the by-type caveat): manufacturer "Precaster",
+    model "BT A8105", hardware "A810501", firmware "0001", software "1000",
+    serial "00001" — so the radio module is a Precaster platform under the
+    Winho app branding, the DI identifies the BLE module rather than the
+    meter model, and the serial is not unique-looking. Battery read 100%.
+    f151's properties are write AND write-without-response; the working
+    clients use write-without-response.
 
     ANGLE: the LDM330 has an integrated angle sensor (digital level /
     indirect measurement), but no angle path was found in the recovered BLE
@@ -315,7 +328,10 @@ services:
               From BleService.sentMeasure(). Note the vendor app primarily
               relies on the meter pushing readings when its measure button
               is pressed; this command is used from the camera screen to
-              trigger a reading remotely (static analysis only).
+              trigger a reading remotely. HARDWARE 2026-08-19: verified live —
+              with the display awake it returned a measurement frame in the
+              same second; a repeat sixty seconds later (display re-slept)
+              returned nothing, so treat it as display-awake-only.
             value: [0x23, 0x0A, 0x6D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9A]
       - uuid: "0000f154-0000-1000-8000-00805f9b34fb"
         name: "data_tx"
@@ -355,6 +371,15 @@ entities:
     notes: >
       Measurement frame byte 7, enumerated a-j (m / ft / in / ft'in" 1/32 /
       in 1/32 / in 1/16 / in 1/8 / in 1/4 / in 1/2 / Taiwanese foot).
+  - platform: "sensor"
+    name: "Battery"
+    device_class: "battery"
+    unit: "%"
+    notes: >
+      Standard Battery Service (0x180f / 0x2a19). HARDWARE 2026-08-19: reads
+      via a plain by-handle Read Request (100% on a fresh unit); a Read By
+      Type for the same characteristic fails like every other by-type read
+      on this firmware, so clients must read it by handle.
 
 helpful_urls:
   - title: "Johnson LDM330 product page"
