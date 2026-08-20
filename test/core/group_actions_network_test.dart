@@ -145,16 +145,16 @@ void main() {
     });
 
     test('credentialed and instanced actions never join a bulk send', () {
-      final credentialed = NetworkActionDto(
+      const credentialed = NetworkActionDto(
         role: 'turn_off',
         commandName: 'off',
         transport: 'http',
-        userParams: const [],
-        readBack: const [],
-        credentials: const [
+        userParams: [],
+        readBack: [],
+        credentials: [
           NetworkSourceParamDto(param: 'username', name: 'username')
         ],
-        instanceParams: const [],
+        instanceParams: [],
       );
       final plan = resolveNetworkGroupPlan(
         op: GroupOp.turnOff,
