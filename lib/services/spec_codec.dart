@@ -64,6 +64,13 @@ export '../src/rust/api/device_api.dart'
         LifxAccessPointDto,
         SoftApProfileDto,
         SecurityAdvisoryDto,
+        SetupInstructionsDto,
+        SetupMethodDto,
+        SetupStepDto,
+        TroubleshootingDto,
+        FactoryResetDto,
+        FactoryResetProcedureDto,
+        RejoinDto,
         WemoAccessPointDto,
         WemoJoinStatus;
 
@@ -513,6 +520,12 @@ abstract class SpecCodec {
   /// given spec YAMLs — the families the adopt flow can offer, and the SSID
   /// prefixes the nearby-network hint watches for.
   Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls);
+
+  /// One spec's renderable `device.setup` instructions — how to pair, why a
+  /// connect might fail, how to factory reset, how to rejoin — or null when the
+  /// spec carries no such prose. Shown when a connect fails, from the single
+  /// YAML the caller resolved for the device.
+  Future<SetupInstructionsDto?> setupInstructions(String specYaml);
 
   /// The index of the first profile whose setup-AP prefix matches [ssid]
   /// (case-insensitive, anchored), or null. Drives the spinning hint.

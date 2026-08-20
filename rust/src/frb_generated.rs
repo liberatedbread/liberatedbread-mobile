@@ -37,7 +37,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.9.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -195892820;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -1684596991;
 
 // Section: executor
 
@@ -2520,6 +2520,41 @@ fn wire__crate__api__device_api__render_wemo_connect_requests_impl(
         },
     )
 }
+fn wire__crate__api__device_api__setup_instructions_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "setup_instructions",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_spec_yaml = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(
+                        crate::api::device_api::setup_instructions(api_spec_yaml),
+                    )?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__device_api__soft_ap_profiles_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -2918,6 +2953,35 @@ impl SseDecode for f64 {
     }
 }
 
+impl SseDecode for crate::api::device_api::FactoryResetDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_effect = <Option<String>>::sse_decode(deserializer);
+        let mut var_procedures =
+            <Vec<crate::api::device_api::FactoryResetProcedureDto>>::sse_decode(deserializer);
+        return crate::api::device_api::FactoryResetDto {
+            effect: var_effect,
+            procedures: var_procedures,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::FactoryResetProcedureDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_name = <String>::sse_decode(deserializer);
+        let mut var_holdSeconds = <Option<u32>>::sse_decode(deserializer);
+        let mut var_indicator = <Option<String>>::sse_decode(deserializer);
+        let mut var_steps = <Vec<crate::api::device_api::SetupStepDto>>::sse_decode(deserializer);
+        return crate::api::device_api::FactoryResetProcedureDto {
+            name: var_name,
+            hold_seconds: var_holdSeconds,
+            indicator: var_indicator,
+            steps: var_steps,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::FormatFieldDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3218,6 +3282,18 @@ impl SseDecode for Vec<crate::api::device_api::EntityDto> {
             ans_.push(<crate::api::device_api::EntityDto>::sse_decode(
                 deserializer,
             ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::FactoryResetProcedureDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::FactoryResetProcedureDto>::sse_decode(deserializer));
         }
         return ans_;
     }
@@ -3555,6 +3631,34 @@ impl SseDecode for Vec<crate::api::device_api::ServiceDto> {
     }
 }
 
+impl SseDecode for Vec<crate::api::device_api::SetupMethodDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::SetupMethodDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::SetupStepDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::SetupStepDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
 impl SseDecode for Vec<crate::api::device_api::SoapRequestDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3590,6 +3694,20 @@ impl SseDecode for Vec<crate::api::device_api::SpecIdentityDto> {
         let mut ans_ = vec![];
         for idx_ in 0..len_ {
             ans_.push(<crate::api::device_api::SpecIdentityDto>::sse_decode(
+                deserializer,
+            ));
+        }
+        return ans_;
+    }
+}
+
+impl SseDecode for Vec<crate::api::device_api::TroubleshootingDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = vec![];
+        for idx_ in 0..len_ {
+            ans_.push(<crate::api::device_api::TroubleshootingDto>::sse_decode(
                 deserializer,
             ));
         }
@@ -3890,6 +4008,19 @@ impl SseDecode for Option<f64> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::FactoryResetDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::FactoryResetDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<i64> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -3979,11 +4110,37 @@ impl SseDecode for Option<crate::api::device_api::QuerySourceDto> {
     }
 }
 
+impl SseDecode for Option<crate::api::device_api::RejoinDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::RejoinDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
 impl SseDecode for Option<crate::api::device_api::SecurityAdvisoryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<crate::api::device_api::SecurityAdvisoryDto>::sse_decode(
+                deserializer,
+            ));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<crate::api::device_api::SetupInstructionsDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<crate::api::device_api::SetupInstructionsDto>::sse_decode(
                 deserializer,
             ));
         } else {
@@ -4217,6 +4374,20 @@ impl SseDecode for (u16, Vec<u8>) {
     }
 }
 
+impl SseDecode for crate::api::device_api::RejoinDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_inPlaceSupported = <Option<bool>>::sse_decode(deserializer);
+        let mut var_requiresFactoryReset = <Option<bool>>::sse_decode(deserializer);
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::RejoinDto {
+            in_place_supported: var_inPlaceSupported,
+            requires_factory_reset: var_requiresFactoryReset,
+            notes: var_notes,
+        };
+    }
+}
+
 impl SseDecode for crate::api::device_api::ScanMatch {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -4303,6 +4474,55 @@ impl SseDecode for crate::api::device_api::ServiceDto {
             uuid: var_uuid,
             name: var_name,
             characteristics: var_characteristics,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::SetupInstructionsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_notes = <Option<String>>::sse_decode(deserializer);
+        let mut var_methods =
+            <Vec<crate::api::device_api::SetupMethodDto>>::sse_decode(deserializer);
+        let mut var_factoryReset =
+            <Option<crate::api::device_api::FactoryResetDto>>::sse_decode(deserializer);
+        let mut var_rejoin = <Option<crate::api::device_api::RejoinDto>>::sse_decode(deserializer);
+        return crate::api::device_api::SetupInstructionsDto {
+            notes: var_notes,
+            methods: var_methods,
+            factory_reset: var_factoryReset,
+            rejoin: var_rejoin,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::SetupMethodDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_methodType = <Option<String>>::sse_decode(deserializer);
+        let mut var_description = <Option<String>>::sse_decode(deserializer);
+        let mut var_steps = <Vec<crate::api::device_api::SetupStepDto>>::sse_decode(deserializer);
+        let mut var_troubleshooting =
+            <Vec<crate::api::device_api::TroubleshootingDto>>::sse_decode(deserializer);
+        return crate::api::device_api::SetupMethodDto {
+            method_type: var_methodType,
+            description: var_description,
+            steps: var_steps,
+            troubleshooting: var_troubleshooting,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::SetupStepDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_action = <String>::sse_decode(deserializer);
+        let mut var_actor = <Option<String>>::sse_decode(deserializer);
+        let mut var_expect = <Option<String>>::sse_decode(deserializer);
+        return crate::api::device_api::SetupStepDto {
+            action: var_action,
+            actor: var_actor,
+            expect: var_expect,
         };
     }
 }
@@ -4463,6 +4683,18 @@ impl SseDecode for crate::api::device_api::StoredUploadPlanDto {
             play_write: var_playWrite,
             response_characteristic_uuid: var_responseCharacteristicUuid,
             cid: var_cid,
+        };
+    }
+}
+
+impl SseDecode for crate::api::device_api::TroubleshootingDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_symptom = <String>::sse_decode(deserializer);
+        let mut var_causes = <Vec<String>>::sse_decode(deserializer);
+        return crate::api::device_api::TroubleshootingDto {
+            symptom: var_symptom,
+            causes: var_causes,
         };
     }
 }
@@ -4871,15 +5103,18 @@ fn pde_ffi_dispatcher_primary_impl(
             data_len,
         ),
         63 => {
+            wire__crate__api__device_api__setup_instructions_impl(port, ptr, rust_vec_len, data_len)
+        }
+        64 => {
             wire__crate__api__device_api__soft_ap_profiles_impl(port, ptr, rust_vec_len, data_len)
         }
-        64 => wire__crate__api__device_api__tuya_parse_broadcast_impl(
+        65 => wire__crate__api__device_api__tuya_parse_broadcast_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        65 => wire__crate__api__device_api__wemo_network_status_impl(
+        66 => wire__crate__api__device_api__wemo_network_status_impl(
             port,
             ptr,
             rust_vec_len,
@@ -5139,6 +5374,50 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::EntityWriteDto>
     for crate::api::device_api::EntityWriteDto
 {
     fn into_into_dart(self) -> crate::api::device_api::EntityWriteDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::FactoryResetDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.effect.into_into_dart().into_dart(),
+            self.procedures.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::FactoryResetDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::FactoryResetDto>
+    for crate::api::device_api::FactoryResetDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::FactoryResetDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::FactoryResetProcedureDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.name.into_into_dart().into_dart(),
+            self.hold_seconds.into_into_dart().into_dart(),
+            self.indicator.into_into_dart().into_dart(),
+            self.steps.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::FactoryResetProcedureDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::FactoryResetProcedureDto>
+    for crate::api::device_api::FactoryResetProcedureDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::FactoryResetProcedureDto {
         self
     }
 }
@@ -5889,6 +6168,28 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RabbitAirRequestD
     }
 }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::RejoinDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.in_place_supported.into_into_dart().into_dart(),
+            self.requires_factory_reset.into_into_dart().into_dart(),
+            self.notes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::RejoinDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::RejoinDto>
+    for crate::api::device_api::RejoinDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::RejoinDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
 impl flutter_rust_bridge::IntoDart for crate::api::device_api::ScanMatch {
     fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
         [
@@ -5988,6 +6289,74 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::ServiceDto>
     for crate::api::device_api::ServiceDto
 {
     fn into_into_dart(self) -> crate::api::device_api::ServiceDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::SetupInstructionsDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.notes.into_into_dart().into_dart(),
+            self.methods.into_into_dart().into_dart(),
+            self.factory_reset.into_into_dart().into_dart(),
+            self.rejoin.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::SetupInstructionsDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SetupInstructionsDto>
+    for crate::api::device_api::SetupInstructionsDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::SetupInstructionsDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::SetupMethodDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.method_type.into_into_dart().into_dart(),
+            self.description.into_into_dart().into_dart(),
+            self.steps.into_into_dart().into_dart(),
+            self.troubleshooting.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::SetupMethodDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SetupMethodDto>
+    for crate::api::device_api::SetupMethodDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::SetupMethodDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::SetupStepDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.action.into_into_dart().into_dart(),
+            self.actor.into_into_dart().into_dart(),
+            self.expect.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::SetupStepDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::SetupStepDto>
+    for crate::api::device_api::SetupStepDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::SetupStepDto {
         self
     }
 }
@@ -6189,6 +6558,27 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::StoredUploadPlanD
     for crate::api::device_api::StoredUploadPlanDto
 {
     fn into_into_dart(self) -> crate::api::device_api::StoredUploadPlanDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::device_api::TroubleshootingDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.symptom.into_into_dart().into_dart(),
+            self.causes.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::device_api::TroubleshootingDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::device_api::TroubleshootingDto>
+    for crate::api::device_api::TroubleshootingDto
+{
+    fn into_into_dart(self) -> crate::api::device_api::TroubleshootingDto {
         self
     }
 }
@@ -6449,6 +6839,27 @@ impl SseEncode for f64 {
     }
 }
 
+impl SseEncode for crate::api::device_api::FactoryResetDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.effect, serializer);
+        <Vec<crate::api::device_api::FactoryResetProcedureDto>>::sse_encode(
+            self.procedures,
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::device_api::FactoryResetProcedureDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.name, serializer);
+        <Option<u32>>::sse_encode(self.hold_seconds, serializer);
+        <Option<String>>::sse_encode(self.indicator, serializer);
+        <Vec<crate::api::device_api::SetupStepDto>>::sse_encode(self.steps, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::FormatFieldDto {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6652,6 +7063,16 @@ impl SseEncode for Vec<crate::api::device_api::EntityDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::EntityDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::FactoryResetProcedureDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::FactoryResetProcedureDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -6906,6 +7327,26 @@ impl SseEncode for Vec<crate::api::device_api::ServiceDto> {
     }
 }
 
+impl SseEncode for Vec<crate::api::device_api::SetupMethodDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::SetupMethodDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::SetupStepDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::SetupStepDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
 impl SseEncode for Vec<crate::api::device_api::SoapRequestDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -6932,6 +7373,16 @@ impl SseEncode for Vec<crate::api::device_api::SpecIdentityDto> {
         <i32>::sse_encode(self.len() as _, serializer);
         for item in self {
             <crate::api::device_api::SpecIdentityDto>::sse_encode(item, serializer);
+        }
+    }
+}
+
+impl SseEncode for Vec<crate::api::device_api::TroubleshootingDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <i32>::sse_encode(self.len() as _, serializer);
+        for item in self {
+            <crate::api::device_api::TroubleshootingDto>::sse_encode(item, serializer);
         }
     }
 }
@@ -7158,6 +7609,16 @@ impl SseEncode for Option<f64> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::FactoryResetDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::FactoryResetDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<i64> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7228,12 +7689,32 @@ impl SseEncode for Option<crate::api::device_api::QuerySourceDto> {
     }
 }
 
+impl SseEncode for Option<crate::api::device_api::RejoinDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::RejoinDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
 impl SseEncode for Option<crate::api::device_api::SecurityAdvisoryDto> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <crate::api::device_api::SecurityAdvisoryDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<crate::api::device_api::SetupInstructionsDto> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <crate::api::device_api::SetupInstructionsDto>::sse_encode(value, serializer);
         }
     }
 }
@@ -7406,6 +7887,15 @@ impl SseEncode for (u16, Vec<u8>) {
     }
 }
 
+impl SseEncode for crate::api::device_api::RejoinDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<bool>>::sse_encode(self.in_place_supported, serializer);
+        <Option<bool>>::sse_encode(self.requires_factory_reset, serializer);
+        <Option<String>>::sse_encode(self.notes, serializer);
+    }
+}
+
 impl SseEncode for crate::api::device_api::ScanMatch {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -7463,6 +7953,41 @@ impl SseEncode for crate::api::device_api::ServiceDto {
             self.characteristics,
             serializer,
         );
+    }
+}
+
+impl SseEncode for crate::api::device_api::SetupInstructionsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.notes, serializer);
+        <Vec<crate::api::device_api::SetupMethodDto>>::sse_encode(self.methods, serializer);
+        <Option<crate::api::device_api::FactoryResetDto>>::sse_encode(
+            self.factory_reset,
+            serializer,
+        );
+        <Option<crate::api::device_api::RejoinDto>>::sse_encode(self.rejoin, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::SetupMethodDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <Option<String>>::sse_encode(self.method_type, serializer);
+        <Option<String>>::sse_encode(self.description, serializer);
+        <Vec<crate::api::device_api::SetupStepDto>>::sse_encode(self.steps, serializer);
+        <Vec<crate::api::device_api::TroubleshootingDto>>::sse_encode(
+            self.troubleshooting,
+            serializer,
+        );
+    }
+}
+
+impl SseEncode for crate::api::device_api::SetupStepDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.action, serializer);
+        <Option<String>>::sse_encode(self.actor, serializer);
+        <Option<String>>::sse_encode(self.expect, serializer);
     }
 }
 
@@ -7569,6 +8094,14 @@ impl SseEncode for crate::api::device_api::StoredUploadPlanDto {
         <Option<crate::api::device_api::ImageWriteDto>>::sse_encode(self.play_write, serializer);
         <Option<String>>::sse_encode(self.response_characteristic_uuid, serializer);
         <u32>::sse_encode(self.cid, serializer);
+    }
+}
+
+impl SseEncode for crate::api::device_api::TroubleshootingDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.symptom, serializer);
+        <Vec<String>>::sse_encode(self.causes, serializer);
     }
 }
 

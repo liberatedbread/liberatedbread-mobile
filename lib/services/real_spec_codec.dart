@@ -494,6 +494,10 @@ class RealSpecCodec implements SpecCodec {
       rust.softApProfiles(specYamls: specYamls);
 
   @override
+  Future<SetupInstructionsDto?> setupInstructions(String specYaml) =>
+      rust.setupInstructions(specYaml: specYaml);
+
+  @override
   Future<int?> matchSoftApSsid({
     required List<SoftApProfileDto> profiles,
     required String ssid,

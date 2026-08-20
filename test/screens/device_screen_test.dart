@@ -10,10 +10,13 @@ import 'package:liberated_bread_mobile/models/ble_discovered_service.dart';
 import 'package:liberated_bread_mobile/models/iot_device.dart';
 import 'package:liberated_bread_mobile/providers/ble_provider.dart';
 import 'package:liberated_bread_mobile/providers/device_spec_match_provider.dart';
+import 'package:liberated_bread_mobile/providers/device_spec_provider.dart';
 import 'package:liberated_bread_mobile/providers/ha_provider.dart';
+import 'package:liberated_bread_mobile/providers/spec_codec_provider.dart';
 import 'package:liberated_bread_mobile/services/spec_codec.dart';
 import 'package:liberated_bread_mobile/screens/device_screen.dart';
 import 'package:liberated_bread_mobile/screens/find_device_screen.dart';
+import 'package:liberated_bread_mobile/screens/setup_instructions_screen.dart';
 import 'package:liberated_bread_mobile/services/ble_service.dart';
 import 'package:liberated_bread_mobile/services/ha_sensor_forwarder.dart';
 import 'package:liberated_bread_mobile/providers/device_description_provider.dart';
@@ -24,6 +27,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../fakes/fake_ble_service.dart';
 import '../fakes/fake_ha_api_client.dart';
+import '../fakes/fake_spec_codec.dart';
 
 class _RecordingForwarder extends HaSensorForwarder {
   final Map<String, String> noted = {};
@@ -473,5 +477,119 @@ void main() {
         .firstWhere((d) => d.id == _device.id);
     expect(saved.category, 'light');
     expect(saved.specKey, 'Example Smart Bulb|Acme Corp');
+  });
+
+  testWidgets(
+      'a failed connect offers "How to connect" when the catalogue names the '
+      'device, and it opens the setup screen', (tester) async {
+    final specSpec = DeviceSpecDto(
+      deviceName: 'Ember Mug',
+      manufacturer: 'Ember',
+      manufacturerStatus: 'active',
+      protocol: 'ble',
+      category: 'appliance',
+      localNamePrefixes: const ['Ember'],
+      localNames: const [],
+      serviceUuids: const [],
+      companyIds: Uint16List(0),
+      macPrefixes: const [],
+      ssdpSearchTargets: const [],
+      lanProtocols: const [],
+      services: const [],
+      entities: const [],
+    );
+    final codec = FakeSpecCodec(
+      spec: specSpec,
+      scanMatches: (_) => [
+        ScanMatch(
+          specIndex: 0,
+          deviceName: 'Ember Mug',
+          manufacturer: 'Ember',
+          category: 'appliance',
+          pictogram: null,
+          integration: null,
+          securityAdvisory: null,
+          confidence: MatchConfidence.strong,
+          matchedByNamePrefix: true,
+          matchedServiceUuids: const [],
+          matchedCompanyIds: Uint16List(0),
+          matchedMacPrefix: null,
+          matchedServiceTypes: const [],
+        ),
+      ],
+    )..setupInstructionsFor = (_) => const SetupInstructionsDto(
+          notes: null,
+          methods: [],
+          factoryReset: null,
+          rejoin: RejoinDto(
+            inPlaceSupported: true,
+            requiresFactoryReset: false,
+            notes: 'Close the other client that is holding the connection.',
+          ),
+        );
+
+    final fake = FakeBleService(connectError: StateError('out of range'));
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+        specCodecProvider.overrideWithValue(codec),
+        deviceSpecsProvider.overrideWith((ref) => {'ember.yaml': 'ember-yaml'}),
+      ],
+      child: MaterialApp(home: DeviceScreen(device: _device)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connection failed'), findsNWidgets(2));
+    final howTo = find.text('How to connect');
+    expect(howTo, findsOneWidget);
+
+    await tester.tap(howTo);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SetupInstructionsScreen), findsOneWidget);
+    expect(
+      find.textContaining('Close the other client'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a failed connect hides "How to connect" when nothing matches',
+      (tester) async {
+    final codec = FakeSpecCodec(
+      spec: DeviceSpecDto(
+        deviceName: 'Unknown',
+        manufacturer: 'Unknown',
+        manufacturerStatus: 'active',
+        protocol: 'ble',
+        localNamePrefixes: const [],
+        localNames: const [],
+        serviceUuids: const [],
+        companyIds: Uint16List(0),
+        macPrefixes: const [],
+        ssdpSearchTargets: const [],
+        lanProtocols: const [],
+        services: const [],
+        entities: const [],
+      ),
+      scanMatches: (_) => const [],
+    );
+
+    final fake = FakeBleService(connectError: StateError('out of range'));
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        bleServiceProvider.overrideWithValue(fake),
+        sharedPreferencesProvider.overrideWithValue(_prefs),
+        numberRegistryProvider.overrideWith((ref) async => _registry),
+        specCodecProvider.overrideWithValue(codec),
+        deviceSpecsProvider.overrideWith((ref) => {'x.yaml': 'x-yaml'}),
+      ],
+      child: MaterialApp(home: DeviceScreen(device: _device)),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Connection failed'), findsNWidgets(2));
+    expect(find.text('How to connect'), findsNothing);
   });
 }

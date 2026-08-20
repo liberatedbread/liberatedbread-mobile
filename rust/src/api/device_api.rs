@@ -3621,6 +3621,136 @@ pub fn match_soft_ap_ssid(profiles: Vec<SoftApProfileDto>, ssid: String) -> Opti
         .map(|i| i as u32)
 }
 
+// ── Setup / troubleshooting instructions ────────────────────────────────────
+// The prose half of `device.setup`, shaped for the UI to render when a connect
+// fails: how to pair, why it might not, how to factory reset, how to rejoin. The
+// caller finds the right spec (the scan matcher's `spec_index` recovers it) and
+// asks for that one spec's instructions — no whole-catalogue marshalling.
+
+/// One `action`/`actor`/`expect` triple from a setup or reset step list.
+#[derive(Debug, Clone)]
+pub struct SetupStepDto {
+    pub action: String,
+    /// Who does it (`user` / `client`), when the spec says.
+    pub actor: Option<String>,
+    /// What confirms it worked, when the spec says.
+    pub expect: Option<String>,
+}
+
+/// A `symptom` + its likely `causes` — the "it won't connect" list.
+#[derive(Debug, Clone)]
+pub struct TroubleshootingDto {
+    pub symptom: String,
+    pub causes: Vec<String>,
+}
+
+/// One `setup.methods[]` entry as human-readable prose.
+#[derive(Debug, Clone)]
+pub struct SetupMethodDto {
+    /// `ble_direct`, `button_pairing`, … — labels the method.
+    pub method_type: Option<String>,
+    pub description: Option<String>,
+    pub steps: Vec<SetupStepDto>,
+    pub troubleshooting: Vec<TroubleshootingDto>,
+}
+
+/// One named way to factory-reset the device.
+#[derive(Debug, Clone)]
+pub struct FactoryResetProcedureDto {
+    pub name: String,
+    pub hold_seconds: Option<u32>,
+    pub indicator: Option<String>,
+    pub steps: Vec<SetupStepDto>,
+}
+
+/// `setup.factory_reset` — what a reset clears and how to trigger it.
+#[derive(Debug, Clone)]
+pub struct FactoryResetDto {
+    pub effect: Option<String>,
+    pub procedures: Vec<FactoryResetProcedureDto>,
+}
+
+/// `setup.rejoin` — whether a dropped device reconnects in place, and why it
+/// usually dropped.
+#[derive(Debug, Clone)]
+pub struct RejoinDto {
+    pub in_place_supported: Option<bool>,
+    pub requires_factory_reset: Option<bool>,
+    pub notes: Option<String>,
+}
+
+/// One spec's `device.setup` block, rendered-ready.
+#[derive(Debug, Clone)]
+pub struct SetupInstructionsDto {
+    pub notes: Option<String>,
+    pub methods: Vec<SetupMethodDto>,
+    pub factory_reset: Option<FactoryResetDto>,
+    pub rejoin: Option<RejoinDto>,
+}
+
+impl From<crate::spec::setup::SetupStep> for SetupStepDto {
+    fn from(s: crate::spec::setup::SetupStep) -> Self {
+        SetupStepDto {
+            action: s.action,
+            actor: s.actor,
+            expect: s.expect,
+        }
+    }
+}
+
+impl From<crate::spec::setup::SetupInstructions> for SetupInstructionsDto {
+    fn from(s: crate::spec::setup::SetupInstructions) -> Self {
+        SetupInstructionsDto {
+            notes: s.notes,
+            methods: s
+                .methods
+                .into_iter()
+                .map(|m| SetupMethodDto {
+                    method_type: m.method_type,
+                    description: m.description,
+                    steps: m.steps.into_iter().map(Into::into).collect(),
+                    troubleshooting: m
+                        .troubleshooting
+                        .into_iter()
+                        .map(|t| TroubleshootingDto {
+                            symptom: t.symptom,
+                            causes: t.causes,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            factory_reset: s.factory_reset.map(|fr| FactoryResetDto {
+                effect: fr.effect,
+                procedures: fr
+                    .procedures
+                    .into_iter()
+                    .map(|p| FactoryResetProcedureDto {
+                        name: p.name,
+                        hold_seconds: p.hold_seconds,
+                        indicator: p.indicator,
+                        steps: p.steps.into_iter().map(Into::into).collect(),
+                    })
+                    .collect(),
+            }),
+            rejoin: s.rejoin.map(|r| RejoinDto {
+                in_place_supported: r.in_place_supported,
+                requires_factory_reset: r.requires_factory_reset,
+                notes: r.notes,
+            }),
+        }
+    }
+}
+
+/// The renderable `device.setup` instructions for one spec, or null when the
+/// spec carries none (or fails to parse). Fed the single YAML the caller
+/// resolved for a device — on a connect failure, the scan matcher's best
+/// `spec_index` — so it can show "how to connect / why it won't / how to reset"
+/// without any device present.
+pub fn setup_instructions(spec_yaml: String) -> Option<SetupInstructionsDto> {
+    let spec = parse_device_spec(&spec_yaml).ok()?;
+    crate::spec::setup::setup_instructions(&spec).map(SetupInstructionsDto::from)
+}
+
 /// Every `ConnectHomeNetwork` request worth sending to join `ssid`, rendered
 /// and ready to POST — the Wemo counterpart of `render_lifx_set_access_point`.
 ///
@@ -5446,5 +5576,60 @@ services:
         let dto = DecodedValueDto::from(("counter", &DecodedValue::Uint(u64::MAX)));
         assert_eq!(dto.uint_value, Some(i64::MAX));
         assert_eq!(dto.string_value, Some(u64::MAX.to_string()));
+    }
+
+    #[test]
+    fn setup_instructions_dto_carries_the_block_across() {
+        let yaml = r#"
+device:
+  name: "Help Mug"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+  setup:
+    notes: "Turn it on."
+    methods:
+      - type: "ble_direct"
+        description: "Pair over BLE."
+        steps:
+          - action: "Hold the button."
+            actor: "user"
+            expect: "It blinks blue."
+        troubleshooting:
+          - symptom: "Won't connect."
+            causes:
+              - "Another phone holds the link."
+    factory_reset:
+      effect: "Wipes the claim."
+      procedures:
+        - name: "Factory reset"
+          hold_seconds: 15
+    rejoin:
+      in_place_supported: true
+      notes: "Close the other app."
+"#;
+        let dto = setup_instructions(yaml.to_string()).expect("has instructions");
+        assert_eq!(dto.notes.as_deref(), Some("Turn it on."));
+        assert_eq!(dto.methods.len(), 1);
+        assert_eq!(
+            dto.methods[0].steps[0].expect.as_deref(),
+            Some("It blinks blue.")
+        );
+        assert_eq!(dto.methods[0].troubleshooting[0].causes.len(), 1);
+        let fr = dto.factory_reset.expect("reset");
+        assert_eq!(fr.procedures[0].hold_seconds, Some(15));
+        assert_eq!(dto.rejoin.expect("rejoin").in_place_supported, Some(true));
+    }
+
+    #[test]
+    fn setup_instructions_dto_is_none_without_a_block() {
+        let yaml = r#"
+device:
+  name: "No Help"
+  manufacturer: "Test"
+  manufacturer_status: "active"
+  protocol: "ble"
+"#;
+        assert!(setup_instructions(yaml.to_string()).is_none());
     }
 }

@@ -879,6 +879,14 @@ class FakeSpecCodec implements SpecCodec {
   /// Returned by [softApProfiles].
   List<SoftApProfileDto> softApProfilesResult = const [];
 
+  /// Returned by [setupInstructions]. Either a fixed value, or a function of the
+  /// YAML asked about so one fake can answer differently per spec. Null (the
+  /// default function result) means "this spec has no instructions".
+  SetupInstructionsDto? Function(String specYaml)? setupInstructionsFor;
+
+  /// Every YAML [setupInstructions] was asked about, in call order.
+  final List<String> setupInstructionsCalls = [];
+
   /// Returned by [matchSoftApSsid].
   int? Function(String ssid)? matchSoftApSsidFor;
 
@@ -908,6 +916,12 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls) async =>
       softApProfilesResult;
+
+  @override
+  Future<SetupInstructionsDto?> setupInstructions(String specYaml) async {
+    setupInstructionsCalls.add(specYaml);
+    return setupInstructionsFor?.call(specYaml);
+  }
 
   @override
   Future<int?> matchSoftApSsid({
