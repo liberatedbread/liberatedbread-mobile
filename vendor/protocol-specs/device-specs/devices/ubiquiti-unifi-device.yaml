@@ -61,13 +61,6 @@ device:
     dynamically from 0x0c; the spec-level default here is wifi-ap (the most
     common UniFi endpoint), overridden per discovered platform.
   identification:
-    # The strong signal: a device that ANSWERED the UDP 10001 discovery probe.
-    # A consumer that sent it and got a UBNT TLV reply tags the device with this
-    # token, the same "it spoke the protocol" match Kasa uses. Covers the whole
-    # UniFi fleet (cameras, APs, switches, gateways, NVRs) — the per-model
-    # pictogram is refined from the reply's platform field (0x0c); see notes.
-    lan_protocols:
-      - "ubiquiti-discovery"
     default_port: 10001
     mac_prefixes:
       - "24:5A:4C"

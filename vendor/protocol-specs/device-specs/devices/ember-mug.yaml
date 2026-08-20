@@ -1,13 +1,53 @@
 # Ember Mug family device spec
 # Copyright 2026 Pigs Can Fly Labs LLC
 # SPDX-License-Identifier: Apache-2.0
+#
+# Hardware verification, 2026-08-13 to 2026-08-16. One unit: Ember Mug 2, 10 oz,
+# at E7:AA:BB:CC:DD:EE, serial WHCXXXXXXXX, firmware 367, hardware 10, read off the
+# device with fc54000c. Captured from a Raspberry Pi 5 on BlueZ 5.82 with bleak
+# 3.0.2. Packet captures are in the captures repo under ember/.
+#
+# Everything below marked as confirmed was read from or written to that unit and
+# the response recorded. The mug arrived already claimed, which makes the
+# out-of-box claiming rows unmeasurable on it and is called out where it bites.
+# The other four body styles in this file were not tested at all.
 
 device:
   name: "Ember Mug"
   manufacturer: "Ember Technologies"
   manufacturer_status: "active"
   testing:
-    status: untested
+    status: verified
+    detail: minimally-verified
+    notes: >-
+      Driven against one Ember Mug 2, 10 oz, firmware 367, hardware 10, from
+      2026-08-13 to 2026-08-16. Eighteen characteristics enumerated and read, the
+      DSK read over an encrypted link, and the statistics and push event
+      notifications subscribed and captured. Filled with water and run through two
+      full heat cycles, on and off the coaster, which is what the liquid, battery
+      and LED notes rest on. Then eleven writes across four characteristics, LED
+      colour, target temperature, mug name and date-time, every one restored to its
+      original value and the restoration verified by reading it back.
+
+      `minimally-verified` rather than `mostly-verified`, for two reasons. This
+      file covers five body styles and only the Mug 2 was in the room, and the
+      characteristic table is not uniform across them. And the whole claiming and
+      reset block is untested, because the unit arrived already claimed: exercising
+      it from scratch means a factory reset, and losing a working claim to test the
+      path that restores it is not a trade worth making on one unit.
+
+      A second Ember Mug 2 on 2026-08-19, firmware 394, hardware 10, serial
+      BBA75112054: the characteristic table enumerated identical to the first
+      unit's, eighteen present with volume and acceleration absent, the same
+      Nordic DFU service and Generic Access second name, and every state
+      characteristic read and decoded as documented. One LED write (bf ff 00 ff)
+      accepted byte-for-byte and restored. Two deltas from the first unit, both
+      recorded in place below: this firmware advertises company ID 0x03C1 (961),
+      not 0xFFFF, and the statistics characteristic produced only the bare `05`
+      on this host's first-ever connection, so the four-record burst is not
+      guaranteed to a new client. The claim survived un-pairing from its phone
+      (UDSK stayed non-zero), and the check-2 connection-refusal state reproduced
+      after three quick sessions.
   protocol: "ble"
   category: "appliance"
   notes: >
@@ -55,19 +95,82 @@ device:
     links. These are documented in notes and references. (Enum/value maps and
     unit/scale, formerly on this list, are now first-class: format fields carry
     `values`, `unit` and `scale` — see $defs/number_semantics in the schema.)
+
+    HARDWARE, 2026-08-16, the factory reset: held about 15 seconds, LED blue then
+    yellow then red, released at red. It cleared the claim at fc54000f to twenty
+    zero bytes, and reset the target to 5a16 (57.22 C, exactly 135.0 F), the unit
+    to Celsius, the date-time zone byte to 00 and the LED to ffffffff. Firmware,
+    hardware, serial, address and the DSK all read back byte identical, so the
+    reset restores settings and does not touch identity.
+
+    An unclaimed mug refuses every write with ATT 0x03. Target, LED and mug name
+    were each refused after the reset, having each been written successfully an
+    hour earlier while claimed. So the claiming procedure this file documents,
+    write a UDSK to fc54000f, cannot bootstrap: the write is locked until the mug
+    is claimed. Something else unlocks a fresh mug and no source here says what.
+
+    This mug also caps its ATT MTU at 23. BlueZ asked 517 and got 23, leaving a
+    twenty byte payload, and it does not answer prepare-write, so no client can
+    write more than twenty bytes to any characteristic on it.
+
+    HARDWARE, 2026-08-16: two statements in this summary did not survive the
+    bench, and each is corrected in place further down. The company ID on this
+    unit is 0xFFFF, not 0x03C1, which is why both Home Assistant discovery
+    patterns named above match it in no state. HARDWARE, 2026-08-19: the company
+    ID is firmware-dependent, not simply wrong — a firmware 394 Mug 2 advertises
+    0x03C1 (961) in both the idle and the pairing state, and a second mug in the
+    same home advertised 961 as well, so the HA patterns DO match firmware 394
+    and fail firmware 367. Match on the name and treat the company ID as
+    corroboration. Liquid level does emit
+    intermediate values, off the coaster as well as on it, so orlopau is wrong
+    that only 0 and 30 appear, though right that a client should not read them
+    as a fill fraction.
+
+    Target 0x0000 disabling temperature control is confirmed, and against a
+    running cycle rather than an idle mug. It also puts the mug into liquid
+    state 3, not 0. See fc540003.
   identification:
     local_name_prefix: "Ember"
+    # HARDWARE: the local name is the one thing here that matches. This unit
+    # advertises the complete local name "Ember Ceramic Mug".
+    #
+    # None of the three service UUIDs below is advertised in ordinary operation.
+    # Scanned with btmon before the first connection, in both states: the only
+    # advertised service UUID is 0000180a, Device Information, and it sits in a
+    # 4-byte scan response. fc543622 appears only while the base button is held,
+    # and also only in the scan response. So a passive scanner never sees any of
+    # them, in either state, and an active scanner sees fc543622 only while a
+    # person is physically holding the button.
+    #
+    # Take the advertising claims here from captures taken BEFORE the first
+    # connection. Afterwards BlueZ merges its cached GATT services into what it
+    # reports to a scanner, and a scan run at that point lists five UUIDs that
+    # were never on the air.
     service_uuids:
       - "fc543622-236c-4c94-8fa9-944a3e5353fa"
       - "fc543621-236c-4c94-8fa9-944a3e5353fa"
       - "fc5421a1-236c-4c94-8fa9-944a3e5353fa"
     manufacturer_data:
+      # HARDWARE: the advertised company ID is FIRMWARE-DEPENDENT. A firmware 367
+      # Mug 2 advertises 0xFFFF, the SIG's reserved internal-use value, in both
+      # the idle and the pairing state (measured 2026-08-13..16). A firmware 394
+      # Mug 2 advertises 0x03C1 (961), Ember's proper SIG ID, in both states
+      # (measured 2026-08-19), and a second mug in the same home advertised 961
+      # too (its firmware was not read). The value below is the fw-394 one; do
+      # not filter on either — match the local name.
       company_id: 961
       company_id_hex: "0x03C1"
+      # 0xFFFF is what firmware 367 advertises; a scanner treats it as
+      # equivalent to the primary (see schema: additional_company_ids).
+      additional_company_ids: [65535]
+      # Observed payloads are a single byte, which takes python-ember-mug's
+      # short-payload branch: 0x82 on the fw-367 unit in idle, 0x02 on the fw-394
+      # unit in idle and pairing both, 0x88 on the unconnected second mug. What
+      # the byte decodes to is untested.
       discovery_patterns:
-        - "Home Assistant bluetooth manifest: local_name `Ember C*` + manufacturer_id 961."
-        - "Home Assistant bluetooth manifest: local_name `Ember T*` + manufacturer_id 961."
-        - "python-ember-mug reads AdvertisementData.manufacturer_data[0x03C1]."
+        - "Home Assistant bluetooth manifest: local_name `Ember C*` + manufacturer_id 961. Firmware-dependent: matches a fw-394 Mug 2 in every state (verified 2026-08-19), matches a fw-367 Mug 2 in no state (its 961 half never matches that firmware's 0xFFFF)."
+        - "Home Assistant bluetooth manifest: local_name `Ember T*` + manufacturer_id 961. Untested, Travel Mug; expect the same firmware split as the Mug 2."
+        - "python-ember-mug reads AdvertisementData.manufacturer_data[0x03C1]. Sees fw-394 mugs; blind to fw-367 mugs."
       payload_notes: >
         python-ember-mug treats short (<4 byte) payloads as a signed model/color
         byte and longer payloads as bytes 1..3 = model_id, generation, colour_id.
@@ -77,21 +180,40 @@ device:
         binary contract remains inferred from public library behavior.
 
   discovery:
+    # HARDWARE: as written before 2026-08-16, this method found a fw-367 mug in no
+    # state at all: it asked for company 961 where that firmware advertises 65535,
+    # and it asked for service UUIDs that are not in the advertisement. A fw-394
+    # mug does advertise 961 (2026-08-19), so the company ID splits by firmware.
+    #
+    # What works on every unit measured: scan for the local name prefix "Ember"
+    # and accept whatever company ID comes with it. That alone is enough, because
+    # the complete local name is in the ADV_IND and a passive scan sees it.
+    #
+    # Do not require the service UUIDs. A passive scanner never sees one, and an
+    # active scanner only gets fc543622 while somebody holds the base button.
     methods:
       - type: "ble_scan"
         ble:
           local_name:
             match: "prefix"
             value: "Ember"
+          # Left here as documentation of what the device exposes and when, not as
+          # a filter. Requiring any of these drops the device.
           service_uuids:
             - "fc543622-236c-4c94-8fa9-944a3e5353fa"
             - "fc543621-236c-4c94-8fa9-944a3e5353fa"
             - "fc5421a1-236c-4c94-8fa9-944a3e5353fa"
           manufacturer_data:
             company_id: 961
+            additional_company_ids: [65535]
             match: "prefix"
-            description: "Ember BLE manufacturer data under Bluetooth SIG company ID 0x03C1."
+            description: "Firmware-dependent, so accept either: a fw-367 Mug 2 advertises 0xFFFF (SIG reserved internal-use) and a fw-394 Mug 2 advertises 0x03C1 (961), each in both the idle and the pairing state. Documentation of what is on the air, not a required filter — the name is the filter."
     identity:
+      # HARDWARE: this unit's address is E7:AA:BB:CC:DD:EE. Top two bits are 11,
+      # so it is a static random address rather than a public one. Stable while
+      # powered, and the core spec permits it to change on a power cycle, so
+      # keying identity on it is weaker here than it would be on a public address.
+      # Not wrong, but know it before caching one.
       stable_keys: ["address"]
       display: "local_name"
     static_ip_required: false
@@ -116,12 +238,25 @@ device:
           immediately; setpoint and LED writes may not.
         ble:
           advertised_name: "Ember"
+          # HARDWARE, and this one is genuinely both. Left true, with the split
+          # spelled out, because neither plain answer is safe for a client.
+          #
+          # Not required for ordinary use: seventeen of the eighteen
+          # characteristics on a Mug 2 were read on a link BlueZ reported as
+          # Paired: no. Temperature, target, battery, liquid state, firmware, mug
+          # id, LED, all of it, with no pairing and no bonding at any point.
+          #
+          # Required to reach the DSK: fc54000e answers a plain read with ATT
+          # Insufficient Authentication and needs an encrypted link. Since reading
+          # the DSK is step one of the vendor's own unlock sequence, a client that
+          # concludes it never needs to pair gets everything except the one
+          # characteristic the claim flow starts from.
           pairing_required: true
           pin_source: "None — claiming is a characteristic write, not a BLE PIN pairing."
         steps:
           - action: "Put the mug in pairing mode by holding the button on the base until the LED shows the pairing colour."
             actor: "user"
-            expect: "Mug advertises with local name Ember* and manufacturer ID 961 (0x03C1)."
+            expect: "Mug advertises with local name Ember*; the manufacturer ID depends on firmware (0x03C1/961 on fw 394, 0xFFFF on fw 367)."
           - action: "Connect and read the device state characteristics to confirm the link."
             actor: "client"
             request:
@@ -175,6 +310,41 @@ services:
       with the same fc54XXXX characteristic UUID pattern according to
       python-ember-mug. Schema has no way to declare equivalent service UUIDs
       without duplicating every characteristic.
+
+
+      HARDWARE: this service exists and every characteristic below that is present
+      lives under it, confirmed. Twenty are listed here and EIGHTEEN are on a Mug 2:
+      fc540009 Volume and fc54000b Acceleration are absent. See each of those.
+
+
+      Three things exist on this hardware that this file documents nowhere, and a
+      client enumerating the device will meet all three:
+
+
+      1. An undocumented Nordic legacy DFU service at
+      00001530-1212-efde-1523-785feabcd123, present in ordinary operation on a
+      claimed mug, with control point 00001531 (write, notify), packet 00001532
+      (write without response) and version 00001534 (read, reads 0100). Nothing
+      here was written to it and nothing should be without a reason: writing to a
+      DFU control point is how a mug gets bricked. This file's own device notes
+      mention that the app ships Nordic DFU code, so the service being live on a
+      normal mug is the part worth adding.
+
+
+      2. A second, writable device name. Generic Access 00002a00 reads "Ember
+      Ceramic Mug" and is declared read/write, while fc540001 reads "EMBER". They
+      disagree, and it is the Generic Access one that discovery matches on.
+
+
+      3. Peripheral preferred connection parameters at 00002a04, reading
+      5000a00000009001: 100 to 200 ms interval, zero latency, 4000 ms supervision
+      timeout. BlueZ ignores it and opens at 420 ms, so do not diagnose a
+      connection problem against the interval this advertises.
+
+
+      Also advertised but not implemented: 0000180a, Device Information. It is the
+      only service UUID in the scan response in normal operation and there is no
+      such service on the device.
     characteristics:
       - uuid: "fc540001-236c-4c94-8fa9-944a3e5353fa"
         name: "Mug Name"
@@ -184,6 +354,53 @@ services:
           accepts UTF-8 writes matching a 1-16 character restricted regex.
           Cup/Tumbler are modeled as not supporting name; Travel Mug is read-only
           in python-ember-mug's README table.
+
+
+          HARDWARE: reads five bytes, "EMBER", on a Mug 2. So the sixteen in the
+          format block is an upper bound and not a length, and a client sizing a
+          buffer from it is fine while a client expecting sixteen bytes back is
+          not.
+
+
+          The two sources conflict about the device rather than about lengths.
+          orlopau says names cannot contain spaces. python-ember-mug's
+          MUG_NAME_REGEX at consts.py:273 has a space inside its character class,
+          at the end, and accepts "My Mug".
+
+
+          Tested on 2026-08-16, and neither source describes the hardware. Seven
+          names were written and every one was accepted and read back byte for
+          byte:
+
+
+            "My Mug"                  6 bytes, space and all
+
+            14 x A                    orlopau's stated limit
+
+            15 x A, 16 x A, 17 x A    past python-ember-mug's limit
+
+            20 x A                    well past both
+
+            "Cafe" with an accent     5 bytes of UTF-8, returned identical
+
+
+          Nothing was refused, truncated or normalised. The mug imposes no length
+          limit anywhere near 14 or 16, no space rule, and no ASCII restriction.
+          Both documented constraints are client-side conventions. Restored to
+          EMBER and verified.
+
+
+          The second, writable name at 00002a00 in Generic Access was deliberately
+          left alone and did not change while this one did, so the two are
+          independent. That is the one discovery matches on, which makes writing it
+          a bigger change than this test needed.
+
+
+          Calling the writes UTF-8 is also loose: set_name does encode("utf8"), but
+          the regex gate confines input to that ASCII set, so no multi-byte
+          character can reach the device through that path.
+
+
         format:
           - offset: 0
             length: 16
@@ -193,7 +410,27 @@ services:
       - uuid: "fc540002-236c-4c94-8fa9-944a3e5353fa"
         name: "Current Temperature"
         properties: ["read"]
-        notes: "Little-endian uint16; value * 0.01 = degrees C."
+        notes: >
+          Little-endian uint16; value * 0.01 = degrees C.
+
+
+          HARDWARE: confirmed on a Mug 2. Read 8d09 and 5509 at room temperature,
+          which little-endian is 2445 and 2389 for 24.45 C and 23.89 C, tracking
+          downward on an empty mug off the coaster as it cooled.
+
+
+          Two things a client should know. This is not the same sensor as the
+          temperature in bytes 2-3 of fc540007: at one moment this read 23.89 C
+          while the battery characteristic read 25.00 C. And fc540012 emits event
+          5, drink temperature changed, more often than this value moves, seven
+          times in two minutes with no change here at all, so treat the event as a
+          hint rather than as a guarantee the reading is different.
+
+
+          For anyone reading orlopau directly rather than this file:
+          its docs/current-temp.md says a raw value of 5550 is 55.00 C. It is
+          55.50. Its own docs/target-temp.md gets the same encoding right. This
+          file did not inherit the error.
         format:
           - offset: 0
             length: 2
@@ -213,8 +450,56 @@ services:
           Little-endian uint16 centi-degrees C. 0x0000 disables heater/temp
           control. python-ember-mug accepts nonzero setpoints only in 49-63 C or
           120-145 F, converting F to device C before writing.
+
+
+          HARDWARE: confirmed. This unit reads 8518, little-endian 6277, so 62.77
+          C. That is 145.0 F to the decimal and the top of the range the library
+          will write, which is one of the things that showed the mug arrived
+          already configured by somebody rather than fresh.
+
+
+          Written and restored on 2026-08-16. The encoding is exactly as the
+          command block below has it: 56.50 C went on the wire as 12 16 and read
+          back 12 16. The worked example in that description is correct.
+
+
+          The range is not the mug's. 40.00 C, below the stated minimum of 49, and
+          70.00 C, above the stated maximum of 63, were both accepted at the ATT
+          layer and both read back unchanged. So the 49 to 63 window is a
+          python-ember-mug convention that the entity below inherited, and nothing
+          in the device stops a client writing 70. Keep the bounds on the entity,
+          since they protect a user, but do not read them as a description of the
+          hardware.
+
+
+          The 0x0000 half is confirmed too, and against a running cycle rather
+          than an idle mug, which is the only way it means anything. Written on
+          2026-08-16 at 17:39:25 UTC with the mug heating and
+          the drink at 27.78 C against this 62.77 C target, so 35 degrees short of
+          where a cycle ends on its own. Push event 8 arrived in the same second,
+          fc540008 left 5 heating for 3 cold_no_temp_control, and the drink fell
+          27.78, 27.23, 26.12, 25.00, 24.45, 23.34, 22.78, 22.23 and then held at
+          22.23 for the remaining four minutes with no reheat. The baseline was
+          written back and verified in the same connection.
+
+
+          Two things follow for a client. The Temperature Control switch below is
+          a real off switch and not just a stored number. And the state it leaves
+          the mug in is 3, not 0. That is the only way state 3 was reached here;
+          see the values map at fc540008.
+
+
+          One observation from the earlier write run, recorded but not explained.
+          Writing setpoints to an empty mug produced
+          a rise on fc540002 from 25.56 to about 45 C over roughly a minute, which
+          then fell back on its own with no further writes. The battery temperature
+          never moved off 27 C and the mug was cold to the touch throughout. So
+          something ran briefly and stopped itself. What that field is measuring on
+          an empty mug is not established and this is not a claim that the heater
+          engaged.
         commands:
           set_target_temp:
+            verification: "confirmed"
             description: "Set target temperature (value * 0.01 = degrees C; 0x0000 disables heater)"
             template: ["{temp_low}", "{temp_high}"]
             parameters:
@@ -249,12 +534,27 @@ services:
       - uuid: "fc540004-236c-4c94-8fa9-944a3e5353fa"
         name: "Temperature Unit"
         properties: ["read", "write"]
-        notes: "0 = Celsius, 1 = Fahrenheit; affects device/app display unit, not raw temp encoding."
+        notes: >
+          0 = Celsius, 1 = Fahrenheit; affects device/app display unit, not raw
+          temp encoding.
+
+
+          HARDWARE: reads 01 on this unit, Fahrenheit, and the claim that it does
+          not touch the encoding holds: every temperature characteristic still
+          reports centi-degrees C with this set to Fahrenheit. Confirmed rather
+          than assumed, because the same claim was wrong on the Govee's sibling
+          spec and worth checking here.
+
+
+          The write path was not exercised. Reading it is enough to confirm the
+          encoding claim, and flipping this byte changes what the display shows.
         commands:
           set_celsius:
+            verification: "reported"
             description: "Set temperature display to Celsius"
             value: [0x00]
           set_fahrenheit:
+            verification: "reported"
             description: "Set temperature display to Fahrenheit"
             value: [0x01]
         format:
@@ -276,6 +576,35 @@ services:
           Raw one-byte level. orlopau observed 0 = empty and 30 = not empty; the
           app appears to ignore intermediate values. python-ember-mug formats it
           as raw / 30 * 100 percent.
+
+
+          HARDWARE: filled and run through two heat cycles on 2026-08-15. Eleven
+          distinct values came out of it: 0, 5, 6, 7, 8, 9, 10, 11, 12, 14 and 30.
+          So the device does emit intermediates, and it emits them constantly, 155
+          liquid_level_changed push events in one 40 minute capture. It also
+          updates with the mug off the coaster, which the note above doubts.
+
+
+          The catch is that those intermediates do not behave like a fill
+          fraction. Across two captures where nobody touched the water, the value
+          wandered: 5 to 12 in one and 7 to 12 in the other, changing between
+          consecutive reads 9 percent and 27 percent of the time. Through the
+          scale on the entity below that is a sensor reporting anywhere from 17 to
+          40 percent for a mug whose contents never changed. The two captures also settled around
+          different values, 5 in one and 10 in the other, at the same fill and
+          different temperatures.
+
+
+          So orlopau's note is half right. He is wrong that the device only produces 0 and 30. He is right
+          that a client should not read the intermediates, and the app treating
+          this as an empty-or-not signal looks like a sound decision rather than a
+          limitation. Anything bound to this as a percentage will flap by twenty
+          points with the mug sitting still.
+
+
+          What it is actually measuring is not established. The drift between the
+          two captures tracked temperature, which would fit a thermal sensing
+          method, but that is one observation and it is a guess.
         format:
           - offset: 0
             length: 1
@@ -290,8 +619,57 @@ services:
           timestamp plus one timezone-offset byte. python-ember-mug currently
           reads it as a 4-byte big-endian timestamp and does not write it in the
           normal update path, so endianness/readability are uncertain.
+
+
+          HARDWARE: readable, which settles orlopau's write-only claim against him.
+          A Mug 2 returns five bytes, 00000000fc. The four timestamp bytes are zero
+          because the clock on this unit has never been set, and the fifth, the
+          zone, is 0xfc rather than zero.
+
+
+          Writable too, confirmed by writing and restoring. So both halves of
+          orlopau's write-only description are wrong.
+
+
+          The endianness cannot be settled by this device, and that has now been
+          established rather than assumed. The probe wrote the same timestamp twice,
+          once each way round, picked so the two readings sit thirteen years apart:
+
+
+            80e59f68fc    little endian 2025-08-16, big endian 2038-07-12
+
+            689fe580fc    little endian 2038-07-12, big endian 2025-08-16
+
+
+          Both were accepted and both read back byte for byte unchanged. Nothing was
+          clamped, normalised or refused, including the value that lands past the
+          signed 32-bit rollover in January 2038. It is a transparent five-byte
+          store and the firmware does not appear to interpret it on any path that
+          can be observed from outside. Restored to 00000000fc and verified.
+
+
+          The practical consequence is worth more than the byte order. A client that
+          writes the wrong way round gets no error, no rejection and a silently
+          wrong clock. There is no feedback channel here at all, so the only thing
+          standing between an integration and a wrong device clock is getting the
+          order right the first time.
+
+
+          Which is little-endian. The device cannot settle it, so the evidence is
+          orlopau's own documented capture: read little-endian it gives a time
+          under a day before he committed the page, read big-endian it gives 2068.
+          python-ember-mug reads big-endian here, the only multi-byte big-endian
+          GATT read in that library, and it offers no setter, so nothing there ever
+          round-trips the value and the error has never had a chance to show.
+
+
+          Ember's own app 4.5.9 does not reference this
+          characteristic at all. Its Dart layer names sixteen characteristics and
+          this is not among them, so whatever sets the clock, it is not the current
+          app on the normal path.
         commands:
           set_time:
+            verification: "confirmed"
             description: "Set device clock (4-byte Unix timestamp LE + 1-byte timezone offset)"
             template: ["{ts0}", "{ts1}", "{ts2}", "{ts3}", "{tz_offset}"]
             parameters:
@@ -324,6 +702,81 @@ services:
           scaled), byte 1 charging status, bytes 2-3 battery temperature as
           little-endian centi-degrees C, byte 4 legacy/probable voltage. Current
           python-ember-mug only exposes percent and charging-base boolean.
+
+
+          HARDWARE: five bytes confirmed, and the layout is right. A Mug 2 read
+          6000c40900: percent 0x60 = 96, charging byte 0x00, temperature c409
+          little-endian = 2500 for 25.00 C, byte 4 0x00.
+
+
+          Byte 1, the charging status, is confirmed and behaves exactly as
+          documented. It reads 0x01 while the mug is on the powered coaster and
+          0x00 off it. Settled by subscribing to fc540012 and lifting the mug, so
+          the device's own events stamp where it was sitting:
+
+
+            03:11:31  on the coaster            charging 0x01
+
+            03:11:32  PUSH 3 charger disconnected
+
+            03:11:33  off the coaster           charging 0x00
+
+            03:12:12  PUSH 2 charger connected
+
+            03:12:14  back on the coaster       charging 0x01
+
+
+          Sixteen earlier reads returned 0x00 with no record of where the mug was
+          sitting, which proves nothing either way. If you are checking this
+          yourself, drive it from the push events rather than from a memory of
+          where the mug was.
+
+
+          What byte 1 does not tell you is whether the battery is gaining, and the
+          gap is wide enough to matter. On 2026-08-15 it read 0x01 continuously
+          from 19:18 to 19:57 while byte 0 went 13, 12, 11, 10, 6. The mug was on
+          the powered coaster for all of it and heating. The coaster does not keep
+          up with an active heat cycle, so the cell drains while the charging byte
+          says charging, and it only stops falling once the mug reaches its target.
+          It does recover normally afterwards: left in standby on the same coaster
+          it read 91 percent by 23:32, up from 6 at 19:57.
+
+
+          Off the coaster it is worse than slow, it does not converge. Starting
+          from 45 C with a full battery this unit climbed 0.22 C per minute while
+          spending about 2 percent of battery per minute, so it ran flat before
+          reaching a 62.77 C target and never got there. Treat sustained heating as
+          a mains activity.
+
+
+          Byte 4 read 0x00 throughout and orlopau's "legacy or probable voltage"
+          is untested.
+
+
+          Bytes 2-3 are a BATTERY temperature and not the drink temperature, which
+          no source here says outright. Three things establish it, all measured:
+
+
+          They disagree. This read 25.00 C at the same moment fc540002 read
+          23.89 C.
+
+
+          It tracks charging. It climbed 26.00 to 27.00 to 28.00 while the mug
+          charged from 99 to 100 percent on the coaster, then settled back to 27.00
+          once full, on an empty mug that was never heated. It is responding to
+          charge current.
+
+
+          Its resolution is different. Ninety three reads across two days and every
+          one landed on an exact multiple of 100: 2500, 2600, 2700, 2800 and
+          nothing in between. fc540002 in the same sessions returned 2389 and 2445.
+          So the field is encoded in hundredths and the sensor behind it is
+          quantised to whole degrees, and a client displaying this gets 1 C steps
+          no matter how it scales the value.
+
+
+          Anything binding a "mug temperature" to this characteristic is showing a
+          battery reading that moves for the wrong reasons.
         format:
           - offset: 0
             length: 1
@@ -354,6 +807,50 @@ services:
           3=cold/no-temp-control, 4=cooling, 5=heating, 6=target/perfect,
           7=warm/no-temp-control. orlopau's older app notes saw 3 as emitted but
           not registered by the app.
+
+
+          HARDWARE: four of the eight reached on 2026-08-15 and every one matched
+          the name given for it here: 0 standby, 1 empty, 5 heating, 6
+          target_temperature. 3, 4 and 7 were not reached. 2 filling never appeared
+          once, through four separate pours, so if a Mug 2 emits it at all it is
+          not on the path from empty to full.
+
+
+          The enum is the better of the two sources and is worth keeping as
+          written: orlopau lists only 1 to 6 and calls 3 unknown, while
+          python-ember-mug names 3 and adds 0 and 7. Both 0 and 7 turned out to be
+          real on this hardware, which settles that disagreement in
+          python-ember-mug's favour for at least 0.
+
+
+          Two behaviours here are worth more to an integration than the enum is,
+          and neither is documented anywhere public.
+
+
+          A full mug can report state 1, empty, indefinitely. Filled with cold
+          water and sat on the powered coaster, this unit read liquid_state 1 and
+          liquid_level 0 for twenty minutes across two connections and never
+          started heating. It was not wedged: fc540002 tracked the cold water
+          going in the whole time, and nothing anywhere surfaced an error. A single
+          short press of the base button ended it and the mug went to 5 heating
+          immediately. So a client cannot treat state 1 as meaning the mug is
+          empty, and there is no characteristic found so far that distinguishes
+          the two cases.
+
+
+          There are also two different dormant conditions and only one of them is
+          woken by handling. In the twenty minutes above the mug was lifted,
+          poured into, set down, replaced on the coaster and topped up, and none of
+          that changed anything. Later the same day, after it had dropped from 6
+          target_temperature to 0 standby on its own, simply moving it to a desk
+          was enough to restart heating with no button press.
+
+
+          State 0 standby is not only an idle state. It is where a completed heat
+          cycle ends up: this unit went from 6 to 0 while reading 60.56 C with
+          liquid in it, on the powered coaster, and the drink then fell to 48.89 C
+          with no further heating. An integration seeing standby cannot infer the
+          mug is empty, off the pad, or switched off.
         format:
           - offset: 0
             length: 1
@@ -368,6 +865,16 @@ services:
               5: "heating"
               6: "target_temperature"
               7: "warm_no_temp_control"
+            # HARDWARE: five of the eight were reached and every one matched the
+            # name above. 0, 1, 5 and 6 came out of ordinary fills and heat
+            # cycles. 3 was only ever reached by writing 0x0000 to fc540003 with
+            # liquid in the mug, and the mug then sat in it rather than passing
+            # through, so read 3 as "there is liquid and temperature control is
+            # off" and not as a fault or an empty mug.
+            #
+            # 2 filling never appeared through four separate pours, so if a Mug 2
+            # emits it at all it is not on the path from empty to full. 4 and 7
+            # were not reached.
 
       - uuid: "fc540009-236c-4c94-8fa9-944a3e5353fa"
         name: "Volume"
@@ -375,14 +882,24 @@ services:
         notes: >
           Travel Mug button-beep volume in python-ember-mug. Values:
           0=low, 1=medium, 2=high. Marked N/A for Mug/Cup/Tumbler.
+
+
+          HARDWARE: absent on a Mug 2, which is what this file already predicts.
+          Recorded because a correct prediction confirmed against the device is
+          worth as much here as a correction, and because Ember's own app carries a
+          characteristicForVolume constant while this hardware does not implement
+          it. The Travel Mug half stays untested.
         commands:
           set_volume_low:
+            verification: "reported"
             description: "Set Travel Mug beep volume to low"
             value: [0x00]
           set_volume_medium:
+            verification: "reported"
             description: "Set Travel Mug beep volume to medium"
             value: [0x01]
           set_volume_high:
+            verification: "reported"
             description: "Set Travel Mug beep volume to high"
             value: [0x02]
         format:
@@ -403,12 +920,28 @@ services:
           (write). Payload format was not found in public docs or light app
           static inspection.
 
+
+          HARDWARE: present on a Mug 2 and write only, confirming the property
+          list. Not written to, so the payload format is still unknown, and Ember's
+          own app 4.5.9 does not reference this characteristic at all: its Dart
+          layer names sixteen and this is not among them. Whatever writes a
+          location, it is not the current app on the normal path.
+
       - uuid: "fc54000b-236c-4c94-8fa9-944a3e5353fa"
         name: "Acceleration"
         properties: ["read"]
         notes: >
           Present in python-ember-mug's MugCharacteristic enum as UUID_ACCELERATION
           with comment "Unsure what it does"; payload format unknown.
+
+
+          HARDWARE: ABSENT on a Mug 2, firmware 367, hardware 10. Not in the GATT
+          table at all across five full enumerations. This is a library constant
+          that reached the spec without a device behind it, and unlike Volume
+          below there is no note here saying which models it applies to. A client
+          discovering characteristics dynamically will simply not find it; one
+          working from this file as a checklist will look for something that is
+          not there.
 
       - uuid: "fc54000c-236c-4c94-8fa9-944a3e5353fa"
         name: "Firmware"
@@ -417,6 +950,17 @@ services:
           orlopau documents 4-6 bytes: firmware version, hardware version, and
           optional bootloader version, each little-endian uint16. python-ember-mug
           exposes all three fields.
+
+
+          HARDWARE: four bytes on a Mug 2, 6f010a00. Little-endian that is firmware
+          367 and hardware 10, and there is no bootloader field, so 4-6 is right
+          and this unit is at the short end.
+
+
+          Attach those two numbers to every confirmed row in this file. A
+          verification with no firmware against it ages badly, and Device
+          Information is advertised but not implemented on this hardware, so this
+          characteristic is the only route to a version number.
         format:
           - offset: 0
             length: 2
@@ -438,6 +982,24 @@ services:
           python-ember-mug reads this as 6 bytes mug_id followed by serial
           number from byte 7 onward. The mug_id decoding is marked uncertain in
           the library.
+
+
+          HARDWARE: eighteen bytes on a Mug 2, reading
+          e7aabbccddee2d5748435858585858585858. It decodes cleanly and it is not
+          quite what the library says.
+
+
+            bytes 0-5   the BLE address, E7:AA:BB:CC:DD:EE, in forward order
+            byte 6      0x2d, an ASCII hyphen
+            bytes 7-17  the serial number as ASCII, "WHCXXXXXXXX"
+
+
+          So the unaccounted byte 6 in the library's reading is a separator, and
+          the mug_id it is uncertain about is simply the address the device
+          advertises on. The serial is eleven characters here where the format
+          block below declares sixteen, so sixteen is an upper bound rather than a
+          length. Ember's own app agrees with the split: it exposes macAddress and
+          serialNumber as separate accessors on the same characteristic.
         format:
           - offset: 0
             length: 6
@@ -454,11 +1016,47 @@ services:
         notes: >
           python-ember-mug calls this a unique ID used for auth in the app and
           base64-encodes/decodes the byte string. Exact auth semantics unknown.
+
+
+          HARDWARE, and this is the one thing in this file most likely to cost a
+          client a day: this characteristic REQUIRES AN ENCRYPTED LINK. A plain
+          read is answered, in about 400 ms, with ATT error 0x05, Insufficient
+          Authentication. It does not hang and it does not stay silent.
+
+
+          What happens next is the trap. BlueZ acts on that error by starting SMP
+          on its own, without the application asking. Both sides come up
+          NoInputNoOutput with no MITM requirement, so this is Just Works and the
+          confirmation carries a hint saying no human is needed. If the host has no
+          pairing agent registered, bluetoothd answers its own confirmation request
+          in the negative, SMP fails with "Passkey entry failed", and the mug drops
+          the connection. From the application side that looks like a read that
+          never returns followed by a dead session, with no error surfaced
+          anywhere, because the ATT error was consumed by the stack.
+
+
+          A headless Home Assistant box normally has no pairing agent, so this is
+          the default outcome rather than an edge case. Five separate attempts here
+          were written up as "the DSK read hangs and poisons the session" before a
+          btmon capture showed what the mug had actually replied.
+
+
+          With an agent registered the read returns 20 bytes in about 3 seconds and
+          the session survives it: subsequent reads on the same connection work
+          normally. Note that completing SMP created a Long Term Key on this bench
+          even though BlueZ requested No bonding, so a client doing this will
+          bond to the mug whether or not it meant to.
+
+
+          Captures: ember/ember_mug2_dsk_read_fails_no_agent.pcapng is the failure
+          and ember/ember_mug2_dsk_read_with_pairing_agent.pcapng is the success.
         format:
           - offset: 0
             length: 20
             name: "dsk"
             type: "bytes"
+            # HARDWARE: confirmed 20 bytes, read off this unit once the link was
+            # encrypted. Previously carried from python-ember-mug and unmeasured.
 
       - uuid: "fc54000f-236c-4c94-8fa9-944a3e5353fa"
         name: "UDSK"
@@ -472,8 +1070,51 @@ services:
           `verifyUdsk` helpers and log a write-then-read-back verification when
           the fetched value mismatches the generated UDSK (app-confirmed, not
           hardware-tested).
+
+
+          HARDWARE: reads 20 bytes on a Mug 2, all of them non-zero, which by
+          python-ember-mug's own test means this unit is claimed. It arrived that
+          way. Nothing was written here.
+
+
+          HARDWARE, and this is the part with consequences: the UDSK is derived
+          deterministically from the device, and derived locally. On 2026-08-16
+          this unit was factory reset, which cleared this characteristic to twenty
+          zero bytes, and then claimed by a different phone on a fresh install
+          signed in as a guest with no account. It came back byte for byte
+          identical to the value the previous owner's app had left. Two unrelated
+          clients, neither able to look up the other's value, produced the same
+          twenty bytes.
+
+
+          So the UDSK is not a secret a client invents and keeps. That is what
+          python-ember-mug's make_writable() does, writing os.urandom(14).hex(),
+          and no fix to its encoding can make an invented value correct if the
+          device expects a derived one.
+
+
+          Forty-byte writes are impossible here, which corrects an earlier reading
+          in both directions. This mug caps the ATT MTU at 23, leaving a twenty
+          byte payload, and it does not answer ATT prepare-write, so a long write
+          has no fallback. A forty byte write was attempted and the mug never
+          replied to the prepare-write request. Whatever the app does, it is not
+          putting forty bytes on this characteristic.
+
+
+          The derivation itself is NOT established. The app snapshot is
+          unobfuscated and names generateUdsk, verifyUdsk, _utilSha256Hash and
+          _utilByteReorder, and its debug strings give the sequence: read the DSK,
+          derive a UDSK, write it, read it back, compare, unlock only on a match.
+          Those are function names, not disassembly, and the algorithm is not
+          guessed at here. Two searches against the known DSK and UDSK pair from
+          this unit came back empty: 3283 candidate transforms of the DSK, MAC,
+          serial and mug id, then every 20-byte window of the app snapshot as an
+          XOR constant through SHA-1 and SHA-256, about 45 million candidates. So
+          the derivation is not a simple keyed hash of the DSK over any constant
+          stored plainly in the app.
         commands:
           set_udsk:
+            verification: "reported"
             description: "Write app auth/user DSK material; exact semantics uncertain"
             template: ["{udsk_bytes}"]
             parameters:
@@ -492,6 +1133,22 @@ services:
           python-ember-mug enum comment says "int/temp lock - Address". App AOT
           strings include `characteristicForControlRegisterAddress`. Payload and
           temp-lock behavior remain uncertain.
+
+
+          HARDWARE: present, read/write, one byte, reading 00 on a mug nobody has
+          poked. That is why fc540011 returns nothing: no register is selected.
+
+
+          Deliberately not exercised. Writing an address here and reading the pair
+          back means poking undocumented registers with no map and no way to know
+          what a given address does, so this sits with the DFU service on the
+          do-not-write list.
+
+
+          The temp lock hint has a second source now: Ember's app carries
+          isTempLockEnabled, setIsTempLockEnabled and a hasTempLockFeature check
+          gated on the model, so the feature is real and model-dependent. Whether
+          it is driven through this register pair is still a guess.
         format:
           - offset: 0
             length: 1
@@ -506,6 +1163,17 @@ services:
           Travel Mug it reads the first byte as battery voltage/state. App AOT
           strings include `characteristicForControlRegisterData`. Exact register
           map is unknown.
+
+
+          HARDWARE: present and readable, and it returns ZERO BYTES, not a zero
+          byte. An empty read, repeatedly. Presumably it hands back whatever
+          fc540010 last selected, and fc540010 reads 0x00 on a mug nobody has
+          poked, so there is nothing selected to return.
+
+
+          The register map stays unknown, for the reason given at fc540010.
+          Recorded here so the next reader knows the silence is the device
+          answering rather than a failed read.
         format:
           - offset: 0
             length: 1
@@ -514,13 +1182,40 @@ services:
 
       - uuid: "fc540012-236c-4c94-8fa9-944a3e5353fa"
         name: "Push Event"
-        properties: ["read", "notify"]
+        # HARDWARE: notify only on this unit. There is no read property, so a
+        # client that tries to poll it gets an error rather than a value.
+        properties: ["notify"]
         notes: >
           One-byte notification event ID. python-ember-mug maps 1=battery
           changed, 2=charger connected, 3=charger disconnected, 4=target temp
           changed, 5=drink temp changed, 6=auth info not found, 7=liquid level
           changed, 8=liquid state changed, 9=battery voltage state changed.
           Clients should re-read the affected characteristic.
+
+
+          HARDWARE: four of the nine confirmed on a Mug 2. Events 2 and 3 fired on
+          a lift and a replace, each within a second of byte 1 of fc540007
+          changing, which is what settled that byte. Event 1 arrived as the battery
+          reading ticked down by one. Event 5 fired seven times in two minutes
+          while fc540002 never moved off its reading, so 5 is emitted on changes
+          finer than the drink temperature characteristic reports; treat it as
+          "something thermal moved" rather than "the value you can read has
+          changed". Events 4, 6, 7, 8 and 9 are unconfirmed here.
+
+
+          IMPORTANT, and no public source has this: **the characteristic lags its
+          own event.** The advice above to re-read the affected characteristic is
+          right, but not immediately. A read taken one second after PUSH 2, charger
+          connected, still returned the pre-event value, and the new value appeared
+          on the read a second later. A client that re-reads synchronously on the
+          notification will sit one state behind, permanently, and it will look
+          like the device is wrong rather than the timing. Wait a beat, or re-read
+          until the value changes.
+
+
+          Before binding anything to it: the temperature in the
+          battery characteristic and the drink temperature in fc540002 are
+          different sensors and read different values at the same moment.
         format:
           - offset: 0
             length: 1
@@ -543,11 +1238,77 @@ services:
         notes: >
           python-ember-mug subscribes only when debug is enabled and logs raw
           bytes as statistics; payload format was not found.
+
+
+          HARDWARE: captured on a Mug 2, and no other public source has it. It is
+          not a value you poll. The records arrive in one burst on subscribe, and
+          only when the mug is willing to send them.
+
+
+          The first subscribe of the day produced four notifications inside a
+          second and then nothing for the remaining 45 seconds:
+
+
+            01 00 08  00 05 02 00 00 00 03 fc
+
+            02 00 10  00 15 07 00 00 00 03 fc 05 00 00 24 ff ff ff ff
+
+            04 01 08  ff ff ff ff 00 05 00 00
+
+            05
+
+
+          Every subscribe after that, across three more connections, produced a
+          single byte, 05, and nothing else. So 05 is what the characteristic says
+          when it has nothing to say.
+
+
+          It is not gone, though. The next morning the first connection of the day
+          produced the burst again: the same four notifications, byte for byte,
+          twenty hours and one full charge cycle later, with no button hold, no
+          pairing mode and no reset anywhere in between. A fresh connection two
+          minutes after that gave a bare 05 again.
+
+
+          So this is neither an event queue nor a one-shot. A queue that had been
+          accumulating for twenty hours across a charge to full would not hand back
+          identical records. What it behaves like is a fixed record set behind a
+          gate that re-arms slowly, which makes the content a property of the
+          device rather than of the session. Seeing 05 is not a failure and nothing
+          has been permanently missed.
+
+
+          Neither the re-arm interval nor its trigger is established. The interval
+          is bounded only as longer than two minutes and shorter than twenty hours.
+          Elapsed time, disconnect length, a charger transition and a battery cycle
+          are all confounded, because the mug sat overnight on the coaster and did
+          all four.
+
+
+          Taking byte 0 as a record id, byte 1 as a subtype and byte 2 as a length
+          produces a body length that agrees with byte 2 in all three multi-byte
+          records: 3 plus 8 is 11, 3 plus 16 is 19, 3 plus 8 is 11. No other
+          reading tried fits all three. Record 3 never appeared; the ids ran 1, 2,
+          4, 5. Both bursts carry the same bytes, so this is one payload seen twice
+          rather than two payloads agreeing, and the framing stays a read rather
+          than a decode. It is reproducible, which means it can be tested again
+          whenever the gate reopens.
+
+
+          What the fields mean is unknown. The ff ff ff ff runs may be unset
+          timestamps, which would fit a mug whose clock has never been set, but
+          that is a guess recorded so the next capture has something to falsify.
+
+
+          Note that this file's previous format block described a one-byte uint8
+          event id, which matches only the terminator.
         format:
           - offset: 0
             length: 1
-            name: "statistics_event_id"
+            name: "record_id"
             type: "uint8"
+            # HARDWARE: 05 alone terminates a burst. Ids 1, 2 and 4 are followed
+            # by a subtype byte, a length byte, and that many payload bytes.
 
       - uuid: "fc540014-236c-4c94-8fa9-944a3e5353fa"
         name: "LED Color"
@@ -556,11 +1317,58 @@ services:
           LED color characteristic. orlopau documents the byte order as
           red, blue, green, alpha (its mug-color.md byte table explicitly
           names byte 3 "Alpha"). python-ember-mug's Colour tuple and app log
-          strings label writes as R/G/B/brightness. Existing integrations appear
-          to use [red, green, blue, brightness]; verify on hardware if precise
-          blue/green ordering matters.
+          strings label writes as R/G/B/brightness.
+
+
+          HARDWARE, settled: the order is RED, GREEN, BLUE. Wrote BF FF 00 FF to
+          this characteristic on a Mug 2 off the charging coaster and the mug went
+          yellow. Under red, green, blue that write is RGB(191, 255, 0), a
+          yellow-green. Under orlopau's table it would be RGB(191, 0, 255), a
+          violet. Those are opposite sides of the wheel, so the eye settles it
+          without instrumentation.
+
+
+          orlopau's byte table is a typo. The worked example printed directly
+          beneath it, which calls BFFF00FF lime green, was right all along, and
+          python-ember-mug agrees. Ember's own app is a third source: its debug
+          string reads "LED Color from mug: (r: " with ", g: ", ", b: " and ", a: "
+          following, and it carries four identifiers ledColorRed, ledColorGreen,
+          ledColorBlue and ledColorAlpha. The template below already had the right
+          order; only this note called it open.
+
+
+          Byte 3 is NOT settled. It was written at 0x40 against the same RGB and
+          the colour still read as yellow with no call either way on intensity. An
+          unnoticed dimming and an ignored byte look identical to an observer who
+          was not told to expect one, so it is recorded as unresolved rather than
+          as no effect. Ember's app writes it on its own path, logging "Writing LED
+          brightness value (", which is evidence for the label and not for the
+          effect.
+
+
+          One practical thing this file assumed and the device contradicted: the
+          mug does not sit at its configured colour whenever it is off the pad. It
+          displays a change and then goes dark on its own. Any check done by eye
+          has to be run against a fresh write.
+
+
+          The bigger practical point, and the one that affects the Light entity
+          below. What this characteristic holds is the configured colour, not what
+          the user is looking at. It read ff0400ff, red, unchanged for the whole of
+          2026-08-15, while the mug visibly showed a slow white pulse for every
+          minute it spent in state 5 heating and returned to red only once it fell
+          back to 0 standby. The heating animation overrides the configured colour
+          on the hardware and never appears on the wire. So an entity bound here
+          reports red while the mug in front of you is pulsing white, and a client
+          has no way to read the displayed colour at all. Neither orlopau nor
+          python-ember-mug mentions the override.
+
+
+          The value read before and after the test was ff0400ff, restored and
+          verified. Capture in the captures repo alongside the rest.
         commands:
           set_led_color:
+            verification: "confirmed"
             description: "Set LED color (RGBA)"
             template: ["{red}", "{green}", "{blue}", "{brightness}"]
             parameters:
@@ -656,6 +1464,16 @@ entities:
 
   - platform: "binary_sensor"
     name: "Charging Base"
+    # HARDWARE: correct as written, binding and polarity both. Byte 1 of fc540007
+    # reads 0x01 on the powered coaster and 0x00 off it, confirmed on a Mug 2 by
+    # lifting it and putting it back while subscribed to fc540012, so the device's
+    # own charger events stamp each transition. This entity reports what it claims
+    # to report.
+    #
+    # One implementation note that does affect it: the characteristic lags its own
+    # push event by a second or two. A read taken immediately on PUSH 2 still
+    # returned the pre-event value and only flipped on the next read. Build in a
+    # short delay before re-reading, or this sensor will latch one state behind.
     state_characteristic: "fc540007-236c-4c94-8fa9-944a3e5353fa"
     state_mapping:
       value: "on_charging_base"
@@ -663,6 +1481,18 @@ entities:
 
   - platform: "sensor"
     name: "Liquid Level"
+    # HARDWARE: the binding and the scale are both right, and the underlying value
+    # is not steady enough to publish as a percentage. Over two 40 minute captures
+    # on 2026-08-15 where nobody touched the water, the raw byte wandered 5 to 12
+    # and 7 to 12, changing between consecutive reads on 9 and 27 percent of
+    # samples. Through this scale that is a sensor moving between 17 and 40 percent
+    # with the mug sitting still, and the two runs settled at different values for
+    # the same fill.
+    #
+    # It does read 0 on a genuinely empty mug and it does move when liquid goes in,
+    # so an empty-or-not binary sensor off this characteristic would be solid.
+    # A percentage will flap. Worth a filter or a rethink of the entity type rather
+    # than a change to anything below.
     unit: "%"
     state_characteristic: "fc540005-236c-4c94-8fa9-944a3e5353fa"
     state_mapping:
@@ -672,6 +1502,15 @@ entities:
 
   - platform: "sensor"
     name: "Liquid State"
+    # HARDWARE: four of these eight were reached on a Mug 2 and each matched its
+    # name here: 0, 1, 5 and 6. 2 filling never appeared through four pours. The
+    # mapping is right; the caution is about what a consumer should infer from it.
+    #
+    # State 1 does not mean the mug is empty. A full mug reported 1 for twenty
+    # minutes and refused to heat until the base button was pressed. State 0 does
+    # not mean idle or off either: it is where a finished heat cycle lands, and
+    # this unit dropped into it at 60.56 C with liquid in it, on the coaster.
+    # Both are in the characteristic notes above with the captures behind them.
     state_characteristic: "fc540008-236c-4c94-8fa9-944a3e5353fa"
     state_mapping:
       value: "liquid_state"
@@ -688,12 +1527,24 @@ entities:
   - platform: "light"
     name: "LED"
     features: ["color"]
+    # HARDWARE: this mapping was already correct and is now confirmed on the
+    # device. Red, green, blue in that byte order, settled by writing BF FF 00 FF
+    # and watching the mug go yellow. Nothing to change here; the characteristic
+    # notes above are where the old ambiguity lived.
+    #
+    # One caveat for anyone building a light entity on it: the mug does not hold
+    # the colour. It shows a change and then goes dark by itself, so reading state
+    # back to drive a UI will not reflect what the user sees.
     state_characteristic: "fc540014-236c-4c94-8fa9-944a3e5353fa"
     state_mapping:
       color_rgb:
         red: "red"
         green: "green"
         blue: "blue"
+      # HARDWARE: byte 3 is labelled brightness by python-ember-mug and alpha by
+      # orlopau, and the device has not settled it. Writing 0x40 against constant
+      # RGB produced no reported change in intensity, which does not separate an
+      # ignored byte from a dimming the observer was not primed to see.
       brightness: "brightness"
     commands:
       set_color: "set_led_color"
