@@ -54,6 +54,7 @@ export '../src/rust/api/device_api.dart'
         SoapRequestDto,
         HttpRequestDto,
         KasaRequestDto,
+        TuyaBroadcastDto,
         RabbitAirRequestDto,
         QuerySourceDto,
         LifxServiceDto,
@@ -62,6 +63,14 @@ export '../src/rust/api/device_api.dart'
         LifxZonesDto,
         LifxAccessPointDto,
         SoftApProfileDto,
+        SecurityAdvisoryDto,
+        SetupInstructionsDto,
+        SetupMethodDto,
+        SetupStepDto,
+        TroubleshootingDto,
+        FactoryResetDto,
+        FactoryResetProcedureDto,
+        RejoinDto,
         WemoAccessPointDto,
         WemoJoinStatus;
 
@@ -279,6 +288,12 @@ abstract class SpecCodec {
 
   /// Decode a Kasa UDP reply datagram (no length prefix) back to its JSON text.
   Future<String> kasaDecodeDatagram({required List<int> datagram});
+
+  /// Parse a Tuya discovery datagram (UDP 6666 plaintext / 6667 fixed-key
+  /// AES-128-ECB) into the identity it advertises, or null when the bytes are
+  /// not a Tuya broadcast. Identify-only: the decrypt unwraps the device's own
+  /// beacon, never a control channel.
+  Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram});
 
   // ── Rabbit Air (encrypted JSON over UDP) ──────────────────────────────────
   // Like Kasa the invocation is JSON, but the wire crypto is real:
@@ -506,6 +521,12 @@ abstract class SpecCodec {
   /// prefixes the nearby-network hint watches for.
   Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls);
 
+  /// One spec's renderable `device.setup` instructions — how to pair, why a
+  /// connect might fail, how to factory reset, how to rejoin — or null when the
+  /// spec carries no such prose. Shown when a connect fails, from the single
+  /// YAML the caller resolved for the device.
+  Future<SetupInstructionsDto?> setupInstructions(String specYaml);
+
   /// The index of the first profile whose setup-AP prefix matches [ssid]
   /// (case-insensitive, anchored), or null. Drives the spinning hint.
   Future<int?> matchSoftApSsid({
@@ -528,6 +549,10 @@ abstract class SpecCodec {
     required String encrypt,
     required String channel,
     required String passphrase,
+    // From the device's setup.xml: rtos=1 without iot=1 puts the method-2
+    // password layout first. Null (older firmware) keeps the default order.
+    int? rtos,
+    int? iot,
   });
 
   /// Interpret a Wemo `GetNetworkStatus` reply's `NetworkStatus` value.

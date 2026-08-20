@@ -247,6 +247,10 @@ class RealSpecCodec implements SpecCodec {
       rust.kasaDecodeDatagram(datagram: datagram);
 
   @override
+  Future<TuyaBroadcastDto?> tuyaParseBroadcast({required List<int> datagram}) =>
+      rust.tuyaParseBroadcast(datagram: datagram);
+
+  @override
   Future<RabbitAirRequestDto> renderNetworkRabbitAirCommand({
     required String specYaml,
     required String commandName,
@@ -490,6 +494,10 @@ class RealSpecCodec implements SpecCodec {
       rust.softApProfiles(specYamls: specYamls);
 
   @override
+  Future<SetupInstructionsDto?> setupInstructions(String specYaml) =>
+      rust.setupInstructions(specYaml: specYaml);
+
+  @override
   Future<int?> matchSoftApSsid({
     required List<SoftApProfileDto> profiles,
     required String ssid,
@@ -505,6 +513,8 @@ class RealSpecCodec implements SpecCodec {
     required String encrypt,
     required String channel,
     required String passphrase,
+    int? rtos,
+    int? iot,
   }) =>
       rust.renderWemoConnectRequests(
         specYaml: specYaml,
@@ -514,6 +524,8 @@ class RealSpecCodec implements SpecCodec {
         encrypt: encrypt,
         channel: channel,
         passphrase: passphrase,
+        rtos: rtos,
+        iot: iot,
       );
 
   @override

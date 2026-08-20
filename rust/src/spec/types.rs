@@ -559,6 +559,20 @@ pub struct EntityInstances {
     /// Absent means callers fall back to the bare id.
     #[serde(default)]
     pub label_path: Option<String>,
+    /// Dotted path to the ARRAY of children, when they are a nested array
+    /// rather than the reply's top-level object. A Kasa power strip carries its
+    /// outlets at `system.get_sysinfo.children`; a Hue bridge keys the reply
+    /// itself by light id, so it leaves this absent. When it resolves to
+    /// nothing (a single-outlet plug has no `children`), the entity enumerates
+    /// no children — the caller then falls back to the plain switch.
+    #[serde(default)]
+    pub children_path: Option<String>,
+    /// Field inside one array element that carries its id, when the id is a
+    /// member rather than a map key. Kasa's children hold theirs in `id`. Only
+    /// consulted alongside [`children_path`]; the object-keyed shape takes the
+    /// id from the map key.
+    #[serde(default)]
+    pub id_field: Option<String>,
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
 }
@@ -840,6 +854,31 @@ pub struct DeviceInfo {
     /// older build, or one still being written, must keep loading.
     #[serde(default)]
     pub category: Option<String>,
+    /// Finer-grained glyph token than `category` (`nas`, `power-strip`, `phone`,
+    /// `ip-camera`, `router`, …). Kept a `String` for the same
+    /// forward-compat reason as `category`: the resolver owns the table, and an
+    /// unknown token falls back to the category icon rather than losing the
+    /// device. See the Dart `DevicePictogram` resolver.
+    #[serde(default)]
+    pub pictogram: Option<String>,
+    /// URL template to the device's OWN admin page, with `{address}` for the
+    /// discovered host (`https://{address}:5001/`, `http://{address}/webfig/`).
+    /// A recognise-only device (see `integration`) can still hand the user off
+    /// to the vendor's UI even when this app drives nothing.
+    #[serde(default)]
+    pub admin_url: Option<String>,
+    /// How this app relates to the device: `supported` (default — it can be
+    /// driven) vs `identify_only` (recognised and handed off via `admin_url` /
+    /// a companion app, but not controlled). Kept a `String` for the same
+    /// forward-compat reason as `category`. Absent means `supported`.
+    #[serde(default)]
+    pub integration: Option<String>,
+    /// A known, named security problem with this device — a shared BLE key, a
+    /// replayable command, or a device that should not be trusted at all (a
+    /// card skimmer). Surfaced to the user as a warning ahead of any control
+    /// surface. See [`SecurityAdvisory`].
+    #[serde(default)]
+    pub security_advisory: Option<SecurityAdvisory>,
     pub notes: Option<String>,
     pub identification: Option<Identification>,
     /// Device variants sharing service UUIDs but differing in command sets.
@@ -859,6 +898,59 @@ pub struct DeviceInfo {
     /// upstream adds next. Preserved verbatim so nothing is lost.
     #[serde(flatten)]
     pub extensions: HashMap<String, serde_yaml::Value>,
+}
+
+/// A named security problem with a device, for the app to warn about rather
+/// than quietly control. Deliberately small: a severity, a one-line summary,
+/// the writeup to link to, and — when the vendor shipped one — how to fix it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SecurityAdvisory {
+    pub severity: AdvisorySeverity,
+    /// One line, shown on the scan badge and at the top of the warning.
+    pub summary: String,
+    /// The fuller explanation for the warning page.
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// The public writeup or advisory (a news story, a CVE, a research page).
+    #[serde(default)]
+    pub advisory_url: Option<String>,
+    /// How the owner can fix it, when the vendor shipped a patch. Absent means
+    /// there is no known fix yet.
+    #[serde(default)]
+    pub mitigation: Option<AdvisoryMitigation>,
+}
+
+/// How bad, and how sure. `vulnerable` is a confirmed, practical exploit;
+/// `reported` is a weaker or unconfirmed problem (harder to pull off, or the
+/// vendor never answered disclosure); `malicious` is a device that should not
+/// be there at all — a Bluetooth card skimmer — and warrants an alert, not a
+/// control screen.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AdvisorySeverity {
+    Vulnerable,
+    Reported,
+    Malicious,
+}
+
+impl std::fmt::Display for AdvisorySeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AdvisorySeverity::Vulnerable => write!(f, "vulnerable"),
+            AdvisorySeverity::Reported => write!(f, "reported"),
+            AdvisorySeverity::Malicious => write!(f, "malicious"),
+        }
+    }
+}
+
+/// The fix for a [`SecurityAdvisory`], when one exists.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdvisoryMitigation {
+    /// One line: what the owner does — "Update the firmware in the KARR app".
+    pub summary: String,
+    /// Where to do it, when there is a link.
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 /// Why this device needs open-source rescue.
@@ -930,6 +1022,14 @@ pub struct Identification {
     /// through [`Identification::local_name_prefixes`].
     #[serde(default)]
     pub local_name_prefixes: Option<Vec<String>>,
+    /// EXACT advertised names (whole-string, not a prefix), for when a bare
+    /// factory-default name is the signal and a configured one is not — a
+    /// skimmer leaves an HC-05 module named exactly "HC-05", where a hobby
+    /// project renames it. Distinct from `local_name_prefixes`, which matches
+    /// any name that STARTS with the value. Read through
+    /// [`Identification::local_names`].
+    #[serde(default)]
+    pub local_names: Option<Vec<String>>,
     pub service_uuids: Option<Vec<String>>,
     /// BLE manufacturer-specific advertisement data (AD type 0xFF).
     #[serde(default)]
@@ -989,6 +1089,17 @@ impl Identification {
             }
         }
         prefixes
+    }
+
+    /// Exact advertised names this device is matched on whole-string, empty
+    /// ones dropped. See [`local_names`](Self::local_names) the field.
+    pub fn local_names(&self) -> Vec<String> {
+        self.local_names
+            .iter()
+            .flatten()
+            .filter(|name| !name.is_empty())
+            .cloned()
+            .collect()
     }
 
     /// Every company ID this device family advertises: the primary one plus

@@ -501,6 +501,16 @@ class FakeSpecCodec implements SpecCodec {
   Future<String> kasaDecodeDatagram({required List<int> datagram}) async =>
       utf8.decode(_kasaDecrypt(datagram));
 
+  /// The Tuya broadcast this fake will return for any datagram, or null (the
+  /// default) to model "not a Tuya frame". Tests set it to drive the transport
+  /// without a live device.
+  TuyaBroadcastDto? tuyaBroadcast;
+
+  @override
+  Future<TuyaBroadcastDto?> tuyaParseBroadcast(
+          {required List<int> datagram}) async =>
+      tuyaBroadcast;
+
   // ── Rabbit Air ────────────────────────────────────────────────────────────
   // The fake's stand-in for the AES-128-CBC datagram crypto, round-tripping
   // exactly as the Rust codec does so a RabbitAirControlClient test can drive
@@ -861,12 +871,21 @@ class FakeSpecCodec implements SpecCodec {
       const LifxAccessPointDto(
         ssid: 'HomeNet',
         security: 5,
+        isOpen: false,
         strength: -40,
         channel: 11,
       );
 
   /// Returned by [softApProfiles].
   List<SoftApProfileDto> softApProfilesResult = const [];
+
+  /// Returned by [setupInstructions]. Either a fixed value, or a function of the
+  /// YAML asked about so one fake can answer differently per spec. Null (the
+  /// default function result) means "this spec has no instructions".
+  SetupInstructionsDto? Function(String specYaml)? setupInstructionsFor;
+
+  /// Every YAML [setupInstructions] was asked about, in call order.
+  final List<String> setupInstructionsCalls = [];
 
   /// Returned by [matchSoftApSsid].
   int? Function(String ssid)? matchSoftApSsidFor;
@@ -884,6 +903,10 @@ class FakeSpecCodec implements SpecCodec {
   ];
   Object? wemoConnectError;
 
+  /// The (rtos, iot) the last [renderWemoConnectRequests] was called with, so a
+  /// test can assert the setup.xml selectors are threaded through.
+  (int?, int?)? lastWemoConnectSelectors;
+
   /// Returned by [wemoNetworkStatus].
   WemoJoinStatus wemoStatus = WemoJoinStatus.connected;
 
@@ -893,6 +916,12 @@ class FakeSpecCodec implements SpecCodec {
   @override
   Future<List<SoftApProfileDto>> softApProfiles(List<String> specYamls) async =>
       softApProfilesResult;
+
+  @override
+  Future<SetupInstructionsDto?> setupInstructions(String specYaml) async {
+    setupInstructionsCalls.add(specYaml);
+    return setupInstructionsFor?.call(specYaml);
+  }
 
   @override
   Future<int?> matchSoftApSsid({
@@ -910,7 +939,10 @@ class FakeSpecCodec implements SpecCodec {
     required String encrypt,
     required String channel,
     required String passphrase,
+    int? rtos,
+    int? iot,
   }) async {
+    lastWemoConnectSelectors = (rtos, iot);
     if (wemoConnectError != null) throw wemoConnectError!;
     return wemoConnectRequests;
   }

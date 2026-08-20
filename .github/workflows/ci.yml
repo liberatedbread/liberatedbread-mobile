@@ -92,14 +92,14 @@ env:
   # FlutterExtension.kt as the NDK above) and what rust_builder/android/
   # build.gradle now pins to match.
   ANDROID_API: '36'
-  # AGP 8.6's default build-tools. Naming a newer one adds a download instead of
+  # AGP 8.11.1's default build-tools. Naming a newer one adds a download instead of
   # replacing one, because AGP fetches its default regardless.
-  ANDROID_BUILD_TOOLS: '34.0.0'
+  ANDROID_BUILD_TOOLS: '35.0.0'
   # Required by FLUTTER, not by anything in this repo: its Gradle plugin ships
   # packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt and wires an
   # externalNativeBuild into :app (the Android 15 16 KB page-size support), so
   # `:app:configureCMakeDebug[<abi>]` runs on every Android build and AGP
-  # installs its default CMake when absent. 3.22.1 is that default for AGP 8.6;
+  # installs its default CMake when absent. 3.22.1 is that default for AGP 8.11.1;
   # if a toolchain bump moves it, this pin degrades to a small unused package
   # and Gradle fetches the right one itself. Re-check with:
   #   grep 'Install CMake' <build log>

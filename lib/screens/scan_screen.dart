@@ -19,10 +19,12 @@ import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../services/device_manager.dart';
 import '../widgets/ad_banner_bar.dart';
+import '../widgets/black_hat_icon.dart';
 import '../widgets/device_list_tile.dart';
 import '../widgets/radar_scanner.dart';
 import 'device_screen.dart';
 import 'ha_settings_screen.dart';
+import 'security_warning_screen.dart';
 import 'spec_pack_settings_screen.dart';
 
 class ScanScreen extends ConsumerStatefulWidget {
@@ -550,6 +552,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     final device = entry.device;
     final stale = DeviceManager.isStale(device, now);
     final age = shortAge(device.ageAt(now));
+    final guess = entry.guess;
+    // A device the catalogue flagged as a known security risk is not an
+    // ordinary row: it opens a warning, not the controls; it is tappable even
+    // when it is not connectable (the warning is the point); and its glyph is
+    // drawn in the theme's error/caution colour so it reads as a warning.
+    final warning = guess?.advisory;
+    final scheme = Theme.of(context).colorScheme;
     return DeviceListTile(
       title: deviceTitle(device, description),
       // A stale row's signal reading is history, so it stops claiming one and
@@ -564,9 +573,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       stale: stale,
       staleReason: 'No advertisement for $age — the device may be out of '
           'range or powered off',
-      icon: entry.guess?.iconOr(unknownDeviceIcon) ?? unknownDeviceIcon,
-      badge: entry.guess?.label,
-      badgeIsClaim: entry.isLikelySupported,
+      icon: guess?.iconOr(unknownDeviceIcon) ?? unknownDeviceIcon,
+      // A suspected-malicious device (a skimmer) gets the black-hat pictogram,
+      // not a Material glyph; other warnings keep their category icon, tinted.
+      iconWidget: guess?.isMalicious == true
+          ? BlackHatIcon(size: 24, color: scheme.error)
+          : null,
+      iconColor: warning == null
+          ? null
+          : (guess!.isMalicious || warning.severity == 'vulnerable'
+              ? scheme.error
+              : scheme.tertiary),
+      badge: warning == null ? guess?.label : _warningBadge(guess!),
+      badgeIsClaim: warning == null && entry.isLikelySupported,
       // Only worth saying for a device the badge could not place. Once the
       // badge names a product, "Ember Technologies · Battery Service"
       // underneath it is noise — but a guess that does NOT name a product
@@ -577,8 +596,35 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       description: entry.guess?.namesAProduct == true
           ? null
           : deviceSubtitle(device, description),
-      enabled: device.isConnectable,
-      onTap: device.isConnectable ? () => _connect(device) : null,
+      // A warning row is always tappable, connectable or not — the warning is
+      // what the tap is for.
+      enabled: warning != null || device.isConnectable,
+      onTap: warning != null
+          ? () => _openWarning(device, guess!)
+          : (device.isConnectable ? () => _connect(device) : null),
+    );
+  }
+
+  /// The scan badge for a security-warning row — short, and worded by severity.
+  String _warningBadge(ScanGuess guess) => switch (guess.advisory!.severity) {
+        'malicious' => 'Possible skimmer',
+        'vulnerable' => 'Security risk',
+        _ => 'Reported issue',
+      };
+
+  /// Open the warning page for a flagged device — not the control screen. Does
+  /// not touch the scan the way [_connect] does: nothing connects, so the scan
+  /// keeps running behind the pushed route.
+  Future<void> _openWarning(IoTDevice device, ScanGuess guess) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SecurityWarningScreen(
+          device: device,
+          advisory: guess.advisory!,
+          guess: guess,
+        ),
+      ),
     );
   }
 

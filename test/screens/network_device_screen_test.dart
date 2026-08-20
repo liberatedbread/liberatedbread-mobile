@@ -740,17 +740,16 @@ void main() {
           received.single.url.toString(), 'http://10.0.0.9:8060/keypress/Home');
     });
 
-    testWidgets('the ECP2 fallback opens its session on the SSDP port',
-        (tester) async {
-      // The second half of the same bug: a refusal from the wrong port sent
-      // the fallback to that same wrong port, where no WebSocket answers, so
-      // the session was written off as unavailable and the refusal stood.
+    testWidgets('the ECP2 session opens on the SSDP port', (tester) async {
+      // The second half of the same bug: a session dialled at the wrong port
+      // finds no WebSocket answering, so ECP2 was written off as unavailable
+      // on a TV whose ECP was fine the whole time.
       final socket = AutoEcp2Socket();
       final dialled = <String>[];
       await pumpDualPort(
         tester,
         plain: MockClient((request) async =>
-            http.Response('ECP command not allowed in Limited mode.', 403)),
+            fail('a Roku keypress goes over the session, not plain ECP')),
         ecp2: Ecp2ControlService(connector: (host, port) async {
           dialled.add('$host:$port');
           socket.begin();
@@ -767,7 +766,6 @@ void main() {
         socket.sent.where((frame) => frame['request'] == 'key-press'),
         hasLength(1),
       );
-      expect(find.text('Using the signed session'), findsOneWidget);
     });
 
     testWidgets('the UPnP description is fetched from the SSDP port',
@@ -994,6 +992,228 @@ void main() {
     });
   });
 
+  // ── The on-screen keyboard: shown only when a field is focused ───────────
+  group('keyboard usability gate', () {
+    final rokuDevice = NetworkDevice(
+      host: '10.0.0.9',
+      name: '',
+      port: 8060,
+      ssdpTargets: const ['roku:ecp'],
+      sources: const {NetworkDiscoverySource.ssdp},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const keyboardEntity = NetworkEntityDto(
+      isInstanced: false,
+      name: 'Keyboard',
+      platform: 'text',
+      stateCommand: '',
+      options: [],
+      actions: [
+        NetworkActionDto(
+          credentials: [],
+          instanceParams: [],
+          role: 'submit',
+          commandName: 'type_char',
+          transport: 'http',
+          userParams: ['char'],
+          readBack: [],
+        ),
+        NetworkActionDto(
+          credentials: [],
+          instanceParams: [],
+          role: 'press',
+          commandName: 'press_backspace',
+          transport: 'http',
+          userParams: [],
+          readBack: [],
+        ),
+      ],
+    );
+
+    /// Mount the keyboard-only Roku screen against a virtual Limited-mode TV
+    /// whose ECP2 session reports [textEditId] as the focused field ('none'
+    /// for nothing focused). [ecp2] null runs with no ECP2 at all, so the
+    /// signal can never be read.
+    Future<void> pumpKeyboard(
+      WidgetTester tester, {
+      String textEditId = 'none',
+      bool withEcp2 = true,
+    }) async {
+      codec = FakeSpecCodec(networkEntities: (_) => [keyboardEntity]);
+      final ecp2 = withEcp2
+          ? ecp2On(AutoEcp2Socket(queryPayloads: {
+              'query-textedit-state':
+                  '{"textedit-state":{"textedit-id":"$textEditId"}}',
+            }))
+          : noEcp2();
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((request) async =>
+                  fail('a keyboard remote fetches no description')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient(
+                  (request) async => fail('nothing types during a render')))),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: [keyboardEntity])),
+        ),
+      ));
+      // Let the load drop the spinner and the ECP2 textedit poll resolve — a
+      // handful of microtask turns, not a settle (the poll timer never idles).
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+    }
+
+    testWidgets('hides the keyboard when no field is focused', (tester) async {
+      await pumpKeyboard(tester, textEditId: 'none');
+
+      expect(find.byType(TextField), findsNothing,
+          reason: 'a keystroke with nothing focused has nowhere to land');
+      // The remote itself loaded — it is the keyboard specifically that waits.
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+
+      await tester.pumpWidget(const SizedBox()); // dispose: cancel the poll.
+    });
+
+    testWidgets('shows the keyboard when a field is focused', (tester) async {
+      await pumpKeyboard(tester, textEditId: 'search-1');
+
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a live textedit notice flips the keyboard on without a poll',
+        (tester) async {
+      // The device volunteers focus changes; the card must react to the notice,
+      // not wait out the 3s backstop poll.
+      final socket = AutoEcp2Socket(queryPayloads: {
+        'query-textedit-state': '{"textedit-state":{"textedit-id":"none"}}',
+      });
+      codec = FakeSpecCodec(networkEntities: (_) => [keyboardEntity]);
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(codec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async => fail('no description')))),
+          httpControlClientProvider.overrideWithValue(HttpControlClient(
+              httpClient: MockClient((r) async => fail('nothing types')))),
+          ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
+        ],
+        child: MaterialApp(
+          home: NetworkDeviceScreen(
+              device: rokuDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: [keyboardEntity])),
+        ),
+      ));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+      expect(find.byType(TextField), findsNothing,
+          reason: 'the poll read "none"');
+
+      socket.receive({
+        'notify': 'textedit',
+        'textedit-state': {'textedit-id': 'search-9'},
+      });
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(TextField), findsOneWidget,
+          reason: 'the notice flips it on live');
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('shows the keyboard when the signal cannot be read',
+        (tester) async {
+      // No ECP2 session means no textedit-state to read; the keyboard shows
+      // rather than hide a control the user might have been able to use.
+      await pumpKeyboard(tester, withEcp2: false);
+
+      expect(find.byType(TextField), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets(
+        'a focused keyboard sits above the channel picker; an uncertain one '
+        'sits below it', (tester) async {
+      const channelEntity = NetworkEntityDto(
+        isInstanced: false,
+        name: 'Channel',
+        platform: 'select',
+        stateCommand: '',
+        options: [],
+        optionsSource: QuerySourceDto(
+            method: 'GET',
+            path: '/query/apps',
+            item: 'app',
+            valueAttribute: 'id'),
+        actions: [],
+      );
+
+      Future<void> pumpRemote(
+          {required bool withEcp2, String textEditId = 'none'}) async {
+        codec = FakeSpecCodec(
+            networkEntities: (_) => [channelEntity, keyboardEntity]);
+        final ecp2 = withEcp2
+            ? ecp2On(AutoEcp2Socket(queryPayloads: {
+                'query-textedit-state':
+                    '{"textedit-state":{"textedit-id":"$textEditId"}}',
+              }))
+            : noEcp2();
+        final roku = MockClient((request) async =>
+            request.url.path == '/query/apps'
+                ? http.Response('<apps><app id="12">Netflix</app></apps>', 200)
+                : http.Response('', 200));
+        await tester.pumpWidget(ProviderScope(
+          overrides: [
+            specCodecProvider.overrideWithValue(codec),
+            soapControlClientProvider.overrideWithValue(SoapControlClient(
+                httpClient:
+                    MockClient((r) async => fail('a remote fetches no xml')))),
+            httpControlClientProvider
+                .overrideWithValue(HttpControlClient(httpClient: roku)),
+            ecp2ControlServiceProvider.overrideWithValue(ecp2),
+          ],
+          child: MaterialApp(
+            home: NetworkDeviceScreen(
+                device: rokuDevice,
+                controls: const NetworkControls(
+                    specYaml: 'yaml',
+                    entities: [channelEntity, keyboardEntity])),
+          ),
+        ));
+        for (var i = 0; i < 8; i++) {
+          await tester.pump();
+        }
+      }
+
+      // A focused field: the keyboard rides above the channel picker.
+      await pumpRemote(withEcp2: true, textEditId: 'search-1');
+      expect(find.byType(TextField), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Keyboard')).dy,
+          lessThan(tester.getTopLeft(find.text('Channel')).dy));
+      await tester.pumpWidget(const SizedBox());
+
+      // Unknown (no signed session): it drops to the foot, below the channels.
+      await pumpRemote(withEcp2: false);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Keyboard')).dy,
+          greaterThan(tester.getTopLeft(find.text('Channel')).dy));
+      await tester.pumpWidget(const SizedBox());
+    });
+  });
+
   // ── The TV keyboard: one keystroke per character ─────────────────────────
   group('text entry', () {
     final rokuDevice = NetworkDevice(
@@ -1130,14 +1350,15 @@ void main() {
     });
   });
 
-  // ── Limited mode: plain ECP refuses, the signed session answers ─────────
+  // ── The ECP2 session is the primary path for every Roku ─────────────────
   //
-  // A Roku with "Control by mobile apps = Limited" refuses plain ECP (403,
-  // or 400 with the Limited-mode body) but answers ECP2. The screen's
-  // fallback is what keeps the channel list, the remote and the keyboard
-  // alive on such a TV — these tests run that whole path against a scripted
-  // socket playing the device.
-  group('ECP2 fallback (Limited mode)', () {
+  // A Roku is driven over the app's authenticated ECP2 session for
+  // everything — the remote, the channel list and the keyboard — the same
+  // path the official Roku app uses. Plain ECP is only a fallback for when the
+  // session is unavailable (that path is the plain-HTTP remote group), so here
+  // the plain client is wired to fail if it is ever touched. These tests run
+  // the whole surface against a scripted socket playing the device.
+  group('ECP2 session (primary Roku path)', () {
     final rokuDevice = NetworkDevice(
       host: '10.0.0.9',
       name: '',
@@ -1218,9 +1439,10 @@ void main() {
       ],
     );
 
-    /// A virtual Limited-mode Roku: every plain-ECP request is refused, and
-    /// the signed session on [socket] is the only way anything answers.
-    Future<AutoEcp2Socket> pumpLimited(
+    /// A virtual Roku driven entirely over the ECP2 session on [socket]. The
+    /// plain-ECP client fails if it is ever called, so a passing test proves
+    /// the session carried the whole surface, not the plain path.
+    Future<AutoEcp2Socket> pumpRoku(
       WidgetTester tester, {
       required List<NetworkEntityDto> entities,
       required Map<String, String> queryPayloads,
@@ -1231,8 +1453,9 @@ void main() {
         networkEntities: (_) => entities,
         networkHttpRequest: render,
       );
-      final limited = MockClient((request) async =>
-          http.Response('ECP command not allowed in Limited mode.', 403));
+      final plain = MockClient((request) async =>
+          fail('plain ECP was used while the ECP2 session was available: '
+              '${request.url}'));
       await tester.pumpWidget(ProviderScope(
         overrides: [
           specCodecProvider.overrideWithValue(codec),
@@ -1240,7 +1463,7 @@ void main() {
               httpClient: MockClient((request) async =>
                   fail('no description exists for this device')))),
           httpControlClientProvider
-              .overrideWithValue(HttpControlClient(httpClient: limited)),
+              .overrideWithValue(HttpControlClient(httpClient: plain)),
           ecp2ControlServiceProvider.overrideWithValue(ecp2On(socket)),
         ],
         child: const MaterialApp(home: SizedBox()),
@@ -1257,9 +1480,8 @@ void main() {
       return socket;
     }
 
-    testWidgets('the refused channel list loads over the signed session',
-        (tester) async {
-      await pumpLimited(
+    testWidgets('the channel list loads over the session', (tester) async {
+      await pumpRoku(
         tester,
         entities: const [channelEntity],
         queryPayloads: const {
@@ -1279,15 +1501,13 @@ void main() {
       final youtube =
           tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'YouTube'));
       expect(youtube.selected, isTrue);
-      // The gate note's "go flip the setting" framing is for when control is
-      // broken; here it is not, and the screen says which path it is on.
-      expect(find.text('Using the signed session'), findsOneWidget);
+      // Control works, so no gate note and no "list refused" note.
       expect(find.text('The device is refusing commands'), findsNothing);
       expect(find.textContaining('refusing to share this list'), findsNothing);
     });
 
-    testWidgets('a refused keypress goes through the session', (tester) async {
-      final socket = await pumpLimited(
+    testWidgets('a keypress goes through the session', (tester) async {
+      final socket = await pumpRoku(
         tester,
         entities: const [homeButton],
         queryPayloads: const {},
@@ -1302,13 +1522,12 @@ void main() {
       final keypress =
           socket.sent.firstWhere((frame) => frame['request'] == 'key-press');
       expect(keypress['param-key'], 'Home');
-      expect(find.text('Using the signed session'), findsOneWidget);
       expect(find.text('The device is refusing commands'), findsNothing);
     });
 
-    testWidgets('typing falls back too, one key-press per character',
+    testWidgets('typing goes over the session, one key-press per character',
         (tester) async {
-      final socket = await pumpLimited(
+      final socket = await pumpRoku(
         tester,
         entities: const [keyboardEntity],
         queryPayloads: const {},
@@ -1414,6 +1633,8 @@ void main() {
       WidgetTester tester, {
       int initial = 0,
       bool emeter = false,
+      bool bulb = false,
+      bool strip = false,
     }) async {
       relayState = initial;
       final entities = [...kasaEntities, if (emeter) ...emeterEntities];
@@ -1459,8 +1680,12 @@ void main() {
           reply = '{"emeter":{"get_realtime":{"voltage":120.4,"current":0.5,'
               '"power":60.2,"total":12.34,"err_code":0}}}';
         } else {
-          reply = '{"system":{"get_sysinfo":{"relay_state":$relayState,'
-              '"alias":"Desk Lamp"}}}';
+          reply = bulb
+              ? '{"system":{"get_sysinfo":{"mic_type":"IOT.SMARTBULB",'
+                  '${strip ? '"length":80,' : ''}'
+                  '"light_state":{"on_off":1,"brightness":75},"alias":"Reading Lamp"}}}'
+              : '{"system":{"get_sysinfo":{"relay_state":$relayState,'
+                  '"alias":"Desk Lamp"}}}';
         }
         return Uint8List.fromList(await kasaCodec.kasaEncodeFrame(json: reply));
       }
@@ -1523,6 +1748,239 @@ void main() {
         contains('relay_on'),
       );
       expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+    });
+
+    testWidgets('a Kasa light gets real on/off and brightness controls',
+        (tester) async {
+      // A KL430 answers the plug protocol but reports light_state, not
+      // relay_state. Drive it as a light: an on/off switch reflecting
+      // light_state.on_off and a brightness slider, over the lightingservice.
+      await pumpPlug(tester, bulb: true);
+
+      // On/off reflects light_state.on_off (on), plus a brightness slider at 75.
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      expect(find.byType(Slider), findsOneWidget);
+      expect(find.text('75%'), findsOneWidget);
+      // Named by the bulb's alias, not the generic "Outlet".
+      expect(find.text('Reading Lamp'), findsOneWidget);
+
+      // Toggling sends light_off (the lightingservice), not set_relay_state.
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      expect(
+        kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName),
+        contains('light_off'),
+      );
+      expect(find.textContaining('Could not reach'), findsNothing);
+    });
+
+    testWidgets('a Kasa light STRIP switches over the lightStrip service',
+        (tester) async {
+      // A KL430 reports a `length` (LED count) and silently ignores the bulb's
+      // lightingservice — it must be driven through lightStrip.set_light_state.
+      await pumpPlug(tester, bulb: true, strip: true);
+
+      expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue);
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+      // The strip command, not the bulb one.
+      final sent =
+          kasaCodec.renderNetworkKasaCommandCalls.map((c) => c.commandName);
+      expect(sent, contains('strip_off'));
+      expect(sent, isNot(contains('light_off')));
+    });
+  });
+
+  // ── A Kasa power strip: outlets are instanced children over the socket ────
+  //
+  // A HS300 reports a `children` array; each outlet is its own switch, named by
+  // its alias, toggled by scoping the write to the outlet's id via
+  // context.child_ids. The plain "Outlet" switch is hidden on a strip.
+  group('Kasa power strip', () {
+    final stripDevice = NetworkDevice(
+      host: '10.0.0.8',
+      name: 'Rack Strip',
+      port: 9999,
+      sources: const {NetworkDiscoverySource.mdns},
+      discoveredAt: DateTime.utc(2026),
+    );
+
+    const stripEntities = [
+      // The plain single-outlet switch the shared spec also declares — hidden
+      // on a strip, which has no top-level relay_state to read.
+      NetworkEntityDto(
+        name: 'Outlet',
+        platform: 'switch',
+        deviceClass: 'outlet',
+        stateCommand: 'get_sysinfo',
+        valueField: 'relay_state',
+        options: [],
+        isInstanced: false,
+        actions: [
+          NetworkActionDto(
+              role: 'turn_on',
+              commandName: 'relay_on',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: []),
+          NetworkActionDto(
+              role: 'turn_off',
+              commandName: 'relay_off',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: []),
+        ],
+      ),
+      // The instanced multi-outlet switch: each child a switch, its id threaded
+      // into the child-scoped command through the instance param.
+      NetworkEntityDto(
+        name: 'Outlets',
+        platform: 'switch',
+        deviceClass: 'outlet',
+        stateCommand: 'get_sysinfo',
+        options: [],
+        isInstanced: true,
+        actions: [
+          NetworkActionDto(
+              role: 'turn_on',
+              commandName: 'relay_on_child',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: [
+                NetworkSourceParamDto(param: 'child_id', name: 'id')
+              ]),
+          NetworkActionDto(
+              role: 'turn_off',
+              commandName: 'relay_off_child',
+              transport: 'tcp-json',
+              userParams: [],
+              readBack: [],
+              credentials: [],
+              instanceParams: [
+                NetworkSourceParamDto(param: 'child_id', name: 'id')
+              ]),
+        ],
+      ),
+    ];
+
+    const children = [
+      NetworkInstanceDto(id: '8006AAA00', label: 'RackFans'),
+      NetworkInstanceDto(id: '8006AAA01', label: 'Pleaky1'),
+      NetworkInstanceDto(id: '8006AAA02', label: 'Spare'),
+    ];
+
+    late Map<String, bool> childOn;
+    late FakeSpecCodec stripCodec;
+
+    Future<void> pumpStrip(WidgetTester tester) async {
+      childOn = {'8006AAA00': true, '8006AAA01': false, '8006AAA02': true};
+      stripCodec = FakeSpecCodec(
+        networkEntities: (_) => stripEntities,
+        instances: children,
+        instanceReadings: (id) => [
+          NetworkRoleReadingDto(
+            role: 'is_on',
+            reading: NetworkReadingDto(
+                kind: NetworkReadingKind.onOff,
+                isOn: childOn[id] ?? false,
+                raw: (childOn[id] ?? false) ? '1' : '0'),
+          ),
+        ],
+        // The plain "Outlet" reads nothing on a strip.
+        networkReading: (entity, returned) => null,
+        // Echo command + child so the exchange can flip the addressed outlet.
+        networkKasaRequest: (name, values) => KasaRequestDto(
+            json: '{"cmd":"$name","child":"${values['child_id'] ?? ''}"}'),
+      );
+
+      Future<Uint8List> exchange(
+          String host, int port, List<int> request, Duration timeout) async {
+        final json = await stripCodec.kasaDecodeFrame(frame: request);
+        final child = RegExp(r'"child":"([^"]*)"').firstMatch(json)?.group(1);
+        if (child != null && child.isNotEmpty) {
+          if (json.contains('relay_on_child')) childOn[child] = true;
+          if (json.contains('relay_off_child')) childOn[child] = false;
+        }
+        // Every poll answers get_sysinfo; the fake codec enumerates the
+        // children from its configured list, so the body's exact shape is moot.
+        const reply = '{"system":{"get_sysinfo":{"alias":"Rack Strip"}}}';
+        return Uint8List.fromList(
+            await stripCodec.kasaEncodeFrame(json: reply));
+      }
+
+      await tester.pumpWidget(ProviderScope(
+        overrides: [
+          specCodecProvider.overrideWithValue(stripCodec),
+          soapControlClientProvider.overrideWithValue(SoapControlClient(
+              httpClient: MockClient((r) async =>
+                  fail('fetched a description for a Kasa strip: ${r.url}')))),
+          kasaControlClientProvider.overrideWithValue(
+              KasaControlClient(stripCodec, exchange: exchange)),
+        ],
+        child: const MaterialApp(home: SizedBox()),
+      ));
+      final context = tester.element(find.byType(SizedBox));
+      unawaited(Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute<void>(
+          builder: (_) => NetworkDeviceScreen(
+              device: stripDevice,
+              controls: const NetworkControls(
+                  specYaml: 'yaml', entities: stripEntities)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    Switch outletSwitch(WidgetTester tester, String label) =>
+        tester.widget<Switch>(find.descendant(
+            of: find.widgetWithText(Card, label),
+            matching: find.byType(Switch)));
+
+    testWidgets('renders one switch per outlet by alias, hiding the plain one',
+        (tester) async {
+      await pumpStrip(tester);
+
+      expect(find.text('RackFans'), findsOneWidget);
+      expect(find.text('Pleaky1'), findsOneWidget);
+      expect(find.text('Spare'), findsOneWidget);
+      // Three outlets, and no fourth plain "Outlet" switch beside them.
+      expect(find.byType(Switch), findsNWidgets(3));
+      expect(find.text('Outlet'), findsNothing);
+      // Each reflects its child's reported state.
+      expect(outletSwitch(tester, 'RackFans').value, isTrue);
+      expect(outletSwitch(tester, 'Pleaky1').value, isFalse);
+      expect(outletSwitch(tester, 'Spare').value, isTrue);
+    });
+
+    testWidgets('toggling an outlet scopes the write to its child id',
+        (tester) async {
+      await pumpStrip(tester);
+
+      // Pleaky1 is off; turn it on.
+      await tester.tap(find.descendant(
+          of: find.widgetWithText(Card, 'Pleaky1'),
+          matching: find.byType(Switch)));
+      await tester.pumpAndSettle();
+
+      // The child-scoped command rendered, carrying Pleaky1's id — not the
+      // whole-device relay_on.
+      expect(
+        stripCodec.renderNetworkKasaCommandCalls,
+        contains(predicate<({String commandName, Map<String, String> values})>(
+            (c) =>
+                c.commandName == 'relay_on_child' &&
+                c.values['child_id'] == '8006AAA01')),
+      );
+      // The post-send poll shows Pleaky1 on now, its siblings untouched.
+      expect(outletSwitch(tester, 'Pleaky1').value, isTrue);
+      expect(outletSwitch(tester, 'RackFans').value, isTrue);
+      expect(outletSwitch(tester, 'Spare').value, isTrue);
     });
   });
 

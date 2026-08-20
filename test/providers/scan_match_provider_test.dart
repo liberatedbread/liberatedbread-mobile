@@ -23,6 +23,7 @@ final _spec = DeviceSpecDto(
   protocol: 'ble',
   category: 'light',
   localNamePrefixes: const ['ACME_'],
+  localNames: const [],
   serviceUuids: const [_svcUuid],
   companyIds: Uint16List.fromList(const [961]),
   macPrefixes: const [
@@ -45,12 +46,18 @@ ScanMatch _match(
   String manufacturer = 'Acme',
   String? category = 'light',
   int specIndex = 0,
+  SecurityAdvisoryDto? advisory,
+  String? integration,
+  String? pictogram,
 }) =>
     ScanMatch(
       specIndex: specIndex,
       deviceName: deviceName,
       manufacturer: manufacturer,
       category: category,
+      pictogram: pictogram,
+      integration: integration,
+      securityAdvisory: advisory,
       confidence: confidence,
       matchedByNamePrefix: false,
       matchedServiceUuids: const [],
@@ -274,6 +281,29 @@ void main() {
           otherMatches: 3, manufacturerAgreed: false);
       expect(g.label, 'Possibly supported');
       expect(g.namesAProduct, isFalse);
+    });
+
+    test('an identify_only device is named, never claimed as supported', () {
+      // A SmartThings hub matches Strong on its mDNS type but the app drives
+      // nothing on it — recognise-only. So it is named, not badged "Supported
+      // device", and it is not treated as a likely-supported row.
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong,
+            deviceName: 'SmartThings Hub v2', integration: 'identify_only'),
+      ])!;
+      expect(g.isIdentifyOnly, isTrue);
+      expect(g.label, 'SmartThings Hub v2');
+      expect(Ranked(device: _device(), guess: g).isLikelySupported, isFalse);
+    });
+
+    test('a supported device still claims support and ranks above the fold',
+        () {
+      final g = ScanGuess.fromMatches([
+        _match(MatchConfidence.strong, deviceName: 'Wemo Mini'),
+      ])!;
+      expect(g.isIdentifyOnly, isFalse);
+      expect(g.label, 'Wemo Mini');
+      expect(Ranked(device: _device(), guess: g).isLikelySupported, isTrue);
     });
   });
 
@@ -500,6 +530,46 @@ void main() {
       final guess = ScanGuess.fromMatches(
           [_match(MatchConfidence.strong, category: null)])!;
       expect(guess.iconOr(Icons.router_outlined), Icons.router_outlined);
+    });
+  });
+
+  group('ScanGuess.advisory', () {
+    const vuln = SecurityAdvisoryDto(
+        severity: 'vulnerable', summary: 'Shared key unlocks the car.');
+    const skimmer = SecurityAdvisoryDto(
+        severity: 'malicious', summary: 'Skimmer module signature.');
+
+    test('carries the best match advisory and flags the row as a warning', () {
+      final guess = ScanGuess.fromMatches(
+          [_match(MatchConfidence.possible, advisory: vuln)])!;
+      expect(guess.advisory?.severity, 'vulnerable');
+      expect(guess.isSecurityWarning, isTrue);
+      expect(guess.isMalicious, isFalse);
+    });
+
+    test('isMalicious is true only for a malicious advisory', () {
+      expect(
+          ScanGuess.fromMatches(
+                  [_match(MatchConfidence.possible, advisory: skimmer)])!
+              .isMalicious,
+          isTrue);
+    });
+
+    test('an ordinary device has no advisory and is not a warning', () {
+      final guess = ScanGuess.fromMatches([_match(MatchConfidence.strong)])!;
+      expect(guess.advisory, isNull);
+      expect(guess.isSecurityWarning, isFalse);
+    });
+
+    test(
+        'is surfaced even at possible confidence — a maybe-skimmer still '
+        'warns', () {
+      // Warning specs match by an inferred name, so the match is usually
+      // `possible`; dropping the advisory there would silence the warning.
+      final guess = ScanGuess.fromMatches(
+          [_match(MatchConfidence.possible, advisory: skimmer)])!;
+      expect(guess.namesAProduct, isFalse, reason: 'possible + hedged');
+      expect(guess.isSecurityWarning, isTrue);
     });
   });
 }

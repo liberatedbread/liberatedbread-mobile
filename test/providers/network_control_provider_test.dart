@@ -22,6 +22,7 @@ DeviceSpecDto _spec(String name, String manufacturer) => DeviceSpecDto(
       manufacturerStatus: 'shutdown',
       protocol: 'wifi',
       localNamePrefixes: const [],
+      localNames: const [],
       serviceUuids: const [],
       companyIds: Uint16List(0),
       macPrefixes: const [],

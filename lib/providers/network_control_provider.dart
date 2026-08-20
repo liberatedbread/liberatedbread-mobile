@@ -98,10 +98,16 @@ class NetworkControls {
   const NetworkControls({required this.specYaml, required this.entities});
 
   /// Whether these controls describe a hub — a device fronting children that
-  /// must be paired with and enumerated. This is what routes the tap: Roku is
-  /// `http` too but has no instanced children and no pairing, so it keeps the
-  /// ordinary control screen; only a hub gets the paired one.
-  bool get isHub => entities.any((e) => e.isInstanced);
+  /// must be paired with and enumerated over HTTP (a Hue bridge). This routes
+  /// the tap: Roku is `http` too but has no instanced children and no pairing,
+  /// so it keeps the ordinary control screen; only a hub gets the paired one.
+  ///
+  /// A Kasa power strip is ALSO instanced (its outlets), but is driven over the
+  /// raw tcp-json socket with no pairing, so it stays on the ordinary control
+  /// screen, which enumerates its outlets there. So a hub is an instanced
+  /// entity whose control is NOT tcp-json.
+  bool get isHub => entities.any(
+      (e) => e.isInstanced && !e.actions.any((a) => a.transport == 'tcp-json'));
 }
 
 /// Resolve what the catalogue lets us control on one network device.

@@ -122,6 +122,31 @@ DEFAULT_SCENARIO = [
             'location_port': 49153,
         },
     },
+    # A responder that answers a DIRECT PTR for its own `_snapmaker._tcp` but is
+    # deaf to the `_services._dns-sd._udp.local` meta-query (hide_from_meta_query
+    # keeps it out of the enumeration). It is the third half of discovery: a
+    # device the scan only finds if it queries the catalogue's exact mDNS
+    # service type by name — a Snapmaker U1, whose embedded zeroconf the
+    # meta-query never draws out. Advertises port 1884 like the real unit (its
+    # plain-MQTT broker, not its HTTP port), which the app treats as metadata.
+    {
+        'name': 'Snapmaker U1',
+        'address': '198.51.100.13',
+        'mdns': [
+            {
+                'instance': 'Snapmaker U1 - lava',
+                'type': '_snapmaker._tcp.local',
+                'target': 'snapmaker-u1.local',
+                'port': 1884,
+                'hide_from_meta_query': True,
+                'txt': {
+                    'sn': 'SNAPU1TEST000',
+                    'device_name': 'Snapmaker U1',
+                    'link_mode': 'lan',
+                },
+            },
+        ],
+    },
 ]
 
 
@@ -255,6 +280,13 @@ class VirtualNetwork:
         types: list[str] = []
         for device in self.devices:
             for service in device.get('mdns', []):
+                # A service flagged deaf to the meta-query is left out of the
+                # `_services._dns-sd._udp.local` enumeration but still answered
+                # on a direct PTR (see answers_for) — modelling a responder,
+                # like the Snapmaker U1's embedded zeroconf, that a scan finds
+                # only if it asks for the exact `_vendor._tcp` type by name.
+                if service.get('hide_from_meta_query'):
+                    continue
                 if service['type'] not in types:
                     types.append(service['type'])
         return types

@@ -86,9 +86,29 @@ class _WemoAp {
       'NewFangled|1|SAE|blah|Unknown,\n';
   String networkStatus = '1';
 
+  /// When set, the AP answers only on this port; every other port errors, as a
+  /// device whose setup server came up somewhere other than the first guess.
+  int? onlyPort;
+
+  /// When true, every ConnectHomeNetwork errors — the setup AP dropping right
+  /// as the device starts hopping to join.
+  bool failConnect = false;
+
+  /// GetNetworkStatus errors this many times before it starts answering — a
+  /// transient drop mid-poll that must not read as total failure.
+  int statusFailuresBeforeOk = 0;
+  int _statusCalls = 0;
+
+  /// The setup.xml this AP serves — overridable so a test can add the rtos/iot
+  /// markers that steer the credential layout.
+  String setupXml = _setupXml;
+
   http.Client get client => MockClient((request) async {
+        if (onlyPort != null && request.url.port != onlyPort) {
+          return http.Response('wrong port', 500);
+        }
         if (request.url.path == '/setup.xml') {
-          return http.Response(_setupXml, 200);
+          return http.Response(setupXml, 200);
         }
         final action = (request.headers['soapaction'] ?? '').toLowerCase();
         if (action.contains('getmetainfo')) {
@@ -102,6 +122,7 @@ class _WemoAp {
               _soapResponse('GetApList', '<ApList>$apList</ApList>'), 200);
         }
         if (action.contains('connecthomenetwork')) {
+          if (failConnect) return http.Response('setup AP gone', 500);
           connectBodies.add(request.body);
           return http.Response(
               _soapResponse('ConnectHomeNetwork',
@@ -109,6 +130,9 @@ class _WemoAp {
               200);
         }
         if (action.contains('getnetworkstatus')) {
+          if (_statusCalls++ < statusFailuresBeforeOk) {
+            return http.Response('poll dropped', 500);
+          }
           return http.Response(
               _soapResponse('GetNetworkStatus',
                   '<NetworkStatus>$networkStatus</NetworkStatus>'),
@@ -253,6 +277,101 @@ void main() {
       expect(outcome.status, AdoptStatus.rejected);
       expect(ap.connectBodies.length, 2, reason: 'one candidate, sent twice');
     });
+
+    test('connect probes the port the spec profile names, not the defaults',
+        () async {
+      if (skipUnlessRust()) return;
+      // The setup server came up on 49157 — outside the service's built-in
+      // fallback list. Only the spec-derived port passed to connect reaches it.
+      final ap = _WemoAp()..onlyPort = 49157;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+      );
+      expect(
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml),
+          isNull,
+          reason: 'the default fallback ports do not include 49157');
+      final session = await service.connect(
+          family: AdoptFamily.wemo, specYaml: wemoYaml, ports: const [49157]);
+      expect(session, isNotNull,
+          reason: 'the spec profile names 49157, so the probe finds it');
+    });
+
+    test('a poll that drops mid-join is unconfirmed, not a thrown failure',
+        () async {
+      if (skipUnlessRust()) return;
+      // Credentials go through, then the setup AP drops for two polls before it
+      // answers "connected" — the ordinary shape of a successful join, which
+      // must not surface as "sending failed".
+      final ap = _WemoAp()..statusFailuresBeforeOk = 2;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      final networks = await service.listNetworks(session!);
+      final home = networks.firstWhere((n) => n.ssid == 'HomeNet');
+
+      final outcome = await service.provision(session, home, 'a-good-password');
+      expect(outcome.status, AdoptStatus.joined,
+          reason: 'the poll recovers and the join is confirmed');
+    });
+
+    test('a send that fails outright reports unreachable, never throws',
+        () async {
+      if (skipUnlessRust()) return;
+      // Every ConnectHomeNetwork errors: nothing was delivered, so the honest
+      // answer is "still on the setup network?", not a raised exception that
+      // aborts the whole variant sweep.
+      final ap = _WemoAp()..failConnect = true;
+      final service = AdoptService(
+        codec: const RealSpecCodec(),
+        soap: SoapControlClient(httpClient: ap.client),
+        lifx: FakeLifxControlClient(),
+        wemoPorts: const [49153],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+      final networks = await service.listNetworks(session!);
+      final home = networks.firstWhere((n) => n.ssid == 'HomeNet');
+
+      final outcome = await service.provision(session, home, 'a-good-password');
+      expect(outcome.status, AdoptStatus.unreachable);
+      expect(ap.connectBodies, isEmpty, reason: 'no send ever landed');
+    });
+
+    test("the setup.xml's rtos marker steers which credential is tried first",
+        () async {
+      if (skipUnlessRust()) return;
+      // rtos=1 without iot=1 selects the method-2 password layout, so the first
+      // ConnectHomeNetwork body must differ from a device that named neither.
+      Future<String> firstBodyFor(String setupXml) async {
+        final ap = _WemoAp()..setupXml = setupXml;
+        final service = AdoptService(
+          codec: const RealSpecCodec(),
+          soap: SoapControlClient(httpClient: ap.client),
+          lifx: FakeLifxControlClient(),
+          wemoPorts: const [49153],
+        );
+        final session =
+            await service.connect(family: AdoptFamily.wemo, specYaml: wemoYaml);
+        final networks = await service.listNetworks(session!);
+        final home = networks.firstWhere((n) => n.ssid == 'HomeNet');
+        await service.provision(session, home, 'a-good-password');
+        return ap.connectBodies.first;
+      }
+
+      final plain = await firstBodyFor(_setupXml);
+      final rtos = await firstBodyFor(_setupXml.replaceFirst(
+          '<friendlyName>', '<rtos>1</rtos><iot>0</iot><friendlyName>'));
+      expect(rtos, isNot(plain),
+          reason: 'rtos=1/iot=0 leads with the method-2 credential');
+    });
   });
 
   group('LIFX (fake client + codec)', () {
@@ -277,10 +396,46 @@ void main() {
       expect(session, isNull);
     });
 
+    test('setup discovery accepts a reply that does not echo the sequence',
+        () async {
+      // On the setup AP there is one device, and some firmware zeroes the
+      // sequence byte; requiring the echo would strand it. connect must ask
+      // collect not to filter on the echo.
+      final client = FakeLifxControlClient();
+      final service = AdoptService(codec: FakeSpecCodec(), lifx: client);
+      await service.connect(family: AdoptFamily.lifx, specYaml: '');
+      expect(client.lastCollectMatchSequence, isFalse);
+    });
+
+    test('open-ness comes from the codec, not a byte compare here', () async {
+      // A non-1 security byte the codec still calls open (isOpen true) must
+      // read as open — the LIFX security vocabulary is the codec's to own.
+      final codec = FakeSpecCodec()
+        ..lifxAccessPoint = const LifxAccessPointDto(
+            ssid: 'GuestOpen',
+            security: 7,
+            isOpen: true,
+            strength: -50,
+            channel: 6);
+      final service = AdoptService(
+        codec: codec,
+        lifx: FakeLifxControlClient()..collectReplies = [Uint8List(41)],
+      );
+      final session =
+          await service.connect(family: AdoptFamily.lifx, specYaml: '');
+      final networks = await service.listNetworks(session!);
+      expect(networks.single.isOpen, isTrue,
+          reason: 'security byte 7 but the codec says open');
+    });
+
     test('lists access points, de-duplicating a network seen twice', () async {
       final codec = FakeSpecCodec()
         ..lifxAccessPoint = const LifxAccessPointDto(
-            ssid: 'HomeNet', security: 5, strength: -40, channel: 11);
+            ssid: 'HomeNet',
+            security: 5,
+            isOpen: false,
+            strength: -40,
+            channel: 11);
       final client = FakeLifxControlClient()
         // Three replies, all decode (via the fake) to the same SSID.
         ..collectReplies = [Uint8List(41), Uint8List(41), Uint8List(41)];

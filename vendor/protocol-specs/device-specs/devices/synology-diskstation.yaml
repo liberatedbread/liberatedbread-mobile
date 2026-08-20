@@ -1,0 +1,146 @@
+# Synology DiskStation NAS (findhostd discovery, identify-only) — Device Spec
+# Copyright 2026 Pigs Can Fly Labs LLC
+# SPDX-License-Identifier: Apache-2.0
+#
+# Sources: public reverse-engineering of Synology's findhostd discovery service
+# (the "SYNO" packet magic on UDP 9999 used by Synology Assistant /
+# find.synology.com) plus Synology's own port documentation. NO vendor assets.
+# This project has no hardware for this spec — testing.status: untested; the
+# signature is from public documentation, not a capture we made.
+
+device:
+  name: "Synology DiskStation / RackStation NAS (DSM)"
+  manufacturer: "Synology Inc."
+  manufacturer_status: "active"
+  openness:
+    status: "undocumented"
+    reverse_engineered: true
+    upstream_docs:
+      - url: "https://kb.synology.com/en-us/DSM/tutorial/What_network_ports_are_used_by_Synology_services"
+        title: "Synology — network ports used by Synology services"
+        covers: "Synology Assistant / findhostd discovery on UDP 9997-9999; DSM web on 5000/5001"
+  testing:
+    status: untested
+    notes: >
+      No hardware exercised by this project. The discovery signature — the
+      Synology Assistant / findhostd protocol on UDP 9999 whose packets carry
+      the ASCII magic "SYNO" — is taken from public reverse-engineering
+      write-ups and Synology's own port documentation, NOT from a capture we
+      made. The exact solicitation query TLV is not publicly captured, so this
+      spec documents identification by the "SYNO" magic and the fields the
+      reply carries (MAC, serial, model, hostname) rather than a probe we can
+      vouch for; see the notes.
+  protocol: "wifi"
+  category: "network"
+  pictogram: "nas"
+  transport: "udp"
+  integration: "identify_only"
+  admin_url: "https://{address}:5001/"
+  notes: >
+    Synology DiskStation and RackStation NAS units run DSM and are found on the
+    local segment by the Synology Assistant desktop app and the web-based
+    find.synology.com finder, which talk to the on-device findhostd service
+    over UDP 9999 (also 9997/9998). This project does NOT drive DSM (the DSM
+    web UI and its APIs are fully capable and out of scope as home
+    infrastructure). Instead we DISCOVER the NAS, draw a NAS pictogram, and
+    deep-link the user to DSM.
+
+    findhostd discovery: UDP port 9999. Synology Assistant sends a broadcast
+    query and findhostd answers with a broadcast reply and a unicast reply. The
+    packet framing begins with an 8-byte magic whose last four bytes are ASCII
+    "SYNO" (0x53 0x59 0x4E 0x4F): the plaintext framing is
+    12 34 56 78 53 59 4E 4F and the encrypted framing is
+    12 34 55 66 53 59 4E 4F. After the magic the payload is TLV records
+    (pkt_id / length / value) carrying the unit's MAC address, serial number,
+    model and hostname. This "SYNO" magic is Synology-specific, so a reply that
+    carries it is an unambiguous Synology identification and false positives are
+    effectively nil.
+
+    findhostd does not beacon unsolicited — it answers a solicitation — so a
+    consumer either listens for the broadcast findhostd replies triggered when
+    someone runs the finder, or sends a valid Synology Assistant query. This
+    spec deliberately ships NO probe_hex: the full, valid query TLV is not in
+    our captures, and we do not publish unverified probe bytes.
+
+    Admin: DSM at https://<ip>:5001/ (HTTPS default) or http://<ip>:5000/
+    (HTTP default). Both ports are DSM defaults and are commonly reconfigured
+    by the owner.
+  identification:
+    default_port: 9999
+    identity_keys:
+      primary: "mac"
+      secondary: "serial"
+      display: "hostname"
+
+  discovery:
+    methods:
+      - type: "udp_broadcast"
+        udp_broadcast:
+          port: 9999
+          broadcast_address: "255.255.255.255"
+          passive_ok: true
+          response_format: "tlv"
+          identity_mapping:
+            stable_keys:
+              - source: "tlv:mac"
+                key: "mac"
+              - source: "tlv:serial"
+                key: "serial"
+            display:
+              source: "tlv:hostname"
+    identity:
+      stable_keys: ["mac", "serial"]
+      display: "hostname"
+    static_ip_required: false
+
+  setup:
+    required: false
+    confidence: medium
+    notes: >
+      Nothing for this app to provision: the NAS is already on the LAN and
+      answers findhostd on UDP 9999. We identify it from the "SYNO"-magic reply,
+      draw the NAS pictogram and offer the DSM link. Confidence medium: the
+      signature and ports are well documented publicly, but this project has not
+      driven a unit and the exact solicitation query is not captured.
+    methods:
+      - type: "none"
+        verified: false
+        description: >
+          No provisioning by this app. The NAS is set up through DSM's own
+          first-run flow; afterwards it is discovered by its findhostd reply on
+          UDP 9999.
+    factory_reset:
+      applicable: false
+      confidence: high
+      effect: >
+        Not this project's concern: a DSM reset (the recessed RESET button, in
+        a mode-1 or mode-2 procedure) is done at the device and clears the NAS's
+        own settings, not anything this app stores. We only identify the NAS.
+    rejoin:
+      in_place_supported: true
+      requires_factory_reset: false
+      notes: >
+        The NAS stays discoverable by findhostd wherever it sits on the LAN;
+        identity keys on MAC/serial, not IP, so a DHCP move does not lose it.
+    credentials:
+      wifi_passphrase_protection: not_applicable
+      stored_on_device: []
+      issued_to_client: []
+      notes: >
+        Identify-only: no credential crosses to this app. The DSM admin login
+        is entered by the user at the DSM page, which we only deep-link to.
+
+  local_access:
+    status: native
+    summary: >
+      DSM is fully locally controllable (the DSM web UI and Web/DSM APIs, no
+      vendor cloud required) — deliberately scoped to identify-only here,
+      handing the user to DSM rather than managing the NAS.
+
+helpful_urls:
+  - url: "https://kb.synology.com/en-us/DSM/tutorial/What_network_ports_are_used_by_Synology_services"
+    title: "Synology — network ports used by Synology services"
+    description: "Synology Assistant / findhostd discovery on UDP 9997-9999; DSM web on 5000 (HTTP) / 5001 (HTTPS)."
+  - url: "https://medium.com/@cq674350529/a-journey-into-synology-nas-part-2-analyzing-findhostd-service-2264e4fd21e9"
+    title: "Analyzing the Synology findhostd discovery service"
+    description: "Reverse-engineering of findhostd: UDP 9999, the SYNO packet magic, and the TLV reply carrying MAC/serial/model."

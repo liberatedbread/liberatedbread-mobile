@@ -7,15 +7,18 @@ import '../models/ble_discovered_service.dart';
 import '../models/iot_device.dart';
 import '../providers/ble_provider.dart';
 import '../providers/device_description_provider.dart';
+import '../providers/device_setup_help_provider.dart';
 import '../providers/device_spec_match_provider.dart';
 import '../providers/ha_provider.dart';
 import '../providers/saved_device_provider.dart';
+import '../providers/scan_match_provider.dart';
 import '../services/ble_service.dart';
 import '../widgets/device_control_panel.dart';
 import '../widgets/radar_scanner.dart';
 import '../core/error_text.dart';
 import '../core/log.dart';
 import 'find_device_screen.dart';
+import 'setup_instructions_screen.dart';
 
 enum _ScreenState { connecting, discovering, ready, error, disconnected }
 
@@ -180,6 +183,22 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
   Future<void> _tryToFind() {
     _openFindWhenReady = true;
     return _connect();
+  }
+
+  /// Open the matched spec's pairing/troubleshooting instructions. Read-only
+  /// prose, so it is safe from an error state with no live link — for many
+  /// devices its rejoin note ("a phone is still holding the one connection") is
+  /// the actual answer to why the connect just failed.
+  void _openSetupHelp(DeviceSetupHelp help) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SetupInstructionsScreen(
+          deviceName: help.deviceName,
+          instructions: help.instructions,
+        ),
+      ),
+    );
   }
 
   /// Tear down the connection this screen owns: cancel the connection-state
@@ -360,6 +379,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
       // connection usually MEANS out of range or powered off, which makes
       // "where is it?" the natural next question, not a follow-up one.
       case _ScreenState.error:
+        final help = ref
+            .watch(deviceSetupHelpProvider(ScanIdentity.of(widget.device)))
+            .valueOrNull;
         return _StatusState(
           icon: Icons.error_outline,
           severity: _Severity.error,
@@ -370,9 +392,15 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           secondaryActionLabel: 'Try to find device',
           secondaryActionIcon: Icons.radar,
           onSecondaryAction: _tryToFind,
+          tertiaryActionLabel: help == null ? null : 'How to connect',
+          tertiaryActionIcon: Icons.menu_book_outlined,
+          onTertiaryAction: help == null ? null : () => _openSetupHelp(help),
         );
 
       case _ScreenState.disconnected:
+        final help = ref
+            .watch(deviceSetupHelpProvider(ScanIdentity.of(widget.device)))
+            .valueOrNull;
         return _StatusState(
           icon: Icons.bluetooth_disabled,
           severity: _Severity.warning,
@@ -384,6 +412,9 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
           secondaryActionLabel: 'Try to find device',
           secondaryActionIcon: Icons.radar,
           onSecondaryAction: _tryToFind,
+          tertiaryActionLabel: help == null ? null : 'How to connect',
+          tertiaryActionIcon: Icons.menu_book_outlined,
+          onTertiaryAction: help == null ? null : () => _openSetupHelp(help),
         );
 
       case _ScreenState.ready:
@@ -401,9 +432,17 @@ class _DeviceScreenState extends ConsumerState<DeviceScreen> {
               serviceCount: _services.length,
               onFind: _openFind,
               onDisconnect: () async {
+                // A deliberate disconnect means "done with this device", so
+                // return to the listing it was opened from. The reconnect
+                // state stays reserved for links *lost* (_watchConnection):
+                // parking a chosen disconnect there read as an error. The
+                // navigator is captured before the await so no BuildContext
+                // crosses the async gap, and the mounted guard keeps a
+                // pop-during-teardown from popping the listing itself.
+                final navigator = Navigator.of(context);
                 await _cleanupConnection();
                 if (!mounted) return;
-                setState(() => _state = _ScreenState.disconnected);
+                navigator.pop();
               },
             ),
             Expanded(
@@ -694,6 +733,13 @@ class _StatusState extends StatelessWidget {
   final IconData? secondaryActionIcon;
   final VoidCallback? onSecondaryAction;
 
+  /// Optional third, quietest action — a text button under the outlined one.
+  /// The dead-end states offer "How to connect" here (the matched spec's setup
+  /// instructions) without competing with Retry or Find.
+  final String? tertiaryActionLabel;
+  final IconData? tertiaryActionIcon;
+  final VoidCallback? onTertiaryAction;
+
   const _StatusState({
     required this.icon,
     required this.severity,
@@ -704,6 +750,9 @@ class _StatusState extends StatelessWidget {
     this.secondaryActionLabel,
     this.secondaryActionIcon,
     this.onSecondaryAction,
+    this.tertiaryActionLabel,
+    this.tertiaryActionIcon,
+    this.onTertiaryAction,
   });
 
   @override
@@ -763,6 +812,19 @@ class _StatusState extends StatelessWidget {
                 label: Text(secondaryActionLabel!),
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size(0, 48),
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                ),
+              ),
+            ],
+            if (tertiaryActionLabel != null) ...[
+              const SizedBox(height: 4),
+              TextButton.icon(
+                onPressed: onTertiaryAction,
+                icon: Icon(tertiaryActionIcon ?? Icons.menu_book_outlined,
+                    size: 18),
+                label: Text(tertiaryActionLabel!),
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, 44),
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                 ),
               ),

@@ -137,19 +137,34 @@ class AdoptService {
   Future<AdoptSession?> connect({
     required AdoptFamily family,
     required String specYaml,
+    String? gatewayIp,
+    List<int>? ports,
   }) async {
     switch (family) {
       case AdoptFamily.wemo:
-        return _connectWemo(specYaml);
+        return _connectWemo(specYaml, gatewayIp: gatewayIp, ports: ports);
       case AdoptFamily.lifx:
         return _connectLifx(specYaml);
     }
   }
 
-  Future<AdoptSession?> _connectWemo(String specYaml) async {
-    for (final port in wemoPorts) {
+  Future<AdoptSession?> _connectWemo(
+    String specYaml, {
+    String? gatewayIp,
+    List<int>? ports,
+  }) async {
+    // Where the device answers, and on which ports, come from the spec — the
+    // profile the catalogue extracted — not from constants here. The setup
+    // port moves across firmware, so the spec carries the whole probe list
+    // (nine ports, not the five below); the constants are only a floor for a
+    // spec that documents neither, so an older pack still limps rather than
+    // dead-ends.
+    final gateway =
+        (gatewayIp != null && gatewayIp.isNotEmpty) ? gatewayIp : wemoGateway;
+    final probePorts = (ports != null && ports.isNotEmpty) ? ports : wemoPorts;
+    for (final port in probePorts) {
       try {
-        final description = await soap.fetchDescription(wemoGateway, port);
+        final description = await soap.fetchDescription(gateway, port);
         // The WiFiSetup service is only listed while the device is in setup
         // mode; its presence proves we are talking to a Wemo AP and not, say, a
         // captive portal that answered /setup.xml with an HTML page.
@@ -163,7 +178,7 @@ class AdoptService {
           );
         }
       } catch (e) {
-        Log.net.debug('wemo setup probe on $wemoGateway:$port failed: $e');
+        Log.net.debug('wemo setup probe on $gateway:$port failed: $e');
       }
     }
     return null;
@@ -178,6 +193,10 @@ class AdoptService {
         Uint8List.fromList(probe),
         sequence: seq,
         window: const Duration(seconds: 3),
+        // The setup AP holds one device; some firmware does not echo the
+        // sequence, and dropping its reply would strand it. The StateService
+        // decode below is the real check.
+        matchSequence: false,
       );
       // Any datagram that decodes as a StateService proves a LIFX device is on
       // the setup network.
@@ -233,6 +252,9 @@ class AdoptService {
       lifxSetupBroadcast,
       Uint8List.fromList(request),
       sequence: seq,
+      // As in discovery: accept the one setup-AP device's answer even if its
+      // firmware does not echo the sequence; the AccessPoint decode filters.
+      matchSequence: false,
     );
     final found = <String, SetupNetwork>{};
     for (final reply in replies) {
@@ -245,7 +267,9 @@ class AdoptService {
           () => SetupNetwork(
             ssid: ap.ssid,
             joinable: true,
-            isOpen: ap.security == 1,
+            // Whether it is an open network is the codec's call — it owns the
+            // LIFX security vocabulary — not an == against a byte here.
+            isOpen: ap.isOpen,
             securityByte: ap.security,
           ),
         );
@@ -309,6 +333,10 @@ class AdoptService {
         encrypt: network.encrypt ?? '',
         channel: network.channel ?? '',
         passphrase: passphrase,
+        // The setup.xml's own rtos/iot markers pick the password layout to try
+        // first, so an rtos=1 unit does not burn a full poll on the wrong one.
+        rtos: session.description?.rtos,
+        iot: session.description?.iot,
       );
     } catch (e) {
       throw AdoptException(friendlyErrorText(e,
@@ -319,6 +347,7 @@ class AdoptService {
 
     // The device only tells us a variant was wrong by never connecting, so each
     // is tried in turn until one joins.
+    var everDelivered = false;
     for (final request in requests) {
       final outcome = await _tryWemoRequest(session, request);
       if (outcome.status == AdoptStatus.joined) {
@@ -330,6 +359,19 @@ class AdoptService {
         // 8-character-minimum passphrase.
         return outcome;
       }
+      // sentUnconfirmed means this variant's credentials reached the device;
+      // unreachable means not even the first send got through. Remember the
+      // difference: once anything was delivered the honest summary is "sent,
+      // unconfirmed", never "nothing happened".
+      if (outcome.status == AdoptStatus.sentUnconfirmed) everDelivered = true;
+    }
+    if (!everDelivered) {
+      return const AdoptOutcome(
+        AdoptStatus.unreachable,
+        'The device stopped answering on its setup network before the settings '
+        'went through. Make sure you are still joined to its Wi-Fi, then try '
+        'again.',
+      );
     }
     return const AdoptOutcome(
       AdoptStatus.sentUnconfirmed,
@@ -344,18 +386,44 @@ class AdoptService {
     SoapRequestDto request,
   ) async {
     // Send twice, ~100ms apart: pywemo reports a markedly higher success rate
-    // when it is repeated, and the spec carries the rule forward.
-    await _sendWemoRequest(session, request);
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    await _sendWemoRequest(session, request);
+    // when it is repeated, and the spec carries the rule forward. Once the
+    // FIRST send is through, the device has the credentials — the setup AP is
+    // internet-less and single-radio, so it routinely drops the moment the
+    // device starts hopping to join, and a failure past that point is "sent,
+    // now joining", NOT "sending failed". So the follow-up send and every poll
+    // are guarded: a transient error there leaves the outcome unconfirmed, it
+    // does not throw and abort the whole variant sweep.
+    try {
+      await _sendWemoRequest(session, request);
+    } catch (e) {
+      Log.net.debug('wemo connect first send failed: $e');
+      return const AdoptOutcome(AdoptStatus.unreachable, '');
+    }
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await _sendWemoRequest(session, request);
+    } catch (e) {
+      // The credentials already landed on the first send; the repeat is only
+      // insurance. Do not let its failure mask that.
+      Log.net.debug('wemo connect repeat send failed (non-fatal): $e');
+    }
 
     // Poll GetNetworkStatus up to the spec's 20-second floor; Rust names the
     // status code.
     final deadline = DateTime.now().add(const Duration(seconds: 20));
     while (DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(seconds: 1));
-      final code = (await _sendWemo(session,
-          stateCommand: 'GetNetworkStatus'))['NetworkStatus'];
+      final String? code;
+      try {
+        code = (await _sendWemo(session,
+            stateCommand: 'GetNetworkStatus'))['NetworkStatus'];
+      } catch (e) {
+        // A dropped setup AP is the expected shape of a successful join; keep
+        // polling in case it comes back, and fall through to unconfirmed if
+        // it does not.
+        Log.net.debug('wemo status poll failed (transient): $e');
+        continue;
+      }
       if (code == null) continue;
       switch (await codec.wemoNetworkStatus(code: code)) {
         case WemoJoinStatus.connected:
@@ -373,6 +441,7 @@ class AdoptService {
           break; // Keep polling.
       }
     }
+    // Delivered at least once, never confirmed.
     return const AdoptOutcome(AdoptStatus.sentUnconfirmed, '');
   }
 

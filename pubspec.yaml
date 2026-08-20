@@ -64,9 +64,11 @@ flutter:
   assets:
     # Everything ships straight out of the vendored protocol-specs subtree.
     # There is no copy under assets/: the subtree is the single source of truth,
-    # so there is nothing to keep in step and nothing to go stale. The specs are
-    # read through the subtree's own index.json, unmodified.
-    - vendor/protocol-specs/device-specs/index.json
+    # so there is nothing to keep in step and nothing to go stale. Listed as a
+    # directory (not just index.json) so a locally-rebuilt, gitignored
+    # index-temp.json rides along when present — see device_spec_provider's
+    # specManifestTempPath. (README.md/schema.json ship too; both are tiny.)
+    - vendor/protocol-specs/device-specs/
     - vendor/protocol-specs/device-specs/devices/
     - vendor/protocol-specs/device-specs/examples/
     # Registries listed file by file rather than as a directory so SOURCES.md,
